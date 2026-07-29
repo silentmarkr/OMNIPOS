@@ -5021,7 +5021,7 @@ async function submitFinalPaymentTransaction() {
             shoppingCart = [];
             renderCartRows();
             closeModal('payment-modal');
-            renderInvoiceReceipt(output.currentTransaction || transactionPayload);
+            await renderInvoiceReceipt(output.currentTransaction || transactionPayload);
 
             localTransactionsList.unshift(output.currentTransaction || transactionPayload);
             localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
@@ -5057,7 +5057,7 @@ async function submitFinalPaymentTransaction() {
         shoppingCart = [];
         renderCartRows();
         closeModal('payment-modal');
-        renderInvoiceReceipt(transactionPayload);
+        await renderInvoiceReceipt(transactionPayload);
 
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
 
@@ -5066,6 +5066,11 @@ async function submitFinalPaymentTransaction() {
 }
 
 let receiptSettingsCache = null;
+// FIX: hawak dito ang promise ng background fetch ng receipt settings
+// (tingnan showMainSystemInterface at renderInvoiceReceipt) para may
+// paraan ang unang resibo ng session na "hintayin" ito kung sakaling
+// hindi pa ito tapos mag-load bago pa man matapos ang unang benta.
+let receiptSettingsPromise = null;
 
 async function fetchReceiptSettings() {
     try {
@@ -5109,39 +5114,20 @@ function applyReceiptBranding() {
     setTextIfExists('rp-store-contact', s.storeContact);
     setOptionalLine('rp-header-text', s.headerText);
     setTextIfExists('rp-footer-msg', s.footerText);
-
-    applyPrintPageSize(s.paperSize);
-}
-
-let currentReceiptPaperSize ='80mm';
-
-function applyPrintPageSize(paperSize) {
-    // BUGFIX: dati, direktang isinusulat dito ang `@page` rule papunta sa
-    // <head> (dynamic-print-style tag) sa sandaling ma-load ang Receipt
-    // Customization settings — ibig sabihin, PERSISTENT ito sa buong
-    // session sa sandaling ma-render ang resibo/ma-fetch ang settings.
-    // Dahil ang `@page` ay GLOBAL na page-box rule (walang paraan para
-    // i-scope ito sa isang partikular na modal/element lang), ang bandang
-    // huli, ito rin ang nagiging @page ng ANUMANG window.print() na
-    // mangyari pagkatapos — kasama na ang Barcode Generator print, na may
-    // sarili at magkaibang @page rule (size:auto; margin:8mm;) para sa
-    // A4/Letter/atbp. Kaya kapag nag-print ng barcode sheet pagkatapos
-    // magbukas/mag-render ng resibo, naka-force ito sa 58mm/80mm na sukat
-    // ng resibo sa halip na sundin ang aktwal na paper size ng printer —
-    // sira ang layout/columns ng barcode sheet.
-    //
-    // AYOS: i-cache lang dito ang setting; ilalapat lang natin ito
-    // (via applyActivePrintPageSize) sa mismong sandali ng window.print(),
-    // at doon din natin titignan MUNA kung ang RESIBO nga ang kasalukuyang
-    // pini-print (hindi barcode sheet) bago i-activate ang dynamic @page
-    // na ito. Kapag hindi resibo ang pini-print, ire-remove/ic-clear ang
-    // dynamic style para bumalik sa sariling @page ng ibang print page
-    // (barcode generator, atbp.) — walang natitirang epekto ang resibo
-    // paper size sa ibang print job.
-    currentReceiptPaperSize = (paperSize ==='58mm') ?'58mm' :'80mm';
 }
 
 function applyActivePrintPageSize() {
+    // 🖨️ AYOS (FINAL): dating may DALAWANG static `@page` rule sa
+    // style.css na nagbabanggaan (resibo: margin:0, barcode sheet:
+    // margin:8mm) — dahil GLOBAL ang `@page`, ang huling nakasulat sa
+    // CSS lang ang laging sumusunod, kaya lagi lang 8mm ang aktwal na
+    // nagagamit kahit resibo pa ang pini-print, at umaasa lang dati sa
+    // ganitong function para ma-patch ito sa huling minuto. Tinanggal
+    // na ang duplicate na static rule sa style.css — ISA na lang ngayon
+    // ang static/global default doon (`size:auto; margin:0;`). Dito
+    // naman, dynamic na rin ang pag-a-apply ng 8mm margin ng Barcode
+    // Generator (kaparehong paraan ng resibo), kaya walang static rule
+    // na maaaring mag-shadow sa isa't isa.
     let styleTag = document.getElementById('dynamic-print-style');
     if (!styleTag) {
         styleTag = document.createElement('style');
@@ -5152,13 +5138,45 @@ function applyActivePrintPageSize() {
     const receiptModal = document.getElementById('receipt-modal');
     const isPrintingReceipt = receiptModal && receiptModal.style.display !=='none';
 
+    const barcodeModal = document.getElementById('barcode-preview-modal');
+    const isPrintingBarcode = barcodeModal && barcodeModal.style.display !=='none';
+
+    // 🖨️ AYOS (bagong bug — "magkapatong-patong" na literal na overlap sa
+    // print output): dating UNCONDITIONAL sa style.css ang pag-force ng
+    // visibility/display ng PAREHONG #receipt-modal AT #barcode-preview-
+    // modal sa loob ng iisang @media print block — walang check kung alin
+    // sa dalawa ang talagang bukas. Ibig sabihin, tuwing may window.print()
+    // na tatawagin (resibo man o barcode sheet), PAREHONG lumalabas ang
+    // dalawa (kasama ang laman ng "isang" natitira/luma sa DOM), kaya
+    // nagkakapatong sila sa parehong pisikal na papel/PDF.
+    //
+    // AYOS: dito na lang natin itinatakda ang eksaktong target ng print
+    // bilang class sa <body> (print-target-receipt / print-target-barcode)
+    // batay sa parehong pagsusuri sa itaas — ang @media print sa style.css
+    // ay naka-scope na ngayon sa mga class na ito, kaya isa lang talaga sa
+    // dalawa ang lalabas kahit ano pa ang laman ng isa.
+    document.body.classList.toggle('print-target-receipt', !!isPrintingReceipt);
+    document.body.classList.toggle('print-target-barcode', !!isPrintingBarcode);
+
     if (isPrintingReceipt) {
-        styleTag.innerHTML = `@page { size: ${currentReceiptPaperSize} auto; margin: 0; }`;
+        // `size: auto` para ang AKTWAL na papel na naka-load/napili sa
+        // printer (thermal 58mm/80mm roll, A4, Letter, atbp.) mismo ang
+        // susundin, sa halip na ipilit ang isang hard-coded na mm
+        // width. Walang margin dahil ang #printable-receipt-area mismo
+        // na (sa @media print sa style.css) ang naglalagay ng sarili
+        // nitong 10mm padding.
+        styleTag.innerHTML = `@page { size: auto; margin: 0; }`;
+    } else if (isPrintingBarcode) {
+        // Ang Barcode Generator sheet ang kailangan ng aktwal na
+        // physical margin (8mm) sa paligid ng buong grid ng barcode
+        // cards, kaya dito na lang ito dynamic ring inilalapat, sa
+        // halip na sa isang static/permanenteng `@page` rule.
+        styleTag.innerHTML = `@page { size: auto; margin: 8mm; }`;
     } else {
-        // Walang laman = wala nang override, kaya ang static `@page` rule
-        // na dedikado mismo sa print page na iyon sa style.css (hal. ang
-        // `@page { size: auto; margin: 8mm; }` ng Barcode Generator) ang
-        // susunding sukat, hindi ang paper size ng resibo.
+        // Wala sa dalawa ang kasalukuyang bukas (hal. print mula sa
+        // ibang bahagi ng app) — i-clear ang override at bumalik na
+        // lang sa iisang static default sa style.css (`size:auto;
+        // margin:0;`).
         styleTag.innerHTML ='';
     }
 }
@@ -5167,7 +5185,12 @@ window.addEventListener('beforeprint', applyActivePrintPageSize);
 window.addEventListener('afterprint', () => {
     const styleTag = document.getElementById('dynamic-print-style');
     if (styleTag) styleTag.innerHTML ='';
+    // I-clear din ang parehong print-target class pagkatapos ng bawat
+    // print job, para hindi ito "makadikit"/manatiling naka-scope sa
+    // susunod na hindi-related na window.print() na tawag.
+    document.body.classList.remove('print-target-receipt','print-target-barcode');
 });
+
 
 async function loadReceiptCustomizationPanel() {
     await fetchReceiptSettings();
@@ -5752,7 +5775,16 @@ async function emailCurrentReceipt() {
     }
 }
 
-function renderInvoiceReceipt(tx, isHistory = false) {
+async function renderInvoiceReceipt(tx, isHistory = false) {
+    // FIX: kapag ang unang benta ng session ay natapos BAGO pa makabalik
+    // ang background fetchReceiptSettings() (tingnan showMainSystemInterface),
+    // blangko/walang laman ang store title/address/contact/header/footer
+    // at hindi rin naaapply ang tamang paper size, dahil `applyReceiptBranding()`
+    // ay agad lumalabas (`if (!s) return;`) kapag null pa ang cache. Kaya
+    // dito, hintayin muna ang nakabinbing fetch (kung meron) bago mag-render.
+    if (!receiptSettingsCache && receiptSettingsPromise) {
+        await receiptSettingsPromise;
+    }
     applyReceiptBranding();
     currentReceiptTransaction = tx;
 
@@ -9425,7 +9457,10 @@ async function showMainSystemInterface() {
 
     loadCartFromDatabase();
 
-    fetchReceiptSettings();
+    // FIX: hindi na basta fire-and-forget — i-store ang promise para
+    // ma-await ito ng renderInvoiceReceipt() kung sakaling mauna ang
+    // unang benta bago pa matapos ang background fetch na ito.
+    receiptSettingsPromise = fetchReceiptSettings();
 
     // PWA SHORTCUT SUPPORT: kapag binuksan ang app mula sa "POS Terminal" o
     // "Products" na shortcut (tingnan manifest.json > "shortcuts"), dumarating

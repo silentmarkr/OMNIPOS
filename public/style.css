@@ -1594,7 +1594,7 @@ body.dark-mode .header-page-title {
     color: var(--dm-text-primary);
 }
 
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     .header-page-title.active-title {
         display: inline-block;
     }
@@ -1764,7 +1764,7 @@ body.dark-mode .header-page-title {
     margin-top: 20px;
 }
 
-@media (max-width: 900px) {
+@media screen and (max-width: 900px) {
     .analytics-two-col { grid-template-columns: 1fr; }
 }
 
@@ -2268,7 +2268,7 @@ body.dark-mode .rank-row .rank-name {
     display: none;
 }
 
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     #recovery-card-toggle-chevron {
         display: inline-block;
     }
@@ -2282,7 +2282,7 @@ body.dark-mode .rank-row .rank-name {
    na lang ang h3 heading, kaya hindi na masyadong "kinakain" ng malaking
    form na ito ang itaas na bahagi ng Transaction page. Sa desktop/PC,
    nananatiling bukas/visible ito by default gaya ng dati. */
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     #recovery-card-body {
         display: none;
     }
@@ -2429,7 +2429,7 @@ body.dark-mode .rank-row .rank-name {
 }
 
 /* ===== MOBILE-FIRST FINE TUNING ===== */
-@media (max-width: 600px) {
+@media screen and (max-width: 600px) {
     .recovery-inner-card { padding: 14px 16px; border-radius: 10px; }
     .recovery-inner-card h3 { font-size: 0.95rem; margin-bottom: 0; }
     .recovery-desc { font-size: 0.8rem; margin-bottom: 12px; }
@@ -2448,7 +2448,7 @@ body.dark-mode .rank-row .rank-name {
     .tx-method-select, .btn-scan-qr { width: 100%; }
 }
 
-@media (min-width: 601px) and (max-width: 1024px) {
+@media screen and (min-width: 601px) and (max-width: 1024px) {
     .recovery-inner-card { padding: 16px 18px; }
     .terminal-top-controls { padding: 10px 12px; gap: 10px; }
 }
@@ -3185,7 +3185,7 @@ body.dark-mode .btn-action-outline:hover {
     color: #ffffff;
 }
 
-@media (max-width: 640px) {
+@media screen and (max-width: 640px) {
     .header-action-group {
         width: 100%;
     }
@@ -3243,7 +3243,7 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
     margin-top: 46px;
 }
 
-@media (max-width: 480px) {
+@media screen and (max-width: 480px) {
     .table-container { max-height: 45vh; min-height: 150px; margin-bottom: 10px; }
     .data-table th, .data-table td { padding: 10px 12px; font-size: 0.82rem; }
     .table-container::-webkit-scrollbar-track,
@@ -3252,11 +3252,11 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
     }
 }
 
-@media (min-width: 481px) and (max-width: 1024px) {
+@media screen and (min-width: 481px) and (max-width: 1024px) {
     .table-container { max-height: 55vh; margin-bottom: 10px; }
 }
 
-@media (min-width: 1025px) {
+@media screen and (min-width: 1025px) {
     .table-container { max-height: 70vh; }
 }
 
@@ -3393,17 +3393,17 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td:first
     max-width: 130px;
 }
 
-@media (max-width: 480px) {
+@media screen and (max-width: 480px) {
     .permission-matrix-scroll { max-height: 45vh; }
     .permission-matrix-scroll #permission-matrix-table .matrix-col-label { width: 190px; min-width: 190px; max-width: 190px; }
     .permission-matrix-scroll #permission-matrix-table .matrix-col-role { width: 105px; min-width: 105px; max-width: 105px; }
 }
 
-@media (min-width: 481px) and (max-width: 1024px) {
+@media screen and (min-width: 481px) and (max-width: 1024px) {
     .permission-matrix-scroll { max-height: 55vh; }
 }
 
-@media (min-width: 1025px) {
+@media screen and (min-width: 1025px) {
     .permission-matrix-scroll { max-height: 70vh; }
 }
 
@@ -3421,7 +3421,7 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td:first
    Naka-scope ito sa max-width:1024px lang (mobile+tablet) para hindi
    maapektuhan ang existing desktop layout/behavior.
    ============================================================ */
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     /* --- 1) Frozen first column para sa pangkaraniwang .data-table ---
        Hindi kasama ang permission-matrix-table dahil hiwalay na table
        structure/breakpoints ang gamit nito (item #2 sa ibaba). */
@@ -4306,7 +4306,7 @@ body.dark-mode .avatar-photo-box {
     flex-shrink: 0;
 }
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
     /* Sa mobile: ipakita yung icon-lang na Print button sa header
        (katabi ng X), at itago yung dating footer row (Close + text
        Print button) — para hindi na kailangang mag-scroll pababa para
@@ -4348,7 +4348,7 @@ body.dark-mode .avatar-photo-box {
     border-radius: 4px;
 }
 /* SYSTEM RESPONSIVE DESKTOP VIEW VS MOBILE TERMINAL SCREEN MEDIA QUERIES CONFIGURATION */
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     .sidebar {
         transform: translateX(-100%);
     }
@@ -4426,7 +4426,7 @@ body.dark-mode .avatar-photo-box {
            tablet, at desktop. */
         max-height: 55vh;
     }
-    @media (max-width: 480px) {
+    @media screen and (max-width: 480px) {
         .app-view:not(.terminal-theme) .table-container {
             max-height: 45vh;
         }
@@ -4442,7 +4442,7 @@ body.dark-mode .avatar-photo-box {
     display: none;
 }
 
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     .bottom-nav {
         display: flex;
         position: fixed;
@@ -4505,7 +4505,7 @@ body.dark-mode .bottom-nav-item:active {
     background: var(--dm-accent-soft);
 }
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
     .tabs-container::-webkit-scrollbar {
         height: 4px;
     }
@@ -4523,7 +4523,7 @@ body.dark-mode .bottom-nav-item:active {
     }
 }
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
     .auth-container {
         flex-direction: column;
     }
@@ -4667,42 +4667,91 @@ body.dark-mode .bottom-nav-item:active {
     }
 }
 
+/* 🛠️ AYOS (root cause ng "magkapatong-patong" na print bug): ang halos
+   lahat ng `@media (max-width: ...)`/`@media (min-width: ...)` na mobile/
+   tablet breakpoints sa buong file na ito (terminal layout, auth form,
+   sidebar, table container, atbp.) ay WALANG `screen` qualifier — ibig
+   sabihin, by default na "all media" ang saklaw nila, KASAMA na ang
+   PRINT. Dahil ang mga breakpoint na ito ay batay sa PIXEL width, at ang
+   isang resibo sa thermal paper (58mm/80mm) ay MAS MAKITID pa sa
+   pinakamaliit na phone breakpoint (480px), NAG-A-ACTIVATE silang LAHAT
+   nang sabay-sabay sa oras ng pag-print — nagkakapatong-patong sila sa
+   dedikadong `@media print` block sa ibaba, kaya nagiging hindi
+   predictable/sira ang spacing, hidden elements, at sizing ng nakalimbag
+   na resibo depende sa kung anong mobile-width rules ang "nadaanan" ng
+   printer/paper width na iyon. AYOS: dinagdagan ng `screen and` ang LAHAT
+   ng ganitong media query sa buong stylesheet, para EKSKLUSIBO na lang
+   silang mag-apply sa on-screen na view, at ang `@media print` na lang
+   sa ibaba ang tanging may kontrol sa aktwal na print output. */
+
 /* Native Browser Print Override configuration pipeline filters */
-/* 🖨️ Default na physical page size para sa print/PDF (thermal receipt roll).
-   80mm ang default (karaniwang laki ng POS receipt printer sa mga
-   convenience store). Ito ay dynamic na ina-override ng JS
-   (applyPrintPageSize sa app.js) batay sa na-save na Paper Size setting
-   sa Receipt Customization — ito lang ang static fallback bago ma-load
-   ang settings. */
+/* 🖨️ AYOS (FINAL): dating may DALAWANG magkaibang `@page` rule sa buong
+   file na ito — itong isa dito (margin:0, para sa resibo) at isa pang
+   bukod dito sa ibaba (margin:8mm, para sa Barcode Generator sheet).
+   Dahil ang `@page` ay GLOBAL na page-box rule (walang paraan para
+   i-scope ito sa isang partikular na modal/element lang), palaging ang
+   HULING `@page` na nakasulat sa CSS ang siyang mananalo sa cascade
+   PARA SA LAHAT NG PRINT JOB — kahit anong modal ang bukas. Dahil doon,
+   itong margin:0 dito ay LAGING na-o-override/dead code, kaya lagi
+   lang 8mm ang aktwal na margin na ginagamit — kahit resibo (58mm/80mm
+   thermal paper) ang pini-print, saka umaasa na lang ang lahat sa JS
+   `beforeprint` listener para ma-patch ito sa huling minuto. Ito ang
+   pinagmulan ng "magkapatong-patong" na print bug ng resibo.
+
+   AYOS: tinanggal na ang duplicate na `@page` (margin:8mm) sa ibaba —
+   ITO NA LANG ang tanging static/global `@page` rule sa buong file
+   (`size: auto; margin: 0;`), kaya WALANG cascade conflict pa. Ang
+   margin na 8mm na kailangan ng Barcode Generator ay dynamic na ring
+   ina-apply na ng JS (applyActivePrintPageSize sa app.js) sa eksaktong
+   sandali ng window.print(), kaparehong paraan na ginagamit na dati
+   para lang sa resibo — pareho na ngayong dynamic ang dalawa, kaya
+   walang static na rule na maaaring mag-shadow sa isa't isa. */
 @page {
-    size: 80mm auto;
+    size: auto;
     margin: 0;
 }
 
 @media print {
     body * { visibility: hidden; background: white !important; color: black !important; }
     .no-print, .no-print * { display: none !important; }
-    
-    /* When printing invoices */
-    #receipt-modal, #receipt-modal * { visibility: visible; }
 
-    /* 🖨️ AYOS (bagong approach): sa halip na i-override nang paisa-isa
-       ang position/display/overflow/max-height ng TATLONG magkakapugad
-       na wrapper (#receipt-modal > .modal-card > .modal-body) — na
-       paulit-ulit na may bagong nalalabas na quirk sa Android/Chrome
-       print engine sa bawat sukat ng resibo (blangkong page, nawawalang
-       header, natatapos bigla sa gitna) — ginagawa na lang silang
-       `display: contents` sa print. Tinatanggal nito ang BUONG box
-       model ng tatlong wrapper na ito (wala nang flex, position,
-       max-height, sariling padding — lahat wala nang saysay dahil
-       wala na silang sariling box), PERO nananatiling naka-render ang
-       mga ANAK nila (#printable-receipt-area at lahat ng laman nito)
-       nang DIREKTA, na parang mismong mga anak na ng <body> — kaya
-       WALANG natitirang box sa pagitan na posibleng makakasagabal sa
-       normal na pagination ng Chrome, gaano man karaming pages/items
-       ang kailangan. Ang 10mm na margin na dati'y nasa .modal-body na
-       lang, inilipat na ngayon sa #printable-receipt-area mismo (ang
-       aktwal na papel/resibo). Sadyang HINDI na ginamit ang
+    /* 🖨️ AYOS (bagong "magkapatong-patong" na overlap bug): dating
+       UNCONDITIONAL ang pag-force ng visibility/display ng PAREHONG
+       #receipt-modal AT #barcode-preview-modal sa loob nitong @media
+       print block — walang check kung alin sa dalawa ang talagang
+       bukas/pini-print. Ibig sabihin, tuwing may window.print() na
+       tatawagin (resibo man o barcode sheet), PAREHO silang lumalabas
+       (kasama ang stale/lumang laman ng isa), kaya nagtutumpukan sila
+       sa parehong pisikal na papel/PDF.
+
+       AYOS: naka-scope na ngayon ang bawat pangkat ng rule sa isang
+       body class (print-target-receipt / print-target-barcode) na
+       itinatakda na ng JS (applyActivePrintPageSize sa app.js, sa
+       window.addEventListener('beforeprint', ...)) base mismo sa kung
+       aling modal ang naka-display sa oras na iyon — kaya isa lang
+       talaga sa dalawa ang lalabas, anuman ang laman ng isa. */
+
+    /* When printing invoices */
+    body.print-target-receipt #receipt-modal,
+    body.print-target-receipt #receipt-modal * { visibility: visible; }
+
+    /* 🖨️ AYOS (Round 1): `display: contents` sa .modal-card at .modal-body
+       (mga PANLOOB na wrapper lang — tingnan ang "Round 2" fix sa ibaba
+       para sa PINAKALUAR na #receipt-modal mismo) para tanggalin ang
+       kanilang box model nang tuluyan. Ito ang naayos na dating bug ng
+       naputol/nawawalang item sa pagitan ng mga pages ng resibo.
+
+       MAHALAGANG PAALALA (huwag na ulitin): sinubukan na ring gayahin
+       dito ang pattern ng Barcode Generator sa ibaba (position/display
+       overrides na PAISA-ISA sa bawat antas, `display:block` sa halip
+       na `contents`, kasama ang box-decoration-break:clone) — pero
+       agad itong nagdulot ng blangkong unang page/nawawalang store
+       name/address/contact/txn no. Sa barcode sheet, kaya gumagana ang
+       block+clone approach dahil SIMPLENG paulit-ulit na grid ng cards
+       lang ang laman nito. Ang resibo naman ay may magkakaibang seksyon
+       (header, items, totals, footer) sa loob ng magkakapugad na flex
+       containers — kaya `display:contents` ang kailangan PARA SA
+       .modal-card/.modal-body. Sadyang HINDI rin ginamit ang
        box-decoration-break:clone dito (kahit gamit ito noon sa
        .modal-body) — sa kumbinasyon ng display:contents sa mga ninuno,
        ito pala ang sanhi ng isang duplicate/floating na barcode na
@@ -4713,15 +4762,52 @@ body.dark-mode .bottom-nav-item:active {
     #main-view, #auth-view, #sidebar-overlay {
         display: none !important;
     }
-    #receipt-modal,
-    #receipt-modal .modal-card,
-    #receipt-modal .modal-body {
+    /* 🖨️ AYOS (Round 2 — hulyo 2026): ang blangkong unang page(s) na
+       nangyayari sa AKTWAL na print/PDF output (hindi lang sa on-screen
+       Print Preview modal) — mas malinaw ito sa maliliit na paper size
+       (hal. Index Card 3x5, mas maraming blangkong pages bago lumabas
+       ang laman) kaysa malalaking paper size (Letter) — ay hindi pala
+       nalutas nang tuluyan ng `display:contents` kapag inilagay din ito
+       sa PINAKALUAR na #receipt-modal mismo (dating Round 1 fix). Root
+       cause: ang .modal-overlay base class ng #receipt-modal ay
+       `position:fixed; inset:0; display:flex; align-items:center;
+       justify-content:center;` — buong-VIEWPORT na laki. Kahit
+       `display:contents` (walang box) ang ilagay dito, may
+       print-pagination bug ang Chromium/Android WebView print pipeline
+       kung saan NANATILI itong "phantom" na buong-viewport na espasyo sa
+       simula ng print flow bago pa man ma-layout ang mga inilipat na
+       children — kaya laging may nauunang blangkong page(s) na katumbas
+       ng laki ng ORIHINAL na viewport (kaya CONSTANT ang blangkong
+       espasyong ito kahit anong paper size — mas maraming maliliit na
+       page ang kailangan para "matakpan" ito sa Index Card kaysa sa
+       Letter, kaya doon mas mabilis lumabas ang laman).
+
+       AYOS: ibalik ang #receipt-modal (PINAKALUAR na wrapper lang) sa
+       plain/static/block na box — EKSAKTONG gaya ng ginawa na at
+       PROVEN gumagana sa #barcode-preview-modal sa ibaba (walang
+       kaparehong "blangkong page" na naiulat doon). Nananatiling
+       `display:contents` pa rin ang .modal-card at .modal-body (dalawang
+       panloob na wrapper) — ito ang bahaging PROVEN na gumagana nang
+       tama (walang duplicate/missing item/header issue), kaya hindi na
+       ito ginagalaw. */
+    body.print-target-receipt #receipt-modal {
+        position: static !important;
+        display: block !important;
+        inset: auto !important;
+        width: auto !important;
+        height: auto !important;
+        background: none !important;
+        padding: 0 !important;
+    }
+    body.print-target-receipt #receipt-modal .modal-card,
+    body.print-target-receipt #receipt-modal .modal-body {
         display: contents !important;
     }
-    #printable-receipt-area {
+    body.print-target-receipt #printable-receipt-area {
         padding: 10mm !important;
     }
-    #printable-receipt-area, #printable-receipt-area * { visibility: visible; }
+    body.print-target-receipt #printable-receipt-area,
+    body.print-target-receipt #printable-receipt-area * { visibility: visible; }
 
     /* 🖨️ MAHALAGA: Ang .receipt-items-scroll-wrapper ay may max-height +
        overflow-y:auto sa loob ng app (para naka-scroll box lang ang view
@@ -4733,14 +4819,51 @@ body.dark-mode .bottom-nav-item:active {
        box pa rin sa normal na paggamit ng app (walang epekto sa
        .receipt-items-scroll-wrapper rule sa @media (max-width:768px)).
     */
-    .receipt-items-scroll-wrapper {
+    body.print-target-receipt .receipt-items-scroll-wrapper {
         max-height: none !important;
         overflow: visible !important;
         height: auto !important;
     }
-    
+
+    /* 🖨️ AYOS (resibo, mahabang listahan ng item): parehong Chrome print-
+       pagination bug na naayos na sa barcode sheet sa ibaba — HINDI
+       sinusunod ni Chrome ang break-inside/page-break-inside kapag ang
+       row ay isang FLEX ITEM ng isang flex CONTAINER. Ang .receipt-
+       items-table at .receipt-totals-block ay parehong `display:flex;
+       flex-direction:column` — kaya ang bawat .r-item-line/.r-total-row
+       sa loob nila ay flex items, at pag lumabas sa 1 pisikal na page ang
+       mahabang resibo (maraming produkto), naoorphan/naoputol ang isang
+       row sa hangganan ng page (may malaking blangkong puwang sa taas ng
+       susunod na page, at parang "nawawalang" datos). AYOS: gawing plain
+       block container na lang ang DALAWANG ito PARA SA PRINT LANG (hindi
+       apektado ang normal flex view sa loob ng app) — nagiging normal
+       block-level children na ang mga row (hindi na flex items), kaya
+       gumagana na ang break-inside:avoid sa kanila: buo na silang
+       lilipat sa susunod na page sa halip na maputol sa gitna. */
+    body.print-target-receipt .receipt-items-table,
+    body.print-target-receipt .receipt-totals-block {
+        display: block !important;
+    }
+    body.print-target-receipt .receipt-meta-grid,
+    body.print-target-receipt .r-item-line,
+    body.print-target-receipt .r-total-row {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+    body.print-target-receipt .r-item-line,
+    body.print-target-receipt .r-total-row {
+        margin-bottom: 6px;
+    }
+    body.print-target-receipt .receipt-barcode-container,
+    body.print-target-receipt .receipt-footer-msg,
+    body.print-target-receipt .receipt-footer-msg-id {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+
     /* When printing barcodes sheet unit */
-    #barcode-preview-modal, #barcode-preview-modal * { visibility: visible; }
+    body.print-target-barcode #barcode-preview-modal,
+    body.print-target-barcode #barcode-preview-modal * { visibility: visible; }
 
     /* 🖨️ IKALAWANG ROOT CAUSE (bukod sa 90vh scroll-box issue sa ibaba):
        ang .modal-overlay (base class ng #barcode-preview-modal) ay may
@@ -4760,7 +4883,7 @@ body.dark-mode .bottom-nav-item:active {
        ang modal-body para may consistent margin sa LAHAT ng gilid,
        LAHAT ng page — kahit hindi sinusunod ng ilang printer/print
        pipeline ang @page margin sa ibaba. */
-    #barcode-preview-modal {
+    body.print-target-barcode #barcode-preview-modal {
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;
@@ -4771,7 +4894,8 @@ body.dark-mode .bottom-nav-item:active {
         padding: 0 !important;
         background: white !important;
     }
-    #barcode-sheet-print-container, #barcode-sheet-print-container * { visibility: visible; }
+    body.print-target-barcode #barcode-sheet-print-container,
+    body.print-target-barcode #barcode-sheet-print-container * { visibility: visible; }
 
     /* 🖨️ MAHALAGA (parehong dahilan gaya ng receipt modal sa itaas): may
        `max-height: 90vh; overflow: hidden;` ang .modal-card, at
@@ -4781,7 +4905,7 @@ body.dark-mode .bottom-nav-item:active {
        PUPUTULIN pa rin ito sa 90vh boundary bago pa man makapag-flow sa
        susunod na pisikal na page — ito mismo ang sanhi ng "naputol,
        hindi nakarating sa next page" na isyu. */
-    #barcode-preview-modal .modal-card {
+    body.print-target-barcode #barcode-preview-modal .modal-card {
         display: block !important;
         max-width: 100% !important;
         max-height: none !important;
@@ -4791,7 +4915,7 @@ body.dark-mode .bottom-nav-item:active {
         box-shadow: none !important;
         border-radius: 0 !important;
     }
-    #barcode-preview-modal .modal-body {
+    body.print-target-barcode #barcode-preview-modal .modal-body {
         display: block !important;
         overflow: visible !important;
         height: auto !important;
@@ -4833,11 +4957,11 @@ body.dark-mode .bottom-nav-item:active {
        matagal nang PROVEN na paraan na talagang sinusunod ni Chrome ang
        break-inside/page-break-inside nang tama, kaya ito ang ginamit
        dito sa halip. */
-    .barcode-matrix-grid-sheet-layout {
+    body.print-target-barcode .barcode-matrix-grid-sheet-layout {
         display: block !important;
         text-align: center !important;
     }
-    .barcode-print-card-unit {
+    body.print-target-barcode .barcode-print-card-unit {
         display: inline-block !important;
         vertical-align: top !important;
         /* ROOT CAUSE (dating bug): dati 19% width + 0.5% margin bawat
@@ -4878,18 +5002,9 @@ body.dark-mode .bottom-nav-item:active {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
     }
-    .barcode-print-card-unit p {
+    body.print-target-barcode .barcode-print-card-unit p {
         max-width: 100% !important;
     }
-}
-
-/* Iginagalang ang kahit anong paper size na naka-load/napili sa printer
-   (thermal 58mm/80mm, A4, Letter, atbp.) sa halip na ipilit ng browser
-   ang isang partikular na sukat — dito rin natin kinokontrol ang margin
-   ng bawat page ng barcode sheet. */
-@page {
-    size: auto;
-    margin: 8mm;
 }
 
 /* --- DARK MODE GLOBAL OVERRIDES (POS TERMINAL STYLE) --- */
@@ -5374,7 +5489,7 @@ body.sidebar-mobile-active .sidebar {
 
 
 /* Responsive adjustment kung nakatago ang sidebar mo sa mobile by default */
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
     .sidebar {
         position: fixed;
         top: 0;
@@ -5404,7 +5519,7 @@ body.sidebar-mobile-active .sidebar {
 }
 
 /* Papakita lang ang X button kapag mobile screen na */
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
     .sidebar-close-btn {
         display: block;
     }
@@ -5426,7 +5541,7 @@ body.dark-mode .quick-access-grid .qa-card.text-danger p {
 }
 
 /* Mobile Responsive Adjustments */
-@media (max-width: 1024px) {
+@media screen and (max-width: 1024px) {
     .sidebar-menu {
         display: flex;
         flex-direction: column;
@@ -6002,7 +6117,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     flex: 1 1 100%;
 }
 
-@media (max-width: 600px) {
+@media screen and (max-width: 600px) {
     .terminal-top-controls {
         flex-direction: row !important;
         flex-wrap: wrap !important;
@@ -6129,7 +6244,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     pointer-events: none !important;
 }
 
-@media (max-width: 600px) {
+@media screen and (max-width: 600px) {
     .search-box-container .scan-icon-floating.btn-scan-qr {
         width: 30px !important;
         height: 30px !important;
@@ -6158,7 +6273,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     background-color: #475569;
 }
 
-@media (max-width: 600px) {
+@media screen and (max-width: 600px) {
     #p-form-code {
         padding-right: 80px !important;
     }
@@ -6169,7 +6284,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 
 
 /* I-apply lamang ang style na ito sa Desktop View (PCs/Laptops - 1024px pataas) */
-@media (min-width: 1024px) {
+@media screen and (min-width: 1024px) {
   
   /* 1. PARA SA BUONG FORM CONTAINER */
   /* Palitan ang '#receipt-customization-form' kung iba ang ID ng pinaka-parent div o form mo */
@@ -6195,7 +6310,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 
 
 /* I-target lang ang Receipt Customization form */
-@media (min-width: 1025px) {
+@media screen and (min-width: 1025px) {
     #receipt-custom-tab .receipt-custom-container {
         max-width: 600px;   /* baguhin ayon sa gusto mong lapad */
         margin-left: auto;
@@ -6203,9 +6318,10 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     }
 }
 
-@media (min-width: 1025px) {
+@media screen and (min-width: 1025px) {
     #reset-restore-panel .Reset-Restore,
     #reset-restore-panel .system-reset-container,
+    #reset-restore-panel .relay-sync-container,
     #reset-restore-panel .recovery-section {
         max-width: 600px;   /* baguhin ayon sa gusto mong lapad */
         margin-left: auto;
@@ -6685,7 +6801,7 @@ body.dark-mode .reorder-card-actions {
 
 /* Tablet: keep it scannable, two rows of stat cards instead of one
    cramped row, buttons wrap cleanly under the title */
-@media (min-width: 601px) and (max-width: 1024px) {
+@media screen and (min-width: 601px) and (max-width: 1024px) {
     .reorder-stats-bar { grid-template-columns: repeat(3, 1fr); }
     .reorder-header-row { align-items: flex-start; }
     .reorder-toolbar .reorder-toolbar-select { flex: 1 1 180px; }
@@ -6716,7 +6832,7 @@ body.dark-mode .reorder-card-actions {
 
 /* Mobile: single-column stat cards (2-up), full-width stacked toolbar,
    and the alert list becomes a set of cards instead of a tiny table */
-@media (max-width: 600px) {
+@media screen and (max-width: 600px) {
     .reorder-stats-bar { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
     .reorder-stat-card { padding: 10px; border-radius: 10px; }
     .reorder-stat-value { font-size: 1rem; }
