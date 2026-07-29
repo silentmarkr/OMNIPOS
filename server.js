@@ -1,3 +1,19 @@
+const dns = require('dns');
+// 🔌 AYOS: "connect ENETUNREACH <ipv6-address>:465" kapag nagpapadala ng
+// email (Gmail OTP, resibo, factory reset backup, atbp.) sa Render/ibang
+// cloud host. Root cause: gumagamit ang Node ng "verbatim" DNS result
+// order by default (mula Node 18+), kaya kapag nag-resolve ng
+// "smtp.gmail.com" pwedeng IPv6 address ang unang ibalik. TAMA at
+// gumagana ang credentials/App Password — network-level lang ito: WALANG
+// gumaganang IPv6 outbound route ang maraming cloud host (kasama si
+// Render, lalo na sa free tier), kaya bumabagsak agad ang koneksyon sa
+// IPv6 address bago pa man ma-verify ang Gmail login. Sa lokal na
+// network/Termux, gumagana ang IPv6 kaya doon OK lang — kaya
+// "gumagana sa local pero hindi pag naka-deploy" ang sintomas.
+// AYOS: pilitin ang IPv4 muna sa LAHAT ng DNS lookup ng buong process
+// (kasama ang ginagamit ni nodemailer/Node's TLS socket sa ibaba).
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -63,7 +79,13 @@ function getMailTransporter(user, pass) {
         auth: { user, pass },
         connectionTimeout: 8000,
         greetingTimeout: 8000,
-        socketTimeout: 15000
+        socketTimeout: 15000,
+        // 🔌 Dagdag na proteksyon (bukod sa dns.setDefaultResultOrder sa
+        // itaas ng file): pinipilit dito mismo sa socket-level na IPv4
+        // (family: 4) ang gagamitin papuntang Gmail SMTP, para hindi na
+        // umasa sa default DNS resolution behavior kahit pa magbago ito
+        // sa susunod na Node.js version.
+        family: 4
     });
     _mailTransporterCache.set(key, transporter);
     return transporter;
