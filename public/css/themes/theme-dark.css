@@ -1,0 +1,18 @@
+/* ============================================================
+   THEME: Dark Mode (Free)
+   Ito ang orihinal na "Dark Mode" palette ng OmniPOS. Hiwalay na
+   file para consistent ang pattern ng lahat ng themes (dark man
+   o pro), kaya madaling dagdagan sa hinaharap.
+   ============================================================ */
+body[data-theme="dark"] {
+    --dm-bg: #121218;
+    --dm-surface: #1c1c24;
+    --dm-surface-alt: #22232d;
+    --dm-border: #262733;
+    --dm-text-primary: #f5f5f7;
+    --dm-text-secondary: #9a9ba8;
+    --dm-text-muted: #6f7080;
+    --dm-accent: #7c5cff;
+    --dm-accent-hover: #6a48ff;
+    --dm-accent-soft: rgba(124, 92, 255, 0.16);
+}

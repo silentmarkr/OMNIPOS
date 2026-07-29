@@ -1,0 +1,46 @@
+/* ============================================================
+   THEME: Coffee Noir Pro (Premium / Paid Add-on)
+   Mainit na espresso-brown/cream surfaces na may antique gold accent,
+   malambot na bilog na sulok (soft rounded corners), at elegante/
+   klasikong font pairing (Playfair Display para sa headings, Inter
+   para sa body text) — para sa mga gustong mas "boutique cafe /
+   premium retail" ang dating ng POS nila. I-unlock via Themes menu.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&display=swap');
+
+body[data-theme="noir"] {
+    --dm-bg: #120d09;
+    --dm-surface: #1c140d;
+    --dm-surface-alt: #241a11;
+    --dm-border: #3a2a1a;
+    --dm-text-primary: #f7ecdc;
+    --dm-text-secondary: #c7a985;
+    --dm-text-muted: #8a725a;
+    --dm-accent: #d4a256;
+    --dm-accent-hover: #c08c3e;
+    --dm-accent-soft: rgba(212, 162, 86, 0.16);
+
+    /* Typography: elegante/serif heading font + malinaw na body font */
+    --dm-font-heading: 'Playfair Display', 'Space Grotesk', serif;
+    --dm-font-body: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    /* Border language: malambot na bilog na sulok, manipis na
+       "hairline" border para sa premium/boutique na dating */
+    --dm-radius: 16px;
+    --dm-radius-sm: 10px;
+    --dm-radius-lg: 20px;
+    --dm-border-width: 1px;
+}
+
+/* Manipis na gold hairline sa mga heading para sa boutique/premium feel */
+body[data-theme="noir"] .metric-card h3,
+body[data-theme="noir"] .modal-header h3,
+body[data-theme="noir"] .section-title {
+    letter-spacing: 0.02em;
+}
+
+body[data-theme="noir"] .metric-card,
+body[data-theme="noir"] .qa-card,
+body[data-theme="noir"] .overview-trend-card {
+    box-shadow: 0 8px 20px -10px rgba(212, 162, 86, 0.18);
+}

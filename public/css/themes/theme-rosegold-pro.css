@@ -1,0 +1,16 @@
+/* ============================================================
+   THEME: Rose Gold Pro (Premium / Paid Add-on)
+   Deep plum surfaces na may rose/pink accent. I-unlock via Themes menu.
+   ============================================================ */
+body[data-theme="rosegold"] {
+    --dm-bg: #170a12;
+    --dm-surface: #24101c;
+    --dm-surface-alt: #2c1422;
+    --dm-border: #402038;
+    --dm-text-primary: #fff0f6;
+    --dm-text-secondary: #d192b0;
+    --dm-text-muted: #916078;
+    --dm-accent: #ec4899;
+    --dm-accent-hover: #db2777;
+    --dm-accent-soft: rgba(236, 72, 153, 0.16);
+}

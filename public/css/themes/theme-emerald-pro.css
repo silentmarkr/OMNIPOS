@@ -1,0 +1,16 @@
+/* ============================================================
+   THEME: Emerald Pro (Premium / Paid Add-on)
+   Deep green surfaces na may emerald accent. I-unlock via Themes menu.
+   ============================================================ */
+body[data-theme="emerald"] {
+    --dm-bg: #071510;
+    --dm-surface: #0d2119;
+    --dm-surface-alt: #122a20;
+    --dm-border: #1e3d2f;
+    --dm-text-primary: #eafff4;
+    --dm-text-secondary: #8fc4a8;
+    --dm-text-muted: #5f8c73;
+    --dm-accent: #22c55e;
+    --dm-accent-hover: #16a34a;
+    --dm-accent-soft: rgba(34, 197, 94, 0.16);
+}

@@ -1,0 +1,51 @@
+/* ============================================================
+   THEME: Cyber Neon Pro (Premium / Paid Add-on)
+   Malalim na itim/navy base na may cyan-magenta neon accent, matulis
+   na sulok (sharp corners), at futuristic na font pairing (Orbitron
+   para sa headings, Rajdhani para sa body text) — para sa mga gustong
+   mas "techy"/cyberpunk ang dating ng POS nila. I-unlock via Themes
+   menu.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+body[data-theme="cyber"] {
+    --dm-bg: #05070d;
+    --dm-surface: #0b0f1a;
+    --dm-surface-alt: #101625;
+    --dm-border: #1f2a44;
+    --dm-text-primary: #eafcff;
+    --dm-text-secondary: #8ea3c9;
+    --dm-text-muted: #5a6a8c;
+    --dm-accent: #22e5ff;
+    --dm-accent-hover: #ff2ee6;
+    --dm-accent-soft: rgba(34, 229, 255, 0.16);
+
+    /* Typography: matulis/techy heading font + malinaw na body font */
+    --dm-font-heading: 'Orbitron', 'Space Grotesk', sans-serif;
+    --dm-font-body: 'Rajdhani', 'Inter', 'Segoe UI', sans-serif;
+
+    /* Border language: matulis na sulok, mas makapal na border para
+       sa "circuit board" na dating */
+    --dm-radius: 4px;
+    --dm-radius-sm: 3px;
+    --dm-radius-lg: 6px;
+    --dm-border-width: 1.5px;
+}
+
+/* Bahagyang "glow" sa mga cards/buttons para tumugma sa neon accent —
+   effect-only, hindi ito nakakaapekto sa laki/istruktura ng UI. */
+body[data-theme="cyber"] .metric-card,
+body[data-theme="cyber"] .qa-card,
+body[data-theme="cyber"] .overview-trend-card,
+body[data-theme="cyber"] .table-container,
+body[data-theme="cyber"] .report-container {
+    box-shadow: 0 0 0 1px rgba(34, 229, 255, 0.06), 0 8px 20px -8px rgba(34, 229, 255, 0.12);
+}
+
+body[data-theme="cyber"] .qa-card:hover {
+    box-shadow: 0 0 0 1px var(--dm-accent), 0 0 18px rgba(34, 229, 255, 0.35);
+}
+
+body[data-theme="cyber"] .btn-action-global {
+    box-shadow: 0 0 14px rgba(34, 229, 255, 0.35);
+}

@@ -1,0 +1,66 @@
+From b8b087a29c000b2ef455a944c7c0819389053f11 Mon Sep 17 00:00:00 2001
+From: OmniPOS Dev <dev@omnipos.local>
+Date: Tue, 28 Jul 2026 22:36:19 +0000
+Subject: [PATCH] Adopt reassignedInstallationId from RELAY when a clone is
+ split off
+
+- verifyDeviceWithRelay() now returns reassignedInstallationId when
+  RELAY signals (via /relay/verify-login) that this device's fingerprint
+  was split off by the admin into its own independent installationId.
+- checkDeviceBeforeLogin() adopts that new installationId locally and
+  clears local tokens (old tokens were bound to the old installationId
+  and would no longer verify anyway), so the split-off device starts
+  with no unlocked features until the admin manually grants them on
+  RELAY for the new installationId.
+---
+ server.js | 27 +++++++++++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/server.js b/server.js
+index 3744dc3..3396144 100644
+--- a/server.js
++++ b/server.js
+@@ -1298,7 +1298,15 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
+                 message: relayData.message || 'Tinanggihan ng RELAY ang device verification.'
+             };
+         }
+-        return { ok: true, allowed: !!relayData.allowed };
++        return {
++            ok: true,
++            allowed: !!relayData.allowed,
++            // Kung na-"split" ng admin ang device na ito sa RELAY (tingnan
++            // ang /relay/admin/api/devices/:id/split-clone), ibabalik dito
++            // ng RELAY ang BAGONG installationId na dapat nang gamitin ng
++            // client na ito mula ngayon.
++            reassignedInstallationId: relayData.reassignedInstallationId || null
++        };
+     } catch (err) {
+         return { ok: false, reason: 'unreachable', message: `Hindi maabot ang RELAY (${err.message}).` };
+     }
+@@ -1344,7 +1352,22 @@ async function checkDeviceBeforeLogin({ username } = {}) {
+     }
+ 
+     const updated = readFeatureUnlocks();
+-    updated.installationId = installationId;
++
++    if (result.reassignedInstallationId && result.reassignedInstallationId !== installationId) {
++        // Na-"split" ng admin ang device na ito sa RELAY bilang sarili at
++        // hiwalay na installationId (dating clone_suspected). Kailangan
++        // nating i-adopt ito dito lokal — kasama ang paglinis ng mga
++        // dating tokens (naka-bind ang mga iyon sa LUMANG installationId,
++        // kaya hindi na rin sila magiging valid dito) — magsisimula itong
++        // device nang walang naka-unlock na feature hangga't hindi ito
++        // manual na inaktibo ng admin/developer para sa BAGONG ID.
++        console.log(`ℹ️ ANTI-CLONE: hiwalay na installationId ang ibinigay ng RELAY (${result.reassignedInstallationId}) — ina-adopt lokal.`);
++        updated.installationId = result.reassignedInstallationId;
++        updated.tokens = {};
++    } else {
++        updated.installationId = installationId;
++    }
++
+     updated.deviceVerified = true;
+     updated.verifiedFingerprint = liveFingerprint;
+     updated.firstVerifiedAt = updated.firstVerifiedAt || Date.now();
+-- 
+2.43.0
+

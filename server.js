@@ -1,0 +1,4555 @@
+const express = require('express');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const ExcelJS = require('exceljs');
+const multer = require('multer');
+const { execSync } = require('child_process');
+const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads } = require('./db');
+
+try {
+    process.loadEnvFile();
+} catch (err) {
+
+}
+
+// ====================================================================
+// CRASH-SAFETY NET
+// ====================================================================
+// Bakit kailangan ito: kung walang handler dito, ang ISANG hindi-
+// nahuling error (hal. sa loob ng isang async route na walang try/catch,
+// o isang error na galing sa isang callback/library) ay pwedeng
+// mag-crash sa BUONG Node.js process — ibig sabihin bababa ang serbisyo
+// sa LAHAT ng terminal/device na kumakabit dito, hanggang sa i-restart
+// ito nang manual.
+// Sa pamamagitan ng mga handler na ito, ang error ay naka-log lang at
+// hindi na pinapatay ang server — patuloy pa rin itong tatakbo at
+// makakapaglingkod sa ibang requests/terminals.
+// PAALALA: hindi ito kapalit ng maayos na try/catch sa mismong endpoint
+// — huling proteksyon lang ito ("safety net") laban sa mga hindi
+// inaasahang error na nakalusot.
+process.on('uncaughtException', (err) => {
+    console.error('🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server):', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('🔥 [CRASH-SAFETY] Unhandled Promise Rejection (hindi pinatay ang server):', reason);
+});
+
+// ====================================================================
+// SHARED, CACHED NODEMAILER TRANSPORTER
+// ====================================================================
+// Dati, bawat email-sending endpoint (OTP, receipt, factory reset backup,
+// atbp.) ay gumagawa ng BAGONG nodemailer transporter/connection sa
+// bawat request — hindi ito efficient (bagong TCP/TLS handshake papunta
+// sa Gmail sa bawat email). Dito, iisang transporter na lang ang ginawa
+// PER (user, pass) na pares at ginagamit ulit-ulit (connection pooling
+// via "pool: true"), kaya mas mabilis at mas magaan sa resources ang
+// pagpapadala ng maramihang email nang magkakasunod.
+const _mailTransporterCache = new Map();
+function getMailTransporter(user, pass) {
+    const key = `${user}::${pass}`;
+    if (_mailTransporterCache.has(key)) {
+        return _mailTransporterCache.get(key);
+    }
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        pool: true,
+        maxConnections: 3,
+        auth: { user, pass },
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 15000
+    });
+    _mailTransporterCache.set(key, transporter);
+    return transporter;
+}
+
+const app = express();
+
+// Para tama ang req.ip kapag dumaan sa cloudflared tunnel o ibang reverse proxy
+// (babasahin ang X-Forwarded-For / CF-Connecting-IP na header).
+app.set('trust proxy', true);
+
+// Kinukuha ang "totoong" IP ng kliyente — priyoridad: CF-Connecting-IP (Cloudflare
+// tunnel/proxy) → unang IP sa X-Forwarded-For → req.ip (Express, gamit ang trust proxy)
+// → raw socket address bilang huling fallback. Tinatanggal din ang "::ffff:" prefix
+// na idinagdag ng Node para sa IPv4-mapped IPv6 addresses (hal. "::ffff:192.168.1.5").
+function getClientIp(req) {
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (cfIp) return cfIp.trim().replace(/^::ffff:/, '');
+
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) {
+        const first = xff.split(',')[0].trim();
+        if (first) return first.replace(/^::ffff:/, '');
+    }
+
+    const raw = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+    return raw.replace(/^::ffff:/, '');
+}
+
+// Kinukuha ang lahat ng LAN/WiFi subnet na naka-assign sa DEVICE na nagpapatakbo ng
+// server (hal. "192.168.1.0/24" mula sa wlan0). Ginagamit ito para malaman kung ang
+// isang connecting IP ay nanggaling sa PAREHONG WiFi/LAN network ng server, o hindi
+// (galing sa ibang network / mobile data / sa labas via cloudflared tunnel).
+function getServerLanSubnets() {
+    const subnets = [];
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                subnets.push({ address: iface.address, netmask: iface.netmask });
+            }
+        }
+    }
+    return subnets;
+}
+
+function ipToLong(ip) {
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => Number.isNaN(p))) return null;
+    return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+// True kung ang `ip` ay nasa parehong subnet ng alinman sa LAN interfaces ng server
+// (ibig sabihin, parehong WiFi/network sila). False kung galing sa ibang network,
+// localhost, o hindi mabasa (hal. IPv6, "unknown").
+function isSameLanAsServer(ip) {
+    if (!ip || ip === 'unknown') return false;
+    if (ip === '127.0.0.1' || ip === '::1') return true; // parehong device mismo
+    const ipLong = ipToLong(ip);
+    if (ipLong === null) return false;
+
+    const subnets = getServerLanSubnets();
+    for (const { address, netmask } of subnets) {
+        const addrLong = ipToLong(address);
+        const maskLong = ipToLong(netmask);
+        if (addrLong === null || maskLong === null) continue;
+        if ((ipLong & maskLong) === (addrLong & maskLong)) return true;
+    }
+    return false;
+}
+
+let helmet;
+try {
+    helmet = require('helmet');
+} catch (err) {
+    console.warn('⚠️ Hindi pa naka-install ang "helmet" package. Patakbuhin ang `npm install` para magamit ito. Gagamitin muna ang manual security headers bilang fallback.');
+}
+
+if (helmet) {
+    app.use(helmet({
+
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false
+    }));
+} else {
+    app.use((req, res, next) => {
+        res.setHeader('X-Content-Type-Options','nosniff');
+        res.setHeader('X-Frame-Options','DENY');
+        res.setHeader('Referrer-Policy','same-origin');
+        res.removeHeader('X-Powered-By');
+        next();
+    });
+}
+
+const RATE_LIMIT_BUCKETS = new Map();
+function rateLimit(routeKey, maxAttempts, windowMs) {
+    return (req, res, next) => {
+        const ip = req.ip || req.connection?.remoteAddress ||'unknown';
+        const key = `${routeKey}:${ip}`;
+        const now = Date.now();
+        let attempts = RATE_LIMIT_BUCKETS.get(key) || [];
+        attempts = attempts.filter(ts => now - ts < windowMs);
+        if (attempts.length >= maxAttempts) {
+            const retryAfterSec = Math.ceil((windowMs - (now - attempts[0])) / 1000);
+            res.setHeader('Retry-After', retryAfterSec);
+            return res.status(429).json({
+                success: false,
+                message: `Sobra na sa allowed attempts. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`
+            });
+        }
+        attempts.push(now);
+        RATE_LIMIT_BUCKETS.set(key, attempts);
+        next();
+    };
+}
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, attempts] of RATE_LIMIT_BUCKETS.entries()) {
+        const fresh = attempts.filter(ts => now - ts < 15 * 60 * 1000);
+        if (fresh.length === 0) RATE_LIMIT_BUCKETS.delete(key);
+        else RATE_LIMIT_BUCKETS.set(key, fresh);
+    }
+}, 5 * 60 * 1000).unref();
+
+// Dating gawi: iisang bucket lang bawat IP ang gamit sa /api/auth/login, kaya
+// kapag maraming maling attempt sa IISANG account (hal. cashier1), naka-lock
+// na rin agad ang LAHAT ng ibang account na naka-login/nagta-try mag-login
+// mula sa parehong terminal/IP (karaniwan sa POS na iisa lang ang IP ng
+// lahat ng cashier). Hindi dapat ganito — dapat hiwalay ang bawat account.
+//
+// Ang loginRateLimit() na ito ay gumagamit ng DALAWANG hiwalay na bucket:
+//   1. Per-ACCOUNT bucket (keyed sa username) — ito ang totoong proteksyon
+//      laban sa brute-force sa isang partikular na account, at HINDI na
+//      naka-apekto sa ibang account kahit magkaparehas ang IP/terminal.
+//   2. Per-IP bucket na mas mataas ang threshold — pangkalahatang proteksyon
+//      lamang laban sa pag-spam/scan ng maraming iba't ibang username mula
+//      sa iisang terminal, hindi na dapat maabot ito sa normal na paggamit.
+function loginRateLimit(maxAttemptsPerAccount, maxAttemptsPerIp, windowMs) {
+    return (req, res, next) => {
+        const ip = req.ip || req.connection?.remoteAddress ||'unknown';
+        const username = ((req.body && req.body.username) ||'').toString().trim().toLowerCase();
+        const now = Date.now();
+
+        const ipKey = `login-ip:${ip}`;
+        let ipAttempts = (RATE_LIMIT_BUCKETS.get(ipKey) || []).filter(ts => now - ts < windowMs);
+        if (ipAttempts.length >= maxAttemptsPerIp) {
+            const retryAfterSec = Math.ceil((windowMs - (now - ipAttempts[0])) / 1000);
+            res.setHeader('Retry-After', retryAfterSec);
+            return res.status(429).json({
+                success: false,
+                message: `Sobra na sa allowed login attempts mula sa terminal na ito. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`
+            });
+        }
+
+        if (username) {
+            const acctKey = `login-account:${username}`;
+            let acctAttempts = (RATE_LIMIT_BUCKETS.get(acctKey) || []).filter(ts => now - ts < windowMs);
+            if (acctAttempts.length >= maxAttemptsPerAccount) {
+                const retryAfterSec = Math.ceil((windowMs - (now - acctAttempts[0])) / 1000);
+                res.setHeader('Retry-After', retryAfterSec);
+                return res.status(429).json({
+                    success: false,
+                    message: `Sobra na sa allowed attempts para sa account na '${username}'. Subukan muli pagkatapos ng ${retryAfterSec} segundo. Hindi naapektuhan ang ibang account.`
+                });
+            }
+            acctAttempts.push(now);
+            RATE_LIMIT_BUCKETS.set(acctKey, acctAttempts);
+        }
+
+        ipAttempts.push(now);
+        RATE_LIMIT_BUCKETS.set(ipKey, ipAttempts);
+        next();
+    };
+}
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||'')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
+    origin(origin, callback) {
+
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        return callback(new Error(`CORS: hindi pinapayagang origin — ${origin}`));
+    }
+} : undefined));
+
+app.use(express.json({ limit:'2mb' }));
+
+app.use(express.static(path.join(__dirname,'public'), {
+    etag: true,
+    lastModified: true,
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control','no-cache');
+    }
+}));
+
+const SESSIONS = new Map();
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+const SESSIONS_MODULE ='sessions';
+
+function persistSessions() {
+    const snapshot = {};
+    for (const [token, session] of SESSIONS.entries()) snapshot[token] = session;
+    writeData(SESSIONS_MODULE, snapshot);
+}
+
+function loadSessionsFromDisk() {
+    const snapshot = readData(SESSIONS_MODULE, {});
+    const now = Date.now();
+    let restored = 0;
+    for (const [token, session] of Object.entries(snapshot)) {
+        if (session && session.expiresAt > now) {
+            SESSIONS.set(token, session);
+            restored++;
+        }
+    }
+    if (restored > 0) console.log(`🔄 Naibalik ang ${restored} aktibong session mula sa huling pagkaka-save (bago pa mag-restart).`);
+}
+loadSessionsFromDisk();
+
+function parseDeviceInfo(userAgent) {
+    const ua = (userAgent ||'');
+
+    let deviceType ='Desktop';
+    if (/Tablet|iPad/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) {
+        deviceType ='Tablet';
+    } else if (/Mobi|Android|iPhone|iPod|Windows Phone/i.test(ua)) {
+        deviceType ='Mobile';
+    }
+
+    let os ='Unknown OS';
+    if (/Windows NT/i.test(ua)) os ='Windows';
+    else if (/Mac OS X/i.test(ua) && !/iPhone|iPad|iPod/i.test(ua)) os ='macOS';
+    else if (/Android/i.test(ua)) os ='Android';
+    else if (/iPhone|iPad|iPod/i.test(ua)) os ='iOS';
+    else if (/Linux/i.test(ua)) os ='Linux';
+
+    let browser ='Unknown Browser';
+    if (/Edg\//i.test(ua)) browser ='Edge';
+    else if (/OPR\/|Opera/i.test(ua)) browser ='Opera';
+    else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) browser ='Chrome';
+    else if (/CriOS\//i.test(ua)) browser ='Chrome';
+    else if (/Firefox\//i.test(ua)) browser ='Firefox';
+    else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser ='Safari';
+
+    return { deviceType, os, browser, label: `${deviceType} · ${os} · ${browser}` };
+}
+
+function createSession(username, role, userAgent, ip) {
+    const token = crypto.randomBytes(32).toString('hex');
+
+    SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown' });
+    persistSessions();
+    return token;
+}
+
+function getSession(token) {
+    const session = SESSIONS.get(token);
+    if (!session) return null;
+    if (Date.now() > session.expiresAt) {
+        SESSIONS.delete(token);
+        return null;
+    }
+    session.expiresAt = Date.now() + SESSION_TTL_MS;
+    return session;
+}
+
+function destroySession(token) {
+    SESSIONS.delete(token);
+    persistSessions();
+}
+
+function renameUsernameEverywhere(oldUsername, newUsername) {
+    for (const session of SESSIONS.values()) {
+        if (session.username.toLowerCase() === oldUsername.toLowerCase()) {
+            session.username = newUsername;
+        }
+    }
+    persistSessions();
+    const cartsData = readData(FILE_CARTS, {});
+    const cartKey = Object.keys(cartsData).find(k => k.toLowerCase() === oldUsername.toLowerCase());
+    if (cartKey && cartKey !== newUsername) {
+        cartsData[newUsername] = cartsData[cartKey];
+        delete cartsData[cartKey];
+        writeData(FILE_CARTS, cartsData);
+    }
+}
+
+setInterval(() => {
+    const now = Date.now();
+    let removedAny = false;
+    for (const [token, session] of SESSIONS.entries()) {
+        if (now > session.expiresAt) {
+            SESSIONS.delete(token);
+            removedAny = true;
+        }
+    }
+    if (removedAny) persistSessions();
+}, 15 * 60 * 1000).unref();
+
+setInterval(persistSessions, 2 * 60 * 1000).unref();
+
+// --- AUTO-BACKUP TOGGLE ---
+// Habang nasa TESTING pa ang system, i-set ang DISABLE_AUTO_BACKUP=true sa .env
+// para hindi na mag-scheduled backup (walang bagong .db files na maiipon sa
+// database/backups/). Pagbebentahan/deployment na: alisin lang ang env var
+// (o gawing false) — awtomatikong babalik ang normal na 30s-startup +
+// 24-hour na auto-backup schedule, walang kailangan pang baguhin dito sa code.
+const AUTO_BACKUP_DISABLED = String(process.env.DISABLE_AUTO_BACKUP ||'').trim().toLowerCase() ==='true';
+
+if (AUTO_BACKUP_DISABLED) {
+    console.log('⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.');
+} else {
+    setTimeout(() => runLocalDatabaseBackup(14), 30 * 1000);
+    setInterval(() => runLocalDatabaseBackup(14), 24 * 60 * 60 * 1000).unref();
+}
+
+// Blob-size monitor: read-only lang, kaya tumatakbo ito REGARDLESS ng
+// DISABLE_AUTO_BACKUP toggle sa itaas — hindi ito nagsusulat/nag-a-alter
+// ng anumang datos, babala lang ito para sa future scaling awareness.
+setTimeout(() => checkModuleBlobSizes(), 45 * 1000);
+setInterval(() => checkModuleBlobSizes(), 24 * 60 * 60 * 1000).unref();
+
+function extractToken(req) {
+    const authHeader = req.headers['authorization'] ||'';
+    if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
+    return req.headers['x-auth-token'] ||'';
+}
+
+const PUBLIC_API_PATHS = new Set(['/api/auth/login']);
+
+app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) return next();
+    if (PUBLIC_API_PATHS.has(req.path)) return next();
+
+    const token = extractToken(req);
+    if (!token) {
+        return res.status(401).json({ success: false, code:'NO_TOKEN', message:'Kailangan mag-login muna. Walang session token.' });
+    }
+
+    const session = getSession(token);
+    if (!session) {
+        return res.status(401).json({ success: false, code:'INVALID_TOKEN', message:'Expired o invalid na ang session. Mangyaring mag-login muli.' });
+    }
+
+    req.authUser = { username: session.username, role: session.role };
+    req.authToken = token;
+
+    if (req.body && typeof req.body ==='object') {
+        if (typeof req.body.username ==='string') req.body.username = req.authUser.username;
+        if (typeof req.body.user ==='string') req.body.user = req.authUser.username;
+        if (typeof req.body.requester ==='string') req.body.requester = req.authUser.username;
+    }
+    if (req.query && typeof req.query ==='object') {
+        if ('requester' in req.query) req.query.requester = req.authUser.username;
+    }
+
+    next();
+});
+
+const FILE_USERS ='users';
+const FILE_PRODUCTS ='products';
+const FILE_TRANSACTIONS ='transactions';
+const FILE_USERLOGS ='userlogs';
+const FILE_REQUESTS ='requests';
+const DEFAULT_CATEGORIES = ['Beverages','Dairy','Snacks','Bakery','Grains'];
+const FILE_CATEGORIES ='categories';
+const FILE_CARTS ='carts';
+const FILE_CUSTOMERS ='customers';
+const FILE_PROMOCODES ='promocodes';
+const FILE_SHIFTS ='shifts';
+const FILE_SHIFT_META ='shiftMeta';
+const FILE_PURCHASE_ORDERS ='purchaseOrders';
+
+const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
+
+const MENU_REGISTRY = [
+    { key:'terminal',     label:'POS Terminal' },
+    { key:'dashboard',    label:'Inventory Dashboard' },
+    { key:'products',     label:'Products' },
+    { key:'barcode',      label:'Barcode' },
+    { key:'transactions', label:'Transactions' },
+
+    { key:'transactions_view_all', label:'Transactions — View All Cashiers' },
+
+    { key:'void_own_password', label:'Transactions — Void gamit ang Sariling Password (Hindi na kailangan ng Admin Password)' },
+
+    { key:'reports',      label:'Sales Report' },
+    { key:'users',        label:'Users' },
+    { key:'logs',         label:'User Logs' },
+
+    { key:'edit_user_profile', label:'Edit User Profile (Widget)' },
+    { key:'customers', label:'Customers & Loyalty' },
+    { key:'shiftreport', label:'Shift / Z-Reading' },
+
+    { key:'reorder', label:'Reorder Alerts / Purchase Orders' },
+
+    { key:'shiftreport_view_all', label:'Shift / Z-Reading — View All Cashiers' },
+
+    { key:'shiftreport_view_amounts', label:'Shift / Z-Reading — View Sales Amounts (Gross/Discount/Net)' },
+
+    { key:'shift_close_control', label:'Shift / Z-Reading — Admin/Supervisor Control (Close Other Cashiers\' Shift)' },
+
+    { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)' },
+
+    { key:'products_direct_apply', label:'Products — Add/Update/Delete Direct Apply (No Approval Needed)' },
+
+    { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)' },
+
+    { key:'pending_requests', label:'Users — Pending Requests Tab' },
+
+    { key:'roles_permissions_view', label:'Users — Roles & Permissions Tab (opening/viewing the RBAC matrix)' },
+
+    { key:'reset_restore', label:'Users — Reset/Restore Tab' },
+
+    { key:'receipt_settings_view', label:'Users — Receipt Customization Tab (view/open access)' },
+
+    { key:'receipt_settings_direct_apply', label:'Receipt Customization — Direct Apply (No Approval Needed)' },
+
+    { key:'relay_unlock_request', label:'Features/Themes — Pwedeng Mag-send ng Unlock/Demo OTP Request sa Relay' },
+];
+
+const FILE_ROLES ='roles';
+
+const DEFAULT_ROLES = [
+    {
+        name:'Admin',
+
+        protected: true,
+        permissions: MENU_REGISTRY.reduce((acc, m) => { acc[m.key] = true; return acc; }, {})
+    },
+    {
+        name:'Staff',
+        protected: false,
+        permissions: { terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
+    },
+    {
+        name:'Cashier',
+        protected: false,
+
+        permissions: { terminal: true, dashboard: false, products: false, barcode: false, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: false, shift_close_control: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
+    }
+];
+
+function getRoles() {
+    let roles = readData(FILE_ROLES, DEFAULT_ROLES);
+
+    let changed = false;
+    roles.forEach(r => {
+        if (!r.permissions) { r.permissions = {}; changed = true; }
+        MENU_REGISTRY.forEach(m => {
+            if (!(m.key in r.permissions)) {
+                r.permissions[m.key] = !!r.protected;
+                changed = true;
+            }
+        });
+    });
+    if (changed) writeData(FILE_ROLES, roles);
+    return roles;
+}
+
+function getPermissionsForRole(roleName) {
+    const roles = getRoles();
+    const role = roles.find(r => r.name.toLowerCase() === (roleName ||'').toLowerCase());
+    if (!role) {
+
+        if ((roleName ||'').toLowerCase() ==='admin') {
+            return MENU_REGISTRY.reduce((acc, m) => { acc[m.key] = true; return acc; }, {});
+        }
+        return {};
+    }
+    return role.permissions;
+}
+
+// Hinahanap kung kaninong account ang pumasok na password, at kung
+// pinahihintulutan ang taong iyon (Admin, o may role na naka-check ang
+// 'void_own_password' sa RBAC / Roles & Permissions matrix) na mag-
+// authorize ng void. SADYANG hindi ito nakabase sa req.authUser (ang
+// naka-login sa terminal, karaniwa'y ang cashier) — kasi ang totoong
+// real-world flow ay: naka-login ang CASHIER sa terminal, at isang
+// Supervisor/Manager ang lumalapit at nagta-type ng SARILING password
+// nila para paunahan ang void. Kaya kailangang hanapin sa LAHAT ng
+// accounts kung kaninong password ang na-type, hindi lang sa account
+// ng kasalukuyang naka-login.
+function findVoidAuthorizer(users, password) {
+    if (!password) return null;
+    for (const u of users) {
+        let match = false;
+        try {
+            match = bcrypt.compareSync(password, u.password);
+        } catch (e) {
+            match = (password === u.password);
+        }
+        if (!match) continue;
+
+        const role = (u.role ||'').toLowerCase();
+        if (role ==='admin') return { user: u, isAdmin: true };
+        if (!!getPermissionsForRole(u.role).void_own_password) return { user: u, isAdmin: false };
+
+        // Tumugma ang password sa account na ito pero walang void access
+        // ang role nila — huwag nang ituloy ang paghahanap, dahil iisa
+        // lamang ang account na dapat tumugma sa isang password.
+        return null;
+    }
+    return null;
+}
+
+function requirePermission(menuKey) {
+    return (req, res, next) => {
+        const role = req.authUser && req.authUser.role;
+        if (role && role.toLowerCase() ==='admin') return next();
+        const perms = getPermissionsForRole(role);
+        if (!perms[menuKey]) {
+            return res.status(403).json({ success: false, message:'Akses Denied: Wala kang pahintulot na gamitin ang feature na ito.' });
+        }
+        next();
+    };
+}
+
+const FILE_RECEIPT_SETTINGS ='receiptSettings';
+const FREE_CUSTOMIZE_LIMIT = 2;
+
+const OTP_RECIPIENT_EMAIL = Buffer.from('cml2ZXJvbWFyazE3QGdtYWlsLmNvbQ==','base64').toString('utf8');
+
+const OTP_TTL_MS = 10 * 60 * 1000;
+
+function getOtpMailCredentials(settings) {
+    if (process.env.OTP_MAIL_USER && process.env.OTP_MAIL_PASS) {
+        return { user: process.env.OTP_MAIL_USER, pass: process.env.OTP_MAIL_PASS };
+    }
+    const s = settings || readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    if (s.otpSenderEmail && s.otpSenderAppPassword) {
+        return { user: s.otpSenderEmail, pass: s.otpSenderAppPassword };
+    }
+    return null;
+}
+
+const DEFAULT_RECEIPT_SETTINGS = {
+    storeName:'OmniPOS',
+    storeAddress:'Your Store Address Here',
+    storeContact:'(xxx) xxx-xxxx',
+    headerText:'',
+    footerText:'Thank you for shopping!',
+    paperSize:'80mm',
+    customizeCount: 0,
+    firstCustomizedAt: null,
+    pendingOtp: null,
+    pendingResetOtp: null,
+    resetHistory: [],
+    otpSenderEmail: null,
+    otpSenderAppPassword: null
+};
+
+const VALID_PAPER_SIZES = ['58mm','80mm'];
+
+function getReceiptSettingsPublic(rawSettings) {
+    const s = rawSettings || DEFAULT_RECEIPT_SETTINGS;
+    const customizeCount = s.customizeCount || 0;
+    return {
+        storeName: s.storeName ?? DEFAULT_RECEIPT_SETTINGS.storeName,
+        storeAddress: s.storeAddress ?? DEFAULT_RECEIPT_SETTINGS.storeAddress,
+        storeContact: s.storeContact ?? DEFAULT_RECEIPT_SETTINGS.storeContact,
+        headerText: s.headerText ??'',
+        footerText: s.footerText ?? DEFAULT_RECEIPT_SETTINGS.footerText,
+        paperSize: VALID_PAPER_SIZES.includes(s.paperSize) ? s.paperSize : DEFAULT_RECEIPT_SETTINGS.paperSize,
+        customizeCount: customizeCount,
+        firstCustomizedAt: s.firstCustomizedAt || null,
+        freeAttemptsRemaining: Math.max(0, FREE_CUSTOMIZE_LIMIT - customizeCount),
+        otpRequired: customizeCount >= FREE_CUSTOMIZE_LIMIT,
+
+        otpSenderConfigured: !!(s.otpSenderEmail && s.otpSenderAppPassword),
+        otpSenderEmailMasked: maskEmail(s.otpSenderEmail)
+    };
+}
+
+function maskEmail(email) {
+    if (!email || typeof email !=='string' || !email.includes('@')) return null;
+    const [local, domain] = email.split('@');
+    const visible = local.slice(0, 2);
+    return `${visible}${'*'.repeat(Math.max(1, local.length - 2))}@${domain}`;
+}
+
+const UPLOAD_TMP_DIR = path.join(__dirname,'uploads_tmp');
+if (!fs.existsSync(UPLOAD_TMP_DIR)) {
+    fs.mkdirSync(UPLOAD_TMP_DIR);
+}
+
+const productImportUpload = multer({ dest: UPLOAD_TMP_DIR, limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.get('/api/categories', (req, res) => {
+
+    const data = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
+    res.json(data);
+});
+
+app.post('/api/categories', (req, res) => {
+    const { category } = req.body;
+    let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
+
+    if (!categories.includes(category)) {
+        categories.push(category);
+        writeData(FILE_CATEGORIES, categories);
+    }
+    res.json({ success: true, categories });
+});
+
+app.get('/api/receipt-settings', (req, res) => {
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    res.json(getReceiptSettingsPublic(settings));
+});
+
+app.post('/api/receipt-settings/paper-size', requirePermission('receipt_settings_view'), (req, res) => {
+    const { paperSize, username } = req.body;
+
+    if (!VALID_PAPER_SIZES.includes(paperSize)) {
+        return res.status(400).json({ success: false, message: `Di-wastong paper size. Pumili sa: ${VALID_PAPER_SIZES.join(', ')}` });
+    }
+
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
+
+    if (!canApplyDirectly) {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({
+            id:'REQ-' + Date.now(),
+            requester: req.authUser.username,
+            type:'RECEIPT_PAPER_SIZE',
+            data: { paperSize },
+            timestamp: new Date().toLocaleString()
+        });
+        writeData(FILE_REQUESTS, requests);
+        logAction(req.authUser.username, `Nag-submit ng Receipt Paper Size change request (${paperSize}) para sa Admin approval`);
+        return res.json({ success: true, pending: true, message:'Isinumite ang paper size request para sa Admin approval.' });
+    }
+
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    settings.paperSize = paperSize;
+    writeData(FILE_RECEIPT_SETTINGS, settings);
+    logAction(username || req.authUser.username, `Binago ang Receipt Paper Size sa ${paperSize}`);
+
+    res.json({ success: true, message:'Na-update ang paper size.', settings: getReceiptSettingsPublic(settings) });
+});
+
+app.post('/api/receipt-settings/otp-sender', rateLimit('otp-sender-config', 5, 15 * 60 * 1000), async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Aksyon Tinanggihan: Admin privileges lamang ang pwedeng mag-configure ng OTP sender.' });
+    }
+
+    const { username } = req.body;
+
+    const otpSenderEmail = (req.body.otpSenderEmail ||'').trim();
+    const otpSenderAppPassword = (req.body.otpSenderAppPassword ||'').replace(/\s+/g,'');
+
+    const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(otpSenderEmail)) {
+        return res.status(400).json({ success: false, message:'Di-wastong email address.' });
+    }
+    if (!otpSenderAppPassword || otpSenderAppPassword.length < 12) {
+        return res.status(400).json({ success: false, message:'Di-wastong App Password (dapat 16-character Gmail App Password, hindi ang normal na account password).' });
+    }
+
+    try {
+        const transporter = getMailTransporter(otpSenderEmail, otpSenderAppPassword);
+        await transporter.verify();
+
+        const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        settings.otpSenderEmail = otpSenderEmail;
+        settings.otpSenderAppPassword = otpSenderAppPassword;
+        writeData(FILE_RECEIPT_SETTINGS, settings);
+
+        logAction(username ||'Unknown', `Na-configure ang OTP Sender Email (${maskEmail(otpSenderEmail)})`);
+        res.json({ success: true, message:'Na-verify at na-save ang Sender Gmail + App Password.', settings: getReceiptSettingsPublic(settings) });
+    } catch (err) {
+        console.error('OTP sender verification failed:', err.message);
+        res.status(400).json({ success: false, message: `Hindi ma-verify ang Gmail credentials: ${err.message}. Siguraduhing tama ang email at gumagamit ng 16-character App Password (hindi ang normal na password).` });
+    }
+});
+
+app.post('/api/receipt-settings/otp-sender/clear', rateLimit('otp-sender-clear', 5, 15 * 60 * 1000), (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Aksyon Tinanggihan: Admin privileges lamang ang pwedeng mag-clear ng OTP sender.' });
+    }
+
+    const { username } = req.body;
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const hadEmail = maskEmail(settings.otpSenderEmail);
+
+    settings.otpSenderEmail = null;
+    settings.otpSenderAppPassword = null;
+    writeData(FILE_RECEIPT_SETTINGS, settings);
+
+    logAction(username ||'Unknown', `Na-clear ang OTP Sender Email${hadEmail ? ` (dating: ${hadEmail})` :''}`);
+    res.json({ success: true, message:'Na-clear na ang naka-configure na Sender Gmail + App Password.', settings: getReceiptSettingsPublic(settings) });
+});
+
+app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 60 * 1000), async (req, res) => {
+    const { username } = req.body;
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+
+    if ((settings.customizeCount || 0) < FREE_CUSTOMIZE_LIMIT) {
+
+        return res.json({ success: true, otpNeeded: false, message:'May natitira pang libreng pag-customize — hindi kailangan ng OTP.' });
+    }
+
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    settings.pendingOtp = {
+        code: otpCode,
+        expiresAt: Date.now() + OTP_TTL_MS,
+        requestedBy: username ||'Unknown'
+    };
+    writeData(FILE_RECEIPT_SETTINGS, settings);
+
+    const otpMailCreds = getOtpMailCredentials(settings);
+
+    if (!otpMailCreds) {
+        console.error('⚠️ Hindi maipadala ang Receipt Customization OTP: wala pang na-configure na Sender Gmail / App Password sa Receipt Customization panel (o OTP_MAIL_USER/OTP_MAIL_PASS env vars).');
+        return res.status(500).json({
+            success: false,
+            message:'Hindi pa naka-configure ang OTP sender email. Ilagay muna ang Gmail + App Password sa Receipt Customization panel (lalabas ito ngayon dahil naubos na ang 2 libreng attempts).'
+        });
+    }
+    const senderUser = otpMailCreds.user;
+    const senderPass = otpMailCreds.pass;
+
+    try {
+        const transporter = getMailTransporter(senderUser, senderPass);
+
+        await transporter.sendMail({
+            from: `"OmniPOS Receipt Customization" <${senderUser}>`,
+            to: OTP_RECIPIENT_EMAIL,
+            subject: `🔐 OmniPOS: OTP para sa Receipt Customization Request`,
+            text: `May humiling ng pag-customize ng resibo (Store Name/Address/Contact/Header/Footer) matapos maubos ang 2 libreng attempts.\n\n` +
+                  `Hiniling ni: ${username ||'Unknown'}\n` +
+                  `OTP Code: ${otpCode}\n` +
+                  `Mag-e-expire ito sa loob ng 10 minuto.\n\n` +
+                  `Kung hindi ninyo ito hiniling, maaari ninyong balewalain ang email na ito.`
+        });
+
+        logAction(username ||'Unknown','Humiling ng OTP para sa Receipt Customization (naubos na ang 2 libreng attempts)');
+        res.json({ success: true, otpNeeded: true, message:'Matagumpay na naipadala ang OTP sa registered email.' });
+    } catch (err) {
+        console.error('OTP send failure:', err);
+        res.status(500).json({ success: false, message: `Nabigo ang pagpapadala ng OTP: ${err.message}` });
+    }
+});
+
+app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 1000), requirePermission('receipt_settings_view'), (req, res) => {
+    const { storeName, storeAddress, storeContact, headerText, footerText, otp, username } = req.body;
+
+    if (!storeName || !storeName.trim()) {
+        return res.status(400).json({ success: false, message:'Kailangan ang Store Name.' });
+    }
+
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
+
+    if (!canApplyDirectly) {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({
+            id:'REQ-' + Date.now(),
+            requester: req.authUser.username,
+            type:'RECEIPT_UPDATE',
+            data: { storeName: storeName.trim(), storeAddress: (storeAddress ||'').trim(), storeContact: (storeContact ||'').trim(), headerText: (headerText ||'').trim(), footerText: (footerText ||'').trim() },
+            timestamp: new Date().toLocaleString()
+        });
+        writeData(FILE_REQUESTS, requests);
+        logAction(req.authUser.username, `Nag-submit ng Receipt Customization update request para sa Admin approval`);
+        return res.json({ success: true, pending: true, message:'Isinumite ang Receipt Customization request para sa Admin approval.' });
+    }
+
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const currentCount = settings.customizeCount || 0;
+    const needsOtp = currentCount >= FREE_CUSTOMIZE_LIMIT;
+
+    if (needsOtp) {
+        if (!otp || !String(otp).trim()) {
+            return res.json({ success: false, requiresOtp: true, message:'Kailangan na ng OTP verification para magpatuloy sa pag-customize ng resibo.' });
+        }
+
+        const pending = settings.pendingOtp;
+        if (!pending || !pending.code) {
+            return res.status(400).json({ success: false, requiresOtp: true, message:'Walang aktibong OTP request. Mangyaring humingi muna ng bagong OTP.' });
+        }
+        if (Date.now() > pending.expiresAt) {
+            settings.pendingOtp = null;
+            writeData(FILE_RECEIPT_SETTINGS, settings);
+            return res.status(400).json({ success: false, requiresOtp: true, message:'Expired na ang OTP code. Mangyaring humingi ng bago.' });
+        }
+        if (String(otp).trim() !== pending.code) {
+            return res.status(400).json({ success: false, requiresOtp: true, message:'Maling OTP code.' });
+        }
+
+        settings.pendingOtp = null;
+    }
+
+    settings.storeName = storeName.trim();
+    settings.storeAddress = (storeAddress ||'').trim();
+    settings.storeContact = (storeContact ||'').trim();
+    settings.headerText = (headerText ||'').trim();
+    settings.footerText = (footerText ||'').trim() || DEFAULT_RECEIPT_SETTINGS.footerText;
+
+    settings.customizeCount = currentCount + 1;
+
+    if (!settings.firstCustomizedAt) {
+        settings.firstCustomizedAt = new Date().toISOString();
+    }
+
+    writeData(FILE_RECEIPT_SETTINGS, settings);
+    logAction(username ||'Unknown', `Na-update ang Receipt Customization details (attempt #${settings.customizeCount})`);
+
+    res.json({ success: true, message:'Matagumpay na na-update ang detalye ng resibo.', settings: getReceiptSettingsPublic(settings) });
+});
+
+app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request', 3, 10 * 60 * 1000), async (req, res) => {
+    const { username } = req.body;
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+
+    if ((settings.customizeCount || 0) < FREE_CUSTOMIZE_LIMIT) {
+        return res.status(400).json({
+            success: false,
+            message: `May ${FREE_CUSTOMIZE_LIMIT - (settings.customizeCount || 0)} libreng pag-customize ka pa — hindi mo pa kailangan i-reset ang counter.`
+        });
+    }
+
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    settings.pendingResetOtp = {
+        code: otpCode,
+        expiresAt: Date.now() + OTP_TTL_MS,
+        requestedBy: username ||'Unknown'
+    };
+    writeData(FILE_RECEIPT_SETTINGS, settings);
+
+    const otpMailCreds = getOtpMailCredentials(settings);
+
+    if (!otpMailCreds) {
+        console.error('⚠️ Hindi maipadala ang Reset-Counter OTP: wala pang na-configure na Sender Gmail / App Password sa Receipt Customization panel (o OTP_MAIL_USER/OTP_MAIL_PASS env vars).');
+        return res.status(500).json({
+            success: false,
+            message:'Hindi pa naka-configure ang OTP sender email. Ilagay muna ang Gmail + App Password sa Receipt Customization panel.'
+        });
+    }
+    const senderUser = otpMailCreds.user;
+    const senderPass = otpMailCreds.pass;
+
+    try {
+        const transporter = getMailTransporter(senderUser, senderPass);
+
+        await transporter.sendMail({
+            from: `"OmniPOS Receipt Customization" <${senderUser}>`,
+            to: OTP_RECIPIENT_EMAIL,
+            subject: `🔓 OmniPOS: OTP para i-RESET ang Receipt Customization Counter`,
+            text: `May humiling na i-reset ang 2-free-attempts na counter ng Receipt Customization (para bumalik ito sa 0/2).\n\n` +
+                  `Hiniling ni: ${username ||'Unknown'}\n` +
+                  `OTP Code: ${otpCode}\n` +
+                  `Mag-e-expire ito sa loob ng 10 minuto.\n\n` +
+                  `Kung hindi ninyo ito hiniling, maaari ninyong balewalain ang email na ito.`
+        });
+
+        logAction(username ||'Unknown','Humiling ng OTP para i-reset ang Receipt Customization counter');
+        res.json({ success: true, message:'Matagumpay na naipadala ang Reset OTP sa registered email.' });
+    } catch (err) {
+        console.error('Reset OTP send failure:', err);
+        res.status(500).json({ success: false, message: `Nabigo ang pagpapadala ng OTP: ${err.message}` });
+    }
+});
+
+app.post('/api/receipt-settings/reset-counter', rateLimit('otp-reset-verify', 120, 10 * 60 * 1000), (req, res) => {
+    const { otp, username } = req.body;
+
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message:'The OTP code is required.' });
+    }
+
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const pending = settings.pendingResetOtp;
+
+    if (!pending || !pending.code) {
+        return res.status(400).json({ success: false, message:'Walang aktibong Reset OTP request. Humingi muna ng bagong OTP.' });
+    }
+    if (Date.now() > pending.expiresAt) {
+        settings.pendingResetOtp = null;
+        writeData(FILE_RECEIPT_SETTINGS, settings);
+        return res.status(400).json({ success: false, message:'Expired na ang OTP code. Humingi ng bago.' });
+    }
+    if (String(otp).trim() !== pending.code) {
+        return res.status(400).json({ success: false, message:'Maling OTP code.' });
+    }
+
+    settings.customizeCount = 0;
+    settings.pendingResetOtp = null;
+    settings.resetHistory = Array.isArray(settings.resetHistory) ? settings.resetHistory : [];
+    settings.resetHistory.push({ resetAt: new Date().toISOString(), resetBy: username ||'Unknown' });
+
+    writeData(FILE_RECEIPT_SETTINGS, settings);
+    logAction(username ||'Unknown','Na-reset ang Receipt Customization counter (bumalik sa 2 libreng attempts)');
+
+    res.json({ success: true, message:'Na-reset ang counter — may 2 libreng pag-customize na muli.', settings: getReceiptSettingsPublic(settings) });
+});
+
+const FILE_FEATURE_UNLOCKS ='featureUnlocks';
+
+const DEFAULT_FEATURE_UNLOCKS = {
+    installationId: null,
+    hardwareFingerprint: null,
+    tokens: {},
+    lockedAttempts: 0,
+    // ANTI-CLONE: pagkatapos ng UNANG matagumpay na online verification sa
+    // RELAY para sa installationId na ito, dito idinidikit ang fingerprint
+    // na "verified". Kung sa susunod na pagbukas ay iba na ang live
+    // fingerprint (dahil kinopya/inilipat ang buong folder papunta sa
+    // ibang device) — hindi awtomatikong papayagan ang login, kailangan
+    // muna ulit ng online check-in sa RELAY.
+    deviceVerified: false,
+    verifiedFingerprint: null,
+    firstVerifiedAt: null,
+    lastVerifiedAt: null
+};
+
+const RELAY_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEARoRImC1WH3GgR6yO9ZeRYmiMsDvHfytsKQ2f/lwVzfU=
+-----END PUBLIC KEY-----
+`;
+const RELAY_PUBLIC_KEY = crypto.createPublicKey(RELAY_PUBLIC_KEY_PEM);
+
+const RELAY_URL = process.env.RELAY_URL ||'http://127.0.0.1:4477';
+
+const RELAY_API_KEY = process.env.RELAY_API_KEY || null;
+if (!RELAY_API_KEY) {
+    console.warn('⚠️  Walang RELAY_API_KEY na naka-set sa .env — hindi magfa-function ang feature unlock requests hangga\'t hindi ito nalagyan.');
+}
+
+const FEATURE_CATALOG = {
+
+    ocean: { name:'Ocean Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+    emerald: { name:'Emerald Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+    sunset: { name:'Sunset Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+    rosegold: { name:'Rose Gold Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+    cyber: { name:'Cyber Neon Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+    noir: { name:'Coffee Noir Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+    mintfrost: { name:'Mint Frost Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
+
+    purchase_orders: { name:'Purchase Orders Module', price: 999, category:'module', description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
+    customer_crm: { name:'Customer Profiles & Loyalty', price: 799, category:'module', description:'Customer profiles, loyalty points, at purchase history bawat customer.' },
+    promo_codes: { name:'Promo Codes Module', price: 499, category:'module', description:'Gumawa ng discount/promo codes na magagamit sa checkout.' },
+    advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, category:'module', description:'Profit margin, top/slow sellers, 7-day sales trend, at payment method breakdown.' },
+    shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, category:'module', description:'Multi-cashier shift tracking at Z-Reading (cash count) reports.' },
+    rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Gumawa ng custom roles at i-configure kung anong menu ang makikita ng bawat role (Roles & Permissions matrix).' },
+};
+
+const DEMO_FEATURE_ID ='__demo__';
+
+function sumFeaturePrices(featureIds) {
+    return featureIds.reduce((sum, id) => sum + ((FEATURE_CATALOG[id] && FEATURE_CATALOG[id].price) || 0), 0);
+}
+
+// Kung bumili na ang installation ng ilan sa mga feature na kasama sa isang
+// tier/bundle (hal. binili na nang à la carte ang mga Pro Themes), dapat
+// bawasan ang presyo ng bundle para sa NATITIRANG (still-locked) items —
+// pero HINDI sa pamamagitan ng flat na "bundlePrice - kabuuang nabayaran na"
+// (na-DISCOVER na ito bilang EXPLOIT: kung utay-utay/piecemeal bibilhin
+// nang à la carte ang mga MAHAL na features muna, malalapit-sa-zero ang
+// matitirang presyo ng bundle kahit mahal pa ang mga natitirang locked
+// items — parang "libre" na nabibili ang mga ito).
+//
+// Sa halip, PROPORTIONAL ang ginagamit: kinukuha muna ang RATIO ng
+// bundlePrice laban sa TOTAL na à la carte value ng lahat ng item sa tier
+// (ito ang "discount rate" ng bundle), tapos i-apply ang RATE na ito sa
+// à la carte value LANG ng mga NATITIRANG naka-lock na item. Kaya kung
+// magkano man ang combinasyon ng mga nabili na nang hiwalay, ang presyo
+// para sa natitira ay laging proporsyonal/makatarungan sa TUNAY nitong
+// halaga — hindi na maaaring "i-farm" pababa gamit ang piecemeal
+// purchases.
+function getTierPricing(tier, alreadyPurchased) {
+    const fullAlaCarteValue = sumFeaturePrices(tier.featureIds);
+    const remainingFeatureIds = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
+    const remainingAlaCarteValue = sumFeaturePrices(remainingFeatureIds);
+
+    if (fullAlaCarteValue <= 0 || remainingAlaCarteValue <= 0) {
+        return { discount: fullAlaCarteValue, effectivePrice: 0 };
+    }
+
+    const bundleRate = tier.bundlePrice / fullAlaCarteValue;
+    // Math.ceil para hindi ma-round-down pabor sa customer (safe rounding).
+    const effectivePrice = Math.min(
+        tier.bundlePrice,
+        Math.max(1, Math.ceil(remainingAlaCarteValue * bundleRate))
+    );
+    const discount = Math.max(0, remainingAlaCarteValue - effectivePrice);
+    return { discount, effectivePrice };
+}
+
+const UPGRADE_TIERS = [
+    {
+        id:'basic',
+        name:'Basic Upgrade',
+        description:'Para sa mga gustong magsimula sa reporting at promos.',
+        featureIds: ['advanced_reports','promo_codes'],
+        bundlePrice: 999
+    },
+    {
+        id:'standard',
+        name:'Standard Upgrade',
+        description:'Lahat ng Basic + customer loyalty at shift oversight.',
+        featureIds: ['advanced_reports','promo_codes','customer_crm','shift_management'],
+        bundlePrice: 1999
+    },
+    {
+        id:'pro',
+        name:'Pro Upgrade (Complete)',
+        description:'LAHAT ng modules + LAHAT ng Pro Themes — walang matitira pang naka-lock.',
+        featureIds: Object.keys(FEATURE_CATALOG),
+        bundlePrice: 4499
+    }
+];
+
+function readFeatureUnlocks() {
+    const raw = readData(FILE_FEATURE_UNLOCKS, DEFAULT_FEATURE_UNLOCKS);
+    return {
+        installationId: raw.installationId || null,
+        hardwareFingerprint: raw.hardwareFingerprint || null,
+        tokens: (raw.tokens && typeof raw.tokens ==='object') ? { ...raw.tokens } : {},
+        lockedAttempts: typeof raw.lockedAttempts ==='number' ? raw.lockedAttempts : 0,
+        deviceVerified: !!raw.deviceVerified,
+        verifiedFingerprint: raw.verifiedFingerprint || null,
+        firstVerifiedAt: typeof raw.firstVerifiedAt ==='number' ? raw.firstVerifiedAt : null,
+        lastVerifiedAt: typeof raw.lastVerifiedAt ==='number' ? raw.lastVerifiedAt : null
+    };
+}
+
+function recordLockedAttempt() {
+    const data = readFeatureUnlocks();
+    data.lockedAttempts = (data.lockedAttempts || 0) + 1;
+    writeData(FILE_FEATURE_UNLOCKS, data);
+    return data.lockedAttempts;
+}
+
+function getAndroidProp(name) {
+    try {
+        const value = execSync(`getprop ${name}`, { encoding:'utf8', timeout: 2000, stdio: ['ignore','pipe','ignore'] }).trim();
+        return value ||'';
+    } catch (err) {
+        return'';
+    }
+}
+
+// --------------------------------------------------------------
+// DEVICE SEED — random na string na naka-imbak SA LABAS ng OMNIPOS
+// project folder (sa Termux $HOME mismo, isang antas SA ITAAS ng
+// project folder na ito). Layunin: kahit kopyahin ang buong OMNIPOS
+// folder papunta sa IBANG PISIKAL na device na MAGKAPAREHONG MODELO at
+// MAGKAPAREHONG bersyon ng Android/ROM (kung saan magiging IDENTICAL
+// ang Android build props sa dalawang device), MAIIBA PA RIN ang
+// kabuuang fingerprint — dahil ang seed na ito ay HINDI kasama kapag
+// yung project folder lang mismo ang kinopya (nasa labas ito, sa
+// $HOME).
+//
+// PAALALA: kung ang buong Termux $HOME (hindi lang ang OMNIPOS folder)
+// ang kokopyahin, masusundan din ang seed na ito — pero mas
+// deliberate/malaking hakbang na iyon kumpara sa simpleng "kopyahin ang
+// app folder", kaya sapat na proteksyon ito para sa pangkaraniwang
+// senaryo ng cloning.
+// --------------------------------------------------------------
+const DEVICE_SEED_PATH = path.join(os.homedir(), '.omnipos-device-seed');
+
+function getOrCreateDeviceSeed() {
+    try {
+        const existing = fs.readFileSync(DEVICE_SEED_PATH, 'utf8').trim();
+        if (existing) return existing;
+    } catch (err) {
+        // wala pa o hindi mabasa — gagawa ng bago sa ibaba.
+    }
+    const seed = crypto.randomBytes(32).toString('hex');
+    try {
+        fs.writeFileSync(DEVICE_SEED_PATH, seed, { mode: 0o600 });
+    } catch (err) {
+        console.error(`⚠️ ANTI-CLONE: hindi ma-save ang device seed sa ${DEVICE_SEED_PATH}: ${err.message}`);
+    }
+    return seed;
+}
+
+function getNonAndroidMachineParts() {
+    // ANTI-CLONE FALLBACK: kapag Android props ang wala (hal. tumatakbo
+    // sa Windows/Linux/VM na PC), kailangan pa rin ng ibang paraan para
+    // makakuha ng identifier na TALAGANG naka-tali sa PISIKAL na makina —
+    // kung hindi, ang bawat simpleng "kopya ng buong folder papunta sa
+    // ibang PC" ay hindi na-detect bilang bagong device.
+    const parts = [];
+    try { parts.push(os.hostname()); } catch (e) {}
+    try { parts.push(os.platform()); } catch (e) {}
+    try { parts.push(os.arch()); } catch (e) {}
+    try {
+        const cpus = os.cpus();
+        if (cpus && cpus[0] && cpus[0].model) parts.push(cpus[0].model);
+    } catch (e) {}
+    try {
+        // Stable MAC addresses ng mga non-internal network interfaces —
+        // hindi ito nagbabago kahit i-reinstall ang OS o i-clone ang app.
+        const nets = os.networkInterfaces();
+        const macs = Object.values(nets || {})
+            .flat()
+            .filter(n => n && !n.internal && n.mac && n.mac !== '00:00:00:00:00:00')
+            .map(n => n.mac)
+            .sort();
+        if (macs.length) parts.push(macs.join(','));
+    } catch (e) {}
+    try {
+        // Linux machine-id: natatangi bawat OS install, hindi kasama kapag
+        // kinopya lang ang app folder (nasa /etc, hindi kasama sa clone).
+        if (fs.existsSync('/etc/machine-id')) {
+            parts.push(fs.readFileSync('/etc/machine-id', 'utf8').trim());
+        }
+    } catch (e) {}
+    return parts.filter(Boolean);
+}
+
+function computeHardwareFingerprint() {
+    const androidParts = [
+        getAndroidProp('ro.product.model'),
+        getAndroidProp('ro.product.device'),
+        getAndroidProp('ro.product.board'),
+        getAndroidProp('ro.build.fingerprint'),
+        getAndroidProp('ro.serialno'),
+        getAndroidProp('ro.boot.serialno'),
+    ].filter(Boolean);
+
+    // Isinasama na ang device seed sa LAHAT ng path (Android man o hindi)
+    // — ito ang nagpapatunay na MAIIBA pa rin ang fingerprint kahit
+    // magkaparehong modelo/build ang dalawang pisikal na device.
+    const seed = getOrCreateDeviceSeed();
+
+    if (androidParts.length > 0) {
+        return crypto.createHash('sha256').update([...androidParts, seed].join('|')).digest('hex');
+    }
+
+    const machineParts = getNonAndroidMachineParts();
+    const allParts = [...machineParts, seed].filter(Boolean);
+    if (allParts.length === 0) return null;
+    return crypto.createHash('sha256').update(allParts.join('|')).digest('hex');
+}
+
+// --------------------------------------------------------------
+// ANTI-CLONE FIX: ang installationId ay dapat na STABLE at RANDOM —
+// ginagawa ito NANG ISANG BESES LANG at nakatago sa featureUnlocks data
+// (na kasama sa "identity" ng install na ito, kahit kopyahin ang buong
+// folder). HINDI na ito hinahango/kino-compute mula sa hardware
+// fingerprint — dating BUG ito: dahil derived dati ang installationId
+// sa fingerprint, kada magbago ang fingerprint (hal. kinopya papunta sa
+// ibang device), NAGBABAGO RIN ang installationId kasabay nito — kaya
+// laging "first time" / bagong ID ang nakikita ng RELAY, at hindi na
+// kailanman na-de-detect ang clone (dahil hindi na pareho ang ID na
+// sinusuri para sa fingerprint mismatch).
+//
+// Ngayon: installationId = permanenteng random UUID na sumasama sa
+// kinopyang data. hardwareFingerprint = hiwalay na LIVE signal lang,
+// ginagamit para malaman kung nagbago ang pisikal na makina PARA SA
+// PAREHONG installationId — ito mismo ang kailangan ng RELAY verify-login
+// para gumana nang tama ang "same installationId, different fingerprint
+// = clone_suspected" na lohika.
+// --------------------------------------------------------------
+function getOrCreateInstallationId(data) {
+    if (data.installationId) return data.installationId;
+    data.installationId = crypto.randomUUID();
+    writeData(FILE_FEATURE_UNLOCKS, data);
+    return data.installationId;
+}
+
+function verifyUnlockToken(token, expectedInstallationId, expectedFeatureId) {
+    if (!token || !token.payload || !token.signature) return false;
+    const { installationId, featureId, issuedAt, expiresAt } = token.payload;
+    if (installationId !== expectedInstallationId) return false;
+    if (featureId !== expectedFeatureId) return false;
+    if (typeof issuedAt !=='number') return false;
+
+    if (typeof expiresAt ==='number' && Date.now() > expiresAt) return false;
+
+    const payloadString = typeof expiresAt ==='number'
+        ? JSON.stringify({ installationId, featureId, issuedAt, expiresAt })
+        : JSON.stringify({ installationId, featureId, issuedAt });
+
+    try {
+        return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(token.signature,'base64'));
+    } catch (err) {
+        return false;
+    }
+}
+
+// ====================================================================
+// ANTI-CLONE DEVICE VERIFICATION — kailangan bago makapag-login
+// ====================================================================
+// Layunin: pigilan ang isang taong basta nag-copy/nag-move ng BUONG app
+// folder (kasama ang data/featureUnlocks) papunta sa IBANG pisikal na
+// device mula sa pag-login nang parang walang nangyari.
+//
+// Paano gumagana:
+//   1. Sa BAWAT login attempt, kino-compute muna ang LIVE hardware
+//      fingerprint ng kasalukuyang makina (computeHardwareFingerprint()).
+//   2. Kung ito ang UNANG beses (walang naka-store na verifiedFingerprint
+//      pa dati) — o kung IBA na ang live fingerprint kumpara sa huling
+//      verified fingerprint (ibig sabihin, ibang pisikal na makina na
+//      ito ngayon, malamang kinopya/inilipat) — HINDI muna papayagan
+//      ang login hangga't hindi ito successful na na-verify ONLINE sa
+//      RELAY. Kung wala/hindi maabot ang internet/RELAY sa sitwasyong
+//      ito, tatanggihan ang login nang may malinaw na mensahe.
+//   3. Kapag successful ang online verify, naka-imbak na ang
+//      "verifiedFingerprint" — pwede nang mag-login nang OFFLINE
+//      pagkatapos, hangga't PAREHO pa rin ang fingerprint ng makina.
+//   4. Kung sa RELAY mismo ay nakita nitong ang installationId na ito
+//      ay dating naka-bind na sa IBANG fingerprint (ibig sabihin dalawang
+//      magkaibang pisikal na device ang nag-claim ng iisang
+//      installationId — senyales ng cloning), tatanggihan ng RELAY ang
+//      verification at ma-flag ito bilang "clone_suspected" sa admin
+//      panel, hangga't hindi ito ni-review/ni-reset ng developer/owner.
+async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { username, storeName } = {}) {
+    if (!RELAY_API_KEY) {
+        return { ok: false, reason: 'no_api_key', message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
+    }
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/verify-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, hardwareFingerprint, username, storeName })
+        });
+        const relayData = await relayRes.json().catch(() => ({}));
+        if (!relayRes.ok || !relayData.success) {
+            return {
+                ok: false,
+                reason: relayData.cloneSuspected ? 'clone_suspected' : 'rejected',
+                message: relayData.message || 'Tinanggihan ng RELAY ang device verification.'
+            };
+        }
+        return {
+            ok: true,
+            allowed: !!relayData.allowed,
+            // Kung na-"split" ng admin ang device na ito sa RELAY (tingnan
+            // ang /relay/admin/api/devices/:id/split-clone), ibabalik dito
+            // ng RELAY ang BAGONG installationId na dapat nang gamitin ng
+            // client na ito mula ngayon.
+            reassignedInstallationId: relayData.reassignedInstallationId || null
+        };
+    } catch (err) {
+        return { ok: false, reason: 'unreachable', message: `Hindi maabot ang RELAY (${err.message}).` };
+    }
+}
+
+// Tinatawag ito bago payagan ang login. Nagbabalik ng { allowed, message }.
+async function checkDeviceBeforeLogin({ username } = {}) {
+    const data = readFeatureUnlocks();
+    const liveFingerprint = computeHardwareFingerprint();
+    const installationId = getOrCreateInstallationId(data);
+
+    // Kung walang paraang makakuha ng anumang fingerprint (sobrang bihira),
+    // hindi na natin ito ma-eenforce nang maayos — huwag i-block, pero
+    // i-log bilang babala.
+    if (!liveFingerprint) {
+        console.warn('⚠️ ANTI-CLONE: walang na-compute na hardware fingerprint — hindi ma-enforce ang device-binding check.');
+        return { allowed: true };
+    }
+
+    const fingerprintUnchanged = data.deviceVerified && data.verifiedFingerprint === liveFingerprint;
+
+    if (fingerprintUnchanged) {
+        // Opportunistic background re-check lang (hindi hinihintay/hindi
+        // nagba-block ng login) — kung sakaling mag-flag ang RELAY na
+        // clone_suspected dahil may ibang device na gumamit na rin ng
+        // parehong installationId, malalaman agad sa admin panel.
+        verifyDeviceWithRelay(installationId, liveFingerprint, { username }).catch(() => {});
+        return { allowed: true };
+    }
+
+    // Alinman sa: (a) unang beses pa lang, o (b) nagbago ang fingerprint
+    // (ibig sabihin naka-move/na-clone papunta sa ibang device) —
+    // KAILANGAN ng SUCCESSFUL online verification muna sa RELAY.
+    const result = await verifyDeviceWithRelay(installationId, liveFingerprint, { username });
+
+    if (!result.ok) {
+        return {
+            allowed: false,
+            message: result.reason === 'clone_suspected'
+                ? 'This device is not recognized. Please contact your administrator.'
+                : 'Unable to verify this device right now. Please check your internet connection and try again.'
+        };
+    }
+
+    const updated = readFeatureUnlocks();
+
+    if (result.reassignedInstallationId && result.reassignedInstallationId !== installationId) {
+        // Na-"split" ng admin ang device na ito sa RELAY bilang sarili at
+        // hiwalay na installationId (dating clone_suspected). Kailangan
+        // nating i-adopt ito dito lokal — kasama ang paglinis ng mga
+        // dating tokens (naka-bind ang mga iyon sa LUMANG installationId,
+        // kaya hindi na rin sila magiging valid dito) — magsisimula itong
+        // device nang walang naka-unlock na feature hangga't hindi ito
+        // manual na inaktibo ng admin/developer para sa BAGONG ID.
+        console.log(`ℹ️ ANTI-CLONE: hiwalay na installationId ang ibinigay ng RELAY (${result.reassignedInstallationId}) — ina-adopt lokal.`);
+        updated.installationId = result.reassignedInstallationId;
+        updated.tokens = {};
+    } else {
+        updated.installationId = installationId;
+    }
+
+    updated.deviceVerified = true;
+    updated.verifiedFingerprint = liveFingerprint;
+    updated.firstVerifiedAt = updated.firstVerifiedAt || Date.now();
+    updated.lastVerifiedAt = Date.now();
+    writeData(FILE_FEATURE_UNLOCKS, updated);
+
+    return { allowed: true };
+}
+
+// ====================================================================
+// RELAY_BACKUP AUTO-SYNC — "hindi mapapansin" na tumatakbo sa background
+// ====================================================================
+// Bawat successful run: (1) kinokopya/ino-overwrite ang database papunta
+// sa IISANG file sa Download/RELAY_BACKUP ng device (tingnan ang
+// mirrorBackupToDownloads() sa db.js — hindi ito dumaragdag ng bagong
+// file bawat run), tapos (2) tumatawag sa bagong RELAY endpoint
+// (/relay/backup-checkin) para ipaalam na successful ang backup na ito
+// — ito ang nagpapa-awtomatikong dagdag sa device na ito sa "Allowed
+// devices" list sa Relay admin panel (tingnan ang relay_server.js),
+// kaya hindi na kailangang bumalik pa sa admin panel para i-Allow nang
+// manual tuwing may bagong verified/regular na gumagawa ng backup.
+//
+// "Dot" status para dito (orange = naghihintay/waiting o may problema,
+// green = matagumpay na na-sync) ay in-memory lang dito
+// (relayBackupStatus), naka-expose sa /api/relay-backup/status kung
+// kakailanganin balang araw ng isang UI widget sa loob mismo ng
+// OMNIPOS — ang PANGUNAHING dot/indicator na hiningi ay nasa Relay
+// admin panel mismo (sa itaas ng "Allowed devices"), dahil doon
+// naka-consolidate ang status ng LAHAT ng device, hindi lang isa.
+const relayBackupStatus = {
+    state: 'orange', // 'orange' = waiting/may problema, 'green' = matagumpay
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastError: null,
+    path: null
+};
+
+async function runRelayBackupSync() {
+    relayBackupStatus.lastAttemptAt = Date.now();
+
+    const mirrorResult = mirrorBackupToDownloads();
+    if (!mirrorResult.success) {
+        relayBackupStatus.state = 'orange';
+        relayBackupStatus.lastError = mirrorResult.message;
+        console.error('⚠️ RELAY_BACKUP: hindi na-mirror sa Download folder:', mirrorResult.message);
+        return;
+    }
+    relayBackupStatus.path = mirrorResult.path;
+    console.log(
+        mirrorResult.existedBefore
+            ? `🔁 RELAY_BACKUP: na-update ang existing na file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
+            : `🆕 RELAY_BACKUP: unang beses na nagawa ang file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
+    );
+
+    if (!RELAY_API_KEY) {
+        relayBackupStatus.state = 'orange';
+        relayBackupStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
+        return;
+    }
+
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+
+        const relayRes = await fetch(`${RELAY_URL}/relay/backup-checkin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                storeName: (receiptSettings && receiptSettings.storeName) || null,
+                fileSizeBytes: mirrorResult.sizeBytes,
+                backupAt: Date.now()
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success) {
+            relayBackupStatus.state = 'orange';
+            relayBackupStatus.lastError = relayData.message || 'Tinanggihan ng relay ang backup check-in.';
+            return;
+        }
+
+        relayBackupStatus.state = 'green';
+        relayBackupStatus.lastSuccessAt = Date.now();
+        relayBackupStatus.lastError = null;
+        console.log(`✅ RELAY_BACKUP: na-checkin sa relay (installationId: ${installationId}).`);
+    } catch (err) {
+        relayBackupStatus.state = 'orange';
+        relayBackupStatus.lastError = err.message;
+        console.error('⚠️ RELAY_BACKUP: hindi ma-abot ang relay para sa check-in:', err.message);
+    }
+}
+
+// Sinasama ito sa parehong AUTO_BACKUP_DISABLED toggle na ginagamit ng
+// runLocalDatabaseBackup — iisang switch lang (.env) para i-off/on ang
+// LAHAT ng auto-backup behavior nang sabay. Konting delay (40s) mula sa
+// startup para makasunod muna ito sa unang runLocalDatabaseBackup(30s).
+if (!AUTO_BACKUP_DISABLED) {
+    setTimeout(runRelayBackupSync, 40 * 1000);
+    setInterval(runRelayBackupSync, 24 * 60 * 60 * 1000).unref();
+}
+
+// Read-only status endpoint (opsyonal na gamitin ng future UI widget sa
+// loob ng OMNIPOS mismo) — protektado pa rin ng parehong session/token
+// middleware gaya ng ibang /api/* routes.
+app.get('/api/relay-backup/status', (req, res) => {
+    res.json({ success: true, ...relayBackupStatus });
+});
+
+function isDemoActive() {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const token = data.tokens[DEMO_FEATURE_ID];
+    if (!token) return false;
+    return verifyUnlockToken(token, installationId, DEMO_FEATURE_ID);
+}
+
+function getDemoExpiry() {
+    const data = readFeatureUnlocks();
+    const token = data.tokens[DEMO_FEATURE_ID];
+    if (!token || !token.payload) return null;
+    return typeof token.payload.expiresAt ==='number' ? token.payload.expiresAt : null;
+}
+
+function getPurchasedFeatureIds() {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    return Object.keys(data.tokens)
+        .filter(featureId => featureId !== DEMO_FEATURE_ID)
+        .filter(featureId => verifyUnlockToken(data.tokens[featureId], installationId, featureId));
+}
+
+function getUnlockedFeatureIds() {
+    const purchased = getPurchasedFeatureIds();
+
+    if (isDemoActive()) {
+        return Array.from(new Set([...Object.keys(FEATURE_CATALOG), ...purchased]));
+    }
+    return purchased;
+}
+
+function isFullyProUnlocked() {
+    const purchased = getPurchasedFeatureIds();
+    const allIds = Object.keys(FEATURE_CATALOG);
+    return allIds.length > 0 && allIds.every(id => purchased.includes(id));
+}
+
+function requireFeature(featureId) {
+    return (req, res, next) => {
+        const unlockedIds = getUnlockedFeatureIds();
+        if (unlockedIds.includes(featureId)) return next();
+        const feature = FEATURE_CATALOG[featureId];
+        const attemptCount = recordLockedAttempt();
+        return res.status(402).json({
+            success: false,
+            featureLocked: true,
+            featureId,
+            featureName: feature ? feature.name : featureId,
+            price: feature ? feature.price : null,
+            description: feature ? feature.description : null,
+
+            showUpgradeTiers: attemptCount > 0 && attemptCount % 2 === 0,
+            message: `"${feature ? feature.name : featureId}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
+        });
+    };
+}
+
+function checkShiftManagementUnlocked() {
+    const unlockedIds = getUnlockedFeatureIds();
+    if (unlockedIds.includes('shift_management')) return { unlocked: true };
+    const feature = FEATURE_CATALOG['shift_management'];
+    const attemptCount = recordLockedAttempt();
+    return {
+        unlocked: false,
+        body: {
+            success: false,
+            featureLocked: true,
+            featureId:'shift_management',
+            featureName: feature ? feature.name :'shift_management',
+            price: feature ? feature.price : null,
+            showUpgradeTiers: attemptCount > 0 && attemptCount % 2 === 0,
+            message: `"${feature ? feature.name :'shift_management'}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
+        }
+    };
+}
+
+// --------------------------------------------------------------
+// AUTO-RESTORE FROM RELAY — supports the "emergency hard reset" case
+// (Users > Reset/Restore > System Hard Reset). featureUnlocks.tokens gets
+// wiped on hard reset, BUT the installationId (derived from the hardware
+// fingerprint) STAYS the same — so when this server checks in with
+// RELAY again using the SAME installationId, RELAY can hand back the
+// tokens it previously issued (no new OTP/payment required).
+//
+// This is called: (1) ONCE on server start (best-effort, not required
+// for the app to start), and (2) on-demand via the
+// /api/features/restore-check endpoint (the manual "Sync with Relay Now"
+// button in Settings, for when the user doesn't want to restart the
+// server).
+// --------------------------------------------------------------
+async function attemptRelayRestore() {
+    if (!RELAY_API_KEY) return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/restore-tokens`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success || !relayData.tokens) {
+            return { attempted: true, restoredCount: 0, restoredFeatureIds: [] };
+        }
+
+        let restoredCount = 0;
+        const restoredFeatureIds = [];
+        for (const [featureId, token] of Object.entries(relayData.tokens)) {
+            // Skip anything already recorded in data.tokens (e.g. if it
+            // wasn't actually reset, the restore has no effect on it).
+            if (data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
+                continue;
+            }
+            if (!verifyUnlockToken(token, installationId, featureId)) continue; // safety: still verify the signature
+            data.tokens[featureId] = token;
+            restoredCount++;
+            restoredFeatureIds.push(featureId);
+        }
+
+        if (restoredCount > 0) {
+            writeData(FILE_FEATURE_UNLOCKS, data);
+            logAction('System', `Automatically restored ${restoredCount} feature(s) from Relay (post-reset check-in).`);
+        }
+
+        return { attempted: true, restoredCount, restoredFeatureIds };
+    } catch (err) {
+        console.warn('⚠️  Could not reach Relay for auto-restore check:', err.message);
+        return { attempted: true, restoredCount: 0, restoredFeatureIds: [], error: err.message };
+    }
+}
+
+// Best-effort na tawag sa pag-start ng server — hindi nire-require na
+// matagumpay ito bago tuloy-tuloy ang app (offline-friendly).
+setTimeout(() => {
+    attemptRelayRestore().catch(() => {});
+}, 3000);
+
+// --------------------------------------------------------------
+// AUTO-LOCKDOWN FROM RELAY — part of the same manual "Sync with Relay
+// Now" button, but the REVERSE of attemptRelayRestore() above: instead
+// of ADDING back a previously unlocked feature, this DETERMINES which
+// feature/theme that is currently LOCAL (we have a token for it here,
+// meaning it was previously unlocked) is NO LONGER recognized by Relay
+// right now — because it was deactivated by the developer/store owner
+// in the admin panel, or its time-based license has expired.
+//
+// Why this needs to be checked separately from the local
+// verifyUnlockToken(): an unlocked token here is a self-contained,
+// signed proof (works even offline) — once it's deactivated on Relay,
+// the local copy doesn't automatically become invalid, since its
+// signature is still valid and it hasn't expired yet. It has to be
+// EXPLICITLY checked against Relay (the only "source of truth" for
+// whether an unlock is still genuine) to know whether it should be
+// removed/locked here on the client as well.
+// --------------------------------------------------------------
+async function attemptRelayFeatureSync() {
+    const restoreResult = await attemptRelayRestore();
+    const restoredFeatureIds = restoreResult.restoredFeatureIds || [];
+
+    if (!RELAY_API_KEY) {
+        return { attempted: restoreResult.attempted, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures: [] };
+    }
+
+    // Re-read the latest contents of the file (attemptRelayRestore()
+    // above may have added to it).
+    const latestData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(latestData);
+    const localFeatureIds = Object.keys(latestData.tokens);
+
+    const removedFeatures = [];
+    if (localFeatureIds.length === 0) {
+        return { attempted: true, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures };
+    }
+
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/check-feature-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, featureIds: localFeatureIds })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayData.success && relayData.statuses && typeof relayData.statuses === 'object') {
+            for (const [featureId, info] of Object.entries(relayData.statuses)) {
+                if (!info || info.status === 'active') continue;
+                if (!latestData.tokens[featureId]) continue;
+
+                delete latestData.tokens[featureId];
+                removedFeatures.push({
+                    featureId,
+                    featureName: info.featureName || (FEATURE_CATALOG[featureId] && FEATURE_CATALOG[featureId].name) || featureId,
+                    category: info.category || (FEATURE_CATALOG[featureId] && FEATURE_CATALOG[featureId].category) || 'module',
+                    reason: info.reason === 'expired' ? 'expired' : 'deactivated'
+                });
+            }
+
+            if (removedFeatures.length > 0) {
+                writeData(FILE_FEATURE_UNLOCKS, latestData);
+                const summary = removedFeatures.map(r => `${r.featureName} (${r.reason})`).join(', ');
+                logAction('System', `Automatically locked ${removedFeatures.length} feature(s) after detecting they are no longer active on Relay (manual sync): ${summary}.`);
+            }
+        }
+    } catch (err) {
+        console.warn('⚠️  Could not reach Relay for the feature status check:', err.message);
+    }
+
+    return { attempted: true, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures };
+}
+
+// --------------------------------------------------------------
+// AUTO-SYNC INTERVAL (bagong dagdag) — dati, ang attemptRelayFeatureSync()
+// sa itaas ay tumatakbo lang kapag: (1) pag-start ng server (restore-only,
+// hindi pa lockdown check), o (2) pag-pindot ng user sa manual na
+// "Sync with Relay Now" button. Ibig sabihin, kung may binago ang
+// developer/store owner sa Relay admin panel (nag-deactivate ng feature,
+// nag-expire ang isang license, o nag-restore), HINDI ito agad
+// mapapansin ng OMNIPOS client hangga't hindi ito manually na-sync.
+//
+// Ngayon, tumatakbo na rin ito nang AWTOMATIKO paulit-ulit habang buhay/
+// online ang OMNIPOS server, para halos real-time (ilang segundo lang ang
+// delay) ang pag-react ng OMNIPOS sa anumang pagbabago sa Relay — hindi
+// na kailangang hintayin pa ang manual sync. Kapag offline naman ang
+// OMNIPOS (walang internet), tahimik lang itong nabibigo bawat tawag
+// (naka-try/catch na sa loob mismo ng attemptRelayFeatureSync /
+// attemptRelayRestore), kaya ligtas itong paulit-ulit na tinatawag.
+// --------------------------------------------------------------
+const RELAY_FEATURE_SYNC_INTERVAL_MS = Number(process.env.RELAY_FEATURE_SYNC_INTERVAL_MS) || 30 * 1000; // default: 30s
+if (RELAY_API_KEY) {
+    // Konting delay (10s) mula sa startup para makasunod muna sa unang
+    // best-effort na attemptRelayRestore() sa itaas (3s mark).
+    setTimeout(() => { attemptRelayFeatureSync().catch(() => {}); }, 10 * 1000);
+    setInterval(() => { attemptRelayFeatureSync().catch(() => {}); }, RELAY_FEATURE_SYNC_INTERVAL_MS).unref();
+}
+
+app.post('/api/features/restore-check', rateLimit('feature-restore-check', 10, 10 * 60 * 1000), async (req, res) => {
+    const result = await attemptRelayFeatureSync();
+
+    // Split what actually came back from Relay into the demo session vs.
+    // genuinely purchased features, so the client can show the correct
+    // prompt instead of a generic "feature(s) restored" message.
+    const restoredFeatureIds = result.restoredFeatureIds || [];
+    const demoRestored = restoredFeatureIds.includes(DEMO_FEATURE_ID);
+    const purchasedRestoredCount = restoredFeatureIds.filter(id => id !== DEMO_FEATURE_ID).length;
+
+    const messageParts = [];
+    if (purchasedRestoredCount > 0) {
+        messageParts.push(`Restored ${purchasedRestoredCount} previously purchased feature(s).`);
+    }
+    if (demoRestored) {
+        messageParts.push('Restored an active Demo Mode session for this device.');
+    }
+    if (result.removedFeatures.length > 0) {
+        messageParts.push(`Locked ${result.removedFeatures.length} feature(s) that are no longer active on Relay (deactivated or expired).`);
+    }
+    if (messageParts.length === 0) {
+        messageParts.push('Nothing newly restored — no configurations or previously unlocked features detected for this device.');
+    }
+
+    res.json({
+        success: true,
+        restoredCount: result.restoredCount,
+        restoredFeatureIds,
+        demoRestored,
+        purchasedRestoredCount,
+        removedFeatures: result.removedFeatures,
+        message: messageParts.join(' '),
+        unlockedFeatureIds: getUnlockedFeatureIds()
+    });
+});
+
+app.get('/api/features/status', (req, res) => {
+    res.json({
+        success: true,
+        unlockedFeatureIds: getUnlockedFeatureIds(),
+
+        purchasedFeatureIds: getPurchasedFeatureIds(),
+        fullyPurchased: isFullyProUnlocked()
+    });
+});
+
+async function parseRelayResponse(relayRes) {
+    const rawText = await relayRes.text();
+    let parsed;
+    try {
+        parsed = rawText ? JSON.parse(rawText) : {};
+    } catch (err) {
+        throw new Error(
+            `the relay returned an unexpected non-JSON response (HTTP ${relayRes.status}). ` +
+            `This usually means the relay service isn't running, RELAY_URL is misconfigured, ` +
+            `or the relay crashed and returned an error page instead of JSON.`
+        );
+    }
+    if (!relayRes.ok && parsed.success === undefined) {
+        throw new Error(parsed.message || `the relay responded with HTTP ${relayRes.status}.`);
+    }
+    return parsed;
+}
+
+// --------------------------------------------------------------
+// Kapag tinanggihan ng Relay ang request dahil hindi pa naka-Allow ang
+// device (unang beses palang gumawa ng request ang device na ito), HINDI
+// natin ito dapat ituring na basta "error" — inaasahang pangyayari ito
+// habang naghihintay pa lang ng authorization mula sa developer/store
+// owner (nakikita na ito sa Relay admin panel bilang bagong "Recently
+// Seen" device, madali na lang i-Allow doon). Kaya't gumagawa tayo ng
+// hiwalay/mas magandang response shape (`pendingAuthorization: true`)
+// para maipakita ng OMNIPOS client ang isang "wait for authorization"
+// na prompt sa halip na error dialog.
+function relayRejectionResponse(res, relayData, fallbackMessage) {
+    if (relayData && relayData.deviceNotAllowed) {
+        return res.status(403).json({
+            success: false,
+            pendingAuthorization: true,
+            message: 'Naipadala na ang device na ito papuntang developer/store owner para sa authorization. Wala pang access ang device na ito — maghintay lang na ma-\"Allow\" ka sa Relay admin panel, at awtomatiko na itong susubukan ulit.'
+        });
+    }
+    return res.status(502).json({ success: false, message: (relayData && relayData.message) || fallbackMessage });
+}
+
+app.post('/api/features/request-unlock', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
+    const { featureId, username, photo } = req.body;
+    const feature = FEATURE_CATALOG[featureId];
+
+    if (!feature) {
+        return res.status(400).json({ success: false, message:'Unknown feature.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    if (data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
+        return res.json({ success: true, alreadyUnlocked: true, message: `Naka-unlock na ang ${feature.name}.` });
+    }
+
+    try {
+        const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        const relayRes = await fetch(`${RELAY_URL}/relay/request-unlock`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                featureId,
+                featureName: feature.name,
+                price: feature.price,
+                username: username ||'Unknown',
+                storeName: (receiptSettings && receiptSettings.storeName) || null,
+                photo: photo || null
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success) {
+            return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
+        }
+
+        logAction(username ||'Unknown', `Humiling ng OTP para i-unlock ang ${feature.name}`);
+        res.json({ success: true, message:'The unlock request has been sent. Please wait for the confirmation code from the developer/owner.' });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay:', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120, 10 * 60 * 1000), async (req, res) => {
+    const { featureId, otp, username } = req.body;
+    const feature = FEATURE_CATALOG[featureId];
+
+    if (!feature) {
+        return res.status(400).json({ success: false, message:'Unknown feature.' });
+    }
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message:'The OTP code is required.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-unlock`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, featureId, otp: String(otp).trim() })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayData.pending) {
+            return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
+        }
+
+        if (!relayData.success) {
+            return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
+        }
+
+        if (!verifyUnlockToken(relayData.token, installationId, featureId)) {
+            console.error('⚠️ Natanggap ang isang token mula sa relay pero HINDI valid ang signature nito. Posibleng may problema sa RELAY_PUBLIC_KEY_PEM o kompromisado ang koneksyon.');
+            return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
+        }
+
+        data.tokens[featureId] = relayData.token;
+        writeData(FILE_FEATURE_UNLOCKS, data);
+        logAction(username ||'Unknown', `Na-unlock ang feature: ${feature.name}`);
+
+        res.json({ success: true, message: `${feature.name} has been unlocked!`, unlockedFeatureIds: getUnlockedFeatureIds() });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay:', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.post('/api/features/request-demo', requirePermission('relay_unlock_request'), rateLimit('feature-demo-request', 3, 10 * 60 * 1000), async (req, res) => {
+    const { username, photo } = req.body;
+
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    if (isDemoActive()) {
+        return res.json({ success: true, alreadyActive: true, message:'Aktibo na ang Demo Mode.', demoExpiresAt: getDemoExpiry() });
+    }
+
+    try {
+        const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        const relayRes = await fetch(`${RELAY_URL}/relay/request-demo`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                username: username ||'Unknown',
+                storeName: (receiptSettings && receiptSettings.storeName) || null,
+                photo: photo || null
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success) {
+            return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
+        }
+
+        logAction(username ||'Unknown','Humiling ng OTP para sa Demo Mode');
+        res.json({ success: true, message:'The demo request has been sent. Please wait for the confirmation code from the developer/owner.' });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay (demo):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10 * 60 * 1000), async (req, res) => {
+    const { otp, username } = req.body;
+
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message:'The OTP code is required.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-demo`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, otp: String(otp).trim() })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayData.pending) {
+            return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
+        }
+
+        if (!relayData.success) {
+            return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
+        }
+
+        if (!verifyUnlockToken(relayData.token, installationId, DEMO_FEATURE_ID)) {
+            console.error('⚠️ Natanggap ang isang demo token mula sa relay pero HINDI valid ang signature/expiry nito.');
+            return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
+        }
+
+        data.tokens[DEMO_FEATURE_ID] = relayData.token;
+        writeData(FILE_FEATURE_UNLOCKS, data);
+        logAction(username ||'Unknown','Na-activate ang Demo Mode');
+
+        res.json({
+            success: true,
+            message:'Demo Mode has been activated!',
+            demoExpiresAt: getDemoExpiry(),
+            unlockedFeatureIds: getUnlockedFeatureIds()
+        });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay (demo confirm):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.get('/api/features/demo-status', (req, res) => {
+    const active = isDemoActive();
+    res.json({
+        success: true,
+        demoActive: active,
+        demoExpiresAt: active ? getDemoExpiry() : null,
+        fullyPurchased: isFullyProUnlocked()
+    });
+});
+
+app.post('/api/features/end-demo', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Aksyon Tinanggihan: Admin privileges lamang ang pwedeng magtapos ng Demo Mode nang maaga.' });
+    }
+    const data = readFeatureUnlocks();
+    if (!data.tokens[DEMO_FEATURE_ID]) {
+        return res.json({ success: true, alreadyInactive: true, message:'Wala namang aktibong Demo Mode.' });
+    }
+    delete data.tokens[DEMO_FEATURE_ID];
+    writeData(FILE_FEATURE_UNLOCKS, data);
+    logAction(req.authUser.username,'Manual na tinapos ang Demo Mode bago pa man mag-expire.');
+    res.json({
+        success: true,
+        message:'Demo Mode has been closed.',
+        unlockedFeatureIds: getUnlockedFeatureIds(),
+        fullyPurchased: isFullyProUnlocked()
+    });
+});
+
+app.get('/api/features/upgrade-catalog', (req, res) => {
+    const alreadyPurchased = getPurchasedFeatureIds();
+    const features = Object.keys(FEATURE_CATALOG).map(id => ({ id, ...FEATURE_CATALOG[id] }));
+    const tiers = UPGRADE_TIERS.map(tier => {
+        const { discount, effectivePrice } = getTierPricing(tier, alreadyPurchased);
+        const remainingFeatureIds = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
+        return {
+            id: tier.id,
+            name: tier.name,
+            description: tier.description,
+            featureIds: tier.featureIds,
+            alaCartePrice: sumFeaturePrices(remainingFeatureIds),
+            bundlePrice: tier.bundlePrice,
+            bundleSavings: discount,
+            effectiveBundlePrice: effectivePrice
+        };
+    });
+    res.json({ success: true, features, tiers });
+});
+
+app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-bulk-request', 3, 10 * 60 * 1000), async (req, res) => {
+    const { featureIds, tierId, username, photo } = req.body;
+
+    if (!Array.isArray(featureIds) || featureIds.length === 0) {
+        return res.status(400).json({ success: false, message:'featureIds must be a non-empty array.' });
+    }
+    const unknown = featureIds.filter(id => !FEATURE_CATALOG[id]);
+    if (unknown.length) {
+        return res.status(400).json({ success: false, message: `Unknown feature(s): ${unknown.join(', ')}` });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    const alreadyPurchased = getPurchasedFeatureIds();
+    const stillLocked = featureIds.filter(id => !alreadyPurchased.includes(id));
+    if (stillLocked.length === 0) {
+        return res.json({ success: true, alreadyUnlocked: true, message:'Naka-unlock na ang lahat ng napili.' });
+    }
+
+    // Kung pumili ang client ng isang PACKAGE/TIER (hindi à la carte), gamitin
+    // ang PROPORTIONAL na presyo ng tier para sa mga natitirang naka-lock na
+    // item (tingnan ang getTierPricing() sa itaas) — huwag basta i-sum ang
+    // mga à la carte na presyo, dahil doon nanggagaling ang dating bug kung
+    // saan hindi tugma ang presyong lumalabas sa OTP email sa presyong
+    // nakita ng client sa Upgrade modal. Ang discounted na presyo ay VALID
+    // lang kung eksaktong tumutugma ang (still-locked) na featureIds sa
+    // (still-locked) na featureIds ng tier na sinasabing pinili — kung hindi
+    // tugma (i.e. pinalitan/dinagdagan ng request ang listahan), bumalik sa
+    // à la carte sum bilang ligtas na default.
+    let totalPrice = sumFeaturePrices(stillLocked);
+    if (tierId) {
+        const tier = UPGRADE_TIERS.find(t => t.id === tierId);
+        if (tier) {
+            const tierStillLocked = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
+            const sameSet = tierStillLocked.length === stillLocked.length &&
+                tierStillLocked.every(id => stillLocked.includes(id));
+            if (sameSet) {
+                totalPrice = getTierPricing(tier, alreadyPurchased).effectivePrice;
+            }
+        }
+    }
+
+    try {
+        const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        const relayRes = await fetch(`${RELAY_URL}/relay/request-unlock-bulk`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                featureIds: stillLocked,
+                featureNames: stillLocked.map(id => FEATURE_CATALOG[id].name),
+                totalPrice,
+                username: username ||'Unknown',
+                storeName: (receiptSettings && receiptSettings.storeName) || null,
+                photo: photo || null
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success) {
+            return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
+        }
+
+        logAction(username ||'Unknown', `Humiling ng OTP para i-unlock ang ${stillLocked.length} feature(s) (₱${totalPrice})`);
+        res.json({ success: true, message:'The bundle unlock request has been sent. Please wait for the confirmation code.', totalPrice, featureIds: stillLocked });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay (bulk):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-confirm', 120, 10 * 60 * 1000), async (req, res) => {
+    const { featureIds, otp, username } = req.body;
+
+    if (!Array.isArray(featureIds) || featureIds.length === 0) {
+        return res.status(400).json({ success: false, message:'featureIds must be a non-empty array.' });
+    }
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message:'The OTP code is required.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-unlock-bulk`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, featureIds, otp: String(otp).trim() })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayData.pending) {
+            return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
+        }
+
+        if (!relayData.success) {
+            return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
+        }
+
+        const tokens = relayData.tokens || {};
+        for (const featureId of featureIds) {
+            const token = tokens[featureId];
+            if (!token || !verifyUnlockToken(token, installationId, featureId)) {
+                console.error(`⚠️ Invalid/missing token mula sa relay para sa ${featureId} (bulk confirm).`);
+                return res.status(500).json({ success: false, message: `Hindi valid ang token na natanggap para sa ${featureId}. Kontakin ang developer.` });
+            }
+        }
+        featureIds.forEach(featureId => { data.tokens[featureId] = tokens[featureId]; });
+        writeData(FILE_FEATURE_UNLOCKS, data);
+        logAction(username ||'Unknown', `Na-unlock ang ${featureIds.length} feature(s) via bundle`);
+
+        res.json({ success: true, message:'Bundle unlocked!', unlockedFeatureIds: getUnlockedFeatureIds() });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay (bulk confirm):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.get('/api/themes/status', (req, res) => {
+    const unlockedFeatureIds = getUnlockedFeatureIds();
+    const unlockedThemeIds = unlockedFeatureIds.filter(id => FEATURE_CATALOG[id] && FEATURE_CATALOG[id].category ==='theme');
+    res.json({ success: true, unlockedThemeIds });
+});
+
+app.post('/api/themes/request-unlock', requirePermission('relay_unlock_request'), rateLimit('theme-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
+    const { themeId, username, photo } = req.body;
+    const theme = FEATURE_CATALOG[themeId];
+
+    if (!theme || theme.category !=='theme') {
+        return res.status(400).json({ success: false, message:'Unknown Pro theme.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    if (data.tokens[themeId] && verifyUnlockToken(data.tokens[themeId], installationId, themeId)) {
+        return res.json({ success: true, alreadyUnlocked: true, message: `Naka-unlock na ang ${theme.name}.` });
+    }
+
+    try {
+        const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        const relayRes = await fetch(`${RELAY_URL}/relay/request-unlock`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                featureId: themeId,
+                featureName: theme.name,
+                price: theme.price,
+                username: username ||'Unknown',
+                storeName: (receiptSettings && receiptSettings.storeName) || null,
+                photo: photo || null
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success) {
+            return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
+        }
+
+        logAction(username ||'Unknown', `Humiling ng OTP para i-unlock ang ${theme.name}`);
+        res.json({ success: true, message:'The unlock request has been sent. Please wait for the confirmation code from the developer/owner.' });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay:', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10 * 60 * 1000), async (req, res) => {
+    const { themeId, otp, username } = req.body;
+    const theme = FEATURE_CATALOG[themeId];
+    if (!theme || theme.category !=='theme') {
+        return res.status(400).json({ success: false, message:'Unknown Pro theme.' });
+    }
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message:'The OTP code is required.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-unlock`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, featureId: themeId, otp: String(otp).trim() })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayData.pending) {
+            return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
+        }
+
+        if (!relayData.success) {
+            return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
+        }
+        if (!verifyUnlockToken(relayData.token, installationId, themeId)) {
+            console.error('⚠️ Natanggap ang isang token mula sa relay pero HINDI valid ang signature nito.');
+            return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
+        }
+
+        data.tokens[themeId] = relayData.token;
+        writeData(FILE_FEATURE_UNLOCKS, data);
+        logAction(username ||'Unknown', `Na-unlock ang Pro theme: ${theme.name}`);
+
+        const unlockedThemeIds = getUnlockedFeatureIds().filter(id => FEATURE_CATALOG[id] && FEATURE_CATALOG[id].category ==='theme');
+        res.json({ success: true, message: `${theme.name} has been unlocked!`, unlockedThemeIds });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay:', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+function getPHTime() {
+    return new Date().toLocaleString("sv-SE", { timeZone:"Asia/Manila" });
+}
+
+const defaultUsers = [
+    { username:'admin', password:'admin', role:'Admin', created:'2026-07-07 04:32:09' },
+    { username:'cashier1', password:'cashier123', role:'Cashier', created:'2026-07-07 18:30:20' },
+    { username:'staff', password:'staff123', role:'Staff', created:'2026-07-07 16:34:41' }
+];
+
+const defaultProducts = [
+    { code:'PRDT20250001', name:'Bottled Water 500ml', category:'Beverages', price: 25.00, stock: 8 },
+    { code:'PRDT20250002', name:'Coca-Cola 1L', category:'Beverages', price: 55.00, stock: 9 },
+    { code:'PRDT20250003', name:'Fresh Milk 1L', category:'Dairy', price: 85.00, stock: 10 },
+    { code:'PRDT20250004', name:'Nova Multigrain', category:'Snacks', price: 30.00, stock: 10 },
+    { code:'PRDT20250005', name:'Piattos Cheese', category:'Snacks', price: 35.00, stock: 10 }
+];
+
+if (readData(FILE_USERS).length === 0) {
+    const secureDefaultUsers = defaultUsers.map(u => ({
+        ...u,
+        password: bcrypt.hashSync(u.password, 10)
+    }));
+    writeData(FILE_USERS, secureDefaultUsers);
+}
+if (readData(FILE_PRODUCTS).length === 0) writeData(FILE_PRODUCTS, defaultProducts);
+
+function verifyAdmin(req, res, next) {
+
+    const { username, adminPassword } = req.body;
+
+    if (!username) {
+        return res.status(400).json({ success: false, message:'May kulang na impormasyon (Username required).' });
+    }
+
+    const users = readData(FILE_USERS);
+    const activeUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+
+    if (!activeUser || activeUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({
+            success: false,
+            message:'Akses Denied: Ang account na ito ay walang sapat na pribilehiyo bilang Admin!'
+        });
+    }
+
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ng Admin password para sa aksyong ito.' });
+    }
+
+    let isPasswordCorrect = false;
+    try {
+        isPasswordCorrect = bcrypt.compareSync(adminPassword, activeUser.password);
+    } catch (e) {
+        isPasswordCorrect = (adminPassword === activeUser.password);
+    }
+
+    if (!isPasswordCorrect) {
+
+        return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling Admin Password. Hindi pinahintulutan ang aksyong ito.' });
+    }
+
+    next();
+}
+
+app.get('/api/roles', (req, res) => {
+    res.json({ success: true, roles: getRoles(), menuRegistry: MENU_REGISTRY });
+});
+
+app.post('/api/roles', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
+    const { roleName, permissions } = req.body;
+    if (!roleName || typeof roleName !=='string' || !roleName.trim()) {
+        return res.status(400).json({ success: false, message:'Kailangan ng pangalan ng role.' });
+    }
+    const name = roleName.trim();
+    if (name.toLowerCase() ==='admin') {
+        return res.status(403).json({ success: false, message:'Nakareserba ang pangalang "Admin" bilang huling super-admin ng system.' });
+    }
+    if (!permissions || typeof permissions !=='object') {
+        return res.status(400).json({ success: false, message:'Kulang ang permissions data.' });
+    }
+
+    let roles = getRoles();
+
+    const normalizedPerms = {};
+    MENU_REGISTRY.forEach(m => { normalizedPerms[m.key] = !!permissions[m.key]; });
+
+    const existingIdx = roles.findIndex(r => r.name.toLowerCase() === name.toLowerCase());
+    if (existingIdx !== -1) {
+        if (roles[existingIdx].protected) {
+            return res.status(403).json({ success: false, message: `Hindi maaaring baguhin ang "${roles[existingIdx].name}" role.` });
+        }
+        roles[existingIdx].permissions = normalizedPerms;
+    } else {
+        roles.push({ name, protected: false, permissions: normalizedPerms });
+    }
+    writeData(FILE_ROLES, roles);
+    logAction(req.authUser.username, `Na-update ang permissions ng role: ${name}`);
+    res.json({ success: true, roles });
+});
+
+app.post('/api/roles/reorder', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
+    const { orderedRoleNames } = req.body;
+    if (!Array.isArray(orderedRoleNames) || !orderedRoleNames.length) {
+        return res.status(400).json({ success: false, message:'Kailangan ng listahan ng roles sa bagong pagkakasunod-sunod.' });
+    }
+
+    let roles = getRoles();
+
+    const currentNamesLower = roles.map(r => r.name.toLowerCase()).sort();
+    const requestedNamesLower = orderedRoleNames.map(n => (n ||'').toLowerCase()).sort();
+    const sameSet = currentNamesLower.length === requestedNamesLower.length &&
+        currentNamesLower.every((n, i) => n === requestedNamesLower[i]);
+
+    if (!sameSet) {
+        return res.status(400).json({ success: false, message:'Hindi tugma ang listahan ng roles — baka may role na nadagdag/nabura habang nagre-reorder.' });
+    }
+
+    const roleByLowerName = new Map(roles.map(r => [r.name.toLowerCase(), r]));
+    const reordered = orderedRoleNames.map(n => roleByLowerName.get(n.toLowerCase()));
+
+    writeData(FILE_ROLES, reordered);
+    logAction(req.body.username ||'Unknown', `Binago ang pagkakasunod-sunod ng Role columns sa Permission Matrix: ${orderedRoleNames.join(' → ')}`);
+    res.json({ success: true, roles: reordered });
+});
+
+app.post('/api/roles/delete', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
+    const { roleName } = req.body;
+    let roles = getRoles();
+    const role = roles.find(r => r.name.toLowerCase() === (roleName ||'').toLowerCase());
+    if (!role) return res.status(404).json({ success: false, message:'Role not found.' });
+    if (role.protected) return res.status(403).json({ success: false, message:'Hindi maaaring burahin ang Admin role.' });
+
+    const users = readData(FILE_USERS);
+    const inUse = users.some(u => u.role.toLowerCase() === role.name.toLowerCase());
+    if (inUse) {
+        return res.status(409).json({ success: false, message: `May mga user pa na naka-assign sa role na "${role.name}". I-reassign muna sila bago ito burahin.` });
+    }
+
+    roles = roles.filter(r => r.name.toLowerCase() !== role.name.toLowerCase());
+    writeData(FILE_ROLES, roles);
+    logAction(req.authUser.username, `Binura ang role: ${role.name}`);
+    res.json({ success: true, roles });
+});
+
+app.post('/api/auth/login', loginRateLimit(5, 30, 10 * 60 * 1000), async (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({
+            success: false,
+            message:'Mangyaring ilagay ang iyong tamang username at password.'
+        });
+    }
+
+    // ANTI-CLONE GATE: kailangan munang maka-verify online sa RELAY (unang
+    // beses, o kapag nagbago ang hardware fingerprint) bago tuluyang
+    // suriin ang username/password.
+    const deviceCheck = await checkDeviceBeforeLogin({ username });
+    if (!deviceCheck.allowed) {
+        return res.status(403).json({
+            success: false,
+            deviceBlocked: true,
+            message: deviceCheck.message
+        });
+    }
+
+    let users = readData(FILE_USERS);
+
+    let userIndex = users.findIndex(u => u.username.trim().toLowerCase() === username.trim().toLowerCase());
+
+    if (userIndex !== -1) {
+        const user = users[userIndex];
+        let isMatch = false;
+        let needsUpgrade = false;
+
+        try {
+
+            isMatch = bcrypt.compareSync(password, user.password);
+        } catch (error) {
+
+            isMatch = (password === user.password);
+            if (isMatch) needsUpgrade = true;
+        }
+
+        if (isMatch) {
+
+            if (needsUpgrade) {
+                user.password = bcrypt.hashSync(password, 10);
+                writeData(FILE_USERS, users);
+            }
+
+            logAction(user.username, `Logged into the system`);
+
+            const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req));
+
+            const permissions = getPermissionsForRole(user.role);
+            return res.json({ success: true, user: { username: user.username, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
+        }
+    }
+
+    res.status(401).json({ success: false, message:'Maling username o password.' });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    if (req.authToken) {
+        destroySession(req.authToken);
+    }
+    res.json({ success: true, message:'Logged out.' });
+});
+
+app.get('/api/auth/active-sessions', (req, res) => {
+    const now = Date.now();
+
+    const allUsers = readData(FILE_USERS);
+
+    const requesterRole = req.authUser && req.authUser.role;
+    const canSeeSensitiveDetails = (requesterRole ||'').toLowerCase() ==='admin' || !!getPermissionsForRole(requesterRole).users;
+
+    const latestSessionByUsername = new Map();
+    Array.from(SESSIONS.values())
+        .filter(s => now <= s.expiresAt)
+        .forEach(s => {
+            const existing = latestSessionByUsername.get(s.username);
+            if (!existing || (s.loginAt || 0) > (existing.loginAt || 0)) {
+                latestSessionByUsername.set(s.username, s);
+            }
+        });
+
+    const sessions = Array.from(latestSessionByUsername.values())
+        .map(s => {
+            const userRecord = allUsers.find(u => u.username === s.username);
+            return {
+                username: s.username,
+                role: s.role,
+                avatar: (userRecord && userRecord.avatar) || null,
+                loginAt: s.loginAt || null,
+                minutesActive: s.loginAt ? Math.max(0, Math.floor((now - s.loginAt) / 60000)) : null,
+                isCurrentSession: req.authToken ? SESSIONS.get(req.authToken) === s : false,
+
+                // Device/IP ay sensitibong impormasyon — itinatago sa mga
+                // walang 'users' management access (o hindi Admin), pero
+                // hindi natin binablock ang buong widget dahil ginagamit
+                // ito ng lahat ng role bilang simpleng "who's online" view.
+                device: canSeeSensitiveDetails ? (s.device || parseDeviceInfo('')) : null,
+                ip: canSeeSensitiveDetails ? (s.ip ||'unknown') : null,
+                sameWifi: canSeeSensitiveDetails ? isSameLanAsServer(s.ip) : false
+            };
+        })
+        .sort((a, b) => (a.loginAt || 0) - (b.loginAt || 0));
+
+    res.json({ success: true, activeUsers: sessions, count: sessions.length });
+});
+
+app.post('/api/products/checkout', (req, res) => {
+    try {
+        const { cartItems } = req.body;
+
+        let products = readData(FILE_PRODUCTS);
+
+        cartItems.forEach(cartItem => {
+            const prodIndex = products.findIndex(p => p.code === cartItem.code);
+            if (prodIndex !== -1) {
+
+                if (products[prodIndex].stock >= cartItem.quantity) {
+                    products[prodIndex].stock -= cartItem.quantity;
+                }
+            }
+        });
+
+        writeData(FILE_PRODUCTS, products);
+
+        res.json({ success: true, updatedProducts: products });
+    } catch (error) {
+        console.error("Checkout server error:", error);
+        res.status(500).json({ success: false, message:"Server database error" });
+    }
+});
+
+app.get('/api/products', (req, res) => {
+    res.json(readData(FILE_PRODUCTS));
+});
+
+app.get('/api/products/export', requireFeature('advanced_reports'), (req, res) => {
+    try {
+        const products = readData(FILE_PRODUCTS);
+        const escapeCsv = (val) => {
+            const s = (val === undefined || val === null) ?'' : val.toString();
+            return/[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+        };
+        const headers = ['Code','Product Name','Category','Price','Stock','Supplier','Expiry Date','Low Stock Threshold','Cost Price'];
+        const lines = [headers.join(',')];
+        products.forEach(p => {
+            lines.push([
+                escapeCsv(p.code), escapeCsv(p.name), escapeCsv(p.category),
+                escapeCsv(p.price), escapeCsv(p.stock), escapeCsv(p.supplier),
+                escapeCsv(p.expiryDate), escapeCsv(p.lowStockThreshold), escapeCsv(p.cost)
+            ].join(','));
+        });
+        const csvContent ='\uFEFF' + lines.join('\r\n');
+
+        res.setHeader('Content-Type','text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="inventory_export_${Date.now()}.csv"`);
+        res.send(csvContent);
+    } catch (err) {
+        console.error('Export error:', err);
+        res.status(500).json({ success: false, message:'Hindi ma-export ang inventory.' });
+    }
+});
+
+app.get('/api/products/template', async (req, res) => {
+    try {
+        const categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator ='OmniPOS System';
+
+        const catSheet = workbook.addWorksheet('CategoriesList');
+        categories.forEach((cat, i) => {
+            catSheet.getCell(`A${i + 1}`).value = cat;
+        });
+        catSheet.state ='veryHidden';
+
+        const sheet = workbook.addWorksheet('New Products');
+        sheet.columns = [
+            { header:'Code', key:'code', width: 22 },
+            { header:'Product Name', key:'name', width: 32 },
+            { header:'Category', key:'category', width: 24 },
+            { header:'Price', key:'price', width: 14 },
+            { header:'Stock', key:'stock', width: 12 },
+            { header:'Supplier', key:'supplier', width: 24 },
+            { header:'Expiry Date', key:'expiry', width: 16 },
+            { header:'Low Stock Threshold', key:'threshold', width: 18 },
+            { header:'Cost Price', key:'cost', width: 14 }
+        ];
+        const headerRow = sheet.getRow(1);
+        headerRow.eachCell(cell => {
+            cell.font = { bold: true, color: { argb:'FFFFFFFF' } };
+            cell.fill = { type:'pattern', pattern:'solid', fgColor: { argb:'FF2563EB' } };
+            cell.alignment = { vertical:'middle', horizontal:'center' };
+        });
+
+        const catRange = `CategoriesList!$A$1:$A$${Math.max(categories.length, 1)}`;
+        for (let row = 2; row <= 501; row++) {
+            sheet.getCell(`C${row}`).dataValidation = {
+                type:'list',
+                allowBlank: true,
+                formulae: [catRange],
+                showErrorMessage: false,
+                promptTitle:'Category',
+                prompt:'Pumili sa dropdown, o mag-type ng bagong pangalan ng category para awtomatikong madagdag ito sa system.'
+            };
+            sheet.getCell(`D${row}`).numFmt ='#,##0.00';
+            sheet.getCell(`E${row}`).numFmt ='#,##0';
+        }
+
+        const infoSheet = workbook.addWorksheet('Paano Gamitin');
+        infoSheet.getColumn(1).width = 95;
+        const instructions = [
+'PAANO GAMITIN ANG TEMPLATE NA ITO:',
+'',
+'1. Pumunta sa sheet na "New Products".',
+'2. Punan ang bawat hilera: Code, Product Name, Category, Price, Stock.',
+'3. Sa column na "Category" (column C), pindutin ang dropdown arrow para pumili ng existing category.',
+'4. Kung gusto mag-add ng BAGONG category, i-type lang ito diretso sa cell — awtomatiko itong madadagdag sa system pagka-import.',
+'5. Huwag baguhin ang mga pangalan sa Row 1 (headers) at huwag magdagdag ng bagong column.',
+'6. Isave ang file (.xlsx), pagkatapos i-upload gamit ang "Import Excel/CSV" button sa Product Inventory page.',
+'7. Ang mga Product Code na dati nang ginagamit ay ise-skip habang nag-i-import — MALIBAN kung pinili mong "Update Existing" bago mag-upload.',
+'8. Optional na columns: Supplier, Expiry Date (YYYY-MM-DD), Low Stock Threshold, at Cost Price — pwedeng iwanang blangko.',
+'9. Sa "Update Existing" mode, ang mga blangkong cell ay HINDI nagbabago sa laman ng existing product — mananatili ang dati nitong value.'
+        ];
+        instructions.forEach((line, i) => { infoSheet.getCell(`A${i + 1}`).value = line; });
+        infoSheet.getCell('A1').font = { bold: true, size: 13 };
+
+        res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition','attachment; filename="product_import_template.xlsx"');
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        console.error('Template generation error:', err);
+        res.status(500).json({ success: false, message:'Hindi magawa ang Excel template.' });
+    }
+});
+
+function parseCsvLine(line) {
+    const result = [];
+    let cur ='';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+            if (ch ==='"') {
+                if (line[i + 1] ==='"') {
+                    cur +='"';
+                    i++;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                cur += ch;
+            }
+        } else {
+            if (ch ==='"') {
+                inQuotes = true;
+            } else if (ch ===',') {
+                result.push(cur);
+                cur ='';
+            } else {
+                cur += ch;
+            }
+        }
+    }
+    result.push(cur);
+    return result;
+}
+
+function parseMoney(raw) {
+    const s = (raw ||'').toString().trim();
+    if (s ==='') return NaN;
+    const cleaned = s.replace(/^(₱|PHP)\s*/i,'').replace(/,/g,'');
+    if (!/^\d+(\.\d+)?$/.test(cleaned)) return NaN;
+    return parseFloat(cleaned);
+}
+
+function parseWholeNumber(raw) {
+    const s = (raw ||'').toString().trim().replace(/,/g,'');
+    if (!/^\d+$/.test(s)) return NaN;
+    return parseInt(s, 10);
+}
+
+app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000), productImportUpload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, message:'Walang na-attach na file.' });
+    }
+
+    const cleanupTmpFile = () => fs.unlink(req.file.path, () => {});
+
+    const { username } = req.body;
+    const users = readData(FILE_USERS);
+    const activeUser = users.find(u => u.username.toLowerCase() === (username ||'').toLowerCase());
+    if (!activeUser || activeUser.role.toLowerCase() !=='admin') {
+        cleanupTmpFile();
+        return res.status(403).json({ success: false, message:'Admin lang ang pwedeng mag-import ng products.' });
+    }
+
+    try {
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        let rows = [];
+
+        if (ext ==='.csv') {
+            let content = fs.readFileSync(req.file.path,'utf8');
+            content = content.replace(/^\uFEFF/,'');
+            const lines = content.split(/\r?\n/).filter(l => l.trim() !=='');
+            if (lines.length > 1) {
+                const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = parseCsvLine(lines[i]);
+                    const obj = {};
+                    headers.forEach((h, idx) => { obj[h] = (cols[idx] ||'').trim(); });
+                    rows.push(obj);
+                }
+            }
+        } else {
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.readFile(req.file.path);
+            const sheet = workbook.getWorksheet('New Products') || workbook.worksheets[0];
+            const headerValues = (sheet.getRow(1).values || []).map(v => (v ||'').toString().trim().toLowerCase());
+
+            sheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return;
+                const rowValues = row.values;
+                const obj = {};
+                headerValues.forEach((h, idx) => {
+                    if (!h) return;
+                    const cellVal = rowValues[idx];
+                    obj[h] = (cellVal !== undefined && cellVal !== null) ? cellVal.toString().trim() :'';
+                });
+                if (Object.values(obj).some(v => v !=='')) rows.push(obj);
+            });
+        }
+
+        const mode = (req.body.mode ||'skip').toLowerCase() ==='update' ?'update' :'skip';
+
+        let products = readData(FILE_PRODUCTS);
+        let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
+        const codeIndex = new Map(products.map((p, i) => [p.code.trim().toLowerCase(), i]));
+        const newCategoriesFound = new Set();
+        let added = 0, updated = 0, skipped = 0;
+        const errors = [];
+
+        rows.forEach((r, idx) => {
+            const rowNum = idx + 2;
+            const code = (r.code ||'').toString().trim();
+            const name = (r['product name'] || r.name ||'').toString().trim();
+            const categoryRaw = (r.category ||'').toString().trim();
+            const supplier = (r.supplier ||'').toString().trim();
+            const expiry = (r['expiry date'] || r.expiry || r.expirydate ||'').toString().trim();
+            const thresholdRaw = (r['low stock threshold'] || r.threshold || r.lowstockthreshold ||'').toString().trim();
+            const costRaw = (r['cost price'] || r.cost || r.costprice ||'').toString().trim();
+
+            const priceRaw = (r.price ||'').toString().trim();
+            const stockRaw = (r.stock ||'').toString().trim();
+            const price = parseMoney(priceRaw);
+            const stock = parseWholeNumber(stockRaw);
+            const existingIdx = codeIndex.get(code.toLowerCase());
+
+            if (!code || !name) {
+                errors.push(`Row ${rowNum}: Kulang ang Code o Product Name — na-skip.`);
+                skipped++;
+                return;
+            }
+
+            if (existingIdx !== undefined) {
+                if (mode !=='update') {
+                    errors.push(`Row ${rowNum}: Ginagamit na ang Code "${code}" — na-skip.`);
+                    skipped++;
+                    return;
+                }
+
+                if (priceRaw !=='' && isNaN(price)) {
+                    errors.push(`Row ${rowNum}: Hindi valid ang Price para sa Code "${code}" — hindi na-update ang price.`);
+                } else if (priceRaw !=='') {
+                    products[existingIdx].price = price;
+                }
+                if (stockRaw !=='' && isNaN(stock)) {
+                    errors.push(`Row ${rowNum}: Hindi valid ang Stock para sa Code "${code}" — hindi na-update ang stock.`);
+                } else if (stockRaw !=='') {
+                    products[existingIdx].stock = stock;
+                }
+                if (name) products[existingIdx].name = name;
+                if (categoryRaw) products[existingIdx].category = categoryRaw;
+                if (supplier) products[existingIdx].supplier = supplier;
+                if (expiry) products[existingIdx].expiryDate = expiry;
+                if (thresholdRaw !=='') {
+                    const th = parseWholeNumber(thresholdRaw);
+                    if (!isNaN(th)) products[existingIdx].lowStockThreshold = th;
+                }
+                if (costRaw !=='') {
+                    const costVal = parseMoney(costRaw);
+                    if (!isNaN(costVal)) products[existingIdx].cost = costVal;
+                }
+                if (categoryRaw && !categories.includes(categoryRaw)) {
+                    categories.push(categoryRaw);
+                    newCategoriesFound.add(categoryRaw);
+                }
+                updated++;
+                return;
+            }
+
+            const category = categoryRaw ||'Others';
+            if (isNaN(price) || isNaN(stock)) {
+                errors.push(`Row ${rowNum}: Hindi valid ang Price o Stock — na-skip.`);
+                skipped++;
+                return;
+            }
+
+            const newProduct = { code, name, category, price, stock };
+            if (supplier) newProduct.supplier = supplier;
+            if (expiry) newProduct.expiryDate = expiry;
+            if (thresholdRaw !=='') {
+                const th = parseWholeNumber(thresholdRaw);
+                if (!isNaN(th)) newProduct.lowStockThreshold = th;
+            }
+            if (costRaw !=='') {
+                const costVal = parseMoney(costRaw);
+                if (!isNaN(costVal)) newProduct.cost = costVal;
+            }
+
+            products.push(newProduct);
+            codeIndex.set(code.toLowerCase(), products.length - 1);
+
+            if (!categories.includes(category)) {
+                categories.push(category);
+                newCategoriesFound.add(category);
+            }
+            added++;
+        });
+
+        writeData(FILE_PRODUCTS, products);
+        writeData(FILE_CATEGORIES, categories);
+        logAction(username, `Bulk-imported products via Excel/CSV: ${added} added, ${updated} updated, ${skipped} skipped.`);
+        cleanupTmpFile();
+
+        res.json({
+            success: true,
+            added,
+            updated,
+            skipped,
+            errors,
+            newCategories: [...newCategoriesFound],
+            categories,
+            products
+        });
+    } catch (err) {
+        console.error('Import error:', err);
+        cleanupTmpFile();
+        res.status(500).json({ success: false, message:'Hindi mabasa ang file. Siguraduhing wastong .xlsx o .csv format ang ginamit (gamitin ang Download Template button).' });
+    }
+});
+
+app.post('/api/products', (req, res) => {
+    const { product } = req.body;
+    const username = req.authUser.username;
+    let products = readData(FILE_PRODUCTS);
+
+    const codeExists = products.some(p => p.code.trim().toLowerCase() === product.code.trim().toLowerCase());
+    if (codeExists) {
+        return res.status(400).json({ success: false, message: `❌ Ang Product Code [${product.code}] ay ginagamit na!` });
+    }
+
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
+
+    if (canApplyDirectly) {
+        products.push(product);
+        writeData(FILE_PRODUCTS, products);
+        logAction(username, `Added new product: ${product.name}`);
+        return res.json({ success: true, message:'Product added successfully' });
+    } else {
+            let requests = readData(FILE_REQUESTS);
+    requests.push({
+        id:'REQ-' + Date.now(),
+        requester: username,
+        type:'ADD',
+        data: product,
+        timestamp: new Date().toLocaleString()
+    });
+    writeData(FILE_REQUESTS, requests);
+    return res.json({ success: true, message:'Request sent to Admin for approval.'
+                    });
+}
+
+});
+
+app.post('/api/products/deduct', (req, res) => {
+    const { items } = req.body;
+    let products = readData(FILE_PRODUCTS);
+
+    items.forEach(cartItem => {
+        const product = products.find(p => p.code === cartItem.code);
+        if (product && product.stock >= cartItem.quantity) {
+            product.stock -= cartItem.quantity;
+        }
+    });
+
+    writeData(FILE_PRODUCTS, products);
+    res.json({ success: true, products });
+});
+
+app.put('/api/products/:code', (req, res) => {
+    const { code } = req.params;
+    const { updatedData } = req.body;
+    const username = req.authUser.username;
+    let products = readData(FILE_PRODUCTS);
+
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
+
+    if (canApplyDirectly) {
+        products = products.map(p => p.code.trim().toLowerCase() === code.trim().toLowerCase() ? { ...p, ...updatedData } : p);
+        writeData(FILE_PRODUCTS, products);
+        logAction(username, `Updated product code: ${code}`);
+        return res.json({ success: true, message:'Product updated successfully' });
+    } else {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({ id: Date.now(), type:'UPDATE', targetCode: code, requester: username, data: updatedData, timestamp: new Date().toLocaleString() });
+        writeData(FILE_REQUESTS, requests);
+        logAction(username, `Submitted an UPDATE request for code: ${code}`);
+        return res.json({ success: true, message:'Update request submitted for Admin approval' });
+    }
+});
+
+app.delete('/api/products/:code', (req, res) => {
+    const { code } = req.params;
+    const username = req.authUser.username;
+    let products = readData(FILE_PRODUCTS);
+
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
+
+    if (canApplyDirectly) {
+        products = products.filter(p => p.code.trim().toLowerCase() !== code.trim().toLowerCase());
+        writeData(FILE_PRODUCTS, products);
+        logAction(username, `Deleted product code: ${code}`);
+        return res.json({ success: true, message:'Product deleted successfully' });
+    } else {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({ id: Date.now(), type:'DELETE', targetCode: code, requester: username, timestamp: new Date().toLocaleString() });
+        writeData(FILE_REQUESTS, requests);
+        logAction(username, `Submitted a DELETE request for code: ${code}`);
+        return res.json({ success: true, message:'Delete request submitted for Admin approval' });
+    }
+});
+
+app.get('/api/requests', requirePermission('pending_requests'), (req, res) => {
+    res.json(readData(FILE_REQUESTS));
+});
+
+app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 * 60 * 1000), verifyAdmin, (req, res) => {
+    const { id } = req.params;
+    const { action, username } = req.body;
+
+    let requests = readData(FILE_REQUESTS);
+    const reqIndex = requests.findIndex(r => r.id.toString() === id.toString());
+
+    if (reqIndex === -1) {
+        return res.status(404).json({ success: false, message:'Request Reference ID Not Found.' });
+    }
+
+    const targetReq = requests[reqIndex];
+    const normalizedAction = action ? action.toLowerCase() :'';
+
+    if (normalizedAction ==='approve' || normalizedAction ==='approved') {
+        if (targetReq.type ==='PROFILE_UPDATE') {
+
+            const result = applyProfileChanges(targetReq.targetUser, targetReq.data || {});
+            if (!result.ok) {
+                return res.status(400).json({ success: false, message: `Hindi ma-apply ang Edit Profile request: ${result.error}` });
+            }
+            logAction(username, result.renamedFrom
+                ? `APPROVED Edit Profile request para kay "${targetReq.targetUser}" — pinalitan ang username sa "${result.user.username}"`
+                : `APPROVED Edit Profile request para kay "${targetReq.targetUser}"`);
+        } else if (targetReq.type ==='RECEIPT_UPDATE') {
+            const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+            const d = targetReq.data || {};
+            settings.storeName = (d.storeName ||'').trim() || settings.storeName;
+            settings.storeAddress = (d.storeAddress ||'').trim();
+            settings.storeContact = (d.storeContact ||'').trim();
+            settings.headerText = (d.headerText ||'').trim();
+            settings.footerText = (d.footerText ||'').trim() || DEFAULT_RECEIPT_SETTINGS.footerText;
+            settings.customizeCount = (settings.customizeCount || 0) + 1;
+            if (!settings.firstCustomizedAt) settings.firstCustomizedAt = new Date().toISOString();
+            writeData(FILE_RECEIPT_SETTINGS, settings);
+            logAction(username, `APPROVED Receipt Customization request mula kay "${targetReq.requester}"`);
+        } else if (targetReq.type ==='RECEIPT_PAPER_SIZE') {
+            const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+            const paperSize = targetReq.data && targetReq.data.paperSize;
+            if (VALID_PAPER_SIZES.includes(paperSize)) {
+                settings.paperSize = paperSize;
+                writeData(FILE_RECEIPT_SETTINGS, settings);
+                logAction(username, `APPROVED Receipt Paper Size request (${paperSize}) mula kay "${targetReq.requester}"`);
+            }
+        } else {
+            let products = readData(FILE_PRODUCTS);
+
+            if (targetReq.type ==='ADD') {
+                products.push(targetReq.data);
+                logAction(username, `APPROVED ADD Request for product: ${targetReq.data?.name}`);
+            }
+            else if (targetReq.type ==='UPDATE') {
+                products = products.map(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase() ? { ...p, ...targetReq.data } : p);
+                logAction(username, `APPROVED UPDATE Request for code: ${targetReq.targetCode}`);
+            }
+            else if (targetReq.type ==='DELETE') {
+                products = products.filter(p => p.code.trim().toLowerCase() !== targetReq.targetCode.trim().toLowerCase());
+                logAction(username, `APPROVED DELETE Request for code: ${targetReq.targetCode}`);
+            }
+            else if (targetReq.type ==='RESTOCK') {
+                const qtyToAdd = parseInt(targetReq.data?.qtyToAdd) || 0;
+                products = products.map(p => {
+                    if (p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase()) {
+                        return { ...p, stock: (parseInt(p.stock) || 0) + qtyToAdd };
+                    }
+                    return p;
+                });
+                logAction(username, `APPROVED RESTOCK Request for code: ${targetReq.targetCode} (+${qtyToAdd})`);
+            }
+
+            writeData(FILE_PRODUCTS, products);
+        }
+    } else {
+        if (targetReq.type ==='PROFILE_UPDATE') {
+            logAction(username, `REJECTED Edit Profile request para kay "${targetReq.targetUser}"`);
+        } else {
+            logAction(username, `REJECTED ${targetReq.type} request for item ID/Code: ${targetReq.targetCode || targetReq.data?.code}`);
+        }
+    }
+
+    requests = requests.filter(r => r.id.toString() !== id.toString());
+    writeData(FILE_REQUESTS, requests);
+
+    res.json({ success: true, message: `Request processed and removed successfully.` });
+});
+
+app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
+    const { transaction, username } = req.body;
+
+    transaction.cashier = req.authUser.username;
+
+    let transactions = readData(FILE_TRANSACTIONS);
+    let products = readData(FILE_PRODUCTS);
+
+    const stockIssues = [];
+    transaction.items.forEach(item => {
+        let prod = products.find(p => p.code === item.code);
+        if (!prod) {
+            prod = products.find(p => p.name === item.name);
+        }
+        if (prod) {
+            const availableStock = parseInt(prod.stock) || 0;
+            const requestedQty = parseInt(item.quantity) || 0;
+            if (requestedQty > availableStock) {
+                stockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${requestedQty})`);
+            }
+        }
+    });
+    if (stockIssues.length > 0) {
+        return res.status(409).json({
+            success: false,
+            outOfStock: true,
+            message: `Hindi ma-proceed ang benta — naubos/kulang na ang stock: ${stockIssues.join(', ')}. Malamang na-benta na ito sa ibang terminal/device. I-refresh ang product list.`
+        });
+    }
+
+    transaction.items.forEach(item => {
+        let prod = products.find(p => p.code === item.code);
+        if (!prod) {
+
+            prod = products.find(p => p.name === item.name);
+        }
+        if (prod) {
+            prod.stock = Math.max(0, prod.stock - item.quantity);
+        }
+    });
+
+    if (transaction.customerId) {
+        const customers = readData(FILE_CUSTOMERS, []);
+        const cust = customers.find(c => c.id === transaction.customerId);
+        if (cust) {
+            const redeem = Math.max(0, parseInt(transaction.loyaltyPointsRedeemed) || 0);
+            if (redeem > 0) {
+                cust.points = Math.max(0, (cust.points || 0) - redeem);
+            }
+
+            const earned = Math.floor((parseFloat(transaction.total) || 0) / 100);
+            cust.points = (cust.points || 0) + earned;
+            cust.totalSpent = Math.round(((cust.totalSpent || 0) + (parseFloat(transaction.total) || 0)) * 100) / 100;
+            cust.visits = (cust.visits || 0) + 1;
+            cust.lastVisit = new Date().toISOString();
+
+            transaction.customerName = cust.name;
+            transaction.customerEmail = cust.email ||'';
+            transaction.loyaltyPointsEarned = earned;
+            transaction.loyaltyPointsBalance = cust.points;
+
+            writeData(FILE_CUSTOMERS, customers);
+        }
+    }
+
+    transactions.unshift(transaction);
+    writeData(FILE_TRANSACTIONS, transactions);
+    writeData(FILE_PRODUCTS, products);
+
+    logAction(username, `Processed sale transaction: ${transaction.id}`);
+    res.json({ success: true, currentTransaction: transaction });
+
+});
+
+app.get('/api/cart/:username', (req, res) => {
+    const username = req.params.username;
+
+    const isOwner = req.authUser.username.toLowerCase() === username.toLowerCase();
+    const isAdmin = req.authUser.role.toLowerCase() ==='admin';
+    if (!isOwner && !isAdmin) {
+        return res.status(403).json({ success: false, message:'Akses Denied: Hindi mo pwedeng tingnan ang cart ng ibang user.' });
+    }
+
+    const cartsData = readData(FILE_CARTS, {});
+
+    res.json({ success: true, cart: cartsData[username] || [] });
+});
+
+app.post('/api/cart', (req, res) => {
+    const { username, cart } = req.body;
+    if (!username) {
+        return res.status(400).json({ success: false, message:'Missing username' });
+    }
+
+    const cartsData = readData(FILE_CARTS, {});
+
+    cartsData[username] = cart;
+
+    writeData(FILE_CARTS, cartsData);
+    res.json({ success: true, message:'Cart saved to database successfully.' });
+});
+
+app.get('/api/transactions', (req, res) => {
+    const { requester } = req.query;
+    const allTransactions = readData(FILE_TRANSACTIONS);
+
+    if (!requester) {
+        return res.json(allTransactions);
+    }
+
+    const users = readData(FILE_USERS);
+    const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+
+    const activeRole = activeUser && activeUser.role;
+    const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
+    const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
+    if (canViewAll) {
+        return res.json(allTransactions);
+    }
+
+    const ownTransactions = allTransactions.filter(
+        tx => (tx.cashier ||'').toLowerCase() === requester.toLowerCase()
+    );
+    res.json(ownTransactions);
+});
+
+app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-receipt', 20, 15 * 60 * 1000), async (req, res) => {
+    const { transactionId } = req.params;
+    const { toEmail, transaction: clientTx, receiptImage } = req.body;
+
+    const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!toEmail || !emailPattern.test(toEmail)) {
+        return res.status(400).json({ success: false, message:'Di-wastong email address.' });
+    }
+
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const tx = transactions.find(t => t.id === transactionId) || clientTx;
+    if (!tx) {
+        return res.status(404).json({ success: false, message:'Hindi mahanap ang transaction record na ito.' });
+    }
+
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const mailCreds = getOtpMailCredentials(settings);
+    if (!mailCreds) {
+        return res.status(400).json({
+            success: false,
+            message:'Wala pang naka-configure na Sender Gmail. I-setup muna ito sa Users > Receipt Customization > OTP Sender Email.'
+        });
+    }
+
+    try {
+        const transporter = getMailTransporter(mailCreds.user, mailCreds.pass);
+
+        const itemLines = (tx.items || []).map(i => {
+            const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
+            const lineTotal = ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)) - itemDiscount;
+            return `  ${i.name} x${i.quantity} .......... ₱${lineTotal.toFixed(2)}`;
+        }).join('\n');
+
+        const paymentLine = (tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1)
+            ? tx.payments.map(p => `${p.method} ₱${parseFloat(p.amount).toFixed(2)}`).join(' + ')
+            : (tx.method || tx.payment_method ||'CASH');
+
+        const storeName = settings.storeName ||'OmniPOS';
+        const textBody = `${storeName}\n${settings.storeAddress ||''}\n\nReceipt: ${tx.id}\nDate: ${tx.timestamp ||''}\nCashier: ${tx.cashier ||''}\n\n${itemLines}\n\nTOTAL: ₱${parseFloat(tx.total || 0).toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}`;
+
+        const mailOptions = {
+            from: `"${storeName}" <${mailCreds.user}>`,
+            to: toEmail,
+            subject: `Receipt ${tx.id} - ${storeName}`,
+            text: textBody
+        };
+
+        if (typeof receiptImage ==='string' && receiptImage.startsWith('data:image/')) {
+            try {
+                const match = receiptImage.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
+                if (match) {
+                    const ext = match[1] ==='jpg' ?'jpeg' : match[1];
+                    const base64Data = match[2];
+
+                    if (base64Data.length < 2_800_000) {
+                        mailOptions.attachments = [{
+                            filename: `receipt-${tx.id}.${ext ==='jpeg' ?'jpg' :'png'}`,
+                            content: base64Data,
+                            encoding:'base64'
+                        }];
+                    }
+                }
+            } catch (imgErr) {
+                console.warn('Hindi na-attach ang receipt image:', imgErr.message);
+            }
+        }
+
+        await transporter.sendMail(mailOptions);
+
+        logAction(req.authUser ? req.authUser.username :'Unknown', `Naipadala ang resibo ${tx.id} sa email (${maskEmail(toEmail)})`);
+        res.json({ success: true, message:'Naipadala ang resibo.' });
+    } catch (err) {
+        console.error('Email receipt failed:', err.message);
+        res.status(500).json({ success: false, message: `Hindi naipadala ang resibo: ${err.message}` });
+    }
+});
+
+app.get('/api/logs', requirePermission('logs'), (req, res) => {
+    try {
+        const logs = readData(FILE_USERLOGS, []);
+        res.json({ success: true, data: logs });
+    } catch (error) {
+        console.error("Error reading logs:", error);
+        res.status(500).json({ success: false, message:'Hindi makuha ang system logs.' });
+    }
+});
+
+app.get('/api/users', requirePermission('users'), (req, res) => {
+    const users = readData(FILE_USERS);
+
+    const safeUsers = users.map(({ password, ...rest }) => rest);
+    res.json(safeUsers);
+});
+
+app.get('/api/users/self', (req, res) => {
+    const users = readData(FILE_USERS);
+    const me = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    if (!me) return res.status(404).json({ success: false, message:'Account not found.' });
+    res.json({ success: true, username: me.username, role: me.role, avatar: me.avatar || null, created: me.created || null });
+});
+
+function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw }) {
+    let users = readData(FILE_USERS);
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === currentUsername.toLowerCase());
+    if (userIndex === -1) {
+        return { ok: false, error:'Account not found.' };
+    }
+
+    const newUsername = typeof newUsernameRaw ==='string' ? newUsernameRaw.trim() :'';
+    const isRenaming = newUsername && newUsername.toLowerCase() !== currentUsername.toLowerCase();
+
+    if (isRenaming) {
+        if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(newUsername)) {
+            return { ok: false, error:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' };
+        }
+        const taken = users.some((u, i) => i !== userIndex && u.username.toLowerCase() === newUsername.toLowerCase());
+        if (taken) {
+            return { ok: false, error:'Kinuha na ng ibang account ang username na iyan.' };
+        }
+    }
+
+    if (typeof avatar !=='undefined') {
+        users[userIndex].avatar = avatar || null;
+    }
+    const finalUsername = isRenaming ? newUsername : users[userIndex].username;
+    if (isRenaming) {
+        users[userIndex].username = finalUsername;
+    }
+    writeData(FILE_USERS, users);
+
+    if (isRenaming) {
+        renameUsernameEverywhere(currentUsername, finalUsername);
+    }
+
+    return { ok: true, user: users[userIndex], renamedFrom: isRenaming ? currentUsername : null };
+}
+
+app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 1000), (req, res) => {
+    const { avatar, username: newUsername } = req.body;
+    const actingUsername = req.authUser.username;
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).edit_user_profile;
+
+    if (canApplyDirectly) {
+        const result = applyProfileChanges(actingUsername, { avatar, username: newUsername });
+        if (!result.ok) {
+            return res.status(400).json({ success: false, message: result.error });
+        }
+        if (result.renamedFrom) {
+            logAction(result.user.username, `Changed own username from "${result.renamedFrom}" to "${result.user.username}"`);
+        } else {
+            logAction(actingUsername, `Updated own profile (Edit Profile widget)`);
+        }
+        return res.json({
+            success: true,
+            pending: false,
+            message:'Na-update na ang profile mo.',
+            username: result.user.username,
+            avatar: result.user.avatar || null,
+            usernameChanged: !!result.renamedFrom
+        });
+    }
+
+    const trimmedNewUsername = typeof newUsername ==='string' ? newUsername.trim() :'';
+    if (trimmedNewUsername && trimmedNewUsername.toLowerCase() !== actingUsername.toLowerCase()) {
+        if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(trimmedNewUsername)) {
+            return res.status(400).json({ success: false, message:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' });
+        }
+        const users = readData(FILE_USERS);
+        const taken = users.some(u => u.username.toLowerCase() === trimmedNewUsername.toLowerCase());
+        if (taken) {
+            return res.status(400).json({ success: false, message:'Kinuha na ng ibang account ang username na iyan.' });
+        }
+    }
+
+    let requests = readData(FILE_REQUESTS);
+    requests.push({
+        id: Date.now(),
+        type:'PROFILE_UPDATE',
+        targetUser: actingUsername,
+        requester: actingUsername,
+        data: { avatar: typeof avatar ==='undefined' ? undefined : (avatar || null), username: trimmedNewUsername || undefined },
+        timestamp: new Date().toLocaleString()
+    });
+    writeData(FILE_REQUESTS, requests);
+    logAction(actingUsername, `Submitted an Edit Profile request for Admin approval`);
+    res.json({ success: true, pending: true, message:'Naisumite ang iyong Edit Profile request. Hihintayin ang pag-approve ng Admin.' });
+});
+
+app.put('/api/users/:targetUser/avatar', rateLimit('admin-set-avatar', 20, 10 * 60 * 1000), verifyAdmin, (req, res) => {
+    const { targetUser } = req.params;
+    const { avatar, username } = req.body;
+
+    let users = readData(FILE_USERS);
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    if (userIndex === -1) {
+        return res.status(404).json({ success: false, message:'User account not found.' });
+    }
+
+    users[userIndex].avatar = avatar || null;
+    writeData(FILE_USERS, users);
+    logAction(username, `Updated profile picture for account: ${targetUser}`);
+    res.json({ success: true, message: `Profile picture for ${targetUser} has been updated.`, avatar: users[userIndex].avatar });
+});
+
+app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 60 * 1000), (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ang kasalukuyan at bagong password.' });
+    }
+    if (String(newPassword).length < 4) {
+        return res.status(400).json({ success: false, message:'Masyadong maikli ang bagong password.' });
+    }
+
+    let users = readData(FILE_USERS);
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    if (userIndex === -1) {
+        return res.status(404).json({ success: false, message:'Account not found.' });
+    }
+
+    const me = users[userIndex];
+    let isMatch = false;
+    try {
+        isMatch = bcrypt.compareSync(currentPassword, me.password);
+    } catch (e) {
+        isMatch = (currentPassword === me.password);
+    }
+    if (!isMatch) {
+        return res.status(403).json({ success: false, code:'WRONG_CURRENT_PASSWORD', message:'Mali ang kasalukuyang password.' });
+    }
+
+    users[userIndex].password = bcrypt.hashSync(newPassword, 10);
+    writeData(FILE_USERS, users);
+    logAction(me.username, `Changed own account password`);
+    res.json({ success: true, message:'Na-update na ang password mo.' });
+});
+
+app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
+    const { user, username } = req.body;
+
+    let users = readData(FILE_USERS);
+    if (users.some(u => u.username.toLowerCase() === user.username.toLowerCase())) {
+        return res.status(400).json({ success: false, message:'Username is already taken.' });
+    }
+
+    user.password = bcrypt.hashSync(user.password, 10);
+    user.created = new Date().toISOString().replace('T',' ').substring(0, 19);
+    users.push(user);
+    writeData(FILE_USERS, users);
+    logAction(username, `Created new POS account: ${user.username}`);
+    res.json({ success: true, message:'User created successfully.' });
+});
+
+app.put('/api/users/:targetUser/reset-password', rateLimit('admin-reset-pw', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
+    const { targetUser } = req.params;
+    const { newPassword, username } = req.body;
+
+    let users = readData(FILE_USERS);
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
+
+    if (userIndex === -1) {
+        return res.status(404).json({ success: false, message:'User account not found.' });
+    }
+
+    users[userIndex].password = bcrypt.hashSync(newPassword, 10);
+    writeData(FILE_USERS, users);
+
+    logAction(username, `Force reset password for account: ${targetUser}`);
+    res.json({ success: true, message: `Password for ${targetUser} has been updated successfully.` });
+});
+
+app.post('/api/users/delete-account', rateLimit('admin-delete-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
+    const { targetUser, username } = req.body;
+
+    if (!targetUser) {
+        return res.status(400).json({ success: false, message:'Kulang ang target user na buburahin.' });
+    }
+
+    if (targetUser.toLowerCase() === username.toLowerCase()) {
+        return res.status(400).json({ success: false, message:'Bawal mong burahin ang sarili mong account habang naka-login!' });
+    }
+
+    let users = readData(FILE_USERS);
+    const filteredUsers = users.filter(u => u.username.toLowerCase() !== targetUser.toLowerCase());
+
+    if (users.length === filteredUsers.length) {
+        return res.status(404).json({ success: false, message:'Account to delete not found.' });
+    }
+
+    writeData(FILE_USERS, filteredUsers);
+
+    for (const [token, session] of SESSIONS.entries()) {
+        if (session.username.toLowerCase() === targetUser.toLowerCase()) {
+            SESSIONS.delete(token);
+        }
+    }
+    persistSessions();
+
+    logAction(username, `Deleted user account: ${targetUser}`);
+    res.json({ success: true, message: `Account ${targetUser} has been completely removed.` });
+});
+
+function logAction(username, action) {
+    let logs = readData(FILE_USERLOGS);
+    logs.unshift({
+        id: Date.now(),
+        username: username,
+        action: action,
+        timestamp: new Date().toLocaleString('en-US', { timeZone:'Asia/Manila' })
+    });
+    writeData(FILE_USERLOGS, logs);
+}
+
+function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
+    let logs = readData(FILE_USERLOGS);
+    logs.unshift({
+        id: Date.now(),
+        username: username,
+        action: `VOIDED Transaction ID: ${transactionId} (${authMethodLabel})`,
+        timestamp: new Date().toLocaleString('en-US', { timeZone:'Asia/Manila' }),
+        voidedAmount: Math.round((parseFloat(voidedAmount) || 0) * 100) / 100,
+        voidedTransactionId: transactionId
+    });
+    writeData(FILE_USERLOGS, logs);
+}
+
+app.post('/api/system/reset', rateLimit('system-reset', 3, 30 * 60 * 1000), async (req, res) => {
+
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Aksyon Tinanggihan: Admin privileges lamang ang pwedeng mag-factory reset.' });
+    }
+
+    const { additionalEmail } = req.body;
+    const secondaryEmail = (additionalEmail ||'').trim();
+
+    const receiptSettingsForReset = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const otpMailCreds = getOtpMailCredentials(receiptSettingsForReset);
+
+    if (!otpMailCreds) {
+        return res.status(400).json({
+            success: false,
+            message:'Wala pang na-verify na Google App. I-setup at i-verify muna ito sa Users > Receipt Customization > Google App Verification bago magsagawa ng System Hard Reset.'
+        });
+    }
+
+    const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!secondaryEmail || !emailPattern.test(secondaryEmail)) {
+        return res.status(400).json({
+            success: false,
+            message:'Kailangan ang isang wastong Secondary Backup Email — dito ipapadala ang backup file.'
+        });
+    }
+
+    const backupPayload = {
+        timestamp: new Date().toISOString(),
+        users: readData(FILE_USERS, []),
+        products: readData(FILE_PRODUCTS, []),
+        transactions: readData(FILE_TRANSACTIONS, []),
+        userlogs: readData(FILE_USERLOGS, []),
+        requests: readData(FILE_REQUESTS, []),
+        categories: readData(FILE_CATEGORIES, ['Beverages','Dairy','Snacks','Bakery','Grains']),
+        carts: readData(FILE_CARTS, {}),
+        receiptSettings: readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS),
+        customers: readData(FILE_CUSTOMERS, []),
+        shifts: readData(FILE_SHIFTS, []),
+        shiftMeta: readData(FILE_SHIFT_META, {})
+    };
+
+    try {
+        const transporter = getMailTransporter(otpMailCreds.user, otpMailCreds.pass);
+
+        let recipients = [secondaryEmail];
+
+        const petsa_ng_ayon = new Date().toLocaleDateString('en-PH');
+        const mailOptions = {
+            from: `"OmniPOS Core System" <${otpMailCreds.user}>`,
+            to: recipients.join(', '),
+            subject: `💻 OmniPOS: Full System Reset & Synchronized Backup - ${petsa_ng_ayon}`,
+            text: `Magandang araw,\n\nAng system database ay sumailalim sa isang Hard Factory Reset.\n\nKasama sa email na ito ang naka-attach na 'omnipos_full_backup.json' na naglalaman ng lahat ng synchronized tables (kasama na ang customers at shift/Z-Reading records) bago isagawa ang pagbura.`,
+            attachments: [
+                {
+                    filename: `omnipos_full_backup_${Date.now()}.json`,
+                    content: JSON.stringify(backupPayload, null, 4),
+                    contentType:'application/json'
+                }
+            ]
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        const secureDefaultUsers = defaultUsers.map(u => ({
+            ...u,
+            password: bcrypt.hashSync(u.password, 10),
+            created: getPHTime()
+        }));
+        writeData(FILE_USERS, secureDefaultUsers);
+
+        SESSIONS.clear();
+        persistSessions();
+
+        writeData(FILE_PRODUCTS, []);
+
+        writeData(FILE_TRANSACTIONS, []);
+        writeData(FILE_REQUESTS, []);
+        writeData(FILE_CARTS, {});
+
+        writeData(FILE_CUSTOMERS, []);
+        writeData(FILE_SHIFTS, []);
+        writeData(FILE_SHIFT_META, {});
+
+        const initialCategories = ['Beverages','Dairy','Snacks','Bakery','Grains'];
+        writeData(FILE_CATEGORIES, initialCategories);
+
+        // ANTI-CLONE FIX: dating pinapalitan ng DEFAULT_FEATURE_UNLOCKS
+        // (na may `installationId: null`) ang BUONG file — dahil dito,
+        // pagkatapos ng anti-clone patch (na gumawa ng persisted UUID na
+        // nakatago mismo sa file na ito, hindi na sa hardware fingerprint),
+        // kasama na ring nawiwipe ang installationId sa bawat hard reset.
+        // Resulta: gumagawa ng BAGONG installationId ang susunod na request
+        // kahit same physical device/hindi clone — kaya hindi na makikilala
+        // ng RELAY ang dating na-unlock na features nito para ma-auto-
+        // restore. AYOS: panatilihin ang identity fields (installationId,
+        // hardwareFingerprint, verifiedFingerprint, deviceVerified,
+        // firstVerifiedAt) — ang tokens/lockedAttempts/lastVerifiedAt lang
+        // ang talagang kailangang i-reset dito.
+        const preResetIdentity = readFeatureUnlocks();
+        writeData(FILE_FEATURE_UNLOCKS, {
+            ...DEFAULT_FEATURE_UNLOCKS,
+            installationId: preResetIdentity.installationId,
+            hardwareFingerprint: preResetIdentity.hardwareFingerprint,
+            verifiedFingerprint: preResetIdentity.verifiedFingerprint,
+            deviceVerified: preResetIdentity.deviceVerified,
+            firstVerifiedAt: preResetIdentity.firstVerifiedAt
+        });
+
+        writeData(FILE_USERLOGS, []);
+
+        // AUTO-RESTORE: kapag naka-configure ang RELAY_API_KEY, subukan
+        // agad na kunin muli sa RELAY ang mga dating na-unlock na feature
+        // para sa installationId na ito (nananatili ito ngayon dahil
+        // sinadyang pinreserve sa itaas — tingnan ang "ANTI-CLONE FIX"
+        // comment sa itaas). Best-effort lang — hindi ito nagpapabagsak ng
+        // reset kung offline o hindi maabot ang relay.
+        let restoredCount = 0;
+        try {
+            const restoreResult = await attemptRelayRestore();
+            restoredCount = restoreResult.restoredCount || 0;
+        } catch (err) {
+            console.warn('⚠️  Auto-restore matapos ang hard reset: hindi na-check ang Relay.', err.message);
+        }
+
+        res.json({
+            success: true,
+            message: `Ang backup ay matagumpay na naipasa sa (${recipients.length}) email address at ang system ay tuluyan nang nalinis.` +
+                (restoredCount > 0 ? ` Awtomatikong naibalik ang ${restoredCount} dating na-unlock na feature.` : ''),
+            restoredFeatureCount: restoredCount
+        });
+
+    } catch (err) {
+        console.error("Mail Reset Failure Context:", err);
+        res.status(500).json({
+            success: false,
+            message: `Hindi itinuloy ang reset dahil nabigo ang email verification. Tiyakin na TAMA ang iyong Gmail at 16-character App Password. Error: ${err.message}`
+        });
+    }
+});
+
+app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), (req, res) => {
+    const { username, password, backupData } = req.body;
+
+    const currentUsers = readData(FILE_USERS, []);
+    if (currentUsers.length === 0) {
+        return res.status(400).json({ success: false, message:"Walang mahanap na records ng mga user sa system." });
+    }
+
+    const currentAdmin = currentUsers.find(u => u.username.toLowerCase() === username.toLowerCase() && u.role.toLowerCase() ==='admin');
+
+    if (!currentAdmin) {
+        return res.status(403).json({ success: false, message:"Aksyon Tinanggihan: Walang pribilehiyong pang-administrator." });
+    }
+
+    if (!bcrypt.compareSync(password, currentAdmin.password)) {
+
+        return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:"Maling Admin password. Hindi pinahintulutan ang pag-restore." });
+    }
+
+    if (!backupData || typeof backupData !=='object') {
+        return res.status(400).json({ success: false, message:"May depekto o maling format ang ipinadalang backup file." });
+    }
+
+    try {
+
+        let restoredCount = 0;
+        if (backupData.users && Array.isArray(backupData.users)) { writeData(FILE_USERS, backupData.users); restoredCount++; }
+        if (backupData.products && Array.isArray(backupData.products)) { writeData(FILE_PRODUCTS, backupData.products); restoredCount++; }
+        if (backupData.transactions && Array.isArray(backupData.transactions)) { writeData(FILE_TRANSACTIONS, backupData.transactions); restoredCount++; }
+        if (backupData.userlogs && Array.isArray(backupData.userlogs)) { writeData(FILE_USERLOGS, backupData.userlogs); restoredCount++; }
+        if (backupData.requests && Array.isArray(backupData.requests)) { writeData(FILE_REQUESTS, backupData.requests); restoredCount++; }
+        if (backupData.categories && Array.isArray(backupData.categories)) { writeData(FILE_CATEGORIES, backupData.categories); restoredCount++; }
+        if (backupData.carts && typeof backupData.carts ==='object') { writeData(FILE_CARTS, backupData.carts); restoredCount++; }
+
+        logAction(username, `Nag-restore mula sa backup file (${restoredCount} modules na-restore).`);
+        res.json({ success: true, message: `Successfully restored and fully synchronized ${restoredCount} data module(s) from your backup file!` });
+    } catch (e) {
+        res.status(500).json({ success: false, message: `An error occurred while writing the extracted data: ${e.message}` });
+    }
+});
+
+app.post('/api/transactions/:transactionId/void', rateLimit('void-transaction', 8, 10 * 60 * 1000), (req, res) => {
+    const { transactionId } = req.params;
+    const { requester, adminPassword } = req.body;
+
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ng password para mag-void.' });
+    }
+
+    const users = readData(FILE_USERS);
+    const authResult = findVoidAuthorizer(users, adminPassword);
+
+    if (!authResult) {
+        return res.status(403).json({
+            success: false,
+            code:'WRONG_ADMIN_PASSWORD',
+            message:'Maling password. Hindi pinahintulutan ang void.'
+        });
+    }
+
+    let transactions = readData(FILE_TRANSACTIONS);
+    let products = readData(FILE_PRODUCTS);
+
+    const txIndex = transactions.findIndex(t => t.id === transactionId);
+    if (txIndex === -1) {
+        return res.status(404).json({ success: false, message:'Hindi nahanap ang Transaksyon ID.' });
+    }
+
+    const targetTx = transactions[txIndex];
+    const voidedAmount = parseFloat(targetTx.total) || 0;
+
+    targetTx.items.forEach(item => {
+        let prod = products.find(p => p.code === item.code || p.name === item.name);
+        if (prod) {
+            prod.stock = (parseInt(prod.stock) || 0) + parseInt(item.quantity);
+        }
+    });
+
+    // Reverse any customer stats (points, total spent, visits) that were applied
+    // when this transaction was originally processed, so voiding a sale doesn't
+    // leave the customer's record permanently inflated.
+    if (targetTx.customerId) {
+        const customers = readData(FILE_CUSTOMERS, []);
+        const cust = customers.find(c => c.id === targetTx.customerId);
+        if (cust) {
+            const earned = Math.max(0, parseInt(targetTx.loyaltyPointsEarned) || 0);
+            const redeemed = Math.max(0, parseInt(targetTx.loyaltyPointsRedeemed) || 0);
+
+            // Undo the points that were earned from this sale, and give back
+            // any points the customer redeemed on it.
+            cust.points = Math.max(0, (cust.points || 0) - earned) + redeemed;
+            cust.totalSpent = Math.round((((cust.totalSpent || 0) - voidedAmount)) * 100) / 100;
+            if (cust.totalSpent < 0) cust.totalSpent = 0;
+            cust.visits = Math.max(0, (cust.visits || 0) - 1);
+
+            writeData(FILE_CUSTOMERS, customers);
+        }
+    }
+
+    transactions = transactions.filter(t => t.id !== transactionId);
+
+    writeData(FILE_TRANSACTIONS, transactions);
+    writeData(FILE_PRODUCTS, products);
+
+    logVoidAction(requester, transactionId, voidedAmount, authResult.isAdmin ?'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`);
+
+    res.json({ success: true, message: `Matagumpay na na-void ang transaksyon ${transactionId} at naibalik ang mga stock!` });
+});
+
+app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), (req, res) => {
+    const { adminPassword, purpose } = req.body;
+
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ng password.' });
+    }
+
+    const users = readData(FILE_USERS);
+
+    // Ang endpoint na ito ay ginagamit din ng ibang bahagi ng system (hal.
+    // barcode print authorization) na hindi void-related, kaya ang
+    // "kahit kaninong qualified na account" na paghahanap ay nakalimita
+    // lamang sa mga request na explicit na nagsasabing purpose:'void'.
+    // Para dito, HINDI ito naka-base sa session/req.authUser dahil ang
+    // taong nagta-type ng password (hal. Supervisor) ay kadalasang HINDI
+    // ang naka-login sa terminal (hal. Cashier).
+    if (purpose ==='void') {
+        const authResult = findVoidAuthorizer(users, adminPassword);
+        if (authResult) {
+            return res.json({ success: true, message:'Authorized' });
+        }
+        return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
+    }
+
+    const adminUser = users.find(u => u.role.toLowerCase() ==='admin');
+    if (!adminUser) {
+        return res.status(404).json({ success: false, message:'Walang nahanap na Admin account sa system.' });
+    }
+
+    const isMatch = bcrypt.compareSync(adminPassword, adminUser.password);
+
+    if (isMatch) {
+        return res.json({ success: true, message:'Authorized' });
+    } else {
+
+        return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling Admin Password!' });
+    }
+});
+
+app.post('/api/logs', (req, res) => {
+    const { user, action, authMethod, details } = req.body;
+    let formattedAction = `[${action}]`;
+
+    if (action ==="VOID_CART") {
+        formattedAction += ` Voided cart: ${details.itemsCount} items, Total: ₱${details.totalAmount.toFixed(2)} (${authMethod}).`;
+    }
+    else if (action ==="MODIFY_MATRIX_QTY") {
+        formattedAction += ` ${details.itemName}: Reduced by ${details.reducedQty}, Remaining: ${details.newQty} (${authMethod}).`;
+    }
+    else if (action ==="LOGOUT") {
+        formattedAction += ` Logged out via ${authMethod}. Reason: ${details.message}`;
+    }
+    else {
+        formattedAction += ` ${details.message ||'Executed non-standard action.'}`;
+    }
+
+    try {
+        logAction(user, formattedAction);
+        res.json({ success: true, message:'Log saved.' });
+    } catch (error) {
+        console.error("Logging error:", error);
+        res.status(500).json({ success: false, message:'Server logging failed.' });
+    }
+});
+
+function computeLowStockItems() {
+    const products = readData(FILE_PRODUCTS);
+    const purchaseOrders = readData(FILE_PURCHASE_ORDERS, []);
+    let tracking = readData(FILE_LOWSTOCK_TRACKING, {});
+    const nowIso = new Date().toISOString();
+
+    const openPoQtyByCode = {};
+    purchaseOrders.forEach(po => {
+        if (po.status ==='ordered') {
+            (po.items || []).forEach(it => {
+                const key = (it.code ||'').trim().toLowerCase();
+                openPoQtyByCode[key] = (openPoQtyByCode[key] || 0) + (parseInt(it.qty) || 0);
+            });
+        }
+    });
+
+    const items = products
+        .map(p => {
+            const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='')
+                ? parseInt(p.lowStockThreshold) : 5;
+            const stock = parseInt(p.stock || 0);
+            const suggestedReorderQty = p.reorderQty ? parseInt(p.reorderQty) : Math.max((threshold * 2) - stock, threshold, 1);
+            const key = (p.code ||'').trim().toLowerCase();
+            return {
+                code: p.code, name: p.name, category: p.category, supplier: p.supplier ||'',
+                stock, threshold, suggestedReorderQty,
+                status: stock <= 0 ?'OUT_OF_STOCK' :'LOW_STOCK',
+                openOrderedQty: openPoQtyByCode[key] || 0,
+                _key: key
+            };
+        })
+        .filter(p => p.stock <= p.threshold);
+
+    const stillLowKeys = new Set(items.map(i => i._key));
+    let trackingChanged = false;
+    items.forEach(i => {
+        if (!tracking[i._key]) { tracking[i._key] = nowIso; trackingChanged = true; }
+    });
+    Object.keys(tracking).forEach(k => {
+        if (!stillLowKeys.has(k)) { delete tracking[k]; trackingChanged = true; }
+    });
+    if (trackingChanged) writeData(FILE_LOWSTOCK_TRACKING, tracking);
+
+    items.forEach(i => {
+        const since = tracking[i._key] ? new Date(tracking[i._key]) : new Date();
+        i.daysLow = Math.max(0, Math.floor((Date.now() - since.getTime()) / (1000 * 60 * 60 * 24)));
+        i.lowSince = tracking[i._key] || nowIso;
+        delete i._key;
+    });
+
+    items.sort((a, b) => a.stock - b.stock);
+    return items;
+}
+
+app.get('/api/products/low-stock', (req, res) => {
+    const items = computeLowStockItems();
+    res.json({ success: true, count: items.length, items });
+});
+
+// ====================================================================
+// ADVANCED SALES ANALYTICS — gated ng requirePermission('reports')
+// (role-based: sino ang pwedeng makakita ng reports) AT
+// requireFeature('advanced_reports') (paywall: binili ba ng store owner
+// ang ₱799 na module). Dating client-side lang ang computation nito
+// (basta kinukuha lahat ng /api/transactions, na FREE/ungated dahil
+// ginagamit din ito ng ibang legit na views) — kaya kahit naka-hide sa
+// UI ang Sales Analytics, kaya pa ring i-compute ng kahit sino ang
+// profit/margin data sa pamamagitan lang ng DevTools. Dito na ngayon
+// ginagawa ang buong aggregation SA SERVER, kaya totoong naka-enforce
+// na ang paywall, hindi lang cosmetic/UI-level.
+app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFeature('advanced_reports'), (req, res) => {
+    try {
+        const rangeParam = (req.query.range || 'all').toString();
+        const transactions = readData(FILE_TRANSACTIONS);
+
+        const now = Date.now();
+        const RANGE_MS = { today: 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000, '30d': 30 * 24 * 60 * 60 * 1000 };
+        const cutoffMs = RANGE_MS[rangeParam] || null;
+
+        const txs = cutoffMs
+            ? transactions.filter(t => {
+                const ts = t.isoDate ? Date.parse(t.isoDate) : NaN;
+                return !isNaN(ts) && (now - ts) <= cutoffMs;
+            })
+            : transactions;
+
+        let gross = 0;
+        let totalRevenue = 0;
+        let totalCost = 0;
+        let anyCostRecorded = false;
+        const rankingMap = {};
+        const profitByProduct = {};
+        const paymentBreakdown = {};
+        const dailyTrendMap = {};
+
+        txs.forEach(t => {
+            const total = parseFloat(t.total) || 0;
+            gross += total;
+
+            const method = (t.method || t.payment_method || 'OTHER').toString().toUpperCase();
+            paymentBreakdown[method] = (paymentBreakdown[method] || 0) + total;
+
+            const dayKey = (t.isoDate ? t.isoDate.slice(0, 10) : (t.timestamp || '').slice(0, 10)) || 'unknown';
+            dailyTrendMap[dayKey] = (dailyTrendMap[dayKey] || 0) + total;
+
+            (t.items || []).forEach(i => {
+                const qty = parseInt(i.quantity) || 0;
+                rankingMap[i.name] = (rankingMap[i.name] || 0) + qty;
+
+                const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
+                const revenue = ((parseFloat(i.price) || 0) * qty) - itemDiscount;
+                const cost = (parseFloat(i.cost) || 0) * qty;
+                if (parseFloat(i.cost) > 0) anyCostRecorded = true;
+
+                totalRevenue += revenue;
+                totalCost += cost;
+
+                if (!profitByProduct[i.name]) profitByProduct[i.name] = { revenue: 0, cost: 0, qty: 0 };
+                profitByProduct[i.name].revenue += revenue;
+                profitByProduct[i.name].cost += cost;
+                profitByProduct[i.name].qty += qty;
+            });
+        });
+
+        const estimatedProfit = totalRevenue - totalCost;
+        const marginPct = totalRevenue > 0 ? (estimatedProfit / totalRevenue) * 100 : 0;
+
+        const sortedByQty = Object.keys(rankingMap).sort((a, b) => rankingMap[b] - rankingMap[a]);
+        const topProducts = sortedByQty.slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
+        const slowProducts = [...sortedByQty].reverse().slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
+
+        const profitEntries = Object.entries(profitByProduct)
+            .map(([name, d]) => ({ name, profit: Math.round((d.revenue - d.cost) * 100) / 100, qty: d.qty }))
+            .sort((a, b) => b.profit - a.profit)
+            .slice(0, 5);
+
+        // Last 7 days trend (kahit walang benta sa isang araw, kasama pa rin
+        // ito bilang ₱0 sa chart, para consistent ang bilang ng bars).
+        const dailyTrend = [];
+        for (let d = 6; d >= 0; d--) {
+            const dt = new Date(now - d * 24 * 60 * 60 * 1000);
+            const key = dt.toISOString().slice(0, 10);
+            dailyTrend.push({
+                date: key,
+                label: dt.toLocaleDateString('en-PH', { weekday: 'short' }),
+                total: Math.round((dailyTrendMap[key] || 0) * 100) / 100
+            });
+        }
+
+        res.json({
+            success: true,
+            range: rangeParam,
+            gross: Math.round(gross * 100) / 100,
+            transactionCount: txs.length,
+            estimatedProfit: Math.round(estimatedProfit * 100) / 100,
+            marginPct: Math.round(marginPct * 10) / 10,
+            hasCostData: anyCostRecorded,
+            topProducts,
+            slowProducts,
+            profitByProduct: profitEntries,
+            paymentBreakdown,
+            dailyTrend
+        });
+    } catch (err) {
+        console.error('Sales analytics error:', err);
+        res.status(500).json({ success: false, message: 'Hindi makuha ang sales analytics data.' });
+    }
+});
+
+app.get('/api/products/low-stock/export', requirePermission('reorder'), requireFeature('advanced_reports'), (req, res) => {
+    try {
+        const items = computeLowStockItems();
+        const escapeCsv = (val) => {
+            const s = (val === undefined || val === null) ?'' : val.toString();
+            return/[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+        };
+        const headers = ['Code','Product Name','Category','Supplier','Current Stock','Threshold','Suggested Reorder Qty','Status','Days Low'];
+        const lines = [headers.join(',')];
+        items.forEach(p => {
+            lines.push([
+                escapeCsv(p.code), escapeCsv(p.name), escapeCsv(p.category), escapeCsv(p.supplier),
+                escapeCsv(p.stock), escapeCsv(p.threshold), escapeCsv(p.suggestedReorderQty),
+                escapeCsv(p.status), escapeCsv(p.daysLow)
+            ].join(','));
+        });
+        const csvContent ='\uFEFF' + lines.join('\r\n');
+        res.setHeader('Content-Type','text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="reorder_alerts_${Date.now()}.csv"`);
+        res.send(csvContent);
+    } catch (err) {
+        console.error('Reorder export error:', err);
+        res.status(500).json({ success: false, message:'Hindi ma-export ang reorder list.' });
+    }
+});
+
+app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rateLimit('quick-restock', 60, 10 * 60 * 1000), (req, res) => {
+    const { code } = req.params;
+    const qty = parseInt(req.body.qty);
+    const username = req.authUser.username;
+    const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).restock_direct_apply;
+
+    if (!qty || qty <= 0) {
+        return res.status(400).json({ success: false, message:'Mangyaring maglagay ng valid na quantity.' });
+    }
+
+    let products = readData(FILE_PRODUCTS);
+    const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    if (!target) return res.status(404).json({ success: false, message:'Product not found.' });
+
+    if (canApplyDirectly) {
+        target.stock = (parseInt(target.stock) || 0) + qty;
+        writeData(FILE_PRODUCTS, products);
+        logAction(username, `Quick-restocked "${target.name}" (+${qty}, bagong stock: ${target.stock})`);
+        return res.json({ success: true, message: `+${qty} na-restock sa "${target.name}".`, newStock: target.stock });
+    } else {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({ id: Date.now(), type:'RESTOCK', targetCode: code, requester: username, data: { qtyToAdd: qty, productName: target.name }, timestamp: new Date().toLocaleString() });
+        writeData(FILE_REQUESTS, requests);
+        logAction(username, `Submitted a RESTOCK request for "${target.name}" (+${qty})`);
+        return res.json({ success: true, pending: true, message:'Restock request submitted for Admin approval.' });
+    }
+});
+
+app.get('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
+    const orders = readData(FILE_PURCHASE_ORDERS, []).sort((a, b) => (b.createdAt ||'').localeCompare(a.createdAt ||''));
+    res.json({ success: true, orders });
+});
+
+app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
+    const { supplier, items, notes } = req.body;
+    const username = req.authUser.username;
+
+    if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, message:'Walang napiling item para sa Purchase Order.' });
+    }
+
+    const cleanItems = items
+        .map(it => ({ code: (it.code ||'').toString(), name: (it.name ||'').toString(), qty: parseInt(it.qty) || 0 }))
+        .filter(it => it.code && it.qty > 0);
+
+    if (cleanItems.length === 0) {
+        return res.status(400).json({ success: false, message:'Walang valid na item/quantity sa Purchase Order.' });
+    }
+
+    const orders = readData(FILE_PURCHASE_ORDERS, []);
+    const newPO = {
+        id: Date.now(),
+        supplier: (supplier ||'Walang Tinukoy na Supplier').toString(),
+        items: cleanItems,
+        notes: (notes ||'').toString(),
+        status:'ordered',
+        createdBy: username,
+        createdAt: new Date().toISOString(),
+    };
+    orders.push(newPO);
+    writeData(FILE_PURCHASE_ORDERS, orders);
+    logAction(username, `Gumawa ng Purchase Order #${newPO.id} para kay "${newPO.supplier}" (${cleanItems.length} item/s)`);
+    res.json({ success: true, message:'Nagawa ang Purchase Order.', po: newPO });
+});
+
+app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
+    const { id } = req.params;
+    const username = req.authUser.username;
+    let orders = readData(FILE_PURCHASE_ORDERS, []);
+    const po = orders.find(o => o.id.toString() === id.toString());
+    if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
+    if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
+
+    let products = readData(FILE_PRODUCTS);
+    po.items.forEach(it => {
+        const prod = products.find(p => p.code.trim().toLowerCase() === it.code.trim().toLowerCase());
+        if (prod) prod.stock = (parseInt(prod.stock) || 0) + (parseInt(it.qty) || 0);
+    });
+    writeData(FILE_PRODUCTS, products);
+
+    po.status ='received';
+    po.receivedBy = username;
+    po.receivedAt = new Date().toISOString();
+    writeData(FILE_PURCHASE_ORDERS, orders);
+    logAction(username, `Na-receive ang Purchase Order #${po.id} (${po.supplier}) — idinagdag sa stock ang ${po.items.length} item/s`);
+    res.json({ success: true, message:'Na-receive ang Purchase Order at na-update ang stock.', po });
+});
+
+app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
+    const { id } = req.params;
+    const username = req.authUser.username;
+    let orders = readData(FILE_PURCHASE_ORDERS, []);
+    const po = orders.find(o => o.id.toString() === id.toString());
+    if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
+    if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
+
+    po.status ='cancelled';
+    po.cancelledBy = username;
+    po.cancelledAt = new Date().toISOString();
+    writeData(FILE_PURCHASE_ORDERS, orders);
+    logAction(username, `Kinansela ang Purchase Order #${po.id} (${po.supplier})`);
+    res.json({ success: true, message:'Kinansela ang Purchase Order.', po });
+});
+
+app.get('/api/customers', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    res.json(readData(FILE_CUSTOMERS, []));
+});
+
+app.get('/api/customers/for-terminal', requirePermission('terminal'), (req, res) => {
+    const customers = readData(FILE_CUSTOMERS, []);
+    const minimal = customers.map(c => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone ||'',
+        email: c.email ||'',
+        points: c.points || 0
+    }));
+    res.json(minimal);
+});
+
+app.get('/api/customers/search', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    const q = (req.query.q ||'').toLowerCase().trim();
+    const customers = readData(FILE_CUSTOMERS, []);
+    if (!q) return res.json(customers.slice(0, 25));
+    const results = customers.filter(c =>
+        (c.name ||'').toLowerCase().includes(q) || (c.phone ||'').includes(q)
+    ).slice(0, 25);
+    res.json(results);
+});
+
+app.post('/api/customers', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    const { name, phone, email, notes } = req.body;
+    if (!name || !name.trim()) {
+        return res.status(400).json({ success: false, message:'Kailangan ng pangalan ng customer.' });
+    }
+    const customers = readData(FILE_CUSTOMERS, []);
+    if (phone && customers.some(c => c.phone && c.phone === phone)) {
+        return res.status(400).json({ success: false, message:'May existing customer na gumagamit na ng phone number na ito.' });
+    }
+    const customer = {
+        id:'CUST-' + Date.now(),
+        name: name.trim(),
+        phone: phone ||'',
+        email: email ||'',
+        notes: notes ||'',
+        points: 0,
+        totalSpent: 0,
+        visits: 0,
+        createdAt: new Date().toISOString(),
+        lastVisit: null
+    };
+    customers.unshift(customer);
+    writeData(FILE_CUSTOMERS, customers);
+    logAction(req.authUser.username, `Added new customer: ${customer.name}`);
+    res.json({ success: true, customer });
+});
+
+app.put('/api/customers/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    const customers = readData(FILE_CUSTOMERS, []);
+    const idx = customers.findIndex(c => c.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, message:'Customer not found.' });
+    const { name, phone, email, notes } = req.body;
+    if (name !== undefined && name.trim()) customers[idx].name = name.trim();
+    if (phone !== undefined) customers[idx].phone = phone;
+    if (email !== undefined) customers[idx].email = email;
+    if (notes !== undefined) customers[idx].notes = notes;
+    writeData(FILE_CUSTOMERS, customers);
+    res.json({ success: true, customer: customers[idx] });
+});
+
+app.delete('/api/customers/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    let customers = readData(FILE_CUSTOMERS, []);
+    if (!customers.some(c => c.id === req.params.id)) {
+        return res.status(404).json({ success: false, message:'Customer not found.' });
+    }
+    customers = customers.filter(c => c.id !== req.params.id);
+    writeData(FILE_CUSTOMERS, customers);
+    logAction(req.authUser.username, `Deleted customer ID: ${req.params.id}`);
+    res.json({ success: true });
+});
+
+app.get('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
+    res.json(readData(FILE_PROMOCODES, []));
+});
+
+app.post('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
+    let { code, type, value, description, expiresAt, minSpend } = req.body;
+    code = (code ||'').trim().toUpperCase();
+    if (!code) return res.status(400).json({ success: false, message:'Kailangan ng promo code.' });
+    if (!['percent','fixed'].includes(type)) return res.status(400).json({ success: false, message:'Invalid discount type (percent o fixed lang).' });
+    value = parseFloat(value);
+    if (isNaN(value) || value <= 0) return res.status(400).json({ success: false, message:'Invalid discount value.' });
+    if (type ==='percent' && value > 100) return res.status(400).json({ success: false, message:'Hindi pwedeng lumagpas sa 100% ang percent discount.' });
+
+    const promos = readData(FILE_PROMOCODES, []);
+    if (promos.some(p => p.code === code)) {
+        return res.status(400).json({ success: false, message:'Existing na ang promo code na ito.' });
+    }
+    const promo = {
+        code, type, value,
+        description: description ||'',
+        active: true,
+        expiresAt: expiresAt || null,
+        minSpend: parseFloat(minSpend) || 0,
+        createdAt: new Date().toISOString()
+    };
+    promos.unshift(promo);
+    writeData(FILE_PROMOCODES, promos);
+    logAction(req.authUser.username, `Added promo code: ${code}`);
+    res.json({ success: true, promo });
+});
+
+app.put('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
+    const codeParam = req.params.code.toUpperCase();
+    const promos = readData(FILE_PROMOCODES, []);
+    const idx = promos.findIndex(p => p.code === codeParam);
+    if (idx === -1) return res.status(404).json({ success: false, message:'Promo code not found.' });
+    const { type, value, description, active, expiresAt, minSpend } = req.body;
+    if (type !== undefined) promos[idx].type = type;
+    if (value !== undefined) promos[idx].value = parseFloat(value);
+    if (description !== undefined) promos[idx].description = description;
+    if (active !== undefined) promos[idx].active = !!active;
+    if (expiresAt !== undefined) promos[idx].expiresAt = expiresAt;
+    if (minSpend !== undefined) promos[idx].minSpend = parseFloat(minSpend) || 0;
+    writeData(FILE_PROMOCODES, promos);
+    res.json({ success: true, promo: promos[idx] });
+});
+
+app.delete('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
+    const codeParam = req.params.code.toUpperCase();
+    let promos = readData(FILE_PROMOCODES, []);
+    if (!promos.some(p => p.code === codeParam)) {
+        return res.status(404).json({ success: false, message:'Promo code not found.' });
+    }
+    promos = promos.filter(p => p.code !== codeParam);
+    writeData(FILE_PROMOCODES, promos);
+    logAction(req.authUser.username, `Deleted promo code: ${codeParam}`);
+    res.json({ success: true });
+});
+
+app.get('/api/promocodes/:code/validate', requireFeature('promo_codes'), (req, res) => {
+
+    const codeParam = req.params.code.toUpperCase();
+    const subtotal = parseFloat(req.query.subtotal) || 0;
+    const promos = readData(FILE_PROMOCODES, []);
+    const promo = promos.find(p => p.code === codeParam);
+    if (!promo) return res.json({ success: false, message:'Hindi valid ang promo code na ito.' });
+    if (!promo.active) return res.json({ success: false, message:'Naka-disable na ang promo code na ito.' });
+    if (promo.expiresAt && new Date(promo.expiresAt).getTime() < Date.now()) {
+        return res.json({ success: false, message:'Na-expire na ang promo code na ito.' });
+    }
+    if (promo.minSpend && subtotal < promo.minSpend) {
+        return res.json({ success: false, message: `Kailangan ng minimum na ₱${promo.minSpend.toFixed(2)} para magamit ang promo na ito.` });
+    }
+    let discountAmount = promo.type ==='percent' ? (subtotal * promo.value / 100) : promo.value;
+    discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
+    res.json({ success: true, promo, discountAmount: Math.round(discountAmount * 100) / 100 });
+});
+
+function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
+    const allTx = readData(FILE_TRANSACTIONS);
+    const start = new Date(periodStartIso).getTime();
+    const end = new Date(periodEndIso).getTime();
+    const cashierKey = cashierFilter ? String(cashierFilter).toLowerCase() : null;
+
+    const txs = allTx.filter(t => {
+        const ts = new Date(t.isoDate || t.timestamp || 0).getTime();
+        if (isNaN(ts) || ts <= start || ts > end) return false;
+        if (cashierKey && (t.cashier ||'').toLowerCase() !== cashierKey) return false;
+        return true;
+    });
+
+    const paymentBreakdown = {};
+    let grossSales = 0, totalDiscount = 0, netSales = 0;
+    txs.forEach(t => {
+        const disc = parseFloat(t.discount || 0) || 0;
+        const net = parseFloat(t.total || 0) || 0;
+        totalDiscount += disc;
+        netSales += net;
+        grossSales += net + disc;
+
+        if (Array.isArray(t.payments) && t.payments.length > 0) {
+            const totalTendered = t.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) || 1;
+            t.payments.forEach(p => {
+                const method = (p.method ||'CASH').toUpperCase();
+                const share = Math.round((net * ((parseFloat(p.amount) || 0) / totalTendered)) * 100) / 100;
+                if (!paymentBreakdown[method]) paymentBreakdown[method] = { count: 0, total: 0 };
+                paymentBreakdown[method].total = Math.round((paymentBreakdown[method].total + share) * 100) / 100;
+            });
+
+            const primaryMethod = (t.payments[0].method ||'CASH').toUpperCase();
+            paymentBreakdown[primaryMethod].count += 1;
+        } else {
+            const method = (t.payment_method || t.method ||'CASH').toUpperCase();
+            if (!paymentBreakdown[method]) paymentBreakdown[method] = { count: 0, total: 0 };
+            paymentBreakdown[method].count += 1;
+            paymentBreakdown[method].total = Math.round((paymentBreakdown[method].total + net) * 100) / 100;
+        }
+    });
+
+    const logs = readData(FILE_USERLOGS);
+    const voidLogs = logs.filter(l => l.action && l.action.indexOf('VOIDED Transaction') === 0 && l.id > start && l.id <= end
+        && (!cashierKey || (l.username ||'').toLowerCase() === cashierKey));
+    const voidCount = voidLogs.length;
+    const voidedAmount = Math.round(voidLogs.reduce((sum, l) => sum + (parseFloat(l.voidedAmount) || 0), 0) * 100) / 100;
+
+    return {
+        periodStart: new Date(start).toISOString(),
+        periodEnd: new Date(end).toISOString(),
+        transactionCount: txs.length,
+        grossSales: Math.round(grossSales * 100) / 100,
+        totalDiscount: Math.round(totalDiscount * 100) / 100,
+        netSales: Math.round(netSales * 100) / 100,
+        paymentBreakdown,
+        voidCount,
+        voidedAmount
+    };
+}
+
+function readShiftMetaStore() {
+    const raw = readData(FILE_SHIFT_META, {});
+    if (raw && !raw.cashiers && (raw.beginningCash !== undefined || raw.lastCloseAt !== undefined)) {
+        return { cashiers: {}, legacyLastCloseAt: raw.lastCloseAt || null };
+    }
+    if (!raw.cashiers) raw.cashiers = {};
+    return raw;
+}
+
+function writeShiftMetaStore(store) {
+    writeData(FILE_SHIFT_META, store);
+}
+
+function getCashierShiftMeta(store, username) {
+    const existingKey = Object.keys(store.cashiers).find(k => k.toLowerCase() === (username ||'').toLowerCase());
+    if (existingKey) return store.cashiers[existingKey];
+    store.cashiers[username] = { lastCloseAt: store.legacyLastCloseAt || null };
+    return store.cashiers[username];
+}
+
+app.get('/api/shift/current', (req, res) => {
+    const role = req.authUser && req.authUser.role;
+    const isAdminRole = (role ||'').toLowerCase() ==='admin';
+    const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
+
+    const requestedCashier = (req.query.cashier ||'').toString().trim();
+    let targetCashier = req.authUser.username;
+    if (requestedCashier && requestedCashier.toLowerCase() !== targetCashier.toLowerCase()) {
+        if (!canControlOthers) {
+            return res.status(403).json({ success: false, message:'Akses Denied: Wala kang pahintulot na tingnan/kontrolin ang shift ng ibang cashier.' });
+        }
+        targetCashier = requestedCashier;
+    }
+
+    const store = readShiftMetaStore();
+    const targetHasOpenShift = (() => {
+        const m = getCashierShiftMeta(store, targetCashier);
+        return m.beginningCash !== undefined && m.beginningCash !== null;
+    })();
+    if (!targetHasOpenShift) {
+        const gateResult = checkShiftManagementUnlocked();
+        if (!gateResult.unlocked) return res.status(402).json(gateResult.body);
+    }
+    const meta = getCashierShiftMeta(store, targetCashier);
+    const periodStart = meta.lastCloseAt || new Date(0).toISOString();
+    const summary = computeShiftSummary(periodStart, new Date().toISOString(), targetCashier);
+
+    const canViewAmounts = isAdminRole || !!getPermissionsForRole(role).shiftreport_view_amounts;
+    if (!canViewAmounts) {
+        delete summary.grossSales;
+        delete summary.totalDiscount;
+        delete summary.netSales;
+        delete summary.voidedAmount;
+        delete summary.paymentBreakdown;
+    }
+
+    res.json({
+        success: true,
+        summary,
+        cashier: targetCashier,
+        viewingOtherCashier: targetCashier.toLowerCase() !== req.authUser.username.toLowerCase(),
+        canControlOtherShifts: canControlOthers,
+        beginningCash: (meta.beginningCash !== undefined && meta.beginningCash !== null) ? meta.beginningCash : null,
+        beginningCashLocked: meta.beginningCash !== undefined && meta.beginningCash !== null,
+        beginningCashSetBy: meta.beginningCashSetBy || null
+    });
+});
+
+app.get('/api/shift/open-list', (req, res) => {
+    const role = req.authUser && req.authUser.role;
+    const isAdminRole = (role ||'').toLowerCase() ==='admin';
+    const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
+    if (!canControlOthers) {
+        return res.status(403).json({ success: false, message:'Akses Denied: Wala kang pahintulot na kontrolin ang shift close ng ibang cashier.' });
+    }
+    const store = readShiftMetaStore();
+    const openShifts = Object.keys(store.cashiers)
+        .map(username => ({ username, meta: store.cashiers[username] }))
+        .filter(c => c.meta && c.meta.beginningCash !== undefined && c.meta.beginningCash !== null)
+        .map(c => ({
+            username: c.username,
+            beginningCash: c.meta.beginningCash,
+            beginningCashSetAt: c.meta.beginningCashSetAt || null
+        }));
+    res.json({ success: true, openShifts });
+});
+
+app.post('/api/shift/open-cash', requirePermission('terminal'), requireFeature('shift_management'), rateLimit('shift-open-cash', 20, 10 * 60 * 1000), (req, res) => {
+    const store = readShiftMetaStore();
+    const meta = getCashierShiftMeta(store, req.authUser.username);
+    if (meta.beginningCash !== undefined && meta.beginningCash !== null) {
+        return res.status(409).json({
+            success: false,
+            message:'The Beginning Cash for your current shift has already been set and locked.',
+            beginningCash: meta.beginningCash
+        });
+    }
+    const amount = parseFloat(req.body.beginningCash);
+    if (isNaN(amount) || amount < 0) {
+        return res.status(400).json({ success: false, message:'Invalid Beginning Cash amount.' });
+    }
+    meta.beginningCash = Math.round(amount * 100) / 100;
+    meta.beginningCashSetBy = req.authUser.username;
+    meta.beginningCashSetAt = new Date().toISOString();
+    writeShiftMetaStore(store);
+    logAction(req.authUser.username, `Set the Beginning Cash Float for a new shift: ₱${meta.beginningCash.toFixed(2)}`);
+    res.json({ success: true, beginningCash: meta.beginningCash });
+});
+
+app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), (req, res) => {
+    const role = req.authUser && req.authUser.role;
+    const isAdminRole = (role ||'').toLowerCase() ==='admin';
+    const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
+
+    const requestedTarget = (req.body.targetCashier ||'').toString().trim();
+    let targetCashier = req.authUser.username;
+    let closedOnBehalf = false;
+    if (requestedTarget && requestedTarget.toLowerCase() !== targetCashier.toLowerCase()) {
+        if (!canControlOthers) {
+            return res.status(403).json({ success: false, message:'Akses Denied: Wala kang pahintulot na isara ang shift ng ibang cashier. Kailangan ng Admin/Supervisor control (shift_close_control) para dito.' });
+        }
+        targetCashier = requestedTarget;
+        closedOnBehalf = true;
+    }
+
+    const store = readShiftMetaStore();
+    const meta = getCashierShiftMeta(store, targetCashier);
+    const targetHasOpenShift = meta.beginningCash !== undefined && meta.beginningCash !== null;
+    if (!targetHasOpenShift) {
+
+        const gateResult = checkShiftManagementUnlocked();
+        if (!gateResult.unlocked) return res.status(402).json(gateResult.body);
+    }
+
+    const beginningCash = (meta.beginningCash !== undefined && meta.beginningCash !== null)
+        ? meta.beginningCash
+        : req.body.beginningCash;
+    const { endingCashCounted, notes } = req.body;
+    const periodStart = meta.lastCloseAt || new Date(0).toISOString();
+    const periodEnd = new Date().toISOString();
+    const summary = computeShiftSummary(periodStart, periodEnd, targetCashier);
+
+    const isZeroActivityClose = summary.transactionCount === 0 && summary.voidCount === 0;
+
+    // Payagan ang pag-close kahit walang transaksyon/void, BASTA may bukas
+    // na shift talaga (may naka-set na beginning cash) — kasi valid na
+    // use-case ito: papalitan lang ng bagong cashier at ipinapasa ang
+    // hindi nagalaw na beginning cash. Kung walang bukas na shift AT walang
+    // aktibidad, wala talagang dapat i-close kaya nananatiling naka-block.
+    if (isZeroActivityClose && !targetHasOpenShift) {
+        return res.json({ success: false, message: `Walang bukas na shift at walang bagong transaksyon o void para kay ${closedOnBehalf ? targetCashier :'sa iyo'}. Wala pang kailangang i-close.` });
+    }
+
+    const shifts = readData(FILE_SHIFTS, []);
+
+    const cashSales = (summary.paymentBreakdown['CASH'] && summary.paymentBreakdown['CASH'].total) || 0;
+    const beginCashNum = parseFloat(beginningCash) || 0;
+    const expectedCash = Math.round((beginCashNum + cashSales) * 100) / 100;
+    const hasCount = endingCashCounted !== undefined && endingCashCounted !=='' && endingCashCounted !== null;
+    const endCashNum = hasCount ? (parseFloat(endingCashCounted) || 0) : null;
+    const cashVariance = hasCount ? Math.round((endCashNum - expectedCash) * 100) / 100 : null;
+
+    const record = {
+        id:'Z-' + Date.now(),
+        closedBy: targetCashier,
+
+        closedOnBehalfBy: closedOnBehalf ? req.authUser.username : null,
+        beginningCash: beginCashNum,
+        endingCashCounted: endCashNum,
+        cashSales,
+        expectedCash,
+        cashVariance,
+        notes: notes ||'',
+        noSalesShift: isZeroActivityClose,
+        ...summary
+    };
+    shifts.unshift(record);
+    writeData(FILE_SHIFTS, shifts);
+
+    store.cashiers[targetCashier] = { lastCloseAt: periodEnd };
+    writeShiftMetaStore(store);
+
+    const varianceLog = cashVariance === null
+        ?''
+        : (cashVariance < 0
+            ? `, Cash SHORT ₱${Math.abs(cashVariance).toFixed(2)}`
+            : (cashVariance > 0 ? `, Cash OVER ₱${cashVariance.toFixed(2)}` :', Cash Exact'));
+    const noSalesLog = isZeroActivityClose ?' (Walang Transaksyon - Shift Handover Lang)' :'';
+    const actionLog = closedOnBehalf
+        ? `Closed shift / Z-Reading ${record.id} ng cashier '${targetCashier}' (Admin/Supervisor Control): ${summary.transactionCount} tx, Net Sales ₱${summary.netSales}${varianceLog}${noSalesLog}`
+        : `Closed shift / Z-Reading ${record.id}: ${summary.transactionCount} tx, Net Sales ₱${summary.netSales}${varianceLog}${noSalesLog}`;
+    logAction(req.authUser.username, actionLog);
+    res.json({ success: true, shift: record });
+});
+
+app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_management'), (req, res) => {
+    const allShifts = readData(FILE_SHIFTS, []);
+
+    const requester = req.authUser && req.authUser.username;
+    const activeRole = req.authUser && req.authUser.role;
+    const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
+
+    const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).shiftreport_view_all;
+    if (canViewAll) {
+        return res.json(allShifts);
+    }
+
+    const ownShifts = allShifts.filter(
+        s => (s.closedBy ||'').toLowerCase() === (requester ||'').toLowerCase()
+    );
+    res.json(ownShifts);
+});
+
+const isProduction = process.env.NODE_ENV ==='production';
+const HOST = isProduction ?'0.0.0.0' :'localhost';
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, HOST, () => {
+    console.log(`Server running at http://${HOST}:${PORT}`);
+    if (isProduction) {
+        console.log("MODE: Production (Public/Online Access Enabled)");
+    } else {
+        console.log("MODE: Development (Localhost Access Only)");
+    }
+});

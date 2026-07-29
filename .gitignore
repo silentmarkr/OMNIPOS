@@ -1,0 +1,6 @@
+node_modules/
+.env
+.omnipos-device-seed
+database/*.db-wal
+database/*.db-shm
+server.log

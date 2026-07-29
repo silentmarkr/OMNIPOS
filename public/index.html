@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <!-- Theme preload guard: pinapatakbo ito BAGO pa man ma-load ang alinmang
+         stylesheet, dahil block-parsing ang <script> na walang async/defer —
+         kaya guaranteed itong tumatakbo bago pa man i-paint ng browser ang
+         unang frame. Direkta nitong ini-set ang tamang background color ng
+         <html> (available na ito kahit hindi pa naka-parse ang <body>) base
+         sa nakasave na theme sa localStorage — kasama na ang eksaktong kulay
+         ng bawat Pro theme, hindi lang generic na dark color — kaya walang
+         biglaang "blink/flash" (o maling kulay muna bago tama) sa unang
+         frame habang naghihintay pa ang app.js na tumakbo sa DOMContentLoaded. -->
+    <script>
+    (function () {
+        try {
+            var t = localStorage.getItem('posa_theme');
+            if (!t) {
+                t = localStorage.getItem('posa_darkmode') === 'true' ? 'dark' : 'day';
+            }
+            // NOTE: dapat kaparehong-kapareho ng --dm-bg na naka-set sa
+            // style.css / css/themes/theme-*.css — kung babaguhin ang mga
+            // background variable ng isang theme doon, i-update din dito.
+            var THEME_BG = {
+                dark: '#121218',
+                ocean: '#05141c',
+                emerald: '#071510',
+                sunset: '#180d05',
+                rosegold: '#170a12',
+                cyber: '#05070d',
+                noir: '#120d09',
+                mintfrost: '#071815'
+            };
+            if (t && THEME_BG[t]) {
+                var root = document.documentElement;
+                root.style.setProperty('--dm-bg', THEME_BG[t]);
+                root.style.colorScheme = 'dark';
+                root.classList.add('theme-preload');
+                root.setAttribute('data-theme-preload', t);
+            }
+        } catch (e) { /* private mode / walang localStorage access — day mode default na lang */ }
+    })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OmniPOS">
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+    <title>OmniPOS - Point of Sale System</title>
+  
+    <link rel="stylesheet" href="style.css?v=20260725-5">
+    <!-- Pro Themes: bawat isa ay hiwalay na file, naglalagay lang ng --dm-* variable
+         palette sa ilalim ng body[data-theme="..."]. Idagdag lang ng bagong <link>
+         dito kapag may bagong theme file — walang kailangang baguhin sa style.css. -->
+    <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-emerald-pro.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-sunset-pro.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-rosegold-pro.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-cyber-pro.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-noir-pro.css" data-retry>
+    <link rel="stylesheet" href="css/themes/theme-mintfrost-pro.css" data-retry>
+
+    <!-- FIX: Icons (Font Awesome) — dati puro lokal na file lang
+         (css/all.min.css + public/webfonts/*.woff2/ttf) ang pinagmumulan.
+         Kapag nawala/hindi na-deploy nang tama ang mga binary font file
+         na iyon (karaniwang dahilan ng "nawawalang icons pag na-refresh"),
+         walang FA glyphs na lalabas kahit online at gumagana ang buong app.
+         Ngayon, ang online system mismo ang mag-do-download ng icon font
+         mula sa Font Awesome CDN (parehong 6.4.0 version, kaya kaparehong-
+         kapareho ang klase ng mga icon gaya ng fa-solid fa-box). Kapag
+         mabigo ang CDN mismo (walang internet, naka-block ang CDN sa
+         network na iyon), awtomatikong babalik ito sa lokal na kopya
+         bilang fallback sa halip na mawalan na lang ng icons. -->
+    <link rel="stylesheet" id="fa-css-cdn"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          crossorigin="anonymous" referrerpolicy="no-referrer"
+          onerror="this.onerror=null;this.href='css/all.min.css';console.warn('[OmniPOS] Font Awesome CDN unreachable, gumagamit ng lokal na kopya (css/all.min.css).');">
+
+    <script>
+    // Auto-retry para sa mga theme stylesheet sa itaas: kung sakaling
+    // mabigo ang isa (hal. timing issue habang bagong-deploy pa lang, o
+    // pansamantalang network hiccup), subukan itong i-reload nang isang
+    // beses matapos ang maikling delay sa halip na permanenteng manatiling
+    // walang istilo/kulay hanggang sa susunod na manual refresh ng user.
+    (function () {
+        document.querySelectorAll('link[data-retry]').forEach(function (link) {
+            link.addEventListener('error', function onErr() {
+                link.removeEventListener('error', onErr);
+                var original = link.href.split('?')[0];
+                setTimeout(function () {
+                    link.href = original + '?retry=' + Date.now();
+                }, 1200);
+            }, { once: true });
+        });
+    })();
+    </script>
+
+   <script src="JsBarcode.all.min.js"></script>
+
+  <script src="sweetalert2.all.min.js"></script>
+  
+</head>
+      
+
+<body>
+    <div id="sidebar-overlay" onclick="closeSidebarMenu()"></div>
+
+
+    <div id="auth-view" class="auth-container">
+        <div class="auth-sidebar sync-sidebar">
+            <div class="brand-title"><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i<span id="login-connection-indicator" class="connection-dot connecting"></span></span>POS</span></div>
+            <div class="device-rig">
+                <div class="pc-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M8 20h8M12 17v3"/></svg>
+                </div>
+                <div class="sync-path"></div>
+                <div class="sync-dot"></div>
+                <div class="mobile-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+                </div>
+            </div>
+            <h2>Point of Sale</h2>
+            <p>Synchronized Cross-Platform Management System</p>
+            <div class="sync-caption">Live sync across devices</div>
+        </div>
+        <div class="auth-form-side">
+            <div class="form-wrapper">
+                <span class="auth-subtitle">AUTHENTICATION</span>
+                <h1>Sign in</h1>
+                <div id="login-error" class="error-msg" style="display:none;">Invalid credentials. Please try again.</div>
+                <form id="login-form">
+                    <div class="input-group">
+                        <input type="text" id="login-username" placeholder="Username" required>
+                        <div id="username-keyboard-warning" class="keyboard-warning" style="display:none;"></div>
+                    </div>
+                    <div class="input-group">
+                        <input type="password" id="login-password" placeholder="Password" required>
+                        <div id="password-keyboard-warning" class="keyboard-warning" style="display:none;"></div>
+                    </div>
+                    <button type="submit" class="btn-primary-auth">Sign In</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+  
+  
+
+    <div id="main-view" class="app-shell" style="display: none;">
+        
+        <aside class="sidebar" id="app-sidebar">
+            <div class="sidebar-brand">
+                <span><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i<span id="connection-indicator" class="connection-dot connecting"></span></span>POS</span></span>
+            </div>
+
+            <div class="sidebar-user-widget" id="sidebar-user-widget">
+                <button type="button" class="user-widget-trigger" id="user-widget-trigger" onclick="toggleUserWidgetMenu(event)">
+                    <span class="user-widget-avatar" id="user-widget-avatar">
+                        <i class="fa-solid fa-user"></i>
+                        <span class="user-widget-caret"><i class="fa-solid fa-chevron-down"></i></span>
+                    </span>
+                    <span class="user-widget-info">
+                        <strong id="session-username">admin</strong>
+                        <small id="session-user-role">Administrator</small>
+                    </span>
+                </button>
+                <div class="user-widget-dropdown" id="user-widget-dropdown">
+                    <a href="#" class="uw-item" onclick="openEditProfileModal(); return false;"><i class="fa-solid fa-id-badge"></i> Edit Profile</a>
+                    <div class="uw-item uw-has-sub" id="uw-activeusers-toggle" onclick="toggleActiveUsersSubmenu(event)">
+                        <span><i class="fa-solid fa-users"></i> Active Users <span id="active-users-count-badge" class="uw-count-badge"></span></span>
+                        <i class="fa-solid fa-chevron-down uw-sub-caret" id="uw-activeusers-caret"></i>
+                    </div>
+                    <div class="uw-submenu uw-au-submenu" id="uw-activeusers-submenu">
+                        <div id="active-users-list" class="uw-au-list">
+                            <div class="uw-au-empty">Loading...</div>
+                        </div>
+                    </div>
+                    <div class="uw-item uw-has-sub" id="uw-themes-toggle" onclick="toggleThemesSubmenu(event)">
+                        <span><i class="fa-solid fa-palette"></i> Themes</span>
+                        <i class="fa-solid fa-chevron-down uw-sub-caret" id="uw-themes-caret"></i>
+                    </div>
+                    <div class="uw-submenu" id="uw-themes-submenu">
+                        <!-- Dynamic-render ito ng renderThemeMenu() sa app.js base sa THEME_CATALOG.
+                             Idagdag ang bagong theme sa THEME_CATALOG (app.js) + kaukulang CSS file
+                             sa public/css/themes/ — awtomatikong lalabas ito dito. -->
+                    </div>
+                    <a href="#" class="uw-item uw-logout" onclick="handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+                </div>
+            </div>
+
+            <nav class="sidebar-menu">
+                <span class="menu-section-label">Main</span>
+                <a href="#" class="menu-item active" id="menu-overview" onclick="switchView('overview')"><i class="fa-solid fa-laptop-house"></i> Overview</a>
+                <a href="#" class="menu-item" id="menu-terminal" onclick="switchView('terminal')"><i class="fa-solid fa-computer"></i> POS Terminal</a>
+
+                <span class="menu-section-label">Inventory</span>
+                <div class="menu-dropdown" id="menu-inventory-group">
+                    <span class="menu-item-header"><i class="fa-solid fa-boxes-stacked"></i> Inventory <i class="fa-solid fa-chevron-down drop-icon"></i></span>
+                    <div class="dropdown-container">
+                        <a href="#" class="sub-menu-item" id="menu-inventory-dashboard" onclick="switchView('dashboard')"><i class="fa-solid fa-gauge" style="font-size: 0.85rem; margin-right: 5px;"></i> Dashboard</a>
+                        <a href="#" class="sub-menu-item" id="menu-products" onclick="switchView('products')"><i class="fa-solid fa-box" style="font-size: 0.85rem; margin-right: 5px;"></i> Products</a>
+                        <a href="#" class="sub-menu-item" id="menu-barcode" onclick="switchView('barcode')"><i class="fa-solid fa-barcode" style="font-size: 0.85rem; margin-right: 5px;"></i>Barcode</a>
+                        <a href="#" class="sub-menu-item" id="menu-reorder" onclick="switchView('reorder')"><i class="fa-solid fa-truck-fast" style="font-size: 0.85rem; margin-right: 5px;"></i>Reorder Alerts <span id="reorder-menu-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span><span id="menu-reorder-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span></a>
+                    </div>
+                </div>
+
+                <span class="menu-section-label">Management</span>
+                <a href="#" class="menu-item" id="menu-reports" onclick="switchView('reports')"><i class="fa-solid fa-chart-line"></i> Sales Report <span id="menu-reports-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-reports-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-transactions" onclick="switchView('transactions')"><i class="fa-solid fa-receipt"></i> Transaction</a>
+                <a href="#" class="menu-item" id="menu-customers" onclick="switchView('customers')"><i class="fa-solid fa-address-book"></i> Customers <span id="menu-customers-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-customers-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-users" onclick="switchView('users')"><i class="fa-solid fa-users"></i> Users</a>
+                <a href="#" class="menu-item" id="menu-logs" onclick="switchView('logs')"><i class="fa-solid fa-clock-rotate-left"></i> User Logs</a>
+
+                <span class="menu-section-label">Support</span>
+                <a href="#" class="menu-item" id="menu-faq" onclick="switchView('faq')"><i class="fa-solid fa-circle-question"></i> FAQ</a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-header" id="app-top-header">
+                <div class="header-left">
+                    <button class="hamburger-menu" id="btn-sidebar-toggle" onclick="openSidebarMenu()"><i class="fa-solid fa-bars"></i></button>
+                    <div class="terminal-brand-header" id="terminal-brand-header">
+                        <span class="terminal-brand-label"><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i<span id="terminal-connection-indicator" class="connection-dot connecting"></span></span>POS</span></span>
+                        <button class="btn-terminal-back" onclick="switchView('overview')" title="Bumalik sa Overview">
+    <i class="fa-solid fa-chevron-left"></i>
+</button>     </div>
+                </div>
+                <span class="header-page-title" id="header-page-title"></span>
+                <div class="header-right">
+                    <button class="btn-daymode-toggle" id="terminal-daymode-btn" onclick="toggleTerminalDayMode()" title="Terminal Day Mode" style="display:none;">
+                        <i class="fa-solid fa-sun"></i>
+                    </button>
+                    <button class="btn-lowstock-bell" id="lowstock-bell-btn" onclick="switchView('reorder')" title="Reorder Alerts">
+                        <i class="fa-solid fa-bell"></i>
+                        <span id="lowstock-bell-badge" class="lowstock-bell-badge" style="display:none;">0</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-body">
+
+                <section id="view-dashboard" class="app-view">
+                  <div class="view-header-row" style="margin-bottom: 25px;" id="dashboard-title-row">
+        <h2 id="page-title-dashboard"><i class="fa-solid fa-gauge-high" style="color: #3b82f6; margin-right: 10px;"></i> Inventory Dashboard Overview</h2>
+                  </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon neutral"><i class="fa-solid fa-box"></i></div>
+                            <div><p class="metric-label">PRODUCTS</p><h3 id="metric-products-count">5</h3></div>
+                        </div>
+
+                      <div class="metric-card">
+    <div class="metric-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
+    <div><p class="metric-label">LOW STOCK</p><h3 id="metric-low-stock">0</h3></div>
+                      </div>
+                      
+                      <div class="metric-card">
+    <div class="metric-icon danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
+    <div><p class="metric-label">NO STOCK</p><h3 id="metric-no-stock">0</h3></div>
+</div>
+
+                      <div class="metric-card">
+    <div class="metric-icon warning"><i class="fa-solid fa-calendar-days"></i></div>
+    <div><p class="metric-label">EXPIRING SOON</p><h3 id="metric-expiring-soon">0</h3></div>
+                      </div>
+
+                      <div class="metric-card">
+    <div class="metric-icon danger"><i class="fa-solid fa-calendar-xmark"></i></div>
+    <div><p class="metric-label">EXPIRED</p><h3 id="metric-expired">0</h3></div>
+                      </div>
+
+                        <div class="metric-card">
+                            <div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div>
+                            <div><p class="metric-label">TOTAL REVENUE</p><h3 id="metric-revenue">₱70</h3></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon neutral"><i class="fa-solid fa-scroll"></i></div>
+                            <div><p class="metric-label">TODAY'S ORDERS</p><h3 id="metric-orders">0</h3></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon neutral"><i class="fa-solid fa-users-gear"></i></div>
+                            <div><p class="metric-label">USERS</p><h3 id="metric-users-count">3</h3></div>
+                        </div>
+                    </div></section>
+
+
+              
+<section id="view-overview" class="app-view">
+
+                    <div class="overview-greeting-row">
+                        <div>
+                            <h2 class="overview-greeting" id="overview-greeting">Magandang araw!</h2>
+                            <p class="overview-subdate" id="overview-subdate">&nbsp;</p>
+                        </div>
+                        <span class="overview-role-badge" id="overview-role-badge">Admin</span>
+                    </div>
+
+                    <div class="metrics-grid overview-stats-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon accent"><i class="fa-solid fa-crown"></i></div>
+                            <div><p class="metric-label">TOP SELLER TODAY</p><h3 id="metric-ov-top-seller">—</h3></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div>
+                            <div><p class="metric-label">TODAY'S ORDERS</p><h3 id="metric-ov-orders">0</h3></div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                            <div><p class="metric-label">LOW STOCK ITEMS</p><h3 id="metric-ov-lowstock">0</h3></div>
+                        </div>
+                    </div>
+
+                    <div class="overview-trend-card">
+                        <div class="overview-trend-header">
+                            <h3><i class="fa-solid fa-chart-simple"></i> Sales Trend (Last 7 Days)</h3>
+                        </div>
+                        <div class="trend-bars-row" id="overview-trend-bars"></div>
+                    </div>
+
+                    <div class="overview-trend-card" style="margin-top:15px;">
+                        <div class="overview-trend-header">
+                            <h3><i class="fa-solid fa-ranking-star"></i> Top Selling Products (Today)</h3>
+                        </div>
+                        <ul id="overview-top-products-list" style="margin:10px 0 0 0; padding-left:20px; line-height:2;">
+                            <li style="color:#94a3b8; list-style:none; padding-left:0;">No sale today.</li>
+                        </ul>
+                    </div>
+
+                    <h2 class="section-title"><i class="fa-solid fa-grip"></i> Quick Access</h2>
+                    <div class="quick-access-grid">
+                        <div class="qa-card active" onclick="switchView('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
+                        <div class="qa-card" onclick="switchView('products')"><i class="fa-solid fa-box-open" style="color:#f59e0b;"></i><p>Inventory</p></div>
+                        <div class="qa-card" onclick="switchView('reports')"><i class="fa-solid fa-chart-column" style="color:#10b981;"></i><p>Sales Report</p></div>
+                        <div class="qa-card" onclick="switchView('transactions')"><i class="fa-solid fa-credit-card" style="color:#06b6d4;"></i><p>Transactions</p></div>
+                        <div class="qa-card" onclick="switchView('users')"><i class="fa-solid fa-user-shield" style="color:#8b5cf6;"></i><p>Users</p></div>
+                        <div class="qa-card" onclick="switchView('logs')"><i class="fa-solid fa-stopwatch" style="color:#64748b;"></i><p>User Logs</p></div>
+                        <div class="qa-card text-danger" onclick="handleLogout()"><i class="fa-solid fa-door-open" style="color:#ef4444;"></i><p>Logout</p></div>
+                    </div>
+                </section>
+                
+
+                <section id="view-terminal" class="app-view terminal-theme" style="display:none;">
+                    <div class="terminal-container">
+                        <div class="terminal-cart-pane">
+                            <div class="cart-header">
+                                <span><i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
+                                <div class="cart-header-actions">
+                                    <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> Preview</button>
+                                    <button class="btn-clear" onclick="handleClearCart()"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                                </div>
+                            </div>
+                            
+                            <div class="cart-items-wrapper" id="cart-items-container">
+                                </div>
+
+                            <div class="cart-summary-block">
+                                <div class="summary-row cart-customer-row">
+                                    <span><i class="fa-solid fa-user"></i> Customer</span>
+                                    <button class="btn-select-customer" id="cart-customer-btn" onclick="openCustomerPickerForCart()">Walk-in <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i></button>
+                                </div>
+                                <div class="summary-row cart-promo-row">
+                                    <input type="text" id="cart-promo-input" placeholder="Promo code (optional)" style="text-transform:uppercase;">
+                                    <button class="btn-apply-promo" onclick="applyPromoCodeToCart()">Apply</button>
+                                </div>
+                                <div class="summary-row">
+                                    <span>
+                                        <label class="senior-pwd-toggle-label">
+                                            <input type="checkbox" id="cart-senior-pwd-toggle" onchange="toggleSeniorPwdDiscount()"> Senior/PWD (20%)
+                                        </label>
+                                    </span>
+                                </div>
+                                <div class="summary-row"><span>Subtotal</span><span id="summary-subtotal">₱0.00</span></div>
+                                <div class="summary-row">
+                                    <span>Discount ₱</span>
+                                    <input type="number" id="cart-discount-input" value="0" min="0" oninput="handleManualDiscountInput()">
+                                </div>
+                                <div class="summary-total-row"><span>TOTAL</span><span id="summary-total">₱0.00</span></div>
+                                <button class="btn-charge-action" onclick="openPaymentModal()"><i class="fa-solid fa-credit-card"></i> Charge</button>
+                            </div>
+                        </div>
+
+                        <div class="terminal-product-pane">
+                            <div class="terminal-top-controls">
+                                <div class="search-box-container">
+                                    <input type="text" id="terminal-search" placeholder="Search product name or ID..." oninput="renderTerminalProducts()">
+                                    <button class="btn-scan-qr scan-icon-floating" onclick="openQRScanner()" title="Scan QR">
+                                        <i class="fa-solid fa-qrcode"></i>
+                                    </button>
+                                </div>
+                              
+                            </div>
+<div class="category-header-row">
+
+                            <div class="category-chips-row" id="category-chips">
+    </div>
+
+                              <button id="btn-view-toggle" class="chip-toggle-view" onclick="toggleTerminalView()" title="Palitan ang Layout View">
+        <i class="fa-solid fa-list"></i>
+                              </button>
+                            </div>
+
+                            <div class="terminal-products-grid" id="terminal-grid-output">
+                                </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="view-products" class="app-view" style="display:none;">
+                    <div class="view-header-row">
+                        <h2 id="page-title-products">Product Inventory Management</h2>
+                        <div class="header-action-group">
+                            <button class="btn-action-outline" onclick="downloadProductTemplate()" title="Mag-download ng Excel template para sa bulk product entry">
+                                <i class="fa-solid fa-file-arrow-down"></i> Download Template
+                            </button>
+                            <button class="btn-action-outline" onclick="triggerProductImport()" title="Mag-import ng pinunuang Excel o CSV file">
+                                <i class="fa-solid fa-file-import"></i> Import Excel/CSV
+                            </button>
+                            <button class="btn-action-outline" onclick="exportProductsCsv()" title="I-download ang kasalukuyang inventory bilang CSV">
+                                <i class="fa-solid fa-file-export"></i> Export CSV <span id="export-csv-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="export-csv-pro" class="menu-pro-badge" style="display:none;">PRO</span>
+                            </button>
+                            <input type="file" id="import-file-input" accept=".xlsx,.csv" style="display:none;" onchange="handleProductImportFile(event)">
+                            <button class="btn-action-outline" onclick="openPromoCodesManager()" title="Mamahala ng discount promo codes">
+                                <i class="fa-solid fa-tags"></i> Promo Codes <span id="promo-codes-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="promo-codes-pro" class="menu-pro-badge" style="display:none;">PRO</span>
+                            </button>
+                            <button class="btn-action-global" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i> Add Product</button>
+                        </div>
+                    </div>
+                    <div class="terminal-top-controls" style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+                        <div class="search-box-container" style="flex:1; min-width:220px;">
+                            <input type="text" id="inventory-search" placeholder="Search product name or ID..." oninput="filterInventoryTable()">
+                            <button class="btn-scan-qr scan-icon-floating" onclick="openInventoryScanner()" title="I-scan ang QR/Barcode ng produkto">
+                                <i class="fa-solid fa-qrcode"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Photo</th>
+                                    <th><span class="th-label-wrap">Code<button type="button" class="col-filter-btn" data-field="code" onclick="toggleColumnFilter('code', event)" title="Filter Code"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Product Name<button type="button" class="col-filter-btn" data-field="name" onclick="toggleColumnFilter('name', event)" title="Filter Product Name"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Category<button type="button" class="col-filter-btn" data-field="category" onclick="toggleColumnFilter('category', event)" title="Filter Category"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Price<button type="button" class="col-filter-btn" data-field="price" onclick="toggleColumnFilter('price', event)" title="Filter Price"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Stock<button type="button" class="col-filter-btn" data-field="stock" onclick="toggleColumnFilter('stock', event)" title="Filter Stock"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Expiry Date<button type="button" class="col-filter-btn" data-field="expiryDate" onclick="toggleColumnFilter('expiryDate', event)" title="Filter Expiry Date"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="products-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="view-barcode" class="app-view" style="display:none;">
+                    <div class="view-header-row">
+                        <h2 id="page-title-barcode">Barcode Generator</h2>
+                        <button class="btn-action-global" onclick="generateSelectedBarcodePreview()"><i class="fa-solid fa-print"></i> Print Selected</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th width="40"><input type="checkbox" id="select-all-barcodes" onchange="toggleSelectAllBarcodes(this)"></th>
+                                    <th>Code</th>
+                                    <th>Category</th>
+                                    <th>Product Name</th>
+                                    <th>Print Qty</th>
+                                    <th>Barcode Preview</th>
+                                </tr>
+                            </thead>
+                            <tbody id="barcode-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+
+
+                <section id="view-reorder" class="app-view" style="display:none;">
+                    <div class="view-header-row reorder-header-row" style="margin-bottom: 10px; flex-wrap:wrap; gap:8px;">
+                        <h2 id="page-title-reorder">Reorder Alerts / Purchase Orders</h2>
+                    </div>
+                    <div class="reorder-header-actions reorder-header-actions-freeze">
+                        <button class="btn-action-global btn-action-icon-only" id="reorder-create-po-btn" onclick="openCreatePOModal()" disabled title="Create PO">
+                            <i class="fa-solid fa-cart-plus"></i>
+                            <span id="reorder-selected-count" class="reorder-action-count-badge">0</span>
+                            <span id="create-po-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span>
+                        </button>
+                        <button class="btn-action-global btn-action-icon-only" style="background:#475569;" onclick="exportReorderCSV()" title="Export CSV"><i class="fa-solid fa-file-csv"></i></button>
+                        <button class="btn-action-global btn-action-icon-only" style="background:#475569;" onclick="printReorderList()" title="Print"><i class="fa-solid fa-print"></i></button>
+                    </div>
+
+                    <div class="reorder-stats-bar" id="reorder-stats-bar"></div>
+
+                    <div class="tabs-container reorder-tabs-container">
+                        <button class="tab-btn reorder-tab-btn active" id="reorder-tab-btn-create" onclick="switchReorderTab('reorder-tab-create', this)"><i class="fa-solid fa-cart-plus"></i> Create PO</button>
+                        <button class="tab-btn reorder-tab-btn" id="reorder-tab-btn-history" onclick="switchReorderTab('reorder-tab-history', this)"><i class="fa-solid fa-clock-rotate-left"></i> Purchase Order History</button>
+                    </div>
+
+                    <div id="reorder-tab-create" class="tab-content-panel reorder-tab-panel" style="display:flex;">
+                    <div class="terminal-top-controls reorder-toolbar" style="flex-wrap:wrap; gap:10px;">
+                        <div class="search-box-container">
+                            <input type="text" id="reorder-search-input" placeholder="Search product or supplier..." oninput="renderReorderTable()">
+                        </div>
+                        <select id="reorder-filter-status" class="reorder-toolbar-select" onchange="renderReorderTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                            <option value="ALL">All Statuses</option>
+                            <option value="OUT_OF_STOCK">Out of Stock only</option>
+                            <option value="LOW_STOCK">Low Stock only</option>
+                        </select>
+                        <select id="reorder-sort-by" class="reorder-toolbar-select" onchange="renderReorderTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                            <option value="stock_asc">Sort by: Lowest Stock</option>
+                            <option value="days_desc">Sort by: Longest Time Low</option>
+                            <option value="name_asc">Sort by: Name (A-Z)</option>
+                            <option value="supplier_asc">Sort by: Supplier</option>
+                        </select>
+                        <label class="reorder-toolbar-checklabel" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; color:var(--text-muted); cursor:pointer; user-select:none;">
+                            <input type="checkbox" id="reorder-group-by-supplier" onchange="renderReorderTable()"> Group by Supplier
+                        </label>
+                        <div class="reorder-group-collapse-controls">
+                            <button type="button" class="reorder-group-collapse-btn" onclick="setAllReorderGroupsCollapsed(true)"><i class="fa-solid fa-compress"></i> Collapse All</button>
+                            <button type="button" class="reorder-group-collapse-btn" onclick="setAllReorderGroupsCollapsed(false)"><i class="fa-solid fa-expand"></i> Expand All</button>
+                        </div>
+                        <div class="reorder-view-toggle" role="group" aria-label="List or Grid view">
+                            <button type="button" id="reorder-view-list-btn" class="reorder-view-btn active" onclick="setReorderViewMode('list')" title="List View"><i class="fa-solid fa-list"></i> List</button>
+                            <button type="button" id="reorder-view-grid-btn" class="reorder-view-btn" onclick="setReorderViewMode('grid')" title="Grid View"><i class="fa-solid fa-grip"></i> Grid</button>
+                        </div>
+                    </div>
+
+                    <div class="table-container reorder-table-container" id="reorder-table-container">
+                        <table class="data-table reorder-data-table">
+                            <thead>
+                                <tr>
+                                    <th width="36"><input type="checkbox" id="reorder-select-all" onchange="toggleSelectAllReorder(this)"></th>
+                                    <th>Product</th>
+                                    <th>Supplier</th>
+                                    <th>Stock</th>
+                                    <th>Threshold</th>
+                                    <th>Days Low</th>
+                                    <th>Suggested Reorder</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reorder-table-body"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="reorder-grid-container" id="reorder-grid-container" style="display:none;"></div>
+                    </div>
+
+                    <div id="reorder-tab-history" class="tab-content-panel reorder-tab-panel" style="display:none;">
+                    <div class="view-header-row" style="margin: 0 0 12px;">
+                        <h2 style="font-size:1.05rem;">Purchase Order History</h2>
+                    </div>
+                    <div class="terminal-top-controls reorder-po-toolbar" style="flex-wrap:wrap; gap:10px;">
+                        <div class="search-box-container">
+                            <input type="text" id="reorder-po-search-input" placeholder="Search PO #, supplier, or item..." oninput="renderPurchaseOrdersTable()">
+                        </div>
+                        <select id="reorder-po-filter-status" class="reorder-toolbar-select" onchange="renderPurchaseOrdersTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                            <option value="ALL">All Statuses</option>
+                            <option value="ordered">Ordered only</option>
+                            <option value="received">Received only</option>
+                            <option value="cancelled">Cancelled only</option>
+                        </select>
+                        <select id="reorder-po-sort-by" class="reorder-toolbar-select" onchange="renderPurchaseOrdersTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                            <option value="newest">Sort by: Newest First</option>
+                            <option value="oldest">Sort by: Oldest First</option>
+                            <option value="supplier_asc">Sort by: Supplier</option>
+                        </select>
+                        <div class="reorder-view-toggle" role="group" aria-label="List or Grid view">
+                            <button type="button" id="reorder-po-view-list-btn" class="reorder-view-btn active" onclick="setReorderPOViewMode('list')" title="List View"><i class="fa-solid fa-list"></i> List</button>
+                            <button type="button" id="reorder-po-view-grid-btn" class="reorder-view-btn" onclick="setReorderPOViewMode('grid')" title="Grid View"><i class="fa-solid fa-grip"></i> Grid</button>
+                        </div>
+                    </div>
+                    <div class="table-container reorder-po-table-container" id="reorder-po-table-container">
+                        <table class="data-table reorder-po-data-table">
+                            <thead>
+                                <tr>
+                                    <th>PO #</th>
+                                    <th>Supplier</th>
+                                    <th>Items</th>
+                                    <th>Status</th>
+                                    <th>Created By / When</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reorder-po-table-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="reorder-grid-container" id="reorder-po-grid-container" style="display:none;"></div>
+                    </div>
+                </section>
+
+
+
+                  
+                <section id="view-reports" class="app-view" style="display:none;">
+                    <div class="view-header-row" style="margin-bottom: 18px;">
+                        <h2 id="page-title-reports">Sales Analytics</h2>
+                        <div class="analytics-range-chips" id="analytics-range-chips">
+                            <button class="chip-range active" data-range="all" onclick="setAnalyticsRange('all')">All Time</button>
+                            <button class="chip-range" data-range="30d" onclick="setAnalyticsRange('30d')">30 Days</button>
+                            <button class="chip-range" data-range="7d" onclick="setAnalyticsRange('7d')">7 Days</button>
+                            <button class="chip-range" data-range="today" onclick="setAnalyticsRange('today')">Today</button>
+                        </div>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">Gross Income</p><h3 id="report-gross">₱0.00</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">Transactions Handled</p><h3 id="report-count">0</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-chart-line"></i></div><div><p class="metric-label">Estimated Profit</p><h3 id="report-profit">₱0.00</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-percent"></i></div><div><p class="metric-label">Avg. Margin %</p><h3 id="report-margin-pct">0%</h3></div></div>
+                    </div>
+
+                    <div class="overview-trend-card">
+                        <div class="overview-trend-header"><h3><i class="fa-solid fa-chart-simple"></i> Last 7 Days</h3></div>
+                        <div class="trend-bars-row" id="analytics-trend-bars"></div>
+                    </div>
+
+                    <div class="analytics-two-col">
+                        <div class="report-container analytics-panel">
+                            <h3>Top Selling Items</h3>
+                            <ol class="rank-list" id="top-products-list"></ol>
+                        </div>
+                        <div class="report-container analytics-panel">
+                            <h3>Slow-Moving Items <span class="analytics-subnote">(pinaka-kaunting nabenta)</span></h3>
+                            <ol class="rank-list" id="slow-products-list"></ol>
+                        </div>
+                    </div>
+
+                    <div class="analytics-two-col">
+                        <div class="report-container analytics-panel">
+                            <h3>Profit by Product <span class="analytics-subnote">(nangangailangan ng Cost Price sa product record)</span></h3>
+                            <ol class="rank-list" id="profit-by-product-list"></ol>
+                        </div>
+                        <div class="report-container analytics-panel">
+                            <h3>Payment Method Breakdown</h3>
+                            <ol class="rank-list" id="payment-breakdown-list"></ol>
+                        </div>
+                    </div>
+               </section>
+
+
+
+                <section id="view-customers" class="app-view" style="display:none;">
+                    <div class="view-header-row" style="margin-bottom: 15px;">
+                        <h2 id="page-title-customers">Customers &amp; Loyalty Points</h2>
+                        <button class="btn-action-global" onclick="openAddCustomerForm()"><i class="fa-solid fa-plus"></i> Add Customer</button>
+                    </div>
+                    <div class="terminal-top-controls">
+                        <div class="search-box-container">
+                            <input type="text" id="customer-search-input" placeholder="I-search ang pangalan, phone, o email..." oninput="renderCustomersTable()">
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Pangalan</th>
+                                    <th>Phone</th>
+                                    <th>Email</th>
+                                    <th>Points</th>
+                                    <th>Total Spent</th>
+                                    <th>Visits</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customers-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+
+
+                <section id="view-shiftreport" class="app-view" style="display:none;">
+                    <h2 id="page-title-shiftreport">Shift / Z-Reading Report</h2>
+
+                    <!-- ADMIN/SUPERVISOR SHIFT-CLOSE CONTROL PANEL: ipinapakita lang
+                         kung may 'shift_close_control' permission (o Admin) ang
+                         kasalukuyang naka-login na role. Dito pipiliin kung kaninong
+                         BUKAS na shift ang titingnan/isasara — kahit ibang device/
+                         terminal pa ang pinagbuksan nito, online man o offline/
+                         locally connected lang ang cashier na iyon. -->
+                    <div class="report-container" id="shift-close-control-panel" style="margin-bottom: 20px; padding: 20px; display:none; border: 1px solid var(--border-color);">
+                        <h3><i class="fa-solid fa-user-shield"></i> Admin/Supervisor Control — Piliin ang Shift na Titingnan/Isasara</h3>
+                        <p class="recovery-desc">Bilang Admin/Supervisor, may kontrol ka sa pagsara ng shift ng ibang cashier kahit ibang device o POS terminal pa ang ginamit nila, online man o offline/locally connected lang sila.</p>
+                        <select id="shift-close-target-cashier" class="shift-close-target-select" onchange="onShiftCloseTargetCashierChange()">
+                            <option value="">— Sariling Shift Ko —</option>
+                        </select>
+                        <div id="shift-close-target-notice" style="margin-top:10px; font-weight:600;"></div>
+                    </div>
+
+                    <div class="metrics-grid" id="shift-current-metrics">
+                        <div class="metric-card"><div><p class="metric-label">Transactions (Open Shift)</p><h3 id="shift-tx-count">0</h3></div></div>
+                        <div class="metric-card" id="shift-gross-card"><div><p class="metric-label">Gross Sales</p><h3 id="shift-gross">₱0.00</h3></div></div>
+                        <div class="metric-card" id="shift-discount-card"><div><p class="metric-label">Total Discount</p><h3 id="shift-discount">₱0.00</h3></div></div>
+                        <div class="metric-card" id="shift-net-card"><div><p class="metric-label">Net Sales</p><h3 id="shift-net">₱0.00</h3></div></div>
+                    </div>
+                    <div class="report-container" id="shift-payment-breakdown-container" style="margin-top: 20px; padding: 20px;">
+                        <h3>Payment Method Breakdown (Open Shift)</h3>
+                        <ul id="shift-payment-breakdown-list" style="margin-top:15px; padding-left:20px; line-height:2;"></ul>
+                    </div>
+                    <div class="report-container" style="margin-top: 20px; padding: 20px;">
+                        <h3><i class="fa-solid fa-cash-register"></i> Isara ang Shift (Z-Reading)</h3>
+                        <p class="recovery-desc">Sinasarado nito ang kasalukuyang shift at nagsisimula ng bagong shift period. Hindi na ito maaaring bawiin.</p>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin: 15px 0;">
+                            <div>
+                                <label class="input-label-field">Beginning Cash Float <small style="opacity:.7;">(naka-set sa simula ng shift, sarili ng cashier)</small></label>
+                                <input type="number" id="shift-beginning-cash" class="large-payment-input" placeholder="0.00" readonly>
+                            </div>
+                            <div>
+                                <label class="input-label-field">Ending Cash (Physical Count)</label>
+                                <input type="number" id="shift-ending-cash" class="large-payment-input" placeholder="0.00">
+                            </div>
+                        </div>
+                        <textarea id="shift-close-notes" placeholder="Optional notes..." style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-color); margin-bottom:12px;"></textarea>
+                        <button class="btn-confirm-payment-action" onclick="closeCurrentShift()"><i class="fa-solid fa-lock"></i> Isara ang Shift Ngayon</button>
+                    </div>
+                    <div class="report-container" style="margin-top: 20px; padding: 20px;">
+                        <h3>Shift History</h3>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Z-Reading ID</th>
+                                        <th>Closed By</th>
+                                        <th>Period</th>
+                                        <th>Tx Count</th>
+                                        <th>Net Sales</th>
+                                        <th>Cash Short/Over</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="shift-history-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+
+
+                                <section id="view-transactions" class="app-view" style="display:none;">
+                    <h2 id="page-title-transactions">Transaction Database Records</h2>
+              <div class="recovery-section"></div>
+   <div class="recovery-inner-card">
+                <h3 id="recovery-card-toggle-heading" onclick="toggleRecoveryCard()"><i class="fa-solid fa-search-plus"></i> Maghanap sa Lumang Backup File <i class="fa-solid fa-chevron-down" id="recovery-card-toggle-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i></h3>
+    <div id="recovery-card-body">
+    <p class="recovery-desc">
+        Pumili ng lumang backup (.json) upang maghanap ng partikular na rekord nang hindi binabago ang kasalukuyang data.
+    </p>
+
+    <label class="file-upload-btn">
+        <i class="fa-solid fa-upload"></i> <span id="backup-file-label">Pumili ng File (.json)</span>
+        <input type="file" id="backup-query-file" accept=".json" onchange="document.getElementById('backup-file-label').textContent = this.files[0] ? this.files[0].name : 'Pumili ng File (.json)'">
+    </label>
+
+    <input type="text" id="backup-query-id" class="backup-id-input" placeholder="Ilagay ang Txn ID o Log ID...">
+
+    <div class="backup-actions-grid">
+      <button type="button" onclick="buksanScannerParaSaBackup('backup')" class="btn-scan-backup">
+        <i class="fa-solid fa-camera"></i> Scan
+      </button>
+        <button onclick="searchInsideBackupFile()" class="btn-backup-search">
+            <i class="fa-solid fa-magnifying-glass"></i> Search
+        </button>
+    </div>
+    </div>
+</div>
+      
+                    <div class="terminal-top-controls">
+                        <div class="search-box-container">
+                            <input type="text" id="tx-history-search" placeholder="I-search ang Transaction ID o Pangalan ng Cashier..." oninput="filterTransactionsTable()">
+                            <button class="btn-scan-qr scan-icon-floating" onclick="openTxQRScanner()" title="Scan Receipt ID">
+                                <i class="fa-solid fa-qrcode"></i>
+                            </button>
+                        </div>
+
+                        <div class="tx-filter-controls">
+                            <select id="tx-method-filter" onchange="filterTransactionsTable()" class="tx-method-select">
+                                <option value="All">Lahat ng Method</option>
+                                <option value="CASH">Cash</option>
+                                <option value="GCASH">GCash</option>
+                                <option value="MAYA">Maya</option>
+                                <option value="CARD">Card</option>
+                                <option value="CARD/GCASH">Card / GCash (Luma)</option>
+                            </select>
+                        </div>
+                      
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+
+                            <thead>
+                                <tr>
+                                    <th>Transaction ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Cashier</th>
+                                    <th>Items</th>
+                                    <th>Discount</th>
+                                    <th>Total Charged</th>
+                                    <th>Method</th>
+                                  <th>Receipt</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactions-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+
+<section id="view-users" class="app-view" style="display:none;">
+
+    <div class="tabs-container" style="display: flex; justify-content: center; gap: 10px; width: 100%;">
+       
+        <button class="tab-btn active" id="manage-users-tab-btn" onclick="switchUserTab('manage-users-tab', this)">Users Management</button>
+
+<button class="tab-btn" id="pending-requests-counter-tab" onclick="switchUserTab('pending-requests-tab', this)">Pending Requests</button>
+
+<button class="tab-btn" id="roles-permissions-tab-btn" onclick="switchUserTab('roles-permissions-tab', this)">Roles &amp; Permissions</button>
+
+<button class="tab-btn" id="receipt-custom-tab-btn" onclick="switchUserTab('receipt-custom-tab', this); loadReceiptCustomizationPanel();">Receipt Customization</button>
+
+      <button class="tab-btn" id="reset-restore-btn" onclick="switchUserTab('reset-restore-panel', this); loadSystemResetPanel();">Reset/Restore</button>
+    </div>
+
+                  
+    <div id="manage-users-tab" class="tab-content-panel">
+        <div class="view-header-row" style="margin-top: 15px;">
+            <button class="btn-action-global" onclick="openAddUserModal()"><i class="fa-solid fa-user-plus"></i> Add User</button>
+        </div> 
+
+        <div class="table-container" style="margin-top: 15px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>System Access Role</th>
+                        <th>Account Created Time</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="users-table-body"></tbody>
+            </table>
+        </div>
+    </div> 
+
+    <div id="roles-permissions-tab" class="tab-content-panel" style="display:none;">
+        <div class="view-header-row" style="margin-top: 15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <button class="btn-action-global" onclick="openAddRoleModal()"><i class="fa-solid fa-user-tag"></i> Add New Role</button>
+            <button class="btn-action-global" id="save-column-order-btn" style="display:none; background:#0ea5e9;" onclick="saveRoleColumnOrder()"><i class="fa-solid fa-arrows-left-right"></i> I-save ang Ayos ng Columns</button>
+        </div>
+        <p style="color:#64748b; font-size:0.85rem; margin: 10px 2px 0;">
+            I-configure kung anong menu ang makikita ng bawat role. Ang "Admin" ay laging may buong access
+            at hindi na-e-edit dito. Kapag may bagong menu na idinagdag sa system, awtomatiko itong lalabas dito.
+            Gamitin ang ◀ ▶ sa ibabaw ng bawat column para baguhin ang pagkakasunod-sunod ng mga role.
+        </p>
+        <div class="roles-permissions-matrix-wrap" id="roles-permissions-matrix-wrap">
+            <div class="table-container permission-matrix-scroll" style="margin-top: 15px;">
+                <table class="data-table" id="permission-matrix-table">
+                    <colgroup id="permission-matrix-colgroup"></colgroup>
+                    <thead>
+                        <tr id="permission-matrix-head-row">
+                            <th>Menu</th>
+                        </tr>
+                    </thead>
+                    <tbody id="permission-matrix-body"></tbody>
+                </table>
+            </div>
+            <div class="feature-locked-overlay" id="roles-permissions-lock-overlay" style="display:none;">
+                <div class="feature-locked-overlay-inner">
+                    <span class="menu-pro-lock feature-locked-overlay-icon" style="display:inline-block;"><i class="fa-solid fa-lock"></i></span>
+                    <p class="feature-locked-overlay-title">Roles &amp; Permissions (RBAC) Management</p>
+                    <p class="feature-locked-overlay-desc">Premium feature — i-unlock para makagawa/mag-edit ng mga role.</p>
+                    <button type="button" class="btn-action-global" onclick="guardPremiumFeature('rbac_management')"><i class="fa-solid fa-unlock"></i> I-unlock Ngayon</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="pending-requests-tab" class="tab-content-panel" style="display:none;">
+        <div class="table-container" style="margin-top:20px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Requester</th>
+                        <th>Request Operation</th>
+                        <th>Target Code</th>
+                        <th>Data Values Details</th>
+                        <th>Time Submitted</th>
+                        <th>Action Control</th>
+                    </tr>
+                </thead>
+                <tbody id="requests-table-body"></tbody>
+            </table>
+        </div>
+    </div> 
+
+    <div id="receipt-custom-tab" class="tab-content-panel" style="display:none;">
+
+        <!-- Google App Verification box. Hindi na ito floating/fixed — bahagi
+             na ito ng normal na daloy ng page, nakapatong/nakasunod sa itaas
+             ng Receipt Customization card. Kaya sabay itong gumagalaw sa
+             scroll ng page at hindi na natatabunan ang mga tab sa itaas.
+             Awtomatikong nag-a-auto close pa rin ito (tingnan ang
+             closeGoogleAppVerificationFloatingBox() sa app.js) sa sandaling
+             umalis ang user sa Receipt Customization tab — halimbawa lumipat
+             sa Reset/Restore, Users Management, Roles & Permissions, o sa
+             ibang view/app sa system. Tap-to-open/close pa rin ang heading. -->
+        <div id="rc-otp-sender-config" style="display:none; width:100%; max-width:480px; margin: 20px auto 0; padding:16px; border:1px solid var(--warning-gold); border-radius:8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+            <h4 id="rc-otp-sender-heading" onclick="toggleOtpSenderBox()" style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin-bottom:0; margin-top:0; cursor:pointer;">
+                <i id="rc-otp-sender-heading-icon" class="fa-solid fa-envelope-circle-check" style="color:#eab308;"></i> <span id="rc-otp-sender-heading-text">Google App Verification</span>
+                <i class="fa-solid fa-chevron-down" id="rc-otp-sender-toggle-chevron" style="margin-left:auto; font-size:0.75rem; display:none;"></i>
+                <button type="button" id="rc-otp-sender-faq-btn" onclick="event.stopPropagation(); showGoogleAppVerificationFAQ();" title="Documentation / Setup Guide" style="background: none; border: none; color: var(--primary-blue); cursor: pointer; padding: 0 0 0 2px; font-size: 0.95rem; line-height:1;">
+                    <i class="fa-solid fa-circle-question"></i>
+                </button>
+            </h4>
+            <div id="rc-otp-sender-body" style="margin-top:10px;">
+                <div id="rc-otp-sender-current" style="font-size:0.8rem; margin-bottom:10px; display:none;"></div>
+                <!-- Kita lang ito (dalawang textbox + Verify button) kung hindi pa
+                     verified. Kapag verified na, itinatago ito at ang I-clear
+                     button na lang ang lumalabas. -->
+                <div id="rc-otp-sender-form-fields">
+                    <div class="input-field-group">
+                        <label>Sender Gmail</label>
+                        <input type="email" id="rc-otp-sender-email" placeholder="yourgmail@gmail.com">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Sender App Password <span style="font-weight:normal;color:#94a3b8;">(16-character Gmail App Password)</span></label>
+                        <input type="password" id="rc-otp-sender-password" placeholder="xxxx xxxx xxxx xxxx" autocomplete="new-password">
+                    </div>
+                    <button class="btn-action-outline" id="rc-otp-sender-verify-btn" onclick="saveOtpSenderConfig()"><i class="fa-solid fa-shield-halved"></i> Verify</button>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+                    <button class="btn-action-outline" id="rc-otp-sender-clear-btn" onclick="clearOtpSenderConfig()" style="display:none; color:#dc2626; border-color:#dc2626;"><i class="fa-solid fa-trash-can"></i> I-clear</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="receipt-custom-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+            <h3 style="margin-top:0; display:flex; align-items:center; gap:8px; font-size:1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                <i class="fa-solid fa-receipt"></i> Receipt Customization
+            </h3>
+            <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
+                I-customize ang pangalan ng tindahan, address, contact number, at ang header/footer message ng resibo.
+            </p>
+
+            <div id="receipt-custom-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
+
+            <div class="input-field-group">
+                <label>Store Name</label>
+                <input type="text" id="rc-form-storename" placeholder="e.g. OmniPOS">
+            </div>
+            <div class="input-field-group">
+                <label>Store Address</label>
+                <input type="text" id="rc-form-address" placeholder="e.g. 123 Main St., Quezon City">
+            </div>
+            <div class="input-field-group">
+                <label>Contact Number</label>
+                <input type="text" id="rc-form-contact" placeholder="e.g. 0917-123-4567">
+            </div>
+            <div class="input-field-group">
+                <label>Receipt Header Text <span style="font-weight:normal;color:#94a3b8;">(optional)</span></label>
+                <input type="text" id="rc-form-header" placeholder="e.g. Welcome to our store!">
+            </div>
+            <div class="input-field-group">
+                <label>Receipt Footer Message</label>
+                <input type="text" id="rc-form-footer" placeholder="e.g. Thank you for shopping!">
+            </div>
+
+            <button class="btn-action-global" onclick="saveReceiptCustomization()"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                <div class="input-field-group">
+                    <label>Printer Paper Size <span style="font-weight:normal;color:#94a3b8;">(hardware setting — hindi kasama sa 2 free attempts)</span></label>
+                    <select id="rc-form-papersize">
+                        <option value="58mm">58mm (maliit na thermal/portable printer)</option>
+                        <option value="80mm">80mm (karaniwang POS receipt printer sa convenience store)</option>
+                    </select>
+                </div>
+                <button class="btn-action-outline" onclick="saveReceiptPaperSize()"><i class="fa-solid fa-print"></i> I-save ang Paper Size</button>
+            </div>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin-bottom: 6px;">
+                    <i class="fa-solid fa-bluetooth-b" style="color:#2563eb;"></i> Bluetooth Thermal Printer
+                    <span style="font-size:0.7rem; font-weight:600; color:#fff; background:#f59e0b; padding:2px 8px; border-radius:10px;">BETA / OPTIONAL</span>
+                </h4>
+                <p style="font-size:0.8rem; color: var(--text-muted); line-height:1.5; margin-bottom: 12px;">
+                    Opsyonal na feature — direktang mag-print sa Bluetooth thermal printer (58mm/80mm) mula sa Android
+                    Chrome, hindi na kailangan ng USB o computer. Kailangan ng HTTPS connection at Chrome for Android.
+                    Kung wala kang Bluetooth printer, hindi mo kailangan gamitin ito — gagana pa rin ang normal na "Print" button.
+                </p>
+                <div id="bt-printer-unsupported-note" style="display:none; font-size:0.8rem; color:#ef4444; margin-bottom:10px;">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Hindi supported ng browser/device na ito ang Web Bluetooth (kailangan Chrome for Android, hindi Safari/iOS).
+                </div>
+                <div id="bt-printer-status-row" style="display:flex; align-items:center; gap:10px; margin-bottom: 12px; font-size:0.85rem;">
+                    <span id="bt-printer-status-dot" style="width:10px; height:10px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
+                    <span id="bt-printer-status-text">Walang naka-pair na printer</span>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+                    <button class="btn-action-outline" id="bt-printer-pair-btn" onclick="pairBluetoothPrinter()"><i class="fa-solid fa-bluetooth"></i> I-pair ang Printer</button>
+                    <button class="btn-action-outline" id="bt-printer-forget-btn" style="color:#ef4444; border-color:#ef4444;" onclick="forgetBluetoothPrinter()"><i class="fa-solid fa-link-slash"></i> Alisin ang Naka-pair</button>
+                    <button class="btn-action-outline" id="bt-printer-test-btn" onclick="testPrintBluetoothPrinter()"><i class="fa-solid fa-vial"></i> Test Print</button>
+                </div>
+
+                <details style="font-size:0.8rem; color: var(--text-muted);">
+                    <summary style="cursor:pointer; font-weight:600; color: var(--text-primary);">Advanced settings (Service/Characteristic UUID)</summary>
+                    <p style="margin: 8px 0;">
+                        Hindi lahat ng thermal printer brand ay parehas ang Bluetooth GATT UUID. Naka-set na dito ang
+                        pinaka-karaniwang UUID na ginagamit ng generic 58mm/80mm printers. Kung "Not Found" ang error
+                        pagka-pair, subukan baguhin ito base sa manual/specs ng printer mo.
+                    </p>
+                    <div class="input-field-group">
+                        <label>Service UUID</label>
+                        <input type="text" id="bt-printer-service-uuid" placeholder="000018f0-0000-1000-8000-00805f9b34fb">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Characteristic UUID</label>
+                        <input type="text" id="bt-printer-char-uuid" placeholder="00002af1-0000-1000-8000-00805f9b34fb">
+                    </div>
+                    <button class="btn-action-outline" onclick="saveBluetoothPrinterUuids()"><i class="fa-solid fa-floppy-disk"></i> I-save ang UUID Settings</button>
+                </details>
+            </div>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                <p style="font-size:0.8rem; color: var(--text-muted); margin-bottom: 10px;">
+                    Naubos na ang 2 libreng pag-customize? Ang sumusunod ay magpapadala ng OTP sa registered email ng developer
+                    para i-reset ang counter (bumalik sa 2/2). Hindi nito babaguhin ang orihinal na petsa ng unang pag-customize.
+                </p>
+                <button id="rc-reset-counter-btn" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444; opacity:0.4; cursor:not-allowed;" disabled onclick="requestReceiptCounterReset()">
+                    <i class="fa-solid fa-rotate-left"></i> Reset Customization Counter (OTP Required)
+                </button>
+            </div>
+        </div>
+    </div>
+
+<div id="reset-restore-panel" class="tab-content-panel" style="display:none;">
+    <!-- MAIN WARNING CARD / SECTION FOR AUTHORIZED ONLY -->
+    <div class="Reset-Restore" style="margin-top: 20px; padding: 20px; border: 1px solid var(--danger-red); border-radius: 8px; background: rgba(239, 68, 68, 0.04); box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+        <h3 style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.2rem; margin-top: 0;">
+            <i class="fa-solid fa-triangle-exclamation"></i> RESTRICTED ACCESS: AUTHORIZED PERSONNEL ONLY
+        </h3>
+        <p style="font-size: 0.9rem; margin-bottom: 0; color: var(--text-muted); line-height: 1.5;">
+            This panel contains critical administrative utilities for database management, system recovery, and core terminal state overrides.
+        </p>
+    </div>
+
+    <!-- 1. SYSTEM HARD RESET -->
+    <div class="system-reset-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+            <i class="fa-solid fa-power-off"></i> System Hard Reset
+        </h3>
+        <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
+            Warning: This process will generate a final system backup, dispatch it to the designated email endpoints below, and permanently purge all transaction logs, active databases, inventory records, and historical logs. This action is irreversible.
+        </p>
+
+        <!-- PRO: gamit na ng System Hard Reset ang parehong verified Google App na
+             naka-configure sa Receipt Customization > Google App Verification —
+             kaya hindi na kailangang mag-type pa ng hiwalay na Admin Gmail +
+             App Password dito bawat gagamit nito. -->
+        <div id="reset-google-app-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
+            <i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang status ng verified Google App&hellip;
+        </div>
+
+        <!-- Form Fields -->
+        <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Type "RESET" to confirm target execution:</label>
+            <input type="text" id="reset-confirm-word" placeholder="RESET" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.95rem; background: var(--terminal-dark-bg, #ffffff); color: inherit;">
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Secondary Backup Email <span style="font-weight:normal;">(makakatanggap ng backup file)</span>:</label>
+            <input type="email" id="reset-additional-email" placeholder="backup-recipient@gmail.com" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; background: var(--terminal-dark-bg, #ffffff); color: inherit;">
+        </div>
+
+        <button id="reset-execute-btn" onclick="executeSystemHardReset()" style="width: 100%; padding: 12px; background: var(--danger-red); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+            <i class="fa-solid fa-dumpster"></i> Compile Backup & Execute Hard Reset
+        </button>
+    </div>
+
+    <!-- 1.5 SYNC PURCHASED FEATURES FROM RELAY -->
+    <div class="relay-sync-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+            <i class="fa-solid fa-arrows-rotate"></i> Restore Purchased Features
+        </h3>
+        <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
+            After a Hard Reset, this will be attempted automatically. If you need an immediate restore without waiting (e.g. after a fresh install on the same device), click this.
+        </p>
+        <button id="relay-sync-btn" onclick="syncFeaturesFromRelay()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Sync with Relay Now
+        </button>
+    </div>
+
+    <!-- 2. SYSTEM RECOVERY AT DATABASE RESTORE -->
+    <div class="recovery-section" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 style="color: inherit; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+            <i class="fa-solid fa-database"></i> System Recovery & Database Restore
+        </h3>
+        <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
+            Import a validated `.json` ledger archive script to rebuild core state schemas, product logs, configurations, and transactional tables back to local environment storage.
+        </p>
+        
+        <div style="background: rgba(37, 99, 235, 0.05); padding: 15px; border-radius: 6px; border: 1px dashed var(--primary-blue); display: flex; flex-direction: column; gap: 12px;">
+            <div>
+                <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Select JSON Database Backup Object:</label>
+                <input type="file" id="recoveryFileInput" accept=".json" style="display: block; width: 100%; font-size: 0.85rem; color: inherit; text-transform: none;" />
+            </div>
+            
+            <button onclick="triggerSystemRestore()" style="width: 100%; padding: 10px; background: var(--primary-blue); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem;">
+                <i class="fa-solid fa-file-import"></i> Initialize State Schema Restore
+            </button>
+        </div>
+    </div>
+</div>
+
+</section>
+
+
+
+              
+                <section id="view-faq" class="app-view" style="display:none;">
+                    <h2 id="page-title-faq">Frequently ask Question (FAQ)</h2>
+                    <p style="margin: 8px 0 20px; color: var(--text-primary, #1e293b); opacity: 0.75;">Choose Q&A below for more info.</p>
+
+                    <div class="faq-ai-box" style="max-width: 800px;">
+                        <label for="faq-ai-input" style="display:block; font-weight:600; margin-bottom:6px;">
+                            <i class="fa-solid fa-circle-question"></i> Magtanong tungkol sa OmniPOS
+                        </label>
+                        <div style="display:flex; gap:8px; position:relative;">
+                            <input type="text" id="faq-ai-input" placeholder="hal. paano mag-void ng transaction, ano ang shift, paano gumamit ng promo code..."
+                                   style="flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--border-color, #cbd5e1);"
+                                   autocomplete="off"
+                                   oninput="OmniFAQ.onInput(this.value)"
+                                   onkeydown="OmniFAQ.onKeyDown(event)"
+                                   onfocus="OmniFAQ.onInput(this.value)"
+                                   onblur="setTimeout(OmniFAQ.hideSuggestions, 150)">
+                            <button type="button" class="btn btn-primary" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
+                                <i class="fa-solid fa-magnifying-glass"></i> Hanapin
+                            </button>
+                            <div id="faq-ai-suggestions" class="faq-suggest-box" style="display:none;"></div>
+                        </div>
+                        <div id="faq-ai-result" style="margin-top:16px;"></div>
+                    </div>
+
+                    <h3 style="max-width:800px; margin-top:28px;">Karaniwang Tanong (Common Questions)</h3>
+                    <div class="faq-container" style="max-width: 800px;">
+
+                        <details class="faq-item">
+                            <summary>Ano ang OmniPOS?</summary>
+                            <p>Ang OmniPOS ay isang Point-of-Sale (POS) system na ginagamit para sa pagbenta, pagmonitor ng imbentaryo, pag-print ng resibo/barcode, at pagsubaybay sa mga transaksyon at user ng tindahan o negosyo.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Paano mag-checkout o magbenta gamit ang POS Terminal?</summary>
+                            <p>Pumunta sa <strong>POS Terminal</strong> sa sidebar, piliin o i-scan ang mga produktong bibilhin para maidagdag sa cart, tapos pindutin ang <strong>Checkout</strong> para makumpleto ang benta. Awtomatikong mababawas ang stock ng produkto pagkatapos ng checkout.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Paano magdagdag ng bagong produkto sa Inventory?</summary>
+                            <p>Pumunta sa <strong>Inventory → Products</strong>, tapos hanapin ang button para magdagdag ng bagong item. Puwede ring mag-<strong>import</strong> ng maramihang produkto gamit ang Excel/CSV template na available sa parehong page.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Paano gumawa o mag-print ng barcode?</summary>
+                            <p>Pumunta sa <strong>Inventory → Barcode</strong>. Doon mo makikita ang barcode generator para sa mga produkto mo, na puwedeng i-print para gamitin sa pag-scan tuwing may benta.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Saan ko makikita ang kabuuang benta at pinaka-bestseller na produkto?</summary>
+                            <p>Sa <strong>Sales Report</strong> makikita ang gross income, bilang ng transaksyon, at ranking ng top-selling na produkto.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Paano ma-void o makansela ang isang transaction?</summary>
+                            <p>Pumunta sa <strong>Transaction</strong>, hanapin ang order na gustong i-void, tapos pindutin ang void option. Hihingan ka ng <strong>Admin password</strong> bago matuloy — awtomatiko ring ibabalik ang stock sa imbentaryo kapag na-void.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Paano magdagdag ng bagong user o cashier account?</summary>
+                            <p>Pumunta sa <strong>Users</strong> tab (Admin access lang). Doon mo puwedeng magdagdag ng account at itakda ang role/permissions — halimbawa kung ano ang mga menu o feature na pwede o hindi ma-access ng isang cashier.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Ano ang makikita sa User Logs?</summary>
+                            <p>Ipinapakita rito ang history ng mga aksyon ng bawat user sa system — kung sino ang naglogin, nagbenta, nag-void, o gumawa ng pagbabago — para sa accountability at audit trail.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Nakalimutan ko ang admin password, paano mag-reset?</summary>
+                            <p>May reset option gamit ang <strong>One-Time PIN (OTP)</strong> na ipapadala sa naka-rehistrong Gmail. Kailangang naka-setup na muna ang Gmail App Password sa Receipt Settings bago gamitin ang feature na ito.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Bakit kailangan ng Gmail App Password sa Receipt Settings?</summary>
+                            <p>Ginagamit ang Gmail account (kasama ang App Password nito, hindi ang personal na password) para awtomatikong makapagpadala ng OTP email tuwing kailangan ng password reset o verification — kaya kailangan itong naka-setup nang tama.</p>
+                        </details>
+
+                        <details class="faq-item">
+                            <summary>Kailangan ba ng internet para gumana ang OmniPOS?</summary>
+                            <p>Karamihan sa mga pangunahing feature (checkout, inventory, reports) ay gumagana kahit lokal lang sa network. Pero ang mga feature na may kaugnayan sa email/OTP (tulad ng password reset) ay <strong>nangangailangan ng aktibong internet connection</strong> dahil dumadaan ito sa Gmail server.</p>
+                        </details>
+
+                    </div>
+               </section>
+
+                <section id="view-logs" class="app-view" style="display:none;">
+                    <h2 id="page-title-logs">System Audit Activity Log Logs</h2>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                 <th>Log ID</th>
+                 <th>User Account</th>
+                 <th>Executed Operation Log Message</th>
+                 <th>Date & Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="system-logs-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+
+        <nav class="bottom-nav" id="app-bottom-nav">
+            <a href="#" class="bottom-nav-item active" id="bn-overview" onclick="switchView('overview'); return false;">
+                <i class="fa-solid fa-laptop-house"></i>
+                <span>Overview</span>
+            </a>
+            <a href="#" class="bottom-nav-item" id="bn-terminal" onclick="switchView('terminal'); return false;">
+                <i class="fa-solid fa-computer"></i>
+                <span>Terminal</span>
+            </a>
+            <a href="#" class="bottom-nav-item" id="bn-products" onclick="switchView('products'); return false;">
+                <i class="fa-solid fa-box"></i>
+                <span>Products</span>
+            </a>
+            <a href="#" class="bottom-nav-item" id="bn-reports" onclick="switchView('reports'); return false;">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Reports</span>
+            </a>
+            <a href="#" class="bottom-nav-item" id="bn-more" onclick="openSidebarMenu(); return false;">
+                <i class="fa-solid fa-bars"></i>
+                <span>More</span>
+            </a>
+        </nav>
+    </div>
+
+    <div id="product-details-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="pd-modal-title">Product Details</h3>
+                <button class="close-modal-btn" onclick="closeModal('product-details-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="pd-photo-wrap">
+                    <div id="pd-photo-box" class="pd-photo-box">
+                        <i class="fa-solid fa-box"></i>
+                    </div>
+                </div>
+                <div class="pd-detail-rows">
+                    <div class="pd-detail-row">
+                        <span class="pd-detail-label">Product Code</span>
+                        <span id="pd-code" class="pd-detail-value"></span>
+                    </div>
+                    <div class="pd-detail-row">
+                        <span class="pd-detail-label">Category</span>
+                        <span id="pd-category" class="pd-detail-value"></span>
+                    </div>
+                    <div class="pd-detail-row">
+                        <span class="pd-detail-label">Price</span>
+                        <span id="pd-price" class="pd-detail-value pd-price-highlight"></span>
+                    </div>
+                    <div class="pd-detail-row">
+                        <span id="pd-stock-label" class="pd-detail-label">Available Stock</span>
+                        <span id="pd-stock" class="pd-detail-value"></span>
+                    </div>
+                    <div class="pd-detail-row" id="pd-supplier-row" style="display:none;">
+                        <span class="pd-detail-label">Supplier</span>
+                        <span id="pd-supplier" class="pd-detail-value"></span>
+                    </div>
+                    <div class="pd-detail-row" id="pd-expiry-row" style="display:none;">
+                        <span class="pd-detail-label">Expiry Date</span>
+                        <span id="pd-expiry" class="pd-detail-value"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-action-global" id="pd-add-to-cart-btn" onclick="addProductFromDetailsModal()">Add to Cart</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card select-none">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-wallet"></i> Payment</h3>
+                <button class="close-modal-btn" onclick="closeModal('payment-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="calc-row" style="margin-bottom:4px;"><span>Amount Due</span><strong id="pay-modal-amount-due" style="font-size:1.3rem;">₱0.00</strong></div>
+                <div id="single-payment-mode-block">
+                <div class="payment-method-selector-row">
+                    <button id="pay-method-cash" class="method-btn active" onclick="selectPaymentMethod('CASH')"><i class="fa-solid fa-money-bill-wave"></i> Cash</button>
+                    <button id="pay-method-gcash" class="method-btn" onclick="selectPaymentMethod('GCASH')"><i class="fa-solid fa-mobile-screen-button"></i> GCash</button>
+                    <button id="pay-method-maya" class="method-btn" onclick="selectPaymentMethod('MAYA')"><i class="fa-solid fa-wallet"></i> Maya</button>
+                    <button id="pay-method-card" class="method-btn" onclick="selectPaymentMethod('CARD')"><i class="fa-solid fa-credit-card"></i> Card</button>
+                </div>
+                <div class="payment-calculation-block">
+                    <label class="input-label-field">CASH RECEIVED</label>
+                    <input type="number" id="pay-modal-received-input" class="large-payment-input" placeholder="0" oninput="calculatePaymentChange()">
+                    
+                    <div class="quick-cash-grid-denominations">
+                        <button onclick="appendQuickCashDenomination(50)">₱50</button>
+                        <button onclick="appendQuickCashDenomination(100)">₱100</button>
+                        <button onclick="appendQuickCashDenomination(200)">₱200</button>
+                        <button onclick="appendQuickCashDenomination(500)">₱500</button>
+                        <button onclick="appendQuickCashDenomination(1000)">₱1000</button>
+                    </div>
+                    <div class="change-display-row-block">
+                        <span>Change</span>
+                        <span id="pay-modal-change-output" class="text-success font-bold">₱0.00</span>
+                    </div>
+                </div>
+                </div>
+
+                <div class="split-payment-toggle-row" style="margin:12px 0 4px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">
+                        <input type="checkbox" id="pay-split-toggle" onchange="toggleSplitPaymentMode()">
+                        Split Payment (2 or more methods)
+                    </label>
+                </div>
+                <div id="split-payment-lines-container" style="display:none;">
+                    <div id="split-payment-lines-list"></div>
+                    <button type="button" class="btn-action-outline" style="margin-top:6px;" onclick="addSplitPaymentLine()"><i class="fa-solid fa-plus"></i> Add Payment Method</button>
+                    <div class="calc-row" style="margin-top:8px;"><span>Allocated</span><strong id="split-payment-allocated">₱0.00</strong></div>
+                    <div class="calc-row"><span id="split-payment-remaining-label">Remaining</span><strong id="split-payment-remaining">₱0.00</strong></div>
+                </div>
+    
+              
+                <button class="btn-confirm-payment-action" onclick="submitFinalPaymentTransaction()">Confirm Payment</button>
+            </div>
+        </div>
+    </div>
+      
+    <div id="receipt-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card receipt-modal-view">
+            <div class="modal-header no-print">
+                <h3>Receipt Invoice</h3>
+                <button class="fa-solid close-modal-btn" onclick="closeModal('receipt-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="printable-receipt-area" class="receipt-paper-layout">
+                    <h2 class="receipt-store-title" id="r-store-title">OmniPOS</h2>
+                    <p class="receipt-store-sub" id="r-store-address">Your Store Address Here</p>
+                    <p class="receipt-store-sub" id="r-store-contact">Tel: (xxx) xxx-xxxx</p>
+                    <p class="receipt-store-sub" id="r-header-text" style="display:none;"></p>
+                    <hr class="dashed-divider">
+                    <div class="receipt-items-scroll-wrapper">
+                    <div class="receipt-meta-grid">
+                        <div>Receipt: <span id="r-id">RCP-20260426-2641</span></div>
+                        <div class="text-right" id="r-date">Apr 26, 2026</div>
+                        <div>Cashier: <span id="r-cashier">admin</span></div>
+                        <div class="text-right" id="r-time">14:49</div>
+                    </div>
+                    <div class="receipt-meta-grid" id="r-customer-row" style="display:none;">
+                        <div>Customer: <span id="r-customer-name"></span></div>
+                    </div>
+                    <hr class="dashed-divider">
+                    <div id="receipt-items-table" class="receipt-items-table">
+                        </div>
+                    <hr class="dashed-divider">
+                    <div class="receipt-totals-block">
+                        <div class="r-total-row" id="r-discount-row" style="display:none;"><span>Discount (<span id="r-discount-type"></span>)</span><span id="r-discount-amount">₱0.00</span></div>
+                        <div class="r-total-row font-bold"><span>TOTAL</span><span id="r-total">₱0.00</span></div>
+                        <div class="r-total-row"><span>Payment (<span id="r-method">CASH</span>)</span><span id="r-paid">₱0.00</span></div>
+                        <div class="r-total-row"><span>Change</span><span id="r-change">₱0.00</span></div>
+                        <div class="r-total-row" id="r-loyalty-row" style="display:none;"><span>Loyalty Points Earned</span><span id="r-loyalty-earned">0</span></div>
+                    </div>
+                    </div>
+                    <hr class="dashed-divider">
+                  <div class="receipt-barcode-container" style="text-align: center; margin: 15px 0;">
+                        <svg id="receipt-barcode"></svg>
+                  </div>
+                    <p class="receipt-footer-msg" id="r-footer-msg">Thank you for shopping!</p>
+                    <p class="receipt-footer-msg-id" id="r-footer-id">RCP-20260426-2641</p>
+                </div>
+                <div class="email-receipt-row no-print" style="display:flex;gap:8px;margin:10px 0;">
+                    <input type="email" id="r-email-input" placeholder="customer@email.com" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;">
+                    <button id="receipt-email-btn" class="btn-print-receipt" style="background:#16a34a;" onclick="emailCurrentReceipt()"><i class="fa-solid fa-envelope"></i> Email Receipt</button>
+                </div>
+                <div class="modal-footer-controls-row no-print">
+                    <button id="receipt-print-btn" class="btn-print-receipt" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>
+                    <button id="receipt-bt-print-btn" class="btn-print-receipt" style="display:none; background:#0ea5e9;" onclick="printReceiptViaBluetooth('r')"><i class="fa-solid fa-bluetooth-b"></i> BT Print</button>
+    <button id="receipt-next-sale-btn" class="btn-new-sale" onclick="resetSaleTerminalCycle()">+ New Sale</button>
+  
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="receipt-preview-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card receipt-modal-view">
+            <div class="modal-header no-print">
+                <h3><i class="fa-solid fa-print"></i> Print Preview</h3>
+                <button class="close-modal-btn" onclick="closeModal('receipt-preview-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="receipt-paper-layout">
+                    <h2 class="receipt-store-title" id="rp-store-title">OmniPOS</h2>
+                    <p class="receipt-store-sub" id="rp-store-address">Your Store Address Here</p>
+                    <p class="receipt-store-sub" id="rp-store-contact">Tel: (xxx) xxx-xxxx</p>
+                    <p class="receipt-store-sub" id="rp-header-text" style="display:none;"></p>
+                    <hr class="dashed-divider">
+                    <div class="receipt-items-scroll-wrapper">
+                    <div class="receipt-meta-grid">
+                        <div>Receipt: <span id="rp-id">PREVIEW</span></div>
+                        <div class="text-right" id="rp-date">-</div>
+                        <div>Cashier: <span id="rp-cashier">-</span></div>
+                        <div class="text-right" id="rp-time">-</div>
+                    </div>
+                    <hr class="dashed-divider">
+                    <div id="rp-items-table" class="receipt-items-table">
+                        </div>
+                    <hr class="dashed-divider">
+                    <div class="receipt-totals-block">
+                        <div class="r-total-row font-bold"><span>TOTAL</span><span id="rp-total">₱0.00</span></div>
+                        <div class="r-total-row"><span>Payment (<span id="rp-method">—</span>)</span><span id="rp-paid">₱0.00</span></div>
+                        <div class="r-total-row"><span>Change</span><span id="rp-change">₱0.00</span></div>
+                    </div>
+                    </div>
+                    <hr class="dashed-divider">
+                    <p class="receipt-footer-msg" id="rp-footer-msg">Thank you for shopping!</p>
+                </div>
+                <div class="modal-footer-controls-row no-print">
+                    <button class="btn-close-gray" onclick="closeModal('receipt-preview-modal')">Close</button>
+                    <button id="receipt-preview-bt-print-btn" class="btn-print-receipt" style="display:none; background:#0ea5e9;" onclick="printReceiptViaBluetooth('rp')"><i class="fa-solid fa-bluetooth-b"></i> BT Print</button>
+                    <button class="btn-new-sale" onclick="chargeFromReceiptPreview()"><i class="fa-solid fa-credit-card"></i> Charge</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="product-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="product-modal-title">Add Product</h3>
+                <button class="close-modal-btn" onclick="closeModal('product-modal')">&times;</button>
+            </div>
+            <form id="product-schema-form">
+                <div class="modal-body">
+                    <input type="hidden" id="p-form-mode">
+                    <input type="hidden" id="p-form-image">
+                    <div class="input-field-group">
+                        <label>Product Photo <span style="font-weight:normal;color:#94a3b8;">(optional — icon na lang ang gagamitin kung wala)</span></label>
+                        <div class="prod-photo-upload-row">
+                            <div id="p-form-photo-preview" class="prod-photo-preview">
+                                <i class="fa-solid fa-image"></i>
+                            </div>
+                            <div class="prod-photo-upload-actions">
+                                <input type="file" id="p-form-photo-input" accept="image/*" style="display:none;" onchange="handleProductPhotoSelect(event)">
+                                <input type="file" id="p-form-photo-camera-input" accept="image/*" capture="environment" style="display:none;" onchange="handleProductPhotoSelect(event)">
+                                <button type="button" class="btn-action-outline" onclick="document.getElementById('p-form-photo-camera-input').click()"><i class="fa-solid fa-camera"></i> Kumuha ng Litrato</button>
+                                <button type="button" class="btn-action-outline" onclick="document.getElementById('p-form-photo-input').click()"><i class="fa-solid fa-image"></i> Pumili sa Gallery</button>
+                                <button type="button" class="btn-action-outline" id="p-form-photo-remove-btn" style="display:none;color:#dc2626;border-color:#dc2626;" onclick="removeProductPhoto()">Alisin</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-field-group">
+                        <label>Product Code</label>
+                        <div class="search-box-container">
+                            <input type="text" id="p-form-code" required placeholder="e.g. PRDT20250006">
+                            <button type="button" id="p-form-scan-btn" class="btn-scan-qr scan-icon-floating" style="display:none;" onclick="openProductFormScanner()" title="I-scan ang Barcode/QR ng produkto (camera)">
+                                <i class="fa-solid fa-qrcode"></i>
+                            </button>
+                            <button type="button" id="p-form-scan-prompt-btn" class="btn-scan-qr scan-icon-floating btn-scan-hardware-only" style="display:none;" onclick="openScanToAddStockPrompt()" title="External barcode scanner (PC/Desktop lamang)">
+                                <i class="fa-solid fa-barcode"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="input-field-group">
+                        <label>Product Name</label>
+                        <input type="text" id="p-form-name" required placeholder="e.g. Fresh Milk 1L">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Category</label>
+                        <select id="p-form-category" required>
+                            <option value="Beverages">Beverages</option>
+                            <option value="Dairy">Dairy</option>
+                            <option value="Snacks">Snacks</option>
+                          <option value="ADD_NEW_CATEGORY" style="font-weight: bold; color: var(--primary-color, #4a90e2);">+ Add New Category...</option>
+  
+                        </select>
+                    </div>
+                    <div class="input-field-group">
+                        <label>Price (₱)</label>
+                        <input type="number" id="p-form-price" step="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Cost Price (₱) <span style="font-weight:normal;color:#94a3b8;">(optional — para sa Profit Margin report, hindi makikita ng cashier)</span></label>
+                        <input type="number" id="p-form-cost" step="0.01" placeholder="0.00">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Stock Quantity</label>
+                        <input type="number" id="p-form-stock" required placeholder="0">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Supplier <span style="font-weight:normal;color:#94a3b8;">(optional)</span></label>
+                        <input type="text" id="p-form-supplier" placeholder="e.g. ABC Trading">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Expiry Date <span style="font-weight:normal;color:#94a3b8;">(optional)</span></label>
+                        <input type="date" id="p-form-expiry">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Low Stock Threshold <span style="font-weight:normal;color:#94a3b8;">(optional, default: 5)</span></label>
+                        <input type="number" id="p-form-threshold" min="0" placeholder="5">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-action-global">Save Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="user-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Add New User</h3>
+                <button class="close-modal-btn" onclick="closeModal('user-modal')">&times;</button>
+            </div>
+            <form id="user-schema-form">
+                <div class="modal-body">
+                    <div class="input-field-group" style="text-align:center;">
+                        <label>Profile Picture</label>
+                        <div id="u-form-photo-preview" class="avatar-photo-box"><i class="fa-solid fa-user"></i></div>
+                        <input type="hidden" id="u-form-avatar" value="">
+                        <input type="file" id="u-form-photo-input" accept="image/*" style="display:none;" onchange="handleAvatarFileSelect(event, 'u-form-avatar', 'u-form-photo-preview')">
+                        <div class="avatar-upload-btn-row">
+                            <button type="button" class="btn-action-outline" onclick="document.getElementById('u-form-photo-input').click()"><i class="fa-solid fa-camera"></i> Upload Photo</button>
+                            <button type="button" id="u-form-photo-remove-btn" class="btn-icon-action delete" style="display:none;" onclick="removeAvatarPhoto('u-form-avatar', 'u-form-photo-preview')" title="Remove photo"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="input-field-group">
+                        <label>Username</label>
+                        <input type="text" id="u-form-username" required autocomplete="off">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Password</label>
+                        <input type="password" id="u-form-password" required autocomplete="new-password">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Role</label>
+                        <select id="u-form-role" required>
+                            <option value="Admin">Admin</option>
+                            <option value="Staff">Staff</option>
+                            <option value="Cashier">Cashier</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-action-global">Create Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="edit-profile-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Edit Profile</h3>
+                <button class="close-modal-btn" onclick="closeModal('edit-profile-modal')">&times;</button>
+            </div>
+            <form id="edit-profile-form">
+                <div class="modal-body">
+                    <div class="input-field-group" style="text-align:center;">
+                        <label>Profile Picture</label>
+                        <div id="ep-photo-preview" class="avatar-photo-box"><i class="fa-solid fa-user"></i></div>
+                        <input type="hidden" id="ep-avatar" value="">
+                        <input type="file" id="ep-photo-input" accept="image/*" style="display:none;" onchange="handleAvatarFileSelect(event, 'ep-avatar', 'ep-photo-preview')">
+                        <div class="avatar-upload-btn-row">
+                            <button type="button" class="btn-action-outline" onclick="document.getElementById('ep-photo-input').click()"><i class="fa-solid fa-camera"></i> Upload Photo</button>
+                            <button type="button" id="ep-photo-remove-btn" class="btn-icon-action delete" style="display:none;" onclick="removeAvatarPhoto('ep-avatar', 'ep-photo-preview')" title="Remove photo"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="input-field-group">
+                        <label>Username</label>
+                        <input type="text" id="ep-username" autocomplete="off">
+                    </div>
+                    <p id="ep-approval-note" style="color:#64748b; font-size:0.8rem; margin:-8px 0 0;"></p>
+                    <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
+                    <p style="font-weight:700; margin-bottom:12px;"><i class="fa-solid fa-lock"></i> Change Password <span style="font-weight:400; color:#64748b; font-size:0.8rem;">(optional)</span></p>
+                    <div class="input-field-group">
+                        <label>Current Password</label>
+                        <input type="password" id="ep-current-password" autocomplete="current-password">
+                    </div>
+                    <div class="input-field-group">
+                        <label>New Password</label>
+                        <input type="password" id="ep-new-password" autocomplete="new-password">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Confirm New Password</label>
+                        <input type="password" id="ep-confirm-password" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-action-global">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="user-avatar-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Edit Profile Picture</h3>
+                <button class="close-modal-btn" onclick="closeModal('user-avatar-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-field-group" style="text-align:center;">
+                    <p style="font-weight:600;" id="ua-target-username">username</p>
+                    <div id="ua-photo-preview" class="avatar-photo-box"><i class="fa-solid fa-user"></i></div>
+                    <input type="hidden" id="ua-avatar" value="">
+                    <input type="file" id="ua-photo-input" accept="image/*" style="display:none;" onchange="handleAvatarFileSelect(event, 'ua-avatar', 'ua-photo-preview')">
+                    <div class="avatar-upload-btn-row">
+                        <button type="button" class="btn-action-outline" onclick="document.getElementById('ua-photo-input').click()"><i class="fa-solid fa-camera"></i> Upload Photo</button>
+                        <button type="button" id="ua-photo-remove-btn" class="btn-icon-action delete" style="display:none;" onclick="removeAvatarPhoto('ua-avatar', 'ua-photo-preview')" title="Remove photo"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-action-global" onclick="saveUserAvatar()">Save Photo</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="role-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Add New Role</h3>
+                <button class="close-modal-btn" onclick="closeModal('role-modal')">&times;</button>
+            </div>
+            <form id="role-schema-form">
+                <div class="modal-body">
+                    <div class="input-field-group">
+                        <label>Role Title</label>
+                        <input type="text" id="r-form-name" placeholder="hal. Supervisor, Manager" required autocomplete="off">
+                    </div>
+                    <p style="color:#64748b; font-size:0.85rem;">Pagkatapos gawin, i-toggle ang mga menu na pahihintulutan para dito sa Permission Matrix table.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-action-global">Create Role</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="barcode-preview-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card layout-barcode-preview-sheet">
+            <div class="modal-header no-print">
+                <h3><i class="fa-solid fa-barcode"></i> Print Preview</h3>
+                <div class="barcode-preview-header-actions">
+                    <button class="btn-print-header-mobile-only" onclick="window.print()" title="Print" aria-label="Print"><i class="fa-solid fa-print"></i></button>
+                    <button class="fa-solid close-modal-btn" onclick="closeModal('barcode-preview-modal')">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <p class="preview-notice-string no-print"><i class="fa-solid fa-scissors"></i> Dashed borders indicate cut lines. 5 barcodes per row.</p>
+                <div id="barcode-sheet-print-container" class="barcode-matrix-grid-sheet-layout">
+                    </div>
+                <div class="modal-footer-controls-row barcode-preview-footer-desktop-only no-print" style="margin-top:20px;">
+                    <button class="btn-close-gray" onclick="closeModal('barcode-preview-modal')">Close</button>
+                    <button class="btn-print-receipt" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+  
+
+<script src="html5-qrcode.min.js"></script>
+
+  
+
+  
+<div id="qr-scanner-modal" class="modal-overlay" style="display:none; z-index: 9999;">
+    <div class="modal-card" style="max-width: 500px; width: 100%; background: var(--bg-sidebar-dark); border: 2px solid var(--terminal-border);">
+        <div class="modal-header" style="border-bottom: 1px solid var(--terminal-border); padding-bottom: 5px;">
+            <h3><i class="fa-solid fa-camera"></i> Interactive Live Scanner</h3>
+            <button class="close-modal-btn" onclick="closeQRScanner()" style="color: #94a3b8;">&times;</button>
+        </div>
+        
+        <div class="modal-body" style="text-align: center; padding: 4px 4px;">
+        </div>
+            <div class="scanner-controls-panel" style="display: flex; justify-content: flex-start; align-items: flex-start; gap: 14px; margin-bottom: 8px; flex-wrap: wrap;">
+                
+                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
+                    <span style="font-size: 0.7rem; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Scan Trigger Mode</span>
+                    <div style="display: flex; background: #1e293b; border-radius: 6px; padding: 2px; border: 1px solid #334155;">
+                        <button id="btn-mode-auto" onclick="setScanMode('AUTO')" style="border: none; padding: 5px 11px; border-radius: 4px; font-weight: bold; font-size: 0.78rem; cursor: pointer; transition: all 0.2s;">Auto</button>
+                        <button id="btn-mode-manual" onclick="setScanMode('MANUAL')" style="border: none; padding: 5px 11px; border-radius: 4px; font-weight: bold; font-size: 0.78rem; cursor: pointer; transition: all 0.2s;">Manual</button>
+                    </div>
+                </div>
+
+               
+
+                <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-left: auto;">
+                    <span style="font-size: 0.7rem; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Target Frame Type</span>
+                    <div style="display: flex; background: #1e293b; border-radius: 6px; padding: 2px; border: 1px solid #334155;">
+                        <button id="btn-type-qr" onclick="setScanType('QR')" style="border: none; padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.78rem; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-qrcode"></i> QRcode</button>
+                        <button id="btn-type-barcode" onclick="setScanType('BARCODE')" style="border: none; padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.78rem; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-barcode"></i> Barcode</button>
+                    </div>
+                </div>
+
+             <div id="inventory-scan-mode-group" style="display:none; flex-direction: column; align-items: flex-start; gap: 6px;">
+                    <span style="font-size: 0.7rem; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Pagkatapos I-scan</span>
+                    <div style="display: flex; background: #1e293b; border-radius: 6px; padding: 2px; border: 1px solid #334155;">
+                        <button id="btn-result-search" onclick="setScanResultMode('SEARCH')" style="border: none; padding: 5px 11px; border-radius: 4px; font-weight: bold; font-size: 0.78rem; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
+                        <button id="btn-result-edit" onclick="setScanResultMode('EDIT')" style="border: none; padding: 5px 11px; border-radius: 4px; font-weight: bold; font-size: 0.78rem; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-pen-to-square"></i> Scan to Edit</button>
+                    </div>
+             </div>
+            </div>
+     
+<div class="modal-body" style="padding: 5px 0;">
+            <div id="qr-reader" style="width: 100%; background: #000; border-radius: 8px; overflow: hidden; border: 2px solid var(--terminal-border);"></div>
+            
+            <div style="margin-top: 15px;">
+                <button id="btn-manual-trigger" onclick="triggerManualScan()" disabled style="width: 100%; border: none; padding: 12px; border-radius: 6px; font-size: 1.05rem; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;">
+                    <i class="fa-solid fa-expand"></i> Press to Scan
+                </button>
+            </div>
+
+            <div id="qr-scanner-feedback" style="margin-top: 14px; min-height: 24px; color: #22c55e; font-weight: bold; font-size: 1rem;">
+                Iniaayos ang camera feed view...
+            </div>
+
+            <div id="product-scan-stock-counter" style="display:none; margin-top: 10px; padding: 10px 14px; background:#1e293b; border:1px solid #334155; border-radius: 8px;">
+                <div id="psc-product-name" style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;"></div>
+                <div style="font-size: 1.5rem; font-weight: bold; color:#38bdf8;">
+                    <span id="psc-old-stock">0</span> <span style="color:#64748b; font-weight:normal;">&rarr;</span> <span id="psc-new-stock">0</span>
+                </div>
+                <div style="font-size: 0.75rem; color:#94a3b8; margin-top:2px;">Current Stock &rarr; Bagong Stock (i-scan ulit para dagdagan pa)</div>
+            </div>
+        </div>
+        
+        <div class="modal-footer" style="justify-content: center; border-top: 1px solid var(--terminal-border); background: #374151; padding-top: 5px;">
+            <button class="btn-close-gray" onclick="closeQRScanner()" style="padding: 7px 16px; font-size: 0.95rem; cursor: pointer; background: #7d2e2eef; color: #f3f4f6; border: none; border-radius: 7px;">
+                <i class="fa-solid fa-circle-xmark"></i> Close Scanner
+            </button>
+        </div>
+    </div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+
+<script src="bt-printer.js"></script>
+<script src="faq-knowledge.js"></script>
+<script src="faq-engine.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
