@@ -1034,6 +1034,32 @@ if (!RELAY_API_KEY) {
 const APP_VERSION = require('./package.json').version || '0.0.0';
 const RENDER_DEPLOY_HOOK_URL = process.env.RENDER_DEPLOY_HOOK_URL || null;
 
+// --------------------------------------------------------------
+// isVersionNewer(candidate, current) — TAMANG "mas bago ba" na
+// version compare (hindi basta "hindi pareho"). Kailangan ito dahil
+// ang RELAY ay maaaring mag-balik ng default sentinel na "0.0.0"
+// (hal. nawala ang naka-publish na version pagkatapos ng redeploy
+// kung walang persistent disk/REDIS_URL doon) — kung "!==" lang ang
+// gagamitin, magpapalabas ito ng "May bagong update!" kahit mas MABA
+// (hindi mas bago) ang bersyong ibinalik ng RELAY.
+// --------------------------------------------------------------
+const UNPUBLISHED_VERSION_SENTINEL = '0.0.0';
+function parseVersionParts(v) {
+    return String(v || '0.0.0').trim().split('.').map((n) => parseInt(n, 10) || 0);
+}
+function isVersionNewer(candidate, current) {
+    const a = parseVersionParts(candidate);
+    const b = parseVersionParts(current);
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i++) {
+        const ai = a[i] || 0;
+        const bi = b[i] || 0;
+        if (ai > bi) return true;
+        if (ai < bi) return false;
+    }
+    return false; // eksaktong pareho ang dalawang version
+}
+
 const FEATURE_CATALOG = {
 
     ocean: { name:'Ocean Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
@@ -3557,12 +3583,20 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
         if (!relayData.success) {
             return res.status(502).json({ success: false, message: relayData.message ||'Tinanggihan ng RELAY ang version check.' });
         }
+        const publishedVersion = String(relayData.latestVersion || UNPUBLISHED_VERSION_SENTINEL).trim();
+        // Kung sentinel/unpublished ang laman ng RELAY (walang na-publish
+        // pa, o nawala ito dahil sa redeploy na walang persistent storage),
+        // huwag itong ituring na "bagong update" kahit hindi pareho sa
+        // APP_VERSION. Kailangan din talagang MAS BAGO (hindi basta
+        // "iba") bago i-flag bilang available.
+        const updateAvailable = publishedVersion !== UNPUBLISHED_VERSION_SENTINEL
+            && isVersionNewer(publishedVersion, APP_VERSION);
         res.json({
             success: true,
             currentVersion: APP_VERSION,
-            latestVersion: relayData.latestVersion,
+            latestVersion: publishedVersion,
             changelog: relayData.changelog ||'',
-            updateAvailable: String(relayData.latestVersion) !== String(APP_VERSION)
+            updateAvailable
         });
     } catch (err) {
         res.status(502).json({ success: false, message: `Hindi ma-check ang RELAY para sa bagong version: ${err.message}` });
