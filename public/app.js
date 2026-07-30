@@ -7558,6 +7558,84 @@ async function executeSystemHardReset() {
 // already runs inside the System Hard Reset endpoint itself, but this
 // is the backup/manual path, e.g. after reinstalling the app on the
 // same device).
+let lastCheckedUpdateInfo = null;
+
+async function checkForSystemUpdate() {
+    const statusEl = document.getElementById('system-update-status');
+    const deployBtn = document.getElementById('system-update-deploy-btn');
+    if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang status mula sa RELAY&hellip;';
+    if (deployBtn) deployBtn.style.display = 'none';
+
+    try {
+        const response = await authFetch(`${API_URL}/system/update-check`);
+        const result = await response.json();
+
+        if (!result.success) {
+            if (statusEl) statusEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> ${result.message || 'Hindi ma-check ang update status.'}`;
+            return;
+        }
+
+        lastCheckedUpdateInfo = result;
+
+        if (result.updateAvailable) {
+            if (statusEl) {
+                statusEl.innerHTML =
+                    `<i class="fa-solid fa-circle-up" style="color:var(--pos-accent,#2563eb);"></i> ` +
+                    `<strong>May bagong update!</strong> Kasalukuyan: v${result.currentVersion} &rarr; Bago: v${result.latestVersion}` +
+                    (result.changelog ? `<br><span style="color:var(--text-muted);">${result.changelog}</span>` : '');
+            }
+            if (deployBtn) deployBtn.style.display = 'flex';
+        } else {
+            if (statusEl) {
+                statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> Up to date na ang system (v${result.currentVersion}).`;
+            }
+        }
+    } catch (error) {
+        if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> Hindi makonekta sa server.';
+    }
+}
+
+async function deploySystemUpdate() {
+    if (!lastCheckedUpdateInfo || !lastCheckedUpdateInfo.updateAvailable) {
+        Swal.fire('Wala pang na-check', 'Pindutin muna ang "Check for Updates" bago mag-deploy.', 'info');
+        return;
+    }
+
+    const confirmResult = await Swal.fire({
+        title: 'I-deploy ang Update?',
+        html: `Iri-redeploy ang system papuntang <strong>v${lastCheckedUpdateInfo.latestVersion}</strong> sa Render. Aabutin ito ng ilang minuto — hindi maaapektuhan ang datos (products, transactions, users, atbp.), pero mag-a-auto-refresh ang system pagkatapos.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Oo, i-deploy na',
+        cancelButtonText: 'Kanselahin',
+        confirmButtonColor: '#16a34a'
+    });
+    if (!confirmResult.isConfirmed) return;
+
+    Swal.fire({
+        title: 'Dine-deploy ang Update...',
+        text: 'Sinisimulan na ang bagong deploy sa Render.',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    try {
+        const response = await authFetch(`${API_URL}/system/deploy-update`, { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Na-trigger na ang Deploy',
+                text: result.message,
+            });
+        } else {
+            Swal.fire('Hindi Nagawa', result.message || 'Hindi ma-trigger ang deploy.', 'error');
+        }
+    } catch (error) {
+        Swal.fire('Network Error', 'Hindi makonekta sa server backend.', 'error');
+    }
+}
+
 async function syncFeaturesFromRelay() {
     Swal.fire({
         title: 'Checking Relay...',
@@ -9285,6 +9363,15 @@ async function handleLogout(type ='manual') {
     purchasedFeatureIdsCache = null;
     fullyPurchasedCache = false;
 
+    // FIX: i-reset din agad ang PRO badge sa UI papuntang naka-lock state
+    // — kung hindi, kapag nag-login ng IBANG account/store na hindi pa
+    // fully-purchased, maiiwan munang naka-crown ang badge (galing sa
+    // dating session) habang hinihintay pa ang bagong fetch mula sa
+    // initDemoModeUI() sa susunod na login.
+    if (typeof renderSidebarProBadge ==='function') {
+        renderSidebarProBadge(false, false);
+    }
+
     const txtUser = document.getElementById('login-username');
     const txtPass = document.getElementById('login-password');
 
@@ -9326,6 +9413,12 @@ async function showMainSystemInterface() {
     // manually ang buong page.
     await refreshUnlockedFeaturesFromServer();
     await refreshUnlockedThemesFromServer();
+
+    // FIX: ang PRO crown/lock badge sa tabi ng logo ay HIWALAY na cache/
+    // fetch (demo-status), hindi kasama sa refreshUnlockedFeaturesFromServer()
+    // sa itaas — kaya kahit na-unlock na ang mga menu sa sidebar, naiiwan
+    // pa ring naka-lock icon ang badge hangga't hindi ulit tinatawag ito.
+    await initDemoModeUI();
 
     initializeSystem();
 

@@ -1021,6 +1021,19 @@ if (!RELAY_API_KEY) {
     console.warn('⚠️  Walang RELAY_API_KEY na naka-set sa .env — hindi magfa-function ang feature unlock requests hangga\'t hindi ito nalagyan.');
 }
 
+// --------------------------------------------------------------
+// SYSTEM UPDATE CHECK/DEPLOY — ang APP_VERSION dito ay galing sa
+// "version" field ng package.json (i.e., kada may bagong release/tag
+// papunta sa client repo, dapat ding tumaas ang value na 'to). Ang
+// RENDER_DEPLOY_HOOK_URL naman ay ang per-service na "Deploy Hook"
+// URL galing sa Render dashboard (Settings > Deploy Hook) ng SARILING
+// Render service na ito — ginagamit lang ito para i-trigger ang
+// redeploy ng code na NASA GIT REPO NA (kaya kailangang naka-sync na
+// ang repo ng kliyente sa upstream BAGO tumawag ng deploy).
+// --------------------------------------------------------------
+const APP_VERSION = require('./package.json').version || '0.0.0';
+const RENDER_DEPLOY_HOOK_URL = process.env.RENDER_DEPLOY_HOOK_URL || null;
+
 const FEATURE_CATALOG = {
 
     ocean: { name:'Ocean Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
@@ -3519,6 +3532,74 @@ function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
     });
     writeData(FILE_USERLOGS, logs);
 }
+
+// --------------------------------------------------------------
+// GET /api/system/update-check
+// Tinatawag ito ng "Check for Updates" button sa Settings. Tumatawag
+// ito papunta sa RELAY (developer-hosted, tingnan ang /relay/latest-version)
+// para malaman kung may bagong na-publish na version, tapos ikino-
+// compare ito sa sariling APP_VERSION (mula sa package.json) ng
+// INSTANCE na ito. Admin-only — hindi na kailangang ipakita ito sa
+// mga cashier/staff.
+// --------------------------------------------------------------
+app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagamit ng Check for Updates.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(400).json({ success: false, message:'Walang RELAY_API_KEY na naka-configure sa server na ito.' });
+    }
+    try {
+        const relayRes = await fetch(`${RELAY_URL}/relay/latest-version`, {
+            headers: {'x-relay-key': RELAY_API_KEY }
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            return res.status(502).json({ success: false, message: relayData.message ||'Tinanggihan ng RELAY ang version check.' });
+        }
+        res.json({
+            success: true,
+            currentVersion: APP_VERSION,
+            latestVersion: relayData.latestVersion,
+            changelog: relayData.changelog ||'',
+            updateAvailable: String(relayData.latestVersion) !== String(APP_VERSION)
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Hindi ma-check ang RELAY para sa bagong version: ${err.message}` });
+    }
+});
+
+// --------------------------------------------------------------
+// POST /api/system/deploy-update
+// Ito ang "Check & Deploy Update" button. HINDI nito hinihila/kinukuha
+// ang bagong code mismo — ang GINAGAWA lang nito ay i-POST papunta sa
+// SARILING Render Deploy Hook URL ng instance na ito (naka-store bilang
+// env var, kinukuha mula sa Render dashboard > Settings > Deploy Hook).
+// Ibig sabihin: kailangan MUNANG naka-sync (git merge mula sa upstream
+// repo) ang code repo ng kliyente BAGO gamitin ito — ang button na ito
+// ang magre-redeploy lang ng ANUMANG NASA REPO NA ngayon.
+// --------------------------------------------------------------
+app.post('/api/system/deploy-update', rateLimit('system-deploy-update', 3, 30 * 60 * 1000), async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakapag-trigger ng deploy.' });
+    }
+    if (!RENDER_DEPLOY_HOOK_URL) {
+        return res.status(400).json({
+            success: false,
+            message:'Walang RENDER_DEPLOY_HOOK_URL na naka-configure. Kunin ito sa Render dashboard (Settings > Deploy Hook) at ilagay bilang env var.'
+        });
+    }
+    try {
+        const hookRes = await fetch(RENDER_DEPLOY_HOOK_URL, { method:'POST' });
+        if (!hookRes.ok) {
+            return res.status(502).json({ success: false, message: `Tinanggihan ng Render ang deploy hook (HTTP ${hookRes.status}).` });
+        }
+        logAction(req.authUser.username ||'Unknown','Nag-trigger ng System Update Deploy sa Render.');
+        res.json({ success: true, message:'Na-trigger na ang bagong deploy sa Render. Aabutin ito ng ilang minuto — mag-a-auto-refresh ang system pagkatapos.' });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Hindi ma-abot ang Render deploy hook: ${err.message}` });
+    }
+});
 
 app.post('/api/system/reset', rateLimit('system-reset', 3, 30 * 60 * 1000), async (req, res) => {
 
