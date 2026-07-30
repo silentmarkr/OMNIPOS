@@ -24,7 +24,7 @@ const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const { execSync } = require('child_process');
-const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads } = require('./db');
+const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload } = require('./db');
 
 try {
     process.loadEnvFile();
@@ -1076,6 +1076,7 @@ const FEATURE_CATALOG = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, category:'module', description:'Profit margin, top/slow sellers, 7-day sales trend, at payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, category:'module', description:'Multi-cashier shift tracking at Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Gumawa ng custom roles at i-configure kung anong menu ang makikita ng bawat role (Roles & Permissions matrix).' },
+    cloud_backup: { name:'Cloud Backup (Postgres)', price: 1499, category:'module', description:'I-sync ang buong database (maliban sa user accounts) papunta sa secure na cloud storage ng developer — proteksyon kung sakaling masira/mawala ang device.' },
 };
 
 const DEMO_FEATURE_ID ='__demo__';
@@ -1537,6 +1538,96 @@ if (!AUTO_BACKUP_DISABLED) {
 // middleware gaya ng ibang /api/* routes.
 app.get('/api/relay-backup/status', (req, res) => {
     res.json({ success: true, ...relayBackupStatus });
+});
+
+// ====================================================================
+// CLOUD BACKUP (Postgres via RELAY) — MANUAL na trigger lang (button sa
+// Settings/Reset & Restore panel), hindi tulad ng RELAY_BACKUP auto-sync
+// sa itaas (na .db file mirror lang papunta sa Download folder).
+// ====================================================================
+// Ito: (1) kumukuha ng BUONG database maliban sa user accounts (tingnan
+// ang getCloudBackupPayload() sa db.js), (2) ipinapadala ito papunta sa
+// RELAY (/relay/cloud-backup/upload) kasama ang installationId nito, at
+// (3) ang RELAY mismo ang tumitingin kung UNLOCKED ba ang 'cloud_backup'
+// feature para sa installationId na ito BAGO ito talagang i-save sa
+// Postgres — kaya kahit directly tumawag ang isang client papunta sa
+// RELAY (nilagpasan ang requireFeature dito sa ibaba), hindi pa rin ito
+// talagang maisusulat sa Postgres hangga't hindi ito na-unlock doon.
+// ====================================================================
+const cloudBackupStatus = {
+    state: 'idle', // 'idle' | 'syncing' | 'success' | 'error'
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastError: null,
+    lastTotalRecords: null
+};
+
+app.get('/api/cloud-backup/status', (req, res) => {
+    res.json({ success: true, ...cloudBackupStatus });
+});
+
+app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
+    cloudBackupStatus.state = 'syncing';
+    cloudBackupStatus.lastAttemptAt = Date.now();
+
+    if (!RELAY_API_KEY) {
+        cloudBackupStatus.state = 'error';
+        cloudBackupStatus.lastError = 'Walang RELAY_API_KEY na naka-configure sa .env.';
+        return res.status(500).json({ success: false, message: cloudBackupStatus.lastError });
+    }
+
+    try {
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        const backupPayload = getCloudBackupPayload();
+
+        const relayRes = await fetch(`${RELAY_URL}/relay/cloud-backup/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                storeName: (receiptSettings && receiptSettings.storeName) || null,
+                modules: backupPayload.modules,
+                moduleNames: backupPayload.moduleNames,
+                totalRecords: backupPayload.totalRecords,
+                generatedAt: backupPayload.generatedAt
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayRes.status === 402 || relayData.featureLocked) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'Naka-lock pa ang Cloud Backup feature.';
+            return res.status(402).json(relayData);
+        }
+
+        if (!relayData.success) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'Tinanggihan ng RELAY ang cloud backup upload.';
+            return res.status(502).json({ success: false, message: cloudBackupStatus.lastError });
+        }
+
+        cloudBackupStatus.state = 'success';
+        cloudBackupStatus.lastSuccessAt = Date.now();
+        cloudBackupStatus.lastError = null;
+        cloudBackupStatus.lastTotalRecords = backupPayload.totalRecords;
+
+        logAction((req.authUser && req.authUser.username) || 'Unknown', `Cloud Backup: matagumpay na na-sync ang database (maliban sa user accounts) papunta sa Postgres (${backupPayload.totalRecords} records, ${backupPayload.moduleNames.length} modules).`);
+
+        res.json({
+            success: true,
+            message: 'Matagumpay na na-sync ang database papunta sa cloud (Postgres).',
+            totalRecords: backupPayload.totalRecords,
+            moduleNames: backupPayload.moduleNames,
+            excludedModules: backupPayload.excludedModules
+        });
+    } catch (err) {
+        cloudBackupStatus.state = 'error';
+        cloudBackupStatus.lastError = err.message;
+        console.error('⚠️ CLOUD_BACKUP: hindi na-abot ang relay para sa upload:', err.message);
+        res.status(502).json({ success: false, message: 'Hindi ma-abot ang RELAY para sa cloud backup upload.' });
+    }
 });
 
 function isDemoActive() {

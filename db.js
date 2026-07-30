@@ -388,7 +388,60 @@ function mirrorBackupToDownloads() {
     }
 }
 
-module.exports = { db, readData, writeData, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads };
+// ====================================================================
+// CLOUD BACKUP PAYLOAD (para sa Postgres sync sa pamamagitan ng RELAY)
+// ====================================================================
+// Ang layunin nito: buuin ang "buong database" na ise-sync papunta sa
+// Postgres (via RELAY) — LAHAT ng modules MALIBAN sa mga laging
+// excluded sa ibaba. Dalawang bagay ang laging tinatanggal dito:
+//   - "users"         -> user accounts/credentials, hindi ito dapat
+//                        umalis sa device (per explicit instruction).
+//   - "featureUnlocks"-> hindi ito "business data" ng tindahan — ito
+//                        ay license/token state na naka-bind mismo sa
+//                        installationId/hardware fingerprint ng DEVICE
+//                        na ito, kaya walang silbing i-sync/i-restore
+//                        papunta sa ibang lugar.
+// Kinukuha ang listahan ng modules NANG DYNAMIC (mula mismo sa laman
+// ng "store" at "row_store" tables) sa halip na i-hardcode, para
+// awtomatikong kasama ang anumang BAGONG module sa hinaharap nang
+// walang kailangang balikan pa ang file na ito.
+// ====================================================================
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['users', 'featureUnlocks']);
+
+function getAllModuleNames() {
+    const blobModules = db.prepare('SELECT DISTINCT module FROM store').all().map((r) => r.module);
+    const rowModules = db.prepare('SELECT DISTINCT module FROM row_store').all().map((r) => r.module);
+    return Array.from(new Set([...blobModules, ...rowModules, ...ROW_NORMALIZED_MODULES]));
+}
+
+/**
+ * Buuin ang buong payload na ise-sync papunta sa Postgres (via RELAY),
+ * "buong database maliban sa user accounts" — tingnan ang paliwanag sa
+ * itaas kung bakit kasama rin ang "featureUnlocks" sa exclusion.
+ * Ibinabalik: { modules: { [moduleName]: array }, moduleNames,
+ * totalRecords, excludedModules, generatedAt }.
+ */
+function getCloudBackupPayload() {
+    const moduleNames = getAllModuleNames().filter((m) => !ALWAYS_EXCLUDED_FROM_CLOUD_SYNC.has(m));
+    const modules = {};
+    let totalRecords = 0;
+
+    for (const moduleName of moduleNames) {
+        const data = readData(moduleName, []);
+        modules[moduleName] = data;
+        if (Array.isArray(data)) totalRecords += data.length;
+    }
+
+    return {
+        modules,
+        moduleNames,
+        totalRecords,
+        excludedModules: Array.from(ALWAYS_EXCLUDED_FROM_CLOUD_SYNC),
+        generatedAt: new Date().toISOString()
+    };
+}
+
+module.exports = { db, readData, writeData, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC };
 
 // ====================================================================
 // BLOB-SIZE MONITOR (read-only, walang ginagalaw sa business logic)

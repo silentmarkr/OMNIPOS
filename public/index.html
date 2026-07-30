@@ -1121,6 +1121,23 @@
         </div>
     </div>
 
+    <!-- 1.7 CLOUD BACKUP (POSTGRES) -->
+    <div class="cloud-backup-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+            <i class="fa-solid fa-cloud"></i> Cloud Backup
+        </h3>
+        <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
+            I-sync ang buong database (lahat ng modules — maliban sa user accounts) papunta sa secure na online storage.
+            Premium feature ito — kailangan munang i-unlock bago ito magamit.
+        </p>
+        <div id="cloud-backup-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
+            <i class="fa-solid fa-circle-info"></i> Wala pang cloud backup na nagawa sa session na ito.
+        </div>
+        <button id="cloud-backup-sync-btn" onclick="runCloudBackupSync()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+            <i class="fa-solid fa-cloud-arrow-up"></i> Cloud Backup Now
+        </button>
+    </div>
+
     <!-- 2. SYSTEM RECOVERY AT DATABASE RESTORE -->
     <div class="recovery-section" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
         <h3 style="color: inherit; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">

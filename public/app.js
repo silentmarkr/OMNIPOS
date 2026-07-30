@@ -7681,6 +7681,54 @@ async function syncFeaturesFromRelay() {
     }
 }
 
+// Tinatawag ng "Cloud Backup Now" button sa Reset & Restore panel.
+// Ang 402/featureLocked na sagot (kung hindi pa na-unlock ang
+// 'cloud_backup' feature) ay awtomatikong hinahawakan na ng authFetch()
+// sa itaas (magpapakita ito ng unlock/upgrade prompt), kaya dito, ang
+// tinutukan lang natin ay ang normal na success/error UI.
+async function runCloudBackupSync() {
+    const statusBox = document.getElementById('cloud-backup-status');
+    const btn = document.getElementById('cloud-backup-sync-btn');
+
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'not-allowed'; }
+    if (statusBox) {
+        statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sini-sync ang database papunta sa cloud&hellip;';
+    }
+
+    try {
+        const response = await authFetch(`${API_URL}/cloud-backup/sync`, { method: 'POST' });
+        const result = await response.json();
+
+        if (response.status === 402) {
+            // Na-handle na ang upgrade/unlock prompt ng authFetch() —
+            // dito, ibalik lang ang status box sa neutral na estado.
+            if (statusBox) {
+                statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> Naka-lock pa ang Cloud Backup feature.';
+            }
+            return;
+        }
+
+        if (result.success) {
+            if (statusBox) {
+                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Matagumpay na na-sync (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
+            }
+            Swal.fire('Cloud Backup', result.message || 'Matagumpay na na-sync ang database papunta sa cloud.', 'success');
+        } else {
+            if (statusBox) {
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Nabigo ang cloud backup.'}`;
+            }
+            Swal.fire('Failed', result.message || 'Nabigo ang cloud backup.', 'error');
+        }
+    } catch (error) {
+        if (statusBox) {
+            statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Hindi ma-abot ang server.';
+        }
+        Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+    }
+}
+
 // Kapag napatunayan na ng Relay (sa pamamagitan ng /api/features/restore-check
 // sa itaas) na hindi na aktibo ang isa o higit pang feature/theme na dating
 // naka-unlock LOKAL — dahil na-deactivate mismo ng developer/store owner, o
