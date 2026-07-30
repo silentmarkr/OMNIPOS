@@ -6323,6 +6323,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
     #reset-restore-panel .system-reset-container,
     #reset-restore-panel .relay-sync-container,
     #reset-restore-panel .system-update-container,
+    #reset-restore-panel .cloud-backup-container,
     #reset-restore-panel .recovery-section {
         max-width: 600px;   /* baguhin ayon sa gusto mong lapad */
         margin-left: auto;
@@ -7079,5 +7080,43 @@ body.dark-mode .system-update-container #system-update-deploy-btn {
 }
 body.dark-mode .system-update-container #system-update-check-btn:hover,
 body.dark-mode .system-update-container #system-update-deploy-btn:hover {
+    background: var(--dm-accent-hover, #6a48ff) !important;
+}
+
+/* --------------------------------------------------------------
+   "Cloud Backup" card (Reset/Restore tab) — SAME treatment as
+   ".relay-sync-container" / ".system-update-container" sa itaas, para
+   magkatugma ang kulay AT laki nito sa mga kasamang card, kahit anong
+   theme (Day Mode, Dark Mode, o alinman sa mga Pro themes) o screen
+   size (PC/desktop — max-width 600px via ang media query sa itaas —
+   o mobile, kung saan sagad-sa-screen lahat ng card).
+   --pos-accent/--dm-accent ang nagbabago per-theme (tingnan ang
+   public/css/themes/), kaya awtomatikong tama ang kulay nito kahit
+   anong Pro theme ang naka-apply. */
+.cloud-backup-container {
+    border-color: var(--pos-accent) !important;
+    background: var(--pos-accent-soft) !important;
+}
+.cloud-backup-container h3 {
+    color: var(--pos-accent);
+}
+.cloud-backup-container #cloud-backup-sync-btn {
+    background: var(--pos-accent) !important;
+}
+
+body.dark-mode .cloud-backup-container {
+    border-color: var(--dm-accent, #7c5cff) !important;
+    background: var(--dm-accent-soft, rgba(124, 92, 255, 0.16)) !important;
+}
+body.dark-mode .cloud-backup-container h3 {
+    color: var(--dm-accent, #7c5cff);
+}
+body.dark-mode .cloud-backup-container p {
+    color: var(--dm-text-secondary);
+}
+body.dark-mode .cloud-backup-container #cloud-backup-sync-btn {
+    background: var(--dm-accent, #7c5cff) !important;
+}
+body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     background: var(--dm-accent-hover, #6a48ff) !important;
 }
