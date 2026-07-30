@@ -1451,147 +1451,6 @@ async function revertTemporarySupportAccess() {
     Swal.fire({ title:'Support Access Expired', text:'Temporary Developer Support Access has ended. Your permissions have reverted to normal.', icon:'info', timer: 4000, showConfirmButton: false });
 }
 
-let screenShareState = null;
-
-async function requestWatchMyScreen() {
-    const confirmResult = await Swal.fire({
-        title:'🖥️ Watch My Screen',
-        html:
-'<p style="margin:0 0 8px;font-size:0.9rem;">Makikita ng developer ang iyong screen NGAYON, live, habang tumatawag kayo/nag-uusap para sa support.</p>' +
-'<p style="font-size:0.82rem;color:#94a3b8;margin:0 0 8px;"><strong>Ikaw pa rin ang gumagalaw</strong> — walang kontrol na ipinapadala pabalik sa developer, ' +
-'panonood lang niya.</p>' +
-'<p style="font-size:0.82rem;color:#94a3b8;margin:0;">Makikita ang <strong>🔴 Live support session ongoing</strong> habang aktibo ito, at puwede mo itong itigil anumang oras gamit ang Stop button.</p>',
-        icon:'info',
-        showCancelButton: true,
-        confirmButtonText:'Oo, magsimula',
-        cancelButtonText:'Kanselahin',
-        confirmButtonColor:'#2563eb',
-    });
-    if (!confirmResult.isConfirmed) return;
-
-    try {
-        const startRes = await authFetch(`${API_URL}/support/screen-share/start`, { method:'POST' });
-        const startData = await startRes.json();
-        if (!startData.success) {
-            Swal.fire('Could Not Start', startData.message ||'Failed to start the screen-share session.','error');
-            return;
-        }
-        await beginScreenShare(startData.sessionCode, startData.hostToken, startData.relayWsUrl);
-    } catch (e) {
-        Swal.fire('Error','Could not reach the server to start the screen-share session.','error');
-    }
-}
-
-async function beginScreenShare(sessionCode, hostToken, relayWsUrl) {
-    let stream;
-    try {
-
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-    } catch (e) {
-
-        return;
-    }
-
-    const ws = new WebSocket(relayWsUrl);
-    const pc = new RTCPeerConnection({ iceServers: [{ urls:'stun:stun.l.google.com:19302' }] });
-    screenShareState = { ws, pc, stream, sessionCode };
-
-    stream.getVideoTracks()[0].addEventListener('ended', () => {
-
-        stopScreenShare();
-    });
-
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-    pc.onicecandidate = (event) => {
-        if (event.candidate) {
-            ws.send(JSON.stringify({ type:'signal', payload: { kind:'ice-candidate', candidate: event.candidate } }));
-        }
-    };
-
-    ws.onopen = () => {
-        ws.send(JSON.stringify({ type:'host-join', sessionCode, hostToken }));
-    };
-
-    ws.onmessage = async (event) => {
-        const msg = JSON.parse(event.data);
-
-        if (msg.type ==='error') {
-            Swal.fire('Error', msg.message,'error');
-            stopScreenShare();
-            return;
-        }
-
-        if (msg.type ==='viewer-connected') {
-
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            ws.send(JSON.stringify({ type:'signal', payload: { kind:'offer', sdp: pc.localDescription } }));
-            return;
-        }
-
-        if (msg.type ==='signal' && msg.payload.kind ==='answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.sdp));
-            return;
-        }
-
-        if (msg.type ==='session-ended') {
-            stopScreenShare( true);
-            return;
-        }
-    };
-
-    ws.onerror = () => {
-        Swal.fire('Connection Error','Could not reach the relay for the screen-share session.','error');
-        stopScreenShare();
-    };
-
-    showScreenShareBanner(sessionCode);
-}
-
-function showScreenShareBanner(sessionCode) {
-    let banner = document.getElementById('screen-share-banner');
-    if (!banner) {
-        banner = document.createElement('div');
-        banner.id ='screen-share-banner';
-        banner.style.cssText ='position:fixed;top:0;left:0;right:0;z-index:99999;background:#dc2626;color:#fff;padding:8px 16px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:0.85rem;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,0.25);';
-        document.body.prepend(banner);
-    }
-    banner.innerHTML =
-        `<span>🔴 Live support session ongoing — code ${sessionCode}</span>` +
-        `<button id="screen-share-stop-btn" style="background:#fff;color:#dc2626;border:none;border-radius:4px;padding:4px 12px;font-weight:700;cursor:pointer;">Stop</button>`;
-    banner.style.display ='flex';
-    document.getElementById('screen-share-stop-btn').onclick = () => stopScreenShare();
-}
-
-function hideScreenShareBanner() {
-    const banner = document.getElementById('screen-share-banner');
-    if (banner) banner.style.display ='none';
-}
-
-async function stopScreenShare(alreadyEndedOnRelay) {
-    if (!screenShareState) return;
-    const { ws, pc, stream, sessionCode } = screenShareState;
-
-    if (!alreadyEndedOnRelay && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type:'end-session' }));
-    }
-    if (stream) stream.getTracks().forEach(track => track.stop());
-    if (pc) pc.close();
-    if (ws) ws.close();
-
-    screenShareState = null;
-    hideScreenShareBanner();
-
-    try {
-        await authFetch(`${API_URL}/support/screen-share/end`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ sessionCode })
-        });
-    } catch (e) {  }
-}
-
 document.addEventListener("DOMContentLoaded", () => {
 
     setupDropdownHandlers();
@@ -9418,6 +9277,14 @@ async function handleLogout(type ='manual') {
     localStorage.removeItem('posa_token');
     currentUser = null;
 
+    // FIX: i-reset ang in-memory feature unlock cache sa logout — kung
+    // hindi, kapag nag-login ulit (parehong page, walang full reload),
+    // makikita pa rin ng UI ang LUMANG unlocked features ng dating
+    // session/store hangga't hindi manual na na-reload ang buong page.
+    unlockedFeatureIdsCache = null;
+    purchasedFeatureIdsCache = null;
+    fullyPurchasedCache = false;
+
     const txtUser = document.getElementById('login-username');
     const txtPass = document.getElementById('login-password');
 
@@ -9450,6 +9317,15 @@ async function showMainSystemInterface() {
 
     await refreshPermissions();
     checkAdminResetVisibility();
+
+    // FIX: i-refresh ang feature/theme unlock status PAGKATAPOS ng bawat
+    // successful login — dating hindi ito tinatawag dito, kaya kung
+    // nag-logout ka tapos nag-login ulit (parehong page, walang full
+    // reload), yung LUMANG cache (o wala pang laman kung bago pa lang
+    // ang page) ang nananatiling ginagamit ng UI hangga't hindi na-reload
+    // manually ang buong page.
+    await refreshUnlockedFeaturesFromServer();
+    await refreshUnlockedThemesFromServer();
 
     initializeSystem();
 
