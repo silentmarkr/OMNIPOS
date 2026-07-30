@@ -1155,7 +1155,22 @@ function readFeatureUnlocks() {
         deviceVerified: !!raw.deviceVerified,
         verifiedFingerprint: raw.verifiedFingerprint || null,
         firstVerifiedAt: typeof raw.firstVerifiedAt ==='number' ? raw.firstVerifiedAt : null,
-        lastVerifiedAt: typeof raw.lastVerifiedAt ==='number' ? raw.lastVerifiedAt : null
+        lastVerifiedAt: typeof raw.lastVerifiedAt ==='number' ? raw.lastVerifiedAt : null,
+        // ANTI-CLONE FIX (Render/cloud): dati nasa isang plain LOCAL FILE
+        // ito (~/.omnipos-device-seed) — sapat noon sa Termux/physical
+        // device dahil persistent ang $HOME. Sa Render (walang persistent
+        // disk sa free tier, gaya ng RELAY_PRIVATE_KEY_PEM na comment sa
+        // RELAY/server.js), NABURA ang file na ito sa BAWAT restart/redeploy,
+        // kaya bagong random seed = bagong fingerprint = laging
+        // "clone_suspected" kahit walang totoong pag-clone na nangyari.
+        // Ngayon kasama na ito sa parehong DB record ng installationId/
+        // verifiedFingerprint — kaya laging sabay silang nabubura o
+        // nabubuhay, hindi na sila nagkaka-desync sa restart.
+        deviceSeed: raw.deviceSeed || null,
+        // PERMIT SYSTEM: ang huling signed permit na natanggap mula sa
+        // RELAY (see verifyDevicePermit). Ito ang cryptographic proof na
+        // TALAGANG RELAY ang nag-approve, hindi lang isang lokal na flag.
+        devicePermit: raw.devicePermit || null
     };
 }
 
@@ -1192,22 +1207,21 @@ function getAndroidProp(name) {
 // app folder", kaya sapat na proteksyon ito para sa pangkaraniwang
 // senaryo ng cloning.
 // --------------------------------------------------------------
-const DEVICE_SEED_PATH = path.join(os.homedir(), '.omnipos-device-seed');
-
-function getOrCreateDeviceSeed() {
-    try {
-        const existing = fs.readFileSync(DEVICE_SEED_PATH, 'utf8').trim();
-        if (existing) return existing;
-    } catch (err) {
-        // wala pa o hindi mabasa — gagawa ng bago sa ibaba.
-    }
-    const seed = crypto.randomBytes(32).toString('hex');
-    try {
-        fs.writeFileSync(DEVICE_SEED_PATH, seed, { mode: 0o600 });
-    } catch (err) {
-        console.error(`⚠️ ANTI-CLONE: hindi ma-save ang device seed sa ${DEVICE_SEED_PATH}: ${err.message}`);
-    }
-    return seed;
+// ANTI-CLONE FIX: dati nasa isang LOCAL FILE (DEVICE_SEED_PATH, sa
+// $HOME) ang seed na ito. Gumana ito sa Termux/physical device dahil
+// persistent ang $HOME doon. Pero sa Render (walang persistent disk sa
+// free tier), NABUBURA ang bawat lokal na file sa tuwing mag-restart o
+// mag-redeploy ang service — kaya bagong random seed bawat pagkabukas,
+// bagong fingerprint, at laging "clone_suspected" kahit walang
+// nag-clone. Ngayon, ipinapasa na ang `data` object (ang parehong DB
+// record kung saan naka-imbak ang installationId/verifiedFingerprint)
+// dito, at itinatago ang seed BILANG BAHAGI ng record na iyon — kaya
+// laging kasabay sila ma-persist/mabura, hindi na sila nagkaka-desync.
+function getOrCreateDeviceSeed(data) {
+    if (data.deviceSeed) return data.deviceSeed;
+    data.deviceSeed = crypto.randomBytes(32).toString('hex');
+    writeData(FILE_FEATURE_UNLOCKS, data);
+    return data.deviceSeed;
 }
 
 function getNonAndroidMachineParts() {
@@ -1245,7 +1259,7 @@ function getNonAndroidMachineParts() {
     return parts.filter(Boolean);
 }
 
-function computeHardwareFingerprint() {
+function computeHardwareFingerprint(data) {
     const androidParts = [
         getAndroidProp('ro.product.model'),
         getAndroidProp('ro.product.device'),
@@ -1258,7 +1272,10 @@ function computeHardwareFingerprint() {
     // Isinasama na ang device seed sa LAHAT ng path (Android man o hindi)
     // — ito ang nagpapatunay na MAIIBA pa rin ang fingerprint kahit
     // magkaparehong modelo/build ang dalawang pisikal na device.
-    const seed = getOrCreateDeviceSeed();
+    // ANTI-CLONE FIX: kinukuha/nililikha na ang seed mula sa DB record
+    // (`data`) sa halip na sa isang local file, para hindi ito mabura sa
+    // restart/redeploy sa Render (walang persistent disk).
+    const seed = getOrCreateDeviceSeed(data);
 
     if (androidParts.length > 0) {
         return crypto.createHash('sha256').update([...androidParts, seed].join('|')).digest('hex');
@@ -1316,6 +1333,39 @@ function verifyUnlockToken(token, expectedInstallationId, expectedFeatureId) {
     }
 }
 
+// --------------------------------------------------------------
+// verifyDevicePermit — ANTI-CLONE, PERMIT SYSTEM (offline-capable)
+// Sinusuri kung ang naka-imbak na "permit" (nakuha noong huling
+// SUCCESSFUL online verify-login sa RELAY, tingnan ang
+// checkDeviceBeforeLogin) ay TALAGANG pinirmahan ng RELAY private key
+// PARA SA eksaktong (installationId, fingerprint) na ito. Purong lokal
+// na signature check ito gamit ang RELAY_PUBLIC_KEY — WALANG internet
+// na kailangan — kaya patuloy na gagana ang OFFLINE login habang hindi
+// nagbabago ang fingerprint.
+//
+// Bakit kailangan ito bukod pa sa simpleng `deviceVerified` boolean:
+// kung kokopyahin/i-restore ang database file at direktang i-edit ang
+// row (o kung may access sa raw DB), MADALING gawing `true` ang isang
+// boolean — pero HINDI kailanman mapeke ang isang valid na signature
+// dahil wala silang private key ng RELAY. Kaya kahit ma-tamper ang
+// lokal na flag, hindi ito magiging katanggap-tanggap na "permit"
+// hangga't walang totoong signature na tumutugma.
+// --------------------------------------------------------------
+function verifyDevicePermit(permit, expectedInstallationId, expectedFingerprint) {
+    if (!permit || !permit.payload || !permit.signature) return false;
+    const { installationId, fingerprint, issuedAt } = permit.payload;
+    if (installationId !== expectedInstallationId) return false;
+    if (fingerprint !== expectedFingerprint) return false;
+    if (typeof issuedAt !== 'number') return false;
+
+    const payloadString = JSON.stringify({ installationId, fingerprint, issuedAt });
+    try {
+        return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(permit.signature, 'base64'));
+    } catch (err) {
+        return false;
+    }
+}
+
 // ====================================================================
 // ANTI-CLONE DEVICE VERIFICATION — kailangan bago makapag-login
 // ====================================================================
@@ -1367,7 +1417,11 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
             // ang /relay/admin/api/devices/:id/split-clone), ibabalik dito
             // ng RELAY ang BAGONG installationId na dapat nang gamitin ng
             // client na ito mula ngayon.
-            reassignedInstallationId: relayData.reassignedInstallationId || null
+            reassignedInstallationId: relayData.reassignedInstallationId || null,
+            // PERMIT SYSTEM: signed proof mula sa RELAY na PARA SA
+            // (installationId, fingerprint) na ito, ito-store lokal para
+            // magamit ulit OFFLINE (verifyDevicePermit) sa susunod.
+            permit: relayData.permit || null
         };
     } catch (err) {
         return { ok: false, reason: 'unreachable', message: `Hindi maabot ang RELAY (${err.message}).` };
@@ -1377,8 +1431,12 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
 // Tinatawag ito bago payagan ang login. Nagbabalik ng { allowed, message }.
 async function checkDeviceBeforeLogin({ username } = {}) {
     const data = readFeatureUnlocks();
-    const liveFingerprint = computeHardwareFingerprint();
     const installationId = getOrCreateInstallationId(data);
+    // PAALALA: dapat isunod ito bago i-compute ang fingerprint, dahil
+    // ang deviceSeed ay ilalikha/ilalagay dito sa `data` mismo (hindi na
+    // sa isang local file) — kailangan nating tiyakin munang naka-load
+    // ang pinaka-bagong record bago tumawag ng computeHardwareFingerprint.
+    const liveFingerprint = computeHardwareFingerprint(data);
 
     // Kung walang paraang makakuha ng anumang fingerprint (sobrang bihira),
     // hindi na natin ito ma-eenforce nang maayos — huwag i-block, pero
@@ -1390,12 +1448,36 @@ async function checkDeviceBeforeLogin({ username } = {}) {
 
     const fingerprintUnchanged = data.deviceVerified && data.verifiedFingerprint === liveFingerprint;
 
-    if (fingerprintUnchanged) {
+    // PERMIT SYSTEM: hindi na sapat na basta "magkatugma" ang lokal na
+    // deviceVerified/verifiedFingerprint flags — dahil kung sakaling
+    // direktang ma-edit/ma-restore ang DB row (mismatch ng backup,
+    // atbp.), MADALING i-fake ang mga flag na iyon nang manwal. Kaya
+    // sinusuri ulit dito, PURONG LOKAL (walang internet), kung ang huling
+    // naka-imbak na permit ay TALAGANG naka-sign ng RELAY PARA SA
+    // eksaktong installationId+fingerprint na ito ngayon.
+    //
+    // BACKWARD-COMPATIBLE MIGRATION: kung WALA pang naka-imbak na permit
+    // (lumang record bago idagdag ang permit system), huwag agad i-block
+    // — payagan muna, at kukunin/ita-tago lang ang permit sa opportunistic
+    // background recheck sa ibaba. Sa susunod na login, mayroon na itong
+    // permit na masusuri.
+    const permitOk = !data.devicePermit || verifyDevicePermit(data.devicePermit, installationId, liveFingerprint);
+
+    if (fingerprintUnchanged && permitOk) {
         // Opportunistic background re-check lang (hindi hinihintay/hindi
         // nagba-block ng login) — kung sakaling mag-flag ang RELAY na
         // clone_suspected dahil may ibang device na gumamit na rin ng
-        // parehong installationId, malalaman agad sa admin panel.
-        verifyDeviceWithRelay(installationId, liveFingerprint, { username }).catch(() => {});
+        // parehong installationId, malalaman agad sa admin panel. Kung
+        // may bagong permit na ibinalik, i-save din ito lokal.
+        verifyDeviceWithRelay(installationId, liveFingerprint, { username })
+            .then(r => {
+                if (r.ok && r.permit) {
+                    const latest = readFeatureUnlocks();
+                    latest.devicePermit = r.permit;
+                    writeData(FILE_FEATURE_UNLOCKS, latest);
+                }
+            })
+            .catch(() => {});
         return { allowed: true };
     }
 
@@ -1432,6 +1514,7 @@ async function checkDeviceBeforeLogin({ username } = {}) {
 
     updated.deviceVerified = true;
     updated.verifiedFingerprint = liveFingerprint;
+    updated.devicePermit = result.permit || null;
     updated.firstVerifiedAt = updated.firstVerifiedAt || Date.now();
     updated.lastVerifiedAt = Date.now();
     writeData(FILE_FEATURE_UNLOCKS, updated);
