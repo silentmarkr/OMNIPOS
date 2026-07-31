@@ -246,7 +246,6 @@
                     </button>
                     <button class="btn-lowstock-bell" id="connectivity-mode-btn" onclick="toggleConnectivityMode()" title="Online/Offline mode">
                         <i class="fa-solid fa-wifi" id="connectivity-mode-icon"></i>
-                        <span id="connectivity-mode-label" style="font-size:11px; margin-left:4px;">Online</span>
                     </button>
                 </div>
             </header>
@@ -1828,18 +1827,16 @@
 (function () {
     function paintConnectivityBtn(mode) {
         const icon = document.getElementById('connectivity-mode-icon');
-        const label = document.getElementById('connectivity-mode-label');
         const btn = document.getElementById('connectivity-mode-btn');
-        if (!icon || !label || !btn) return;
+        if (!icon || !btn) return;
+        btn.dataset.mode = mode;
         if (mode === 'offline') {
-            icon.className = 'fa-solid fa-wifi';
-            icon.style.opacity = '0.5';
-            label.innerText = 'Offline';
+            // Huwag baguhin ang kulay — ibalik sa default (walang override),
+            // gaya ng dati bago idagdag ang toggle na ito.
+            icon.style.color = '';
             btn.title = 'Naka-Offline mode — i-tap para bumalik sa Online';
         } else {
-            icon.className = 'fa-solid fa-wifi';
-            icon.style.opacity = '1';
-            label.innerText = 'Online';
+            icon.style.color = '#22c55e'; // green — ONLINE lang ang kulayan
             btn.title = 'Naka-Online mode — i-tap para lumipat sa Offline';
         }
     }
@@ -1854,8 +1851,8 @@
     }
 
     window.toggleConnectivityMode = async function () {
-        const label = document.getElementById('connectivity-mode-label');
-        const currentlyOffline = label && label.innerText.trim() === 'Offline';
+        const btn = document.getElementById('connectivity-mode-btn');
+        const currentlyOffline = btn && btn.dataset.mode === 'offline';
         const nextMode = currentlyOffline ? 'online' : 'offline';
         try {
             const res = await authFetch(`${API_URL}/connectivity-mode`, {
