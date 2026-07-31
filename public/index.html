@@ -1846,7 +1846,7 @@
 
     async function fetchConnectivityMode() {
         try {
-            const res = await fetch('/api/connectivity-mode');
+            const res = await authFetch(`${API_URL}/connectivity-mode`);
             if (!res.ok) return; // hindi pa naka-login o iba pang isyu — huwag mag-alala, i-retry na lang sa susunod na tap
             const data = await res.json();
             if (data && data.success) paintConnectivityBtn(data.mode);
@@ -1858,13 +1858,14 @@
         const currentlyOffline = label && label.innerText.trim() === 'Offline';
         const nextMode = currentlyOffline ? 'online' : 'offline';
         try {
-            const res = await fetch('/api/connectivity-mode', {
+            const res = await authFetch(`${API_URL}/connectivity-mode`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mode: nextMode })
             });
-            const data = await res.json();
-            if (data && data.success) {
+            let data = null;
+            try { data = await res.json(); } catch (parseErr) { /* wala/di-JSON na response body */ }
+            if (res.ok && data && data.success) {
                 paintConnectivityBtn(data.mode);
                 const msg = data.mode === 'offline'
                     ? '📴 Offline mode — hindi na proactive tatawag sa RELAY. Gumagana pa rin nang normal ang POS.'
@@ -1874,6 +1875,8 @@
                 } else {
                     console.log(msg);
                 }
+            } else if (window.Swal) {
+                Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: (data && data.message) || `Hindi na-switch ang mode. (HTTP ${res.status})`, showConfirmButton: false, timer: 3000 });
             }
         } catch (err) {
             if (window.Swal) {
