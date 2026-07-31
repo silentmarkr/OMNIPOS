@@ -2599,12 +2599,25 @@ const defaultUsers = [
     { username:'staff', password:'staff123', role:'Staff', created:'2026-07-07 16:34:41' }
 ];
 
+// Tinutukoy dito ang petsa ng expiry RELATIVE sa mismong sandali ng
+// unang pag-launch ng bagong client (hindi naka-hardcode na absolute
+// date) — para kahit kailan pa i-extract/i-deploy ito ng bagong
+// kliyente, laging "makatotohanan" (hindi agad EXPIRED) ang mga sample
+// na petsa, at para makita rin nila agad ang "Expiring Soon" na feature
+// sa dashboard gamit ang Fresh Milk (default: 5 araw na lang bago
+// mag-expire, loob ng 0–7 araw na saklaw ng "Expiring Soon" sa UI).
+function daysFromNow(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0]; // YYYY-MM-DD — tugma sa <input type="date">
+}
+
 const defaultProducts = [
-    { code:'PRDT20250001', name:'Bottled Water 500ml', category:'Beverages', price: 25.00, stock: 8 },
-    { code:'PRDT20250002', name:'Coca-Cola 1L', category:'Beverages', price: 55.00, stock: 9 },
-    { code:'PRDT20250003', name:'Fresh Milk 1L', category:'Dairy', price: 85.00, stock: 10 },
-    { code:'PRDT20250004', name:'Nova Multigrain', category:'Snacks', price: 30.00, stock: 10 },
-    { code:'PRDT20250005', name:'Piattos Cheese', category:'Snacks', price: 35.00, stock: 10 }
+    { code:'PRDT20250001', name:'Bottled Water 500ml', category:'Beverages', price: 25.00, stock: 8, cost: 15.00, supplier:'Absolute Distribution', expiryDate: daysFromNow(180), lowStockThreshold: 5 },
+    { code:'PRDT20250002', name:'Coca-Cola 1L', category:'Beverages', price: 55.00, stock: 9, cost: 42.00, supplier:'Coca-Cola Beverages Philippines, Inc.', expiryDate: daysFromNow(150), lowStockThreshold: 5 },
+    { code:'PRDT20250003', name:'Fresh Milk 1L', category:'Dairy', price: 85.00, stock: 10, cost: 65.00, supplier:'Local Dairy Supplier', expiryDate: daysFromNow(5), lowStockThreshold: 4 },
+    { code:'PRDT20250004', name:'Nova Multigrain', category:'Snacks', price: 30.00, stock: 10, cost: 22.00, supplier:'Universal Robina Corporation', expiryDate: daysFromNow(90), lowStockThreshold: 5 },
+    { code:'PRDT20250005', name:'Piattos Cheese', category:'Snacks', price: 35.00, stock: 10, cost: 26.00, supplier:'Universal Robina Corporation', expiryDate: daysFromNow(90), lowStockThreshold: 5 }
 ];
 
 if (readData(FILE_USERS).length === 0) {
