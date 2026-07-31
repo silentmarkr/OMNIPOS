@@ -3950,27 +3950,25 @@ function copyRecursivePreserving(srcDir, destDir, preserveNames) {
     }
 }
 
+// --------------------------------------------------------------
+// PAALALA (Termux): dati, dito mismo nag-so-spawn ng sarili niyang
+// "detached" child process si Node para i-restart ang sarili. Hindi
+// ito maaasahan sa Termux/Android — kapag na-minimize o na-close ng
+// customer ang Termux app, pinapatay ng Android ang BUONG session
+// (kasama na ang mga "detached" child), kaya paulit-ulit na
+// nade-deactivate ang server at kailangan pa ring i-run manually.
+//
+// Sa halip, dapat pinapatakbo na ang OMNIPOS via "start.sh" (isang
+// supervisor loop na paulit-ulit na nagpapatakbo ng "node server.js").
+// Dito, sapat na lang na lumabas (exit) ang kasalukuyang Node process
+// — ang start.sh loop mismo (hindi si Node) ang bahalang mag-restart
+// nito kaagad, kahit anong dahilan ng pagkawala (self-update, crash,
+// atbp.), habang bukas pa ang Termux session.
+// --------------------------------------------------------------
 function scheduleSelfRestart(installRoot) {
-    const { spawn } = require('child_process');
-    const nodeBin = process.execPath;
-    const entryFile = path.join(installRoot, 'server.js');
-
-    // Bash wrapper: maghintay ng ilang segundo bago i-restart ang
-    // Node process — para may sapat na oras ang HTTP response sa itaas
-    // na maka-abot muna sa client/browser bago pa maputol ito ng exit
-    // ng kasalukuyang process, at para ma-release muna ang port bago
-    // sumubok mag-bind ang bagong process dito.
-    try {
-        const child = spawn('bash', ['-c', `sleep 2 && exec "${nodeBin}" "${entryFile}"`], {
-            cwd: installRoot,
-            detached: true,
-            stdio:'ignore'
-        });
-        child.unref();
-    } catch (err) {
-        console.error('❌ Hindi ma-schedule ang self-restart:', err.message);
-    }
-
+    // Maikling delay lang — para may sapat na oras ang HTTP response
+    // sa itaas na maka-abot muna sa client/browser bago pa lumabas
+    // ang kasalukuyang process.
     setTimeout(() => process.exit(0), 500);
 }
 
