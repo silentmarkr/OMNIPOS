@@ -1651,6 +1651,11 @@ const DEVICE_REVOCATION_RECHECK_MS = 3 * 60 * 1000;
 
 async function recheckDeviceAuthorizationLive() {
     try {
+        // Kung walang kahit isang naka-login na session, walang i-fo-force-
+        // logout — huwag nang mag-abala pa sa RELAY. Pinapanatili nito ang
+        // ORIHINAL na "minimal na network chatter" na disenyo: 0 session =
+        // 0 background call sa RELAY, eksaktong tulad ng dati.
+        if (SESSIONS.size === 0) return;
         if (getConnectivityMode() !== 'online') return; // sinusunod ang manual na toggle ng user
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
