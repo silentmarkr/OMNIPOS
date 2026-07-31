@@ -1321,6 +1321,7 @@ async function endDemoModeManually() {
 }
 
 async function promptDemoMode() {
+    if (blockIfOffline('Demo Mode activation requests')) return false;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
 
     const confirmResult = await Swal.fire({
