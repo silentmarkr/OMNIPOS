@@ -3886,35 +3886,159 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
 
 // --------------------------------------------------------------
 // POST /api/system/deploy-update
-// Ito ang "Check & Deploy Update" button. HINDI nito hinihila/kinukuha
-// ang bagong code mismo — ang GINAGAWA lang nito ay i-POST papunta sa
-// SARILING Render Deploy Hook URL ng instance na ito (naka-store bilang
-// env var, kinukuha mula sa Render dashboard > Settings > Deploy Hook).
-// Ibig sabihin: kailangan MUNANG naka-sync (git merge mula sa upstream
-// repo) ang code repo ng kliyente BAGO gamitin ito — ang button na ito
-// ang magre-redeploy lang ng ANUMANG NASA REPO NA ngayon.
+// Ito ang "Check & Deploy Update" button. Dalawang paraan, depende sa
+// environment ng instance na ito:
+//
+//   1. RENDER MODE (dating gawi): kung naka-configure ang
+//      RENDER_DEPLOY_HOOK_URL env var, i-POST lang papunta rito — ito
+//      ang nagre-redeploy sa Render mula sa ANUMANG NASA REPO NA (dapat
+//      naka-sync/git-merge na muna mula sa upstream bago gamitin ito).
+//
+//   2. SELF-UPDATE MODE (bago — para sa Termux/lokal na kliyente na
+//      WALANG Render, kung saan hindi gumagana ang deploy hook dahil
+//      walang Render service talaga): direktang kinukuha ang bagong
+//      release package MISMO mula sa RELAY (GET /relay/release
+//      -package), ie-extract ito sa isang HIWALAY na staging folder
+//      muna, saka lang ikino-copy paibabaw sa install folder — HINDI
+//      kasama ang .env at database/ (ligtas ang mga ito) — tapos
+//      awtomatikong nire-restart ang sariling Node process.
 // --------------------------------------------------------------
 app.post('/api/system/deploy-update', rateLimit('system-deploy-update', 3, 30 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakapag-trigger ng deploy.' });
     }
-    if (!RENDER_DEPLOY_HOOK_URL) {
-        return res.status(400).json({
-            success: false,
-            message:'Walang RENDER_DEPLOY_HOOK_URL na naka-configure. Kunin ito sa Render dashboard (Settings > Deploy Hook) at ilagay bilang env var.'
-        });
-    }
-    try {
-        const hookRes = await fetch(RENDER_DEPLOY_HOOK_URL, { method:'POST' });
-        if (!hookRes.ok) {
-            return res.status(502).json({ success: false, message: `Tinanggihan ng Render ang deploy hook (HTTP ${hookRes.status}).` });
+
+    if (RENDER_DEPLOY_HOOK_URL) {
+        try {
+            const hookRes = await fetch(RENDER_DEPLOY_HOOK_URL, { method:'POST' });
+            if (!hookRes.ok) {
+                return res.status(502).json({ success: false, message: `Tinanggihan ng Render ang deploy hook (HTTP ${hookRes.status}).` });
+            }
+            logAction(req.authUser.username ||'Unknown','Nag-trigger ng System Update Deploy sa Render.');
+            return res.json({ success: true, message:'Na-trigger na ang bagong deploy sa Render. Aabutin ito ng ilang minuto — mag-a-auto-refresh ang system pagkatapos.' });
+        } catch (err) {
+            return res.status(502).json({ success: false, message: `Hindi ma-abot ang Render deploy hook: ${err.message}` });
         }
-        logAction(req.authUser.username ||'Unknown','Nag-trigger ng System Update Deploy sa Render.');
-        res.json({ success: true, message:'Na-trigger na ang bagong deploy sa Render. Aabutin ito ng ilang minuto — mag-a-auto-refresh ang system pagkatapos.' });
-    } catch (err) {
-        res.status(502).json({ success: false, message: `Hindi ma-abot ang Render deploy hook: ${err.message}` });
     }
+
+    // Walang RENDER_DEPLOY_HOOK_URL na naka-configure — ibig sabihin
+    // hindi ito naka-deploy sa Render (hal. Termux). Gamitin ang
+    // self-update mode sa halip.
+    return runSelfUpdateFromRelay(req, res);
 });
+
+// --------------------------------------------------------------
+// SELF-UPDATE MODE (Termux-friendly, walang Render deploy hook)
+// --------------------------------------------------------------
+const SELF_UPDATE_PRESERVE = new Set([
+   '.env','database','node_modules','uploads_tmp','.git','release',
+   'cf.log','server.log'
+]);
+
+function copyRecursivePreserving(srcDir, destDir, preserveNames) {
+    for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+        if (preserveNames.has(entry.name)) continue; // huwag galawin — panatilihing buo
+        const srcPath = path.join(srcDir, entry.name);
+        const destPath = path.join(destDir, entry.name);
+        if (entry.isDirectory()) {
+            fs.mkdirSync(destPath, { recursive: true });
+            copyRecursivePreserving(srcPath, destPath, new Set());
+        } else {
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
+}
+
+function scheduleSelfRestart(installRoot) {
+    const { spawn } = require('child_process');
+    const nodeBin = process.execPath;
+    const entryFile = path.join(installRoot, 'server.js');
+
+    // Bash wrapper: maghintay ng ilang segundo bago i-restart ang
+    // Node process — para may sapat na oras ang HTTP response sa itaas
+    // na maka-abot muna sa client/browser bago pa maputol ito ng exit
+    // ng kasalukuyang process, at para ma-release muna ang port bago
+    // sumubok mag-bind ang bagong process dito.
+    try {
+        const child = spawn('bash', ['-c', `sleep 2 && exec "${nodeBin}" "${entryFile}"`], {
+            cwd: installRoot,
+            detached: true,
+            stdio:'ignore'
+        });
+        child.unref();
+    } catch (err) {
+        console.error('❌ Hindi ma-schedule ang self-restart:', err.message);
+    }
+
+    setTimeout(() => process.exit(0), 500);
+}
+
+async function runSelfUpdateFromRelay(req, res) {
+    if (!RELAY_API_KEY) {
+        return res.status(400).json({ success: false, message:'Walang RELAY_API_KEY na naka-configure — kailangan ito para makakuha ng release package mula sa RELAY.' });
+    }
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message:'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-self-update.' });
+    }
+
+    const installRoot = __dirname;
+    const tmpRoot = path.join(os.tmpdir(), `omnipos-selfupdate-${Date.now()}`);
+    const zipPath = path.join(tmpRoot,'omnipos-client.zip');
+    const extractDir = path.join(tmpRoot,'extracted');
+
+    try {
+        fs.mkdirSync(tmpRoot, { recursive: true });
+
+        // 1. i-download ang bagong release package mula sa RELAY
+        const relayRes = await fetch(`${RELAY_URL}/relay/release-package`, {
+            headers: {'x-relay-key': RELAY_API_KEY }
+        });
+        if (!relayRes.ok) {
+            let detail ='';
+            try { detail = (await relayRes.json()).message ||''; } catch (_e) {}
+            throw new Error(`Tinanggihan ng RELAY ang release package (HTTP ${relayRes.status}). ${detail}`.trim());
+        }
+        const arrayBuffer = await relayRes.arrayBuffer();
+        fs.writeFileSync(zipPath, Buffer.from(arrayBuffer));
+
+        // 2. i-extract sa isang HIWALAY na staging folder muna (hindi
+        // direkta sa install root) — kung sakaling masira ang download
+        // o extract, hindi pa naaapektuhan ang kasalukuyang gumaganang
+        // install.
+        fs.mkdirSync(extractDir, { recursive: true });
+        try {
+            execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio:'pipe' });
+        } catch (unzipErr) {
+            throw new Error(`Hindi ma-extract ang release package. Siguraduhing naka-install ang "unzip" sa Termux ("pkg install unzip -y"). Detalye: ${unzipErr.message}`);
+        }
+
+        // 3. i-copy ang laman ng extractDir PAIBABAW sa install root,
+        // PERO LAKTAWAN ang mga bagay na dapat manatiling BUO sa
+        // kasalukuyang instance: .env (secrets/keys), database/
+        // (aktwal na datos ng tindahan), node_modules, at mga runtime
+        // log/upload folder.
+        copyRecursivePreserving(extractDir, installRoot, SELF_UPDATE_PRESERVE);
+
+        logAction(req.authUser.username ||'Unknown','Nag-self-update ng OMNIPOS mula sa RELAY release package (Termux/non-Render mode).');
+
+        res.json({
+            success: true,
+            message:'Na-download at na-apply na ang bagong update. Nag-re-restart na ang system ngayon — muling mag-lo-load ang page sa loob ng ilang segundo.'
+        });
+
+        // 4. i-restart ang sariling Node process (bagong process, exit
+        // ang luma) para maka-load na ang bagong code.
+        scheduleSelfRestart(installRoot);
+    } catch (err) {
+        console.error('❌ Self-update error:', err.message);
+        if (!res.headersSent) {
+            res.status(502).json({ success: false, message: `Hindi na-apply ang self-update: ${err.message}` });
+        }
+    } finally {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+}
 
 app.post('/api/system/reset', rateLimit('system-reset', 3, 30 * 60 * 1000), async (req, res) => {
 
