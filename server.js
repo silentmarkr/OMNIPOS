@@ -1486,12 +1486,25 @@ async function checkDeviceBeforeLogin({ username } = {}) {
     // permit na masusuri.
     const permitOk = !data.devicePermit || verifyDevicePermit(data.devicePermit, installationId, liveFingerprint);
 
-    if (fingerprintUnchanged && permitOk) {
+    // DEVELOPER-AUTHORIZATION GATE: hindi lang basta "kilalang device"
+    // (fingerprint match / permit valid) ang kailangan para makapag-login
+    // — kailangan ding EXPLICIT na "Allow" na ito ng developer/owner sa
+    // RELAY admin panel (allowedDevices), kahit pa unang beses pa lang
+    // itong device (walang mismatch, walang clone suspicion). Kaya kahit
+    // pumasa ang fingerprint/permit check sa itaas, hindi pa rin dapat
+    // payagan ang login hangga't hindi pa naka-set ang lokal na
+    // "relayAuthorized" flag na ito (na TANGING mula sa RELAY manggagaling,
+    // hindi ito basta pwedeng i-edit lokal at magamit — dahil kailangan
+    // pa ring pumasa ang fingerprint/permit check bago pa man dito
+    // umabot).
+    if (fingerprintUnchanged && permitOk && data.relayAuthorized === true) {
         // Opportunistic background re-check lang (hindi hinihintay/hindi
         // nagba-block ng login) — kung sakaling mag-flag ang RELAY na
         // clone_suspected dahil may ibang device na gumamit na rin ng
-        // parehong installationId, malalaman agad sa admin panel. Kung
-        // may bagong permit na ibinalik, i-save din ito lokal.
+        // parehong installationId, o kung sakaling i-Revoke ng developer
+        // ang authorization na ito, malalaman agad sa admin panel — at
+        // dito rin ita-tago ang bagong resulta (kasama ang pagbawi ng
+        // relayAuthorized kung na-revoke) para sa susunod na login.
         //
         // Sinusunod nito ang manual na Online/Offline TOGGLE ng user
         // (tingnan ang FILE_CONNECTIVITY_MODE): kapag "offline" ang
@@ -1502,9 +1515,10 @@ async function checkDeviceBeforeLogin({ username } = {}) {
         if (getConnectivityMode() === 'online') {
             verifyDeviceWithRelay(installationId, liveFingerprint, { username })
                 .then(r => {
-                    if (r.ok && r.permit) {
+                    if (r.ok) {
                         const latest = readFeatureUnlocks();
-                        latest.devicePermit = r.permit;
+                        if (r.permit) latest.devicePermit = r.permit;
+                        latest.relayAuthorized = !!r.allowed;
                         writeData(FILE_FEATURE_UNLOCKS, latest);
                     }
                 })
@@ -1513,8 +1527,9 @@ async function checkDeviceBeforeLogin({ username } = {}) {
         return { allowed: true };
     }
 
-    // Alinman sa: (a) unang beses pa lang, o (b) nagbago ang fingerprint
-    // (ibig sabihin naka-move/na-clone papunta sa ibang device) —
+    // Alinman sa: (a) unang beses pa lang, (b) nagbago ang fingerprint
+    // (ibig sabihin naka-move/na-clone papunta sa ibang device), o (c)
+    // hindi pa na-a-authorize ng developer (relayAuthorized !== true) —
     // KAILANGAN ng SUCCESSFUL online verification muna sa RELAY.
     const result = await verifyDeviceWithRelay(installationId, liveFingerprint, { username });
 
@@ -1544,12 +1559,27 @@ async function checkDeviceBeforeLogin({ username } = {}) {
         updated.installationId = installationId;
     }
 
+    // Naka-verify na ang fingerprint (kilala/hindi clone) — pero ITO PA
+    // RIN ang tunay na desisyon kung PWEDE NA ba talagang makapag-login:
+    // kailangan munang naka-Allow ng developer/owner ang installationId
+    // na ito sa RELAY admin panel (result.allowed). Ang fingerprint
+    // binding sa ibaba ay pinag-iimbak PA RIN kahit hindi pa authorized
+    // — para gumana pa rin ang anti-clone tracking simula ngayon — pero
+    // hindi ito ang nagpapahintulot ng login.
     updated.deviceVerified = true;
     updated.verifiedFingerprint = liveFingerprint;
     updated.devicePermit = result.permit || null;
+    updated.relayAuthorized = !!result.allowed;
     updated.firstVerifiedAt = updated.firstVerifiedAt || Date.now();
     updated.lastVerifiedAt = Date.now();
     writeData(FILE_FEATURE_UNLOCKS, updated);
+
+    if (!result.allowed) {
+        return {
+            allowed: false,
+            message: 'Naka-log na ang device na ito sa developer/store owner. Maghintay ng authorization (Allow) bago ito makapag-login. Kontakin ang developer/store owner.'
+        };
+    }
 
     return { allowed: true };
 }
