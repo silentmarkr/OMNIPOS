@@ -392,21 +392,29 @@ function mirrorBackupToDownloads() {
 // CLOUD BACKUP PAYLOAD (para sa Postgres sync sa pamamagitan ng RELAY)
 // ====================================================================
 // Ang layunin nito: buuin ang "buong database" na ise-sync papunta sa
-// Postgres (via RELAY) — LAHAT ng modules MALIBAN sa mga laging
-// excluded sa ibaba. Dalawang bagay ang laging tinatanggal dito:
-//   - "users"         -> user accounts/credentials, hindi ito dapat
-//                        umalis sa device (per explicit instruction).
-//   - "featureUnlocks"-> hindi ito "business data" ng tindahan — ito
-//                        ay license/token state na naka-bind mismo sa
-//                        installationId/hardware fingerprint ng DEVICE
-//                        na ito, kaya walang silbing i-sync/i-restore
-//                        papunta sa ibang lugar.
+// Postgres (via RELAY) — LAHAT ng modules ng tindahan, KASAMA na ngayon
+// ang "featureUnlocks" (unlocked features/Pro themes) at "users" (user
+// accounts), per kahilingan na i-backup na rin ang mga ito.
+//
+// Walang laging-excluded na module ngayon, pero may ISANG field lang na
+// laging tinatanggal bago umalis ng device: ang "password" ng bawat
+// user record sa "users" module. Hindi ito buong module exclusion —
+// kasama pa rin ang username/role/avatar/atbp. para ma-restore ang mga
+// account — pero ang password HASH mismo ay hindi dapat umalis sa
+// device papunta sa isang Postgres na naka-host sa ibang lugar
+// (defense-in-depth, kahit protektado na rin ito sa RELAY side —
+// tingnan ang CLOUD_BACKUP mirroring doon). Kapag na-restore ang isang
+// backup, gagamitin ang normal na "forgot password"/reset flow ng
+// developer/admin para sa mga account na ito sa halip na yung lumang
+// hash.
+//
 // Kinukuha ang listahan ng modules NANG DYNAMIC (mula mismo sa laman
 // ng "store" at "row_store" tables) sa halip na i-hardcode, para
 // awtomatikong kasama ang anumang BAGONG module sa hinaharap nang
 // walang kailangang balikan pa ang file na ito.
 // ====================================================================
-const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['users', 'featureUnlocks']);
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(); // wala nang buong-module exclusion
+const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 
 function getAllModuleNames() {
     const blobModules = db.prepare('SELECT DISTINCT module FROM store').all().map((r) => r.module);
@@ -414,12 +422,24 @@ function getAllModuleNames() {
     return Array.from(new Set([...blobModules, ...rowModules, ...ROW_NORMALIZED_MODULES]));
 }
 
+function stripRedactedFields(moduleName, data) {
+    const redactedFields = REDACTED_FIELDS_BY_MODULE[moduleName];
+    if (!redactedFields || !Array.isArray(data)) return data;
+    return data.map((record) => {
+        if (!record || typeof record !== 'object') return record;
+        const clone = { ...record };
+        redactedFields.forEach((field) => { delete clone[field]; });
+        return clone;
+    });
+}
+
 /**
- * Buuin ang buong payload na ise-sync papunta sa Postgres (via RELAY),
- * "buong database maliban sa user accounts" — tingnan ang paliwanag sa
- * itaas kung bakit kasama rin ang "featureUnlocks" sa exclusion.
+ * Buuin ang buong payload na ise-sync papunta sa Postgres (via RELAY) —
+ * ngayon ay TALAGANG buong database na, kasama na ang unlocked
+ * features/themes ("featureUnlocks") at user accounts ("users", pero
+ * walang password field — tingnan ang paliwanag sa itaas).
  * Ibinabalik: { modules: { [moduleName]: array }, moduleNames,
- * totalRecords, excludedModules, generatedAt }.
+ * totalRecords, excludedModules, redactedFieldsByModule, generatedAt }.
  */
 function getCloudBackupPayload() {
     const moduleNames = getAllModuleNames().filter((m) => !ALWAYS_EXCLUDED_FROM_CLOUD_SYNC.has(m));
@@ -427,7 +447,7 @@ function getCloudBackupPayload() {
     let totalRecords = 0;
 
     for (const moduleName of moduleNames) {
-        const data = readData(moduleName, []);
+        const data = stripRedactedFields(moduleName, readData(moduleName, []));
         modules[moduleName] = data;
         if (Array.isArray(data)) totalRecords += data.length;
     }
@@ -437,6 +457,7 @@ function getCloudBackupPayload() {
         moduleNames,
         totalRecords,
         excludedModules: Array.from(ALWAYS_EXCLUDED_FROM_CLOUD_SYNC),
+        redactedFieldsByModule: REDACTED_FIELDS_BY_MODULE,
         generatedAt: new Date().toISOString()
     };
 }

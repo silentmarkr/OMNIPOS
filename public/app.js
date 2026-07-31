@@ -89,6 +89,50 @@ function escapeHtml(value) {
         .replace(/'/g,'&#39;');
 }
 
+/* --------------------------------------------------------------
+   HAPTIC FEEDBACK (vibration sa cellphone kada tap sa POS Terminal)
+   -----------------------------------------------------------------
+   Gumagamit ito ng built-in na navigator.vibrate() API ng browser.
+   Kung naka-OFF ang haptics/vibration sa settings ng cellphone, o kung
+   hindi supported ng device/browser (hal. karamihan sa desktop/PC,
+   o iPhone Safari na walang support dito), tahimik lang itong walang
+   gagawin — walang error, walang epekto. Kaya safe itong tawagin
+   kahit saan, PC man o mobile.
+   -------------------------------------------------------------- */
+function triggerHaptic(durationMs = 12) {
+    try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+            navigator.vibrate(durationMs);
+        }
+    } catch (e) {
+        /* walang vibration hardware/permission — okay lang, laktawan na lang */
+    }
+}
+
+/* Nagdaragdag ng instant na "naka-pindot" na highlight (sa pamamagitan ng
+   pointerdown/up kaysa sa pag-asa sa native :active, na kung minsan mabagal
+   o hindi consistent lalo na sa ilang mobile browsers) kasabay ng haptic
+   vibration. Ginagamit ito ng product cards at category chips sa Terminal. */
+function attachInstantTapFeedback(el, options) {
+    options = options || {};
+    var activeClass = options.activeClass || 'tap-active';
+    var hapticMs = options.hapticMs || 12;
+
+    if (!el || el.__instantTapBound) return;
+    el.__instantTapBound = true;
+
+    var clearActive = function () { el.classList.remove(activeClass); };
+
+    el.addEventListener('pointerdown', function () {
+        el.classList.add(activeClass);
+        triggerHaptic(hapticMs);
+    }, { passive: true });
+
+    el.addEventListener('pointerup', clearActive, { passive: true });
+    el.addEventListener('pointerleave', clearActive, { passive: true });
+    el.addEventListener('pointercancel', clearActive, { passive: true });
+}
+
 const SYSTEM_CONFIG = {
     appName:"OmniPOS System",
     serverName:"Core API Gateway",
@@ -3975,6 +4019,7 @@ function renderTerminalProducts() {
                     <div class="t-prod-stock">Stock: ${availableStock}</div>
                 `;
                 card.onclick = () => addItemToCart(p);
+                attachInstantTapFeedback(card, { hapticMs: 12 });
                 gridOutput.appendChild(card);
             } catch (cardError) {
 
@@ -8925,6 +8970,7 @@ function updateCategoryChipsDynamic() {
         chip.innerText = cat;
 
         chip.onclick = () => filterTerminalCategory(cat);
+        attachInstantTapFeedback(chip, { hapticMs: 8 });
 
         container.appendChild(chip);
     });

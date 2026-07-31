@@ -1076,7 +1076,7 @@ const FEATURE_CATALOG = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, category:'module', description:'Profit margin, top/slow sellers, 7-day sales trend, at payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, category:'module', description:'Multi-cashier shift tracking at Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Gumawa ng custom roles at i-configure kung anong menu ang makikita ng bawat role (Roles & Permissions matrix).' },
-    cloud_backup: { name:'Cloud Backup (Postgres)', price: 1499, category:'module', description:'I-sync ang buong database (maliban sa user accounts) papunta sa secure na cloud storage ng developer — proteksyon kung sakaling masira/mawala ang device.' },
+    cloud_backup: { name:'Cloud Backup (Postgres)', price: 1499, category:'module', description:'I-sync ang buong database — kasama na ang user accounts (walang password), unlocked features/Pro themes, at lahat ng ibang modules — papunta sa secure na cloud storage ng developer — proteksyon kung sakaling masira/mawala ang device.' },
 };
 
 const DEMO_FEATURE_ID ='__demo__';
@@ -1696,7 +1696,7 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
         cloudBackupStatus.lastError = null;
         cloudBackupStatus.lastTotalRecords = backupPayload.totalRecords;
 
-        logAction((req.authUser && req.authUser.username) || 'Unknown', `Cloud Backup: matagumpay na na-sync ang database (maliban sa user accounts) papunta sa Postgres (${backupPayload.totalRecords} records, ${backupPayload.moduleNames.length} modules).`);
+        logAction((req.authUser && req.authUser.username) || 'Unknown', `Cloud Backup: matagumpay na na-sync ang buong database (kasama ang user accounts [walang password], unlocked features/themes) papunta sa Postgres (${backupPayload.totalRecords} records, ${backupPayload.moduleNames.length} modules).`);
 
         res.json({
             success: true,
