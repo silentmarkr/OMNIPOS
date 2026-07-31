@@ -1193,7 +1193,15 @@ function readFeatureUnlocks() {
         // PERMIT SYSTEM: ang huling signed permit na natanggap mula sa
         // RELAY (see verifyDevicePermit). Ito ang cryptographic proof na
         // TALAGANG RELAY ang nag-approve, hindi lang isang lokal na flag.
-        devicePermit: raw.devicePermit || null
+        devicePermit: raw.devicePermit || null,
+        // BUG FIX: nawawala dati ang field na ito dito — kaya kahit
+        // na-save nang tama ang relayAuthorized:true sa DB noong huling
+        // successful online verification, laging bumabalik itong
+        // `undefined` sa bawat susunod na basa, kaya laging bumabagsak
+        // ang offline fast-path check sa checkDeviceBeforeLogin() at
+        // pinipilit ang online re-verification kahit kilala/authorized
+        // na talaga ang device.
+        relayAuthorized: raw.relayAuthorized === true
     };
 }
 
