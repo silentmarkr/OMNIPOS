@@ -435,6 +435,23 @@ app.use((req, res, next) => {
         return res.status(401).json({ success: false, code:'INVALID_TOKEN', message:'Expired o invalid na ang session. Mangyaring mag-login muli.' });
     }
 
+    // DEVICE-REVOCATION GUARD: bukod pa sa periodic na
+    // recheckDeviceAuthorizationLive() (na nagde-destroy na ng lahat ng
+    // session sa SANDALING mag-flip ang relayAuthorized), suriin din dito
+    // ang huling naka-imbak na flag bago patuloy — para sakop ang mga
+    // race condition tulad ng: session na na-restore mula sa disk pagkatapos
+    // mag-restart, bago pa man makatakbo ang unang periodic recheck. LOCAL
+    // read lang ito (walang tawag sa RELAY per-request), kaya mura lang.
+    const currentDeviceData = readFeatureUnlocks();
+    if (currentDeviceData.relayAuthorized === false) {
+        destroySession(token);
+        return res.status(401).json({
+            success: false,
+            code:'DEVICE_REVOKED',
+            message:'Inalis ng developer/store owner ang device na ito sa listahan ng mga pinapayagang device. Awtomatikong na-logout ka. Kontakin ang developer/store owner.'
+        });
+    }
+
     req.authUser = { username: session.username, role: session.role };
     req.authToken = token;
 
@@ -1255,12 +1272,36 @@ function getOrCreateDeviceSeed(data) {
     return data.deviceSeed;
 }
 
+// ANTI-CLONE FIX: sa Render (at sa ibang katulad na cloud host), BAGONG
+// container = BAGONG os.hostname()/`/etc/machine-id`/minsan pati virtual
+// MACs sa TUWING mag-restart o mag-redeploy — kahit walang binago sa code
+// (kasama na ang normal na free-tier spin-down/spin-up). Kaya kung isasama
+// pa rin natin ang mga ito sa fingerprint doon, MAGMUMUKHANG "ibang
+// pisikal na device" ang parehong Render service kada restart — laging
+// clone_suspected kahit walang totoong pag-clone. Ang RENDER env var ay
+// AUTOMATIC na itinatakda ni Render mismo (walang kailangang i-configure)
+// kaya magagamit ito para malaman kung nasa ganitong volatile na
+// environment tayo at LAKTAWAN ang mga volatile na OS-level na parts —
+// ang persisted deviceSeed na lang (naka-imbak sa DB record, hindi sa
+// container) ang gagamiting anchor doon. Sa physical device (Termux/
+// Android) o sa sariling VPS na may tunay/permanenteng OS install, hindi
+// ito apektado — stable naman doon ang hostname/machine-id kaya tuloy pa
+// rin ang paggamit sa mga iyon para sa mas matibay na anti-clone binding.
+const IS_VOLATILE_CLOUD_HOST = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
+
 function getNonAndroidMachineParts() {
     // ANTI-CLONE FALLBACK: kapag Android props ang wala (hal. tumatakbo
     // sa Windows/Linux/VM na PC), kailangan pa rin ng ibang paraan para
     // makakuha ng identifier na TALAGANG naka-tali sa PISIKAL na makina —
     // kung hindi, ang bawat simpleng "kopya ng buong folder papunta sa
     // ibang PC" ay hindi na-detect bilang bagong device.
+    if (IS_VOLATILE_CLOUD_HOST) {
+        // Sadyang blangko: sa Render/katulad, ang bagong hostname/machine-id
+        // kada restart ay HINDI senyales ng pag-clone — senyales lang ito
+        // ng normal na container recycling. Ang deviceSeed (idinadagdag na
+        // sa computeHardwareFingerprint sa ibaba) na lang ang gagamitin.
+        return [];
+    }
     const parts = [];
     try { parts.push(os.hostname()); } catch (e) {}
     try { parts.push(os.platform()); } catch (e) {}
@@ -1593,7 +1634,56 @@ async function checkDeviceBeforeLogin({ username } = {}) {
 }
 
 // ====================================================================
-// RELAY_BACKUP AUTO-SYNC — "hindi mapapansin" na tumatakbo sa background
+// LIVE DEVICE-REVOCATION CHECK — para awtomatikong ma-logout LAHAT ng
+// naka-login sa isang device sa SANDALING alisin ito ng developer/owner
+// sa "allowed devices" ng RELAY, kahit walang gumawa ng bagong
+// login/logout. Dati, ang relayAuthorized ay opportunistic lang
+// na-rerecheck sa checkDeviceBeforeLogin (bago mag-login) — ibig sabihin
+// habang naka-login na ang isang cashier, hindi ito naaapektuhan agad
+// kahit alisin na siya sa allowed list; matatanggal lang siya sa
+// susunod niyang pag-login. Ngayon, may hiwalay na periodic check na
+// tumatawag sa RELAY (kapag "online" ang connectivity mode) at, sa
+// SANDALING mag-flip ang relayAuthorized papuntang false, agad
+// dinedestroy ang LAHAT ng kasalukuyang session sa device na ito —
+// walang paraan para makapagpatuloy ang isang naka-login na session sa
+// isang device na binawian na ng authorization.
+const DEVICE_REVOCATION_RECHECK_MS = 3 * 60 * 1000;
+
+async function recheckDeviceAuthorizationLive() {
+    try {
+        if (getConnectivityMode() !== 'online') return; // sinusunod ang manual na toggle ng user
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const liveFingerprint = computeHardwareFingerprint(data);
+        if (!liveFingerprint) return;
+
+        const wasAuthorized = data.relayAuthorized === true;
+        const result = await verifyDeviceWithRelay(installationId, liveFingerprint, {});
+
+        // Hindi ma-abot ang RELAY (network blip lang, halimbawa) — huwag
+        // pagbatayan ng revocation; panatilihin ang huling kilalang estado.
+        if (!result.ok && result.reason === 'unreachable') return;
+
+        const nowAuthorized = result.ok && !!result.allowed;
+
+        const latest = readFeatureUnlocks();
+        latest.relayAuthorized = nowAuthorized;
+        if (result.ok && result.permit) latest.devicePermit = result.permit;
+        writeData(FILE_FEATURE_UNLOCKS, latest);
+
+        if (wasAuthorized && !nowAuthorized) {
+            const revokedCount = SESSIONS.size;
+            SESSIONS.clear();
+            persistSessions();
+            console.log(`🚫 DEVICE REVOKED: inalis ng developer/owner ang device na ito sa allowed list ng RELAY — na-force-logout ang ${revokedCount} aktibong session.`);
+        }
+    } catch (err) {
+        console.error('⚠️ Hindi na-finish ang live device-authorization recheck:', err.message);
+    }
+}
+
+setTimeout(recheckDeviceAuthorizationLive, 20 * 1000);
+setInterval(recheckDeviceAuthorizationLive, DEVICE_REVOCATION_RECHECK_MS).unref();
 // ====================================================================
 // Bawat successful run: (1) kinokopya/ino-overwrite ang database papunta
 // sa IISANG file sa Download/RELAY_BACKUP ng device (tingnan ang
