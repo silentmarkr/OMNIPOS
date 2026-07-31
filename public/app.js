@@ -57,6 +57,32 @@ async function authFetch(url, options = {}) {
     return res;
 }
 
+// --------------------------------------------------------------
+// OFFLINE MODE GUARD — iisang source of truth (ang connectivity-mode-btn's
+// dataset.mode, tingnan ang toggle logic sa index.html) para malaman kung
+// dapat i-block ang isang internet-dependent na aksyon (unlock requests,
+// cloud backup, update check/deploy, atbp.). Ginagamit ito ng lahat ng
+// function na tumatawag sa RELAY sa pamamagitan ng backend.
+// --------------------------------------------------------------
+function isOfflineModeActive() {
+    const btn = document.getElementById('connectivity-mode-btn');
+    return !!(btn && btn.dataset.mode === 'offline');
+}
+
+function blockIfOffline(featureLabel) {
+    if (!isOfflineModeActive()) return false;
+    if (typeof Swal !== 'undefined') {
+        Swal.fire({
+            icon: 'info',
+            title: 'Offline Mode Active',
+            html: `<strong>${featureLabel}</strong> requires an internet connection and is unavailable while Offline Mode is enabled.<br><br>Please switch to Online mode to continue.`,
+            confirmButtonText: 'OK',
+            confirmButtonColor: '#2563eb'
+        });
+    }
+    return true;
+}
+
 // Kapag tinanggihan ang isang unlock/demo/bundle request dahil HINDI PA
 // naka-Allow ang device na ito sa Relay (unang beses palang gumawa ng
 // request), hindi ito dapat ituring na error — inaasahang pangyayari ito
@@ -341,6 +367,7 @@ function renderThemeMenu() {
 }
 
 async function promptUnlockTheme(theme) {
+    if (blockIfOffline('Theme unlock requests')) return;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
 
     const confirmResult = await Swal.fire({
@@ -593,6 +620,7 @@ async function pollUntilApproved(url, body) {
 }
 
 async function promptUnlockFeature(featureId, featureName, price, description) {
+    if (blockIfOffline('Feature unlock requests')) return false;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
     const displayName = featureName || featureId;
     const priceText = price ? `₱${price}` : null;
@@ -886,6 +914,7 @@ async function showUpgradeTiersModal() {
 }
 
 async function requestBulkUnlock(featureIds, tierId) {
+    if (blockIfOffline('Bundle unlock requests')) return;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
 
     try {
@@ -7606,6 +7635,7 @@ async function executeSystemHardReset() {
 let lastCheckedUpdateInfo = null;
 
 async function checkForSystemUpdate() {
+    if (blockIfOffline('Checking for updates')) return;
     const statusEl = document.getElementById('system-update-status');
     const deployBtn = document.getElementById('system-update-deploy-btn');
     if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang status mula sa RELAY&hellip;';
@@ -7641,6 +7671,7 @@ async function checkForSystemUpdate() {
 }
 
 async function deploySystemUpdate() {
+    if (blockIfOffline('Deploying updates')) return;
     if (!lastCheckedUpdateInfo || !lastCheckedUpdateInfo.updateAvailable) {
         Swal.fire('Wala pang na-check', 'Pindutin muna ang "Check for Updates" bago mag-deploy.', 'info');
         return;
@@ -7682,6 +7713,7 @@ async function deploySystemUpdate() {
 }
 
 async function syncFeaturesFromRelay() {
+    if (blockIfOffline('Syncing features from Relay')) return;
     Swal.fire({
         title: 'Checking Relay...',
         text: 'Looking for previously unlocked features for this device, and any that may have been deactivated or expired.',
@@ -7732,6 +7764,7 @@ async function syncFeaturesFromRelay() {
 // sa itaas (magpapakita ito ng unlock/upgrade prompt), kaya dito, ang
 // tinutukan lang natin ay ang normal na success/error UI.
 async function runCloudBackupSync() {
+    if (blockIfOffline('Cloud Backup')) return;
     const statusBox = document.getElementById('cloud-backup-status');
     const btn = document.getElementById('cloud-backup-sync-btn');
 
@@ -9513,6 +9546,14 @@ async function showMainSystemInterface() {
     // sa itaas — kaya kahit na-unlock na ang mga menu sa sidebar, naiiwan
     // pa ring naka-lock icon ang badge hangga't hindi ulit tinatawag ito.
     await initDemoModeUI();
+
+    // FIX: i-detect ang TOTOONG internet connectivity sa bawat bagong
+    // login at i-sync agad ang Online/Offline pill (dati, tinatawag lang
+    // ito sa DOMContentLoaded — bago pa magkaroon ng session — kaya laging
+    // nabibigo/naka-freeze sa dating naka-save na mode).
+    if (typeof window.syncConnectivityModeOnLogin === 'function') {
+        window.syncConnectivityModeOnLogin();
+    }
 
     initializeSystem();
 

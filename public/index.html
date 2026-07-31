@@ -237,15 +237,15 @@
                 </div>
                 <span class="header-page-title" id="header-page-title"></span>
                 <div class="header-right">
+                    <button class="connectivity-mode-pill" id="connectivity-mode-btn" onclick="toggleConnectivityMode()" title="Checking connection…" data-mode="connecting">
+                        <i class="fa-solid fa-wifi" id="connectivity-mode-icon"></i>
+                    </button>
                     <button class="btn-daymode-toggle" id="terminal-daymode-btn" onclick="toggleTerminalDayMode()" title="Terminal Day Mode" style="display:none;">
                         <i class="fa-solid fa-sun"></i>
                     </button>
                     <button class="btn-lowstock-bell" id="lowstock-bell-btn" onclick="switchView('reorder')" title="Reorder Alerts">
                         <i class="fa-solid fa-bell"></i>
                         <span id="lowstock-bell-badge" class="lowstock-bell-badge" style="display:none;">0</span>
-                    </button>
-                    <button class="btn-lowstock-bell" id="connectivity-mode-btn" onclick="toggleConnectivityMode()" title="Online/Offline mode">
-                        <i class="fa-solid fa-wifi" id="connectivity-mode-icon"></i>
                     </button>
                 </div>
             </header>
@@ -1836,58 +1836,104 @@
         if (!icon || !btn) return;
         btn.dataset.mode = mode;
         if (mode === 'offline') {
-            // Huwag baguhin ang kulay — ibalik sa default (walang override),
-            // gaya ng dati bago idagdag ang toggle na ito.
-            icon.style.color = '';
-            btn.title = 'Naka-Offline mode — i-tap para bumalik sa Online';
+            btn.title = 'Offline — walang internet, o sinadyang naka-Offline. I-tap para subukang bumalik sa Online.';
+        } else if (mode === 'connecting') {
+            btn.title = 'Checking\u2026 kinukumpirma kung may internet connection.';
         } else {
-            icon.style.color = '#22c55e'; // green — ONLINE lang ang kulayan
-            btn.title = 'Naka-Online mode — i-tap para lumipat sa Offline';
+            btn.title = 'Online — i-tap para lumipat sa Offline';
         }
     }
 
-    async function fetchConnectivityMode() {
-        try {
-            const res = await authFetch(`${API_URL}/connectivity-mode`);
-            if (!res.ok) return; // hindi pa naka-login o iba pang isyu — huwag mag-alala, i-retry na lang sa susunod na tap
-            const data = await res.json();
-            if (data && data.success) paintConnectivityBtn(data.mode);
-        } catch (err) { /* tahimik lang — walang koneksyon, expected sa offline */ }
+    // Real (hindi lang "may WiFi bar") na internet-reachability check —
+    // parehong pattern ng ginagamit ng initNetworkStatusIndicator() sa
+    // app.js (isang no-cors request papunta sa isang matatag/reliable na
+    // endpoint), pero self-contained dito para hindi na kailangang i-expose
+    // pa ang private helper na iyon.
+    function checkRealInternetAccess(timeoutMs = 4000) {
+        return new Promise((resolve) => {
+            if (!navigator.onLine) { resolve(false); return; }
+            const controller = new AbortController();
+            const timer = setTimeout(() => { controller.abort(); resolve(false); }, timeoutMs);
+            fetch(`https://www.gstatic.com/generate_204?cachebust=${Date.now()}`, {
+                mode: 'no-cors', cache: 'no-store', signal: controller.signal
+            }).then(() => { clearTimeout(timer); resolve(true); })
+              .catch(() => { clearTimeout(timer); resolve(false); });
+        });
     }
+
+    async function pushConnectivityMode(mode) {
+        try {
+            const res = await authFetch(`${API_URL}/connectivity-mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode })
+            });
+            const data = await res.json().catch(() => null);
+            return (res.ok && data && data.success) ? data.mode : null;
+        } catch (err) { return null; }
+    }
+
+    // FIX: dati, tinatawag lang ito sa DOMContentLoaded — pero nangyayari
+    // ito BAGO pa man magkaroon ng valid na session (SPA ang login, walang
+    // full page reload), kaya laging nabigo/nag-skip ang unang tawag at
+    // hindi na-uupdate ang pill hangga't hindi manual na tina-tap ng user.
+    // Ngayon, tinatawag ito ng showMainSystemInterface() sa app.js
+    // pagkatapos ng BAWAT successful login, at DITO natin talaga
+    // ide-detect kung may totoong internet — green agad kung meron,
+    // hindi kailanman green kung wala, anuman ang dating naka-save na
+    // preference.
+    window.syncConnectivityModeOnLogin = async function () {
+        paintConnectivityBtn('connecting');
+        const hasInternet = await checkRealInternetAccess();
+        if (hasInternet) {
+            const confirmedMode = await pushConnectivityMode('online');
+            paintConnectivityBtn(confirmedMode || 'online');
+        } else {
+            // Best-effort lang ang pag-save sa server (posibleng hindi rin
+            // ito maabot kung walang internet) — pero ang LOCAL na pill ay
+            // dapat pumasok agad bilang Offline, walang exception.
+            pushConnectivityMode('offline');
+            paintConnectivityBtn('offline');
+        }
+    };
 
     window.toggleConnectivityMode = async function () {
         const btn = document.getElementById('connectivity-mode-btn');
         const currentlyOffline = btn && btn.dataset.mode === 'offline';
         const nextMode = currentlyOffline ? 'online' : 'offline';
-        try {
-            const res = await authFetch(`${API_URL}/connectivity-mode`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: nextMode })
-            });
-            let data = null;
-            try { data = await res.json(); } catch (parseErr) { /* wala/di-JSON na response body */ }
-            if (res.ok && data && data.success) {
-                paintConnectivityBtn(data.mode);
-                const msg = data.mode === 'offline'
-                    ? '📴 Offline mode — hindi na proactive tatawag sa RELAY. Gumagana pa rin nang normal ang POS.'
-                    : '📶 Online mode — babalik na ang auto cloud backup/update-check.';
+
+        // Hindi pwedeng mag-claim na "Online" kung walang totoong internet
+        // — i-verify muna bago payagan ang paglipat papuntang Online.
+        if (nextMode === 'online') {
+            paintConnectivityBtn('connecting');
+            const hasInternet = await checkRealInternetAccess();
+            if (!hasInternet) {
+                paintConnectivityBtn('offline');
                 if (window.Swal) {
-                    Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: msg, showConfirmButton: false, timer: 2500 });
-                } else {
-                    console.log(msg);
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'No Internet Connection',
+                        text: 'Cannot switch to Online mode right now because no internet connection was detected. Please check your connection and try again.',
+                        confirmButtonText: 'OK'
+                    });
                 }
-            } else if (window.Swal) {
-                Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: (data && data.message) || `Hindi na-switch ang mode. (HTTP ${res.status})`, showConfirmButton: false, timer: 3000 });
-            }
-        } catch (err) {
-            if (window.Swal) {
-                Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Hindi na-switch ang mode.', showConfirmButton: false, timer: 2500 });
+                return;
             }
         }
-    };
 
-    document.addEventListener('DOMContentLoaded', fetchConnectivityMode);
+        const confirmedMode = await pushConnectivityMode(nextMode);
+        if (confirmedMode) {
+            paintConnectivityBtn(confirmedMode);
+            const msg = confirmedMode === 'offline'
+                ? '📴 Offline mode — hindi na proactive tatawag sa RELAY. Gumagana pa rin nang normal ang POS.'
+                : '📶 Online mode — babalik na ang auto cloud backup/update-check.';
+            if (window.Swal) {
+                Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: msg, showConfirmButton: false, timer: 2500 });
+            }
+        } else if (window.Swal) {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Hindi na-switch ang mode.', showConfirmButton: false, timer: 3000 });
+        }
+    };
 })();
 </script>
 

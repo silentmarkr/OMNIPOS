@@ -4018,6 +4018,50 @@ body.dark-mode .avatar-photo-box {
     flex-shrink: 0;
 }
 
+/* Connectivity mode toggle — inilipat sa unahan ng header-right (mas
+   kitang-kita kaysa dating nakatago sa gilid ng bell icon). Icon-lang ito
+   — ang "Online"/"Offline"/"Checking" na label ay lalabas lang sa hover
+   (native title tooltip), pero may color tint pa rin ang icon mismo para
+   may quick-glance na indicator kahit hindi hinover. */
+.connectivity-mode-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border-color);
+    background: var(--top-header-bg, #f8fafc);
+    color: var(--text-muted);
+    border-radius: 999px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.connectivity-mode-pill[data-mode="online"] {
+    color: #16a34a;
+    border-color: #86efac;
+    background: #f0fdf4;
+}
+.connectivity-mode-pill[data-mode="offline"] {
+    color: #64748b;
+    border-color: var(--border-color);
+    background: var(--top-header-bg, #f1f5f9);
+}
+.connectivity-mode-pill[data-mode="connecting"] {
+    color: #d97706;
+    border-color: #fde68a;
+    background: #fffbeb;
+}
+body.dark-mode .connectivity-mode-pill[data-mode="online"] {
+    background: rgba(22,163,74,0.12);
+}
+body.dark-mode .connectivity-mode-pill[data-mode="offline"] {
+    background: rgba(100,116,139,0.12);
+}
+body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
+    background: rgba(217,119,6,0.12);
+}
+
 /* Payment system view modal specific formatting elements grid mapping blueprint profile screenshot 5 */
 .btn-lowstock-bell {
     position: relative;
