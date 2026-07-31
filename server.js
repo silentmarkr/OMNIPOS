@@ -990,6 +990,29 @@ app.post('/api/receipt-settings/reset-counter', rateLimit('otp-reset-verify', 12
 });
 
 const FILE_FEATURE_UNLOCKS ='featureUnlocks';
+// CONNECTIVITY MODE — manual na Online/Offline toggle na makikita ni
+// client PAGKATAPOS ng successful login (hindi ito bahagi ng anti-clone
+// gate — hindi ito nagpapahina/nag-a-alis sa checkDeviceBeforeLogin, ni
+// ginagamit para i-bypass ang unang online verification). Ang ONLY
+// epekto nito: kapag "offline" ang mode, hindi na PROACTIVE na
+// tumatawag ang OMNIPOS papunta sa RELAY (cloud backup auto-sync,
+// update-check ping, opportunistic re-verify). Kapag mismatched na
+// ang live fingerprint sa naka-DB na verifiedFingerprint (posibleng
+// clone), MANDATORY pa ring tatawag online REGARDLESS ng toggle na
+// ito — hindi ito puwedeng i-bypass ng user mismo.
+const FILE_CONNECTIVITY_MODE ='connectivityMode';
+const DEFAULT_CONNECTIVITY_MODE = { mode: 'online', changedAt: null };
+
+function getConnectivityMode() {
+    const data = readData(FILE_CONNECTIVITY_MODE, DEFAULT_CONNECTIVITY_MODE);
+    return (data && data.mode === 'offline') ? 'offline' : 'online';
+}
+
+function setConnectivityMode(mode) {
+    const normalized = mode === 'offline' ? 'offline' : 'online';
+    writeData(FILE_CONNECTIVITY_MODE, { mode: normalized, changedAt: Date.now() });
+    return normalized;
+}
 
 const DEFAULT_FEATURE_UNLOCKS = {
     installationId: null,
@@ -1469,15 +1492,24 @@ async function checkDeviceBeforeLogin({ username } = {}) {
         // clone_suspected dahil may ibang device na gumamit na rin ng
         // parehong installationId, malalaman agad sa admin panel. Kung
         // may bagong permit na ibinalik, i-save din ito lokal.
-        verifyDeviceWithRelay(installationId, liveFingerprint, { username })
-            .then(r => {
-                if (r.ok && r.permit) {
-                    const latest = readFeatureUnlocks();
-                    latest.devicePermit = r.permit;
-                    writeData(FILE_FEATURE_UNLOCKS, latest);
-                }
-            })
-            .catch(() => {});
+        //
+        // Sinusunod nito ang manual na Online/Offline TOGGLE ng user
+        // (tingnan ang FILE_CONNECTIVITY_MODE): kapag "offline" ang
+        // pinili niya, hindi na ito PROACTIVE na tatawag sa RELAY — pero
+        // hindi ito nakakaapekto sa seguridad, dahil sa isang totoong
+        // fingerprint mismatch (posibleng clone), MANDATORY pa ring
+        // tatawag online REGARDLESS ng toggle na ito (tingnan sa baba).
+        if (getConnectivityMode() === 'online') {
+            verifyDeviceWithRelay(installationId, liveFingerprint, { username })
+                .then(r => {
+                    if (r.ok && r.permit) {
+                        const latest = readFeatureUnlocks();
+                        latest.devicePermit = r.permit;
+                        writeData(FILE_FEATURE_UNLOCKS, latest);
+                    }
+                })
+                .catch(() => {});
+        }
         return { allowed: true };
     }
 
@@ -1551,6 +1583,11 @@ const relayBackupStatus = {
 };
 
 async function runRelayBackupSync() {
+    if (getConnectivityMode() === 'offline') {
+        relayBackupStatus.state = 'orange';
+        relayBackupStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
+        return;
+    }
     relayBackupStatus.lastAttemptAt = Date.now();
 
     const mirrorResult = mirrorBackupToDownloads();
@@ -1623,6 +1660,27 @@ app.get('/api/relay-backup/status', (req, res) => {
     res.json({ success: true, ...relayBackupStatus });
 });
 
+// --------------------------------------------------------------
+// GET/POST /api/connectivity-mode
+// Ang manual na Online/Offline TOGGLE na makikita ni client sa UI
+// pagkatapos ng successful login. Basahin ang malaking paalala sa
+// FILE_CONNECTIVITY_MODE sa itaas — hindi ito bahagi ng anti-clone
+// gate, kontrolado lang nito kung PROACTIVE bang tumatawag ang app sa
+// RELAY (backup auto-sync, update-check, opportunistic re-verify).
+// --------------------------------------------------------------
+app.get('/api/connectivity-mode', (req, res) => {
+    res.json({ success: true, mode: getConnectivityMode() });
+});
+
+app.post('/api/connectivity-mode', (req, res) => {
+    const { mode } = req.body || {};
+    if (mode !== 'online' && mode !== 'offline') {
+        return res.status(400).json({ success: false, message: "Ang 'mode' ay dapat 'online' o 'offline'." });
+    }
+    const saved = setConnectivityMode(mode);
+    res.json({ success: true, mode: saved });
+});
+
 // ====================================================================
 // CLOUD BACKUP (Postgres via RELAY) — MANUAL na trigger lang (button sa
 // Settings/Reset & Restore panel), hindi tulad ng RELAY_BACKUP auto-sync
@@ -1650,6 +1708,9 @@ app.get('/api/cloud-backup/status', (req, res) => {
 });
 
 app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-tap muna ang Online toggle para makapag-backup sa cloud.' });
+    }
     cloudBackupStatus.state = 'syncing';
     cloudBackupStatus.lastAttemptAt = Date.now();
 
@@ -3748,6 +3809,9 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
     }
     if (!RELAY_API_KEY) {
         return res.status(400).json({ success: false, message:'Walang RELAY_API_KEY na naka-configure sa server na ito.' });
+    }
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-check ng updates.' });
     }
     try {
         const relayRes = await fetch(`${RELAY_URL}/relay/latest-version`, {

@@ -244,6 +244,10 @@
                         <i class="fa-solid fa-bell"></i>
                         <span id="lowstock-bell-badge" class="lowstock-bell-badge" style="display:none;">0</span>
                     </button>
+                    <button class="btn-lowstock-bell" id="connectivity-mode-btn" onclick="toggleConnectivityMode()" title="Online/Offline mode">
+                        <i class="fa-solid fa-wifi" id="connectivity-mode-icon"></i>
+                        <span id="connectivity-mode-label" style="font-size:11px; margin-left:4px;">Online</span>
+                    </button>
                 </div>
             </header>
 
@@ -1805,6 +1809,82 @@
 <script src="faq-knowledge.js"></script>
 <script src="faq-engine.js"></script>
 <script src="app.js"></script>
+
+<script>
+// --------------------------------------------------------------
+// CONNECTIVITY MODE TOGGLE — Online/Offline button sa header (ikaw ang
+// nag-tap, hindi ito auto-switch). Purong UI + light API call lang ito
+// — hindi ito bahagi ng anti-clone check, at hindi nito hawak ang unang
+// online setup (yun ay nangyayari na bago pa lumabas ang buong app UI).
+//
+// "Online"  = normal — awtomatikong tumatawag sa RELAY kapag kailangan
+//             (cloud backup auto-sync, update-check, atbp.)
+// "Offline" = hindi na PROACTIVE tumatawag sa RELAY, para makatipid ng
+//             datos/baterya kapag alam mong walang internet. Hindi ito
+//             nagpapahina sa proteksyon laban sa clone — kung sakaling
+//             may fingerprint mismatch (ibang device), tatawag pa rin
+//             ito online REGARDLESS ng toggle na ito.
+// --------------------------------------------------------------
+(function () {
+    function paintConnectivityBtn(mode) {
+        const icon = document.getElementById('connectivity-mode-icon');
+        const label = document.getElementById('connectivity-mode-label');
+        const btn = document.getElementById('connectivity-mode-btn');
+        if (!icon || !label || !btn) return;
+        if (mode === 'offline') {
+            icon.className = 'fa-solid fa-wifi';
+            icon.style.opacity = '0.5';
+            label.innerText = 'Offline';
+            btn.title = 'Naka-Offline mode — i-tap para bumalik sa Online';
+        } else {
+            icon.className = 'fa-solid fa-wifi';
+            icon.style.opacity = '1';
+            label.innerText = 'Online';
+            btn.title = 'Naka-Online mode — i-tap para lumipat sa Offline';
+        }
+    }
+
+    async function fetchConnectivityMode() {
+        try {
+            const res = await fetch('/api/connectivity-mode');
+            if (!res.ok) return; // hindi pa naka-login o iba pang isyu — huwag mag-alala, i-retry na lang sa susunod na tap
+            const data = await res.json();
+            if (data && data.success) paintConnectivityBtn(data.mode);
+        } catch (err) { /* tahimik lang — walang koneksyon, expected sa offline */ }
+    }
+
+    window.toggleConnectivityMode = async function () {
+        const label = document.getElementById('connectivity-mode-label');
+        const currentlyOffline = label && label.innerText.trim() === 'Offline';
+        const nextMode = currentlyOffline ? 'online' : 'offline';
+        try {
+            const res = await fetch('/api/connectivity-mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: nextMode })
+            });
+            const data = await res.json();
+            if (data && data.success) {
+                paintConnectivityBtn(data.mode);
+                const msg = data.mode === 'offline'
+                    ? '📴 Offline mode — hindi na proactive tatawag sa RELAY. Gumagana pa rin nang normal ang POS.'
+                    : '📶 Online mode — babalik na ang auto cloud backup/update-check.';
+                if (window.Swal) {
+                    Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: msg, showConfirmButton: false, timer: 2500 });
+                } else {
+                    console.log(msg);
+                }
+            }
+        } catch (err) {
+            if (window.Swal) {
+                Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Hindi na-switch ang mode.', showConfirmButton: false, timer: 2500 });
+            }
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', fetchConnectivityMode);
+})();
+</script>
 
 </body>
 </html>
