@@ -2811,6 +2811,13 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
             if (data.token) {
                 localStorage.setItem('posa_token', data.token);
             }
+
+            // FIX: kung nag-login agad ulit habang naka-buffer pa 'yung
+            // 5-segundong suppression window mula sa handleLogout(), i-clear
+            // na agad dito para hindi ito makasagabal sa BAGONG session.
+            window.__logoutInProgress = false;
+            window.__sessionExpiredShown = false;
+
             errorBanner.style.display ='none';
             showMainSystemInterface();
 
@@ -9673,11 +9680,20 @@ async function handleLogout(type ='manual') {
     history.pushState({ view:'auth-view' },'','');
     showAuthenticationInterface();
 
-    // FIX: buksan na ulit ang normal na "Session Expired" detection
-    // ngayong tapos na ang sinadyang logout — para gumana pa rin ito
-    // nang tama sa totoong pag-expire ng session sa susunod na paggamit.
-    window.__logoutInProgress = false;
-    window.__sessionExpiredShown = false;
+    // FIX v1.0.9->v1.0.10: dati agad naman na-re-reset ang flag dito, pero
+    // ang stopTerminalStockPolling()/stopInventoryStockPolling() sa taas ay
+    // pumipigil lang sa MGA SUSUNOD pang pag-tawag (clearInterval) — kung
+    // may isang poll na NAKA-IN-FLIGHT NA (nag-request na bago pa ma-stop
+    // ang timer, pero hindi pa sumasagot ang server), tatapos pa rin ito
+    // pagkatapos ng buong logout sequence at maaari pa ring dumating ang
+    // 401 nito PAGKATAPOS ma-reset ang flag — kaya lumalabas pa rin ang
+    // "Session Expired" kahit normal na manual logout. Fix: bigyan ng ilang
+    // segundong buffer bago i-off ang suppression, para masakop pa rin ang
+    // mga huling stray response na ganito.
+    setTimeout(() => {
+        window.__logoutInProgress = false;
+        window.__sessionExpiredShown = false;
+    }, 5000);
 }
 
 async function showMainSystemInterface() {
