@@ -5202,6 +5202,7 @@ app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_m
     res.json(ownShifts);
 });
 
+
 const isProduction = process.env.NODE_ENV ==='production';
 const HOST = isProduction ?'0.0.0.0' :'localhost';
 const PORT = process.env.PORT || 3000;
