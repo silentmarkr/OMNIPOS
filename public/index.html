@@ -859,12 +859,12 @@
     <div id="roles-permissions-tab" class="tab-content-panel" style="display:none;">
         <div class="view-header-row" style="margin-top: 15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
             <button class="btn-action-global" onclick="openAddRoleModal()"><i class="fa-solid fa-user-tag"></i> Add New Role</button>
-            <button class="btn-action-global" id="save-column-order-btn" style="display:none; background:#0ea5e9;" onclick="saveRoleColumnOrder()"><i class="fa-solid fa-arrows-left-right"></i> I-save ang Ayos ng Columns</button>
+            <button class="btn-action-global" id="save-column-order-btn" style="display:none; background:#0ea5e9;" onclick="saveRoleColumnOrder()"><i class="fa-solid fa-arrows-left-right"></i> Save Column Order</button>
         </div>
         <p style="color:#64748b; font-size:0.85rem; margin: 10px 2px 0;">
-            I-configure kung anong menu ang makikita ng bawat role. Ang "Admin" ay laging may buong access
-            at hindi na-e-edit dito. Kapag may bagong menu na idinagdag sa system, awtomatiko itong lalabas dito.
-            Gamitin ang ◀ ▶ sa ibabaw ng bawat column para baguhin ang pagkakasunod-sunod ng mga role.
+            Configure which menus each role can access. The "Admin" role always has full access
+            and cannot be edited here. Newly added system menus will appear automatically.
+            Use the ◀ ▶ controls above each column to reorder roles.
         </p>
         <div class="roles-permissions-matrix-wrap" id="roles-permissions-matrix-wrap">
             <div class="table-container permission-matrix-scroll" style="margin-top: 15px;">
@@ -882,8 +882,8 @@
                 <div class="feature-locked-overlay-inner">
                     <span class="menu-pro-lock feature-locked-overlay-icon" style="display:inline-block;"><i class="fa-solid fa-lock"></i></span>
                     <p class="feature-locked-overlay-title">Roles &amp; Permissions (RBAC) Management</p>
-                    <p class="feature-locked-overlay-desc">Premium feature — i-unlock para makagawa/mag-edit ng mga role.</p>
-                    <button type="button" class="btn-action-global" onclick="guardPremiumFeature('rbac_management')"><i class="fa-solid fa-unlock"></i> I-unlock Ngayon</button>
+                    <p class="feature-locked-overlay-desc">Premium feature — unlock to create or edit roles.</p>
+                    <button type="button" class="btn-action-global" onclick="guardPremiumFeature('rbac_management')"><i class="fa-solid fa-unlock"></i> Unlock Now</button>
                 </div>
             </div>
         </div>
@@ -909,15 +909,14 @@
 
     <div id="receipt-custom-tab" class="tab-content-panel" style="display:none;">
 
-        <!-- Google App Verification box. Hindi na ito floating/fixed — bahagi
-             na ito ng normal na daloy ng page, nakapatong/nakasunod sa itaas
-             ng Receipt Customization card. Kaya sabay itong gumagalaw sa
-             scroll ng page at hindi na natatabunan ang mga tab sa itaas.
-             Awtomatikong nag-a-auto close pa rin ito (tingnan ang
-             closeGoogleAppVerificationFloatingBox() sa app.js) sa sandaling
-             umalis ang user sa Receipt Customization tab — halimbawa lumipat
-             sa Reset/Restore, Users Management, Roles & Permissions, o sa
-             ibang view/app sa system. Tap-to-open/close pa rin ang heading. -->
+        <!-- Google App Verification box. No longer floating/fixed — it is now
+             part of the page's normal flow, positioned directly above the
+             Receipt Customization card. It scrolls together with the page,
+             so it no longer overlaps the tabs above. It still auto-closes
+             (see closeGoogleAppVerificationFloatingBox() in app.js) once the
+             user leaves the Receipt Customization tab — for example, by
+             switching to Reset/Restore, Users Management, Roles & Permissions,
+             or any other view in the system. The heading remains tap-to-open/close. -->
         <div id="rc-otp-sender-config" style="display:none; width:100%; max-width:480px; margin: 20px auto 0; padding:16px; border:1px solid var(--warning-gold); border-radius:8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
             <h4 id="rc-otp-sender-heading" onclick="toggleOtpSenderBox()" style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin-bottom:0; margin-top:0; cursor:pointer;">
                 <i id="rc-otp-sender-heading-icon" class="fa-solid fa-envelope-circle-check" style="color:#eab308;"></i> <span id="rc-otp-sender-heading-text">Google App Verification</span>
@@ -928,9 +927,9 @@
             </h4>
             <div id="rc-otp-sender-body" style="margin-top:10px;">
                 <div id="rc-otp-sender-current" style="font-size:0.8rem; margin-bottom:10px; display:none;"></div>
-                <!-- Kita lang ito (dalawang textbox + Verify button) kung hindi pa
-                     verified. Kapag verified na, itinatago ito at ang I-clear
-                     button na lang ang lumalabas. -->
+                <!-- This (the two text fields + Verify button) is shown only when not
+                     yet verified. Once verified, it is hidden and only the Clear
+                     button is shown. -->
                 <div id="rc-otp-sender-form-fields">
                     <div class="input-field-group">
                         <label>Sender Gmail</label>
@@ -943,7 +942,7 @@
                     <button class="btn-action-outline" id="rc-otp-sender-verify-btn" onclick="saveOtpSenderConfig()"><i class="fa-solid fa-shield-halved"></i> Verify</button>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-                    <button class="btn-action-outline" id="rc-otp-sender-clear-btn" onclick="clearOtpSenderConfig()" style="display:none; color:#dc2626; border-color:#dc2626;"><i class="fa-solid fa-trash-can"></i> I-clear</button>
+                    <button class="btn-action-outline" id="rc-otp-sender-clear-btn" onclick="clearOtpSenderConfig()" style="display:none; color:#dc2626; border-color:#dc2626;"><i class="fa-solid fa-trash-can"></i> Clear</button>
                 </div>
             </div>
         </div>
@@ -953,7 +952,7 @@
                 <i class="fa-solid fa-receipt"></i> Receipt Customization
             </h3>
             <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
-                I-customize ang pangalan ng tindahan, address, contact number, at ang header/footer message ng resibo.
+                Customize your store name, address, contact number, and the receipt header/footer message.
             </p>
 
             <div id="receipt-custom-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
@@ -983,13 +982,13 @@
 
             <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
                 <div class="input-field-group">
-                    <label>Printer Paper Size <span style="font-weight:normal;color:#94a3b8;">(hardware setting — hindi kasama sa 2 free attempts)</span></label>
+                    <label>Printer Paper Size <span style="font-weight:normal;color:#94a3b8;">(hardware setting — not counted in the 2 free customizations)</span></label>
                     <select id="rc-form-papersize">
-                        <option value="58mm">58mm (maliit na thermal/portable printer)</option>
-                        <option value="80mm">80mm (karaniwang POS receipt printer sa convenience store)</option>
+                        <option value="58mm">58mm (compact thermal/portable printer)</option>
+                        <option value="80mm">80mm (standard POS receipt printer used in convenience stores)</option>
                     </select>
                 </div>
-                <button class="btn-action-outline" onclick="saveReceiptPaperSize()"><i class="fa-solid fa-print"></i> I-save ang Paper Size</button>
+                <button class="btn-action-outline" onclick="saveReceiptPaperSize()"><i class="fa-solid fa-print"></i> Save Paper Size</button>
             </div>
 
             <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
@@ -998,29 +997,29 @@
                     <span style="font-size:0.7rem; font-weight:600; color:#fff; background:#f59e0b; padding:2px 8px; border-radius:10px;">BETA / OPTIONAL</span>
                 </h4>
                 <p style="font-size:0.8rem; color: var(--text-muted); line-height:1.5; margin-bottom: 12px;">
-                    Opsyonal na feature — direktang mag-print sa Bluetooth thermal printer (58mm/80mm) mula sa Android
-                    Chrome, hindi na kailangan ng USB o computer. Kailangan ng HTTPS connection at Chrome for Android.
-                    Kung wala kang Bluetooth printer, hindi mo kailangan gamitin ito — gagana pa rin ang normal na "Print" button.
+                    Optional feature — print directly to a Bluetooth thermal printer (58mm/80mm) from Android
+                    Chrome, with no USB or computer required. Requires an HTTPS connection and Chrome for Android.
+                    If you don't have a Bluetooth printer, you can skip this — the standard "Print" button will still work.
                 </p>
                 <div id="bt-printer-unsupported-note" style="display:none; font-size:0.8rem; color:#ef4444; margin-bottom:10px;">
-                    <i class="fa-solid fa-triangle-exclamation"></i> Hindi supported ng browser/device na ito ang Web Bluetooth (kailangan Chrome for Android, hindi Safari/iOS).
+                    <i class="fa-solid fa-triangle-exclamation"></i> This browser/device does not support Web Bluetooth (Chrome for Android is required; Safari/iOS is not supported).
                 </div>
                 <div id="bt-printer-status-row" style="display:flex; align-items:center; gap:10px; margin-bottom: 12px; font-size:0.85rem;">
                     <span id="bt-printer-status-dot" style="width:10px; height:10px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
-                    <span id="bt-printer-status-text">Walang naka-pair na printer</span>
+                    <span id="bt-printer-status-text">No printer paired</span>
                 </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
-                    <button class="btn-action-outline" id="bt-printer-pair-btn" onclick="pairBluetoothPrinter()"><i class="fa-solid fa-bluetooth"></i> I-pair ang Printer</button>
-                    <button class="btn-action-outline" id="bt-printer-forget-btn" style="color:#ef4444; border-color:#ef4444;" onclick="forgetBluetoothPrinter()"><i class="fa-solid fa-link-slash"></i> Alisin ang Naka-pair</button>
+                    <button class="btn-action-outline" id="bt-printer-pair-btn" onclick="pairBluetoothPrinter()"><i class="fa-solid fa-bluetooth"></i> Pair Printer</button>
+                    <button class="btn-action-outline" id="bt-printer-forget-btn" style="color:#ef4444; border-color:#ef4444;" onclick="forgetBluetoothPrinter()"><i class="fa-solid fa-link-slash"></i> Remove Paired Printer</button>
                     <button class="btn-action-outline" id="bt-printer-test-btn" onclick="testPrintBluetoothPrinter()"><i class="fa-solid fa-vial"></i> Test Print</button>
                 </div>
 
                 <details style="font-size:0.8rem; color: var(--text-muted);">
                     <summary style="cursor:pointer; font-weight:600; color: var(--text-primary);">Advanced settings (Service/Characteristic UUID)</summary>
                     <p style="margin: 8px 0;">
-                        Hindi lahat ng thermal printer brand ay parehas ang Bluetooth GATT UUID. Naka-set na dito ang
-                        pinaka-karaniwang UUID na ginagamit ng generic 58mm/80mm printers. Kung "Not Found" ang error
-                        pagka-pair, subukan baguhin ito base sa manual/specs ng printer mo.
+                        Not all thermal printer brands use the same Bluetooth GATT UUID. The default values here
+                        match the most common UUIDs used by generic 58mm/80mm printers. If pairing returns a
+                        "Not Found" error, try updating these values based on your printer's manual or specifications.
                     </p>
                     <div class="input-field-group">
                         <label>Service UUID</label>
@@ -1030,14 +1029,14 @@
                         <label>Characteristic UUID</label>
                         <input type="text" id="bt-printer-char-uuid" placeholder="00002af1-0000-1000-8000-00805f9b34fb">
                     </div>
-                    <button class="btn-action-outline" onclick="saveBluetoothPrinterUuids()"><i class="fa-solid fa-floppy-disk"></i> I-save ang UUID Settings</button>
+                    <button class="btn-action-outline" onclick="saveBluetoothPrinterUuids()"><i class="fa-solid fa-floppy-disk"></i> Save UUID Settings</button>
                 </details>
             </div>
 
             <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
                 <p style="font-size:0.8rem; color: var(--text-muted); margin-bottom: 10px;">
-                    Naubos na ang 2 libreng pag-customize? Ang sumusunod ay magpapadala ng OTP sa registered email ng developer
-                    para i-reset ang counter (bumalik sa 2/2). Hindi nito babaguhin ang orihinal na petsa ng unang pag-customize.
+                    Used up your 2 free customizations? The button below sends an OTP to the developer's registered
+                    email to reset the counter back to 2/2. It will not change the original date of your first customization.
                 </p>
                 <button id="rc-reset-counter-btn" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444; opacity:0.4; cursor:not-allowed;" disabled onclick="requestReceiptCounterReset()">
                     <i class="fa-solid fa-rotate-left"></i> Reset Customization Counter (OTP Required)
@@ -1066,12 +1065,12 @@
             Warning: This process will generate a final system backup, dispatch it to the designated email endpoints below, and permanently purge all transaction logs, active databases, inventory records, and historical logs. This action is irreversible.
         </p>
 
-        <!-- PRO: gamit na ng System Hard Reset ang parehong verified Google App na
-             naka-configure sa Receipt Customization > Google App Verification —
-             kaya hindi na kailangang mag-type pa ng hiwalay na Admin Gmail +
-             App Password dito bawat gagamit nito. -->
+        <!-- PRO: System Hard Reset reuses the same verified Google App configured
+             under Receipt Customization > Google App Verification — so there is
+             no need to enter a separate Admin Gmail + App Password each time
+             this feature is used. -->
         <div id="reset-google-app-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
-            <i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang status ng verified Google App&hellip;
+            <i class="fa-solid fa-spinner fa-spin"></i> Retrieving verified Google App status&hellip;
         </div>
 
         <!-- Form Fields -->
@@ -1081,7 +1080,7 @@
         </div>
 
         <div style="margin-bottom: 20px;">
-            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Secondary Backup Email <span style="font-weight:normal;">(makakatanggap ng backup file)</span>:</label>
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Secondary Backup Email <span style="font-weight:normal;">(will receive the backup file)</span>:</label>
             <input type="email" id="reset-additional-email" placeholder="backup-recipient@gmail.com" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; background: var(--terminal-dark-bg, #ffffff); color: inherit;">
         </div>
 
@@ -1109,10 +1108,10 @@
             <i class="fa-solid fa-cloud-arrow-up"></i> System Update
         </h3>
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
-            Tignan kung may bagong version ng OMNIPOS na available, tapos i-deploy ito diretso sa Render — walang datos ang masisira.
+            Check whether a new OMNIPOS version is available, then deploy it directly to Render — no data will be affected.
         </p>
         <div id="system-update-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
-            <i class="fa-solid fa-circle-info"></i> Pindutin ang "Check for Updates" para malaman ang kasalukuyang status.
+            <i class="fa-solid fa-circle-info"></i> Click "Check for Updates" to see the current status.
         </div>
         <div style="display:flex; gap: 10px; flex-wrap: wrap;">
             <button id="system-update-check-btn" onclick="checkForSystemUpdate()" style="flex: 1; min-width: 200px; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
@@ -1130,11 +1129,11 @@
             <i class="fa-solid fa-cloud"></i> Cloud Backup
         </h3>
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
-            I-sync ang buong database (lahat ng modules, kasama ang user accounts maliban sa password) papunta sa secure na online storage.
-            Premium feature ito — kailangan munang i-unlock bago ito magamit.
+            Sync the entire database (all modules, including user accounts but excluding passwords) to secure online storage.
+            This is a premium feature — it must be unlocked before use.
         </p>
         <div id="cloud-backup-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
-            <i class="fa-solid fa-circle-info"></i> Wala pang cloud backup na nagawa sa session na ito.
+            <i class="fa-solid fa-circle-info"></i> No cloud backup has been made in this session yet.
         </div>
         <button id="cloud-backup-sync-btn" onclick="runCloudBackupSync()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-up"></i> Cloud Backup Now
@@ -1704,9 +1703,9 @@
                 <div class="modal-body">
                     <div class="input-field-group">
                         <label>Role Title</label>
-                        <input type="text" id="r-form-name" placeholder="hal. Supervisor, Manager" required autocomplete="off">
+                        <input type="text" id="r-form-name" placeholder="e.g. Supervisor, Manager" required autocomplete="off">
                     </div>
-                    <p style="color:#64748b; font-size:0.85rem;">Pagkatapos gawin, i-toggle ang mga menu na pahihintulutan para dito sa Permission Matrix table.</p>
+                    <p style="color:#64748b; font-size:0.85rem;">After creating the role, use the Permission Matrix table to toggle which menus it can access.</p>
                 </div>
                 <div class="modal-footer">
                     <button type="submit" class="btn-action-global">Create Role</button>

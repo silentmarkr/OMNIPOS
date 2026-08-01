@@ -520,11 +520,11 @@ function isBadgeAllowedForFeature(featureId) {
 
 const PREMIUM_FEATURE_INFO = {
     purchase_orders: { name:'Purchase Orders Module', price: 999, description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
-    customer_crm: { name:'Customer Profiles & Loyalty', price: 799, description:'Customer profiles, loyalty points, at purchase history bawat customer.' },
-    promo_codes: { name:'Promo Codes Module', price: 499, description:'Gumawa ng discount/promo codes na magagamit sa checkout.' },
-    advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, description:'Profit margin, top/slow sellers, 7-day sales trend, at payment method breakdown.' },
-    shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, description:'Multi-cashier shift tracking at Z-Reading (cash count) reports.' },
-    rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, description:'Gumawa ng custom roles at i-configure kung anong menu ang makikita ng bawat role (Roles & Permissions matrix).' },
+    customer_crm: { name:'Customer Profiles & Loyalty', price: 799, description:'Customer profiles, loyalty points, and purchase history for each customer.' },
+    promo_codes: { name:'Promo Codes Module', price: 499, description:'Create discount/promo codes that can be used at checkout.' },
+    advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
+    shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
+    rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
 };
 
 function guardPremiumFeature(featureId) {
@@ -582,12 +582,12 @@ async function pollUntilApproved(url, body) {
     return new Promise((resolve) => {
         let stopped = false;
         Swal.fire({
-            title: 'Naghihintay ng Approval',
-            html: '<p style="font-size:0.85rem;color:#64748b;margin:0;">Tama ang code mo! Hinihintay na lang ang pag-apruba ng may-ari/developer sa kabilang panig. Awtomatiko itong magpapatuloy — huwag isara ang window na ito.</p>',
+            title: 'Waiting for Approval',
+            html: '<p style="font-size:0.85rem;color:#64748b;margin:0;">Your code is correct! Just waiting for the owner/developer to approve on their end. This will continue automatically — please do not close this window.</p>',
             allowOutsideClick: false,
             showConfirmButton: false,
             showCancelButton: true,
-            cancelButtonText: 'Kanselahin',
+            cancelButtonText: 'Cancel',
             didOpen: async () => {
                 Swal.showLoading();
                 while (!stopped) {
@@ -5258,7 +5258,7 @@ async function loadReceiptCustomizationPanel() {
             resetBtn.disabled = true;
             resetBtn.style.opacity ='0.4';
             resetBtn.style.cursor ='not-allowed';
-            resetBtn.title = `May ${s.freeAttemptsRemaining} libreng pag-customize ka pa — hindi pa kailangan i-reset.`;
+            resetBtn.title = `You still have ${s.freeAttemptsRemaining} free customization(s) left — no need to reset yet.`;
         }
     }
 }
@@ -5285,7 +5285,7 @@ async function loadSystemResetPanel() {
     if (s && s.otpSenderConfigured) {
         statusBox.style.borderColor ='#16a34a';
         statusBox.style.background ='rgba(22, 163, 74, 0.06)';
-        statusBox.innerHTML = `<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> Verified Google App: ${escapeHtml(s.otpSenderEmailMasked ||'')}</span> <span style="color:var(--text-muted);">— ito ang gagamitin bilang sender ng backup email.</span>`;
+        statusBox.innerHTML = `<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> Verified Google App: ${escapeHtml(s.otpSenderEmailMasked ||'')}</span> <span style="color:var(--text-muted);">— this will be used as the sender for the backup email.</span>`;
         if (executeBtn) {
             executeBtn.disabled = false;
             executeBtn.style.opacity ='1';
@@ -5294,7 +5294,7 @@ async function loadSystemResetPanel() {
     } else {
         statusBox.style.borderColor ='#ef4444';
         statusBox.style.background ='rgba(239, 68, 68, 0.06)';
-        statusBox.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation"></i> Wala pang na-verify na Google App.</span> I-setup muna ito sa <strong>Receipt Customization &gt; Google App Verification</strong> bago magamit ang Hard Reset.`;
+        statusBox.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation"></i> No verified Google App yet.</span> Set this up first under <strong>Receipt Customization &gt; Google App Verification</strong> before using Hard Reset.`;
         if (executeBtn) {
             executeBtn.disabled = true;
             executeBtn.style.opacity ='0.5';
@@ -5343,21 +5343,21 @@ async function performClearOtpSenderConfig() {
 
 async function clearOtpSenderConfig() {
     const confirmResult = await Swal.fire({
-        title:'I-clear ang Sender Gmail?',
-        text:'Aalisin ang naka-save na Gmail address at App Password. Hindi makakapagpadala ng OTP hangga\'t hindi ito na-set up ulit.',
+        title:'Clear Sender Gmail?',
+        text:'This will remove the saved Gmail address and App Password. OTPs cannot be sent until this is set up again.',
         icon:'warning',
         showCancelButton: true,
-        confirmButtonText:'Oo, i-clear',
-        cancelButtonText:'Kanselahin',
+        confirmButtonText:'Yes, clear it',
+        cancelButtonText:'Cancel',
         confirmButtonColor:'#dc2626'
     });
     if (!confirmResult.isConfirmed) return;
 
     const data = await performClearOtpSenderConfig();
     if (data.success) {
-        Swal.fire('Na-clear na!', data.message,'success');
+        Swal.fire('Cleared!', data.message,'success');
     } else {
-        Swal.fire('Hindi Na-clear', data.message ||'Nabigong i-clear ang Sender Gmail config.','error');
+        Swal.fire('Not Cleared', data.message ||'Failed to clear the Sender Gmail configuration.','error');
     }
 }
 
@@ -5367,11 +5367,11 @@ async function saveOtpSenderConfig() {
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
 
     if (!otpSenderEmail || !otpSenderAppPassword) {
-        Swal.fire('Kulang ang Detalye','Kailangan parehong Gmail at App Password.','warning');
+        Swal.fire('Missing Details','Both Gmail address and App Password are required.','warning');
         return;
     }
 
-    Swal.fire({ title:'Verifying...', text:'Kinokonekta sa Gmail para i-check ang credentials.', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    Swal.fire({ title:'Verifying...', text:'Connecting to Gmail to check the credentials.', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/otp-sender`, {
@@ -5387,11 +5387,11 @@ async function saveOtpSenderConfig() {
             Swal.fire('Verified!', data.message,'success');
             loadReceiptCustomizationPanel();
         } else {
-            Swal.fire('Hindi Na-verify', data.message ||'Nabigong i-verify ang Gmail credentials.','error');
+            Swal.fire('Not Verified', data.message ||'Failed to verify the Gmail credentials.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-reach ang server. Subukang muli.','error');
+        Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
 
@@ -5408,17 +5408,17 @@ async function saveReceiptPaperSize() {
         const data = await res.json();
 
         if (data.success && data.pending) {
-            Swal.fire('Naipasa para sa Approval', data.message ||'Isinumite ang paper size request para sa Admin approval.','info');
+            Swal.fire('Submitted for Approval', data.message ||'The paper size request has been submitted for Admin approval.','info');
         } else if (data.success) {
-            Swal.fire('Na-save!', `Naka-set na ang print/PDF page size sa ${paperSize}.`,'success');
+            Swal.fire('Saved!', `Print/PDF page size has been set to ${paperSize}.`,'success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
             applyReceiptBranding();
         } else {
-            Swal.fire('Error', data.message ||'Nabigong i-save ang paper size.','error');
+            Swal.fire('Error', data.message ||'Failed to save the paper size.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-reach ang server. Subukang muli.','error');
+        Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
 
@@ -5433,7 +5433,7 @@ async function saveReceiptCustomization() {
     };
 
     if (!payload.storeName) {
-        Swal.fire('Kulang na Detalye','Kailangan ang Store Name.','warning');
+        Swal.fire('Missing Details','Store Name is required.','warning');
         return;
     }
 
@@ -5454,13 +5454,13 @@ async function saveReceiptCustomization() {
             const otpReqData = await otpReqRes.json();
 
             if (!otpReqData.success) {
-                Swal.fire('Hindi Naipadala ang OTP', otpReqData.message ||'Nabigo ang pagpapadala ng OTP.','error');
+                Swal.fire('OTP Not Sent', otpReqData.message ||'Failed to send the OTP.','error');
                 return;
             }
 
             const { value: otpCode } = await Swal.fire({
-                title:'🔒 Kailangan ng OTP',
-                html:'Naabot na ang free limit ng pag-customize ng resibo (2/2). Ipinadala na ang isang OTP code sa registered email ng developer. Ilagay ang 6-digit code na natanggap:',
+                title:'🔒 OTP Required',
+                html:'You have reached the free limit for receipt customization (2/2). An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
                 input:'text',
                 inputPlaceholder:'000000',
                 showCancelButton: true,
@@ -5486,18 +5486,18 @@ async function saveReceiptCustomization() {
         }
 
         if (data.success && data.pending) {
-            Swal.fire('Naipasa para sa Approval', data.message ||'Isinumite ang Receipt Customization request para sa Admin approval.','info');
+            Swal.fire('Submitted for Approval', data.message ||'The Receipt Customization request has been submitted for Admin approval.','info');
         } else if (data.success) {
-            Swal.fire('Na-save!','Matagumpay na na-update ang detalye ng resibo.','success');
+            Swal.fire('Saved!','The receipt details have been updated successfully.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
             applyReceiptBranding();
             loadReceiptCustomizationPanel();
         } else {
-            Swal.fire('Error', data.message ||'Nabigong i-save ang detalye ng resibo.','error');
+            Swal.fire('Error', data.message ||'Failed to save the receipt details.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-reach ang server. Subukang muli.','error');
+        Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
 
@@ -5505,17 +5505,17 @@ async function requestReceiptCounterReset() {
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
 
     if (!receiptSettingsCache || !receiptSettingsCache.otpRequired) {
-        Swal.fire('Hindi pa Kailangan','May natitira ka pang libreng pag-customize — hindi mo pa kailangan i-reset ang counter.','info');
+        Swal.fire('Not Needed Yet','You still have free customizations remaining — no need to reset the counter yet.','info');
         return;
     }
 
     const confirm = await Swal.fire({
-        title:'Kumpirmahin ang Reset',
-        html:'Magpapadala ito ng OTP sa registered email ng developer. Kailangan mong ilagay ang OTP na iyon dito para matuloy. Magpatuloy?',
+        title:'Confirm Reset',
+        html:'This will send an OTP to the developer\'s registered email. You will need to enter that OTP here to continue. Proceed?',
         icon:'question',
         showCancelButton: true,
-        confirmButtonText:'Oo, magpadala ng OTP',
-        cancelButtonText:'Kanselahin',
+        confirmButtonText:'Yes, send OTP',
+        cancelButtonText:'Cancel',
         confirmButtonColor:'#ef4444',
         cancelButtonColor:'#64748b'
     });
@@ -5530,13 +5530,13 @@ async function requestReceiptCounterReset() {
         const otpReqData = await otpReqRes.json();
 
         if (!otpReqData.success) {
-            Swal.fire('Hindi Naipadala ang OTP', otpReqData.message ||'Nabigo ang pagpapadala ng OTP.','error');
+            Swal.fire('OTP Not Sent', otpReqData.message ||'Failed to send the OTP.','error');
             return;
         }
 
         const { value: otpCode } = await Swal.fire({
-            title:'🔓 Ilagay ang Reset OTP',
-            html:'Ipinadala na ang isang OTP code sa registered email ng developer. Ilagay ang 6-digit code na natanggap:',
+            title:'🔓 Enter Reset OTP',
+            html:'An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
             input:'text',
             inputPlaceholder:'000000',
             showCancelButton: true,
@@ -5559,7 +5559,7 @@ async function requestReceiptCounterReset() {
         if (resetData.cancelled) return;
 
         if (resetData.success) {
-            Swal.fire('Na-reset!','May 2 libreng pag-customize na muli.','success');
+            Swal.fire('Reset!','You now have 2 free customizations again.','success');
             receiptSettingsCache = resetData.settings || receiptSettingsCache;
             applyReceiptBranding();
             loadReceiptCustomizationPanel();
@@ -5586,11 +5586,11 @@ async function requestReceiptCounterReset() {
                 }
             }
         } else {
-            Swal.fire('Error', resetData.message ||'Nabigong i-reset ang counter.','error');
+            Swal.fire('Error', resetData.message ||'Failed to reset the counter.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-reach ang server. Subukang muli.','error');
+        Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
 
@@ -6976,7 +6976,7 @@ function handleAvatarFileSelect(event, hiddenInputId, previewBoxId) {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-        Swal.fire('Maling File Type','Larawan lang (JPG, PNG, atbp.) ang pwedeng i-upload bilang profile picture.','error');
+        Swal.fire('Invalid File Type','Only images (JPG, PNG, etc.) can be uploaded as a profile picture.','error');
         event.target.value ='';
         return;
     }
@@ -7059,14 +7059,14 @@ function renderPermissionMatrix() {
     const body = document.getElementById('permission-matrix-body');
     if (!headRow || !body) return;
 
-    // BUG FIX: sa table-layout:auto (default), hindi talaga "hard enforce"
-    // ang width/max-width sa mga <td> — nananaig pa rin ang content length,
-    // kaya lumalampas pa rin sa 260px ang mahahabang label at basta
-    // na-cu-cut na lang nang walang wrap (line-clamp effectively walang
-    // epekto dahil hindi talaga naka-constrain ang box width). Ang
-    // <colgroup>/<col> kasabay ng table-layout:fixed (CSS) ang TALAGANG
-    // nagpi-pin sa column widths nang deterministic, kahit gaano pa
-    // kahaba ang laman.
+    // BUG FIX: with table-layout:auto (the default), width/max-width on
+    // <td> elements are not truly "hard enforced" — content length still
+    // takes priority, so long labels still exceed 260px and simply get
+    // cut off without wrapping (line-clamp effectively has no effect
+    // since the box width isn't really constrained). The
+    // <colgroup>/<col> combined with table-layout:fixed (CSS) is what
+    // TRULY pins the column widths deterministically, no matter how
+    // long the content is.
     const colgroup = document.getElementById('permission-matrix-colgroup');
     if (colgroup) {
         colgroup.innerHTML = '<col class="matrix-col-label">' + roles.map(() => '<col class="matrix-col-role">').join('');
@@ -7075,10 +7075,10 @@ function renderPermissionMatrix() {
     headRow.innerHTML ='<th class="matrix-col-label">Menu</th>' + roles.map((r, idx) => `
         <th class="matrix-col-role" style="text-align:center; white-space:nowrap;">
             <div style="display:flex; align-items:center; justify-content:center; gap:4px;">
-                <button type="button" class="matrix-col-reorder-btn" title="Ilipat pakaliwa"
+                <button type="button" class="matrix-col-reorder-btn" title="Move left"
                     ${idx === 0 ?'disabled' :''} onclick="moveRoleColumn(${idx}, -1)"><i class="fa-solid fa-chevron-left"></i></button>
                 <span>${escapeHtml(r.name)}</span>
-                <button type="button" class="matrix-col-reorder-btn" title="Ilipat pakanan"
+                <button type="button" class="matrix-col-reorder-btn" title="Move right"
                     ${idx === roles.length - 1 ?'disabled' :''} onclick="moveRoleColumn(${idx}, 1)"><i class="fa-solid fa-chevron-right"></i></button>
             </div>
         </th>
@@ -7091,7 +7091,7 @@ function renderPermissionMatrix() {
                 <td class="matrix-col-role" style="text-align:center;">
                     <input type="checkbox" style="width:18px; height:18px;"
                         ${getEffectivePermission(r, m.key) ?'checked' :''}
-                        ${r.protected ?'disabled title="Laging buong access ang Admin"' :''}
+                        ${r.protected ?'disabled title="Admin always has full access"' :''}
                         onchange="handlePermissionToggle('${escapeHtml(r.name)}', '${m.key}', this.checked)">
                 </td>
             `).join('')}
@@ -7105,8 +7105,8 @@ function renderPermissionMatrix() {
                 ?'<td class="matrix-col-role"></td>'
                 : `<td class="matrix-col-role" style="text-align:center;">
                     <div style="display:inline-flex; gap:6px; align-items:center;">
-                        <button type="button" class="btn-icon-action edit" title="I-save ang permissions" onclick="saveRolePermissions('${escapeHtml(r.name)}')"><i class="fa-solid fa-floppy-disk"></i></button>
-                        <button type="button" class="btn-icon-action delete" title="Burahin ang role" onclick="deleteRole('${escapeHtml(r.name)}')"><i class="fa-solid fa-trash"></i></button>
+                        <button type="button" class="btn-icon-action edit" title="Save permissions" onclick="saveRolePermissions('${escapeHtml(r.name)}')"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <button type="button" class="btn-icon-action delete" title="Delete role" onclick="deleteRole('${escapeHtml(r.name)}')"><i class="fa-solid fa-trash"></i></button>
                     </div>
                    </td>`
             ).join('')}
@@ -7136,7 +7136,7 @@ async function saveRoleColumnOrder() {
     if (guardPremiumFeature('rbac_management')) return;
     const orderedRoleNames = rolesMatrixCache.roles.map(r => r.name);
 
-    const adminPassword = await promptAdminPasswordConfirm('I-save ang bagong ayos ng Role columns sa Permission Matrix');
+    const adminPassword = await promptAdminPasswordConfirm('Save the new Role column order in the Permission Matrix');
     if (!adminPassword) return;
 
     try {
@@ -7147,7 +7147,7 @@ async function saveRoleColumnOrder() {
         });
         const data = await res.json();
         if (data.success) {
-            Swal.fire({ toast: true, position:'top-end', icon:'success', title:'Na-save ang bagong ayos ng columns', showConfirmButton: false, timer: 2000, timerProgressBar: true });
+            Swal.fire({ toast: true, position:'top-end', icon:'success', title:'The new column order has been saved', showConfirmButton: false, timer: 2000, timerProgressBar: true });
             rolesMatrixCache.roles = data.roles;
             columnOrderDirty = false;
             const saveBtn = document.getElementById('save-column-order-btn');
@@ -7155,11 +7155,11 @@ async function saveRoleColumnOrder() {
             renderPermissionMatrix();
             populateRoleSelectOptions(rolesMatrixCache.roles);
         } else {
-            Swal.fire('Hindi Na-save', data.message ||'May error sa pag-save ng ayos ng columns.','error');
+            Swal.fire('Not Saved', data.message ||'An error occurred while saving the column order.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-save ang column order sa ngayon.','error');
+        Swal.fire('Connection Error','Unable to save the column order right now.','error');
     }
 }
 
@@ -7174,7 +7174,7 @@ async function saveRolePermissions(roleName) {
     if (!role) return;
     const finalPermissions = { ...role.permissions, ...(pendingMatrixEdits[roleName] || {}) };
 
-    const adminPassword = await promptAdminPasswordConfirm(`I-save ang bagong access ng role na "${roleName}"`);
+    const adminPassword = await promptAdminPasswordConfirm(`Save the updated access for the "${roleName}" role`);
     if (!adminPassword) return;
 
     try {
@@ -7185,7 +7185,7 @@ async function saveRolePermissions(roleName) {
         });
         const data = await res.json();
         if (data.success) {
-            Swal.fire({ toast: true, position:'top-end', icon:'success', title: `Na-save ang permissions ng "${roleName}"`, showConfirmButton: false, timer: 2000, timerProgressBar: true });
+            Swal.fire({ toast: true, position:'top-end', icon:'success', title: `Permissions for "${roleName}" have been saved`, showConfirmButton: false, timer: 2000, timerProgressBar: true });
             rolesMatrixCache.roles = data.roles;
             delete pendingMatrixEdits[roleName];
             renderPermissionMatrix();
@@ -7194,28 +7194,28 @@ async function saveRolePermissions(roleName) {
                 refreshPermissions();
             }
         } else {
-            Swal.fire('Hindi Na-save', data.message ||'May error sa pag-save ng permissions.','error');
+            Swal.fire('Not Saved', data.message ||'An error occurred while saving the permissions.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-save ang permission changes sa ngayon.','error');
+        Swal.fire('Connection Error','Unable to save permission changes right now.','error');
     }
 }
 
 async function deleteRole(roleName) {
     if (guardPremiumFeature('rbac_management')) return;
     const confirmResult = await Swal.fire({
-        title: `Burahin ang role na "${roleName}"?`,
-        text:'Hindi na maibabalik pa ito. Kung may user pang naka-assign sa role na ito, hindi ito papayagan — kailangan muna silang i-reassign.',
+        title: `Delete the "${roleName}" role?`,
+        text:'This cannot be undone. If users are still assigned to this role, deletion will not be allowed — they must be reassigned first.',
         icon:'warning',
         showCancelButton: true,
         confirmButtonColor:'#ef4444',
         cancelButtonColor:'#64748b',
-        confirmButtonText:'Oo, burahin'
+        confirmButtonText:'Yes, delete it'
     });
     if (!confirmResult.isConfirmed) return;
 
-    const adminPassword = await promptAdminPasswordConfirm(`Burahin ang role: ${roleName}`);
+    const adminPassword = await promptAdminPasswordConfirm(`Delete role: ${roleName}`);
     if (!adminPassword) return;
 
     try {
@@ -7226,17 +7226,17 @@ async function deleteRole(roleName) {
         });
         const data = await res.json();
         if (data.success) {
-            Swal.fire('Nabura', `Nabura ang role na "${roleName}".`,'success');
+            Swal.fire('Deleted', `The "${roleName}" role has been deleted.`,'success');
             rolesMatrixCache.roles = data.roles;
             delete pendingMatrixEdits[roleName];
             renderPermissionMatrix();
             populateRoleSelectOptions(rolesMatrixCache.roles);
         } else {
-            Swal.fire('Hindi Nabura', data.message ||'May error sa pagbura ng role.','error');
+            Swal.fire('Not Deleted', data.message ||'An error occurred while deleting the role.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Connection Error','Hindi ma-delete ang role sa ngayon.','error');
+        Swal.fire('Connection Error','Unable to delete the role right now.','error');
     }
 }
 
@@ -7266,7 +7266,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const blankPermissions = {};
             (rolesMatrixCache.menuRegistry || []).forEach(m => { blankPermissions[m.key] = false; });
 
-            const adminPassword = await promptAdminPasswordConfirm(`Gumawa ng bagong role: ${roleName}`);
+            const adminPassword = await promptAdminPasswordConfirm(`Create new role: ${roleName}`);
             if (!adminPassword) return;
 
             try {
@@ -7281,13 +7281,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     rolesMatrixCache.roles = data.roles;
                     renderPermissionMatrix();
                     populateRoleSelectOptions(data.roles);
-                    Swal.fire('Nagawa', `Nagawa ang bagong role na "${roleName}". I-toggle na ang mga menu na papayagan dito.`,'success');
+                    Swal.fire('Created', `The "${roleName}" role has been created. Toggle the menus to allow for it.`,'success');
                 } else {
-                    Swal.fire('Hindi Nagawa', data.message ||'May error sa paggawa ng role.','error');
+                    Swal.fire('Not Created', data.message ||'An error occurred while creating the role.','error');
                 }
             } catch (err) {
                 console.error(err);
-                Swal.fire('Connection Error','Hindi magawa ang role sa ngayon.','error');
+                Swal.fire('Connection Error','Unable to create the role right now.','error');
             }
         });
     }
@@ -7295,8 +7295,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function promptAdminPasswordConfirm(actionLabel) {
     const { value: adminPassword } = await Swal.fire({
-        title:'🔒 Kumpirmahin ang Admin Password',
-        html: `Para magpatuloy sa: <b>${actionLabel}</b>, ilagay muli ang Admin password:`,
+        title:'🔒 Confirm Admin Password',
+        html: `To continue with: <b>${actionLabel}</b>, re-enter the Admin password:`,
         input:'password',
         inputPlaceholder:'Admin password',
         showCancelButton: true,
@@ -7329,7 +7329,7 @@ async function handleUserFormSubmit(e) {
         return;
     }
 
-    const adminPassword = await promptAdminPasswordConfirm(`Bagong user account: ${userPayload.username}`);
+    const adminPassword = await promptAdminPasswordConfirm(`New user account: ${userPayload.username}`);
     if (!adminPassword) return;
 
     try {
@@ -7371,7 +7371,7 @@ async function saveUserAvatar() {
     if (!pendingAvatarTargetUser) return;
     const avatar = document.getElementById('ua-avatar').value || null;
 
-    const adminPassword = await promptAdminPasswordConfirm(`I-update ang profile picture ni: ${pendingAvatarTargetUser}`);
+    const adminPassword = await promptAdminPasswordConfirm(`Update profile picture for: ${pendingAvatarTargetUser}`);
     if (!adminPassword) return;
 
     try {
@@ -7382,7 +7382,7 @@ async function saveUserAvatar() {
         });
         const data = await res.json();
         if (res.ok && data.success) {
-            Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage('Na-update na ang profile picture.'),'success');
+            Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage('The profile picture has been updated.'),'success');
             closeModal('user-avatar-modal');
             if (typeof loadUsersTable ==='function') loadUsersTable();
 
@@ -7418,7 +7418,7 @@ async function deleteUserAccount(targetUsername) {
 
     if (!confirmation.isConfirmed) return;
 
-    const adminPassword = await promptAdminPasswordConfirm(`Buburahin ang account: ${targetUsername}`);
+    const adminPassword = await promptAdminPasswordConfirm(`Delete account: ${targetUsername}`);
     if (!adminPassword) return;
 
     try {
@@ -7613,7 +7613,7 @@ async function executeSystemHardReset() {
     const elAdditionalEmail = document.getElementById('reset-additional-email');
 
     if (!elConfirm || !elAdditionalEmail) {
-        Swal.fire('UI Error','May mga nawawalang input elements sa iyong layout view.','error');
+        Swal.fire('UI Error','Some input elements are missing from your layout view.','error');
         return;
     }
 
@@ -7621,36 +7621,36 @@ async function executeSystemHardReset() {
     const additionalEmail = elAdditionalEmail.value.trim();
 
     if (confirmWord !=='RESET') {
-        Swal.fire('Kumpirmasyon Kailangan','I-type ang salitang "RESET" sa nakalaang kahon para magpatuloy.','warning');
+        Swal.fire('Confirmation Required','Type the word "RESET" in the box provided to continue.','warning');
         return;
     }
 
     if (!receiptSettingsCache || !receiptSettingsCache.otpSenderConfigured) {
-        Swal.fire('Google App Hindi Pa Naka-verify','I-setup at i-verify muna ang Google App sa Receipt Customization panel bago gamitin ang Hard Reset.','warning');
+        Swal.fire('Google App Not Yet Verified','Set up and verify the Google App in the Receipt Customization panel before using Hard Reset.','warning');
         return;
     }
 
     if (!additionalEmail) {
-        Swal.fire('Kulang na Data','Kailangan ang Secondary Backup Email — dito ipapadala ang backup file.','warning');
+        Swal.fire('Missing Data','Secondary Backup Email is required — the backup file will be sent there.','warning');
         return;
     }
 
     const doubleCheck = await Swal.fire({
-        title:'Sigurado ka ba talaga?',
-        text:"Kukuha ang system ng 100% synchronized backup, ipapadala ito sa Secondary Backup Email gamit ang verified Google App, at permanenteng buburahin ang kasalukuyang databases mo!",
+        title:'Are you absolutely sure?',
+        text:"The system will take a 100% synchronized backup, send it to the Secondary Backup Email using the verified Google App, and permanently delete your current databases!",
         icon:'warning',
         showCancelButton: true,
         confirmButtonColor:'#ef4444',
         cancelButtonColor:'#64748b',
-        confirmButtonText:'Oo, Simulan ang Backup at Reset',
-        cancelButtonText:'Kanselahin'
+        confirmButtonText:'Yes, Start Backup and Reset',
+        cancelButtonText:'Cancel'
     });
 
     if (!doubleCheck.isConfirmed) return;
 
     Swal.fire({
-        title:'Pinoproseso ang System Reset...',
-        text:'Kumukuha ng synchronized 7/7 snapshot at ipinapadala sa mail servers. Huwag i-refresh o isara ang web page.',
+        title:'Processing System Reset...',
+        text:'Taking a synchronized 7/7 snapshot and sending it to the mail servers. Do not refresh or close this page.',
         allowOutsideClick: false,
         didOpen: () => {
             Swal.showLoading();
@@ -7672,7 +7672,7 @@ async function executeSystemHardReset() {
 
         if (result.success) {
             Swal.fire({
-                title:'Matagumpay na Na-reset!',
+                title:'Reset Successful!',
                 text: result.message,
                 icon:'success'
             }).then(() => {
@@ -7685,11 +7685,11 @@ async function executeSystemHardReset() {
                 window.location.reload();
             });
         } else {
-            Swal.fire('Nabigo ang Proseso', result.message,'error');
+            Swal.fire('Process Failed', result.message,'error');
         }
     } catch (error) {
         console.error("Hard Reset Error Connection:", error);
-        Swal.fire('Network Error','Hindi makakonekta sa iyong local server API backend.','error');
+        Swal.fire('Network Error','Unable to connect to your local server API backend.','error');
     }
 }
 
@@ -7704,7 +7704,7 @@ async function checkForSystemUpdate() {
     if (blockIfOffline('Checking for updates')) return;
     const statusEl = document.getElementById('system-update-status');
     const deployBtn = document.getElementById('system-update-deploy-btn');
-    if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang status mula sa RELAY&hellip;';
+    if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving status from RELAY&hellip;';
     if (deployBtn) deployBtn.style.display = 'none';
 
     try {
@@ -7712,7 +7712,7 @@ async function checkForSystemUpdate() {
         const result = await response.json();
 
         if (!result.success) {
-            if (statusEl) statusEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> ${result.message || 'Hindi ma-check ang update status.'}`;
+            if (statusEl) statusEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> ${result.message || 'Unable to check the update status.'}`;
             return;
         }
 
@@ -7722,34 +7722,34 @@ async function checkForSystemUpdate() {
             if (statusEl) {
                 statusEl.innerHTML =
                     `<i class="fa-solid fa-circle-up" style="color:var(--pos-accent,#2563eb);"></i> ` +
-                    `<strong>May bagong update!</strong> Kasalukuyan: v${result.currentVersion} &rarr; Bago: v${result.latestVersion}` +
+                    `<strong>New update available!</strong> Current: v${result.currentVersion} &rarr; New: v${result.latestVersion}` +
                     (result.changelog ? `<br><span style="color:var(--text-muted);">${result.changelog}</span>` : '');
             }
             if (deployBtn) deployBtn.style.display = 'flex';
         } else {
             if (statusEl) {
-                statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> Up to date na ang system (v${result.currentVersion}).`;
+                statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> System is up to date (v${result.currentVersion}).`;
             }
         }
     } catch (error) {
-        if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> Hindi makonekta sa server.';
+        if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> Unable to connect to the server.';
     }
 }
 
 async function deploySystemUpdate() {
     if (blockIfOffline('Deploying updates')) return;
     if (!lastCheckedUpdateInfo || !lastCheckedUpdateInfo.updateAvailable) {
-        Swal.fire('Wala pang na-check', 'Pindutin muna ang "Check for Updates" bago mag-deploy.', 'info');
+        Swal.fire('Not Checked Yet', 'Click "Check for Updates" first before deploying.', 'info');
         return;
     }
 
     const confirmResult = await Swal.fire({
-        title: 'I-deploy ang Update?',
-        html: `Iri-redeploy ang system papuntang <strong>v${lastCheckedUpdateInfo.latestVersion}</strong> sa Render. Aabutin ito ng ilang minuto — hindi maaapektuhan ang datos (products, transactions, users, atbp.), pero mag-a-auto-refresh ang system pagkatapos.`,
+        title: 'Deploy the Update?',
+        html: `The system will be redeployed to <strong>v${lastCheckedUpdateInfo.latestVersion}</strong> on Render. This will take a few minutes — your data (products, transactions, users, etc.) will not be affected, and the system will refresh automatically afterward.`,
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Oo, i-deploy na',
-        cancelButtonText: 'Kanselahin',
+        confirmButtonText: 'Yes, deploy now',
+        cancelButtonText: 'Cancel',
         confirmButtonColor: '#16a34a'
     });
     if (!confirmResult.isConfirmed) return;
@@ -7757,8 +7757,8 @@ async function deploySystemUpdate() {
     const targetVersion = lastCheckedUpdateInfo.latestVersion;
 
     Swal.fire({
-        title: 'Dine-deploy ang Update...',
-        text: 'Sinisimulan na ang bagong deploy sa Render.',
+        title: 'Deploying the Update...',
+        text: 'Starting the new deploy on Render.',
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading()
     });
@@ -7767,28 +7767,27 @@ async function deploySystemUpdate() {
         const response = await authFetch(`${API_URL}/system/deploy-update`, { method: 'POST' });
         const result = await response.json();
         if (!result.success) {
-            Swal.fire('Hindi Nagawa', result.message || 'Hindi ma-trigger ang deploy.', 'error');
+            Swal.fire('Not Triggered', result.message || 'Unable to trigger the deploy.', 'error');
             return;
         }
 
-        // BUG FIX: dati, dito lang nagtatapos ang function pagkatapos ng
-        // "Na-trigger na ang Deploy" toast — kaya kahit matagumpay na
-        // ma-deploy/ma-restart ang server sa BAGONG version, walang
-        // awtomatikong nagpapakita ng confirmation na "Up to date na ang
-        // system" pagkatapos. Ngayon, mag-po-poll tayo sa update-check
-        // endpoint (paulit-ulit, may allowance sa mga temporary connection
-        // error habang nagre-restart/nagre-redeploy ang server) hanggang
-        // makumpirma na LIVE na ang bagong version — saka lang ipapakita
-        // ang tunay na "up to date" na confirmation.
+        // BUG FIX: previously, the function ended here right after the
+        // "Deploy Triggered" toast — so even after the server successfully
+        // deployed/restarted on the NEW version, there was no automatic
+        // "System is up to date" confirmation shown afterward. Now, we poll
+        // the update-check endpoint (repeatedly, allowing for temporary
+        // connection errors while the server restarts/redeploys) until the
+        // new version is confirmed LIVE — only then is the real "up to
+        // date" confirmation shown.
         pollForDeployCompletion(targetVersion, result.message);
     } catch (error) {
-        Swal.fire('Network Error', 'Hindi makonekta sa server backend.', 'error');
+        Swal.fire('Network Error', 'Unable to connect to the server backend.', 'error');
     }
 }
 
 const DEPLOY_POLL_INTERVAL_MS = 5000;
 // Sakop parehong Termux self-update (mabilis lang, ilang segundo) at
-// Render redeploy (maaaring umabot ng ilang minuto) bago mag-timeout.
+// Render redeploy (which can take several minutes) before timing out.
 const DEPLOY_POLL_TIMEOUT_MS = 6 * 60 * 1000;
 
 async function pollForDeployCompletion(targetVersion, triggerMessage) {
@@ -7796,8 +7795,8 @@ async function pollForDeployCompletion(targetVersion, triggerMessage) {
     const startedAt = Date.now();
 
     Swal.fire({
-        title: 'Naghihintay ng Bagong Version...',
-        html: (triggerMessage || 'Na-trigger na ang deploy.') + '<br><br>Awtomatikong ipapakita rito ang kumpirmasyon kapag kumpleto na ang update — huwag nang isara ang tab na ito.',
+        title: 'Waiting for the New Version...',
+        html: (triggerMessage || 'The deploy has been triggered.') + '<br><br>Confirmation will appear here automatically once the update is complete — please do not close this tab.',
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading()
     });
@@ -7806,35 +7805,35 @@ async function pollForDeployCompletion(targetVersion, triggerMessage) {
         try {
             const response = await authFetch(`${API_URL}/system/update-check`);
             const result = await response.json();
-            // Tapos na ang deploy kapag: matagumpay ang check, WALA nang
-            // updateAvailable, at (kung meron tayong target version mula
-            // sa huling "Check for Updates") tumutugma na rin ito —
-            // iniiwasan ang false positive kung sakaling naka-cache pa
-            // ang lumang response habang nagre-restart pa lang ang server.
+            // The deploy is done when: the check succeeds, updateAvailable
+            // is NO LONGER true, and (if we have a target version from the
+            // last "Check for Updates") it matches as well — this avoids a
+            // false positive in case an old cached response comes back
+            // while the server is only just starting to restart.
             if (result.success && !result.updateAvailable && (!targetVersion || result.currentVersion === targetVersion)) {
                 lastCheckedUpdateInfo = result;
                 if (statusEl) {
-                    statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> Up to date na ang system (v${result.currentVersion}).`;
+                    statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> System is up to date (v${result.currentVersion}).`;
                 }
                 const deployBtn = document.getElementById('system-update-deploy-btn');
                 if (deployBtn) deployBtn.style.display = 'none';
                 Swal.fire({
                     icon: 'success',
-                    title: 'Na-deploy na!',
-                    text: `Up to date na ang system (v${result.currentVersion}).`
+                    title: 'Deployed!',
+                    text: `System is up to date (v${result.currentVersion}).`
                 });
                 return;
             }
         } catch (err) {
-            // Normal ito habang nagre-restart ang server (self-update) o
-            // habang nagre-redeploy pa (Render) — subukan na lang ulit.
+            // This is expected while the server is restarting (self-update)
+            // or still redeploying (Render) — just try again.
         }
 
         if (Date.now() - startedAt >= DEPLOY_POLL_TIMEOUT_MS) {
             Swal.fire({
                 icon: 'info',
-                title: 'Tumatagal nang kaunti...',
-                text: 'Maaaring tumatagal pa ang deploy/restart. Pindutin ulit ang "Check for Updates" mamaya para kumpirmahin.'
+                title: 'Taking a Bit Longer...',
+                text: 'The deploy/restart may still be in progress. Click "Check for Updates" again later to confirm.'
             });
             return;
         }
@@ -7890,11 +7889,11 @@ async function syncFeaturesFromRelay() {
     }
 }
 
-// Tinatawag ng "Cloud Backup Now" button sa Reset & Restore panel.
-// Ang 402/featureLocked na sagot (kung hindi pa na-unlock ang
-// 'cloud_backup' feature) ay awtomatikong hinahawakan na ng authFetch()
-// sa itaas (magpapakita ito ng unlock/upgrade prompt), kaya dito, ang
-// tinutukan lang natin ay ang normal na success/error UI.
+// Called by the "Cloud Backup Now" button in the Reset & Restore panel.
+// A 402/featureLocked response (if the 'cloud_backup' feature is not yet
+// unlocked) is already handled automatically by authFetch() above (it
+// will show the unlock/upgrade prompt), so here we only need to focus
+// on the normal success/error UI.
 async function runCloudBackupSync() {
     if (blockIfOffline('Cloud Backup')) return;
     const statusBox = document.getElementById('cloud-backup-status');
@@ -7902,7 +7901,7 @@ async function runCloudBackupSync() {
 
     if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'not-allowed'; }
     if (statusBox) {
-        statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sini-sync ang database papunta sa cloud&hellip;';
+        statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing the database to the cloud&hellip;';
     }
 
     try {
@@ -7910,28 +7909,29 @@ async function runCloudBackupSync() {
         const result = await response.json();
 
         if (response.status === 402) {
-            // Na-handle na ang upgrade/unlock prompt ng authFetch() —
-            // dito, ibalik lang ang status box sa neutral na estado.
+            // The upgrade/unlock prompt has already been handled by
+            // authFetch() — here, just return the status box to its
+            // neutral state.
             if (statusBox) {
-                statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> Naka-lock pa ang Cloud Backup feature.';
+                statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
             }
             return;
         }
 
         if (result.success) {
             if (statusBox) {
-                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Matagumpay na na-sync (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
+                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
             }
-            Swal.fire('Cloud Backup', result.message || 'Matagumpay na na-sync ang database papunta sa cloud.', 'success');
+            Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
         } else {
             if (statusBox) {
-                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Nabigo ang cloud backup.'}`;
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Cloud backup failed.'}`;
             }
-            Swal.fire('Failed', result.message || 'Nabigo ang cloud backup.', 'error');
+            Swal.fire('Failed', result.message || 'Cloud backup failed.', 'error');
         }
     } catch (error) {
         if (statusBox) {
-            statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Hindi ma-abot ang server.';
+            statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Unable to reach the server.';
         }
         Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
     } finally {
@@ -7939,17 +7939,17 @@ async function runCloudBackupSync() {
     }
 }
 
-// Tinatawag ng "Restore from Cloud" button sa Reset & Restore panel.
-// SELF-SERVICE na version ng cloud backup restore — hinihila ng
-// installation MISMO ang sarili nitong huling na-sync na cloud backup
-// (walang kailangang kontakin ang developer/admin panel). Kailangan pa
-// rin ng Admin password dito dahil OVERWRITE ito ng kasalukuyang data.
+// Called by the "Restore from Cloud" button in the Reset & Restore panel.
+// SELF-SERVICE version of cloud backup restore — this installation
+// pulls its own latest synced cloud backup (no need to contact the
+// developer/admin panel). An Admin password is still required here
+// since this OVERWRITES the current data.
 async function runCloudBackupRestore() {
     if (blockIfOffline('Cloud Backup Restore')) return;
 
     const confirmResult = await Swal.fire({
         title: 'Restore from Cloud?',
-        html: 'Papalitan nito ang KASALUKUYANG data ng bawat module na naka-imbak sa iyong huling Cloud Backup.<br><br><strong>Hindi na maibabalik ito</strong> pagkatapos i-confirm. Ipasok ang Admin Password para magpatuloy:',
+        html: 'This will replace the CURRENT data of every module with what is stored in your latest Cloud Backup.<br><br><strong>This cannot be undone</strong> once confirmed. Enter the Admin Password to continue:',
         input: 'password',
         inputPlaceholder: 'Admin Passphrase',
         icon: 'warning',
@@ -7968,7 +7968,7 @@ async function runCloudBackupRestore() {
 
     if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'not-allowed'; }
     if (statusBox) {
-        statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang cloud backup at ino-restore&hellip;';
+        statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving the cloud backup and restoring&hellip;';
     }
 
     try {
@@ -7980,39 +7980,39 @@ async function runCloudBackupRestore() {
         const result = await response.json();
 
         if (response.status === 402) {
-            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> Naka-lock pa ang Cloud Backup feature.';
+            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
             return;
         }
         if (response.status === 403 && result.code === 'WRONG_ADMIN_PASSWORD') {
-            Swal.fire('Access Denied', result.message || 'Maling Admin password.', 'error');
-            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Maling Admin password.';
+            Swal.fire('Access Denied', result.message || 'Incorrect Admin password.', 'error');
+            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Incorrect Admin password.';
             return;
         }
 
         if (result.success) {
             if (statusBox) {
-                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Na-restore (${result.restoredCount ?? '—'} modules) — ${new Date().toLocaleString()}`;
+                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Restored (${result.restoredCount ?? '—'} modules) — ${new Date().toLocaleString()}`;
             }
             let extraNote = '';
             if (result.accountsNeedingPasswordReset && result.accountsNeedingPasswordReset.length > 0) {
-                extraNote = `<br><br><strong>Paalala:</strong> ang mga sumusunod na account ay bago-lang na-restore (walang password na kasama sa backup) — kailangang i-reset ng Admin ang password ng mga ito sa User Management bago sila makapag-login: <br>${result.accountsNeedingPasswordReset.join(', ')}`;
+                extraNote = `<br><br><strong>Note:</strong> the following accounts were just restored (no password was included in the backup) — the Admin must reset their passwords in User Management before they can log in: <br>${result.accountsNeedingPasswordReset.join(', ')}`;
             }
             Swal.fire({
                 title: 'Restored!',
-                html: (result.message || 'Matagumpay na na-restore mula sa Cloud Backup.') + extraNote,
+                html: (result.message || 'Successfully restored from Cloud Backup.') + extraNote,
                 icon: 'success'
             }).then(() => {
                 location.reload();
             });
         } else {
             if (statusBox) {
-                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Nabigo ang cloud restore.'}`;
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Cloud restore failed.'}`;
             }
-            Swal.fire('Failed', result.message || 'Nabigo ang cloud restore.', 'error');
+            Swal.fire('Failed', result.message || 'Cloud restore failed.', 'error');
         }
     } catch (error) {
         if (statusBox) {
-            statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Hindi ma-abot ang server.';
+            statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Unable to reach the server.';
         }
         Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
     } finally {
@@ -8020,22 +8020,23 @@ async function runCloudBackupRestore() {
     }
 }
 
-// Kapag napatunayan na ng Relay (sa pamamagitan ng /api/features/restore-check
-// sa itaas) na hindi na aktibo ang isa o higit pang feature/theme na dating
-// naka-unlock LOKAL — dahil na-deactivate mismo ng developer/store owner, o
-// nag-expire na ang time-based na lisensya nito — agad itong ipina-lock dito
-// sa kasalukuyang session/UI nang hindi na kailangang mag-relogin o mag-
-// refresh pa ang user:
-//   1. Kung THEME ang na-detect na hindi na aktibo, at ito pa rin ang
-//      kasalukuyang applied na tema, ibabalik agad sa DEFAULT theme.
-//   2. Kung ibang module naman (Purchase Orders, Customer CRM, Advanced
-//      Reports, Shift Management, atbp.) ang na-detect, at ito pa rin ang
-//      kasalukuyang bukas na view, babalik agad ito sa Overview/Home.
-// Ang mismong pag-hide ng locked badges/menu sa sidebar ay ginagawa na ng
-// refreshUnlockedFeaturesFromServer()/refreshUnlockedThemesFromServer() sa
-// itaas (na tumatawag sa updateSidebarFeatureLocks() at renderThemeMenu()),
-// kaya dito na lang tayo mag-focus sa "kasalukuyang tinitingnan/ginagamit"
-// na estado na kailangang agad ibalik sa default/ligtas na lugar.
+// When Relay confirms (via /api/features/restore-check above) that one or
+// more previously LOCALLY-unlocked features/themes are no longer active —
+// because they were deactivated by the developer/store owner, or their
+// time-based license has expired — they are locked here immediately in
+// the current session/UI, without requiring the user to relogin or
+// refresh:
+//   1. If a THEME is detected as no longer active, and it is still the
+//      currently applied theme, it is immediately reverted to the
+//      DEFAULT theme.
+//   2. If another module (Purchase Orders, Customer CRM, Advanced
+//      Reports, Shift Management, etc.) is detected, and it is still the
+//      currently open view, it immediately returns to Overview/Home.
+// The actual hiding of locked badges/menu items in the sidebar is already
+// handled by refreshUnlockedFeaturesFromServer()/refreshUnlockedThemesFromServer()
+// above (which call updateSidebarFeatureLocks() and renderThemeMenu()),
+// so here we only need to focus on the "currently viewed/in use" state
+// that needs to be immediately returned to a default/safe location.
 const RELAY_SYNC_VIEW_FEATURE_MAP = {
     customer_crm: 'customers',
     shift_management: 'shiftreport',
@@ -9424,13 +9425,13 @@ function triggerSystemRestore() {
     const file = fileInput.files[0];
 
     if (!file) {
-        Swal.fire('File Missing',"Mangyaring pumili muna ng 'full_system_backup.json' file na idownload mula sa email.",'warning');
+        Swal.fire('File Missing',"Please select the 'full_system_backup.json' file downloaded from the email first.",'warning');
         return;
     }
 
     Swal.fire({
         title:'System Restore Authorization',
-        text:'Ipasok ang Admin Password upang kumpirmahin ang pag-restore ng data:',
+        text:'Enter the Admin Password to confirm the data restore:',
         input:'password',
         inputPlaceholder:'Admin Passphrase',
         showCancelButton: true,
@@ -9838,20 +9839,20 @@ function showGoogleAppVerificationFAQ() {
     const isDarkMode = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark-mode');
 
     Swal.fire({
-        title:'ℹ️ Gabay para sa Google App Verification',
+        title:'ℹ️ Guide to Google App Verification',
         html: `
             <div style="text-align: left; font-size: 0.95rem; line-height: 1.6;">
-                <p><strong>Tandaan para gumana ito:</strong></p>
-                <p>Siguraduhing kapag gumawa ka ng bagong Gmail address:</p>
+                <p><strong>Keep this in mind for it to work:</strong></p>
+                <p>When creating a new Gmail address, make sure that:</p>
                 <ul style="padding-left: 20px; margin-top: 5px;">
-                    <li style="margin-bottom: 8px;">Naka-on ang <strong>2-Step Verification</strong> sa Google Account settings ng bagong email.</li>
-                    <li>Gumawa ka ng <strong>App Password</strong> (isang 16-character code na ibibigay ng Google) partikular para sa app na ito, at iyon ang ilalagay mo sa <em>Sender App Password field</em> (huwag ang mismong personal na password ng Gmail mo).</li>
+                    <li style="margin-bottom: 8px;"><strong>2-Step Verification</strong> is enabled in that account's Google Account settings.</li>
+                    <li>You generate an <strong>App Password</strong> (a 16-character code provided by Google) specifically for this app, and enter that in the <em>Sender App Password field</em> (not your regular Gmail password).</li>
                 </ul>
-                <p style="margin-top:10px; color:#64748b; font-size:0.85rem;">Sabay gamit ito ng Receipt Customization OTP, ng System Hard Reset backup email, at ng pag-email ng resibo sa customer — kaya isa lang itong Gmail na kailangan i-verify.</p>
+                <p style="margin-top:10px; color:#64748b; font-size:0.85rem;">This same Gmail account is shared by Receipt Customization OTPs, the System Hard Reset backup email, and receipt emails sent to customers — so only one Gmail needs to be verified.</p>
             </div>
         `,
         icon:'info',
-        confirmButtonText:'Naintindihan ko',
+        confirmButtonText:'Got it',
         confirmButtonColor:'#2563eb',
         background: isDarkMode ?'#1f2937' :'#ffffff',
         color: isDarkMode ?'#f3f4f6' :'#1f2937'
