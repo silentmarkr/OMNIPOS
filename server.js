@@ -27,7 +27,10 @@ const { execSync } = require('child_process');
 const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload } = require('./db');
 
 try {
-    process.loadEnvFile();
+    // Dati: process.loadEnvFile(); — pinalitan para sumuporta sa
+    // naka-encrypt na .env sa release build (env-loader.js). Sa dev
+    // (plain .env pa), babalik din ito sa normal na loader.
+    require('./env-loader')();
 } catch (err) {
 
 }
