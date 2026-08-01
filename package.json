@@ -1,6 +1,6 @@
 {
   "name": "omnipos",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
