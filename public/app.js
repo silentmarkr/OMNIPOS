@@ -26,7 +26,7 @@ async function authFetch(url, options = {}) {
             return res;
         }
 
-        if (!window.__sessionExpiredShown) {
+        if (!window.__sessionExpiredShown && !window.__logoutInProgress) {
             window.__sessionExpiredShown = true;
             localStorage.removeItem('posa_user');
             localStorage.removeItem('posa_token');
@@ -9568,7 +9568,20 @@ function triggerIdleWarning() {
 
 async function handleLogout(type ='manual') {
 
+    // FIX: itong flag ang humihinto sa "Session Expired" popup mula sa
+    // mismong authFetch() 401-interceptor habang tayo mismo ang
+    // sinasadyang mag-i-invalidate ng session (manual o auto logout).
+    // Dati, itong mga 1-segundong background poll (stock refresh sa
+    // terminal/inventory) ay tumatakbo pa rin habang papasok ang mga
+    // logout request — kaya kapag na-invalidate na ang session sa
+    // server (destroySession) pero may isang poll pa na naka-schedule
+    // gamit ang LUMANG token, tumatama ito ng 401 at nagpapalabas ng
+    // "Session Expired" kahit normal at sinadyang logout lang.
+    window.__logoutInProgress = true;
+
     destroyIdleTimer();
+    stopTerminalStockPolling();
+    stopInventoryStockPolling();
 
     if (type ==='manual') {
         console.log("Manual logout detected. Clearing cart from database...");
@@ -9659,6 +9672,12 @@ async function handleLogout(type ='manual') {
 
     history.pushState({ view:'auth-view' },'','');
     showAuthenticationInterface();
+
+    // FIX: buksan na ulit ang normal na "Session Expired" detection
+    // ngayong tapos na ang sinadyang logout — para gumana pa rin ito
+    // nang tama sa totoong pag-expire ng session sa susunod na paggamit.
+    window.__logoutInProgress = false;
+    window.__sessionExpiredShown = false;
 }
 
 async function showMainSystemInterface() {
