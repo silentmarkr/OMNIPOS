@@ -30,24 +30,8 @@ async function authFetch(url, options = {}) {
             window.__sessionExpiredShown = true;
             localStorage.removeItem('posa_user');
             localStorage.removeItem('posa_token');
-
-            // Tignan muna kung DEVICE_REVOKED ang dahilan (inalis sa allowed
-            // devices ng RELAY), para makapagbigay ng mas malinaw na mensahe
-            // kaysa sa generic na "session expired".
-            let code = null;
-            try {
-                const data = await res.clone().json();
-                code = data && data.code;
-            } catch (e) {}
-
-            const isDeviceRevoked = code ==='DEVICE_REVOKED';
-            const title = isDeviceRevoked ? 'Device Removed' :'Session Expired';
-            const text = isDeviceRevoked
-                ?'Inalis ng developer/store owner ang device na ito sa listahan ng mga pinapayagang device. Awtomatiko kang na-logout. Kontakin ang developer/store owner kung mali ito.'
-                :'Nag-expire o naging invalid ang iyong session. Mangyaring mag-login muli.';
-
             if (typeof Swal !=='undefined') {
-                Swal.fire(title, text,'warning')
+                Swal.fire('Session Expired','Nag-expire o naging invalid ang iyong session. Mangyaring mag-login muli.','warning')
                     .then(() => window.location.reload());
             } else {
                 window.location.reload();
@@ -8864,6 +8848,10 @@ function initNetworkStatusIndicator() {
             indicator.classList.add(state);
             indicator.setAttribute('title', title);
         });
+        // Isa lang na network check na ito ang siyang nagpapatakbo sa
+        // parehong OmniPOS logo dot AT sa wifi toggle pill — kaya laging
+        // sync ang dalawa, walang delay, walang kailangang i-refresh.
+        if (window.setConnectivityLiveState) window.setConnectivityLiveState(state);
     }
 
     function checkRealInternetAccess(timeoutMs = 4000) {

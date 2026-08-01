@@ -1340,10 +1340,29 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     display: none;
     align-items: center;
     gap: 12px;
+    flex-shrink: 0; /* huwag payagang i-compress ng ibang header items */
+    min-width: 0;
+}
+
+.terminal-brand-label {
+    white-space: nowrap; /* HUWAG na mag-wrap ang "OmniPOS" logo kahit gaano pa kaliit ang natitirang espasyo */
 }
 
 .top-header.terminal-header-mode .hamburger-menu {
     display: none !important;
+}
+
+/* Sa MOBILE lang: itago ang reorder-alert bell sa Terminal view — para
+   mas mapalapad ang espasyo para sa OmniPOS logo (kasabay ng ibang
+   nowrap/flex-shrink na fix sa itaas), at dahil karaniwang cashier na
+   gamit ng mobile/tablet ang tumatambad sa Terminal, hindi kailangang
+   ipakita ang stock-alert dito (para sa admin/desktop view na iyon).
+   Desktop/tablet (>768px) Terminal mode: hindi apektado, nananatiling
+   nakikita ang bell. */
+@media screen and (max-width: 768px) {
+    .top-header.terminal-header-mode .btn-lowstock-bell {
+        display: none !important;
+    }
 }
 
 .top-header.terminal-header-mode .terminal-brand-header {
@@ -4019,47 +4038,40 @@ body.dark-mode .avatar-photo-box {
 }
 
 /* Connectivity mode toggle — inilipat sa unahan ng header-right (mas
-   kitang-kita kaysa dating nakatago sa gilid ng bell icon). Icon-lang ito
-   — ang "Online"/"Offline"/"Checking" na label ay lalabas lang sa hover
-   (native title tooltip), pero may color tint pa rin ang icon mismo para
-   may quick-glance na indicator kahit hindi hinover. */
+   kitang-kita kaysa dating nakatago sa gilid ng bell icon). ICON-LANG ito
+   ngayon — WALANG bilog/border/background — ang KULAY lang ng wifi icon
+   mismo ang nagbabago (green/gray/amber) bilang indicator. Pinapanatili
+   pa rin ang 34x34 na clickable area (padding, hindi visual box) para
+   hindi lumiit ang tap target sa mobile. */
 .connectivity-mode-pill {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 34px;
     height: 34px;
-    border: 1px solid var(--border-color);
-    background: var(--top-header-bg, #f8fafc);
+    border: none;
+    background: transparent;
     color: var(--text-muted);
-    border-radius: 999px;
-    font-size: 1rem;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: color 0.15s ease;
 }
 .connectivity-mode-pill[data-mode="online"] {
     color: #16a34a;
-    border-color: #86efac;
-    background: #f0fdf4;
 }
 .connectivity-mode-pill[data-mode="offline"] {
     color: #64748b;
-    border-color: var(--border-color);
-    background: var(--top-header-bg, #f1f5f9);
 }
 .connectivity-mode-pill[data-mode="connecting"] {
     color: #d97706;
-    border-color: #fde68a;
-    background: #fffbeb;
 }
 body.dark-mode .connectivity-mode-pill[data-mode="online"] {
-    background: rgba(22,163,74,0.12);
+    color: #4ade80;
 }
 body.dark-mode .connectivity-mode-pill[data-mode="offline"] {
-    background: rgba(100,116,139,0.12);
+    color: #94a3b8;
 }
 body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
-    background: rgba(217,119,6,0.12);
+    color: #fbbf24;
 }
 
 /* Payment system view modal specific formatting elements grid mapping blueprint profile screenshot 5 */

@@ -1830,12 +1830,27 @@
 //             ito online REGARDLESS ng toggle na ito.
 // --------------------------------------------------------------
 (function () {
-    function paintConnectivityBtn(mode) {
+    // btn.dataset.pref  = ang SINADYANG preference ng user ('online'/'offline'),
+    //                     ito ang naka-save/ipinapadala sa server.
+    // btn.dataset.mode  = ang KASALUKUYANG VISUAL na kulay ng icon
+    //                     ('online'/'connecting'/'offline') — ito ang
+    //                     sinusunod ng CSS. Kapag ang preference ay
+    //                     'offline' (sinadya ng user), palaging 'offline'
+    //                     ang mode, IGNORE ang totoong live connectivity —
+    //                     hindi dapat i-override ang sinadyang pagpili ng
+    //                     user. Kapag 'online' naman ang preference, ang
+    //                     mode ay LIVE na sumusunod sa parehong
+    //                     checker/timer ng OmniPOS logo dot (tingnan ang
+    //                     setConnectivityLiveState sa ibaba) — kaya laging
+    //                     naka-sync ang dalawa, walang kailangang i-refresh.
+    function paintConnectivityBtn(mode, titleOverride) {
         const icon = document.getElementById('connectivity-mode-icon');
         const btn = document.getElementById('connectivity-mode-btn');
         if (!icon || !btn) return;
         btn.dataset.mode = mode;
-        if (mode === 'offline') {
+        if (titleOverride) {
+            btn.title = titleOverride;
+        } else if (mode === 'offline') {
             btn.title = 'Offline — walang internet, o sinadyang naka-Offline. I-tap para subukang bumalik sa Online.';
         } else if (mode === 'connecting') {
             btn.title = 'Checking\u2026 kinukumpirma kung may internet connection.';
@@ -1844,11 +1859,24 @@
         }
     }
 
+    // BAGO: ito ang tinatawag ng SAME shared live-checker sa app.js
+    // (initNetworkStatusIndicator) sa BAWAT tick nito — kaya iisa lang
+    // ang totoong network check na tumatakbo (hindi na duplicate/hiwalay
+    // na fetch), at LAGING SYNCHRONIZED ang wifi pill sa OmniPOS logo dot.
+    window.setConnectivityLiveState = function (liveState) {
+        const btn = document.getElementById('connectivity-mode-btn');
+        if (!btn) return;
+        // Kung sinadyang naka-Offline ang user (deliberate preference),
+        // huwag i-override ng live check — panatilihin itong gray/offline
+        // bilang paggalang sa sinadyang pagpili niya.
+        if (btn.dataset.pref === 'offline') return;
+        paintConnectivityBtn(liveState);
+    };
+
     // Real (hindi lang "may WiFi bar") na internet-reachability check —
-    // parehong pattern ng ginagamit ng initNetworkStatusIndicator() sa
-    // app.js (isang no-cors request papunta sa isang matatag/reliable na
-    // endpoint), pero self-contained dito para hindi na kailangang i-expose
-    // pa ang private helper na iyon.
+    // ginagamit lang ngayon kapag mano-manong nagto-toggle (bago pumayag
+    // pumunta sa Online) at sa unang sync pagkatapos mag-login. Ang
+    // ONGOING/live na pagsubaybay ay hawak na ng shared checker sa app.js.
     function checkRealInternetAccess(timeoutMs = 4000) {
         return new Promise((resolve) => {
             if (!navigator.onLine) { resolve(false); return; }
@@ -1883,16 +1911,19 @@
     // hindi kailanman green kung wala, anuman ang dating naka-save na
     // preference.
     window.syncConnectivityModeOnLogin = async function () {
+        const btn = document.getElementById('connectivity-mode-btn');
         paintConnectivityBtn('connecting');
         const hasInternet = await checkRealInternetAccess();
         if (hasInternet) {
             const confirmedMode = await pushConnectivityMode('online');
+            if (btn) btn.dataset.pref = confirmedMode || 'online';
             paintConnectivityBtn(confirmedMode || 'online');
         } else {
             // Best-effort lang ang pag-save sa server (posibleng hindi rin
             // ito maabot kung walang internet) — pero ang LOCAL na pill ay
             // dapat pumasok agad bilang Offline, walang exception.
             pushConnectivityMode('offline');
+            if (btn) btn.dataset.pref = 'offline';
             paintConnectivityBtn('offline');
         }
     };
@@ -1923,6 +1954,8 @@
 
         const confirmedMode = await pushConnectivityMode(nextMode);
         if (confirmedMode) {
+            const btn = document.getElementById('connectivity-mode-btn');
+            if (btn) btn.dataset.pref = confirmedMode;
             paintConnectivityBtn(confirmedMode);
             const msg = confirmedMode === 'offline'
                 ? '📴 Offline mode — hindi na proactive tatawag sa RELAY. Gumagana pa rin nang normal ang POS.'
