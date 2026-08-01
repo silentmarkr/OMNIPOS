@@ -227,42 +227,72 @@ setInterval(() => {
 //   2. Per-IP bucket na mas mataas ang threshold — pangkalahatang proteksyon
 //      lamang laban sa pag-spam/scan ng maraming iba't ibang username mula
 //      sa iisang terminal, hindi na dapat maabot ito sa normal na paggamit.
-function loginRateLimit(maxAttemptsPerAccount, maxAttemptsPerIp, windowMs) {
-    return (req, res, next) => {
-        const ip = req.ip || req.connection?.remoteAddress ||'unknown';
-        const username = ((req.body && req.body.username) ||'').toString().trim().toLowerCase();
-        const now = Date.now();
+// FIX: dating iisang middleware ito na agad nagre-record ng attempt sa
+// SANDALING dumating ang POST /api/auth/login — kahit pa i-block pa lang
+// ito ng anti-clone/Relay device-check bago pa man masuri ang username/
+// password (hal. dahil timeout/unreachable ang Relay). Ibig sabihin,
+// habang matagal/unreachable ang Relay, kada retry ng user (o kada
+// timeout ng frontend) ay nauubos na ang quota kahit walang totoong
+// maling password na na-try — kaya "max attempt" agad kahit hindi pa
+// nga nakaka-successful na login attempt.
+//
+// Ngayon: hinati sa DALAWANG hakbang — checkLoginRateLimit() (read-only,
+// walang binabago) ay tinatawag muna bago ang device-check (para sumagot
+// agad kung na-lock na talaga); recordLoginAttempt() (ito ang
+// nagdadagdag sa bucket) ay tinatawag na lang PAGKATAPOS pumasa ang
+// device-check — ibig sabihin, ang quota ay para lang sa mga totoong
+// pagkuha ng username/password, hindi sa mga naka-block dahil lang sa
+// Relay connectivity.
+function checkLoginRateLimit(req, res, maxAttemptsPerAccount, maxAttemptsPerIp, windowMs) {
+    const ip = req.ip || req.connection?.remoteAddress ||'unknown';
+    const username = ((req.body && req.body.username) ||'').toString().trim().toLowerCase();
+    const now = Date.now();
 
-        const ipKey = `login-ip:${ip}`;
-        let ipAttempts = (RATE_LIMIT_BUCKETS.get(ipKey) || []).filter(ts => now - ts < windowMs);
-        if (ipAttempts.length >= maxAttemptsPerIp) {
-            const retryAfterSec = Math.ceil((windowMs - (now - ipAttempts[0])) / 1000);
+    const ipKey = `login-ip:${ip}`;
+    const ipAttempts = (RATE_LIMIT_BUCKETS.get(ipKey) || []).filter(ts => now - ts < windowMs);
+    if (ipAttempts.length >= maxAttemptsPerIp) {
+        const retryAfterSec = Math.ceil((windowMs - (now - ipAttempts[0])) / 1000);
+        res.setHeader('Retry-After', retryAfterSec);
+        res.status(429).json({
+            success: false,
+            message: `Sobra na sa allowed login attempts mula sa terminal na ito. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`
+        });
+        return false;
+    }
+
+    if (username) {
+        const acctKey = `login-account:${username}`;
+        const acctAttempts = (RATE_LIMIT_BUCKETS.get(acctKey) || []).filter(ts => now - ts < windowMs);
+        if (acctAttempts.length >= maxAttemptsPerAccount) {
+            const retryAfterSec = Math.ceil((windowMs - (now - acctAttempts[0])) / 1000);
             res.setHeader('Retry-After', retryAfterSec);
-            return res.status(429).json({
+            res.status(429).json({
                 success: false,
-                message: `Sobra na sa allowed login attempts mula sa terminal na ito. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`
+                message: `Sobra na sa allowed attempts para sa account na '${username}'. Subukan muli pagkatapos ng ${retryAfterSec} segundo. Hindi naapektuhan ang ibang account.`
             });
+            return false;
         }
+    }
 
-        if (username) {
-            const acctKey = `login-account:${username}`;
-            let acctAttempts = (RATE_LIMIT_BUCKETS.get(acctKey) || []).filter(ts => now - ts < windowMs);
-            if (acctAttempts.length >= maxAttemptsPerAccount) {
-                const retryAfterSec = Math.ceil((windowMs - (now - acctAttempts[0])) / 1000);
-                res.setHeader('Retry-After', retryAfterSec);
-                return res.status(429).json({
-                    success: false,
-                    message: `Sobra na sa allowed attempts para sa account na '${username}'. Subukan muli pagkatapos ng ${retryAfterSec} segundo. Hindi naapektuhan ang ibang account.`
-                });
-            }
-            acctAttempts.push(now);
-            RATE_LIMIT_BUCKETS.set(acctKey, acctAttempts);
-        }
+    return true;
+}
 
-        ipAttempts.push(now);
-        RATE_LIMIT_BUCKETS.set(ipKey, ipAttempts);
-        next();
-    };
+function recordLoginAttempt(req, windowMs) {
+    const ip = req.ip || req.connection?.remoteAddress ||'unknown';
+    const username = ((req.body && req.body.username) ||'').toString().trim().toLowerCase();
+    const now = Date.now();
+
+    const ipKey = `login-ip:${ip}`;
+    const ipAttempts = (RATE_LIMIT_BUCKETS.get(ipKey) || []).filter(ts => now - ts < windowMs);
+    ipAttempts.push(now);
+    RATE_LIMIT_BUCKETS.set(ipKey, ipAttempts);
+
+    if (username) {
+        const acctKey = `login-account:${username}`;
+        const acctAttempts = (RATE_LIMIT_BUCKETS.get(acctKey) || []).filter(ts => now - ts < windowMs);
+        acctAttempts.push(now);
+        RATE_LIMIT_BUCKETS.set(acctKey, acctAttempts);
+    }
 }
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||'')
@@ -1075,6 +1105,68 @@ if (!RELAY_API_KEY) {
 }
 
 // --------------------------------------------------------------
+// relayFetch — FIX: dating walang timeout ang lahat ng fetch() papuntang
+// RELAY_URL, kaya kapag "sleeping"/unreachable ang Relay (hal. cold-start
+// ng Render free tier, o walang internet), ang bawat function na tumatawag
+// dito (login device-check, feature restore/sync, unlock requests, atbp.)
+// ay NAGHIHINTAY hanggang sa default na OS/network timeout (pwedeng ilang
+// minuto), kaya "sobrang delay"/"walang response" ang naramdaman sa app,
+// at nauubos pa ang login rate-limit quota habang naghihintay lang.
+//
+// Ito ang parehong AbortController-timeout pattern na ginamit na sa
+// public/app.js (checkRealInternetAccess) — dinadala rin dito sa
+// server-side Relay calls. 20s default: sapat pa rin para sa cold-start
+// ng Render free tier, pero hindi na "walang hanggan".
+// --------------------------------------------------------------
+async function relayFetch(url, options = {}, timeoutMs = 20000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+// --------------------------------------------------------------
+// isInternetLikelyUp — FIX: dating "Offline mode" TOGGLE lang (manual,
+// getConnectivityMode()) ang pinagbabatayan kung dapat mag-skip ng Relay
+// calls. Kaya kapag naka-"Online" pa rin ang toggle pero WALANG talagang
+// internet ang device sa totoo lang (nawalan ng WiFi/data biglaan),
+// patuloy pa ring sinusubukan ang relayFetch() (hanggang sa maabot ang
+// buong 20s timeout nito) bago mag-fail — hindi pa rin bilis.
+//
+// Ito ay isang MABILIS (max ~3s) at CACHED (15s) na paunang tsek kung may
+// aktwal na internet access, ginagamit BAGO pa man subukan ang buong
+// Relay call — para kahit anong sanhi ng pagkawala ng internet (hindi
+// lang yung manual na toggle), agad na mag-a-apply ang parehong
+// "offline-speed" na behavior (fail-fast, walang paghihintay).
+// --------------------------------------------------------------
+let lastConnectivityProbe = { at: 0, up: true };
+const CONNECTIVITY_PROBE_CACHE_MS = 15 * 1000;
+const CONNECTIVITY_PROBE_TIMEOUT_MS = 3000;
+
+async function isInternetLikelyUp() {
+    const now = Date.now();
+    if (now - lastConnectivityProbe.at < CONNECTIVITY_PROBE_CACHE_MS) {
+        return lastConnectivityProbe.up;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CONNECTIVITY_PROBE_TIMEOUT_MS);
+    let up;
+    try {
+        await fetch('https://www.gstatic.com/generate_204', { signal: controller.signal, cache: 'no-store' });
+        up = true;
+    } catch (err) {
+        up = false;
+    } finally {
+        clearTimeout(timer);
+    }
+    lastConnectivityProbe = { at: now, up };
+    return up;
+}
+
+// --------------------------------------------------------------
 // SYSTEM UPDATE CHECK/DEPLOY — ang APP_VERSION dito ay galing sa
 // "version" field ng package.json (i.e., kada may bagong release/tag
 // papunta sa client repo, dapat ding tumaas ang value na 'to). Ang
@@ -1481,8 +1573,16 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
     if (!RELAY_API_KEY) {
         return { ok: false, reason: 'no_api_key', message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
     }
+    // FIX: bago pa man subukan ang buong relayFetch() (hanggang 20s),
+    // mabilisang tsek muna (max ~3s, cached) kung may aktwal na internet
+    // access ang device — para kahit "Online" pa rin ang manual na toggle
+    // pero talagang wala ngang koneksyon, agad na mag-fail-fast dito sa
+    // halip na maghintay pa ng buong Relay timeout.
+    if (!(await isInternetLikelyUp())) {
+        return { ok: false, reason: 'unreachable', message: 'Walang internet connection na na-detect sa device na ito.' };
+    }
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/verify-login`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/verify-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, hardwareFingerprint, username, storeName })
@@ -1509,7 +1609,10 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
             permit: relayData.permit || null
         };
     } catch (err) {
-        return { ok: false, reason: 'unreachable', message: `Hindi maabot ang RELAY (${err.message}).` };
+        const message = err.name === 'AbortError'
+            ? 'Hindi maabot ang RELAY (nag-timeout habang naghihintay ng response).'
+            : `Hindi maabot ang RELAY (${err.message}).`;
+        return { ok: false, reason: 'unreachable', message };
     }
 }
 
@@ -1742,6 +1845,16 @@ async function runRelayBackupSync() {
         relayBackupStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
         return;
     }
+    // FIX: sinusunod din ngayon ang aktwal na internet status (hindi lang
+    // ang manual na toggle) — ito ay tumatakbo AWTOMATIKO 40s pagkatapos
+    // mag-boot ang server (at every 24h), kaya kung walang internet sa
+    // start pa lang ng system (Online pa rin ang toggle), dating
+    // naghihintay ito ng buong relayFetch timeout bago mag-fail.
+    if (!(await isInternetLikelyUp())) {
+        relayBackupStatus.state = 'orange';
+        relayBackupStatus.lastError = 'Walang internet connection na na-detect.';
+        return;
+    }
     relayBackupStatus.lastAttemptAt = Date.now();
 
     const mirrorResult = mirrorBackupToDownloads();
@@ -1769,7 +1882,7 @@ async function runRelayBackupSync() {
         const installationId = getOrCreateInstallationId(data);
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
 
-        const relayRes = await fetch(`${RELAY_URL}/relay/backup-checkin`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/backup-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
@@ -1880,7 +1993,7 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const backupPayload = getCloudBackupPayload();
 
-        const relayRes = await fetch(`${RELAY_URL}/relay/cloud-backup/upload`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
@@ -2001,7 +2114,7 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
         const installationId = getOrCreateInstallationId(featureData);
         const hardwareFingerprint = computeHardwareFingerprint(featureData);
 
-        const relayRes = await fetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, hardwareFingerprint })
@@ -2139,12 +2252,27 @@ function checkShiftManagementUnlocked() {
 // --------------------------------------------------------------
 async function attemptRelayRestore() {
     if (!RELAY_API_KEY) return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
+    // FIX: dating tumatawag pa rin ito sa RELAY kahit naka-Offline mode
+    // ang user (sinusunod na ng ibang Relay functions ang toggle na ito,
+    // pero hindi ito). Dahil tumatakbo ito every 30s (attemptRelayFeatureSync)
+    // regardless, ito yung pinagmulan ng paulit-ulit na "Could not reach
+    // Relay for auto-restore check" habang naka-Offline mode talaga.
+    if (getConnectivityMode() === 'offline') {
+        return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
+    }
+    // FIX: sinusunod din ngayon ang AKTWAL na internet status (hindi lang
+    // ang manual na toggle) — kung "Online" pa rin ang toggle pero
+    // talagang wala ngang internet ngayon, huwag nang subukan ang buong
+    // relayFetch (20s) — mag-skip agad, tulad ng offline mode.
+    if (!(await isInternetLikelyUp())) {
+        return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
+    }
 
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
 
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/restore-tokens`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/restore-tokens`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId })
@@ -2209,7 +2337,7 @@ async function attemptRelayFeatureSync() {
     const restoreResult = await attemptRelayRestore();
     const restoredFeatureIds = restoreResult.restoredFeatureIds || [];
 
-    if (!RELAY_API_KEY) {
+    if (!RELAY_API_KEY || getConnectivityMode() === 'offline' || !(await isInternetLikelyUp())) {
         return { attempted: restoreResult.attempted, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures: [] };
     }
 
@@ -2225,7 +2353,7 @@ async function attemptRelayFeatureSync() {
     }
 
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/check-feature-status`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/check-feature-status`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, featureIds: localFeatureIds })
@@ -2389,7 +2517,7 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
 
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-        const relayRes = await fetch(`${RELAY_URL}/relay/request-unlock`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/request-unlock`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
@@ -2434,7 +2562,7 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
     const installationId = getOrCreateInstallationId(data);
 
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-unlock`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, featureId, otp: String(otp).trim() })
@@ -2481,7 +2609,7 @@ app.post('/api/features/request-demo', requirePermission('relay_unlock_request')
 
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-        const relayRes = await fetch(`${RELAY_URL}/relay/request-demo`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/request-demo`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
@@ -2519,7 +2647,7 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
     const installationId = getOrCreateInstallationId(data);
 
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-demo`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-demo`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, otp: String(otp).trim() })
@@ -2652,7 +2780,7 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
 
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-        const relayRes = await fetch(`${RELAY_URL}/relay/request-unlock-bulk`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/request-unlock-bulk`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
@@ -2696,7 +2824,7 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
     const installationId = getOrCreateInstallationId(data);
 
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-unlock-bulk`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock-bulk`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, featureIds, otp: String(otp).trim() })
@@ -2756,7 +2884,7 @@ app.post('/api/themes/request-unlock', requirePermission('relay_unlock_request')
 
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-        const relayRes = await fetch(`${RELAY_URL}/relay/request-unlock`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/request-unlock`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
@@ -2800,7 +2928,7 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
     const installationId = getOrCreateInstallationId(data);
 
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/confirm-unlock`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock`, {
             method:'POST',
             headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, featureId: themeId, otp: String(otp).trim() })
@@ -2988,7 +3116,9 @@ app.post('/api/roles/delete', requireFeature('rbac_management'), verifyAdmin, (r
     res.json({ success: true, roles });
 });
 
-app.post('/api/auth/login', loginRateLimit(5, 30, 10 * 60 * 1000), async (req, res) => {
+const LOGIN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+
+app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
 
     if (!username || !password) {
@@ -2998,9 +3128,21 @@ app.post('/api/auth/login', loginRateLimit(5, 30, 10 * 60 * 1000), async (req, r
         });
     }
 
+    // Tingnan lang muna kung na-lock na (walang binabago) — para sumagot
+    // agad kung sobra na talaga ang attempts.
+    if (!checkLoginRateLimit(req, res, 5, 30, LOGIN_RATE_LIMIT_WINDOW_MS)) {
+        return; // 429 na ang naipadala na ni checkLoginRateLimit
+    }
+
     // ANTI-CLONE GATE: kailangan munang maka-verify online sa RELAY (unang
     // beses, o kapag nagbago ang hardware fingerprint) bago tuluyang
     // suriin ang username/password.
+    //
+    // FIX: HINDI na natin nire-record dito ang attempt (tingnan sa ibaba)
+    // — kung ito ay bumagsak dahil lang timeout/unreachable ang Relay
+    // (hal. cold-start ng Render, walang internet), hindi ito dapat
+    // kumonsumo ng quota, dahil hindi pa nga natin nasusuri ang
+    // username/password.
     const deviceCheck = await checkDeviceBeforeLogin({ username });
     if (!deviceCheck.allowed) {
         return res.status(403).json({
@@ -3009,6 +3151,10 @@ app.post('/api/auth/login', loginRateLimit(5, 30, 10 * 60 * 1000), async (req, r
             message: deviceCheck.message
         });
     }
+
+    // Pumasa na sa device-check — dito lang natin ire-record ang attempt,
+    // dahil dito na talaga tayo susuri ng totoong username/password.
+    recordLoginAttempt(req, LOGIN_RATE_LIMIT_WINDOW_MS);
 
     let users = readData(FILE_USERS);
 
@@ -3123,6 +3269,13 @@ app.post('/api/products/checkout', (req, res) => {
 });
 
 app.get('/api/products', (req, res) => {
+    // ADAPTIVE POLLING SUPPORT: idinagdag itong header (hindi sinira ang
+    // dating plain-array na response body, dahil sa client, in-array pa
+    // rin ang inaasahan dito) para malaman ng client (Terminal/Inventory
+    // silent stock-poll) kung ilan ang kasalukuyang aktibong session
+    // (terminal) — walang dagdag na network call, "piggyback" lang sa
+    // response na ito na palagi namang tinatawag.
+    res.set('X-Active-Terminals', String(SESSIONS.size));
     res.json(readData(FILE_PRODUCTS));
 });
 
@@ -4099,7 +4252,7 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
         return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-check ng updates.' });
     }
     try {
-        const relayRes = await fetch(`${RELAY_URL}/relay/latest-version`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/latest-version`, {
             headers: {'x-relay-key': RELAY_API_KEY }
         });
         const relayData = await parseRelayResponse(relayRes);
@@ -4231,7 +4384,7 @@ async function runSelfUpdateFromRelay(req, res) {
         fs.mkdirSync(tmpRoot, { recursive: true });
 
         // 1. i-download ang bagong release package mula sa RELAY
-        const relayRes = await fetch(`${RELAY_URL}/relay/release-package`, {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/release-package`, {
             headers: {'x-relay-key': RELAY_API_KEY }
         });
         if (!relayRes.ok) {

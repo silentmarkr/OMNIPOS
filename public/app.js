@@ -3944,16 +3944,61 @@ async function loadTerminalCatalog() {
     }
 }
 
+// ADAPTIVE STOCK-POLL CADENCE
+// --------------------------------------------------------------
+// DATING GAWI: fixed na 1-second setInterval, kahit isa lang ang bukas
+// na terminal at wala namang ibang session na maaaring makipag-agawan sa
+// stock — sayang na load/battery kapag ganito, at ito rin ang pinakamalaki
+// pala na sanhi ng "pabagal" na feel habang nagbi-benta (kada segundo,
+// buong products list + full re-render).
+//
+// NGAYON: self-adjusting ang cadence, walang dagdag na network call
+// (ginagamit lang ang X-Active-Terminals header na piggyback na sa
+// parehong /api/products response na tinatawag na dati):
+//   - MABILIS (1s): kapag MARAMI ang aktibong terminal/session (>1) AT
+//     10 items pababa lang ang laman ng cart (mababang cost i-render pa
+//     rin kahit mabilis) — dito talaga kailangan ng near-real-time para
+//     hindi mag-overselling sa pagitan ng ibang terminal.
+//   - MABAGAL (5s): kapag iisa lang ang bukas na terminal (walang
+//     kakumpitensyang session), o malaki na ang cart (mas mahal nang
+//     i-render kada segundo).
+let lastKnownActiveTerminalCount = 1;
+
+function getAdaptiveStockPollDelayMs() {
+    const manyTerminalsActive = lastKnownActiveTerminalCount > 1;
+    const cartIsSmall = shoppingCart.length <= 10;
+    return (manyTerminalsActive && cartIsSmall) ? 1000 : 5000;
+}
+
+function updateActiveTerminalCountFromResponse(response) {
+    const header = response && response.headers && response.headers.get('X-Active-Terminals');
+    const parsed = parseInt(header, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+        lastKnownActiveTerminalCount = parsed;
+    }
+}
+
 let terminalStockPollTimer = null;
+let terminalStockPollActive = false;
 
 function startTerminalStockPolling() {
     stopTerminalStockPolling();
-    terminalStockPollTimer = setInterval(silentRefreshTerminalStock, 1000);
+    terminalStockPollActive = true;
+    scheduleTerminalStockPoll();
+}
+
+function scheduleTerminalStockPoll() {
+    if (!terminalStockPollActive) return;
+    terminalStockPollTimer = setTimeout(async () => {
+        await silentRefreshTerminalStock();
+        scheduleTerminalStockPoll();
+    }, getAdaptiveStockPollDelayMs());
 }
 
 function stopTerminalStockPolling() {
+    terminalStockPollActive = false;
     if (terminalStockPollTimer) {
-        clearInterval(terminalStockPollTimer);
+        clearTimeout(terminalStockPollTimer);
         terminalStockPollTimer = null;
     }
 }
@@ -3966,6 +4011,7 @@ async function silentRefreshTerminalStock() {
     try {
         const response = await authFetch(`${API_URL}/products`);
         if (!response.ok) return;
+        updateActiveTerminalCountFromResponse(response);
         const freshProducts = await response.json();
         if (!Array.isArray(freshProducts)) return;
         globalProducts = freshProducts;
@@ -3977,15 +4023,26 @@ async function silentRefreshTerminalStock() {
 }
 
 let inventoryStockPollTimer = null;
+let inventoryStockPollActive = false;
 
 function startInventoryStockPolling() {
     stopInventoryStockPolling();
-    inventoryStockPollTimer = setInterval(silentRefreshInventoryStock, 1000);
+    inventoryStockPollActive = true;
+    scheduleInventoryStockPoll();
+}
+
+function scheduleInventoryStockPoll() {
+    if (!inventoryStockPollActive) return;
+    inventoryStockPollTimer = setTimeout(async () => {
+        await silentRefreshInventoryStock();
+        scheduleInventoryStockPoll();
+    }, getAdaptiveStockPollDelayMs());
 }
 
 function stopInventoryStockPolling() {
+    inventoryStockPollActive = false;
     if (inventoryStockPollTimer) {
-        clearInterval(inventoryStockPollTimer);
+        clearTimeout(inventoryStockPollTimer);
         inventoryStockPollTimer = null;
     }
 }
@@ -3998,6 +4055,7 @@ async function silentRefreshInventoryStock() {
     try {
         const res = await authFetch(`${API_URL}/products`);
         if (!res.ok) return;
+        updateActiveTerminalCountFromResponse(res);
         const freshProducts = await res.json();
         if (!Array.isArray(freshProducts)) return;
         cachedInventoryProducts = freshProducts;
