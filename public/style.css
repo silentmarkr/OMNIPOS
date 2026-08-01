@@ -1363,6 +1363,16 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     .top-header.terminal-header-mode .btn-lowstock-bell {
         display: none !important;
     }
+    /* Papalitan ang pwesto: daymode toggle sa KALIWA, wifi pill sa
+       KATAPUSAN (dulo) ng header-right — dahil nawala na ang bell na
+       dating nasa dulo. Flex "order" lang ito (walang binabago sa
+       HTML/JS), 0 ang default order ng lahat ng hindi tinukoy dito. */
+    .top-header.terminal-header-mode #terminal-daymode-btn {
+        order: 1;
+    }
+    .top-header.terminal-header-mode #connectivity-mode-btn {
+        order: 2;
+    }
 }
 
 .top-header.terminal-header-mode .terminal-brand-header {
@@ -4065,13 +4075,13 @@ body.dark-mode .avatar-photo-box {
     color: #d97706;
 }
 body.dark-mode .connectivity-mode-pill[data-mode="online"] {
-    color: #4ade80;
+    color: #4ade80 !important;
 }
 body.dark-mode .connectivity-mode-pill[data-mode="offline"] {
-    color: #94a3b8;
+    color: #94a3b8 !important;
 }
 body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
-    color: #fbbf24;
+    color: #fbbf24 !important;
 }
 
 /* Payment system view modal specific formatting elements grid mapping blueprint profile screenshot 5 */
