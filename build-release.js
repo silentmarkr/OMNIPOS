@@ -1,36 +1,57 @@
 /**
  * build-release.js
  *
- * Gumagawa ng "release" copy ng OMNIPOS na naka-obfuscate ang lahat ng
- * sariling JavaScript files (server-side at client-side), para hindi
- * basta-basta mabasa ng customer/client ang loob ng code kung buksan nila
- * ang files gamit ang text editor.
+ * Produces a "release" copy of OMNIPOS with all first-party JavaScript
+ * (server-side and client-side) obfuscated, so a customer/client can't
+ * casually read the source if they open the files in a text editor.
  *
- * Paggamit:
- *   npm install            (isang beses lang, para makuha ang javascript-obfuscator)
+ * Usage:
+ *   npm install            (once, to pull in javascript-obfuscator)
  *   npm run build:release
  *
- * Output: /release/OMNIPOS  <-- ito na ang ipapadala/i-deploy sa customer.
+ * Output: /release/OMNIPOS  <-- this is what gets shipped/deployed to
+ * the customer.
  *
- * MAHALAGA:
- * - Ang .env, database/, database/backups/, uploads_tmp/, .git/, at mga
- *   *.log ay HINDI kasama sa release build (secrets/data ng negosyo, hindi
- *   dapat ipamahagi).
- * - Ang mga third-party libraries (fontawesome, sweetalert2, html5-qrcode,
- *   JsBarcode) ay HINDI na kailangang i-obfuscate ulit dahil minified na
- *   at hawak ng kani-kanilang lisensya; kokopyahin lang sila as-is.
- * - Ang node_modules ay hindi kasama; magpapatakbo ang customer ng
- *   `npm install --omit=dev` sa loob ng release folder bago i-start.
+ * IMPORTANT:
+ * - .env, database/, database/backups/, uploads_tmp/, .git/, and *.log
+ *   files are NOT included in the release build (business secrets/data
+ *   that should never be shipped).
+ * - Third-party libraries (fontawesome, sweetalert2, html5-qrcode,
+ *   JsBarcode) are NOT re-obfuscated since they're already minified and
+ *   covered by their own licenses; they're copied as-is.
+ * - node_modules is not included; the customer runs
+ *   `npm install --omit=dev` inside the release folder before starting.
+ *
+ * PERFORMANCE NOTES (why this used to be slow, and what changed):
+ * - The two largest first-party files (server.js and public/app.js) are
+ *   several hundred KB each. javascript-obfuscator's `controlFlowFlattening`
+ *   and `deadCodeInjection` passes do NOT scale linearly with file size —
+ *   doubling the file size roughly quadruples the time they take. Running
+ *   them at the same threshold (0.4 / 0.15) on a 250-450KB file as on a
+ *   10KB file is what made the build crawl.
+ * - `selfDefending` also compounds this cost, since the self-defending
+ *   wrapper code itself gets run back through control-flow flattening.
+ * - All files were obfuscated serially, one after another, even though
+ *   they're fully independent of each other and could run in parallel.
+ * - Fix applied below: (1) scale thresholds down for large files — this
+ *   keeps meaningful protection (identifier renaming, string array
+ *   encoding, dead code, self-defending all stay on) while avoiding the
+ *   worst-case blow-up from control-flow flattening on big files, and
+ *   (2) obfuscate independent files in parallel across worker threads
+ *   instead of one at a time on the main thread.
  */
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
+const os = require("os");
+const { Worker } = require("worker_threads");
 const JavaScriptObfuscator = require("javascript-obfuscator");
 
 const ROOT = __dirname;
 const OUT_DIR = path.join(ROOT, "release", "OMNIPOS");
 
-// Mga folder/file na hindi isasama sa release build.
+// Folders/files that are never included in the release build.
 const EXCLUDE = new Set([
   "node_modules",
   ".git",
@@ -43,7 +64,7 @@ const EXCLUDE = new Set([
   ".gitignore",
 ]);
 
-// Sariling source code na i-obfuscate (server-side).
+// First-party source to obfuscate (server-side).
 const SERVER_TARGETS = new Set([
   "server.js",
   "db.js",
@@ -51,13 +72,13 @@ const SERVER_TARGETS = new Set([
   "_fix_project.js",
 ]);
 
-// Ang env-loader.js ay kailangan ng special handling (hindi basta-basta
-// obfuscateFile lang) dahil kailangan munang ipasok ang tunay na
-// encryption key bago ito i-obfuscate. Tignan ang encryptEnvAndLoader().
+// env-loader.js needs special handling (not a plain obfuscateFile call)
+// because the real encryption key must be injected before it's
+// obfuscated. See encryptEnvAndPatchLoader().
 const ENV_LOADER_FILENAME = "env-loader.js";
 const ENV_FILENAME = ".env";
 
-// Sariling source code na i-obfuscate (client-side, papunta sa browser).
+// First-party source to obfuscate (client-side, shipped to the browser).
 const CLIENT_TARGETS = new Set([
   path.join("public", "app.js"),
   path.join("public", "bt-printer.js"),
@@ -66,14 +87,22 @@ const CLIENT_TARGETS = new Set([
   path.join("public", "service-worker.js"),
 ]);
 
-// Mga third-party na hindi na dapat galawin, kokopyahin lang.
+// Third-party JS that must not be touched, just copied.
 const THIRD_PARTY_JS = new Set([
   path.join("public", "JsBarcode.all.min.js"),
   path.join("public", "html5-qrcode.min.js"),
   path.join("public", "sweetalert2.all.min.js"),
 ]);
 
-const serverObfOptions = {
+// Any first-party file at or above this size gets the "large file"
+// threshold scaling below instead of the default thresholds. This is
+// the main lever that fixes the slow-build problem: control-flow
+// flattening and dead-code injection cost grow much faster than
+// linearly with file size, so big files need a lower threshold to
+// finish in a reasonable amount of time.
+const LARGE_FILE_BYTES = 100 * 1024; // 100KB
+
+const baseServerObfOptions = {
   compact: true,
   target: "node",
   controlFlowFlattening: true,
@@ -96,27 +125,38 @@ const serverObfOptions = {
   unicodeEscapeSequence: false,
 };
 
-const clientObfOptions = {
-  ...serverObfOptions,
+const baseClientObfOptions = {
+  ...baseServerObfOptions,
   target: "browser",
-  // Mas magaan sa control-flow para hindi mabagal ang UI sa mga
-  // mahihinang device/tablet na ginagamit sa counter.
+  // Lighter control-flow so low-end counter tablets don't lag.
   controlFlowFlatteningThreshold: 0.3,
   deadCodeInjectionThreshold: 0.1,
   selfDefending: true,
   debugProtection: false,
 };
 
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
+// Large-file variants: same protections turned on, much lower
+// flattening/dead-code thresholds so build time stays reasonable.
+// This is the fix for the "deploy takes forever" problem.
+const largeServerObfOptions = {
+  ...baseServerObfOptions,
+  controlFlowFlatteningThreshold: 0.1,
+  deadCodeInjectionThreshold: 0.04,
+};
+const largeClientObfOptions = {
+  ...baseClientObfOptions,
+  controlFlowFlatteningThreshold: 0.08,
+  deadCodeInjectionThreshold: 0.03,
+};
+
+function pickObfOptions(srcPath, isClient) {
+  const isLarge = fs.statSync(srcPath).size >= LARGE_FILE_BYTES;
+  if (isClient) return isLarge ? largeClientObfOptions : baseClientObfOptions;
+  return isLarge ? largeServerObfOptions : baseServerObfOptions;
 }
 
-function obfuscateFile(srcPath, destPath, options) {
-  const code = fs.readFileSync(srcPath, "utf8");
-  const result = JavaScriptObfuscator.obfuscate(code, options);
-  ensureDir(path.dirname(destPath));
-  fs.writeFileSync(destPath, result.getObfuscatedCode(), "utf8");
-  console.log(`  [obfuscated] ${path.relative(ROOT, srcPath)}`);
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
 }
 
 function copyFile(srcPath, destPath) {
@@ -124,17 +164,40 @@ function copyFile(srcPath, destPath) {
   fs.copyFileSync(srcPath, destPath);
 }
 
+// Runs javascript-obfuscator inside a worker thread so multiple files
+// can be obfuscated at the same time instead of blocking the main
+// thread one file at a time.
+function obfuscateInWorker(srcPath, destPath, options) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, "obfuscate-worker.js"), {
+      workerData: { srcPath, destPath, options },
+    });
+    worker.on("message", (msg) => {
+      if (msg.ok) {
+        console.log(`  [obfuscated] ${path.relative(ROOT, srcPath)}`);
+        resolve();
+      } else {
+        reject(new Error(msg.error));
+      }
+    });
+    worker.on("error", reject);
+    worker.on("exit", (code) => {
+      if (code !== 0) reject(new Error(`Worker for ${srcPath} exited with code ${code}`));
+    });
+  });
+}
+
 /**
- * Kinukuha ang plaintext .env (source), gumagawa ng random AES-256 key,
- * ini-encrypt ang buong content, at:
- *   1. isusulat ang ciphertext bilang bagong ".env" sa release build
- *      (JSON: { iv, tag, data } — walang readable KEY=VALUE dito).
- *   2. ipapasok ang key (hex) sa env-loader.js bago ito i-obfuscate,
- *      para sa runtime, ang release build lang ang may kakayahang
- *      i-decrypt ang .env nito.
+ * Reads the plaintext .env (source), generates a random AES-256 key,
+ * encrypts the whole content, and:
+ *   1. writes the ciphertext as the new ".env" in the release build
+ *      (JSON: { iv, tag, data } — no readable KEY=VALUE lines here).
+ *   2. injects the key (hex) into env-loader.js before obfuscating it,
+ *      so at runtime only the matching release build can decrypt its
+ *      own .env.
  *
- * Kung walang nakitang .env sa source (halimbawa hindi pa naisetup ng
- * user), silently skip lang — hindi ito required para tumakbo ang build.
+ * If no .env is found in the source (e.g. not set up yet), this is a
+ * silent no-op — it's not required for the build to run.
  */
 function encryptEnvAndPatchLoader() {
   const envSrcPath = path.join(ROOT, ENV_FILENAME);
@@ -142,9 +205,9 @@ function encryptEnvAndPatchLoader() {
 
   if (!fs.existsSync(envSrcPath) || !fs.existsSync(loaderSrcPath)) {
     console.warn(
-      `  [skip] Walang ${ENV_FILENAME} at/o ${ENV_LOADER_FILENAME} sa root — hindi ien-encrypt ang env config.`
+      `  [skip] No ${ENV_FILENAME} and/or ${ENV_LOADER_FILENAME} at root — env config will not be encrypted.`
     );
-    return;
+    return Promise.resolve();
   }
 
   const plaintext = fs.readFileSync(envSrcPath, "utf8");
@@ -171,57 +234,88 @@ function encryptEnvAndPatchLoader() {
     .replace("__ENV_KEY_HEX__", key.toString("hex"));
 
   const destLoaderPath = path.join(OUT_DIR, ENV_LOADER_FILENAME);
-  const obfuscated = JavaScriptObfuscator.obfuscate(loaderCode, serverObfOptions);
   ensureDir(path.dirname(destLoaderPath));
-  fs.writeFileSync(destLoaderPath, obfuscated.getObfuscatedCode(), "utf8");
-  console.log(`  [obfuscated] ${ENV_LOADER_FILENAME}  (may naka-embed na encryption key)`);
+  fs.writeFileSync(destLoaderPath, loaderCode, "utf8");
+  return obfuscateInWorker(destLoaderPath, destLoaderPath, baseServerObfOptions).then(() => {
+    console.log(`  [obfuscated] ${ENV_LOADER_FILENAME}  (has the embedded encryption key)`);
+  });
 }
 
-function walk(dir, baseRel = "") {
+// Walks the source tree and returns a flat plan of what to do with each
+// file, instead of obfuscating inline — this lets us run all the
+// obfuscation jobs concurrently afterwards.
+function planTree(dir, baseRel, plan) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     const rel = path.join(baseRel, entry.name);
     const full = path.join(dir, entry.name);
 
     if (EXCLUDE.has(entry.name)) continue;
-
-    // Ang .env at env-loader.js ay hawak na ng encryptEnvAndPatchLoader().
+    // .env and env-loader.js are handled by encryptEnvAndPatchLoader().
     if (rel === ENV_FILENAME || rel === ENV_LOADER_FILENAME) continue;
 
     if (entry.isDirectory()) {
-      walk(full, rel);
+      planTree(full, rel, plan);
       continue;
     }
 
-    // Patches (.patch) at ibang non-runtime files: kopyahin na lang,
-    // hindi naman ito tumatakbo sa production.
     const destPath = path.join(OUT_DIR, rel);
-
     if (SERVER_TARGETS.has(rel)) {
-      obfuscateFile(full, destPath, serverObfOptions);
+      plan.obfuscate.push({ srcPath: full, destPath, isClient: false });
     } else if (CLIENT_TARGETS.has(rel)) {
-      obfuscateFile(full, destPath, clientObfOptions);
+      plan.obfuscate.push({ srcPath: full, destPath, isClient: true });
     } else {
-      copyFile(full, destPath);
+      plan.copy.push({ srcPath: full, destPath });
     }
   }
+  return plan;
 }
 
-function main() {
+async function runPool(jobs, worker, concurrency) {
+  const queue = jobs.slice();
+  const runners = new Array(concurrency).fill(null).map(async () => {
+    while (queue.length) {
+      const job = queue.shift();
+      await worker(job);
+    }
+  });
+  await Promise.all(runners);
+}
+
+async function main() {
   if (fs.existsSync(OUT_DIR)) {
     fs.rmSync(OUT_DIR, { recursive: true, force: true });
   }
   ensureDir(OUT_DIR);
 
   console.log("Building obfuscated release build...");
-  encryptEnvAndPatchLoader();
-  walk(ROOT);
+  const started = Date.now();
 
-  console.log("\nTapos na. Nasa /release/OMNIPOS na ang release build.");
+  await encryptEnvAndPatchLoader();
+
+  const plan = planTree(ROOT, "", { obfuscate: [], copy: [] });
+
+  for (const { srcPath, destPath } of plan.copy) copyFile(srcPath, destPath);
+
+  // Obfuscate independent files concurrently. Concurrency is capped at
+  // the number of CPU cores since this is CPU-bound work.
+  const concurrency = Math.max(1, Math.min(os.cpus().length, plan.obfuscate.length));
+  await runPool(
+    plan.obfuscate,
+    ({ srcPath, destPath, isClient }) =>
+      obfuscateInWorker(srcPath, destPath, pickObfOptions(srcPath, isClient)),
+    concurrency
+  );
+
+  const elapsedSec = ((Date.now() - started) / 1000).toFixed(1);
+  console.log(`\nDone in ${elapsedSec}s. Release build is in /release/OMNIPOS.`);
   console.log(
-    "Sunod na hakbang: pumunta sa release/OMNIPOS, patakbuhin ang " +
-      "`npm install --omit=dev`, at i-deploy/i-zip ito papunta sa customer."
+    "Next step: go to release/OMNIPOS, run `npm install --omit=dev`, " +
+      "then deploy/zip it for the customer."
   );
 }
 
-main();
+main().catch((err) => {
+  console.error("Build failed:", err);
+  process.exit(1);
+});
