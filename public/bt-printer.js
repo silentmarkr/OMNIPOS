@@ -88,28 +88,15 @@ function updateBtPrinterStatusUI() {
 function showBtPrintButtons() {
     const b1 = document.getElementById('receipt-bt-print-btn');
     const b2 = document.getElementById('receipt-preview-bt-print-btn');
-    // BAGO: BT Print button ng Barcode Generator sheet — dating wala
-    // nito, kaya nagmumukhang "hindi gumagana" ang pag-print ng barcode
-    // sa mga device/Termux/WebView na walang suportadong window.print()
-    // (walang naka-install na print service), samantalang gumagana
-    // pa rin ang resibo dahil MERON itong parehong BT fallback na ito.
-    const b3 = document.getElementById('barcode-bt-print-btn');
-    const b4 = document.getElementById('barcode-header-bt-print-btn');
     if (b1) b1.style.display = 'inline-block';
     if (b2) b2.style.display = 'inline-block';
-    if (b3) b3.style.display = 'inline-block';
-    if (b4) b4.style.display = 'flex';
 }
 
 function hideBtPrintButtons() {
     const b1 = document.getElementById('receipt-bt-print-btn');
     const b2 = document.getElementById('receipt-preview-bt-print-btn');
-    const b3 = document.getElementById('barcode-bt-print-btn');
-    const b4 = document.getElementById('barcode-header-bt-print-btn');
     if (b1) b1.style.display = 'none';
     if (b2) b2.style.display = 'none';
-    if (b3) b3.style.display = 'none';
-    if (b4) b4.style.display = 'none';
 }
 
 async function pairBluetoothPrinter() {
@@ -218,52 +205,6 @@ function buildEscPosReceiptBytes(data, charWidth) {
     return new Uint8Array(bytes);
 }
 
-// ---- ESC/POS BARCODE LABEL SHEET (Barcode Generator > Print Selected) ----
-// Ginagamit ang standard na "GS k" barcode command (function B, m=73/0x49
-// para sa CODE128) na sinusuportahan ng halos lahat ng generic 58mm/80mm
-// BLE thermal printer — kaparehong printer/koneksyon na ginagamit na ng
-// resibo sa itaas. Bawat produktong pinili ay naka-print bilang: pangalan
-// (naka-bold, naka-center) + barcode (na may HRI/human-readable text sa
-// ilalim nito) + maliit na puwang, paulit-ulit ayon sa hiniling na
-// quantity bawat produkto.
-function buildEscPosBarcodeSheetBytes(items, charWidth) {
-    const ESC = 0x1b, GS = 0x1d;
-    const bytes = [];
-    const pushText = (str) => {
-        const encoded = new TextEncoder().encode(escposText(str));
-        for (const b of encoded) bytes.push(b);
-    };
-    const nl = () => bytes.push(0x0a);
-
-    bytes.push(ESC, 0x40); // init
-    bytes.push(GS, 0x48, 0x02); // GS H 2 -> ipakita ang HRI text SA IBABA ng barcode
-    bytes.push(GS, 0x66, 0x00); // GS f 0 -> default HRI font
-    bytes.push(GS, 0x68, 0x50); // GS h 80 -> taas ng barcode (80 dots)
-    bytes.push(GS, 0x77, 0x02); // GS w 2 -> lapad ng bawat "module" ng barcode
-
-    (items || []).forEach((item) => {
-        const qty = Math.max(1, parseInt(item.qty, 10) || 1);
-        const code = String(item.code || '');
-        // CODE128 subset B: prefixed ng "{B" gaya ng inaasahan ng function-B
-        // barcode command para sa mga karakter na wala sa numeric-only subset C.
-        const payload = '{B' + code;
-
-        for (let i = 0; i < qty; i++) {
-            bytes.push(ESC, 0x61, 0x01); // center align
-            bytes.push(ESC, 0x45, 0x01); // bold on
-            pushText((item.name || code).slice(0, charWidth)); nl();
-            bytes.push(ESC, 0x45, 0x00); // bold off
-
-            bytes.push(GS, 0x6b, 0x49, payload.length); // GS k 73 n
-            pushText(payload);
-            nl(); nl();
-        }
-    });
-
-    bytes.push(GS, 0x56, 0x00); // full cut (walang epekto sa printers na walang cutter)
-    return new Uint8Array(bytes);
-}
-
 function collectReceiptDataFromDom(prefix) {
     const getText = (id) => {
         const el = document.getElementById(id);
@@ -367,55 +308,6 @@ async function printReceiptViaBluetooth(prefix) {
         if (typeof playScanBeep === 'function') playScanBeep();
     } catch (err) {
         console.error('[BT Printer] Print failed:', err);
-        Swal.fire('Print Error', `Hindi na-print: ${err.message || err}`, 'error');
-    }
-}
-
-// Tinatawag mula sa Barcode Generator "Print Selected" preview modal.
-// Umaasa ito sa `window.__lastBarcodePrintBatch` (in-memory lang, itinatakda
-// ng generateSelectedBarcodePreview() sa app.js kasabay ng bawat pag-generate
-// ng preview) — ito ang listahan ng { code, name, qty } ng mga huling
-// napiling item, kaya walang kailangang i-scrape ulit sa DOM/SVG.
-async function printBarcodeSheetViaBluetooth() {
-    if (!isWebBluetoothSupported()) {
-        Swal.fire('Hindi Supported', 'Hindi supported ng browser/device na ito ang Web Bluetooth.', 'error');
-        return;
-    }
-
-    const items = (typeof window !== 'undefined' && window.__lastBarcodePrintBatch) || [];
-    if (!items.length) {
-        Swal.fire('Walang Napili', 'Pumili muna ng item at i-generate ang Print Preview bago mag-BT print.', 'info');
-        return;
-    }
-
-    const connected = await ensureBtPrinterConnected();
-    if (!connected) {
-        const result = await Swal.fire({
-            icon: 'info',
-            title: 'Kailangan Munang I-pair',
-            text: 'Walang aktibong koneksyon sa Bluetooth printer. I-pair muna ito ngayon?',
-            showCancelButton: true,
-            confirmButtonText: 'I-pair Ngayon',
-            cancelButtonText: 'Kanselahin'
-        });
-        if (result.isConfirmed) {
-            await pairBluetoothPrinter();
-            if (!btPrinterCharacteristic) return;
-        } else {
-            return;
-        }
-    }
-
-    const paperSize = (typeof receiptSettingsCache !== 'undefined' && receiptSettingsCache && receiptSettingsCache.paperSize) || '58mm';
-    const charWidth = paperSize === '80mm' ? 46 : 32;
-
-    const bytes = buildEscPosBarcodeSheetBytes(items, charWidth);
-
-    try {
-        await writeBytesInChunks(btPrinterCharacteristic, bytes);
-        if (typeof playScanBeep === 'function') playScanBeep();
-    } catch (err) {
-        console.error('[BT Printer] Barcode print failed:', err);
         Swal.fire('Print Error', `Hindi na-print: ${err.message || err}`, 'error');
     }
 }

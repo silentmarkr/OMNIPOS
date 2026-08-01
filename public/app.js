@@ -6691,29 +6691,10 @@ async function generateSelectedBarcodePreview() {
     const sheetContainer = document.getElementById('barcode-sheet-print-container');
     sheetContainer.innerHTML ='';
 
-    // BAGO: itago ang huling na-generate na batch ({code, name, qty} bawat
-    // piniling produkto) para magamit ng Bluetooth thermal printer path
-    // (printBarcodeSheetViaBluetooth sa bt-printer.js) — kailangan ito dahil
-    // ang window.print() lang (system print dialog) ang dating tanging paraan
-    // para mag-print ng barcode sheet, at hindi ito gumagana sa mga device/
-    // WebView na walang naka-install na print service (hal. ilang Termux/
-    // Android WebView setup) — kaya "hindi gumagana" ang print button doon
-    // kahit tama na ang laman ng preview. May BT fallback naman na ang resibo
-    // dati (printReceiptViaBluetooth), pero wala pang katulad nito ang barcode.
-    window.__lastBarcodePrintBatch = [];
-    if (typeof showBtPrintButtons === 'function' && typeof hideBtPrintButtons === 'function') {
-        if (typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic) {
-            showBtPrintButtons();
-        } else {
-            hideBtPrintButtons();
-        }
-    }
-
     checkboxes.forEach((cb) => {
         const code = cb.getAttribute('data-code');
         const name = cb.getAttribute('data-name');
         const printQty = parseInt(document.getElementById(`bar-qty-${code}`).value) || 1;
-        window.__lastBarcodePrintBatch.push({ code, name, qty: printQty });
 
         for(let loop = 0; loop < printQty; loop++) {
             const cellUnit = document.createElement('div');
