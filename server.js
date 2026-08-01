@@ -1925,6 +1925,124 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
     }
 });
 
+// ====================================================================
+// CLOUD BACKUP — SELF-SERVICE RESTORE (Postgres via RELAY)
+// ====================================================================
+// Tinatawag ito ng "Restore from Cloud" button sa Reset & Restore
+// panel. Kailangan ng Admin password (gaya ng /api/restore-backup)
+// dahil mapanganib na aksyon ito — papatayin ang kasalukuyang laman ng
+// bawat na-restore na module.
+//
+// MAHALAGANG PALIWANAG (users module): tinanggal ang "password" field
+// bago umakyat ang "users" module papunta sa cloud (tingnan ang
+// stripRedactedFields() sa db.js). Kaya kapag bumaba ito papunta rito,
+// WALANG password ang bawat record. Kung direktang isusulat ito,
+// mawawalan ng magagamit na password ang lahat ng account — hindi
+// makaka-login ang kahit sino. Para maiwasan ito:
+//   - Kung may kaparehong username sa KASALUKUYANG (bago pa i-restore)
+//     listahan ng users, ipapasok ang KASALUKUYANG password hash nito
+//     sa na-restore na record (ibig sabihin, hindi nagbabago ang
+//     password ng mga existing account).
+//   - Kung WALANG kaparehong username (bagong account mula sa backup,
+//     hal. na-delete na sa kasalukuyan pero narestore mula sa cloud),
+//     bibigyan ito ng RANDOM na temporary password at ida-DISABLE
+//     (kung sino man ang gustong gumamit nito, kailangan munang i-reset
+//     ng Admin ang password sa User Management).
+// ====================================================================
+function mergeRestoredUsers(restoredUsers) {
+    const currentUsers = readData(FILE_USERS, []);
+    const currentByUsername = new Map(
+        currentUsers.map(u => [String(u.username || '').toLowerCase(), u])
+    );
+    const accountsNeedingPasswordReset = [];
+
+    const merged = restoredUsers.map(record => {
+        const clone = { ...record };
+        const key = String(clone.username || '').toLowerCase();
+        const existing = currentByUsername.get(key);
+        if (existing && existing.password) {
+            clone.password = existing.password; // panatilihin ang KASALUKUYANG password
+        } else {
+            // Walang kaparehong existing account — walang ligtas na password
+            // na maipapasok, kaya random temporary password na lang, at
+            // i-flag para malaman ng Admin na kailangan itong i-reset.
+            clone.password = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
+            accountsNeedingPasswordReset.push(clone.username);
+        }
+        return clone;
+    });
+
+    return { merged, accountsNeedingPasswordReset };
+}
+
+app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit('cloud-backup-restore', 5, 15 * 60 * 1000), async (req, res) => {
+    const { username, password } = req.body;
+
+    // Parehong admin-auth pattern gaya ng /api/restore-backup — kailangan
+    // ng Admin password dahil overwrite ito ng kasalukuyang data.
+    const currentUsers = readData(FILE_USERS, []);
+    const currentAdmin = currentUsers.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
+    if (!currentAdmin || !bcrypt.compareSync(password || '', currentAdmin.password)) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Maling Admin password. Hindi pinahintulutan ang pag-restore.' });
+    }
+
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-tap muna ang Online toggle para makapag-restore mula sa cloud.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'Walang RELAY_API_KEY na naka-configure sa .env.' });
+    }
+
+    try {
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const hardwareFingerprint = computeHardwareFingerprint(featureData);
+
+        const relayRes = await fetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, hardwareFingerprint })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (relayRes.status === 402 || relayData.featureLocked) {
+            return res.status(402).json(relayData);
+        }
+        if (!relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'Tinanggihan ng RELAY ang cloud backup restore.' });
+        }
+
+        const modules = relayData.modules || {};
+        let restoredCount = 0;
+        const accountsNeedingPasswordReset = [];
+
+        for (const [moduleName, data] of Object.entries(modules)) {
+            if (moduleName === 'users' && Array.isArray(data)) {
+                const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
+                writeData(moduleName, merged);
+                accountsNeedingPasswordReset.push(...needReset);
+                restoredCount++;
+            } else if (Array.isArray(data) || (data && typeof data === 'object')) {
+                writeData(moduleName, data);
+                restoredCount++;
+            }
+        }
+
+        logAction(username, `Nag-restore mula sa Cloud Backup (${restoredCount} modules, ${Object.keys(modules).length} kabuuan na-download mula sa RELAY).`);
+
+        res.json({
+            success: true,
+            message: `Matagumpay na na-restore ang ${restoredCount} module(s) mula sa Cloud Backup.`,
+            restoredCount,
+            moduleNames: Object.keys(modules),
+            accountsNeedingPasswordReset // ipaalam sa UI kung sinong accounts kailangang i-reset ang password
+        });
+    } catch (err) {
+        console.error('⚠️ CLOUD_BACKUP: hindi na-abot ang relay para sa restore:', err.message);
+        res.status(502).json({ success: false, message: 'Hindi ma-abot ang RELAY para sa cloud backup restore.' });
+    }
+});
+
 function isDemoActive() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);

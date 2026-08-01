@@ -1130,7 +1130,7 @@
             <i class="fa-solid fa-cloud"></i> Cloud Backup
         </h3>
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
-            I-sync ang buong database (lahat ng modules — maliban sa user accounts) papunta sa secure na online storage.
+            I-sync ang buong database (lahat ng modules, kasama ang user accounts maliban sa password) papunta sa secure na online storage.
             Premium feature ito — kailangan munang i-unlock bago ito magamit.
         </p>
         <div id="cloud-backup-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
@@ -1138,6 +1138,9 @@
         </div>
         <button id="cloud-backup-sync-btn" onclick="runCloudBackupSync()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-up"></i> Cloud Backup Now
+        </button>
+        <button id="cloud-backup-restore-btn" onclick="runCloudBackupRestore()" style="width: 100%; padding: 12px; margin-top: 10px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Restore from Cloud
         </button>
     </div>
 

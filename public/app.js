@@ -7689,6 +7689,8 @@ async function deploySystemUpdate() {
     });
     if (!confirmResult.isConfirmed) return;
 
+    const targetVersion = lastCheckedUpdateInfo.latestVersion;
+
     Swal.fire({
         title: 'Dine-deploy ang Update...',
         text: 'Sinisimulan na ang bagong deploy sa Render.',
@@ -7699,18 +7701,82 @@ async function deploySystemUpdate() {
     try {
         const response = await authFetch(`${API_URL}/system/deploy-update`, { method: 'POST' });
         const result = await response.json();
-        if (result.success) {
-            Swal.fire({
-                icon: 'success',
-                title: 'Na-trigger na ang Deploy',
-                text: result.message,
-            });
-        } else {
+        if (!result.success) {
             Swal.fire('Hindi Nagawa', result.message || 'Hindi ma-trigger ang deploy.', 'error');
+            return;
         }
+
+        // BUG FIX: dati, dito lang nagtatapos ang function pagkatapos ng
+        // "Na-trigger na ang Deploy" toast — kaya kahit matagumpay na
+        // ma-deploy/ma-restart ang server sa BAGONG version, walang
+        // awtomatikong nagpapakita ng confirmation na "Up to date na ang
+        // system" pagkatapos. Ngayon, mag-po-poll tayo sa update-check
+        // endpoint (paulit-ulit, may allowance sa mga temporary connection
+        // error habang nagre-restart/nagre-redeploy ang server) hanggang
+        // makumpirma na LIVE na ang bagong version — saka lang ipapakita
+        // ang tunay na "up to date" na confirmation.
+        pollForDeployCompletion(targetVersion, result.message);
     } catch (error) {
         Swal.fire('Network Error', 'Hindi makonekta sa server backend.', 'error');
     }
+}
+
+const DEPLOY_POLL_INTERVAL_MS = 5000;
+// Sakop parehong Termux self-update (mabilis lang, ilang segundo) at
+// Render redeploy (maaaring umabot ng ilang minuto) bago mag-timeout.
+const DEPLOY_POLL_TIMEOUT_MS = 6 * 60 * 1000;
+
+async function pollForDeployCompletion(targetVersion, triggerMessage) {
+    const statusEl = document.getElementById('system-update-status');
+    const startedAt = Date.now();
+
+    Swal.fire({
+        title: 'Naghihintay ng Bagong Version...',
+        html: (triggerMessage || 'Na-trigger na ang deploy.') + '<br><br>Awtomatikong ipapakita rito ang kumpirmasyon kapag kumpleto na ang update — huwag nang isara ang tab na ito.',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    const poll = async () => {
+        try {
+            const response = await authFetch(`${API_URL}/system/update-check`);
+            const result = await response.json();
+            // Tapos na ang deploy kapag: matagumpay ang check, WALA nang
+            // updateAvailable, at (kung meron tayong target version mula
+            // sa huling "Check for Updates") tumutugma na rin ito —
+            // iniiwasan ang false positive kung sakaling naka-cache pa
+            // ang lumang response habang nagre-restart pa lang ang server.
+            if (result.success && !result.updateAvailable && (!targetVersion || result.currentVersion === targetVersion)) {
+                lastCheckedUpdateInfo = result;
+                if (statusEl) {
+                    statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> Up to date na ang system (v${result.currentVersion}).`;
+                }
+                const deployBtn = document.getElementById('system-update-deploy-btn');
+                if (deployBtn) deployBtn.style.display = 'none';
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Na-deploy na!',
+                    text: `Up to date na ang system (v${result.currentVersion}).`
+                });
+                return;
+            }
+        } catch (err) {
+            // Normal ito habang nagre-restart ang server (self-update) o
+            // habang nagre-redeploy pa (Render) — subukan na lang ulit.
+        }
+
+        if (Date.now() - startedAt >= DEPLOY_POLL_TIMEOUT_MS) {
+            Swal.fire({
+                icon: 'info',
+                title: 'Tumatagal nang kaunti...',
+                text: 'Maaaring tumatagal pa ang deploy/restart. Pindutin ulit ang "Check for Updates" mamaya para kumpirmahin.'
+            });
+            return;
+        }
+        setTimeout(poll, DEPLOY_POLL_INTERVAL_MS);
+    };
+
+    setTimeout(poll, DEPLOY_POLL_INTERVAL_MS);
 }
 
 async function syncFeaturesFromRelay() {
@@ -7797,6 +7863,87 @@ async function runCloudBackupSync() {
                 statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Nabigo ang cloud backup.'}`;
             }
             Swal.fire('Failed', result.message || 'Nabigo ang cloud backup.', 'error');
+        }
+    } catch (error) {
+        if (statusBox) {
+            statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Hindi ma-abot ang server.';
+        }
+        Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+    }
+}
+
+// Tinatawag ng "Restore from Cloud" button sa Reset & Restore panel.
+// SELF-SERVICE na version ng cloud backup restore — hinihila ng
+// installation MISMO ang sarili nitong huling na-sync na cloud backup
+// (walang kailangang kontakin ang developer/admin panel). Kailangan pa
+// rin ng Admin password dito dahil OVERWRITE ito ng kasalukuyang data.
+async function runCloudBackupRestore() {
+    if (blockIfOffline('Cloud Backup Restore')) return;
+
+    const confirmResult = await Swal.fire({
+        title: 'Restore from Cloud?',
+        html: 'Papalitan nito ang KASALUKUYANG data ng bawat module na naka-imbak sa iyong huling Cloud Backup.<br><br><strong>Hindi na maibabalik ito</strong> pagkatapos i-confirm. Ipasok ang Admin Password para magpatuloy:',
+        input: 'password',
+        inputPlaceholder: 'Admin Passphrase',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Verify and Restore'
+    });
+
+    const adminPassword = confirmResult.value;
+    if (!adminPassword) return;
+
+    const loggedInUser = currentUser ? currentUser.username : 'admin';
+    const statusBox = document.getElementById('cloud-backup-status');
+    const btn = document.getElementById('cloud-backup-restore-btn');
+
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'not-allowed'; }
+    if (statusBox) {
+        statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Kinukuha ang cloud backup at ino-restore&hellip;';
+    }
+
+    try {
+        const response = await authFetch(`${API_URL}/cloud-backup/restore`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: loggedInUser, password: adminPassword })
+        });
+        const result = await response.json();
+
+        if (response.status === 402) {
+            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> Naka-lock pa ang Cloud Backup feature.';
+            return;
+        }
+        if (response.status === 403 && result.code === 'WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Access Denied', result.message || 'Maling Admin password.', 'error');
+            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Maling Admin password.';
+            return;
+        }
+
+        if (result.success) {
+            if (statusBox) {
+                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Na-restore (${result.restoredCount ?? '—'} modules) — ${new Date().toLocaleString()}`;
+            }
+            let extraNote = '';
+            if (result.accountsNeedingPasswordReset && result.accountsNeedingPasswordReset.length > 0) {
+                extraNote = `<br><br><strong>Paalala:</strong> ang mga sumusunod na account ay bago-lang na-restore (walang password na kasama sa backup) — kailangang i-reset ng Admin ang password ng mga ito sa User Management bago sila makapag-login: <br>${result.accountsNeedingPasswordReset.join(', ')}`;
+            }
+            Swal.fire({
+                title: 'Restored!',
+                html: (result.message || 'Matagumpay na na-restore mula sa Cloud Backup.') + extraNote,
+                icon: 'success'
+            }).then(() => {
+                location.reload();
+            });
+        } else {
+            if (statusBox) {
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Nabigo ang cloud restore.'}`;
+            }
+            Swal.fire('Failed', result.message || 'Nabigo ang cloud restore.', 'error');
         }
     } catch (error) {
         if (statusBox) {
