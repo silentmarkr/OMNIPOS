@@ -435,13 +435,9 @@ app.use((req, res, next) => {
         return res.status(401).json({ success: false, code:'INVALID_TOKEN', message:'Expired o invalid na ang session. Mangyaring mag-login muli.' });
     }
 
-    // DEVICE-REVOCATION GUARD: bukod pa sa periodic na
-    // recheckDeviceAuthorizationLive() (na nagde-destroy na ng lahat ng
-    // session sa SANDALING mag-flip ang relayAuthorized), suriin din dito
-    // ang huling naka-imbak na flag bago patuloy — para sakop ang mga
-    // race condition tulad ng: session na na-restore mula sa disk pagkatapos
-    // mag-restart, bago pa man makatakbo ang unang periodic recheck. LOCAL
-    // read lang ito (walang tawag sa RELAY per-request), kaya mura lang.
+    // DEVICE-REVOCATION GUARD: suriin ang huling naka-imbak na
+    // relayAuthorized flag bago patuloy. LOCAL read lang ito (walang tawag
+    // sa RELAY per-request), kaya mura lang.
     const currentDeviceData = readFeatureUnlocks();
     if (currentDeviceData.relayAuthorized === false) {
         destroySession(token);
@@ -450,6 +446,20 @@ app.use((req, res, next) => {
             code:'DEVICE_REVOKED',
             message:'Inalis ng developer/store owner ang device na ito sa listahan ng mga pinapayagang device. Awtomatikong na-logout ka. Kontakin ang developer/store owner.'
         });
+    }
+
+    // Traffic-driven na live recheck (throttled, fire-and-forget): sa
+    // halip na hiwalay na standalone timer na tumatakbo kahit walang
+    // ginagawa, dito lang ito magpapa-trigger — sa BAWAT tunay na
+    // request ng isang naka-login na user, kada DEVICE_REVOCATION_RECHECK_MS
+    // lang. Kaya kung idle ang device (walang request), 0 tawag sa RELAY
+    // — pareho pa rin sa orihinal na "one-time/opportunistic" na disenyo.
+    // Hindi ito naghihintay/nagpapabagal sa kasalukuyang request (async,
+    // hindi awaited) — sa SUSUNOD na request lang ma-re-reflect ang
+    // anumang bagong resulta nito.
+    if (Date.now() - lastLiveRecheckAt > DEVICE_REVOCATION_RECHECK_MS) {
+        lastLiveRecheckAt = Date.now();
+        recheckDeviceAuthorizationLive();
     }
 
     req.authUser = { username: session.username, role: session.role };
@@ -1649,6 +1659,8 @@ async function checkDeviceBeforeLogin({ username } = {}) {
 // isang device na binawian na ng authorization.
 const DEVICE_REVOCATION_RECHECK_MS = 3 * 60 * 1000;
 
+let lastLiveRecheckAt = 0;
+
 async function recheckDeviceAuthorizationLive() {
     try {
         // Kung walang kahit isang naka-login na session, walang i-fo-force-
@@ -1687,8 +1699,14 @@ async function recheckDeviceAuthorizationLive() {
     }
 }
 
-setTimeout(recheckDeviceAuthorizationLive, 20 * 1000);
-setInterval(recheckDeviceAuthorizationLive, DEVICE_REVOCATION_RECHECK_MS).unref();
+// TANDAAN: WALANG standalone setInterval/setTimeout dito — sadyang
+// tinanggal, para hindi ito palaging tumatawag sa RELAY kahit walang
+// ginagawa ang device. Sa halip, ito ay tina-trigger na lang mula sa
+// totoong API traffic (tingnan ang throttled na tawag dito sa loob ng
+// /api/* auth middleware sa itaas) — kaya kung idle ang device, 0 tawag
+// sa RELAY, eksaktong gaya ng orihinal na "one-time/opportunistic" na
+// disenyo. Kapag ginagamit naman (bawat click/transaksyon), doon lang
+// ito magre-recheck, throttled sa bawat DEVICE_REVOCATION_RECHECK_MS.
 // ====================================================================
 // Bawat successful run: (1) kinokopya/ino-overwrite ang database papunta
 // sa IISANG file sa Download/RELAY_BACKUP ng device (tingnan ang
