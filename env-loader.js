@@ -1,32 +1,41 @@
 'use strict';
 /**
- * env-loader.js
+ * env-loader.js (v2 — robust auto-detect)
  *
  * Binabasa ang .env at ilalagay ang mga value nito sa process.env.
  *
- * - Sa DEV (source code mo, kapag hindi pa dumaan sa build-release.js):
- *   naka-placeholder pa ang RELEASE_KEY_HEX sa ibaba, kaya babalik lang
- *   ito sa normal na process.loadEnvFile() — plain KEY=VALUE, gagana pa
- *   rin ang lokal na testing mo nang walang extra hakbang.
+ * MAHALAGANG AYOS (kumpara sa v1): hindi na basta AASSUME na ciphertext
+ * ang laman ng .env base lang sa "may naka-embed na key ba ako". Sa
+ * SELF-UPDATE, ang .env ay PRESERVED (hindi napapalitan) para hindi
+ * mawala ang custom settings ng client — kaya posibleng LUMANG PLAIN
+ * .env pa rin ito kahit bagong obfuscated loader (may totoong key) na
+ * ang tumatakbo. Kung basta ipipilit na i-JSON.parse ang plain text,
+ * mag-crash ang buong server (nangyari na ito — "Unexpected token 'R'").
  *
- * - Sa RELEASE build (pagkatapos ng `npm run build:release`): pinapalitan
- *   ng build-release.js ang RELEASE_KEY_HEX ng tunay na random key BAGO
- *   i-obfuscate ang file na ito, at ang .env na kasama sa release ay
- *   naka-encrypt na (AES-256-GCM) — kaya kung buksan ng customer/client
- *   ang .env gamit ang text editor, makikita lang niya ay walang-kahulugang
- *   ciphertext, hindi ang totoong RELAY_API_KEY/RELAY_URL, atbp.
+ * Sa bersyon na ito: sinusubukan munang i-decrypt bilang ciphertext;
+ * kung hindi ito valid na encrypted shape (hindi JSON, o walang
+ * iv/tag/data), GRACEFULLY babalik ito sa plain KEY=VALUE parsing sa
+ * halip na mag-crash. Kaya gumagana ito kahit anong kombinasyon ng
+ * luma/bagong .env at luma/bagong loader.
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// Papalitan ito ng build-release.js ng tunay na 64-hex-char (32-byte) key.
-// Huwag baguhin nang manu-mano.
+// Papalitan ito ng build-release.js/RELAY ng tunay na 64-hex-char
+// (32-byte) key sa release build. Huwag baguhin nang manu-mano.
 const RELEASE_KEY_HEX = '__ENV_KEY_HEX__';
 
-function decryptEnvFile(envPath, keyHex) {
-    const raw = fs.readFileSync(envPath, 'utf8');
-    const payload = JSON.parse(raw);
+function tryDecrypt(raw, keyHex) {
+    let payload;
+    try {
+        payload = JSON.parse(raw);
+    } catch (_e) {
+        return null; // Hindi JSON — plain .env format ito, hindi ciphertext.
+    }
+    if (!payload || typeof payload !== 'object' || !payload.iv || !payload.tag || !payload.data) {
+        return null; // JSON siya, pero hindi tugma sa inaasahang {iv,tag,data} shape.
+    }
 
     const key = Buffer.from(keyHex, 'hex');
     const iv = Buffer.from(payload.iv, 'hex');
@@ -66,19 +75,29 @@ module.exports = function loadEnv() {
     const envPath = path.join(process.cwd(), '.env');
     if (!fs.existsSync(envPath)) return;
 
-    const isReleaseBuild = RELEASE_KEY_HEX !== '__ENV_KEY_HEX__';
+    const raw = fs.readFileSync(envPath, 'utf8');
+    const hasEmbeddedKey = RELEASE_KEY_HEX !== '__ENV_KEY_HEX__';
 
-    if (isReleaseBuild) {
+    if (hasEmbeddedKey) {
         try {
-            const decrypted = decryptEnvFile(envPath, RELEASE_KEY_HEX);
-            applyEnvText(decrypted);
+            const decrypted = tryDecrypt(raw, RELEASE_KEY_HEX);
+            if (decrypted !== null) {
+                applyEnvText(decrypted);
+                return;
+            }
+            // Hindi ito valid na encrypted format (hal. lumang preserved
+            // plaintext .env mula sa self-update) — ituloy sa plain
+            // fallback sa ibaba, HUWAG mag-crash.
         } catch (err) {
-            console.error('⚠️  Hindi mabasa/ma-decrypt ang .env ng release build:', err.message);
-            process.exit(1);
+            console.error('⚠️  May error sa pag-decrypt ng .env, babalik sa plain fallback:', err.message);
         }
-        return;
     }
 
-    // Dev mode — plain .env pa, gamitin ang built-in Node loader.
-    process.loadEnvFile();
+    // Plain KEY=VALUE .env — dev mode, o lumang preserved .env mula
+    // sa self-update na hindi pa naka-encrypt.
+    try {
+        applyEnvText(raw);
+    } catch (err) {
+        console.error('⚠️  Hindi mabasa ang .env:', err.message);
+    }
 };
