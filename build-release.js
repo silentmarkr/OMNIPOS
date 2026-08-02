@@ -77,11 +77,25 @@ const EXCLUDE = new Set([
 const EXCLUDE_EXTENSIONS = new Set([".patch", ".log"]);
 
 // First-party source to obfuscate (server-side).
+//
+// mailer.js: isolated Gmail SMTP + OAuth/API fallback module (see
+// mailer.js header comment) — kailangan itong kasama sa release build
+// dahil hiwalay na module na ito ngayon na kinukuha ni server.js at ng
+// standalone na verify-gmail-connection.js sa pamamagitan ng
+// require('./mailer').
+//
+// verify-gmail-connection.js: standalone CLI tool na kasama rin sa
+// release package para ma-verify ng customer/admin ang Gmail
+// connection (SMTP at/o OAuth fallback) nang hiwalay sa buong POS
+// server — obfuscated din ito gaya ng ibang first-party server code
+// (kahit hiwalay itong tinatakbo, hindi ito third-party library).
 const SERVER_TARGETS = new Set([
   "server.js",
   "db.js",
   "migrate-to-sqlite.js",
   "_fix_project.js",
+  "mailer.js",
+  "verify-gmail-connection.js",
 ]);
 
 // env-loader.js needs special handling (not a plain obfuscateFile call)

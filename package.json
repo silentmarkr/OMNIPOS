@@ -1,8 +1,9 @@
 {
   "name": "omnipos",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "scripts": {
-    "build:release": "node build-release.js"
+    "build:release": "node build-release.js",
+    "verify:gmail": "node verify-gmail-connection.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
