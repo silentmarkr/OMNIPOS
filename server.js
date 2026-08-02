@@ -1,3 +1,5 @@
+// PATH: OMNIPOS/server.js  <-- I-REPLACE ang luma mong server.js nito (root ng OMNIPOS project)
+
 const net = require('net');
 const express = require('express');
 const cors = require('cors');
