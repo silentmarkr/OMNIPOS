@@ -78,10 +78,23 @@
          mabigo ang CDN mismo (walang internet, naka-block ang CDN sa
          network na iyon), awtomatikong babalik ito sa lokal na kopya
          bilang fallback sa halip na mawalan na lang ng icons. -->
+    <!-- FIX (blink/blank-open bug): dating RENDER-BLOCKING ang CDN link na ito
+         — hinihintay ng browser ang buong CDN request bago mag-unang paint.
+         Sa mga POS terminal na naka-LAN lang / walang internet / naka-block
+         ang cdnjs sa network, sumasabit/naghihintay ito hanggang mag-timeout
+         ang koneksyon, kaya "bubukas" lang saglit ang window at parang
+         nagba-blink/nagsasara agad dahil hindi pa tapos mag-render.
+         Ngayon, NON-BLOCKING na ito (media="print" trick) — hindi na ito
+         hinihintay bago mag-paint; ang onload ang siyang mag-a-apply nito
+         pagdating ng response. Kasabay pa rin ng dati nang onerror fallback
+         patungo sa lokal na css/all.min.css kapag mabigo ang CDN. -->
     <link rel="stylesheet" id="fa-css-cdn"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           crossorigin="anonymous" referrerpolicy="no-referrer"
-          onerror="this.onerror=null;this.href='css/all.min.css';console.warn('[OmniPOS] Font Awesome CDN unreachable, gumagamit ng lokal na kopya (css/all.min.css).');">
+          media="print"
+          onload="this.media='all';this.onload=null;"
+          onerror="this.onerror=null;this.media='all';this.href='css/all.min.css';console.warn('[OmniPOS] Font Awesome CDN unreachable, gumagamit ng lokal na kopya (css/all.min.css).');">
+    <noscript><link rel="stylesheet" href="css/all.min.css"></noscript>
 
     <script>
     // Auto-retry para sa mga theme stylesheet sa itaas: kung sakaling
