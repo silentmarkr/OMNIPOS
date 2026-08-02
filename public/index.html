@@ -2029,7 +2029,22 @@ if ('serviceWorker' in navigator) {
     // ginagamit lang ngayon kapag mano-manong nagto-toggle (bago pumayag
     // pumunta sa Online) at sa unang sync pagkatapos mag-login. Ang
     // ONGOING/live na pagsubaybay ay hawak na ng shared checker sa app.js.
-    function checkRealInternetAccess(timeoutMs = 4000) {
+    //
+    // SPEED FIX: gamit na ngayon ang parehong window.checkRealInternetAccess
+    // (defined sa app.js) na dalawang endpoint ang sinusubukan nang
+    // SABAY-SABAY (Promise.any) sa halip na iisa lang — mas mabilis at
+    // mas matatag, at iisa na lang ang totoong internet-check sa buong
+    // client (dati, dalawang HIWALAY na kopya nito ang umiiral, isa dito
+    // isa sa app.js, na may magkaibang timeout pa). 2.5s ang timeout dito
+    // (mas mahaba kaysa sa 1.5s na default ng background poll) dahil
+    // sinasadyang aksyon ito ng user (pag-tap sa toggle/pag-login) kaya
+    // katanggap-tanggap ang bahagyang mas mahabang paghihintay para sa
+    // mas kumpiyansang resulta, pero fallback pa rin sa lumang paraan
+    // kung sakaling hindi pa naka-load ang app.js sa oras na ito.
+    function checkRealInternetAccess(timeoutMs = 2500) {
+        if (typeof window.checkRealInternetAccess === 'function') {
+            return window.checkRealInternetAccess(timeoutMs);
+        }
         return new Promise((resolve) => {
             if (!navigator.onLine) { resolve(false); return; }
             const controller = new AbortController();

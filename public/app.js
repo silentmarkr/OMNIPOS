@@ -9078,6 +9078,59 @@ function initAutoCloseSidebarOnPrompt() {
     });
 }
 
+// --------------------------------------------------------------
+// SHARED FAST INTERNET-REACHABILITY PROBE — iisa na lang itong global
+// na function (window.checkRealInternetAccess) na ginagamit ng
+// initNetworkStatusIndicator() DITO SA IBABA (OmniPOS logo dot + regular
+// background poll) AT ng connectivity-mode-btn na IIFE sa index.html
+// (manual toggle + pag-sync pagkatapos mag-login). Dati, dalawang HIWALAY
+// na kopya ng halos parehong logic ang umiiral (isa dito, isa sa
+// index.html) na may magkaibang timeout pa — posibleng magkaiba ang
+// resulta/behavior ng dalawa. Ngayon, iisang source of truth na.
+//
+// SPEED FIX: sa halip na isang endpoint lang (dating gstatic.com lang),
+// dalawang independent na endpoint na ngayon ang sinusubukan NANG
+// SABAY-SABAY (Promise.any) — kung alin man ang unang sumagot, doon na
+// agad tayo aasa. Kapareho ito ng diskarte ng server-side
+// isInternetLikelyUp() (dalawang IP nang sabay sa server.js) — mas
+// mabilis (whichever wins first) at mas matatag (kung sakaling
+// naka-block/mabagal ang isa sa dalawang endpoint sa partikular na
+// network/carrier, may pangalawang tsansa pa rin ang isa).
+function probeInternetEndpoint(url, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error('timeout'));
+        }, timeoutMs);
+
+        fetch(url, {
+            mode: 'no-cors',
+            cache: 'no-store',
+            signal: controller.signal
+        })
+            .then(() => {
+                clearTimeout(timer);
+                resolve(true);
+            })
+            .catch((err) => {
+                clearTimeout(timer);
+                reject(err);
+            });
+    });
+}
+
+window.checkRealInternetAccess = function checkRealInternetAccess(timeoutMs = 1500) {
+    if (!navigator.onLine) return Promise.resolve(false);
+    const bust = Date.now();
+    return Promise.any([
+        probeInternetEndpoint(`https://www.gstatic.com/generate_204?cachebust=${bust}`, timeoutMs),
+        probeInternetEndpoint(`https://www.google.com/generate_204?cachebust=${bust}`, timeoutMs)
+    ])
+        .then(() => true)
+        .catch(() => false);
+};
+
 function initNetworkStatusIndicator() {
 
     const indicators = [
@@ -9088,8 +9141,10 @@ function initNetworkStatusIndicator() {
     if (!indicators.length) return;
 
     let realInternetCheckInFlight = false;
+    let lastAppliedState = 'connecting';
 
     function applyState(state, title) {
+        lastAppliedState = state;
         indicators.forEach(indicator => {
             indicator.classList.remove('online','offline','connecting');
             indicator.classList.add(state);
@@ -9099,30 +9154,6 @@ function initNetworkStatusIndicator() {
         // parehong OmniPOS logo dot AT sa wifi toggle pill — kaya laging
         // sync ang dalawa, walang delay, walang kailangang i-refresh.
         if (window.setConnectivityLiveState) window.setConnectivityLiveState(state);
-    }
-
-    function checkRealInternetAccess(timeoutMs = 2000) {
-        return new Promise((resolve) => {
-            const controller = new AbortController();
-            const timer = setTimeout(() => {
-                controller.abort();
-                resolve(false);
-            }, timeoutMs);
-
-            fetch(`https://www.gstatic.com/generate_204?cachebust=${Date.now()}`, {
-                mode:'no-cors',
-                cache:'no-store',
-                signal: controller.signal
-            })
-                .then(() => {
-                    clearTimeout(timer);
-                    resolve(true);
-                })
-                .catch(() => {
-                    clearTimeout(timer);
-                    resolve(false);
-                });
-        });
     }
 
     async function updateStatusIndicator() {
@@ -9137,7 +9168,7 @@ function initNetworkStatusIndicator() {
 
         applyState('connecting','System Status: Naka-connect sa network, hinihintay ang internet connection...');
 
-        const hasRealInternet = await checkRealInternetAccess();
+        const hasRealInternet = await window.checkRealInternetAccess();
         realInternetCheckInFlight = false;
 
         if (!navigator.onLine) {
@@ -9152,21 +9183,45 @@ function initNetworkStatusIndicator() {
         }
     }
 
-    updateStatusIndicator();
+    // ADAPTIVE POLLING (bago): sa halip na FIXED 6s ang poll interval
+    // kahit anong state, ngayon nag-iiba ito depende sa PALING HULING
+    // ALAM na state —
+    //   - OFFLINE/CONNECTING: mas madalas na 2s ang re-check, para agad
+    //     ma-detect ang muling pagbalik ng internet (hal. na-restart na
+    //     ang router/nabalik na ang Data SIM) sa halip na maghintay pa
+    //     ng hanggang 6 segundo bago ito mapansin ng customer.
+    //   - ONLINE: bumabalik sa mas mahinahong 6s na poll — tipid sa
+    //     datos/baterya ng device (importante dahil karamihan sa
+    //     Termux/Android deployment na ito ay gumagamit ng mobile data),
+    //     dahil hindi naman kailangang paulit-ulit na i-verify kapag
+    //     matagal nang matatag ang koneksyon.
+    let pollTimer = null;
+    function scheduleNextPoll() {
+        if (pollTimer) clearTimeout(pollTimer);
+        const delay = (lastAppliedState === 'online') ? 6000 : 2000;
+        pollTimer = setTimeout(runPoll, delay);
+    }
+    async function runPoll() {
+        await updateStatusIndicator();
+        scheduleNextPoll();
+    }
 
-    window.addEventListener('online', updateStatusIndicator);
-    window.addEventListener('offline', updateStatusIndicator);
+    // FORCE RECHECK NOW: ginagamit ng native online/offline events, ng
+    // tab visibility/focus recovery, at ng window.__triggerNetworkRecheck
+    // (tinatawag ng ibang parte ng app, hal. authFetch kapag nag-timeout)
+    // — kinakansela muna ang naka-iskedyul na susunod na poll bago
+    // agad magsuri, para hindi ito ma-duplicate/patungin ang dalawang
+    // magkasunod na check.
+    function forceRecheckNow() {
+        if (pollTimer) clearTimeout(pollTimer);
+        runPoll();
+    }
 
-    // SPEED FIX: mula 15s → 6s ang regular poll, dahil ito lang ang
-    // nagde-detect kapag "connected" pa ang WiFi/adapter pero WALA nang
-    // aktwal na internet (hal. namatay ang router/ISP) — hindi ito
-    // nade-detect ng navigator.onLine (browser-level lang 'yun), kaya
-    // kailangang mas madalas i-verify.
-    setInterval(updateStatusIndicator, 6000);
+    forceRecheckNow();
 
-    // INSTANT RECHECK: pwedeng tawagin ito ng ibang parte ng app (hal.
-    // authFetch kapag nag-timeout/nag-fail) para agad ma-update ang dot
-    // sa halip na maghintay pa ng buong 6s hanggang susunod na poll.
+    window.addEventListener('online', forceRecheckNow);
+    window.addEventListener('offline', forceRecheckNow);
+
     // May simpleng throttle (1s) para hindi paulit-ulit tumama nang
     // sabay-sabay kapag maraming request ang nag-fail nang magkakasunod.
     let lastForcedCheckAt = 0;
@@ -9174,16 +9229,16 @@ function initNetworkStatusIndicator() {
         const now = Date.now();
         if (now - lastForcedCheckAt < 1000) return;
         lastForcedCheckAt = now;
-        updateStatusIndicator();
+        forceRecheckNow();
     };
 
     // Kapag bumalik ang user sa tab/window (hal. matagal na naka-minimize
     // ang POS at nabago na ang koneksyon habang wala siyang tinitignan),
     // agad mag-recheck sa halip na maghintay ng hanggang 6s.
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') updateStatusIndicator();
+        if (document.visibilityState === 'visible') forceRecheckNow();
     });
-    window.addEventListener('focus', updateStatusIndicator);
+    window.addEventListener('focus', forceRecheckNow);
 }
 
 function initAuthDeviceScaling() {
