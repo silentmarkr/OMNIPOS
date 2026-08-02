@@ -4326,7 +4326,7 @@ app.post('/api/system/deploy-update', rateLimit('system-deploy-update', 3, 30 * 
 // SELF-UPDATE MODE (Termux-friendly, walang Render deploy hook)
 // --------------------------------------------------------------
 const SELF_UPDATE_PRESERVE = new Set([
-   '.env','database','node_modules','uploads_tmp','.git','release',
+   '.env','.env.key','database','node_modules','uploads_tmp','.git','release',
    'cf.log','server.log'
 ]);
 

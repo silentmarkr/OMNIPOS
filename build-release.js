@@ -77,6 +77,7 @@ const SERVER_TARGETS = new Set([
 // obfuscated. See encryptEnvAndPatchLoader().
 const ENV_LOADER_FILENAME = "env-loader.js";
 const ENV_FILENAME = ".env";
+const ENV_KEY_FILENAME = ".env.key";
 
 // First-party source to obfuscate (client-side, shipped to the browser).
 const CLIENT_TARGETS = new Set([
@@ -192,9 +193,21 @@ function obfuscateInWorker(srcPath, destPath, options) {
  * encrypts the whole content, and:
  *   1. writes the ciphertext as the new ".env" in the release build
  *      (JSON: { iv, tag, data } — no readable KEY=VALUE lines here).
- *   2. injects the key (hex) into env-loader.js before obfuscating it,
- *      so at runtime only the matching release build can decrypt its
- *      own .env.
+ *   2. writes the key (hex) to a separate ".env.key" file next to it,
+ *      so at runtime only a release build that has the matching key
+ *      file can decrypt its own .env.
+ *
+ * IMPORTANT (fixes the "device revoked after self-update" bug): the
+ * key used to live baked into env-loader.js's obfuscated source, and a
+ * BRAND NEW random key was generated on every build. But self-update
+ * preserves .env (so client settings survive) while REPLACING
+ * env-loader.js with the new build's loader — which had a different,
+ * unrelated key. That made every already-installed client's .env
+ * permanently undecryptable after its first self-update. Keeping the
+ * key in its own file (which self-update must ALSO preserve, alongside
+ * .env — see SELF_UPDATE_PRESERVE in server.js) keeps the key and its
+ * matching .env paired for the lifetime of that installation,
+ * regardless of how many times the loader code itself gets rebuilt.
  *
  * If no .env is found in the source (e.g. not set up yet), this is a
  * silent no-op — it's not required for the build to run.
@@ -229,15 +242,15 @@ function encryptEnvAndPatchLoader() {
   fs.writeFileSync(destEnvPath, JSON.stringify(payload), "utf8");
   console.log(`  [encrypted] ${ENV_FILENAME}  ->  release/OMNIPOS/${ENV_FILENAME}`);
 
-  const loaderCode = fs
-    .readFileSync(loaderSrcPath, "utf8")
-    .replace("__ENV_KEY_HEX__", key.toString("hex"));
+  const destKeyPath = path.join(OUT_DIR, ENV_KEY_FILENAME);
+  fs.writeFileSync(destKeyPath, key.toString("hex"), "utf8");
+  console.log(`  [key] wrote ${ENV_KEY_FILENAME}  ->  release/OMNIPOS/${ENV_KEY_FILENAME}`);
 
   const destLoaderPath = path.join(OUT_DIR, ENV_LOADER_FILENAME);
   ensureDir(path.dirname(destLoaderPath));
-  fs.writeFileSync(destLoaderPath, loaderCode, "utf8");
+  fs.copyFileSync(loaderSrcPath, destLoaderPath);
   return obfuscateInWorker(destLoaderPath, destLoaderPath, baseServerObfOptions).then(() => {
-    console.log(`  [obfuscated] ${ENV_LOADER_FILENAME}  (has the embedded encryption key)`);
+    console.log(`  [obfuscated] ${ENV_LOADER_FILENAME}`);
   });
 }
 
@@ -252,7 +265,7 @@ function planTree(dir, baseRel, plan) {
 
     if (EXCLUDE.has(entry.name)) continue;
     // .env and env-loader.js are handled by encryptEnvAndPatchLoader().
-    if (rel === ENV_FILENAME || rel === ENV_LOADER_FILENAME) continue;
+    if (rel === ENV_FILENAME || rel === ENV_KEY_FILENAME || rel === ENV_LOADER_FILENAME) continue;
 
     if (entry.isDirectory()) {
       planTree(full, rel, plan);

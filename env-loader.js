@@ -1,32 +1,45 @@
 'use strict';
 /**
- * env-loader.js (v2 — robust auto-detect)
+ * env-loader.js (v3 — key sa hiwalay na .env.key file)
  *
  * Binabasa ang .env at ilalagay ang mga value nito sa process.env.
  *
- * MAHALAGANG AYOS (kumpara sa v1): hindi na basta AASSUME na ciphertext
- * ang laman ng .env base lang sa "may naka-embed na key ba ako". Sa
- * SELF-UPDATE, ang .env ay PRESERVED (hindi napapalitan) para hindi
- * mawala ang custom settings ng client — kaya posibleng LUMANG PLAIN
- * .env pa rin ito kahit bagong obfuscated loader (may totoong key) na
- * ang tumatakbo. Kung basta ipipilit na i-JSON.parse ang plain text,
- * mag-crash ang buong server (nangyari na ito — "Unexpected token 'R'").
+ * BAKIT NAGBAGO MULA V2 (FIX #1 — "DEVICE REVOKED" / hindi ma-verify
+ * ang device pagkatapos ng self-update):
+ * Dati, ini-embed ang AES key DIRETSO sa obfuscated code ng loader na
+ * ito (RELEASE_KEY_HEX), at BAWAT "I-build ang Release" ay gumagawa ng
+ * BAGONG random key. Pero sa SELF-UPDATE, ang .env ay PRESERVED (hindi
+ * napapalitan — tama iyon, para hindi mawala ang settings), samantalang
+ * ang env-loader.js MISMO ay PINAPALITAN ng bagong build (may BAGONG
+ * key). Resulta: hindi na magkatugma ang key ng lumang naka-encrypt na
+ * .env sa bagong loader — laging "Unsupported state or unable to
+ * authenticate data" (GCM auth failure) sa bawat self-update mula roon,
+ * kaya nawawala ang RELAY_API_KEY/RELAY_URL sa process.env at nabibigo
+ * ang device verification/login.
  *
- * Sa bersyon na ito: sinusubukan munang i-decrypt bilang ciphertext;
- * kung hindi ito valid na encrypted shape (hindi JSON, o walang
- * iv/tag/data), GRACEFULLY babalik ito sa plain KEY=VALUE parsing sa
- * halip na mag-crash. Kaya gumagana ito kahit anong kombinasyon ng
- * luma/bagong .env at luma/bagong loader.
+ * FIX: ang key ay hindi na naka-bake sa code ng loader — nasa sarili
+ * niyang file na ito ngayon, ".env.key" (hex string), KATABI ng .env.
+ * Parehong PRESERVED ang .env AT .env.key sa self-update (tingnan ang
+ * SELF_UPDATE_PRESERVE sa server.js), kaya magkatugma pa rin sila kahit
+ * ilang beses pang mag-rebuild/mag-self-update ang loader code mismo.
+ *
+ * FIX #2 (nakatago dating bug sa fallback): dati, kapag NABIGO ang
+ * decrypt (auth error — hal. mismatched key), hinuhuli lang ang error
+ * tapos itinutuloy pa rin ang "plain fallback" gamit ang ORIHINAL na
+ * raw text — pero kung naka-JSON/ciphertext SHAPE na ito ({iv,tag,data}),
+ * hindi talaga ito valid na KEY=VALUE na format, kaya WALANG talagang
+ * na-lo-load na tamang env var (walang crash, pero tahimik na sira).
+ * Ngayon, kung ciphertext ang SHAPE pero nabigo ang decrypt (auth
+ * error), hindi na ito basta ipinipilit na i-KEY=VALUE parse — malinaw
+ * na inilalabas ang error sa halip.
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// Papalitan ito ng build-release.js/RELAY ng tunay na 64-hex-char
-// (32-byte) key sa release build. Huwag baguhin nang manu-mano.
-const RELEASE_KEY_HEX = '__ENV_KEY_HEX__';
+const ENV_KEY_FILENAME = '.env.key';
 
-function tryDecrypt(raw, keyHex) {
+function looksLikeCiphertextShape(raw) {
     let payload;
     try {
         payload = JSON.parse(raw);
@@ -36,7 +49,10 @@ function tryDecrypt(raw, keyHex) {
     if (!payload || typeof payload !== 'object' || !payload.iv || !payload.tag || !payload.data) {
         return null; // JSON siya, pero hindi tugma sa inaasahang {iv,tag,data} shape.
     }
+    return payload;
+}
 
+function decryptPayload(payload, keyHex) {
     const key = Buffer.from(keyHex, 'hex');
     const iv = Buffer.from(payload.iv, 'hex');
     const tag = Buffer.from(payload.tag, 'hex');
@@ -76,20 +92,33 @@ module.exports = function loadEnv() {
     if (!fs.existsSync(envPath)) return;
 
     const raw = fs.readFileSync(envPath, 'utf8');
-    const hasEmbeddedKey = RELEASE_KEY_HEX !== '__ENV_KEY_HEX__';
+    const keyPath = path.join(process.cwd(), ENV_KEY_FILENAME);
+    const hasKeyFile = fs.existsSync(keyPath);
 
-    if (hasEmbeddedKey) {
+    const ciphertextPayload = looksLikeCiphertextShape(raw);
+
+    if (ciphertextPayload) {
+        // Naka-encrypt na format ang .env (JSON {iv,tag,data}) — kailangan
+        // talaga ng tamang .env.key para mabasa ito. Kung mawala/mali ito,
+        // huwag na ituloy sa plain KEY=VALUE parsing (garbage lang ang
+        // malalabas doon dahil JSON ito, hindi KEY=VALUE) — sa halip,
+        // malinaw na sabihin kung ano ang mali.
+        if (!hasKeyFile) {
+            console.error(
+                `⚠️  Naka-encrypt ang .env pero WALANG ${ENV_KEY_FILENAME} — hindi mababasa ang tunay na config (RELAY_URL/RELAY_API_KEY/atbp.). Ito ang dahilan kung bakit nabibigong ma-verify ang device sa login. Kailangan i-restore ang tamang ${ENV_KEY_FILENAME} (kasabay dapat ito ng .env mula sa parehong build), o i-reset ang .env sa plain KEY=VALUE format.`
+            );
+            return;
+        }
         try {
-            const decrypted = tryDecrypt(raw, RELEASE_KEY_HEX);
-            if (decrypted !== null) {
-                applyEnvText(decrypted);
-                return;
-            }
-            // Hindi ito valid na encrypted format (hal. lumang preserved
-            // plaintext .env mula sa self-update) — ituloy sa plain
-            // fallback sa ibaba, HUWAG mag-crash.
+            const keyHex = fs.readFileSync(keyPath, 'utf8').trim();
+            const decrypted = decryptPayload(ciphertextPayload, keyHex);
+            applyEnvText(decrypted);
+            return;
         } catch (err) {
-            console.error('⚠️  May error sa pag-decrypt ng .env, babalik sa plain fallback:', err.message);
+            console.error(
+                `⚠️  May error sa pag-decrypt ng .env gamit ang ${ENV_KEY_FILENAME} (posibleng hindi magkatugma ang key at .env — hal. mula sa magkaibang build): ${err.message}. Hindi ituloy sa plain fallback dahil ciphertext ang laman ng .env — kailangan ng tamang key o bagong plain .env.`
+            );
+            return;
         }
     }
 
