@@ -81,9 +81,22 @@ function getMailTransporter(user, pass) {
         pool: true,
         maxConnections: 3,
         auth: { user, pass },
-        connectionTimeout: 8000,
-        greetingTimeout: 8000,
-        socketTimeout: 15000,
+        // AYOS: dating 8000/8000/15000 — masyadong mabagal ito kumpara sa
+        // AUTH_FETCH_TIMEOUT_MS (6000ms) sa frontend (public/app.js). Kapag
+        // naka-block ang SMTP port (Render free tier), maghihintay muna ang
+        // SMTP handshake ng buong 8s+ BAGO pa man ma-trigger ang Gmail API
+        // fallback sa ibaba — palagi nang na-a-abort na ng browser ang
+        // request (AbortController sa loob ng AUTH_FETCH_TIMEOUT_MS) bago pa
+        // makabalik ang sagot, kaya lumalabas ang generic na "Connection
+        // Error / Unable to reach the server" sa UI KAHIT gumagana na ang
+        // fallback logic sa server — hindi lang ito naaabutan ng oras.
+        // Pinaikli dito ang connect/greeting timeout para MAS MABILIS
+        // mag-fail ang isang naka-block na SMTP attempt, at agad na
+        // makapag-fallback (o mag-report ng malinaw na error) habang nasa
+        // loob pa ng client-side na 6s na budget.
+        connectionTimeout: 3500,
+        greetingTimeout: 3000,
+        socketTimeout: 8000,
         // 🔌 Dagdag na proteksyon (bukod sa dns.setDefaultResultOrder sa
         // itaas ng file): pinipilit dito mismo sa socket-level na IPv4
         // (family: 4) ang gagamitin papuntang Gmail SMTP, para hindi na
@@ -241,6 +254,15 @@ async function sendViaGmailApi(mailOptions) {
     return data;
 }
 
+// Awtomatikong naka-set ito ng Render mismo sa lahat ng service doon
+// (env var na "RENDER=true") — ginagamit ito para LAKTAWAN na agad ang
+// SMTP attempt (na alam na namang mabibigo/mag-ti-timeout doon) sa
+// halip na sayangin pa ang ilang segundo dito bago pumunta sa fallback
+// — mahalaga ito dahil may 6-segundong client-side timeout ang frontend
+// (AUTH_FETCH_TIMEOUT_MS sa public/app.js) na mag-a-abort ng request
+// bago pa man makabalik ang sagot kung masyadong matagal.
+const IS_RENDER = process.env.RENDER === 'true';
+
 // Pinag-isang paraan ng pagpapadala ng email na ginagamit ng LAHAT ng
 // endpoint (OTP, resibo, factory-reset backup, atbp.): unang susubukan
 // via SMTP/App Password gaya dati (mabilis, gumagana sa local/Termux).
@@ -249,26 +271,29 @@ async function sendViaGmailApi(mailOptions) {
 // fallback kung naka-configure — kung hindi, malinaw na sasabihing
 // Render/cloud-host SMTP port block ito, hindi maling credentials.
 async function sendMailSmart(user, pass, mailOptions) {
-    const transporter = getMailTransporter(user, pass);
-    try {
-        return await transporter.sendMail(mailOptions);
-    } catch (err) {
-        if (!isNetworkLevelMailError(err)) throw err;
-
+    if (!IS_RENDER) {
         try {
-            const result = await sendViaGmailApi(mailOptions);
-            console.warn('✉️ [MAIL FALLBACK] Na-block/nag-timeout ang SMTP (karaniwan sa Render free tier) — matagumpay na naipadala gamit ang Gmail REST API (HTTPS) fallback.');
-            return result;
-        } catch (fallbackErr) {
-            if (fallbackErr.code === 'GMAIL_API_FALLBACK_NOT_CONFIGURED') {
-                const err2 = new Error(
-                    'Hindi maka-konekta sa Gmail SMTP mula sa server na ito. KARANIWAN itong dulot ng Render (at ibang free-tier cloud host) na nag-block ng outbound SMTP ports 25/465/587 sa mga FREE web services (opisyal na patakaran ito ng Render mula Set. 26, 2025) — HINDI ito problema sa iyong Gmail address o App Password. Solusyon: (1) i-upgrade ang Render service sa paid instance type, o (2) i-configure ang GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars sa Render para awtomatikong gumamit ng Gmail API (HTTPS) bilang fallback sa halip na SMTP.'
-                );
-                err2.code = 'SMTP_BLOCKED_NO_FALLBACK';
-                throw err2;
-            }
-            throw fallbackErr;
+            const transporter = getMailTransporter(user, pass);
+            return await transporter.sendMail(mailOptions);
+        } catch (err) {
+            if (!isNetworkLevelMailError(err)) throw err;
+            // bumaba papunta sa fallback sa ibaba
         }
+    }
+
+    try {
+        const result = await sendViaGmailApi(mailOptions);
+        console.warn('✉️ [MAIL FALLBACK] Na-block/nag-timeout ang SMTP (karaniwan sa Render free tier) — matagumpay na naipadala gamit ang Gmail REST API (HTTPS) fallback.');
+        return result;
+    } catch (fallbackErr) {
+        if (fallbackErr.code === 'GMAIL_API_FALLBACK_NOT_CONFIGURED') {
+            const err2 = new Error(
+                'Hindi maka-konekta sa Gmail SMTP mula sa server na ito. KARANIWAN itong dulot ng Render (at ibang free-tier cloud host) na nag-block ng outbound SMTP ports 25/465/587 sa mga FREE web services (opisyal na patakaran ito ng Render mula Set. 26, 2025) — HINDI ito problema sa iyong Gmail address o App Password. Solusyon: (1) i-upgrade ang Render service sa paid instance type, o (2) i-configure ang GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars sa Render para awtomatikong gumamit ng Gmail API (HTTPS) bilang fallback sa halip na SMTP.'
+            );
+            err2.code = 'SMTP_BLOCKED_NO_FALLBACK';
+            throw err2;
+        }
+        throw fallbackErr;
     }
 }
 
@@ -279,26 +304,29 @@ async function sendMailSmart(user, pass, mailOptions) {
 // sa parehong SMTP port block — permanenteng naka-block ang admin sa
 // pag-configure ng OTP sender email kahit tama lahat ng inilagay niya.
 async function verifyMailCredentialsSmart(user, pass) {
-    const transporter = getMailTransporter(user, pass);
-    try {
-        await transporter.verify();
-        return { verified: true, viaFallback: false };
-    } catch (err) {
-        if (!isNetworkLevelMailError(err)) throw err;
-
-        const fallbackCfg = getGmailApiFallbackConfig();
-        if (fallbackCfg) {
-            await getGmailApiAccessToken(fallbackCfg);
-            return { verified: true, viaFallback: true };
+    if (!IS_RENDER) {
+        try {
+            const transporter = getMailTransporter(user, pass);
+            await transporter.verify();
+            return { verified: true, viaFallback: false };
+        } catch (err) {
+            if (!isNetworkLevelMailError(err)) throw err;
+            // bumaba papunta sa fallback sa ibaba
         }
-
-        // Walang paraan na ma-verify ang SMTP dito (Render port block) —
-        // huwag itong ituring na maling password; tanggapin na lang bilang
-        // "unverified" at gamitin pa rin — gagana ito sa totoong
-        // pagpapadala via sendMailSmart() kung may fallback na naka-configure,
-        // o malinaw na mag-eerror (Render network restriction) kung wala.
-        return { verified: false, viaFallback: false, skippedReason: 'SMTP_BLOCKED' };
     }
+
+    const fallbackCfg = getGmailApiFallbackConfig();
+    if (fallbackCfg) {
+        await getGmailApiAccessToken(fallbackCfg);
+        return { verified: true, viaFallback: true };
+    }
+
+    // Walang paraan na ma-verify ang SMTP dito (Render port block) —
+    // huwag itong ituring na maling password; tanggapin na lang bilang
+    // "unverified" at gamitin pa rin — gagana ito sa totoong
+    // pagpapadala via sendMailSmart() kung may fallback na naka-configure,
+    // o malinaw na mag-eerror (Render network restriction) kung wala.
+    return { verified: false, viaFallback: false, skippedReason: IS_RENDER ? 'RENDER_SMTP_BLOCKED' : 'SMTP_BLOCKED' };
 }
 
 const app = express();
