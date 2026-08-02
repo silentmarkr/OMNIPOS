@@ -1,4 +1,5 @@
 const dns = require('dns');
+const net = require('net');
 // 🔌 AYOS: "connect ENETUNREACH <ipv6-address>:465" kapag nagpapadala ng
 // email (Gmail OTP, resibo, factory reset backup, atbp.) sa Render/ibang
 // cloud host. Root cause: gumagamit ang Node ng "verbatim" DNS result
@@ -1117,8 +1118,25 @@ if (!RELAY_API_KEY) {
 // public/app.js (checkRealInternetAccess) — dinadala rin dito sa
 // server-side Relay calls. 20s default: sapat pa rin para sa cold-start
 // ng Render free tier, pero hindi na "walang hanggan".
+//
+// FIX #2 (CRITICAL): idinagdag dito mismo — sa loob ng SHARED function na
+// ito, hindi paisa-isa sa bawat caller — ang mabilis na raw-IP
+// isInternetLikelyUp() gate (tingnan sa ibaba) BAGO pa man subukan ang
+// buong fetch(). Dati, ilan lang sa mga function (verify-login,
+// backup-checkin, restore-tokens, check-feature-status) ang may ganitong
+// paunang tsek; ang iba (request-unlock, confirm-unlock, request-demo,
+// atbp.) ay diretso sa 20s-timeout na relayFetch, kaya sila pa rin ang
+// "mabagal" kapag walang internet. Ngayon, dahil DITO na ilagay ang
+// check, LAHAT ng function na tumatawag sa relayFetch — kasalukuyan man
+// o susunod pang idadagdag — ay AWTOMATIKONG mabilis (~1.2s max) mag-fail
+// kapag walang internet, sa halip na 20s.
 // --------------------------------------------------------------
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
+    if (!(await isInternetLikelyUp())) {
+        const err = new Error('Walang internet connection na na-detect sa device na ito.');
+        err.code = 'NO_INTERNET';
+        throw err;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -1129,38 +1147,71 @@ async function relayFetch(url, options = {}, timeoutMs = 20000) {
 }
 
 // --------------------------------------------------------------
-// isInternetLikelyUp — FIX: dating "Offline mode" TOGGLE lang (manual,
-// getConnectivityMode()) ang pinagbabatayan kung dapat mag-skip ng Relay
-// calls. Kaya kapag naka-"Online" pa rin ang toggle pero WALANG talagang
-// internet ang device sa totoo lang (nawalan ng WiFi/data biglaan),
-// patuloy pa ring sinusubukan ang relayFetch() (hanggang sa maabot ang
-// buong 20s timeout nito) bago mag-fail — hindi pa rin bilis.
+// isInternetLikelyUp — FIX #2 (CRITICAL): ang dating paraan dito ay
+// gumagawa ng fetch() papuntang "https://www.gstatic.com/generate_204" —
+// isang HOSTNAME, kaya kailangan muna itong I-DNS-RESOLVE bago pa man
+// makagawa ng kahit anong koneksyon. Kapag "connected" pa rin ang
+// WiFi/adapter (naka-associate sa router) pero WALANG ruta papunta sa
+// totoong internet (namatay ang ISP/modem — pinakakaraniwang senaryo sa
+// tindahan), ang DNS query mismo ang NAGHIHINTAY/NAGHAHANG — minsan
+// hindi kaagad naka-a-abort ng AbortSignal ang mismong DNS resolution
+// phase depende sa Node/OS resolver, kaya kahit may 3s timeout dati,
+// nararamdaman pa ring "nag-la-lag"/"parang nag-freeze" ang BAWAT
+// function na dumadaan dito (login device-check, feature unlock, atbp.)
+// — ito mismo ang sanhi ng "mabagal pa rin ang lahat ng function" kahit
+// pagkatapos nailagay na ang mga timeout.
 //
-// Ito ay isang MABILIS (max ~3s) at CACHED (15s) na paunang tsek kung may
-// aktwal na internet access, ginagamit BAGO pa man subukan ang buong
-// Relay call — para kahit anong sanhi ng pagkawala ng internet (hindi
-// lang yung manual na toggle), agad na mag-a-apply ang parehong
-// "offline-speed" na behavior (fail-fast, walang paghihintay).
+// AYOS: sa halip na mag-DNS-resolve, direktang kumokonekta (raw TCP,
+// walang HTTP/TLS handshake pa) sa mga KILALANG IP ADDRESS
+// (1.1.1.1 / 8.8.8.8, port 443) — WALANG DNS lookup na kailangan dito,
+// kaya HINDI na ito maaapektuhan ng DNS-related hang. Karaniwang
+// nagreresolba ito (successful o failed) sa loob ng ilang daang
+// millisecond lang, hindi na segundo.
 // --------------------------------------------------------------
 let lastConnectivityProbe = { at: 0, up: true };
-const CONNECTIVITY_PROBE_CACHE_MS = 15 * 1000;
-const CONNECTIVITY_PROBE_TIMEOUT_MS = 3000;
+const CONNECTIVITY_PROBE_CACHE_MS = 10 * 1000;
+const CONNECTIVITY_PROBE_TIMEOUT_MS = 1200;
+
+function rawTcpProbe(host, port, timeoutMs) {
+    return new Promise((resolve) => {
+        const socket = new net.Socket();
+        let settled = false;
+        const finish = (result) => {
+            if (settled) return;
+            settled = true;
+            socket.destroy();
+            resolve(result);
+        };
+        socket.setTimeout(timeoutMs);
+        socket.once('connect', () => finish(true));
+        socket.once('timeout', () => finish(false));
+        socket.once('error', () => finish(false));
+        // .connect() dito gamit ang RAW IP bilang host — hindi ito
+        // dadaan sa DNS resolver, kaya hindi ito naaantala ng patay na
+        // DNS/internet.
+        socket.connect(port, host);
+    });
+}
 
 async function isInternetLikelyUp() {
     const now = Date.now();
     if (now - lastConnectivityProbe.at < CONNECTIVITY_PROBE_CACHE_MS) {
         return lastConnectivityProbe.up;
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CONNECTIVITY_PROBE_TIMEOUT_MS);
+    // Dalawang kilalang anycast IP (Cloudflare + Google) nang sabay-sabay
+    // — kahit isa lang ang sumagot, "up" na. Karagdagang proteksyon kung
+    // sakaling naka-block/down ang isa sa kanila sa partikular na network.
     let up;
     try {
-        await fetch('https://www.gstatic.com/generate_204', { signal: controller.signal, cache: 'no-store' });
-        up = true;
+        up = await Promise.race([
+            Promise.any([
+                rawTcpProbe('1.1.1.1', 443, CONNECTIVITY_PROBE_TIMEOUT_MS),
+                rawTcpProbe('8.8.8.8', 443, CONNECTIVITY_PROBE_TIMEOUT_MS)
+            ]).then(results => !!results),
+            new Promise(resolve => setTimeout(() => resolve(false), CONNECTIVITY_PROBE_TIMEOUT_MS + 200))
+        ]);
     } catch (err) {
         up = false;
-    } finally {
-        clearTimeout(timer);
     }
     lastConnectivityProbe = { at: now, up };
     return up;
