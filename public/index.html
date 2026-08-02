@@ -1846,6 +1846,7 @@
                 <div class="barcode-preview-header-actions">
                     <button class="btn-print-header-mobile-only" onclick="window.print()" title="Print" aria-label="Print"><i class="fa-solid fa-print"></i></button>
                     <button id="barcode-header-bt-print-btn" class="btn-print-header-mobile-only" style="display:none; background:#0ea5e9;" onclick="printBarcodeSheetViaBluetooth()" title="BT Print" aria-label="BT Print"><i class="fa-solid fa-bluetooth-b"></i></button>
+                    <button class="btn-print-header-desktop-only" onclick="window.print()" title="Print" aria-label="Print"><i class="fa-solid fa-print"></i> Print</button>
                     <button class="fa-solid close-modal-btn" onclick="closeModal('barcode-preview-modal')">&times;</button>
                 </div>
             </div>
@@ -1855,7 +1856,6 @@
                     </div>
                 <div class="modal-footer-controls-row barcode-preview-footer-desktop-only no-print" style="margin-top:20px;">
                     <button class="btn-close-gray" onclick="closeModal('barcode-preview-modal')">Close</button>
-                    <button class="btn-print-receipt" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>
                     <button id="barcode-bt-print-btn" class="btn-print-receipt" style="display:none; background:#0ea5e9;" onclick="printBarcodeSheetViaBluetooth()"><i class="fa-solid fa-bluetooth-b"></i> BT Print</button>
                 </div>
             </div>

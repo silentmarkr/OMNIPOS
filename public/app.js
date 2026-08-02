@@ -6935,6 +6935,84 @@ function switchUserTab(tabId, element) {
     }
 }
 
+// ===== Users Page: Swipe Left/Right to Switch Tabs (mobile view only) =====
+// Self-contained addition — does not modify switchUserTab / updateUsersTabVisibility.
+// Swiping left moves to the next visible tab, swiping right moves to the
+// previous one. Swipes that start inside a horizontally-scrollable table
+// (e.g. the Roles & Permissions matrix, or a wide data table) are ignored so
+// this never fights with the table's own left/right scrolling.
+function initUsersViewSwipeTabs() {
+    const usersView = document.getElementById('view-users');
+    if (!usersView) return;
+
+    const SWIPE_MIN_DISTANCE = 60;
+    const SWIPE_MAX_OFF_AXIS = 60;
+    const SWIPE_MAX_TIME = 700;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+    let touchActive = false;
+    let skipSwipe = false;
+
+    function isInsideHorizontalScroller(target) {
+        if (!target || typeof target.closest !== 'function') return false;
+        const scroller = target.closest('.table-container, .permission-matrix-scroll');
+        if (!scroller) return false;
+        return scroller.scrollWidth > scroller.clientWidth + 1;
+    }
+
+    function getVisibleTabButtons() {
+        return Array.from(usersView.querySelectorAll('.tabs-container .tab-btn'))
+            .filter(btn => btn.style.display !== 'none');
+    }
+
+    function goToAdjacentTab(direction) {
+        const btns = getVisibleTabButtons();
+        if (btns.length < 2) return;
+        const activeIndex = btns.findIndex(b => b.classList.contains('active'));
+        if (activeIndex === -1) return;
+        const nextIndex = (activeIndex + direction + btns.length) % btns.length;
+        btns[nextIndex].click();
+    }
+
+    usersView.addEventListener('touchstart', (e) => {
+        if (typeof isMobileOrTabletScreen === 'function' && !isMobileOrTabletScreen()) return;
+        if (!e.touches || e.touches.length !== 1) return;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+        touchActive = true;
+        skipSwipe = isInsideHorizontalScroller(e.target);
+    }, { passive: true });
+
+    usersView.addEventListener('touchend', (e) => {
+        if (!touchActive) return;
+        touchActive = false;
+        if (skipSwipe) { skipSwipe = false; return; }
+        if (typeof isMobileOrTabletScreen === 'function' && !isMobileOrTabletScreen()) return;
+        if (!e.changedTouches || !e.changedTouches.length) return;
+
+        const touch = e.changedTouches[0];
+        const deltaX = touch.clientX - touchStartX;
+        const deltaY = touch.clientY - touchStartY;
+        const elapsed = Date.now() - touchStartTime;
+
+        if (elapsed > SWIPE_MAX_TIME) return;
+        if (Math.abs(deltaY) > SWIPE_MAX_OFF_AXIS) return;
+        if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE) return;
+
+        goToAdjacentTab(deltaX < 0 ? 1 : -1);
+    }, { passive: true });
+
+    usersView.addEventListener('touchcancel', () => {
+        touchActive = false;
+        skipSwipe = false;
+    }, { passive: true });
+}
+
+document.addEventListener('DOMContentLoaded', initUsersViewSwipeTabs);
+
 async function loadUsersTable() {
     try {
 
