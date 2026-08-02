@@ -636,19 +636,37 @@ body {
    nananatiling nakasentro ang berdeng dot sa tuldok ng "i". */
 .brand-word {
     letter-spacing: -0.5px;
+    /* FIX: dating nagbabago ang font-family nito depende sa theme (hal.
+       nagiging 'Space Grotesk' sa Dark Mode via ".brand-title" heading-font
+       rule sa ibaba). Magkaiba ang eksaktong posisyon ng tuldok ng letrang
+       "i" sa bawat font (glyph metrics), kaya lumilihis ang berdeng dot
+       tuwing nagpapalit ng theme. Ang wordmark/logo ay dapat FIXED at HINDI
+       sumusunod sa heading font ng theme, para laging tama ang pagkakadikit
+       ng dot sa tuldok ng "i" anuman ang napiling tema. */
+    font-family: 'Inter','Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
 }
 
 /* Ang berdeng online/offline dot ay naka-float sa mismong tuldok ng "i"
-   sa OmniPOS logo (kapalit ng dating tuldok ng letra). */
+   sa OmniPOS logo (kapalit ng dating tuldok ng letra).
+   FIX: dating fixed-pixel ang top/width/height, kaya TAMA lang ito sa
+   ISANG partikular na font-size. Magkaiba ang font-size ng "OmniPOS"
+   word sa login (1.7rem, o 2.05rem sa PC/desktop via #auth-view.pc-auth-mode),
+   sa sidebar (1.5rem), at sa terminal header (1.2rem) — kaya lumilihis ang
+   dot sa tuldok ng "i" sa mga context na iba sa dating tinutukan lang na
+   laki (lalo na sa PC/desktop kung saan mas malaki ang logo). Ngayon,
+   "em" units ang ginamit (relative sa sariling font-size ng .brand-i-wrap),
+   kaya AWTOMATIKONG nag-a-adjust ito nang tama sa lahat ng context/laki,
+   kasama na ang PC-scaled login screen — walang kailangang idagdag na
+   hiwalay na override kada context. */
 .brand-i-wrap .connection-dot {
     position: absolute;
-    top: 3px;
+    top: 0.125em;
     left: 50%;
     transform: translateX(-50%);
-    width: 7px;
-    height: 7px;
+    width: 0.3em;
+    height: 0.3em;
     margin: 0;
-    border: 1.5px solid var(--bg-sidebar-dark);
+    border: max(1px, 0.065em) solid var(--bg-sidebar-dark);
 }
 
 /* Ang naka-float na down-arrow badge sa BABA ng avatar circle, gaya ng

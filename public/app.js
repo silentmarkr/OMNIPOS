@@ -10,6 +10,34 @@ const API_URL = isLocal
     ? `${window.location.protocol}//${window.location.hostname}:3000/api`
     : `${window.location.protocol}//${window.location.hostname}/api`;
 
+// CRITICAL FIX: bago walang timeout ang mga network call (login, logout,
+// atbp.) — kapag biglaang nawala ang internet habang naka-request, pwede
+// itong mag-hang ng mahabang panahon (30s+, depende sa browser/OS) bago
+// mag-fail, kaya parang "nag-freeze" ang login/logout. Dito, kahit anong
+// authFetch call ay AUTOMATIC nang mag-i-fail sa loob lang ng
+// AUTH_FETCH_TIMEOUT_MS kung walang sagot — sasabihan agad ang user sa
+// halip na maghintay nang walang katiyakan.
+const AUTH_FETCH_TIMEOUT_MS = 6000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    // Kung may sarili nang signal ang caller, i-respeto rin ito (hal. kapag
+    // gusto ng ibang function na sila mismo ang mag-cancel).
+    const externalSignal = options.signal;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    if (externalSignal) {
+        if (externalSignal.aborted) controller.abort();
+        else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+
+    try {
+        return await window.fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function authFetch(url, options = {}) {
     const token = localStorage.getItem('posa_token');
     const opts = { ...options };
@@ -18,7 +46,17 @@ async function authFetch(url, options = {}) {
         ...(token ? {'Authorization': `Bearer ${token}` } : {})
     };
 
-    const res = await window.fetch(url, opts);
+    let res;
+    try {
+        res = await fetchWithTimeout(url, opts);
+    } catch (err) {
+        // Agad na i-trigger ang real-time na re-check ng connection status
+        // (hindi na maghihintay ng buong 6s poll interval) para instantly
+        // ma-update ang green/blue/red dot at ang offline-mode toggle sakaling
+        // dito unang na-detect ang pagkawala ng koneksyon.
+        if (window.__triggerNetworkRecheck) window.__triggerNetworkRecheck();
+        throw err;
+    }
 
     if (res.status === 401 && !url.includes('/auth/login')) {
 
@@ -2790,6 +2828,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const password = document.getElementById('login-password').value.trim();
     const errorBanner = document.getElementById('login-error');
 
+    // FAST FAIL: kung alam na nating walang internet (browser-level check,
+    // instant), huwag nang mag-attempt pa ng request — sabihin agad sa user
+    // sa halip na maghintay pa ng ilang segundo bago mag-timeout.
+    if (!navigator.onLine) {
+        errorBanner.innerText ='Walang internet connection. Suriin ang WiFi/Data bago mag-login.';
+        errorBanner.style.display ='block';
+        return;
+    }
+
     try {
         const response = await authFetch(`${API_URL}/auth/login`, {
             method:'POST',
@@ -2842,7 +2889,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
             errorBanner.style.display ='block';
         }
     } catch (err) {
-        errorBanner.innerText ='Server communication breakdown error.';
+        errorBanner.innerText = (err && err.name ==='AbortError')
+            ?'Nag-timeout ang connection sa server. Suriin ang internet at subukan ulit.'
+            :'Server communication breakdown error.';
         errorBanner.style.display ='block';
     }
 });
@@ -9055,7 +9104,7 @@ function initNetworkStatusIndicator() {
         if (window.setConnectivityLiveState) window.setConnectivityLiveState(state);
     }
 
-    function checkRealInternetAccess(timeoutMs = 4000) {
+    function checkRealInternetAccess(timeoutMs = 2000) {
         return new Promise((resolve) => {
             const controller = new AbortController();
             const timer = setTimeout(() => {
@@ -9111,7 +9160,33 @@ function initNetworkStatusIndicator() {
     window.addEventListener('online', updateStatusIndicator);
     window.addEventListener('offline', updateStatusIndicator);
 
-    setInterval(updateStatusIndicator, 15000);
+    // SPEED FIX: mula 15s → 6s ang regular poll, dahil ito lang ang
+    // nagde-detect kapag "connected" pa ang WiFi/adapter pero WALA nang
+    // aktwal na internet (hal. namatay ang router/ISP) — hindi ito
+    // nade-detect ng navigator.onLine (browser-level lang 'yun), kaya
+    // kailangang mas madalas i-verify.
+    setInterval(updateStatusIndicator, 6000);
+
+    // INSTANT RECHECK: pwedeng tawagin ito ng ibang parte ng app (hal.
+    // authFetch kapag nag-timeout/nag-fail) para agad ma-update ang dot
+    // sa halip na maghintay pa ng buong 6s hanggang susunod na poll.
+    // May simpleng throttle (1s) para hindi paulit-ulit tumama nang
+    // sabay-sabay kapag maraming request ang nag-fail nang magkakasunod.
+    let lastForcedCheckAt = 0;
+    window.__triggerNetworkRecheck = () => {
+        const now = Date.now();
+        if (now - lastForcedCheckAt < 1000) return;
+        lastForcedCheckAt = now;
+        updateStatusIndicator();
+    };
+
+    // Kapag bumalik ang user sa tab/window (hal. matagal na naka-minimize
+    // ang POS at nabago na ang koneksyon habang wala siyang tinitignan),
+    // agad mag-recheck sa halip na maghintay ng hanggang 6s.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') updateStatusIndicator();
+    });
+    window.addEventListener('focus', updateStatusIndicator);
 }
 
 function initAuthDeviceScaling() {
@@ -9534,63 +9609,67 @@ async function handleLogout(type ='manual') {
     stopTerminalStockPolling();
     stopInventoryStockPolling();
 
+    const username = currentUser ? (currentUser.username ||'Unknown') :'Unknown';
+    const logMethod = type ==='auto' ?'AUTO_TIMEOUT' :'MANUAL';
+    const detailMsg = type ==='auto' ?'Idle timeout' :'User sign-out';
+    const oldUser = currentUser ? currentUser.username : null;
+
+    // SPEED FIX: kung alam na nating walang internet (o naka-Offline Mode),
+    // wag nang subukan pang mag-request sa server — direktang lumipat sa
+    // local session cleanup para HINDI mag-antay ang logout ng user.
+    // Ang mga cart/log entries ay makikita pa rin sa server sa susunod na
+    // pag-online (naka-preserve na sa database ang cart kung auto-logout;
+    // best-effort na lang ang manual cart clear at ang log kapag walang
+    // net — hindi dapat sila maging dahilan para mahang ang buong logout).
+    const skipServerCalls = !navigator.onLine || isOfflineModeActive();
+
     if (type ==='manual') {
         console.log("Manual logout detected. Clearing cart from database...");
-
-        const oldUser = currentUser ? currentUser.username : null;
         shoppingCart = [];
-
-        if (oldUser) {
-            try {
-                await authFetch(`${API_URL}/cart`, {
-                    method:'POST',
-                    headers: {'Content-Type':'application/json' },
-                    body: JSON.stringify({
-                        username: oldUser,
-                        cart: []
-                    })
-                });
-            } catch (error) {
-                console.error("Failed to clear database cart during manual logout:", error);
-            }
-        }
     } else {
-
         console.log(`Auto-logout (${type}) detected. Cart is safely preserved in the database.`);
         shoppingCart = [];
     }
 
-    const username = currentUser ? (currentUser.username ||'Unknown') :'Unknown';
-    const logMethod = type ==='auto' ?'AUTO_TIMEOUT' :'MANUAL';
-    const detailMsg = type ==='auto' ?'Idle timeout' :'User sign-out';
-
-    try {
-
-        await authFetch(`${API_URL}/logs`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({
-                action:'LOGOUT',
-                user: username,
-                authMethod: logMethod,
-                details: { message: detailMsg }
-            })
-        });
-    } catch (err) {
-        console.error("Log transmission failed:", err);
-    }
-
-    try {
-
-        await authFetch(`${API_URL}/auth/logout`, {
-            method:'POST',
-            headers: {
+    if (!skipServerCalls) {
+        // SPEED FIX: dating sunud-sunod (sequential) ang 3 magkakahiwalay na
+        // await — kung mabagal/timeout ang una, naghihintay pa rin bago
+        // subukan ang susunod, kaya paulit-ulit na naipupundo ang buong
+        // logout. Ngayon, sabay-sabay (parallel) silang tinatawag —
+        // ang pinakamabagal/pinaka-timeout na call na lang ang basehan ng
+        // kabuuang oras ng paghihintay, hindi ang kabuuan ng tatlo.
+        const results = await Promise.allSettled([
+            (type ==='manual' && oldUser)
+                ? authFetch(`${API_URL}/cart`, {
+                    method:'POST',
+                    headers: {'Content-Type':'application/json' },
+                    body: JSON.stringify({ username: oldUser, cart: [] })
+                })
+                : Promise.resolve(null),
+            authFetch(`${API_URL}/logs`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({
+                    action:'LOGOUT',
+                    user: username,
+                    authMethod: logMethod,
+                    details: { message: detailMsg }
+                })
+            }),
+            authFetch(`${API_URL}/auth/logout`, {
+                method:'POST',
+                headers: {
 'Content-Type':'application/json',
-                ...(localStorage.getItem('posa_token') ? {'Authorization': `Bearer ${localStorage.getItem('posa_token')}` } : {})
-            }
+                    ...(localStorage.getItem('posa_token') ? {'Authorization': `Bearer ${localStorage.getItem('posa_token')}` } : {})
+                }
+            })
+        ]);
+        const labels = ['Cart clear','Log transmission','Session invalidation'];
+        results.forEach((r, i) => {
+            if (r.status ==='rejected') console.error(`${labels[i]} failed during logout:`, r.reason);
         });
-    } catch (err) {
-        console.error("Session invalidation failed:", err);
+    } else {
+        console.log("Offline/no-internet detected — skipping server logout calls, proceeding with local session cleanup immediately.");
     }
 
     sessionStorage.removeItem('currentView');
