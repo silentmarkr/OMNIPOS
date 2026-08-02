@@ -80,12 +80,24 @@ const ENV_FILENAME = ".env";
 const ENV_KEY_FILENAME = ".env.key";
 
 // First-party source to obfuscate (client-side, shipped to the browser).
+//
+// NOTE: public/service-worker.js is intentionally NOT in this list.
+// Service workers run in a stricter execution context than normal page
+// scripts, and javascript-obfuscator's selfDefending/controlFlowFlattening
+// output has known compatibility problems there (tamper-check code that
+// relies on Function.prototype.toString() self-comparisons). On top of
+// that, the string-array shuffling makes the obfuscated output byte-
+// different on every single build — and browsers do a byte-for-byte diff
+// of service-worker.js to decide whether to install a new SW version, so
+// every redeploy was forcing an update cycle. Together these were the
+// root cause of the PWA install/offline breakage. service-worker.js is
+// small and has no business logic worth hiding, so it's shipped verbatim
+// (see THIRD_PARTY_JS-style plain copy in planTree()).
 const CLIENT_TARGETS = new Set([
   path.join("public", "app.js"),
   path.join("public", "bt-printer.js"),
   path.join("public", "faq-engine.js"),
   path.join("public", "faq-knowledge.js"),
-  path.join("public", "service-worker.js"),
 ]);
 
 // Third-party JS that must not be touched, just copied.
