@@ -1833,6 +1833,29 @@
 <script src="app.js"></script>
 
 <script>
+// FIX: PWA install/offline bug — service-worker.js ay maayos na naman ang
+// content nito (na-fix na ang mga dating isyu), pero HINDI PALA ito na-
+// register kahit saan sa client code. Kaya kahit tama na ang manifest.json,
+// hindi lumalabas ang "Install App" prompt (beforeinstallprompt) dahil
+// kailangan ng browser ng ISANG ACTIVE, REGISTERED service worker bago pa
+// man ituring na "installable" ang site. Idinagdag ito para talagang
+// mag-register at gumana na ang install + offline support.
+//
+// PAALALA: STOPGAP lang ito dito sa live OMNIPOS instance. Ang permanenteng
+// fix ay dapat isulat din sa GitHub repo (OMNIPOS_REPO_URL) na kino-clone
+// ni RELAY sa /relay/admin/api/build-release — kung hindi, mababalik ang
+// bug na ito sa susunod na self-update (kukunin ulit mula sa RELAY release
+// package ang lumang, unpatched na public/index.html).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js')
+      .then((reg) => console.log('[SW] Registered, scope:', reg.scope))
+      .catch((err) => console.warn('[SW] Registration failed:', err));
+  });
+}
+</script>
+
+<script>
 // --------------------------------------------------------------
 // CONNECTIVITY MODE TOGGLE — Online/Offline button sa header (ikaw ang
 // nag-tap, hindi ito auto-switch). Purong UI + light API call lang ito
