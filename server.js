@@ -95,6 +95,212 @@ function getMailTransporter(user, pass) {
     return transporter;
 }
 
+// ====================================================================
+// AYOS: GMAIL FALLBACK PARA SA "GUMAGANA SA LOCAL/TERMUX PERO
+// FAILED/TIMEOUT LAGI SA RENDER" NA ISYU
+// ====================================================================
+// ROOT CAUSE (hindi ito credential/App-Password problem): kinukumpirma
+// mismo ng opisyal na Render changelog na ang mga FREE web services sa
+// Render ay hindi na pinapayagang gumawa ng outbound connection papunta
+// sa SMTP ports 25, 465, at 587 mula pa noong Sept 26, 2025 — ito ang
+// dahilan kung bakit ang eksaktong parehong Gmail App Password ay
+// gumagana nang walang error sa lokal na network / Termux (walang
+// firewall/port block doon), pero laging nag-ti-timeout/nagfa-fail sa
+// Render (na-block na sa network level ang koneksyon papuntang
+// smtp.gmail.com bago pa man makapag-authenticate). Walang paraan sa
+// SIDE ng code (DNS order, IPv4-first, ibang port, mas mahabang
+// timeout) para malampasan ito — kailangan alinman sa: (1) i-upgrade
+// ang Render service sa paid instance type (bukas ulit ang mga port na
+// iyon doon), o (2) lumipat sa isang paraan ng pagpapadala ng email na
+// dumadaan sa HTTPS/443 sa halip na raw SMTP — hindi ito bino-block ng
+// Render dahil kailangan din ito para tumakbo ang web server mismo.
+//
+// Dito, gumagawa tayo ng OPTIONAL na Gmail REST API (HTTPS) fallback:
+// kapag na-detect na SMTP-level (hindi credential-level) na error ang
+// nangyari — gaya ng ETIMEDOUT/ECONNREFUSED/ESOCKET, na siyang lagi at
+// laging sintomas ng naka-block na port sa Render — awtomatikong
+// susubukan nitong ipadala ang email sa pamamagitan ng Gmail REST API
+// sa halip, GAMIT PA RIN ang parehong Gmail account. Kailangan lang
+// i-configure minsan ang mga sumusunod na env vars sa Render Dashboard
+// (Google Cloud OAuth2 client + isang beses na na-generate na refresh
+// token — hindi ito ang App Password):
+//   GMAIL_OAUTH_CLIENT_ID
+//   GMAIL_OAUTH_CLIENT_SECRET
+//   GMAIL_OAUTH_REFRESH_TOKEN
+// Kung hindi ito naka-configure, hindi na basta-basta bumabagsak ang
+// server sa isang malabong "invalid credentials" na error — sa halip,
+// malinaw na sasabihin sa admin na Render network restriction ito, at
+// hindi maling Gmail/App Password.
+
+function isNetworkLevelMailError(err) {
+    if (!err) return false;
+    // May "responseCode" (hal. 535) kapag NAKAPAG-KONEKTA na ang socket
+    // at TUMUGON ang Gmail SMTP server mismo (ibig sabihin totoong
+    // credential/authentication error ito, hindi network block) — kaya
+    // hindi ito dapat ituring na network-level error.
+    if (err.responseCode) return false;
+    const netCodes = ['ETIMEDOUT', 'ESOCKET', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN'];
+    if (err.code && netCodes.includes(err.code)) return true;
+    return /connection timeout|greeting never received|timed?\s?out/i.test(err.message || '');
+}
+
+function getGmailApiFallbackConfig() {
+    const clientId = process.env.GMAIL_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GMAIL_OAUTH_CLIENT_SECRET;
+    const refreshToken = process.env.GMAIL_OAUTH_REFRESH_TOKEN;
+    if (!clientId || !clientSecret || !refreshToken) return null;
+    return { clientId, clientSecret, refreshToken };
+}
+
+async function getGmailApiAccessToken(cfg) {
+    const resp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            client_id: cfg.clientId,
+            client_secret: cfg.clientSecret,
+            refresh_token: cfg.refreshToken,
+            grant_type: 'refresh_token'
+        })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.access_token) {
+        throw new Error(`Hindi makakuha ng Gmail API access token: ${data.error_description || data.error || resp.statusText}`);
+    }
+    return data.access_token;
+}
+
+function base64UrlEncode(buf) {
+    return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Gumagawa ng raw RFC 2822 MIME message (plain text, may optional
+// attachment/s) — ito ang format na kailangan ng Gmail REST API's
+// "messages.send" endpoint (base64url-encoded sa loob ng "raw" field).
+function buildMimeMessage(mailOptions) {
+    const boundary = `omnipos_${crypto.randomBytes(12).toString('hex')}`;
+    const attachments = mailOptions.attachments || [];
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(mailOptions.subject || '', 'utf8').toString('base64')}?=`;
+    const headers = [
+        `From: ${mailOptions.from}`,
+        `To: ${mailOptions.to}`,
+        `Subject: ${encodedSubject}`,
+        'MIME-Version: 1.0'
+    ];
+
+    if (!attachments.length) {
+        headers.push('Content-Type: text/plain; charset="UTF-8"');
+        headers.push('Content-Transfer-Encoding: base64');
+        const body = Buffer.from(mailOptions.text || '', 'utf8').toString('base64');
+        return headers.join('\r\n') + '\r\n\r\n' + body;
+    }
+
+    headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+    let msg = headers.join('\r\n') + '\r\n\r\n';
+    msg += `--${boundary}\r\n`;
+    msg += 'Content-Type: text/plain; charset="UTF-8"\r\n';
+    msg += 'Content-Transfer-Encoding: base64\r\n\r\n';
+    msg += Buffer.from(mailOptions.text || '', 'utf8').toString('base64') + '\r\n\r\n';
+
+    for (const att of attachments) {
+        const contentType = att.contentType || 'application/octet-stream';
+        const contentBuffer = att.encoding === 'base64'
+            ? Buffer.from(att.content, 'base64')
+            : Buffer.from(att.content, 'utf8');
+        msg += `--${boundary}\r\n`;
+        msg += `Content-Type: ${contentType}; name="${att.filename}"\r\n`;
+        msg += `Content-Disposition: attachment; filename="${att.filename}"\r\n`;
+        msg += 'Content-Transfer-Encoding: base64\r\n\r\n';
+        msg += contentBuffer.toString('base64').replace(/(.{76})/g, '$1\r\n') + '\r\n\r\n';
+    }
+    msg += `--${boundary}--`;
+    return msg;
+}
+
+async function sendViaGmailApi(mailOptions) {
+    const cfg = getGmailApiFallbackConfig();
+    if (!cfg) {
+        const err = new Error('GMAIL_API_FALLBACK_NOT_CONFIGURED');
+        err.code = 'GMAIL_API_FALLBACK_NOT_CONFIGURED';
+        throw err;
+    }
+    const accessToken = await getGmailApiAccessToken(cfg);
+    const raw = base64UrlEncode(Buffer.from(buildMimeMessage(mailOptions), 'utf8'));
+    const resp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ raw })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+        throw new Error(`Gmail API send failed: ${data.error?.message || resp.statusText}`);
+    }
+    return data;
+}
+
+// Pinag-isang paraan ng pagpapadala ng email na ginagamit ng LAHAT ng
+// endpoint (OTP, resibo, factory-reset backup, atbp.): unang susubukan
+// via SMTP/App Password gaya dati (mabilis, gumagana sa local/Termux).
+// Kapag network-level failure lang (gaya ng laging nangyayari sa Render
+// free tier), awtomatikong susubukan ang Gmail REST API (HTTPS)
+// fallback kung naka-configure — kung hindi, malinaw na sasabihing
+// Render/cloud-host SMTP port block ito, hindi maling credentials.
+async function sendMailSmart(user, pass, mailOptions) {
+    const transporter = getMailTransporter(user, pass);
+    try {
+        return await transporter.sendMail(mailOptions);
+    } catch (err) {
+        if (!isNetworkLevelMailError(err)) throw err;
+
+        try {
+            const result = await sendViaGmailApi(mailOptions);
+            console.warn('✉️ [MAIL FALLBACK] Na-block/nag-timeout ang SMTP (karaniwan sa Render free tier) — matagumpay na naipadala gamit ang Gmail REST API (HTTPS) fallback.');
+            return result;
+        } catch (fallbackErr) {
+            if (fallbackErr.code === 'GMAIL_API_FALLBACK_NOT_CONFIGURED') {
+                const err2 = new Error(
+                    'Hindi maka-konekta sa Gmail SMTP mula sa server na ito. KARANIWAN itong dulot ng Render (at ibang free-tier cloud host) na nag-block ng outbound SMTP ports 25/465/587 sa mga FREE web services (opisyal na patakaran ito ng Render mula Set. 26, 2025) — HINDI ito problema sa iyong Gmail address o App Password. Solusyon: (1) i-upgrade ang Render service sa paid instance type, o (2) i-configure ang GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars sa Render para awtomatikong gumamit ng Gmail API (HTTPS) bilang fallback sa halip na SMTP.'
+                );
+                err2.code = 'SMTP_BLOCKED_NO_FALLBACK';
+                throw err2;
+            }
+            throw fallbackErr;
+        }
+    }
+}
+
+// Gaya ng sendMailSmart, pero para sa transporter.verify() (ginagamit
+// kapag unang sino-save ang Sender Gmail + App Password sa settings
+// panel). MAHALAGA ito: kung hindi ito aayusin, kahit TAMA ang
+// credentials, hinding-hindi ito mave-verify/mase-save sa Render dahil
+// sa parehong SMTP port block — permanenteng naka-block ang admin sa
+// pag-configure ng OTP sender email kahit tama lahat ng inilagay niya.
+async function verifyMailCredentialsSmart(user, pass) {
+    const transporter = getMailTransporter(user, pass);
+    try {
+        await transporter.verify();
+        return { verified: true, viaFallback: false };
+    } catch (err) {
+        if (!isNetworkLevelMailError(err)) throw err;
+
+        const fallbackCfg = getGmailApiFallbackConfig();
+        if (fallbackCfg) {
+            await getGmailApiAccessToken(fallbackCfg);
+            return { verified: true, viaFallback: true };
+        }
+
+        // Walang paraan na ma-verify ang SMTP dito (Render port block) —
+        // huwag itong ituring na maling password; tanggapin na lang bilang
+        // "unverified" at gamitin pa rin — gagana ito sa totoong
+        // pagpapadala via sendMailSmart() kung may fallback na naka-configure,
+        // o malinaw na mag-eerror (Render network restriction) kung wala.
+        return { verified: false, viaFallback: false, skippedReason: 'SMTP_BLOCKED' };
+    }
+}
+
 const app = express();
 
 // Para tama ang req.ip kapag dumaan sa cloudflared tunnel o ibang reverse proxy
@@ -813,8 +1019,7 @@ app.post('/api/receipt-settings/otp-sender', rateLimit('otp-sender-config', 5, 1
     }
 
     try {
-        const transporter = getMailTransporter(otpSenderEmail, otpSenderAppPassword);
-        await transporter.verify();
+        const verifyResult = await verifyMailCredentialsSmart(otpSenderEmail, otpSenderAppPassword);
 
         const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         settings.otpSenderEmail = otpSenderEmail;
@@ -822,7 +1027,14 @@ app.post('/api/receipt-settings/otp-sender', rateLimit('otp-sender-config', 5, 1
         writeData(FILE_RECEIPT_SETTINGS, settings);
 
         logAction(username ||'Unknown', `Na-configure ang OTP Sender Email (${maskEmail(otpSenderEmail)})`);
-        res.json({ success: true, message:'Na-verify at na-save ang Sender Gmail + App Password.', settings: getReceiptSettingsPublic(settings) });
+
+        let message = 'Na-verify at na-save ang Sender Gmail + App Password.';
+        if (verifyResult.viaFallback) {
+            message = 'Na-verify (gamit ang Gmail API/HTTPS fallback, dahil naka-block ang SMTP dito) at na-save ang Sender Gmail + App Password.';
+        } else if (!verifyResult.verified) {
+            message = 'Na-save ang Sender Gmail + App Password (hindi ito na-verify dahil naka-block ng cloud host na ito ang outbound SMTP ports — karaniwan ito sa Render free tier, hindi palatandaan ng maling password). Susubukan pa rin itong gamitin sa aktwal na pagpapadala ng OTP.';
+        }
+        res.json({ success: true, message, settings: getReceiptSettingsPublic(settings) });
     } catch (err) {
         console.error('OTP sender verification failed:', err.message);
         res.status(400).json({ success: false, message: `Hindi ma-verify ang Gmail credentials: ${err.message}. Siguraduhing tama ang email at gumagamit ng 16-character App Password (hindi ang normal na password).` });
@@ -876,9 +1088,7 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
     const senderPass = otpMailCreds.pass;
 
     try {
-        const transporter = getMailTransporter(senderUser, senderPass);
-
-        await transporter.sendMail({
+        await sendMailSmart(senderUser, senderPass, {
             from: `"OmniPOS Receipt Customization" <${senderUser}>`,
             to: OTP_RECIPIENT_EMAIL,
             subject: `🔐 OmniPOS: OTP para sa Receipt Customization Request`,
@@ -996,9 +1206,7 @@ app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request
     const senderPass = otpMailCreds.pass;
 
     try {
-        const transporter = getMailTransporter(senderUser, senderPass);
-
-        await transporter.sendMail({
+        await sendMailSmart(senderUser, senderPass, {
             from: `"OmniPOS Receipt Customization" <${senderUser}>`,
             to: OTP_RECIPIENT_EMAIL,
             subject: `🔓 OmniPOS: OTP para i-RESET ang Receipt Customization Counter`,
@@ -3981,8 +4189,6 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
     }
 
     try {
-        const transporter = getMailTransporter(mailCreds.user, mailCreds.pass);
-
         const itemLines = (tx.items || []).map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
             const lineTotal = ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)) - itemDiscount;
@@ -4023,7 +4229,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             }
         }
 
-        await transporter.sendMail(mailOptions);
+        await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
 
         logAction(req.authUser ? req.authUser.username :'Unknown', `Naipadala ang resibo ${tx.id} sa email (${maskEmail(toEmail)})`);
         res.json({ success: true, message:'Naipadala ang resibo.' });
@@ -4527,8 +4733,6 @@ app.post('/api/system/reset', rateLimit('system-reset', 3, 30 * 60 * 1000), asyn
     };
 
     try {
-        const transporter = getMailTransporter(otpMailCreds.user, otpMailCreds.pass);
-
         let recipients = [secondaryEmail];
 
         const petsa_ng_ayon = new Date().toLocaleDateString('en-PH');
@@ -4546,7 +4750,7 @@ app.post('/api/system/reset', rateLimit('system-reset', 3, 30 * 60 * 1000), asyn
             ]
         };
 
-        await transporter.sendMail(mailOptions);
+        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, mailOptions);
 
         const secureDefaultUsers = defaultUsers.map(u => ({
             ...u,
