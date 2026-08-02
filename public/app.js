@@ -2828,15 +2828,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const password = document.getElementById('login-password').value.trim();
     const errorBanner = document.getElementById('login-error');
 
-    // FAST FAIL: kung alam na nating walang internet (browser-level check,
-    // instant), huwag nang mag-attempt pa ng request — sabihin agad sa user
-    // sa halip na maghintay pa ng ilang segundo bago mag-timeout.
-    if (!navigator.onLine) {
-        errorBanner.innerText ='Walang internet connection. Suriin ang WiFi/Data bago mag-login.';
-        errorBanner.style.display ='block';
-        return;
-    }
-
+    // NOTE: SINADYANG walang internet pre-check dito. Ang /auth/login ay
+    // tumatakbo sa SARILING LOCAL server ng client (Termux, isLocal/local-IP
+    // — tingnan ang API_URL sa itaas), may sarili itong database, kaya
+    // gumagana ito kahit walang internet ang device. Ang fetchWithTimeout
+    // (sa loob ng authFetch) na lang ang bahalang mag-alarma kung talagang
+    // hindi ma-reach ang local server sa loob ng ilang segundo.
     try {
         const response = await authFetch(`${API_URL}/auth/login`, {
             method:'POST',
@@ -2890,7 +2887,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         }
     } catch (err) {
         errorBanner.innerText = (err && err.name ==='AbortError')
-            ?'Nag-timeout ang connection sa server. Suriin ang internet at subukan ulit.'
+            ?'Hindi ma-reach ang lokal na server. Tiyaking tumatakbo ang OmniPOS server (Termux) at subukan ulit.'
             :'Server communication breakdown error.';
         errorBanner.style.display ='block';
     }
@@ -9614,14 +9611,13 @@ async function handleLogout(type ='manual') {
     const detailMsg = type ==='auto' ?'Idle timeout' :'User sign-out';
     const oldUser = currentUser ? currentUser.username : null;
 
-    // SPEED FIX: kung alam na nating walang internet (o naka-Offline Mode),
-    // wag nang subukan pang mag-request sa server — direktang lumipat sa
-    // local session cleanup para HINDI mag-antay ang logout ng user.
-    // Ang mga cart/log entries ay makikita pa rin sa server sa susunod na
-    // pag-online (naka-preserve na sa database ang cart kung auto-logout;
-    // best-effort na lang ang manual cart clear at ang log kapag walang
-    // net — hindi dapat sila maging dahilan para mahang ang buong logout).
-    const skipServerCalls = !navigator.onLine || isOfflineModeActive();
+    // NOTE: hindi na natin ino-skip ang mga server call na ito base sa
+    // navigator.onLine/isOfflineModeActive. Ang /cart, /logs, at
+    // /auth/logout ay tumatakbo sa SARILING LOCAL server ng client
+    // (Termux) na may sariling database — gumagana ito kahit walang
+    // internet ang device. Ang pagpapatakbo lang sa PARALLEL (sa halip na
+    // sunud-sunod) kasama ang fetch timeout (sa authFetch) ang nagpapabilis
+    // dito, hindi ang pag-skip.
 
     if (type ==='manual') {
         console.log("Manual logout detected. Clearing cart from database...");
@@ -9631,7 +9627,7 @@ async function handleLogout(type ='manual') {
         shoppingCart = [];
     }
 
-    if (!skipServerCalls) {
+    {
         // SPEED FIX: dating sunud-sunod (sequential) ang 3 magkakahiwalay na
         // await — kung mabagal/timeout ang una, naghihintay pa rin bago
         // subukan ang susunod, kaya paulit-ulit na naipupundo ang buong
@@ -9668,8 +9664,6 @@ async function handleLogout(type ='manual') {
         results.forEach((r, i) => {
             if (r.status ==='rejected') console.error(`${labels[i]} failed during logout:`, r.reason);
         });
-    } else {
-        console.log("Offline/no-internet detected — skipping server logout calls, proceeding with local session cleanup immediately.");
     }
 
     sessionStorage.removeItem('currentView');
