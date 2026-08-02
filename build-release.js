@@ -64,6 +64,18 @@ const EXCLUDE = new Set([
   ".gitignore",
 ]);
 
+// BUG FIX: extension-based exclusion. Dating wala nito, kaya ang mga
+// *.patch file sa project root (hal. "0001-Fix-anti-clone-...patch",
+// "0002-Adopt-reassignedInstallationId-...patch") ay hindi na-e-exclude
+// at na-co-copy diretso papunta sa release/OMNIPOS/ kada build — ibig
+// sabihin bawat customer na tumatanggap ng release zip ay nakikita ang
+// buong internal documentation ng anti-clone/licensing bypass logic
+// (kung paano gumagana ang installationId, clone_suspected, RELAY
+// endpoints, atbp.), kahit obfuscated na ang server.js/app.js mismo.
+// Dapat tugma ito sa BUILD_EXCLUDE_EXTENSIONS na ginagamit na ng RELAY
+// remote build endpoint (/relay/admin/api/build-release).
+const EXCLUDE_EXTENSIONS = new Set([".patch", ".log"]);
+
 // First-party source to obfuscate (server-side).
 const SERVER_TARGETS = new Set([
   "server.js",
@@ -283,6 +295,10 @@ function planTree(dir, baseRel, plan) {
       planTree(full, rel, plan);
       continue;
     }
+
+    // BUG FIX: skip files by extension (e.g. *.patch) regardless of
+    // which folder they're in — see EXCLUDE_EXTENSIONS above.
+    if (EXCLUDE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
 
     const destPath = path.join(OUT_DIR, rel);
     if (SERVER_TARGETS.has(rel)) {

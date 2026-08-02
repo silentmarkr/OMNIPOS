@@ -1631,6 +1631,18 @@ async function guardShiftReportAccess(isAdminOrSupervisor) {
 function switchView(viewKey, opts) {
     opts = opts || {};
 
+    // FIX: tanggalin ang "data-preload-view" attribute (idinagdag ng maagang
+    // pre-paint script sa index.html para maiwasan ang overview-flash bago
+    // pa mag-restore ng tamang view sa refresh — tingnan ang comment doon).
+    // Gumagamit ang CSS na iyon ng !important para mangibabaw sa paunang
+    // inline display:none ng bawat .app-view section, kaya kailangang
+    // alisin ito dito, sa MISMONG unang totoong pagtawag ng switchView(),
+    // para hindi na permanenteng naka-force-visible (o naka-force-hidden)
+    // ang alinmang section sa mga susunod na navigation ng user. No-op ito
+    // kung wala namang na-set na attribute (hal. bagong login, walang
+    // saved view), kaya ligtas itong laging tawagin dito.
+    document.documentElement.removeAttribute('data-preload-view');
+
     if (viewKey !=='users' && typeof closeGoogleAppVerificationFloatingBox ==='function') {
         closeGoogleAppVerificationFloatingBox();
     }
@@ -2340,19 +2352,6 @@ function toggleTerminalDayMode() {
     btn.classList.toggle('active', isNowDayMode);
     btn.innerHTML = isNowDayMode ?'<i class="fa-solid fa-moon"></i>' :'<i class="fa-solid fa-sun"></i>';
     localStorage.setItem('terminal_daymode', isNowDayMode ?'true' :'false');
-}
-
-function toggleSidebar() {
-    document.getElementById('app-sidebar').classList.toggle('open');
-}
-
-function initAppClock() {
-    const formatLabel = () => {
-        const d = new Date();
-        const pad = (num) => String(num).padStart(2,'0');
-        return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()}`;
-    };
-    document.getElementById('current-date-display').innerText = formatLabel();
 }
 
 function setupDropdownHandlers() {
@@ -4785,12 +4784,6 @@ function resetCartDiscountAndCustomerState() {
     if (customerBtn) customerBtn.innerHTML ='Walk-in <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i>';
 }
 
-function simulateBarcodeScan() {
-    if(globalProducts.length === 0) return;
-    const randomIndex = Math.floor(Math.random() * globalProducts.length);
-    addItemToCart(globalProducts[randomIndex]);
-}
-
 function closeModal(modalId) {
     document.getElementById(modalId).style.display ='none';
 }
@@ -6828,30 +6821,6 @@ async function loadSalesAnalyticsReport() {
 
     } catch (e) { console.error(e); }
   checkAdminResetVisibility();
-}
-
-async function loadTransactionDatabaseRecords() {
-    try {
-        const res = await authFetch(`${API_URL}/transactions`);
-        const txs = await res.json();
-        const tbody = document.getElementById('transactions-table-body');
-        tbody.innerHTML ='';
-
-        txs.reverse().forEach(t => {
-            const itemsSummary = t.items.map(i => `${escapeHtml(i.name)} (${i.quantity})`).join(', ');
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="font-bold">${t.id}</td>
-                <td>${t.timestamp}</td>
-                <td>${escapeHtml(t.cashier)}</td>
-                <td style="font-size:0.85rem; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${itemsSummary}">${itemsSummary}</td>
-                <td>₱${parseFloat(t.discount).toFixed(2)}</td>
-                <td class="text-success font-bold">₱${parseFloat(t.total).toFixed(2)}</td>
-                <td><span class="badge-role admin">${escapeHtml(t.method)}</span></td>
-            `;
-            tbody.appendChild(row);
-        });
-    } catch (e) { console.error(e); }
 }
 
 const USER_TAB_PERMISSION_MAP = {
@@ -9298,39 +9267,6 @@ async function initializeSystem() {
 
 window.addEventListener('DOMContentLoaded', initializeSystem);
 
-async function addNewCategoryPrompt() {
-    const { value: newCat } = await Swal.fire({
-        title:'Bagong Kategorya',
-        input:'text',
-        inputLabel:'Ilagay ang pangalan ng bagong kategorya:',
-        inputPlaceholder:'Pangalan...',
-        showCancelButton: true,
-        confirmButtonColor:'#2563eb',
-        cancelButtonColor:'#64748b'
-    });
-    if (!newCat) return;
-
-    try {
-        const res = await authFetch(`${API_URL}/categories`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ category: newCat })
-        });
-
-        const data = await res.json();
-        if (data.success) {
-            customCategories = data.categories;
-            updateDropdownCategoriesDynamic();
-            Swal.fire('Success','Matagumpay na naidagdag ang kategorya.','success');
-        } else {
-            Swal.fire('Hindi Naidagdag', data.message || 'Hindi naidagdag ang bagong kategorya.', 'error');
-        }
-    } catch (err) {
-        console.error('Failed to add category:', err);
-        Swal.fire('Connection Error', 'Hindi naipadala ang request. Suriin ang koneksyon at subukan ulit.', 'error');
-    }
-}
-
 window.addEventListener('popstate', function(event) {
 
     if (event.state && event.state.view) {
@@ -9346,76 +9282,6 @@ window.addEventListener('popstate', function(event) {
         }
     }
 });
-
-async function handleVoidItem(productId) {
-
-    const { value: adminPassword } = await Swal.fire({
-        title:'Administrative Verification Required',
-        input:'password',
-        inputLabel:'Provide administrative override passphrase tokens:',
-        inputPlaceholder:'Password Credentials Token',
-        showCancelButton: true,
-        confirmButtonText:'Authorize Request',
-        cancelButtonText:'Cancel',
-        confirmButtonColor:'#2563eb',
-        cancelButtonColor:'#ef4444'
-    });
-
-    if (!adminPassword) {
-        Swal.fire({
-            icon:'info',
-            title:'Operation Terminated',
-            text:'Kinansela ang pag-void ng item.',
-            confirmButtonColor:'#2563eb'
-        });
-        return;
-    }
-
-    try {
-
-        const response = await authFetch(`${API_URL}/auth/verify-void`, {
-            method:'POST',
-            headers: {
-'Content-Type':'application/json'
-            },
-            body: JSON.stringify({
-                adminPassword: adminPassword
-            })
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-
-            shoppingCart = shoppingCart.filter(item => item.code !== productId);
-
-            renderCartRows();
-
-            Swal.fire({
-                icon:'success',
-                title:'Authorization Granted',
-                text: data.message,
-                confirmButtonColor:'#22c55e'
-            });
-        } else {
-            Swal.fire({
-                icon:'error',
-                title:'Security Exception',
-                text: data.message,
-                confirmButtonColor:'#ef4444'
-            });
-        }
-
-    } catch (error) {
-        console.error("Nabigong ma-verify ang void request:", error);
-        Swal.fire({
-            icon:'error',
-            title:'Data Infrastructure Failure',
-            text:'Hindi ma-reach ang server para i-verify ang password. Subukang muli.',
-            confirmButtonColor:'#ef4444'
-        });
-    }
-}
 
 function playScanBeep() {
     try {

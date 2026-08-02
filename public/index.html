@@ -42,6 +42,116 @@
         } catch (e) { /* private mode / walang localStorage access — day mode default na lang */ }
     })();
     </script>
+
+    <!-- FIX (login/overview "blink" sa refresh): dating laging VISIBLE bilang
+         default ang #auth-view (display:flex mula sa .auth-container sa
+         style.css) habang naka-display:none naman ang #main-view sa simula
+         pa lang — kaya sa TUWING mag-re-refresh (F5 / reload) ang isang user
+         na may valid pa ring session, saglit munang lumalabas/kumikislap
+         ang LOGIN SCREEN bago ito palitan ng app.js (sa loob ng
+         DOMContentLoaded, via showMainSystemInterface()) ng overview/
+         main-view. Ito mismo ang naramdamang "blink" — parang nagpapalitan
+         nang bigla ang login at overview.
+         Ayos: kaparehong maaga (bago pa man ma-parse ang <body>, gaya ng
+         theme-preload guard sa itaas) susuriin dito kung may existing
+         session (posa_user + posa_token) sa localStorage. Kung meron,
+         idadagdag ang class na "has-session" sa <html> — ito ang gagamitin
+         ng CSS override sa ibaba para DIREKTANG ipakita agad ang #main-view
+         at itago ang #auth-view sa pinaka-unang paint pa lang, kaya wala
+         nang kumikislap na login form — "silent" na ang refresh, dire-diretso
+         nang makikita ang updated/logged-in na page.
+         Presentation-only ito / walang binabago sa auth logic: tumatakbo pa
+         rin nang normal ang parehong showMainSystemInterface() /
+         showAuthenticationInterface(), pati na ang existing 401 /
+         session-expired handling sa authFetch(). Kaya kung invalid o
+         expired na pala ang laman ng localStorage, babalik at babalik pa
+         rin ito nang tama sa login screen sa pamamagitan ng existing
+         session-expired flow (Swal "Session Expired" + reload) — walang
+         nasisirang functionality, hint sa unang paint lang ang idinagdag. -->
+    <script>
+    (function () {
+        try {
+            var u = localStorage.getItem('posa_user');
+            var t = localStorage.getItem('posa_token');
+            if (u && u !== 'undefined' && t) {
+                document.documentElement.classList.add('has-session');
+            }
+        } catch (e) { /* private mode / walang localStorage access — normal login flow na lang */ }
+    })();
+    </script>
+    <style>
+        /* Ginagamit lang kapag may class na "has-session" ang <html> (see script sa itaas).
+           !important dito dahil kailangan itong mangibabaw sa default display:flex ng
+           .auth-container (style.css) at sa inline style="display:none" ng #main-view. */
+        html.has-session #auth-view { display: none !important; }
+        html.has-session #main-view { display: flex !important; }
+    </style>
+
+    <!-- FIX (blink kapag naka-open sa ibang section gaya ng "Reorder Alerts"
+         bago mag-refresh): kahit tama na ang #main-view (fix sa itaas), ang
+         section na #view-overview (Dashboard/Overview) ang TANGING naka-
+         display:block bilang default sa markup (walang inline display:none)
+         — lahat ng ibang section (#view-reorder, #view-products, atbp.) ay
+         naka-display:none. Kaya kahit "Reorder Alerts" ang bukas bago
+         mag-refresh, saglit munang lalabas ang OVERVIEW section (dahil ito
+         ang default-visible) bago ito palitan ng switchView(savedView) sa
+         app.js/showMainSystemInterface() — at ang switchView() na iyon ay
+         tumatawag pa ng ilang beses ng authFetch (refreshPermissions,
+         refreshUnlockedFeaturesFromServer, atbp., lahat AWAITED) BAGO pa man
+         ito matawag, kaya kayang-kaya pang mapansin ang overview-then-
+         reorder na blink.
+         Ayos: dahil ang app.js mismo ang nagse-save ng huling bukas na view
+         sa sessionStorage.setItem('currentView', ...) (tingnan switchView()),
+         mababasa na rin ito nang maaga rito (sessionStorage persists across
+         refresh) at i-set bilang data-attribute sa <html> bago pa ma-parse
+         ang <body>. Ginagamit lang ito para agad itago ang default-visible
+         na #view-overview/#view-dashboard at ipakita agad ang tamang
+         section shell, kaya wala nang overview flash bago lumitaw ang
+         nilo-load-ulit (updated data) na Reorder Alerts o anumang section.
+         Presentation-only ulit ito: HINDI ito bumabalangkas/humahalili sa
+         switchView() — ang totoong permission/feature gate check ay doon
+         pa rin nangyayari nang normal (tulad ng dati) pagkatapos ma-refresh
+         ang permissions/features mula sa server; kung bawal na pala ang
+         view na iyon sa role ng user, ire-reroute pa rin ito ni switchView()
+         pabalik sa "overview" gaya ng nakasanayan — walang bagong
+         binabalewalang access check. Ang preload hint dito ay nakabatay pa
+         rin sa sessionStorage na tanging ise-set lang mismo ni switchView()
+         matapos itong pumasa sa parehong gate check kanina — kaya hindi ito
+         basta open door papasok. -->
+    <script>
+    (function () {
+        try {
+            if (!document.documentElement.classList.contains('has-session')) return;
+            var savedView = sessionStorage.getItem('currentView');
+            var KNOWN_VIEWS = ['overview','dashboard','terminal','products','barcode',
+                'reorder','reports','customers','shiftreport','transactions','users','faq','logs'];
+            if (savedView && KNOWN_VIEWS.indexOf(savedView) !== -1) {
+                document.documentElement.setAttribute('data-preload-view', savedView);
+            }
+        } catch (e) { /* walang sessionStorage access — normal (overview default) na lang */ }
+    })();
+    </script>
+    <style>
+        /* Default-visible sa markup ang #view-overview at #view-dashboard (walang
+           inline display:none, di tulad ng ibang .app-view section) — kaya itago
+           muna sila kapag may ibang naka-preload na view. */
+        html.has-session[data-preload-view]:not([data-preload-view="overview"]) #view-overview,
+        html.has-session[data-preload-view]:not([data-preload-view="dashboard"]) #view-dashboard {
+            display: none !important;
+        }
+        html.has-session[data-preload-view="terminal"] #view-terminal { display: block !important; }
+        html.has-session[data-preload-view="products"] #view-products { display: block !important; }
+        html.has-session[data-preload-view="barcode"] #view-barcode { display: block !important; }
+        html.has-session[data-preload-view="reorder"] #view-reorder { display: block !important; }
+        html.has-session[data-preload-view="reports"] #view-reports { display: block !important; }
+        html.has-session[data-preload-view="customers"] #view-customers { display: block !important; }
+        html.has-session[data-preload-view="shiftreport"] #view-shiftreport { display: block !important; }
+        html.has-session[data-preload-view="transactions"] #view-transactions { display: block !important; }
+        html.has-session[data-preload-view="users"] #view-users { display: block !important; }
+        html.has-session[data-preload-view="faq"] #view-faq { display: block !important; }
+        html.has-session[data-preload-view="logs"] #view-logs { display: block !important; }
+    </style>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
