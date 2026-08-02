@@ -1,6 +1,6 @@
 {
   "name": "omnipos",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "scripts": {
     "build:release": "node build-release.js"
   },

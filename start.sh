@@ -29,6 +29,13 @@ echo "🚀 OMNIPOS supervisor loop — sinisimulan ang server.js..."
 while true; do
     node server.js
     EXIT_CODE=$?
-    echo "⚠️  Lumabas ang OMNIPOS server.js (exit code: ${EXIT_CODE}). Magre-restart sa loob ng 2 segundo..."
-    sleep 2
+    # SPEED FIX: mula 2s -> 1s ang delay bago mag-restart. Sapat pa rin
+    # ito para makasingit ang OS na tuluyang mapalaya ang PORT/socket ng
+    # nakaraang process bago subukan ulit i-bind ng bagong "node
+    # server.js" (kaya iniwan pa rin ang maikling delay na ito sa halip
+    # na 0), pero mas mabilis nang maka-recover kaysa dating 2s — mas
+    # maiksi ang downtime na nararamdaman ng customer sa bawat self-
+    # update o hindi-inaasahang exit.
+    echo "⚠️  Lumabas ang OMNIPOS server.js (exit code: ${EXIT_CODE}). Magre-restart sa loob ng 1 segundo..."
+    sleep 1
 done

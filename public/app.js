@@ -9594,7 +9594,6 @@ function triggerIdleWarning() {
     }
 
     let timeLeft = COUNTDOWN_DURATION;
-    let countdownInterval;
 
     const isDarkMode = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark-mode');
 
@@ -9683,13 +9682,25 @@ async function handleLogout(type ='manual') {
     }
 
     {
-        // SPEED FIX: dating sunud-sunod (sequential) ang 3 magkakahiwalay na
-        // await — kung mabagal/timeout ang una, naghihintay pa rin bago
-        // subukan ang susunod, kaya paulit-ulit na naipupundo ang buong
-        // logout. Ngayon, sabay-sabay (parallel) silang tinatawag —
-        // ang pinakamabagal/pinaka-timeout na call na lang ang basehan ng
-        // kabuuang oras ng paghihintay, hindi ang kabuuan ng tatlo.
-        const results = await Promise.allSettled([
+        // BUG FIX: dati, sabay-sabay (parehong Promise.allSettled batch) na
+        // tinatawag ang /cart (clear cart) AT ang /auth/logout (invalidate
+        // session) — pero ang /cart ay dumadaan din sa parehong auth
+        // middleware na nangangailangan ng VALID na session token. Dahil
+        // magkatabi silang pinaputok, posibleng mauna pang maproseso ng
+        // server ang /auth/logout (na sumisira agad sa session) BAGO pa
+        // dumating ang /cart request — kaya natatanggihan ito ng 401
+        // "invalid/expired session" at TAHIMIK lang itong nabibigo (console
+        // .error lang, walang makikita ang customer). Epekto: sinasabi ng
+        // log na "Clearing cart from database..." pero hindi talaga
+        // na-clear ang cart sa server paminsan-minsan — bumabalik ang
+        // lumang laman ng cart sa susunod na login.
+        //
+        // AYOS: unahin munang tapusin (parallel pa rin sa isa't-isa, dahil
+        // hindi naman sila nagbabanggaan — pareho lang silang umaasa sa
+        // parehong VALID session) ang cart-clear at ang log-write, saka
+        // lang i-invalidate ang session (/auth/logout) — sigurado nang
+        // naiproseso muna ang cart-clear bago pa masira ang session nito.
+        const preLogoutResults = await Promise.allSettled([
             (type ==='manual' && oldUser)
                 ? authFetch(`${API_URL}/cart`, {
                     method:'POST',
@@ -9706,20 +9717,27 @@ async function handleLogout(type ='manual') {
                     authMethod: logMethod,
                     details: { message: detailMsg }
                 })
-            }),
-            authFetch(`${API_URL}/auth/logout`, {
-                method:'POST',
-                headers: {
-'Content-Type':'application/json',
-                    ...(localStorage.getItem('posa_token') ? {'Authorization': `Bearer ${localStorage.getItem('posa_token')}` } : {})
-                }
             })
         ]);
+
+        const logoutResult = await authFetch(`${API_URL}/auth/logout`, {
+            method:'POST',
+            headers: {
+'Content-Type':'application/json',
+                ...(localStorage.getItem('posa_token') ? {'Authorization': `Bearer ${localStorage.getItem('posa_token')}` } : {})
+            }
+        }).then(
+            (res) => ({ status:'fulfilled', value: res }),
+            (err) => ({ status:'rejected', reason: err })
+        );
+
+        const results = [...preLogoutResults, logoutResult];
         const labels = ['Cart clear','Log transmission','Session invalidation'];
         results.forEach((r, i) => {
             if (r.status ==='rejected') console.error(`${labels[i]} failed during logout:`, r.reason);
         });
     }
+
 
     sessionStorage.removeItem('currentView');
     localStorage.removeItem('posa_user');

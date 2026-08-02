@@ -207,6 +207,35 @@ function migrateBlobToRowStoreIfNeeded(moduleName) {
 
 ROW_NORMALIZED_MODULES.forEach((moduleName) => migrateBlobToRowStoreIfNeeded(moduleName));
 
+// ====================================================================
+// IN-MEMORY READ CACHE (blob modules lang — HINDI ang row-normalized
+// na "transactions"/"userlogs", may sarili nang efficient na paraan
+// iyon sa itaas)
+// ====================================================================
+// SPEED FIX: dating bawat tawag sa readData() — kahit paulit-ulit ito
+// sa loob lang ng ilang segundo (hal. "/api/products", na pinapa-poll
+// ng BAWAT bukas na Terminal/Inventory tab kada ilang segundo via
+// silentRefreshTerminalStock/silentRefreshInventoryStock sa app.js) —
+// ay gumagawa ng BAGONG SQLite SELECT sa "store" table. Dahil
+// SYNCHRONOUS ang node:sqlite calls (na-b-block ang buong event loop
+// habang tumatakbo ito — ibig sabihin lahat ng ibang kasabay na
+// request/terminal ay naghihintay), at mas mahina ang CPU sa
+// Termux/Android kumpara sa desktop/server, tinitipid dito ang
+// paulit-ulit na SELECT gamit ang isang simpleng in-memory cache ng
+// RAW JSON STRING (hindi ang parsed object) bawat module — pina-
+// populate/pina-update ito sa BAWAT writeData() call, kaya laging
+// tama/up-to-date ito kahit sino pang gumawa ng pagbabago.
+//
+// MAHALAGA: ang readData() ay JSON.parse PA RIN ANG STRING SA BAWAT
+// TAWAG (parehong-pareho sa dating behavior) — ang tinitipid lang ay
+// ang aktwal na db.prepare().get() round-trip, HINDI ang
+// "bagong-independent-na-copy sa bawat readData()" na kontrata na
+// inaasahan ng ibang parte ng server.js (kung sakaling direktang
+// binabago/mina-mutate ng caller ang ibinalik na array/object nang
+// walang kasunod na writeData() — hindi ito apektado ng cache na ito,
+// dahil hiwalay pa ring bagong-parse na object ang laging ibinabalik).
+const blobStringCache = new Map();
+
 /**
  * Basahin ang data ng isang module. Kapareho ng gamit ng dating
  * readData(filePath, defaultData) helper — pareho ang function signature
@@ -230,19 +259,27 @@ function readData(moduleName, defaultData = []) {
     }
 
     try {
-        const row = selectStmt.get(moduleName);
+        let rawData;
+        if (blobStringCache.has(moduleName)) {
+            rawData = blobStringCache.get(moduleName);
+        } else {
+            const row = selectStmt.get(moduleName);
 
-        if (!row) {
-            // Unang gamit ng module na ito — i-seed ng default data
-            writeData(moduleName, defaultData);
+            if (!row) {
+                // Unang gamit ng module na ito — i-seed ng default data
+                writeData(moduleName, defaultData);
+                return defaultData;
+            }
+
+            rawData = row.data;
+            blobStringCache.set(moduleName, rawData);
+        }
+
+        if (!rawData || rawData.trim() === '') {
             return defaultData;
         }
 
-        if (!row.data || row.data.trim() === '') {
-            return defaultData;
-        }
-
-        return JSON.parse(row.data);
+        return JSON.parse(rawData);
     } catch (err) {
         console.error(`⚠️ May sira sa SQLite data ng module "${moduleName}". Ibinalik ang default data.`, err);
         return defaultData;
@@ -262,11 +299,17 @@ function writeData(moduleName, data) {
     }
 
     try {
-        upsertStmt.run(moduleName, JSON.stringify(data), new Date().toISOString());
+        const json = JSON.stringify(data);
+        upsertStmt.run(moduleName, json, new Date().toISOString());
+        // Panatilihing sync ang read-cache sa bagong laman, para agad
+        // itong makita ng SUSUNOD na readData() nang walang kailangan
+        // pang balikan ang SQLite.
+        blobStringCache.set(moduleName, json);
     } catch (error) {
         console.error(`Error writing SQLite data para sa module "${moduleName}":`, error);
     }
 }
+
 
 // ====================================================================
 // LOCAL AUTOMATED DATABASE BACKUP (walang kailangang internet)
