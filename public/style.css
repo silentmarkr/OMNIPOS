@@ -6851,13 +6851,21 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 }
 
 @media screen and (min-width: 1025px) {
+    /* Width: 100% (hanggang sa max-width cap) ang idinagdag dito para
+       hindi umasa sa default block "fill" behavior ng bawat card —
+       tinitiyak nitong pareho ang GAWANG LAPAD ng lahat ng 5 shrinkable
+       (collapsible) card sa ibaba, kasing-lapad ng RESTRICTED ACCESS /
+       AUTHORIZED PERSONNEL ONLY banner sa itaas, kahit anong sukat ng
+       display o parent layout (flex o block) ang gamitin. */
     #reset-restore-panel .Reset-Restore,
     #reset-restore-panel .system-reset-container,
     #reset-restore-panel .relay-sync-container,
     #reset-restore-panel .system-update-container,
     #reset-restore-panel .cloud-backup-container,
     #reset-restore-panel .recovery-section {
+        width: 100%;
         max-width: 600px;   /* baguhin ayon sa gusto mong lapad */
+        box-sizing: border-box;
         margin-left: auto;
         margin-right: auto;
     }
