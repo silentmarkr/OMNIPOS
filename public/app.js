@@ -3800,14 +3800,17 @@ async function loadDashboardMetrics() {
         let productsList = resProd.ok ? await resProd.json() : [];
         const usersList = resUsers.ok ? await resUsers.json() : [];
 
-        if (serverTxs && serverTxs.length > 0) {
+        if (resTx.ok) {
+            // Legit response mula sa server — i-cache ito kahit empty array
+            // (walang transaksyon ngayon), dahil "empty" ay hindi pareho sa "failed fetch".
             localStorage.setItem('cached_transactions', JSON.stringify(serverTxs));
         } else {
 
             serverTxs = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
         }
 
-        if (productsList && productsList.length > 0) {
+        if (resProd.ok) {
+            // Ganoon din dito — huwag ituring na "failure" ang totoong empty na product list.
             localStorage.setItem('cached_products', JSON.stringify(productsList));
         } else {
 
@@ -3816,7 +3819,11 @@ async function loadDashboardMetrics() {
 
         const rawOffline = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
         const offlineTxs = rawOffline.map(item => item.transaction || item);
-        const allTxs = [...serverTxs, ...offlineTxs];
+        // serverTxs LAST sa spread order: kapag may parehong id (hal. na-sync na
+        // pala sa server ang isang offline tx pero hindi pa na-clear ang local
+        // queue entry nito), dapat manalo ang server (authoritative) na record
+        // sa halip na ma-overwrite ito ng natitirang lumang offline copy.
+        const allTxs = [...offlineTxs, ...serverTxs];
 
         const uniqueMap = new Map();
         allTxs.forEach(tx => { if (tx && tx.id) uniqueMap.set(tx.id, tx); });

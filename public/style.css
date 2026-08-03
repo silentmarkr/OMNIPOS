@@ -2061,7 +2061,7 @@ body.dark-mode .rank-row .rank-name {
 
 /* Greeting banner: bahagyang gradient sheen na dahan-dahang gumagalaw,
    parang "live" na header sa halip na patag na kulay lamang. */
-.overview-greeting-row {
+#view-overview .overview-greeting-row {
     position: relative;
     padding: 18px 22px;
     border-radius: 14px;
