@@ -1907,6 +1907,13 @@ body.dark-mode .rank-row .rank-name {
     flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 22px;
+    position: relative;
+    padding: 18px 22px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: linear-gradient(120deg, #eff6ff 0%, #f8fafc 45%, #eef2ff 100%);
+    background-size: 220% 220%;
+    border: 1px solid #e6ecf5;
 }
 
 .overview-greeting {
@@ -2060,15 +2067,13 @@ body.dark-mode .rank-row .rank-name {
 }
 
 /* Greeting banner: bahagyang gradient sheen na dahan-dahang gumagalaw,
-   parang "live" na header sa halip na patag na kulay lamang. */
+   parang "live" na header sa halip na patag na kulay lamang.
+   NOTE: makitid lang ang rule na ito — animation property lamang.
+   Ang background/border ay nasa plain .overview-greeting-row class para
+   manalo ang body.dark-mode .overview-greeting-row override (dating
+   nao-override ito dahil mas mataas ang specificity ng #view-overview
+   na dating naglalaman din ng background/border). */
 #view-overview .overview-greeting-row {
-    position: relative;
-    padding: 18px 22px;
-    border-radius: 14px;
-    overflow: hidden;
-    background: linear-gradient(120deg, #eff6ff 0%, #f8fafc 45%, #eef2ff 100%);
-    background-size: 220% 220%;
-    border: 1px solid #e6ecf5;
     animation: ovRiseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards, ovBannerSheen 9s ease-in-out infinite;
 }
 
@@ -2691,6 +2696,28 @@ body.dark-mode .overview-greeting-row {
     }
     .terminal-products-grid {
         grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    }
+}
+
+/* Transaction page sa desktop/malapad na screen: dating naka-100% width ang
+   backup-search card, ang Txn ID/Cashier search input, at ang method filter
+   dropdown, kaya sobrang haba/stretched ang mga ito hanggang sa gilid ng
+   screen — hindi "advance" ang itsura at hindi angkop sa desktop view. Dito
+   lang sila binibigyan ng max-width cap; hindi nagbabago ang mobile/tablet
+   na behavior (may sarili nang @media rules sa itaas para doon). */
+@media screen and (min-width: 1025px) {
+    #view-transactions .recovery-inner-card {
+        max-width: 640px;
+    }
+
+    #view-transactions .terminal-top-controls .search-box-container {
+        flex: 0 1 420px !important;
+        max-width: 420px;
+    }
+
+    #view-transactions .tx-method-select {
+        min-width: 190px;
+        max-width: 220px;
     }
 }
 
