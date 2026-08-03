@@ -2475,8 +2475,7 @@ body.dark-mode .overview-greeting-row {
 
 /* ===== BACKUP RECOVERY SEARCH CARD (pro/polished redesign) ===== */
 .recovery-section {
-    margin-top: 20px;
-    margin-bottom: 15px;
+    margin: 0;
     padding: 0;
 }
 
@@ -2484,13 +2483,13 @@ body.dark-mode .overview-greeting-row {
     background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
     border: 1px solid #2d3748;
     border-radius: 12px;
-    padding: 20px;
+    padding: 12px 16px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.18);
 }
 
 .recovery-inner-card h3 {
-    font-size: 1.05rem;
-    margin: 0 0 8px 0;
+    font-size: 0.92rem;
+    margin: 0;
     color: #e5e7eb;
     display: flex;
     align-items: center;
@@ -2516,6 +2515,7 @@ body.dark-mode .overview-greeting-row {
 }
 .recovery-inner-card.rc-expanded #recovery-card-body {
     display: block;
+    margin-top: 10px;
 }
 .recovery-inner-card:not(.rc-expanded) #recovery-card-toggle-chevron {
     transform: rotate(-90deg);
@@ -2524,9 +2524,9 @@ body.dark-mode .overview-greeting-row {
 .recovery-inner-card h3 i { color: #3b82f6; }
 
 .recovery-desc {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     color: #94a3b8;
-    margin: 0 0 16px 0;
+    margin: 0 0 10px 0;
     line-height: 1.5;
 }
 
@@ -2539,12 +2539,12 @@ body.dark-mode .overview-greeting-row {
     background-color: #1f2937;
     border: 1px dashed #4b5563;
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 9px 12px;
     color: #cbd5e1;
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     transition: background-color 0.2s, border-color 0.2s;
     box-sizing: border-box;
 }
@@ -2565,13 +2565,13 @@ body.dark-mode .overview-greeting-row {
 .backup-id-input {
     width: 100%;
     box-sizing: border-box;
-    padding: 12px 14px;
+    padding: 9px 12px;
     border-radius: 8px;
     border: 1px solid #374151;
     background-color: #0f172a;
     color: #f1f5f9;
-    font-size: 0.9rem;
-    margin-bottom: 12px;
+    font-size: 0.82rem;
+    margin-bottom: 8px;
     outline: none;
 }
 
@@ -2582,7 +2582,7 @@ body.dark-mode .overview-greeting-row {
 .backup-actions-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 8px;
 }
 
 .btn-scan-backup,
@@ -2590,13 +2590,13 @@ body.dark-mode .overview-greeting-row {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 12px;
+    gap: 6px;
+    padding: 9px;
     border: none;
     border-radius: 8px;
     color: white;
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     cursor: pointer;
     transition: filter 0.2s, transform 0.1s;
 }
@@ -2617,11 +2617,11 @@ body.dark-mode .overview-greeting-row {
 /* ===== TRANSACTION SEARCH + FILTER TOOLBAR ===== */
 .terminal-top-controls {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
-    margin-bottom: 20px;
+    margin-bottom: 14px;
     background: #1e293b;
-    padding: 12px;
+    padding: 8px 10px;
     border-radius: 10px;
     border: 1px solid var(--terminal-border);
     flex-shrink: 0;
@@ -2639,29 +2639,30 @@ body.dark-mode .overview-greeting-row {
 }
 
 .tx-method-select {
-    padding: 0 15px;
+    padding: 0 14px;
     border-radius: 8px;
     border: 1px solid var(--terminal-border);
     background: #0f172a;
     color: #ffffff;
     font-weight: 600;
     cursor: pointer;
-    height: 44px;
+    height: 40px;
+    font-size: 0.85rem;
 }
 
 .btn-scan-qr {
     margin-bottom: 0 !important;
-    height: 44px;
+    height: 40px;
     white-space: nowrap;
 }
 
 /* ===== MOBILE-FIRST FINE TUNING ===== */
 @media screen and (max-width: 600px) {
-    .recovery-inner-card { padding: 14px 16px; border-radius: 10px; }
-    .recovery-inner-card h3 { font-size: 0.95rem; margin-bottom: 0; }
-    .recovery-desc { font-size: 0.8rem; margin-bottom: 12px; }
+    .recovery-inner-card { padding: 12px 14px; border-radius: 10px; }
+    .recovery-inner-card h3 { font-size: 0.88rem; margin-bottom: 0; }
+    .recovery-desc { font-size: 0.76rem; margin-bottom: 10px; }
     .backup-actions-grid { grid-template-columns: 1fr; }
-    .btn-scan-backup, .btn-backup-search { padding: 11px; font-size: 0.88rem; }
+    .btn-scan-backup, .btn-backup-search { padding: 10px; font-size: 0.82rem; }
 
     .terminal-top-controls {
         flex-direction: column;
@@ -2676,8 +2677,8 @@ body.dark-mode .overview-greeting-row {
 }
 
 @media screen and (min-width: 601px) and (max-width: 1024px) {
-    .recovery-inner-card { padding: 16px 18px; }
-    .terminal-top-controls { padding: 10px 12px; gap: 10px; }
+    .recovery-inner-card { padding: 14px 16px; }
+    .terminal-top-controls { padding: 8px 12px; gap: 10px; }
 }
 
 /* Tablet (hal. iPad-size na screens): pinapaliit ang fixed-width cart pane
@@ -2692,25 +2693,101 @@ body.dark-mode .overview-greeting-row {
     }
 }
 
-/* Transaction page sa desktop/malapad na screen: dating naka-100% width ang
-   backup-search card, ang Txn ID/Cashier search input, at ang method filter
-   dropdown, kaya sobrang haba/stretched ang mga ito hanggang sa gilid ng
-   screen — hindi "advance" ang itsura at hindi angkop sa desktop view. Dito
-   lang sila binibigyan ng max-width cap; hindi nagbabago ang mobile/tablet
+/* ==========================================================================
+   DESKTOP SLIM SEARCH REDESIGN — Products / Customers / Transactions
+   Dating magkaka-iba ang laki/itsura ng search box sa bawat page (may stretch
+   hanggang gilid ng screen, may makapal na card background). Dito ginagawang
+   iisang laki/design ang tatlong search box (slim, may max-width cap) sa
+   desktop view, at ang "Search Old Backup File" card ay pinagsasama/ilalagay
+   sa loob ng parehong card ng Transaction search box — isang row lang kapag
+   naka-collapse, at slim ang buong card. Hindi nagbabago ang mobile/tablet
    na behavior (may sarili nang @media rules sa itaas para doon). */
 @media screen and (min-width: 1025px) {
-    #view-transactions .recovery-inner-card {
-        max-width: 640px;
-    }
-
+    #view-products .terminal-top-controls .search-box-container,
+    #view-customers .terminal-top-controls .search-box-container,
     #view-transactions .terminal-top-controls .search-box-container {
-        flex: 0 1 420px !important;
-        max-width: 420px;
+        flex: 0 1 400px !important;
+        max-width: 400px;
+        min-width: 260px !important;
     }
 
     #view-transactions .tx-method-select {
         min-width: 190px;
         max-width: 220px;
+    }
+
+    /* ---- Unified card wrapper: Search Old Backup + Transaction search,
+       rendered as ONE slim card, one row when collapsed ---- */
+    .tx-search-card {
+        background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
+        border: 1px solid #2d3748;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+        overflow: hidden;
+        margin-bottom: 14px;
+    }
+
+    .tx-search-card .recovery-section {
+        margin: 0;
+    }
+
+    .tx-search-card .recovery-inner-card {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 10px 16px;
+        border-bottom: 1px solid #253044;
+        max-width: none;
+    }
+
+    .tx-search-card .recovery-inner-card:not(.rc-expanded) {
+        border-bottom-color: transparent;
+    }
+
+    .tx-search-card .recovery-inner-card h3 {
+        font-size: 0.85rem;
+    }
+
+    .tx-search-card .backup-search-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .tx-search-card .file-upload-btn {
+        flex: 0 0 190px;
+        width: auto;
+        margin-bottom: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tx-search-card .backup-id-input {
+        flex: 1 1 220px;
+        margin-bottom: 0;
+    }
+
+    .tx-search-card .backup-actions-grid {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 8px;
+    }
+
+    .tx-search-card .btn-scan-backup,
+    .tx-search-card .btn-backup-search {
+        padding: 9px 14px;
+        white-space: nowrap;
+    }
+
+    .tx-search-card .terminal-top-controls {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        margin-bottom: 0;
+        padding: 10px 16px;
     }
 }
 
@@ -2723,9 +2800,9 @@ body.dark-mode .overview-greeting-row {
     background-color: #1f2937;
     border: 1px solid var(--terminal-border);
     border-radius: 8px;
-    padding: 12px 16px;
+    padding: 9px 16px 9px 34px;
     color: white;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -2733,6 +2810,17 @@ body.dark-mode .overview-greeting-row {
 .search-box-container input:focus {
     border-color: var(--primary-blue);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.search-icon-inline {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
+    font-size: 0.8rem;
+    pointer-events: none;
+    z-index: 2;
 }
 
 .btn-scan-qr {
@@ -6430,6 +6518,18 @@ body.dark-mode .recovery-section {
     border-radius: var(--dm-radius, 12px) !important;
 }
 
+/* Sa Transaction page lang: .recovery-section doon ay isa lamang structural
+   wrapper ngayon (naka-nest ang .recovery-inner-card sa loob nito bilang
+   bahagi ng bagong tx-search-card redesign) — kaya wala itong sariling
+   background/border doon, iwas double-frame sa paligid ng recovery-inner-card.
+   Naka-scope lang ito sa #view-transactions para hindi maapektuhan ang ibang
+   .recovery-section (hal. yung db-restore card sa System/Reset panel). */
+body.dark-mode #view-transactions .recovery-section {
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+
 /* #rc-otp-sender-config (ang OTP Sender Config sub-panel sa loob mismo ng
    Receipt Customization tab) ay may sarili ring background: var(--top-
    header-bg, #ffffff) na hindi kasama sa fix sa itaas — kaya nananatili
@@ -6721,20 +6821,20 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 }
 
 .search-box-container input {
-    padding-right: 50px !important;
+    padding-right: 44px !important;
 }
 
 .search-box-container .scan-icon-floating.btn-scan-qr {
     position: absolute !important;
     top: 50% !important;
-    right: 6px !important;
+    right: 5px !important;
     transform: translateY(-50%) !important;
     left: auto !important;
     bottom: auto !important;
-    width: 34px !important;
-    height: 34px !important;
-    min-width: 34px !important;
-    max-width: 34px !important;
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
     padding: 0 !important;
     margin: 0 !important;
     border-radius: 7px !important;

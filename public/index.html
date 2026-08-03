@@ -562,8 +562,9 @@
                             <button class="btn-action-global" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i> Add Product</button>
                         </div>
                     </div>
-                    <div class="terminal-top-controls" style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
-                        <div class="search-box-container" style="flex:1; min-width:220px;">
+                    <div class="terminal-top-controls">
+                        <div class="search-box-container">
+                            <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
                             <input type="text" id="inventory-search" placeholder="Search product name or ID..." oninput="filterInventoryTable()">
                             <button class="btn-scan-qr scan-icon-floating" onclick="openInventoryScanner()" title="I-scan ang QR/Barcode ng produkto">
                                 <i class="fa-solid fa-qrcode"></i>
@@ -785,6 +786,7 @@
                     </div>
                     <div class="terminal-top-controls">
                         <div class="search-box-container">
+                            <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
                             <input type="text" id="customer-search-input" placeholder="I-search ang pangalan, phone, o email..." oninput="renderCustomersTable()">
                         </div>
                     </div>
@@ -876,38 +878,44 @@
 
                                 <section id="view-transactions" class="app-view" style="display:none;">
                     <h2 id="page-title-transactions">Transaction Database Records</h2>
-              <div class="recovery-section"></div>
-   <div class="recovery-inner-card">
-                <h3 id="recovery-card-toggle-heading" onclick="toggleRecoveryCard()"><i class="fa-solid fa-search-plus"></i> Search Old Backup File <i class="fa-solid fa-chevron-down" id="recovery-card-toggle-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i></h3>
-    <div id="recovery-card-body">
-    <p class="recovery-desc">
-        Select an old backup (.json) to search for a specific record without modifying the current data.
-    </p>
 
-    <label class="file-upload-btn">
-        <i class="fa-solid fa-upload"></i> <span id="backup-file-label">Choose File (.json)</span>
-        <input type="file" id="backup-query-file" accept=".json" onchange="document.getElementById('backup-file-label').textContent = this.files[0] ? this.files[0].name : 'Choose File (.json)'">
-    </label>
+                    <div class="tx-search-card">
+                        <div class="recovery-section">
+                            <div class="recovery-inner-card">
+                                <h3 id="recovery-card-toggle-heading" onclick="toggleRecoveryCard()"><i class="fa-solid fa-search-plus"></i> Search Old Backup File <i class="fa-solid fa-chevron-down" id="recovery-card-toggle-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i></h3>
+                                <div id="recovery-card-body">
+                                    <p class="recovery-desc">
+                                        Select an old backup (.json) to search for a specific record without modifying the current data.
+                                    </p>
+                                    <div class="backup-search-row">
+                                        <label class="file-upload-btn">
+                                            <i class="fa-solid fa-upload"></i> <span id="backup-file-label">Choose File (.json)</span>
+                                            <input type="file" id="backup-query-file" accept=".json" onchange="document.getElementById('backup-file-label').textContent = this.files[0] ? this.files[0].name : 'Choose File (.json)'">
+                                        </label>
 
-    <input type="text" id="backup-query-id" class="backup-id-input" placeholder="Enter Txn ID or Log ID...">
+                                        <input type="text" id="backup-query-id" class="backup-id-input" placeholder="Enter Txn ID or Log ID...">
 
-    <div class="backup-actions-grid">
-      <button type="button" onclick="buksanScannerParaSaBackup('backup')" class="btn-scan-backup">
-        <i class="fa-solid fa-camera"></i> Scan
-      </button>
-        <button onclick="searchInsideBackupFile()" class="btn-backup-search">
-            <i class="fa-solid fa-magnifying-glass"></i> Search
-        </button>
-    </div>
-    </div>
-</div>
-      
-                    <div class="terminal-top-controls">
-                        <div class="search-box-container">
-                            <input type="text" id="tx-history-search" placeholder="Search Transaction ID or Cashier Name..." oninput="filterTransactionsTable()">
-                            <button class="btn-scan-qr scan-icon-floating" onclick="openTxQRScanner()" title="Scan Receipt ID">
-                                <i class="fa-solid fa-qrcode"></i>
-                            </button>
+                                        <div class="backup-actions-grid">
+                                            <button type="button" onclick="buksanScannerParaSaBackup('backup')" class="btn-scan-backup">
+                                                <i class="fa-solid fa-camera"></i> Scan
+                                            </button>
+                                            <button onclick="searchInsideBackupFile()" class="btn-backup-search">
+                                                <i class="fa-solid fa-magnifying-glass"></i> Search
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="terminal-top-controls">
+                            <div class="search-box-container">
+                                <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
+                                <input type="text" id="tx-history-search" placeholder="Search Transaction ID or Cashier Name..." oninput="filterTransactionsTable()">
+                                <button class="btn-scan-qr scan-icon-floating" onclick="openTxQRScanner()" title="Scan Receipt ID">
+                                    <i class="fa-solid fa-qrcode"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
