@@ -2706,7 +2706,7 @@ body.dark-mode .overview-greeting-row {
     #view-products .terminal-top-controls .search-box-container,
     #view-customers .terminal-top-controls .search-box-container,
     #view-transactions .terminal-top-controls .search-box-container {
-        flex: 0 1 400px !important;
+        flex: 0 0 400px !important;
         max-width: 400px;
         min-width: 260px !important;
     }
@@ -2716,60 +2716,81 @@ body.dark-mode .overview-greeting-row {
         max-width: 220px;
     }
 
-    /* ---- Unified card wrapper: Search Old Backup + Transaction search,
-       rendered as ONE slim card, one row when collapsed ---- */
+    /* ---- Iisang row lang: Transaction search + Search Old Backup File,
+       parehong laki ng dalawang search box, walang shrink/collapse pa
+       (permanenteng bukas/visible ang buong backup search sa desktop). Ang
+       bawat "wrapper" layer (recovery-section, recovery-inner-card,
+       #recovery-card-body, backup-search-row, terminal-top-controls) ay
+       ginawang display:contents para lumabas ang lahat ng laman nila bilang
+       direktang flex items ng .tx-search-card — kaya iisang tuloy-tuloy na
+       row lang ang buo. Hindi ito nagbabago sa mobile/tablet (may sarili pa
+       ring @media rules doon na gumagamit ng normal na collapsible layout). */
     .tx-search-card {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
         background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
         border: 1px solid #2d3748;
         border-radius: 12px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.18);
-        overflow: hidden;
-        margin-bottom: 14px;
-    }
-
-    .tx-search-card .recovery-section {
-        margin: 0;
-    }
-
-    .tx-search-card .recovery-inner-card {
-        background: transparent;
-        border: none;
-        border-radius: 0;
-        box-shadow: none;
         padding: 10px 16px;
-        border-bottom: 1px solid #253044;
-        max-width: none;
+        margin-bottom: 14px;
+        gap: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
     }
 
-    .tx-search-card .recovery-inner-card:not(.rc-expanded) {
-        border-bottom-color: transparent;
+    .tx-search-card .recovery-section,
+    .tx-search-card .recovery-inner-card,
+    .tx-search-card #recovery-card-body,
+    .tx-search-card .backup-search-row,
+    .tx-search-card .terminal-top-controls {
+        display: contents !important;
     }
 
+    /* Transaction search box: unahan sa row, parehong laki ng backup ID input */
+    .tx-search-card .terminal-top-controls .search-box-container {
+        order: 1;
+        margin-right: 0;
+        flex-shrink: 0;
+    }
+
+    /* "Search Old Backup File" label — dito nagsisimula ang 1-inch (96px)
+       na pagitan mula sa Transaction search box */
     .tx-search-card .recovery-inner-card h3 {
+        order: 2;
         font-size: 0.85rem;
-    }
-
-    .tx-search-card .backup-search-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .tx-search-card .file-upload-btn {
-        flex: 0 0 190px;
-        width: auto;
-        margin-bottom: 0;
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        margin: 0 10px 0 96px;
+        cursor: default;
+        flex-shrink: 0;
+    }
+    .tx-search-card #recovery-card-toggle-chevron {
+        display: none;
     }
 
-    .tx-search-card .backup-id-input {
-        flex: 1 1 220px;
+    /* File picker: flexible ang lapad depende sa haba ng napiling filename */
+    .tx-search-card .file-upload-btn {
+        order: 3;
+        width: auto;
+        flex: 0 0 auto;
+        white-space: nowrap;
         margin-bottom: 0;
+        margin-right: 10px;
+    }
+
+    /* Backup ID input: parehong eksaktong laki ng Transaction search box */
+    .tx-search-card .backup-id-input {
+        order: 4;
+        flex: 0 0 400px;
+        max-width: 400px;
+        margin-bottom: 0;
+        margin-right: 10px;
     }
 
     .tx-search-card .backup-actions-grid {
+        order: 5;
         display: flex;
         flex: 0 0 auto;
         gap: 8px;
@@ -2779,15 +2800,6 @@ body.dark-mode .overview-greeting-row {
     .tx-search-card .btn-backup-search {
         padding: 9px 14px;
         white-space: nowrap;
-    }
-
-    .tx-search-card .terminal-top-controls {
-        background: transparent;
-        border: none;
-        border-radius: 0;
-        box-shadow: none;
-        margin-bottom: 0;
-        padding: 10px 16px;
     }
 }
 
