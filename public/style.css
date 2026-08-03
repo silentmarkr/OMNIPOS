@@ -2499,33 +2499,26 @@ body.dark-mode .overview-greeting-row {
 
 #recovery-card-toggle-chevron {
     transition: transform 0.2s ease;
+    display: inline-block;
+}
+
+#recovery-card-toggle-heading {
+    cursor: pointer;
+}
+
+/* Shrinkable/collapsible on every screen size (desktop included) — tap the
+   heading to expand/collapse the backup-search form so it doesn't take up
+   space on the Transaction page when not needed. See
+   applyResponsiveRecoveryCardState() in app.js for the default state per
+   device (collapsed on mobile/tablet, expanded on desktop on first load). */
+#recovery-card-body {
     display: none;
 }
-
-@media screen and (max-width: 1024px) {
-    #recovery-card-toggle-chevron {
-        display: inline-block;
-    }
-    #recovery-card-toggle-heading {
-        cursor: pointer;
-    }
+.recovery-inner-card.rc-expanded #recovery-card-body {
+    display: block;
 }
-
-/* Sa mobile/tablet, tinatago by default ang buong backup-search form
-   (tingnan ang applyResponsiveRecoveryCardState() sa app.js) — tap-to-open
-   na lang ang h3 heading, kaya hindi na masyadong "kinakain" ng malaking
-   form na ito ang itaas na bahagi ng Transaction page. Sa desktop/PC,
-   nananatiling bukas/visible ito by default gaya ng dati. */
-@media screen and (max-width: 1024px) {
-    #recovery-card-body {
-        display: none;
-    }
-    .recovery-inner-card.rc-expanded #recovery-card-body {
-        display: block;
-    }
-    .recovery-inner-card:not(.rc-expanded) #recovery-card-toggle-chevron {
-        transform: rotate(-90deg);
-    }
+.recovery-inner-card:not(.rc-expanded) #recovery-card-toggle-chevron {
+    transform: rotate(-90deg);
 }
 
 .recovery-inner-card h3 i { color: #3b82f6; }

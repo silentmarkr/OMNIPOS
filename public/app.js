@@ -9264,16 +9264,164 @@ function handleScannedTransaction(scannedCode) {
     }
 }
 
+const txColumnFilters = { id: new Set(), timestamp: new Set(), cashier: new Set(), items: new Set(), discount: new Set(), total: new Set(), method: new Set() };
+let activeTxFilterField = null;
+
+function getTxColumnDisplayValue(field, tx) {
+    switch (field) {
+        case'id': return tx.id ||'';
+        case'timestamp': return tx.timestamp ||'';
+        case'cashier': return tx.cashier ||'';
+        case'items': {
+            const qty = (tx.items || []).reduce((sum, item) => sum + item.quantity, 0);
+            return `${qty} item(s)`;
+        }
+        case'discount': return `₱${parseFloat(tx.discount || 0).toFixed(2)}`;
+        case'total': return `₱${parseFloat(tx.total || 0).toFixed(2)}`;
+        case'method': return tx.method ||'';
+        default: return'';
+    }
+}
+
+function toggleTxColumnFilter(field, evt) {
+    evt.stopPropagation();
+    const btn = evt.currentTarget;
+
+    if (document.getElementById('col-filter-dropdown') && activeTxFilterField === field) {
+        closeTxColumnFilterDropdown();
+        return;
+    }
+    closeTxColumnFilterDropdown();
+    activeTxFilterField = field;
+
+    const query = (document.getElementById('tx-history-search')?.value ||'').trim().toLowerCase();
+    const contextTx = localTransactionsList.filter(tx => {
+        if (query && !((tx.id ||'').toLowerCase().includes(query) || (tx.cashier ||'').toLowerCase().includes(query))) return false;
+        for (const f in txColumnFilters) {
+            if (f === field) continue;
+            if (txColumnFilters[f].size > 0 && !txColumnFilters[f].has(getTxColumnDisplayValue(f, tx))) return false;
+        }
+        return true;
+    });
+
+    const uniqueValues = [...new Set(contextTx.map(tx => getTxColumnDisplayValue(field, tx)))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+    const currentSelection = txColumnFilters[field];
+    const selectedSet = currentSelection.size > 0 ? currentSelection : new Set(uniqueValues);
+
+    const dropdown = document.createElement('div');
+    dropdown.id ='col-filter-dropdown';
+    dropdown.className ='col-filter-dropdown';
+    dropdown.innerHTML = `
+        <div class="col-filter-search"><input type="text" placeholder="Search..." oninput="filterTxColumnFilterOptions(this.value)"></div>
+        <div class="col-filter-selectall"><input type="checkbox" id="col-filter-selectall-cb"><span>Select All</span></div>
+        <div class="col-filter-list" id="col-filter-list"></div>
+        <div class="col-filter-actions">
+            <button type="button" class="col-filter-clear" onclick="clearTxColumnFilter('${field}')">Clear</button>
+            <button type="button" class="col-filter-apply" onclick="applyTxColumnFilter('${field}')">Apply</button>
+        </div>
+    `;
+    document.body.appendChild(dropdown);
+    renderTxColumnFilterOptions(uniqueValues, selectedSet);
+
+    const selectAllCb = document.getElementById('col-filter-selectall-cb');
+    selectAllCb.checked = uniqueValues.length > 0 && selectedSet.size === uniqueValues.length;
+    selectAllCb.onchange = () => {
+        document.querySelectorAll('#col-filter-list .col-filter-option:not([style*="display: none"]) input[type="checkbox"]')
+            .forEach(cb => cb.checked = selectAllCb.checked);
+    };
+
+    const rect = btn.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    const maxLeft = window.innerWidth - 246;
+    dropdown.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
+
+    btn.classList.add('filter-btn-open');
+    setTimeout(() => document.addEventListener('click', closeTxColumnFilterDropdownOnOutsideClick), 0);
+}
+
+function renderTxColumnFilterOptions(values, selectedSet) {
+    const list = document.getElementById('col-filter-list');
+    if (!list) return;
+    if (values.length === 0) {
+        list.innerHTML = `<div class="col-filter-empty">No data</div>`;
+        return;
+    }
+    list.innerHTML = values.map(v => {
+        const safe = escapeHtml(v);
+        const checked = selectedSet.has(v) ?'checked' :'';
+        return `<label class="col-filter-option"><input type="checkbox" value="${safe}" ${checked}><span>${safe}</span></label>`;
+    }).join('');
+}
+
+function filterTxColumnFilterOptions(query) {
+    const list = document.getElementById('col-filter-list');
+    if (!list) return;
+    const q = query.trim().toLowerCase();
+    list.querySelectorAll('.col-filter-option').forEach(opt => {
+        const text = opt.textContent.trim().toLowerCase();
+        opt.style.display = text.includes(q) ?'' :'none';
+    });
+}
+
+function applyTxColumnFilter(field) {
+    const list = document.getElementById('col-filter-list');
+    if (!list) return;
+    const allCbs = [...list.querySelectorAll('input[type="checkbox"]')];
+    const checked = allCbs.filter(cb => cb.checked).map(cb => cb.value);
+
+    txColumnFilters[field] = (checked.length === 0 || checked.length === allCbs.length) ? new Set() : new Set(checked);
+
+    updateTxFilterIconStates();
+    closeTxColumnFilterDropdown();
+    filterTransactionsTable();
+}
+
+function clearTxColumnFilter(field) {
+    txColumnFilters[field] = new Set();
+    updateTxFilterIconStates();
+    closeTxColumnFilterDropdown();
+    filterTransactionsTable();
+}
+
+function updateTxFilterIconStates() {
+    document.querySelectorAll('.tx-col-filter-btn').forEach(btn => {
+        const field = btn.getAttribute('data-field');
+        const hasFilter = txColumnFilters[field] && txColumnFilters[field].size > 0;
+        btn.classList.toggle('active', hasFilter);
+    });
+}
+
+function closeTxColumnFilterDropdown() {
+    const existing = document.getElementById('col-filter-dropdown');
+    if (existing) existing.remove();
+    document.querySelectorAll('.tx-col-filter-btn.filter-btn-open').forEach(b => b.classList.remove('filter-btn-open'));
+    activeTxFilterField = null;
+    document.removeEventListener('click', closeTxColumnFilterDropdownOnOutsideClick);
+}
+
+function closeTxColumnFilterDropdownOnOutsideClick(evt) {
+    const dropdown = document.getElementById('col-filter-dropdown');
+    if (!dropdown) return;
+    if (dropdown.contains(evt.target)) return;
+    if (evt.target.closest && evt.target.closest('.tx-col-filter-btn')) return;
+    closeTxColumnFilterDropdown();
+}
+
 function filterTransactionsTable() {
     const searchQuery = document.getElementById('tx-history-search').value.trim().toLowerCase();
-    const methodFilter = document.getElementById('tx-method-filter').value;
 
     const filtered = localTransactionsList.filter(tx => {
         const matchesSearch = tx.id.toLowerCase().includes(searchQuery) || tx.cashier.toLowerCase().includes(searchQuery);
-        const matchesMethod = (methodFilter ==='All') || (tx.method === methodFilter);
-        return matchesSearch && matchesMethod;
+        if (!matchesSearch) return false;
+        for (const field in txColumnFilters) {
+            if (txColumnFilters[field].size > 0 && !txColumnFilters[field].has(getTxColumnDisplayValue(field, tx))) return false;
+        }
+        return true;
     });
 
+    updateTxFilterIconStates();
     renderTransactionsRows(filtered);
 }
 

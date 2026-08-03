@@ -878,18 +878,18 @@
                     <h2 id="page-title-transactions">Transaction Database Records</h2>
               <div class="recovery-section"></div>
    <div class="recovery-inner-card">
-                <h3 id="recovery-card-toggle-heading" onclick="toggleRecoveryCard()"><i class="fa-solid fa-search-plus"></i> Maghanap sa Lumang Backup File <i class="fa-solid fa-chevron-down" id="recovery-card-toggle-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i></h3>
+                <h3 id="recovery-card-toggle-heading" onclick="toggleRecoveryCard()"><i class="fa-solid fa-search-plus"></i> Search Old Backup File <i class="fa-solid fa-chevron-down" id="recovery-card-toggle-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i></h3>
     <div id="recovery-card-body">
     <p class="recovery-desc">
-        Pumili ng lumang backup (.json) upang maghanap ng partikular na rekord nang hindi binabago ang kasalukuyang data.
+        Select an old backup (.json) to search for a specific record without modifying the current data.
     </p>
 
     <label class="file-upload-btn">
-        <i class="fa-solid fa-upload"></i> <span id="backup-file-label">Pumili ng File (.json)</span>
-        <input type="file" id="backup-query-file" accept=".json" onchange="document.getElementById('backup-file-label').textContent = this.files[0] ? this.files[0].name : 'Pumili ng File (.json)'">
+        <i class="fa-solid fa-upload"></i> <span id="backup-file-label">Choose File (.json)</span>
+        <input type="file" id="backup-query-file" accept=".json" onchange="document.getElementById('backup-file-label').textContent = this.files[0] ? this.files[0].name : 'Choose File (.json)'">
     </label>
 
-    <input type="text" id="backup-query-id" class="backup-id-input" placeholder="Ilagay ang Txn ID o Log ID...">
+    <input type="text" id="backup-query-id" class="backup-id-input" placeholder="Enter Txn ID or Log ID...">
 
     <div class="backup-actions-grid">
       <button type="button" onclick="buksanScannerParaSaBackup('backup')" class="btn-scan-backup">
@@ -904,23 +904,11 @@
       
                     <div class="terminal-top-controls">
                         <div class="search-box-container">
-                            <input type="text" id="tx-history-search" placeholder="I-search ang Transaction ID o Pangalan ng Cashier..." oninput="filterTransactionsTable()">
+                            <input type="text" id="tx-history-search" placeholder="Search Transaction ID or Cashier Name..." oninput="filterTransactionsTable()">
                             <button class="btn-scan-qr scan-icon-floating" onclick="openTxQRScanner()" title="Scan Receipt ID">
                                 <i class="fa-solid fa-qrcode"></i>
                             </button>
                         </div>
-
-                        <div class="tx-filter-controls">
-                            <select id="tx-method-filter" onchange="filterTransactionsTable()" class="tx-method-select">
-                                <option value="All">Lahat ng Method</option>
-                                <option value="CASH">Cash</option>
-                                <option value="GCASH">GCash</option>
-                                <option value="MAYA">Maya</option>
-                                <option value="CARD">Card</option>
-                                <option value="CARD/GCASH">Card / GCash (Luma)</option>
-                            </select>
-                        </div>
-                      
                     </div>
 
                     <div class="table-container">
@@ -928,13 +916,13 @@
 
                             <thead>
                                 <tr>
-                                    <th>Transaction ID</th>
-                                    <th>Timestamp</th>
-                                    <th>Cashier</th>
-                                    <th>Items</th>
-                                    <th>Discount</th>
-                                    <th>Total Charged</th>
-                                    <th>Method</th>
+                                    <th><span class="th-label-wrap">Transaction ID<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="id" onclick="toggleTxColumnFilter('id', event)" title="Filter Transaction ID"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Timestamp<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="timestamp" onclick="toggleTxColumnFilter('timestamp', event)" title="Filter Timestamp"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Cashier<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="cashier" onclick="toggleTxColumnFilter('cashier', event)" title="Filter Cashier"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Items<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="items" onclick="toggleTxColumnFilter('items', event)" title="Filter Items"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Discount<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="discount" onclick="toggleTxColumnFilter('discount', event)" title="Filter Discount"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Total Charged<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="total" onclick="toggleTxColumnFilter('total', event)" title="Filter Total Charged"><i class="fa-solid fa-filter"></i></button></span></th>
+                                    <th><span class="th-label-wrap">Method<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="method" onclick="toggleTxColumnFilter('method', event)" title="Filter Method"><i class="fa-solid fa-filter"></i></button></span></th>
                                   <th>Receipt</th>
                                 </tr>
                             </thead>
