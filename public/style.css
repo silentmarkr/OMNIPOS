@@ -2315,6 +2315,38 @@ body.dark-mode .rank-row .rank-name {
     min-height: 0;
 }
 
+/* ===== RESET/RESTORE PANEL — SHRINKABLE (COLLAPSIBLE) CARDS =====
+   Bawat card sa Reset/Restore panel (maliban sa RESTRICTED ACCESS banner)
+   ay collapsible: header lang ang laging visible, tap para mag-expand.
+   Hanggang 2 lang ang puwedeng bukas nang sabay-sabay (tingnan ang
+   toggleResetRestoreCard() sa app.js) at awtomatikong nagsasara ang
+   lahat pag lumipat ng page/tab (tingnan ang closeAllResetRestoreCards()). */
+.rr-card-header {
+    user-select: none;
+}
+.rr-card-header:hover {
+    opacity: 0.85;
+}
+.rr-card-chevron {
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+.rr-card-body {
+    display: none;
+    overflow: hidden;
+    animation: rrCardFadeIn 0.15s ease;
+}
+.rr-card.rr-open > .rr-card-body {
+    display: block;
+}
+.rr-card.rr-open > .rr-card-header .rr-card-chevron {
+    transform: rotate(180deg);
+}
+@keyframes rrCardFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* ===== BACKUP RECOVERY SEARCH CARD (pro/polished redesign) ===== */
 .recovery-section {
     margin-top: 20px;

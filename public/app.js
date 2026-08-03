@@ -1687,6 +1687,7 @@ function switchView(viewKey, opts) {
 
     if (typeof closeUserWidgetMenu ==='function') closeUserWidgetMenu();
     if (typeof closeAllSidebarMenuDropdowns ==='function') closeAllSidebarMenuDropdowns();
+    if (typeof closeAllResetRestoreCards ==='function') closeAllResetRestoreCards();
 
     const activeUser = JSON.parse(localStorage.getItem('posa_user') ||'null');
     const userRole = (activeUser && activeUser.role ||'').toLowerCase();
@@ -1840,6 +1841,46 @@ window.addEventListener('resize', () => {
     clearTimeout(_responsiveTitleResizeTimer);
     _responsiveTitleResizeTimer = setTimeout(updateResponsivePageTitle, 120);
 });
+
+// ===== Reset/Restore Panel — Shrinkable (collapsible) cards =====
+// Lahat ng card sa loob ng #reset-restore-panel (maliban sa RESTRICTED
+// ACCESS warning banner, na hindi collapsible) ay puwedeng i-tap para
+// mag-expand/collapse. Dalawa (2) lang ang puwedeng nakabukas nang
+// sabay-sabay — kapag binuksan ang ikatlo, awtomatikong sasara ang
+// pinaka-unang binuksan (FIFO) para hindi mag-crowd ang panel.
+let _rrOpenCardOrder = [];
+
+function toggleResetRestoreCard(headerEl) {
+    const card = headerEl.closest('.rr-card');
+    if (!card) return;
+    const cardId = card.getAttribute('data-rr-card');
+
+    if (card.classList.contains('rr-open')) {
+        // Isara ang na-tap na card
+        card.classList.remove('rr-open');
+        _rrOpenCardOrder = _rrOpenCardOrder.filter(id => id !== cardId);
+        return;
+    }
+
+    // Buksan ang na-tap na card
+    card.classList.add('rr-open');
+    _rrOpenCardOrder.push(cardId);
+
+    // Max 2 lang ang puwedeng bukas — isara ang pinaka-unang binuksan
+    // kapag lumampas na sa dalawa.
+    if (_rrOpenCardOrder.length > 2) {
+        const oldestId = _rrOpenCardOrder.shift();
+        const oldestCard = document.querySelector(`.rr-card[data-rr-card="${oldestId}"]`);
+        if (oldestCard) oldestCard.classList.remove('rr-open');
+    }
+}
+
+function closeAllResetRestoreCards() {
+    document.querySelectorAll('#reset-restore-panel .rr-card.rr-open').forEach(card => {
+        card.classList.remove('rr-open');
+    });
+    _rrOpenCardOrder = [];
+}
 
 function toggleRecoveryCard() {
     const card = document.querySelector('.recovery-inner-card');
@@ -7031,6 +7072,10 @@ function switchUserTab(tabId, element) {
 
     if (tabId !=='receipt-custom-tab' && typeof closeGoogleAppVerificationFloatingBox ==='function') {
         closeGoogleAppVerificationFloatingBox();
+    }
+
+    if (tabId !=='reset-restore-panel' && typeof closeAllResetRestoreCards ==='function') {
+        closeAllResetRestoreCards();
     }
 
     document.querySelectorAll('.tab-content-panel').forEach(p => p.style.display ='none');

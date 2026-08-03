@@ -1182,10 +1182,12 @@
     </div>
 
     <!-- 1. SYSTEM HARD RESET -->
-    <div class="system-reset-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <h3 style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+    <div class="system-reset-container rr-card" data-rr-card="reset-hard" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
             <i class="fa-solid fa-power-off"></i> System Hard Reset
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
         </h3>
+        <div class="rr-card-body">
         <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
             Warning: This process will generate a final system backup, dispatch it to the designated email endpoints below, and permanently purge all transaction logs, active databases, inventory records, and historical logs. This action is irreversible.
         </p>
@@ -1212,26 +1214,32 @@
         <button id="reset-execute-btn" onclick="executeSystemHardReset()" style="width: 100%; padding: 12px; background: var(--danger-red); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-dumpster"></i> Compile Backup & Execute Hard Reset
         </button>
+        </div>
     </div>
 
     <!-- 1.5 SYNC PURCHASED FEATURES FROM RELAY -->
-    <div class="relay-sync-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <h3 style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+    <div class="relay-sync-container rr-card" data-rr-card="relay-sync" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
             <i class="fa-solid fa-arrows-rotate"></i> Restore Purchased Features
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
         </h3>
+        <div class="rr-card-body">
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
             After a Hard Reset, this will be attempted automatically. If you need an immediate restore without waiting (e.g. after a fresh install on the same device), click this.
         </p>
         <button id="relay-sync-btn" onclick="syncFeaturesFromRelay()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-down"></i> Sync with Relay Now
         </button>
+        </div>
     </div>
 
     <!-- 1.6 SYSTEM UPDATE -->
-    <div class="system-update-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <h3 style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+    <div class="system-update-container rr-card" data-rr-card="system-update" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
             <i class="fa-solid fa-cloud-arrow-up"></i> System Update
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
         </h3>
+        <div class="rr-card-body">
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
             Check whether a new OMNIPOS version is available, then deploy it directly to Render — no data will be affected.
         </p>
@@ -1246,13 +1254,16 @@
                 <i class="fa-solid fa-rocket"></i> Deploy Update Now
             </button>
         </div>
+        </div>
     </div>
 
     <!-- 1.7 CLOUD BACKUP (POSTGRES) -->
-    <div class="cloud-backup-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <h3 style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+    <div class="cloud-backup-container rr-card" data-rr-card="cloud-backup" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
             <i class="fa-solid fa-cloud"></i> Cloud Backup
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
         </h3>
+        <div class="rr-card-body">
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
             Sync the entire database (all modules, including user accounts but excluding passwords) to secure online storage.
             This is a premium feature — it must be unlocked before use.
@@ -1266,13 +1277,16 @@
         <button id="cloud-backup-restore-btn" onclick="runCloudBackupRestore()" style="width: 100%; padding: 12px; margin-top: 10px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-down"></i> Restore from Cloud
         </button>
+        </div>
     </div>
 
     <!-- 2. SYSTEM RECOVERY AT DATABASE RESTORE -->
-    <div class="recovery-section" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <h3 style="color: inherit; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0;">
+    <div class="recovery-section rr-card" data-rr-card="db-restore" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="color: inherit; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
             <i class="fa-solid fa-database"></i> System Recovery & Database Restore
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
         </h3>
+        <div class="rr-card-body">
         <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
             Import a validated `.json` ledger archive script to rebuild core state schemas, product logs, configurations, and transactional tables back to local environment storage.
         </p>
@@ -1286,6 +1300,7 @@
             <button onclick="triggerSystemRestore()" style="width: 100%; padding: 10px; background: var(--primary-blue); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem;">
                 <i class="fa-solid fa-file-import"></i> Initialize State Schema Restore
             </button>
+        </div>
         </div>
     </div>
 </div>
