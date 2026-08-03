@@ -2041,6 +2041,127 @@ body.dark-mode .rank-row .rank-name {
     border-color: #bfdbfe;
 }
 
+/* --- OVERVIEW / HOME VIEW — ADVANCED ANIMATED PRESENTATION ---
+   Staggered fade+rise entrance para sa bawat pangunahing block ng
+   Overview (greeting, metric cards, trend cards, quick access), gamit
+   ang isang reusable ".ov-anim" class + "--ov-delay" custom property
+   bilang stagger index. Idinagdag din ang mas "buhay" na motion sa
+   greeting banner, metric icons, at trend bars — pero laging naka-guard
+   sa prefers-reduced-motion para sa accessibility. */
+@keyframes ovRiseIn {
+    from { opacity: 0; transform: translateY(14px) scale(0.985); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+#view-overview .ov-anim {
+    opacity: 0;
+    animation: ovRiseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: calc(var(--ov-delay, 0) * 70ms + 40ms);
+}
+
+/* Greeting banner: bahagyang gradient sheen na dahan-dahang gumagalaw,
+   parang "live" na header sa halip na patag na kulay lamang. */
+.overview-greeting-row {
+    position: relative;
+    padding: 18px 22px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: linear-gradient(120deg, #eff6ff 0%, #f8fafc 45%, #eef2ff 100%);
+    background-size: 220% 220%;
+    border: 1px solid #e6ecf5;
+    animation: ovRiseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards, ovBannerSheen 9s ease-in-out infinite;
+}
+
+@keyframes ovBannerSheen {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.overview-role-badge {
+    animation: ovBadgePulse 2.6s ease-in-out infinite;
+}
+
+@keyframes ovBadgePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.18); }
+    50%      { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+}
+
+/* Metric cards: mas may "buhay" na hover — bahagyang lift + icon spring,
+   bukod pa sa dati nang static na card. */
+#view-overview .metric-card {
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
+}
+
+#view-overview .metric-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 20px -8px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.04);
+}
+
+#view-overview .metric-card:hover .metric-icon {
+    transform: scale(1.08) rotate(-4deg);
+}
+
+#view-overview .metric-icon {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+#view-overview .metric-card h3.ov-counting::after {
+    content: "";
+}
+
+/* Trend bars: pag-grow paakyat mula sa ibaba (JS ang nagse-set ng target
+   height sa dalawang hakbang — 0 muna, saka ang totoong height — dito
+   lang ang smooth animation, tingnan ang renderWeeklyTrend() sa app.js). */
+#view-overview .trend-bar {
+    transition: height 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#view-overview .trend-bar-col:hover .trend-bar {
+    filter: brightness(1.08);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+/* Quick Access: dagdag na "spring" sa hover/press bukod sa dati nang
+   lift, para mas advance ang pakiramdam ng interaction. */
+#view-overview .qa-card {
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+#view-overview .qa-card:active {
+    transform: translateY(-1px) scale(0.97);
+}
+
+#view-overview .qa-card:hover i {
+    transform: scale(1.12);
+}
+
+#view-overview .qa-card i {
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #view-overview .ov-anim,
+    .overview-greeting-row,
+    .overview-role-badge,
+    #view-overview .metric-card,
+    #view-overview .metric-icon,
+    #view-overview .trend-bar,
+    #view-overview .qa-card,
+    #view-overview .qa-card i {
+        animation: none !important;
+        transition: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+    }
+}
+
+body.dark-mode .overview-greeting-row {
+    background: linear-gradient(120deg, #1c2333 0%, #1c1c24 45%, #1e1b33 100%);
+    background-size: 220% 220%;
+    border-color: var(--dm-border);
+}
+
 /* TERMINAL SCREEN STYLE THEME INTERFACE LAYOUT SYSTEM MAPPING SCREENSHOT 3 / 4 */
 .terminal-theme {
     margin: -30px;

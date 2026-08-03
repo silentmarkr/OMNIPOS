@@ -360,6 +360,26 @@ function applyTheme(themeId, opts) {
         localStorage.setItem('posa_darkmode', String(!isDay));
     }
     updateThemeSelectionUI(theme.id);
+
+    // FIX: dati, kapag nagpapalit ng color theme (Dark Mode, Ocean Pro,
+    // Cyber Neon, atbp.) habang nasa Overview page na ang user, hindi na
+    // muling tumatakbo ang staggered entrance animation (".ov-anim") —
+    // isang beses lang kasi ito tumatakbo bilang CSS keyframe animation,
+    // nung una itong ipinakita (karaniwan ay sa Day mode, ang default).
+    // Kaya kapag lumipat ng theme dito mismo (hindi sa pamamagitan ng
+    // switchView), parang "walang animation" ang pakiramdam — bigla na
+    // lang nagpapalit ng kulay nang walang motion. Dito na ito muling
+    // pina-play, pero sa susunod na animation frame (para siguradong
+    // na-apply na muna ang bagong theme classes/kulay sa itaas bago mag-
+    // restart ang animation), at tanging kapag currently open/visible ang
+    // Overview view lang — hindi dapat tumakbo ito habang naka-login
+    // screen pa o ibang view ang bukas.
+    const overviewSection = document.getElementById('view-overview');
+    if (overviewSection && overviewSection.offsetParent !== null && typeof replayOverviewEntranceAnimation ==='function') {
+        requestAnimationFrame(() => {
+            replayOverviewEntranceAnimation();
+        });
+    }
 }
 
 function setTheme(themeId) {
@@ -1750,6 +1770,9 @@ function switchView(viewKey, opts) {
     if (viewKey ==='overview') {
         console.log("Dashboard menu clicked! Forcing data refresh from server/database...");
         renderOverviewGreeting();
+        if (typeof replayOverviewEntranceAnimation ==='function') {
+            replayOverviewEntranceAnimation();
+        }
         if (typeof loadDashboardMetrics ==='function') {
             loadDashboardMetrics();
         }
@@ -3990,6 +4013,59 @@ function renderOverviewGreeting() {
     }
 }
 
+// Advanced viewing touch: animated "count up" para sa mga numeric metric
+// sa Overview (sa halip na biglang lumitaw ang bagong bilang), mula sa
+// dating naka-display na value patungo sa bagong value. Ligtas ito kahit
+// paulit-ulit na tawagin (hal. tuwing mag-refresh ang dashboard) — hindi
+// ito magiging sanhi ng tumatambak na animation frames dahil isang
+// requestAnimationFrame loop lamang ang ginagamit kada tawag.
+function animateOverviewCountUp(el, targetValue, duration = 650) {
+    if (!el) return;
+    const target = Number(targetValue) || 0;
+    const startValue = Number(el.getAttribute('data-count')) || 0;
+
+    if (startValue === target) {
+        el.innerText = target;
+        el.setAttribute('data-count', target);
+        return;
+    }
+
+    const startTime = performance.now();
+    const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+
+    function tick(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = easeOutCubic(progress);
+        const currentValue = Math.round(startValue + (target - startValue) * eased);
+        el.innerText = currentValue;
+        if (progress < 1) {
+            requestAnimationFrame(tick);
+        } else {
+            el.innerText = target;
+            el.setAttribute('data-count', target);
+        }
+    }
+    requestAnimationFrame(tick);
+}
+
+// Advanced viewing touch: pina-pa-play ulit ang staggered entrance
+// animation (".ov-anim", tingnan ang style.css) tuwing binubuksan/
+// binabalikan ang Overview view — hindi lang sa unang page load. Sa CSS
+// keyframe animation, isang beses lamang tumatakbo ang animation sa
+// unang paglabas ng element sa DOM, kaya kailangan itong "i-restart" sa
+// pamamagitan ng pag-alis at muling pagdagdag ng class (na may forced
+// reflow sa pagitan) para maulit ang buong entrance sequence.
+function replayOverviewEntranceAnimation() {
+    const overviewSection = document.getElementById('view-overview');
+    if (!overviewSection) return;
+    const animatedEls = overviewSection.querySelectorAll('.ov-anim');
+    animatedEls.forEach(el => el.classList.remove('ov-anim'));
+    // eslint-disable-next-line no-unused-expressions
+    void overviewSection.offsetWidth; // force reflow para "mareset" ang animation state
+    animatedEls.forEach(el => el.classList.add('ov-anim'));
+}
+
 function renderWeeklyTrend(txList) {
     const container = document.getElementById('overview-trend-bars');
     if (!container) return;
@@ -4023,10 +4099,24 @@ function renderWeeklyTrend(txList) {
         const heightPct = val > 0 ? Math.max((val / maxVal) * 100, 6) : 2;
         return `
             <div class="trend-bar-col" title="₱${val.toFixed(2)}">
-                <div class="trend-bar${isToday(idx) ?' is-today' :''}" style="height:${heightPct}%"></div>
+                <div class="trend-bar${isToday(idx) ?' is-today' :''}" data-target-height="${heightPct}" style="height:0%"></div>
                 <span class="trend-bar-label">${dayLabels[idx]}</span>
             </div>`;
     }).join('');
+
+    // Advanced viewing touch: patubuin ang mga bar paakyat mula sa 0
+    // patungo sa totoong height nila (sa halip na biglang lumitaw na
+    // naka-full height agad), gamit ang CSS transition na naka-set na sa
+    // .trend-bar (tingnan ang style.css). Dalawang animation frame ang
+    // hinihintay bago i-set ang target height para tiyaking na-paint na
+    // muna ang browser ng 0% na estado bago ang transition.
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            container.querySelectorAll('.trend-bar[data-target-height]').forEach(bar => {
+                bar.style.height = `${bar.getAttribute('data-target-height')}%`;
+            });
+        });
+    });
 }
 
 function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users, expiringSoon = 0, expired = 0, topProductsToday = []) {
@@ -4056,8 +4146,8 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
             ? `${topProductsToday[0].name} (${topProductsToday[0].qty})`
             :'No sale';
     }
-    if (ovOrdersElem) ovOrdersElem.innerText = orders;
-    if (ovLowStockElem) ovLowStockElem.innerText = lowStock;
+    if (ovOrdersElem) animateOverviewCountUp(ovOrdersElem, orders);
+    if (ovLowStockElem) animateOverviewCountUp(ovLowStockElem, lowStock);
 
     const ovTopProductsListEl = document.getElementById('overview-top-products-list');
     if (ovTopProductsListEl) {

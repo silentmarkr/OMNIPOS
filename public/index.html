@@ -424,7 +424,7 @@
               
 <section id="view-overview" class="app-view">
 
-                    <div class="overview-greeting-row">
+                    <div class="overview-greeting-row ov-anim" style="--ov-delay:0">
                         <div>
                             <h2 class="overview-greeting" id="overview-greeting">Magandang araw!</h2>
                             <p class="overview-subdate" id="overview-subdate">&nbsp;</p>
@@ -433,28 +433,28 @@
                     </div>
 
                     <div class="metrics-grid overview-stats-grid">
-                        <div class="metric-card">
+                        <div class="metric-card ov-anim" style="--ov-delay:1">
                             <div class="metric-icon accent"><i class="fa-solid fa-crown"></i></div>
                             <div><p class="metric-label">TOP SELLER TODAY</p><h3 id="metric-ov-top-seller">—</h3></div>
                         </div>
-                        <div class="metric-card">
+                        <div class="metric-card ov-anim" style="--ov-delay:2">
                             <div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div>
-                            <div><p class="metric-label">TODAY'S ORDERS</p><h3 id="metric-ov-orders">0</h3></div>
+                            <div><p class="metric-label">TODAY'S ORDERS</p><h3 id="metric-ov-orders" data-count="0">0</h3></div>
                         </div>
-                        <div class="metric-card">
+                        <div class="metric-card ov-anim" style="--ov-delay:3">
                             <div class="metric-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                            <div><p class="metric-label">LOW STOCK ITEMS</p><h3 id="metric-ov-lowstock">0</h3></div>
+                            <div><p class="metric-label">LOW STOCK ITEMS</p><h3 id="metric-ov-lowstock" data-count="0">0</h3></div>
                         </div>
                     </div>
 
-                    <div class="overview-trend-card">
+                    <div class="overview-trend-card ov-anim" style="--ov-delay:4">
                         <div class="overview-trend-header">
                             <h3><i class="fa-solid fa-chart-simple"></i> Sales Trend (Last 7 Days)</h3>
                         </div>
                         <div class="trend-bars-row" id="overview-trend-bars"></div>
                     </div>
 
-                    <div class="overview-trend-card" style="margin-top:15px;">
+                    <div class="overview-trend-card ov-anim" style="margin-top:15px; --ov-delay:5">
                         <div class="overview-trend-header">
                             <h3><i class="fa-solid fa-ranking-star"></i> Top Selling Products (Today)</h3>
                         </div>
@@ -463,8 +463,8 @@
                         </ul>
                     </div>
 
-                    <h2 class="section-title"><i class="fa-solid fa-grip"></i> Quick Access</h2>
-                    <div class="quick-access-grid">
+                    <h2 class="section-title ov-anim" style="--ov-delay:6"><i class="fa-solid fa-grip"></i> Quick Access</h2>
+                    <div class="quick-access-grid ov-anim" style="--ov-delay:7">
                         <div class="qa-card active" onclick="switchView('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
                         <div class="qa-card" onclick="switchView('products')"><i class="fa-solid fa-box-open" style="color:#f59e0b;"></i><p>Inventory</p></div>
                         <div class="qa-card" onclick="switchView('reports')"><i class="fa-solid fa-chart-column" style="color:#10b981;"></i><p>Sales Report</p></div>
