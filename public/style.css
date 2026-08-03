@@ -4677,6 +4677,22 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
             max-height: 45vh;
         }
     }
+
+    /* SYSTEM AUDIT LOGS (#view-logs) — sadyang maikli lang ang laman sa
+       itaas ng table nito (isang <h2> lang, walang buttons/filters), kaya
+       kahit naka-flex:1 na ang .table-container (tingnan sa itaas), hindi
+       pa rin ito umaabot sa bottom nav dahil hinaharang pa rin ito ng
+       45vh/55vh na max-height cap — malaking blangkong espasyo ang
+       naiiwan sa mas matatangkad na screen (hal. Xiaomi at iba pang bagong
+       Android device). Tinatanggal dito ang cap PARA SA #view-logs LANG
+       (naka-scope sa ID) para talagang mag-fill ito hanggang sa bottom
+       nav gamit ang natitirang flex space — mas maraming rows ang
+       makikita nang hindi na kailangang mag-scroll pa. Hindi ito
+       naaapektuhan ang ibang table (Roles & Permissions matrix, Products,
+       Transactions, atbp.) dahil naka-ID-scope ito. */
+    #view-logs.app-view:not(.terminal-theme) .table-container {
+        max-height: none;
+    }
 }
 
 /* ================== MOBILE BOTTOM NAVIGATION ================== */

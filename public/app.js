@@ -7830,8 +7830,8 @@ async function loadSystemAuditLogs() {
             tr.innerHTML = `
                 <td>${log.id}</td>
                 <td><span class="badge user-badge">${escapeHtml(log.username)}</span></td>
-                <td><strong>${escapeHtml(log.action)}</strong></td>
                 <td><span class="text-muted">${log.timestamp}</span></td>
+                <td><strong>${escapeHtml(log.action)}</strong></td>
             `;
             tbody.appendChild(tr);
         });
