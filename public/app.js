@@ -1712,7 +1712,18 @@ function switchView(viewKey, opts) {
     document.querySelectorAll('.bottom-nav-item').forEach(item => item.classList.remove('active'));
 
     const targetView = document.getElementById(`view-${viewKey}`);
-    if (targetView) targetView.style.display ='block';
+    // NOTE: sadyang hindi na "style.display = 'block'" ang ginagamit dito.
+    // Inaalis lang ang inline override (kung meron man, hal. ang
+    // "display:none" na kasusalin lang sa itaas) para ang CSS mismo ang
+    // magpasya ng tamang display value ng view na ito — "flex" para sa
+    // #view-logs/#view-barcode (tingnan ang ID-scoped rule sa style.css,
+    // display na wala nang !important doon), o "block" bilang default sa
+    // ibang .app-view. Kasabay nito, tinanggal na rin ang !important sa
+    // "display" ng CSS rule na iyon, para hindi na palaging manalo ang
+    // CSS kahit "display:none" na ang inilagay dito ng JS pagtatago —
+    // dating hindi natatago kahit kailan ang #view-logs/#view-barcode
+    // dahil dito.
+    if (targetView) targetView.style.removeProperty('display');
 
     const targetMenu = document.getElementById(`menu-${viewKey}`);
     if (targetMenu) targetMenu.classList.add('active');

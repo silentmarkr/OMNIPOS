@@ -4678,20 +4678,88 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
         }
     }
 
-    /* SYSTEM AUDIT LOGS (#view-logs) — sadyang maikli lang ang laman sa
-       itaas ng table nito (isang <h2> lang, walang buttons/filters), kaya
-       kahit naka-flex:1 na ang .table-container (tingnan sa itaas), hindi
-       pa rin ito umaabot sa bottom nav dahil hinaharang pa rin ito ng
-       45vh/55vh na max-height cap — malaking blangkong espasyo ang
-       naiiwan sa mas matatangkad na screen (hal. Xiaomi at iba pang bagong
-       Android device). Tinatanggal dito ang cap PARA SA #view-logs LANG
-       (naka-scope sa ID) para talagang mag-fill ito hanggang sa bottom
-       nav gamit ang natitirang flex space — mas maraming rows ang
-       makikita nang hindi na kailangang mag-scroll pa. Hindi ito
+    /* SYSTEM AUDIT LOGS (#view-logs), BARCODE GENERATOR (#view-barcode), at
+       TRANSACTION HISTORY (#view-transactions) — bagama't may kaunting
+       filter row sa itaas ng Transactions (search + method dropdown)
+       kumpara sa logs/barcode (title/button lang), pareho pa rin silang
+       tatlo ang may parehong sintomas: kahit naka-flex:1 na ang
+       .table-container (tingnan sa itaas), hindi pa rin ito umaabot sa
+       bottom nav dahil hinaharang pa rin ito ng 45vh/55vh na max-height
+       cap — malaking blangkong espasyo ang naiiwan sa mas matatangkad na
+       screen (hal. Xiaomi at iba pang bagong Android device/tablet).
+
+       MAHALAGANG AYOS (sinusundan ng bug fix sa ibaba): hindi sapat ang
+       pag-alis lang ng max-height cap dito, dahil ang .app-view (parent)
+       ay MIN-HEIGHT lang ang naka-set (hindi height). Kapag walang
+       max-height ang .table-container at unbounded lang ang parent nito,
+       basta LALAKI na lang ang buong box para akmahan LAHAT ng laman
+       (lahat ng rows) sa halip na mag-internal-scroll — ibig sabihin ang
+       BUONG PAGE na ang nag-i-scroll, hindi na yung sarili ng table box.
+       Dahil dito: (1) nawawala ang sticky/freeze effect ng column headers
+       — kasama na silang naiiskrol pataas, at (2) sa Barcode page,
+       naiiskrol/natatago pati ang "Print Selected" button at ang view
+       title dahil parte na rin sila ng parehong lumalaking page.
+
+       Ang tamang ayos: bigyan ng EKSAKTONG height (hindi min-height lang)
+       ang #view-logs, #view-barcode, at #view-transactions mismo, base sa
+       parehong calc(100vh - 69px - 70px) formula — para talagang
+       naka-bound ang buong view sa loob ng visible na screen (walang
+       page-level scroll), tapos ang .table-container na lang (flex:1 +
+       overflow-y:auto) ang mag-i-internal-scroll kung lumampas sa
+       available height ang mga rows. Dahil dito, nananatiling
+       naka-freeze/naka-pin ang view title + mga button/filter sa itaas
+       (nasa labas ng scrollable box, di na naiiskrol), at nananatiling
+       naka-sticky ang column headers habang naka-scroll sa loob ng table.
+
+       Ang margin-bottom na 18px sa .table-container ay ang nagbibigay ng
+       auto-adjusting na ~15-20px na puwang sa bottom nav sa ANUMANG
+       mobile device o tablet — dahil base sa viewport height ang formula.
+
+       Naka-ID-scope ito sa tatlong view na ito lang, kaya hindi ito
        naaapektuhan ang ibang table (Roles & Permissions matrix, Products,
-       Transactions, atbp.) dahil naka-ID-scope ito. */
-    #view-logs.app-view:not(.terminal-theme) .table-container {
-        max-height: none;
+       atbp.) — sila ay nananatili sa dating min-height + max-height
+       (55vh/45vh) na behavior.
+
+       NAAYOS NA BUG (ang naunang ayos dito ay gumamit ng "display: flex
+       !important", pero nagdulot ito ng mas malaking bug: dahil laging
+       nananalo ang !important kahit sa INLINE style, hindi na kayang
+       itago ng JS ang #view-logs / #view-barcode kahit kailan — palagi
+       itong nagpapakita kahit hindi ito ang kasalukuyang aktibong page.
+       Ang ugat: ang switchView() sa app.js ay nagse-set ng inline
+       "style.display = 'none'" muna sa LAHAT ng .app-view (para itago
+       ang dating aktibong page), pero natatalo pa rin ito ng !important
+       na display:flex dito, kaya nananatiling nakikita ang view kahit
+       "hidden" na dapat ito.
+
+       Ang tamang ayos: (1) dito sa CSS, tinanggal ang !important sa
+       "display" property lang — nananatili itong !important sa ibang
+       properties (flex-direction/height/min-height) dahil hindi naman
+       ito sinasalungat ng anumang inline style mula sa JS. (2) Sa
+       switchView() (app.js, function switchView), sa halip na palaging
+       i-force ang "style.display = 'block'" sa target view, ginagamit
+       na ngayon ang style.removeProperty('display') — inaalis lang ang
+       anumang naunang inline override, kaya ang CSS cascade mismo ang
+       nagpapasya ng tamang display value: "flex" dito para sa
+       #view-logs/#view-barcode/#view-transactions sa mobile/tablet
+       (naka-ID-scope pa rin ito sa tatlong view na ito lang), o ang
+       default na "block" para sa ibang .app-view — at kapag itinatago
+       (display:'none' pa rin ang laging ginagamit), hindi na ito
+       natatalo ng CSS na ito dahil wala nang !important ang "display". */
+    #view-logs.app-view:not(.terminal-theme),
+    #view-barcode.app-view:not(.terminal-theme),
+    #view-transactions.app-view:not(.terminal-theme) {
+        display: flex;
+        flex-direction: column !important;
+        height: calc(100vh - 69px - 70px) !important;
+        min-height: 0 !important;
+    }
+    #view-logs.app-view:not(.terminal-theme) .table-container,
+    #view-barcode.app-view:not(.terminal-theme) .table-container,
+    #view-transactions.app-view:not(.terminal-theme) .table-container {
+        flex: 1 !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin-bottom: 18px !important;
     }
 }
 
