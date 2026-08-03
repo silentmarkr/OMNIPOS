@@ -324,6 +324,58 @@ if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
+// ====================================================================
+// BACKUP STATUS TRACKING
+// ====================================================================
+// FIX: dating kapag nabigo ang scheduled local backup (hal. puno na ang
+// storage, walang write permission, atbp.), console.error() na lang ang
+// nangyayari — walang paraan ang Admin na malaman ito maliban kung
+// titingnan nila mismo ang server logs. Dito, ino-imbak ang RESULTA ng
+// BAWAT pagtakbo (tagumpay man o hindi) sa "store" table bilang isang
+// maliit na blob module, kasama ang consecutive-failure counter, para
+// magamit ito ng UI (hal. isang warning banner sa Admin Dashboard) kapag
+// paulit-ulit nang nabibigo ang backup.
+const BACKUP_STATUS_MODULE = 'system_backup_status';
+
+function recordBackupStatus(result) {
+    try {
+        const prev = (() => {
+            try {
+                const row = selectStmt.get(BACKUP_STATUS_MODULE);
+                return row && row.data ? JSON.parse(row.data) : null;
+            } catch (e) { return null; }
+        })();
+
+        const now = new Date().toISOString();
+        const status = {
+            lastAttemptAt: now,
+            lastSuccessAt: result.success ? now : (prev && prev.lastSuccessAt) || null,
+            lastFailureAt: result.success ? (prev && prev.lastFailureAt) || null : now,
+            lastFailureMessage: result.success ? (prev && prev.lastFailureMessage) || null : (result.message || 'Unknown error'),
+            consecutiveFailures: result.success ? 0 : ((prev && prev.consecutiveFailures) || 0) + 1
+        };
+
+        upsertStmt.run(BACKUP_STATUS_MODULE, JSON.stringify(status), now);
+    } catch (err) {
+        // Kahit mabigo ang pag-imbak ng status mismo, huwag hayaang
+        // masira nito ang aktwal na backup flow.
+        console.error('⚠️ Hindi ma-record ang backup status:', err);
+    }
+}
+
+/**
+ * Ibinabalik ang pinakahuling backup status para magamit ng isang admin
+ * endpoint/dashboard warning. Kung wala pang naitatalang backup, null.
+ */
+function getBackupStatus() {
+    try {
+        const row = selectStmt.get(BACKUP_STATUS_MODULE);
+        return row && row.data ? JSON.parse(row.data) : null;
+    } catch (err) {
+        return null;
+    }
+}
+
 function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
     try {
         // I-flush muna ang laman ng WAL file papunta mismo sa omnipos.db
@@ -347,10 +399,14 @@ function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
         }
 
         console.log(`✅ Local database backup created: ${destPath} (${files.length}/${maxBackupsToKeep} kept)`);
-        return { success: true, path: destPath };
+        const result = { success: true, path: destPath };
+        recordBackupStatus(result);
+        return result;
     } catch (err) {
         console.error('⚠️ Nabigo ang local database backup:', err);
-        return { success: false, message: err.message };
+        const result = { success: false, message: err.message };
+        recordBackupStatus(result);
+        return result;
     }
 }
 
@@ -505,7 +561,7 @@ function getCloudBackupPayload() {
     };
 }
 
-module.exports = { db, readData, writeData, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC };
+module.exports = { db, readData, writeData, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
 
 // ====================================================================
 // BLOB-SIZE MONITOR (read-only, walang ginagalaw sa business logic)

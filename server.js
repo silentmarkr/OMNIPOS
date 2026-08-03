@@ -11,7 +11,7 @@ const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const { execSync } = require('child_process');
-const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload } = require('./db');
+const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getBackupStatus } = require('./db');
 
 try {
     // Dati: process.loadEnvFile(); — pinalitan para sumuporta sa
@@ -3273,21 +3273,50 @@ app.post('/api/products/checkout', (req, res) => {
     try {
         const { cartItems } = req.body;
 
+        // VALIDATION FIX: dating basta tinatawag agad ang cartItems.forEach()
+        // — kung wala o hindi array ang cartItems, mag-e-error nang generic
+        // "Server database error" (500) sa halip na malinaw na sabihin kung
+        // ano talaga ang mali sa request.
+        if (!Array.isArray(cartItems) || cartItems.length === 0) {
+            return res.status(400).json({ success: false, message: 'Walang laman ang cart o hindi valid ang cart data.' });
+        }
+
+        const invalidItems = cartItems.filter(ci =>
+            !ci || typeof ci.code !== 'string' || !ci.code.trim() ||
+            !Number.isFinite(parseInt(ci.quantity)) || parseInt(ci.quantity) <= 0
+        );
+        if (invalidItems.length > 0) {
+            return res.status(400).json({ success: false, message: 'May item sa cart na walang valid na product code o quantity.' });
+        }
+
         let products = readData(FILE_PRODUCTS);
+        const insufficientStock = [];
 
         cartItems.forEach(cartItem => {
+            const qty = parseInt(cartItem.quantity);
             const prodIndex = products.findIndex(p => p.code === cartItem.code);
             if (prodIndex !== -1) {
-
-                if (products[prodIndex].stock >= cartItem.quantity) {
-                    products[prodIndex].stock -= cartItem.quantity;
+                if (products[prodIndex].stock >= qty) {
+                    products[prodIndex].stock -= qty;
+                } else {
+                    // May na-request na quantity na hindi na kasya sa
+                    // available stock (hal. na-checkout na ng ibang terminal
+                    // bago pa natin ito maproseso) — huwag i-deduct (para
+                    // hindi negative ang stock), pero i-flag ito pabalik sa
+                    // client sa halip na tahimik lang na hindi isasama.
+                    insufficientStock.push({
+                        code: cartItem.code,
+                        name: products[prodIndex].name,
+                        requestedQty: qty,
+                        availableStock: products[prodIndex].stock
+                    });
                 }
             }
         });
 
         writeData(FILE_PRODUCTS, products);
 
-        res.json({ success: true, updatedProducts: products });
+        res.json({ success: true, updatedProducts: products, insufficientStock });
     } catch (error) {
         console.error("Checkout server error:", error);
         res.status(500).json({ success: false, message:"Server database error" });
@@ -4265,6 +4294,22 @@ function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
 // INSTANCE na ito. Admin-only — hindi na kailangang ipakita ito sa
 // mga cashier/staff.
 // --------------------------------------------------------------
+// --------------------------------------------------------------
+// BACKUP STATUS — para sa isang warning banner sa Admin Dashboard kapag
+// paulit-ulit nang nabibigo ang scheduled local database backup (hal.
+// puno na ang storage, walang write permission). Dating tahimik lang
+// ito nabibigo sa likod (console.error na lang) — ngayon, kahit hindi
+// titingnan ng Admin ang server logs, may makikita silang alerto sa UI.
+// Admin-only — hindi na kailangang ipakita ito sa mga cashier/staff.
+// --------------------------------------------------------------
+app.get('/api/system/backup-status', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakakita ng backup status.' });
+    }
+    const status = getBackupStatus();
+    res.json({ success: true, status });
+});
+
 app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagamit ng Check for Updates.' });

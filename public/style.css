@@ -7422,3 +7422,136 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn {
 body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     background: var(--dm-accent-hover, #6a48ff) !important;
 }
+
+/* ====================================================================
+   INSTALL APP BANNER
+   Pumapalit sa dating auto-fullscreen hack. Isang mataas ang polish na
+   floating card sa ibaba ng screen, naka-anchor sa parehong navy/blue
+   palette ng buong app (--bg-app-dark-navy, --primary-blue), na
+   nag-aanyaya sa user na i-install ang OmniPOS bilang totoong app
+   (Add to Home Screen / beforeinstallprompt) sa halip na pilitin ang
+   Fullscreen API sa browser tab.
+   ==================================================================== */
+.install-app-banner {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 9999;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 14px 14px 14px;
+    border-radius: 16px;
+    background: linear-gradient(155deg, var(--bg-app-dark-navy), #16233b);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 32px -8px rgba(2, 6, 23, 0.55), 0 2px 8px rgba(2, 6, 23, 0.35);
+    transform: translateY(140%);
+    opacity: 0;
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+}
+
+.install-app-banner-visible {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.install-app-banner-icon {
+    flex: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    background: linear-gradient(155deg, var(--primary-blue), var(--primary-blue-hover));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.95rem;
+    box-shadow: 0 4px 10px -2px rgba(37, 99, 235, 0.55);
+}
+
+.install-app-banner-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.install-app-banner-title {
+    margin: 0 0 2px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: -0.01em;
+}
+
+.install-app-banner-desc {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: #94a3b8;
+}
+
+.install-app-banner-desc i {
+    color: #cbd5e1;
+}
+
+.install-app-banner-actions {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 1px;
+}
+
+.install-app-banner-btn {
+    border: none;
+    padding: 8px 14px;
+    border-radius: 9px;
+    background: linear-gradient(180deg, var(--primary-blue), var(--primary-blue-hover));
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 3px 8px -2px rgba(37, 99, 235, 0.6);
+    transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.install-app-banner-btn:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}
+
+.install-app-banner-btn:active {
+    transform: translateY(0);
+    filter: brightness(0.96);
+}
+
+.install-app-banner-dismiss {
+    border: none;
+    background: transparent;
+    color: #64748b;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.install-app-banner-dismiss:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+}
+
+@media (min-width: 640px) {
+    .install-app-banner {
+        left: auto;
+        right: 20px;
+        bottom: 20px;
+        width: 380px;
+    }
+}

@@ -1571,7 +1571,7 @@ document.addEventListener("DOMContentLoaded", () => {
     refreshUnlockedFeaturesFromServer();
     initDemoModeUI();
     initNetworkStatusIndicator();
-    initTouchFullscreen();
+    initInstallAppBanner();
     initAuthDeviceScaling();
 
     const sidebar = document.querySelector('.sidebar');
@@ -1744,6 +1744,8 @@ function switchView(viewKey, opts) {
     }  if (viewKey ==='terminal') { loadTerminalCatalog(); checkShiftOpeningCashGate(); startTerminalStockPolling(); } else { stopTerminalStockPolling(); }
 
     if (viewKey ==='products') { startInventoryStockPolling(); } else { stopInventoryStockPolling(); }
+
+    if (viewKey ==='reorder') { startReorderPolling(); } else { stopReorderPolling(); }
 
     const daymodeBtn = document.getElementById('terminal-daymode-btn');
     if (daymodeBtn) {
@@ -3825,6 +3827,7 @@ async function loadDashboardMetrics() {
 
         if (productsList.length > 0) globalProducts = productsList;
         refreshLowStockBadge();
+        checkBackupHealthBanner();
 
     } catch (e) {
         console.warn('Dashboard Analytics Pipeline Fallback Invoked:', e);
@@ -3863,6 +3866,50 @@ async function loadDashboardMetrics() {
 
         renderDashboardDOM(cachedRevenue, cachedTodayTxs.length, cachedProds.length, lowStockCount, noStockCount, 0, cachedExpiringSoonCount, cachedExpiredCount);
         renderWeeklyTrend(cachedTxs);
+    }
+}
+
+// --------------------------------------------------------------
+// BACKUP HEALTH WARNING (Admin-only)
+// --------------------------------------------------------------
+// FIX: dating tahimik lang na nabibigo sa likod ang scheduled local
+// database backup (console.error na lang sa server) — walang paraan ang
+// Admin na malaman ito maliban kung titingnan nila mismo ang server
+// logs. Dito, kinukuha ang persisted backup status (tingnan ang
+// recordBackupStatus/getBackupStatus sa db.js) at ipinapakita bilang
+// isang hindi mapapansing warning banner kapag paulit-ulit nang
+// nabibigo ang backup (2+ sunod-sunod na pagkakataon).
+let backupHealthWarningShown = false;
+
+async function checkBackupHealthBanner() {
+    const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
+    if (!isAdmin || backupHealthWarningShown) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/system/backup-status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const status = data && data.status;
+        if (!status || (status.consecutiveFailures || 0) < 2) return;
+
+        backupHealthWarningShown = true;
+        const lastOk = status.lastSuccessAt
+            ? new Date(status.lastSuccessAt).toLocaleString('en-PH')
+            :'wala pang matagumpay na backup';
+
+        Swal.fire({
+            icon:'warning',
+            title:'Nabibigo ang Auto-Backup',
+            html: `Nabigo na ang scheduled database backup nang <b>${status.consecutiveFailures}</b> sunod-sunod na beses.<br>
+                   Huling matagumpay na backup: <b>${lastOk}</b>.<br>
+                   <small style="color:#64748b;">${escapeHtml(status.lastFailureMessage || '')}</small><br><br>
+                   Puwedeng dahilan: puno na ang storage, o walang write permission sa backup folder. Kontakin ang developer/IT support kung magpapatuloy ito.`,
+            confirmButtonText:'Naintindihan'
+        });
+    } catch (e) {
+        // Tahimik na huwag pansinin — hindi ito dapat makasira sa
+        // normal na dashboard load kung sakaling hindi ma-reach ang
+        // bagong endpoint (hal. lumang server na hindi pa naka-update).
     }
 }
 
@@ -4105,6 +4152,66 @@ async function silentRefreshInventoryStock() {
         if (!Array.isArray(freshProducts)) return;
         cachedInventoryProducts = freshProducts;
         renderInventoryProductsTable();
+    } catch (e) {
+
+    }
+}
+
+// --------------------------------------------------------------
+// REORDER ALERTS — LIVE POLLING
+// --------------------------------------------------------------
+// FIX: dating isang beses lang tinatawag ang loadReorderView() — sa
+// mismong sandali ng pagpasok sa 'reorder' view (tingnan ang switchView()).
+// Kaya kapag may bagong benta/restock na nangyari sa IBANG terminal/device
+// habang bukas pa rin ang Reorder Alerts page mo, hindi ito nagpapakita ng
+// bagong low-stock item hangga't hindi ka aalis sa view (o mag re-refresh
+// ng buong page). Dinagdagan ito ng parehong adaptive polling na ginagamit
+// na ng Terminal/Products views, para awtomatikong lumabas ang bagong
+// low-stock/out-of-stock item habang nakabukas lang ang page.
+let reorderPollTimer = null;
+let reorderPollActive = false;
+
+function startReorderPolling() {
+    stopReorderPolling();
+    reorderPollActive = true;
+    scheduleReorderPoll();
+}
+
+function scheduleReorderPoll() {
+    if (!reorderPollActive) return;
+    reorderPollTimer = setTimeout(async () => {
+        await silentRefreshReorderView();
+        scheduleReorderPoll();
+    }, getAdaptiveStockPollDelayMs());
+}
+
+function stopReorderPolling() {
+    reorderPollActive = false;
+    if (reorderPollTimer) {
+        clearTimeout(reorderPollTimer);
+        reorderPollTimer = null;
+    }
+}
+
+async function silentRefreshReorderView() {
+    // Huwag munang mag-refresh habang may bukas na Create PO modal (SweetAlert)
+    // sa ibabaw ng reorder page — baka mabura/mareset ang kanilang in-progress
+    // na pag-eedit ng quantity/supplier bago pa nila ma-submit ang PO.
+    if (typeof Swal !=='undefined' && Swal.isVisible && Swal.isVisible()) return;
+
+    try {
+        const [lowStockRes, poRes] = await Promise.all([
+            authFetch(`${API_URL}/products/low-stock`),
+            authFetch(`${API_URL}/purchase-orders`)
+        ]);
+        if (!lowStockRes.ok || !poRes.ok) return;
+        const lowStockData = await lowStockRes.json();
+        const poData = await poRes.json();
+        reorderItemsCache = (lowStockData && lowStockData.items) || [];
+        reorderPOCache = (poData && poData.orders) || [];
+        renderReorderStats();
+        renderReorderTable();
+        renderPurchaseOrdersTable();
     } catch (e) {
 
     }
@@ -9333,51 +9440,94 @@ function initAuthDeviceScaling() {
     window.addEventListener('resize', applyAuthScale);
 }
 
-function initTouchFullscreen() {
-    const activateFullscreen = () => {
+// ====================================================================
+// INSTALL APP BANNER
+// ====================================================================
+// PINALITAN nito ang dating initTouchFullscreen() — na sinusubukang
+// pilitin ang Fullscreen API sa unang tap/click ng user (hindi supported
+// sa iOS Safari, at madalas basta na lang mag-e-exit sa Android kapag
+// nag-open ng keyboard/modal). Ang manifest.json ng app na ito ay
+// "display": "standalone" na — ibig sabihin kapag na-install/na-Add to
+// Home Screen ang OmniPOS, AWTOMATIKONG nawawala ang address bar/browser
+// chrome nang walang JS hack, at ito ang officially-supported na paraan
+// sa parehong Android at iOS. Ang banner na ito ay simpleng nag-aanyaya
+// sa user na i-install ang app, sa halip na sapilitang i-fullscreen ang
+// browser tab.
+let deferredInstallPromptEvent = null;
 
-        const isMobileDevice =/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+function initInstallAppBanner() {
+    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (!isMobileDevice) return;
 
-        const isMobileView = window.innerWidth <= 1024;
+    // Kung naka-open na ang app bilang naka-install na PWA (standalone
+    // display mode), wala nang dapat i-banner — naka-fullscreen na nga.
+    const isStandaloneAlready = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+    if (isStandaloneAlready) return;
 
-        if (!isMobileDevice || !isMobileView) {
-            console.log("Desktop device o Desktop Site mode — hindi mag-a-auto-fullscreen.");
-            return;
-        }
+    if (localStorage.getItem('installBannerDismissedAt')) {
+        const dismissedAgoMs = Date.now() - parseInt(localStorage.getItem('installBannerDismissedAt'), 10);
+        if (dismissedAgoMs < 7 * 24 * 60 * 60 * 1000) return; // huwag na muna ipakita sa loob ng 7 araw
+    }
 
-        const docEl = document.documentElement;
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-        const isFullscreen = document.fullscreenElement ||
-                             document.webkitFullscreenElement ||
-                             document.mozFullScreenElement ||
-                             document.msFullscreenElement;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstallPromptEvent = e;
+        showInstallAppBanner({ mode: 'android' });
+    });
 
-        if (!isFullscreen) {
-            const requestFS = docEl.requestFullscreen ||
-                              docEl.webkitRequestFullscreen ||
-                              docEl.mozRequestFullScreen ||
-                              docEl.msRequestFullscreen;
+    // Walang beforeinstallprompt sa iOS Safari — manual na instructions
+    // na lang ang ipapakita, pero parehong banner treatment.
+    if (isIOS) {
+        showInstallAppBanner({ mode: 'ios' });
+    }
+}
 
-            if (requestFS) {
-                requestFS.call(docEl)
-                    .then(() => {
-                        console.log("Pumasok na sa fullscreen mode.");
-                        removeFullscreenListeners();
-                    })
-                    .catch((err) => {
-                        console.log("Hindi na-request ang fullscreen: ", err.message);
-                    });
-            }
-        }
+function showInstallAppBanner({ mode }) {
+    if (document.getElementById('install-app-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'install-app-banner';
+    banner.className = 'install-app-banner';
+    banner.innerHTML = `
+        <div class="install-app-banner-icon"><i class="fa-solid fa-arrow-up-right-from-square"></i></div>
+        <div class="install-app-banner-copy">
+            <p class="install-app-banner-title">I-install ang OmniPOS</p>
+            <p class="install-app-banner-desc">${mode === 'ios'
+                ? 'Tap <i class="fa-solid fa-arrow-up-from-bracket"></i> Share, tapos "Add to Home Screen" — para full-screen, walang browser bar.'
+                : 'Para full-screen ang view, walang browser address bar, at mas mabilis mag-launch.'}</p>
+        </div>
+        <div class="install-app-banner-actions">
+            ${mode === 'android' ? `<button type="button" class="install-app-banner-btn" id="install-app-banner-confirm">Install</button>` : ''}
+            <button type="button" class="install-app-banner-dismiss" id="install-app-banner-dismiss" aria-label="Isara">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(banner);
+    requestAnimationFrame(() => banner.classList.add('install-app-banner-visible'));
+
+    const dismiss = () => {
+        banner.classList.remove('install-app-banner-visible');
+        localStorage.setItem('installBannerDismissedAt', String(Date.now()));
+        setTimeout(() => banner.remove(), 250);
     };
 
-    const removeFullscreenListeners = () => {
-        document.removeEventListener('click', activateFullscreen);
-        document.removeEventListener('touchend', activateFullscreen);
-    };
+    document.getElementById('install-app-banner-dismiss').addEventListener('click', dismiss);
 
-    document.addEventListener('click', activateFullscreen);
-    document.addEventListener('touchend', activateFullscreen);
+    const confirmBtn = document.getElementById('install-app-banner-confirm');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', async () => {
+            if (!deferredInstallPromptEvent) { dismiss(); return; }
+            deferredInstallPromptEvent.prompt();
+            const { outcome } = await deferredInstallPromptEvent.userChoice;
+            console.log('[PWA] Install prompt outcome:', outcome);
+            deferredInstallPromptEvent = null;
+            dismiss();
+        });
+    }
 }
 
 let currentTerminalView ='grid';
