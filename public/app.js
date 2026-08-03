@@ -10174,6 +10174,26 @@ function triggerIdleWarning() {
 
 async function handleLogout(type ='manual') {
 
+    // FIX (naiiwang dropdown/box + freeze pagka-logout, kaya kailangan pa
+    // i-reload manually bago lumabas ang login screen): ang "Logout" link
+    // sa loob ng sidebar-user-widget dropdown (id="user-widget-dropdown")
+    // ay HINDI na-close explicitly dati bago pa tumakbo ang logout logic.
+    // Kadalasan, walang epekto ito dahil natatago naman ang buong
+    // #main-view (kasama na ang dropdown na 'yon). PERO kung may
+    // natapon/naka-throw na JS error sa GITNA ng logout function (bago pa
+    // ma-abot ang showAuthenticationInterface() sa ibaba), NATITIGIL doon
+    // ang buong function — kaya naiiwan ang dropdown na naka-open/
+    // half-rendered sa screen, at hindi na natutuloy sa login screen
+    // hangga't hindi manual na na-reload ang page.
+    //
+    // AYOS: (1) isara agad ang dropdown/menu dito sa pinaka-unahan (para
+    // walang maiiwan kahit ano pa mangyari), at (2) balutin ng try/finally
+    // ang buong navigation-to-login-screen block sa ibaba, para SIGURADO
+    // na tumatakbo ito (hindi na-tigil ng anumang error) kahit
+    // magka-problema ang ibang parte (background network cleanup, atbp.).
+    try { closeUserWidgetMenu(); } catch (e) {}
+    try { if (typeof Swal !=='undefined' && Swal.isVisible && Swal.isVisible()) Swal.close(); } catch (e) {}
+
     // FIX: itong flag ang humihinto sa "Session Expired" popup mula sa
     // mismong authFetch() 401-interceptor habang tayo mismo ang
     // sinasadyang mag-i-invalidate ng session (manual o auto logout).
@@ -10185,134 +10205,155 @@ async function handleLogout(type ='manual') {
     // "Session Expired" kahit normal at sinadyang logout lang.
     window.__logoutInProgress = true;
 
-    destroyIdleTimer();
-    stopTerminalStockPolling();
-    stopInventoryStockPolling();
+    try { destroyIdleTimer(); } catch (e) {}
+    try { stopTerminalStockPolling(); } catch (e) {}
+    try { stopInventoryStockPolling(); } catch (e) {}
 
     const username = currentUser ? (currentUser.username ||'Unknown') :'Unknown';
     const logMethod = type ==='auto' ?'AUTO_TIMEOUT' :'MANUAL';
     const detailMsg = type ==='auto' ?'Idle timeout' :'User sign-out';
     const oldUser = currentUser ? currentUser.username : null;
 
-    // NOTE: hindi na natin ino-skip ang mga server call na ito base sa
-    // navigator.onLine/isOfflineModeActive. Ang /cart, /logs, at
-    // /auth/logout ay tumatakbo sa SARILING LOCAL server ng client
-    // (Termux) na may sariling database — gumagana ito kahit walang
-    // internet ang device. Ang pagpapatakbo lang sa PARALLEL (sa halip na
-    // sunud-sunod) kasama ang fetch timeout (sa authFetch) ang nagpapabilis
-    // dito, hindi ang pag-skip.
+    // FIX (logout freeze sa offline/online/standalone Termux): kunin muna
+    // ang token DITO, bago pa ito burahin sa localStorage sa ibaba —
+    // kakailanganin pa rin ito ng mga background cleanup call (cart-clear,
+    // log-write, session-invalidate) PAGKATAPOS na naka-login-screen na
+    // ang user.
+    const tokenAtLogout = localStorage.getItem('posa_token');
 
-    if (type ==='manual') {
-        console.log("Manual logout detected. Clearing cart from database...");
-        shoppingCart = [];
-    } else {
-        console.log(`Auto-logout (${type}) detected. Cart is safely preserved in the database.`);
-        shoppingCart = [];
+    console.log(type ==='manual'
+        ?"Manual logout detected. Clearing cart from database (background)..."
+        : `Auto-logout (${type}) detected. Cart is safely preserved in the database.`);
+    shoppingCart = [];
+
+    // --------------------------------------------------------------
+    // BUG FIX (matagal/parang nag-freeze bago mabalik sa login screen,
+    // nangyayari sa online, offline, AT standalone/Termux):
+    //
+    // Dati, ang PAGBALIK sa login screen (showAuthenticationInterface(),
+    // pag-clear ng localStorage/caches) ay naka-GATE sa BUONG network
+    // round-trip: una, hihintayin ang cart-clear + log-write (Promise
+    // .allSettled, may 6s timeout ang bawat isa dahil sa authFetch), TAPOS
+    // hihintayin PA ang hiwalay na /auth/logout call (6s timeout pa ulit).
+    // Kaya kung medyo mabagal o nag-timeout ang alinman dito — kahit sa
+    // "standalone" Termux (local server lang, walang internet
+    // requirement) o sa online mode kung medyo abala ang server — parang
+    // NAG-FREEZE ang UI ng ilang segundo (pwedeng hanggang ~12s worst
+    // case) dahil literal na naka-await ang UI transition sa mga
+    // network call na 'to.
+    //
+    // AYOS: i-reset agad ang local UI state at IBALIK AGAD ang login
+    // screen (walang hinihintay na network call) — ang mga cleanup call
+    // (cart-clear muna, tapos log-write, tapos session-invalidate) ay
+    // tatakbo na lang sa BACKGROUND gamit ang token na nakuha sa itaas.
+    // Pinapanatili rin dito ang parehong pagkakasunod-sunod (cart-clear
+    // bago mag-invalidate ng session) para hindi na-uulit ang lumang bug
+    // (401 sa /cart dahil na-invalidate na agad ang session).
+    //
+    // Ang buong UI-reset block na ito ay naka-try/finally: kahit magka-
+    // error sa GITNA nito (hal. hindi available ang isa sa mga optional
+    // na function/element), TULOY DIN ang pagbalik sa login screen sa
+    // "finally" — hindi na dapat maiwan/mag-freeze ang UI kahit ano pa
+    // mangyari.
+    // --------------------------------------------------------------
+    try {
+        sessionStorage.removeItem('currentView');
+        localStorage.removeItem('posa_user');
+        localStorage.removeItem('posa_token');
+        currentUser = null;
+
+        // FIX: i-reset ang in-memory feature unlock cache sa logout — kung
+        // hindi, kapag nag-login ulit (parehong page, walang full reload),
+        // makikita pa rin ng UI ang LUMANG unlocked features ng dating
+        // session/store hangga't hindi manual na na-reload ang buong page.
+        unlockedFeatureIdsCache = null;
+        purchasedFeatureIdsCache = null;
+        fullyPurchasedCache = false;
+
+        // FIX: i-reset din agad ang PRO badge sa UI papuntang naka-lock state
+        // — kung hindi, kapag nag-login ng IBANG account/store na hindi pa
+        // fully-purchased, maiiwan munang naka-crown ang badge (galing sa
+        // dating session) habang hinihintay pa ang bagong fetch mula sa
+        // initDemoModeUI() sa susunod na login.
+        if (typeof renderSidebarProBadge ==='function') {
+            renderSidebarProBadge(false, false);
+        }
+
+        const txtUser = document.getElementById('login-username');
+        const txtPass = document.getElementById('login-password');
+
+        if (txtUser) txtUser.value ='';
+        if (txtPass) txtPass.value ='';
+    } catch (err) {
+        console.error('May error habang nililinis ang UI state sa logout (di-nakakaharang, tuloy pa rin ang navigation):', err);
+    } finally {
+        try {
+            history.pushState({ view:'auth-view' },'','');
+        } catch (e) {}
+        showAuthenticationInterface();
     }
 
-    {
-        // BUG FIX: dati, sabay-sabay (parehong Promise.allSettled batch) na
-        // tinatawag ang /cart (clear cart) AT ang /auth/logout (invalidate
-        // session) — pero ang /cart ay dumadaan din sa parehong auth
-        // middleware na nangangailangan ng VALID na session token. Dahil
-        // magkatabi silang pinaputok, posibleng mauna pang maproseso ng
-        // server ang /auth/logout (na sumisira agad sa session) BAGO pa
-        // dumating ang /cart request — kaya natatanggihan ito ng 401
-        // "invalid/expired session" at TAHIMIK lang itong nabibigo (console
-        // .error lang, walang makikita ang customer). Epekto: sinasabi ng
-        // log na "Clearing cart from database..." pero hindi talaga
-        // na-clear ang cart sa server paminsan-minsan — bumabalik ang
-        // lumang laman ng cart sa susunod na login.
-        //
-        // AYOS: unahin munang tapusin (parallel pa rin sa isa't-isa, dahil
-        // hindi naman sila nagbabanggaan — pareho lang silang umaasa sa
-        // parehong VALID session) ang cart-clear at ang log-write, saka
-        // lang i-invalidate ang session (/auth/logout) — sigurado nang
-        // naiproseso muna ang cart-clear bago pa masira ang session nito.
-        const preLogoutResults = await Promise.allSettled([
-            (type ==='manual' && oldUser)
-                ? authFetch(`${API_URL}/cart`, {
+    // Background cleanup — hindi na hinihintay ng UI. Ginagamit ang
+    // tokenAtLogout na nakuha bago pa na-clear ang localStorage sa itaas
+    // (authFetch mismo ay babalik sa localStorage, na WALA na ngayon,
+    // kaya explicit na Authorization header ang ipinapasa dito).
+    (async () => {
+        try {
+            const authHeader = tokenAtLogout ? {'Authorization': `Bearer ${tokenAtLogout}` } :{};
+
+            const preLogoutResults = await Promise.allSettled([
+                (type ==='manual' && oldUser)
+                    ? authFetch(`${API_URL}/cart`, {
+                        method:'POST',
+                        headers: {'Content-Type':'application/json', ...authHeader },
+                        body: JSON.stringify({ username: oldUser, cart: [] })
+                    })
+                    : Promise.resolve(null),
+                authFetch(`${API_URL}/logs`, {
                     method:'POST',
-                    headers: {'Content-Type':'application/json' },
-                    body: JSON.stringify({ username: oldUser, cart: [] })
+                    headers: {'Content-Type':'application/json', ...authHeader },
+                    body: JSON.stringify({
+                        action:'LOGOUT',
+                        user: username,
+                        authMethod: logMethod,
+                        details: { message: detailMsg }
+                    })
                 })
-                : Promise.resolve(null),
-            authFetch(`${API_URL}/logs`, {
+            ]);
+
+            const logoutResult = await authFetch(`${API_URL}/auth/logout`, {
                 method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify({
-                    action:'LOGOUT',
-                    user: username,
-                    authMethod: logMethod,
-                    details: { message: detailMsg }
-                })
-            })
-        ]);
+                headers: {'Content-Type':'application/json', ...authHeader }
+            }).then(
+                (res) => ({ status:'fulfilled', value: res }),
+                (err) => ({ status:'rejected', reason: err })
+            );
 
-        const logoutResult = await authFetch(`${API_URL}/auth/logout`, {
-            method:'POST',
-            headers: {
-'Content-Type':'application/json',
-                ...(localStorage.getItem('posa_token') ? {'Authorization': `Bearer ${localStorage.getItem('posa_token')}` } : {})
-            }
-        }).then(
-            (res) => ({ status:'fulfilled', value: res }),
-            (err) => ({ status:'rejected', reason: err })
-        );
+            const results = [...preLogoutResults, logoutResult];
+            const labels = ['Cart clear','Log transmission','Session invalidation'];
+            results.forEach((r, i) => {
+                if (r.status ==='rejected') console.error(`${labels[i]} failed during logout (background):`, r.reason);
+            });
+        } catch (err) {
+            console.error('Background logout cleanup failed:', err);
+        }
 
-        const results = [...preLogoutResults, logoutResult];
-        const labels = ['Cart clear','Log transmission','Session invalidation'];
-        results.forEach((r, i) => {
-            if (r.status ==='rejected') console.error(`${labels[i]} failed during logout:`, r.reason);
-        });
-    }
-
-
-    sessionStorage.removeItem('currentView');
-    localStorage.removeItem('posa_user');
-    localStorage.removeItem('posa_token');
-    currentUser = null;
-
-    // FIX: i-reset ang in-memory feature unlock cache sa logout — kung
-    // hindi, kapag nag-login ulit (parehong page, walang full reload),
-    // makikita pa rin ng UI ang LUMANG unlocked features ng dating
-    // session/store hangga't hindi manual na na-reload ang buong page.
-    unlockedFeatureIdsCache = null;
-    purchasedFeatureIdsCache = null;
-    fullyPurchasedCache = false;
-
-    // FIX: i-reset din agad ang PRO badge sa UI papuntang naka-lock state
-    // — kung hindi, kapag nag-login ng IBANG account/store na hindi pa
-    // fully-purchased, maiiwan munang naka-crown ang badge (galing sa
-    // dating session) habang hinihintay pa ang bagong fetch mula sa
-    // initDemoModeUI() sa susunod na login.
-    if (typeof renderSidebarProBadge ==='function') {
-        renderSidebarProBadge(false, false);
-    }
-
-    const txtUser = document.getElementById('login-username');
-    const txtPass = document.getElementById('login-password');
-
-    if (txtUser) txtUser.value ='';
-    if (txtPass) txtPass.value ='';
-
-    history.pushState({ view:'auth-view' },'','');
-    showAuthenticationInterface();
-
-    // FIX v1.0.9->v1.0.10: dati agad naman na-re-reset ang flag dito, pero
-    // ang stopTerminalStockPolling()/stopInventoryStockPolling() sa taas ay
-    // pumipigil lang sa MGA SUSUNOD pang pag-tawag (clearInterval) — kung
-    // may isang poll na NAKA-IN-FLIGHT NA (nag-request na bago pa ma-stop
-    // ang timer, pero hindi pa sumasagot ang server), tatapos pa rin ito
-    // pagkatapos ng buong logout sequence at maaari pa ring dumating ang
-    // 401 nito PAGKATAPOS ma-reset ang flag — kaya lumalabas pa rin ang
-    // "Session Expired" kahit normal na manual logout. Fix: bigyan ng ilang
-    // segundong buffer bago i-off ang suppression, para masakop pa rin ang
-    // mga huling stray response na ganito.
-    setTimeout(() => {
-        window.__logoutInProgress = false;
-        window.__sessionExpiredShown = false;
-    }, 5000);
+        // FIX v1.0.9->v1.0.10: dati agad naman na-re-reset ang flag dito,
+        // pero ang stopTerminalStockPolling()/stopInventoryStockPolling()
+        // sa taas ay pumipigil lang sa MGA SUSUNOD pang pag-tawag
+        // (clearInterval) — kung may isang poll na NAKA-IN-FLIGHT NA
+        // (nag-request na bago pa ma-stop ang timer, pero hindi pa
+        // sumasagot ang server), tatapos pa rin ito pagkatapos ng buong
+        // logout sequence at maaari pa ring dumating ang 401 nito
+        // PAGKATAPOS ma-reset ang flag — kaya lumalabas pa rin ang
+        // "Session Expired" kahit normal na manual logout. Fix: bigyan ng
+        // ilang segundong buffer bago i-off ang suppression, para masakop
+        // pa rin ang mga huling stray response na ganito.
+        setTimeout(() => {
+            window.__logoutInProgress = false;
+            window.__sessionExpiredShown = false;
+        }, 5000);
+    })();
 }
 
 async function showMainSystemInterface() {
@@ -10352,6 +10393,38 @@ async function showMainSystemInterface() {
     // sa itaas — kaya kahit na-unlock na ang mga menu sa sidebar, naiiwan
     // pa ring naka-lock icon ang badge hangga't hindi ulit tinatawag ito.
     await initDemoModeUI();
+
+    // --------------------------------------------------------------
+    // BUG FIX (hindi agad nakikita ang unlock/purchase/demo, kailangan
+    // pang manual na "Sync with Relay Now"): ang refreshUnlockedFeaturesFromServer()
+    // / initDemoModeUI() sa itaas ay LOCAL file read lang (/api/features/status)
+    // — hindi ito tumatawag sa RELAY. Ang tanging nag-uupdate ng LOCAL na
+    // data galing sa RELAY ay ang /api/features/restore-check (parehong
+    // ginagamit ng manual button), na dati ay TINATAWAG LANG: (a) 3-10s
+    // pagka-start ng server, (b) bawat 30s sa background interval, o (c)
+    // kapag pinindot ang manual button — HINDI kasama ang login. Kaya kung
+    // bagong-unlock/purchase/demo lang sa RELAY at agad mag-login (bago
+    // pa tumama ang 30s interval), lumang status pa rin ang makikita
+    // hangga't hindi manual na na-sync.
+    //
+    // AYOS: awtomatikong tawagin ang restore-check na ito sa BAWAT
+    // successful login. Hindi ito hinihintay (fire-and-forget, walang
+    // await sa labas) dahil pwede itong tumagal ng hanggang ~20s kung
+    // "Online" ang toggle pero hindi aktwal na maabot ang Relay sa
+    // ngayon — sa halip, ipapakita muna agad ang UI gamit ang LOCAL na
+    // data (tulad ng dati), at kapag natapos na ang sync na ito,
+    // ire-refresh ulit ang mga cache para awtomatikong mag-update ang UI
+    // (walang kailangang i-reload ang page o pindutin pa ang manual button).
+    (async () => {
+        try {
+            await authFetch(`${API_URL}/features/restore-check`, { method:'POST' });
+            await refreshUnlockedFeaturesFromServer();
+            await refreshUnlockedThemesFromServer();
+            await initDemoModeUI();
+        } catch (err) {
+            console.warn('Hindi natapos ang otomatikong Relay sync pagka-login:', err);
+        }
+    })();
 
     // FIX: i-detect ang TOTOONG internet connectivity sa bawat bagong
     // login at i-sync agad ang Online/Offline pill (dati, tinatawag lang
