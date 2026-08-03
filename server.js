@@ -4321,7 +4321,12 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
         return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-check ng updates.' });
     }
     try {
-        const relayRes = await relayFetch(`${RELAY_URL}/relay/latest-version`, {
+        // Ipinapasa ang sariling installationId dito para masuri ng
+        // RELAY kung may TARGETED release na naka-set PARA SA DEVICE
+        // NA ITO lang (tingnan ang targetedReleases sa RELAY server.js)
+        // — kung wala, babalik lang ito sa dating gawi (global version).
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/latest-version?installationId=${encodeURIComponent(installationId)}`, {
             headers: {'x-relay-key': RELAY_API_KEY }
         });
         const relayData = await parseRelayResponse(relayRes);
