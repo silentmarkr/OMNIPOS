@@ -1697,7 +1697,9 @@ if (categorySelect) {
     if(userForm) userForm.addEventListener('submit', handleUserFormSubmit);
 
     if (currentUser) {
-        showMainSystemInterface();
+        showMainSystemInterface().catch(err => {
+            console.error('Hindi inaasahang error habang nire-restore ang session pagka-reload (showMainSystemInterface):', err);
+        });
     } else {
         showAuthenticationInterface();
     }
@@ -2981,7 +2983,17 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
             window.__sessionExpiredShown = false;
 
             errorBanner.style.display ='none';
-            showMainSystemInterface();
+            // FIX: idinagdag ang .catch() dito bilang huling depensa — kahit
+            // matapos na ang mga fix sa loob ng showMainSystemInterface()
+            // mismo (try/catch/finally sa bawat hakbang), hindi pa rin ito
+            // dating na-a-await/na-catch DITO sa call site, kaya kahit anong
+            // ganap na hindi-inaasahang error (hal. bago pa man maabot ang
+            // unang try block sa loob nito) ay nananatiling isang TAHIMIK na
+            // "unhandled promise rejection" — walang error na lumalabas sa
+            // user, at "parang nag-freeze" lang dahil walang laman ang view.
+            showMainSystemInterface().catch(err => {
+                console.error('Hindi inaasahang error pagka-login (showMainSystemInterface):', err);
+            });
 
             // Upgrade Options modal: dapat lumabas sa UNANG login (1st), at
             // muli tuwing every 3rd successful login pagkatapos nun (ika-3,
@@ -9485,6 +9497,23 @@ function reopenReceiptFromHistory(id) {
 }
 
 async function syncOfflineTransactions() {
+    // FIX: itong 30-segundong interval na ito (setInterval(syncOfflineTransactions,
+    // 30000) sa ibaba) ay GLOBAL — tumatakbo ito magpakailanman mula pa sa
+    // unang pag-load ng page, HINDI lang habang naka-login (sinasadya, para
+    // agad ma-sync ang mga natirang offline transaction sa sandaling
+    // magkaroon ulit ng internet, kahit anong oras pa 'yon mangyari). PERO
+    // kung may NATITIRANG offline transactions sa localStorage AT tumakbo
+    // ito HABANG naka-logout (walang currentUser/token), ang authFetch()
+    // dito ay tatawag pa rin gamit ang WALANG Authorization header — bumabalik
+    // ng 401, at kung LAGPAS na sa 5-segundong __logoutInProgress suppression
+    // window ng handleLogout(), lumalabas ang isang stray na "Session Expired"
+    // popup KAHIT NASA login screen na lang mismo ang user (o naka-type na
+    // sila ng bagong credentials). Kaya dito idinagdag ang currentUser guard —
+    // babalik na lang muna ito nang tahimik habang naka-logout, at
+    // magpapatuloy ulit ito nang normal (tatawagin uli ng susunod na 30s
+    // tick) sa sandaling may bagong session/login.
+    if (!currentUser) return;
+
     let offlineTx = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
     if (offlineTx.length === 0) return;
 
@@ -10250,6 +10279,59 @@ async function handleLogout(type ='manual') {
     try { destroyIdleTimer(); } catch (e) {}
     try { stopTerminalStockPolling(); } catch (e) {}
     try { stopInventoryStockPolling(); } catch (e) {}
+    // FIX (logout bug na mas madalas lumitaw kapag MARAMING PAGE/VIEW na
+    // ang napuntahan bago mag-logout): dating dalawa lang dito ang
+    // hino-stop (terminal at inventory stock polling) — pareho ring
+    // na-a-stop ang mga ito ng switchView() kapag umaalis sa kani-kanilang
+    // view. PERO ang buong handleLogout() ay HINDI dumadaan sa
+    // switchView() (basta na lang nagta-toggle ng display ang
+    // showAuthenticationInterface() sa ibaba) — kaya kahit anong ibang
+    // view-specific na background loop na "stop" lang kapag umalis via
+    // switchView() ay MAAARING MAIWANANG TUMATAKBO kung sa VIEW MISMONG
+    // 'YON ka nag-logout (hal. naka-Reorder Alerts ka, tapos "Logout" agad
+    // nang hindi muna lumilipat sa ibang view). Idinagdag dito ang
+    // stopReorderPolling() para masakop din ito — pareho ng dalawang
+    // nauna, hindi lang ito naka-clearTimeout kung hindi mo ito i-e-explicitly
+    // tatawagin.
+    try { stopReorderPolling(); } catch (e) {}
+
+    // FIX: ang demo-mode countdown widget (demoCountdownInterval, sinisimulan
+    // ng renderDemoFloatWidget() tuwing may aktibong Demo Mode) ay HIWALAY
+    // sa tatlong stock-polling loop sa itaas — HINDI ito talaga na-a-stop
+    // ng switchView() ni ng lumang logout logic. Kung may aktibo/dating-
+    // narender na demo widget bago mag-logout, patuloy itong tumatakbo
+    // BAWAT SEGUNDO sa background kahit nasa login screen na ang user —
+    // at kapag umabot sa zero ang countdown, DIRETSONG tumatawag ang
+    // handleDemoExpired() ng window.location.reload() — na pwedeng
+    // biglang mag-"freeze"/mag-reload sa GITNA ng bagong pag-login ng
+    // ibang user (o habang naka-type pa lang sila ng credentials), dahil
+    // hindi na alam ng user kung bakit bigla itong nag-reload. Mas
+    // malamang mangyari ito kapag matagal nang naka-open ang app at
+    // maraming view/page na ang na-visit habang aktibo ang demo (mas
+    // malaking pagkakataong "tumama" ang expiry sa gitna ng logout/login
+    // transition). Kaya dito rin dapat ito i-stop, at itago ang widget
+    // (mag-a-apply lang ulit ito kapag na-render ulit ang demo status sa
+    // susunod na successful login, via showMainSystemInterface() ->
+    // initDemoModeUI()).
+    try {
+        if (demoCountdownInterval) { clearInterval(demoCountdownInterval); demoCountdownInterval = null; }
+        const demoWidget = document.getElementById('demo-mode-banner-container');
+        if (demoWidget) demoWidget.style.display ='none';
+    } catch (e) {}
+
+    // FIX: ang "Temporary Developer Support Access" (applyTemporarySupportAccess())
+    // ay may sarili ring self-scheduled na setTimeout (supportAccessRevertTimer)
+    // na dapat mag-revert ng role pabalik sa dati pagkatapos ng 30 minuto — at
+    // sinasabi mismo ng confirmation message nito na "will automatically expire
+    // in 30 minutes OR WHEN YOU LOG OUT". Kahit naka-guard naman ang
+    // revertTemporarySupportAccess() mismo (may `if (!currentUser) return;`
+    // sa umpisa, kaya hindi ito mag-e-error kahit tumakbo ito pagkatapos ng
+    // logout), mas malinis at tama sa ipinangakong gawi na dito na rin ito
+    // literal na kanselahin — hindi na kailangang maghintay pa ng hanggang
+    // 30 minuto sa background nang walang dahilan.
+    try {
+        if (supportAccessRevertTimer) { clearTimeout(supportAccessRevertTimer); supportAccessRevertTimer = null; }
+    } catch (e) {}
 
     const username = currentUser ? (currentUser.username ||'Unknown') :'Unknown';
     const logMethod = type ==='auto' ?'AUTO_TIMEOUT' :'MANUAL';
@@ -10416,97 +10498,131 @@ async function showMainSystemInterface() {
         } catch (err) {  }
     })();
 
-    applyRoleBasedAccessControls(currentUser.role);
-
-    await refreshPermissions();
-    checkAdminResetVisibility();
-
-    // FIX: i-refresh ang feature/theme unlock status PAGKATAPOS ng bawat
-    // successful login — dating hindi ito tinatawag dito, kaya kung
-    // nag-logout ka tapos nag-login ulit (parehong page, walang full
-    // reload), yung LUMANG cache (o wala pang laman kung bago pa lang
-    // ang page) ang nananatiling ginagamit ng UI hangga't hindi na-reload
-    // manually ang buong page.
-    await refreshUnlockedFeaturesFromServer();
-    await refreshUnlockedThemesFromServer();
-
-    // FIX: ang PRO crown/lock badge sa tabi ng logo ay HIWALAY na cache/
-    // fetch (demo-status), hindi kasama sa refreshUnlockedFeaturesFromServer()
-    // sa itaas — kaya kahit na-unlock na ang mga menu sa sidebar, naiiwan
-    // pa ring naka-lock icon ang badge hangga't hindi ulit tinatawag ito.
-    await initDemoModeUI();
-
     // --------------------------------------------------------------
-    // BUG FIX (hindi agad nakikita ang unlock/purchase/demo, kailangan
-    // pang manual na "Sync with Relay Now"): ang refreshUnlockedFeaturesFromServer()
-    // / initDemoModeUI() sa itaas ay LOCAL file read lang (/api/features/status)
-    // — hindi ito tumatawag sa RELAY. Ang tanging nag-uupdate ng LOCAL na
-    // data galing sa RELAY ay ang /api/features/restore-check (parehong
-    // ginagamit ng manual button), na dati ay TINATAWAG LANG: (a) 3-10s
-    // pagka-start ng server, (b) bawat 30s sa background interval, o (c)
-    // kapag pinindot ang manual button — HINDI kasama ang login. Kaya kung
-    // bagong-unlock/purchase/demo lang sa RELAY at agad mag-login (bago
-    // pa tumama ang 30s interval), lumang status pa rin ang makikita
-    // hangga't hindi manual na na-sync.
+    // BUG FIX (freeze pagka-login — parang walang nangyayari, kailangan
+    // pang mag-refresh manual): dati, ang buong hanay ng await steps sa
+    // ibaba (parehong pattern ng dating na-fix na freeze bug sa
+    // handleLogout()) ay MAY ILANG UNGUARDED na SYNCHRONOUS calls
+    // (applyRoleBasedAccessControls, checkAdminResetVisibility,
+    // syncConnectivityModeOnLogin) — kung mag-throw ang KAHIT ISA sa mga
+    // ito (hal. missing DOM element, hindi inaasahang null/undefined),
+    // TAHIMIK na mamamatay ang BUONG async chain dito (dahil itong
+    // function mismo ay tinatawag na FIRE-AND-FORGET, walang await/catch,
+    // sa login submit handler). Hindi na naaabot ang switchView(...) sa
+    // pinakadulo (ang siyang aktwal na nagre-render ng laman ng page —
+    // overview/terminal/products) — kaya naiiwan ang "main-view" na
+    // NAKA-DISPLAY pero WALANG laman/blangko, walang error na lumalabas,
+    // at kailangan pang mag-full-page-reload (na dumadaan sa ibang mas
+    // resilient/session-restore na code path) bago ito gumana.
     //
-    // AYOS: awtomatikong tawagin ang restore-check na ito sa BAWAT
-    // successful login. Hindi ito hinihintay (fire-and-forget, walang
-    // await sa labas) dahil pwede itong tumagal ng hanggang ~20s kung
-    // "Online" ang toggle pero hindi aktwal na maabot ang Relay sa
-    // ngayon — sa halip, ipapakita muna agad ang UI gamit ang LOCAL na
-    // data (tulad ng dati), at kapag natapos na ang sync na ito,
-    // ire-refresh ulit ang mga cache para awtomatikong mag-update ang UI
-    // (walang kailangang i-reload ang page o pindutin pa ang manual button).
-    (async () => {
+    // AYOS: (1) ibinalot ng sarili-sariling try/catch ang bawat
+    // dating-unguarded na hakbang para hindi makasira ang isa sa iba, at
+    // (2) binalot ng try/finally ang BUONG natitirang initialization
+    // sequence, para SIGURADONG maabot pa rin ang switchView(...) sa
+    // "finally" (kaya may laman/actual na view na makikita ang user)
+    // kahit magka-unexpected error sa gitna ng proseso.
+    // --------------------------------------------------------------
+    try {
+        try { applyRoleBasedAccessControls(currentUser.role); } catch (e) { console.error('applyRoleBasedAccessControls failed (non-blocking):', e); }
+
+        await refreshPermissions();
+        try { checkAdminResetVisibility(); } catch (e) { console.error('checkAdminResetVisibility failed (non-blocking):', e); }
+
+        // FIX: i-refresh ang feature/theme unlock status PAGKATAPOS ng bawat
+        // successful login — dating hindi ito tinatawag dito, kaya kung
+        // nag-logout ka tapos nag-login ulit (parehong page, walang full
+        // reload), yung LUMANG cache (o wala pang laman kung bago pa lang
+        // ang page) ang nananatiling ginagamit ng UI hangga't hindi na-reload
+        // manually ang buong page.
+        await refreshUnlockedFeaturesFromServer();
+        await refreshUnlockedThemesFromServer();
+
+        // FIX: ang PRO crown/lock badge sa tabi ng logo ay HIWALAY na cache/
+        // fetch (demo-status), hindi kasama sa refreshUnlockedFeaturesFromServer()
+        // sa itaas — kaya kahit na-unlock na ang mga menu sa sidebar, naiiwan
+        // pa ring naka-lock icon ang badge hangga't hindi ulit tinatawag ito.
+        await initDemoModeUI();
+
+        // --------------------------------------------------------------
+        // BUG FIX (hindi agad nakikita ang unlock/purchase/demo, kailangan
+        // pang manual na "Sync with Relay Now"): ang refreshUnlockedFeaturesFromServer()
+        // / initDemoModeUI() sa itaas ay LOCAL file read lang (/api/features/status)
+        // — hindi ito tumatawag sa RELAY. Ang tanging nag-uupdate ng LOCAL na
+        // data galing sa RELAY ay ang /api/features/restore-check (parehong
+        // ginagamit ng manual button), na dati ay TINATAWAG LANG: (a) 3-10s
+        // pagka-start ng server, (b) bawat 30s sa background interval, o (c)
+        // kapag pinindot ang manual button — HINDI kasama ang login. Kaya kung
+        // bagong-unlock/purchase/demo lang sa RELAY at agad mag-login (bago
+        // pa tumama ang 30s interval), lumang status pa rin ang makikita
+        // hangga't hindi manual na na-sync.
+        //
+        // AYOS: awtomatikong tawagin ang restore-check na ito sa BAWAT
+        // successful login. Hindi ito hinihintay (fire-and-forget, walang
+        // await sa labas) dahil pwede itong tumagal ng hanggang ~20s kung
+        // "Online" ang toggle pero hindi aktwal na maabot ang Relay sa
+        // ngayon — sa halip, ipapakita muna agad ang UI gamit ang LOCAL na
+        // data (tulad ng dati), at kapag natapos na ang sync na ito,
+        // ire-refresh ulit ang mga cache para awtomatikong mag-update ang UI
+        // (walang kailangang i-reload ang page o pindutin pa ang manual button).
+        (async () => {
+            try {
+                await authFetch(`${API_URL}/features/restore-check`, { method:'POST' });
+                await refreshUnlockedFeaturesFromServer();
+                await refreshUnlockedThemesFromServer();
+                await initDemoModeUI();
+            } catch (err) {
+                console.warn('Hindi natapos ang otomatikong Relay sync pagka-login:', err);
+            }
+        })();
+
+        // FIX: i-detect ang TOTOONG internet connectivity sa bawat bagong
+        // login at i-sync agad ang Online/Offline pill (dati, tinatawag lang
+        // ito sa DOMContentLoaded — bago pa magkaroon ng session — kaya laging
+        // nabibigo/naka-freeze sa dating naka-save na mode).
         try {
-            await authFetch(`${API_URL}/features/restore-check`, { method:'POST' });
-            await refreshUnlockedFeaturesFromServer();
-            await refreshUnlockedThemesFromServer();
-            await initDemoModeUI();
-        } catch (err) {
-            console.warn('Hindi natapos ang otomatikong Relay sync pagka-login:', err);
+            if (typeof window.syncConnectivityModeOnLogin ==='function') {
+                window.syncConnectivityModeOnLogin();
+            }
+        } catch (e) { console.error('syncConnectivityModeOnLogin failed (non-blocking):', e); }
+
+        initializeSystem();
+
+        initIdleTimer();
+
+        loadCartFromDatabase();
+
+        // FIX: hindi na basta fire-and-forget — i-store ang promise para
+        // ma-await ito ng renderInvoiceReceipt() kung sakaling mauna ang
+        // unang benta bago pa matapos ang background fetch na ito.
+        receiptSettingsPromise = fetchReceiptSettings();
+    } catch (err) {
+        console.error('Hindi inaasahang error habang nagla-load ang main system interface pagka-login (mag-tuloy pa rin sa pagpapakita ng view):', err);
+    } finally {
+        // FIX (ito ang HULING linya ng depensa laban sa "freeze"/blangkong
+        // main-view): kahit anong error pa ang mangyari sa itaas, dapat
+        // pa ring may laman/actual na view na lumabas sa user sa halip na
+        // basta manatiling walang laman hangga't hindi manual na na-reload
+        // ang buong page.
+        try {
+            const shortcutView = new URLSearchParams(window.location.search).get('view');
+            const ALLOWED_SHORTCUT_VIEWS = ['terminal','products'];
+
+            const savedView = sessionStorage.getItem('currentView');
+            if (shortcutView && ALLOWED_SHORTCUT_VIEWS.includes(shortcutView)) {
+                switchView(shortcutView);
+                // Linisin ang "?view=..." mula sa address bar para hindi na ito
+                // ulit-ulitin kapag nag-navigate na ang user papunta sa ibang view.
+                history.replaceState({ view: shortcutView }, '', window.location.pathname);
+            } else if (savedView && savedView !=='auth-view') {
+                switchView(savedView);
+                history.replaceState({ view: savedView },'','');
+            } else {
+                switchView('overview');
+                history.replaceState({ view:'overview' },'','');
+            }
+        } catch (finalErr) {
+            console.error('Hindi rin na-render ang fallback view — pakisubukan mag-reload ng page:', finalErr);
         }
-    })();
-
-    // FIX: i-detect ang TOTOONG internet connectivity sa bawat bagong
-    // login at i-sync agad ang Online/Offline pill (dati, tinatawag lang
-    // ito sa DOMContentLoaded — bago pa magkaroon ng session — kaya laging
-    // nabibigo/naka-freeze sa dating naka-save na mode).
-    if (typeof window.syncConnectivityModeOnLogin === 'function') {
-        window.syncConnectivityModeOnLogin();
-    }
-
-    initializeSystem();
-
-    initIdleTimer();
-
-    loadCartFromDatabase();
-
-    // FIX: hindi na basta fire-and-forget — i-store ang promise para
-    // ma-await ito ng renderInvoiceReceipt() kung sakaling mauna ang
-    // unang benta bago pa matapos ang background fetch na ito.
-    receiptSettingsPromise = fetchReceiptSettings();
-
-    // PWA SHORTCUT SUPPORT: kapag binuksan ang app mula sa "POS Terminal" o
-    // "Products" na shortcut (tingnan manifest.json > "shortcuts"), dumarating
-    // ito bilang "/?view=terminal" o "/?view=products". Bigyan ito ng priyoridad
-    // kaysa sa naka-save na sessionStorage view, dahil sinasadya ng user na
-    // pumunta doon nang direkta mula sa shortcut.
-    const shortcutView = new URLSearchParams(window.location.search).get('view');
-    const ALLOWED_SHORTCUT_VIEWS = ['terminal','products'];
-
-    const savedView = sessionStorage.getItem('currentView');
-    if (shortcutView && ALLOWED_SHORTCUT_VIEWS.includes(shortcutView)) {
-        switchView(shortcutView);
-        // Linisin ang "?view=..." mula sa address bar para hindi na ito
-        // ulit-ulitin kapag nag-navigate na ang user papunta sa ibang view.
-        history.replaceState({ view: shortcutView }, '', window.location.pathname);
-    } else if (savedView && savedView !=='auth-view') {
-        switchView(savedView);
-        history.replaceState({ view: savedView },'','');
-    } else {
-        switchView('overview');
-        history.replaceState({ view:'overview' },'','');
     }
 }
 

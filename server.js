@@ -3351,7 +3351,7 @@ app.get('/api/auth/active-sessions', (req, res) => {
     res.json({ success: true, activeUsers: sessions, count: sessions.length });
 });
 
-app.post('/api/products/checkout', (req, res) => {
+app.post('/api/products/checkout', requirePermission('terminal'), (req, res) => {
     try {
         const { cartItems } = req.body;
 
@@ -3919,25 +3919,81 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
 app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
     const { transaction, username } = req.body;
 
+    if (!transaction || typeof transaction !== 'object' || !Array.isArray(transaction.items) || transaction.items.length === 0) {
+        return res.status(400).json({ success: false, message: 'Walang laman o hindi valid ang transaction items.' });
+    }
+
     transaction.cashier = req.authUser.username;
 
     let transactions = readData(FILE_TRANSACTIONS);
     let products = readData(FILE_PRODUCTS);
 
+    // ------------------------------------------------------------------
+    // SECURITY FIX: dati, ang quantity/price/discount/total ng transaction
+    // ay basta TINITIWALAAN mula sa client (kayang i-manipulate sa
+    // devtools/direct API call para sa negative-quantity "stock
+    // injection", o price/total tampering — "skimming" fraud). Ngayon,
+    // bawat item ay:
+    //   1. kinukumpirma laban sa TALAGANG naitalang produkto sa database
+    //      (code muna, name bilang fallback) — tinatanggihan ang buong
+    //      transaksyon kung may item na hindi nahanap.
+    //   2. kailangang POSITIVE INTEGER ang quantity (hindi puwedeng zero,
+    //      negative, o decimal — dati'y walang validation dito, kaya
+    //      kayang gamitin para MAGDAGDAG ng stock gamit ang negative
+    //      quantity).
+    //   3. ang presyo (`item.price`) ay PINIPWERSA na tumugma sa presyo
+    //      ng produkto sa database — hindi na ang presyo na ipinasa ng
+    //      client ang ginagamit. Ang legit na discount workflows (per-
+    //      item discount, Senior/PWD 20%, promo code, manual discount)
+    //      ay sinusuportahan pa rin, pero kinukwenta/kinukumpirma ULIT
+    //      dito, hindi basta tinitiwalaan.
+    // Ang FINAL na `transaction.total` ay laging kinukwenta ULIT sa
+    // server base sa totoong presyo ng produkto + validated discounts.
+    // ------------------------------------------------------------------
+    const resolvedItems = [];
     const stockIssues = [];
-    transaction.items.forEach(item => {
+    const rejectedItems = [];
+
+    for (const item of (transaction.items || [])) {
         let prod = products.find(p => p.code === item.code);
+        if (!prod) prod = products.find(p => p.name === item.name);
+
         if (!prod) {
-            prod = products.find(p => p.name === item.name);
+            rejectedItems.push(item && (item.code || item.name) || '(unknown item)');
+            continue;
         }
-        if (prod) {
-            const availableStock = parseInt(prod.stock) || 0;
-            const requestedQty = parseInt(item.quantity) || 0;
-            if (requestedQty > availableStock) {
-                stockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${requestedQty})`);
-            }
+
+        const qty = parseInt(item.quantity, 10);
+        if (!Number.isInteger(qty) || qty <= 0 || String(item.quantity).trim() === '') {
+            rejectedItems.push(`${prod.name} (invalid quantity: ${item.quantity})`);
+            continue;
         }
-    });
+
+        const catalogPrice = parseFloat(prod.price) || 0;
+        const lineSubtotal = Math.round(catalogPrice * qty * 100) / 100;
+        const itemDiscount = Math.min(Math.max(0, parseFloat(item.itemDiscount) || 0), lineSubtotal);
+
+        const availableStock = parseInt(prod.stock) || 0;
+        if (qty > availableStock) {
+            stockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${qty})`);
+        }
+
+        resolvedItems.push({
+            code: prod.code,
+            name: prod.name,
+            price: catalogPrice,
+            quantity: qty,
+            itemDiscount,
+            cost: parseFloat(prod.cost) || 0
+        });
+    }
+
+    if (rejectedItems.length > 0) {
+        return res.status(400).json({
+            success: false,
+            message: `Hindi ma-proseso ang benta — invalid o hindi nahanap ang item(s): ${rejectedItems.join(', ')}.`
+        });
+    }
     if (stockIssues.length > 0) {
         return res.status(409).json({
             success: false,
@@ -3946,12 +4002,63 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
         });
     }
 
-    transaction.items.forEach(item => {
-        let prod = products.find(p => p.code === item.code);
-        if (!prod) {
+    const grossSubtotal = Math.round(resolvedItems.reduce((sum, it) => sum + (it.price * it.quantity), 0) * 100) / 100;
+    const itemDiscountTotal = Math.round(resolvedItems.reduce((sum, it) => sum + it.itemDiscount, 0) * 100) / 100;
+    const netAfterItemDiscounts = Math.max(0, Math.round((grossSubtotal - itemDiscountTotal) * 100) / 100);
 
-            prod = products.find(p => p.name === item.name);
+    // Cart-level discount: kinukwenta/kinukumpirma ULIT ayon sa
+    // discountType — hindi basta ang halagang ipinasa ng client (maliban
+    // sa MANUAL, na sadyang discretion ng cashier, pero clamped pa rin
+    // para hindi lumagpas sa net subtotal).
+    let cartDiscount = 0;
+    const discountType = transaction.discountType || 'NONE';
+
+    if (discountType === 'SENIOR_PWD') {
+        if (!transaction.seniorPwdId || !String(transaction.seniorPwdId).trim()) {
+            return res.status(400).json({ success: false, message: 'Kailangan ng Senior/PWD ID Number para sa discount na ito.' });
         }
+        cartDiscount = Math.round(netAfterItemDiscounts * 0.20 * 100) / 100;
+    } else if (discountType === 'PROMO') {
+        const promoCode = String(transaction.promoCode || '').toUpperCase();
+        const promos = readData(FILE_PROMOCODES, []);
+        const promo = promos.find(p => p.code === promoCode);
+        if (!promo || !promo.active || (promo.expiresAt && new Date(promo.expiresAt).getTime() < Date.now())) {
+            return res.status(400).json({ success: false, message: 'Hindi valid o na-expire na ang promo code na ito.' });
+        }
+        if (promo.minSpend && netAfterItemDiscounts < promo.minSpend) {
+            return res.status(400).json({ success: false, message: `Kailangan ng minimum na ₱${promo.minSpend.toFixed(2)} para magamit ang promo na ito.` });
+        }
+        const promoDiscount = promo.type === 'percent' ? (netAfterItemDiscounts * promo.value / 100) : promo.value;
+        cartDiscount = Math.round(Math.min(Math.max(promoDiscount, 0), netAfterItemDiscounts) * 100) / 100;
+    } else if (discountType === 'MANUAL') {
+        cartDiscount = Math.round(Math.min(Math.max(0, parseFloat(transaction.discount) || 0), netAfterItemDiscounts) * 100) / 100;
+    }
+
+    const verifiedTotal = Math.max(0, Math.round((netAfterItemDiscounts - cartDiscount) * 100) / 100);
+
+    // Kumpirmahin na ang binayad (single payment o split payments) ay
+    // sapat para sa VERIFIED total — dati'y hindi ito kinukumpirma laban
+    // sa recomputed na halaga.
+    const tendered = Array.isArray(transaction.payments) && transaction.payments.length > 0
+        ? transaction.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+        : (parseFloat(transaction.received ?? transaction.amount_paid) || 0);
+
+    if (Math.round(tendered * 100) / 100 < verifiedTotal - 0.01) {
+        return res.status(400).json({
+            success: false,
+            message: `Hindi tama ang binayad — kulang ito (₱${tendered.toFixed(2)}) kumpara sa tamang total (₱${verifiedTotal.toFixed(2)}).`
+        });
+    }
+
+    // I-overwrite ang mga field na pinagmumulan ng fraud gamit ang
+    // SERVER-VERIFIED na values — hindi na ito galing direkta sa client.
+    transaction.items = resolvedItems;
+    transaction.discount = cartDiscount;
+    transaction.total = verifiedTotal;
+    transaction.change = Math.round((tendered - verifiedTotal) * 100) / 100;
+
+    transaction.items.forEach(item => {
+        const prod = products.find(p => p.code === item.code);
         if (prod) {
             prod.stock = Math.max(0, prod.stock - item.quantity);
         }
