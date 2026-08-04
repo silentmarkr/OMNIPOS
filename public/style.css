@@ -1,11 +1,11 @@
-/* Pro Typography Import - Inter (akma sa modern dark UI, hindi nagbabago ng laki, kulay/typeface lang) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-/* Space Grotesk - ginagamit ng "Sync Pulse" login screen (Set A) para sa brand-title / headings */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');
-/* IBM Plex Mono - ang "vernacular" ng cash register/resibo: lahat ng presyo, stock at
-   resibo numbers ay dapat naka-tabular/monospace figures para naka-align ang mga digit
-   at mabilis mabasa ng cashier — hindi ito puro cosmetic, totoong POS-grade na typography. */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+/* Google Fonts (Inter, Space Grotesk, IBM Plex Mono) ay hindi na dito
+   ini-@import — ang @import ay render-blocking, kaya kapag walang
+   internet (offline Termux setup) maghihintay muna ang buong page
+   habang naka-stuck ito bago mag-fallback. Ngayon, non-blocking na
+   <link> tag na lang sa index.html ang naglo-load ng mga font na ito
+   (parehong pattern ng Font Awesome CDN link), at ang mga font-family
+   dito sa ibaba ay may built-in fallback fonts na kaya awtomatikong
+   gumagana kahit walang internet. */
 
 /* Core Styling Rules Layout Configuration variables */
 /* Theme preload guard — tingnan ang inline <script> sa <head> ng index.html.

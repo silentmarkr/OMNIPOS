@@ -6,7 +6,9 @@
    mas "techy"/cyberpunk ang dating ng POS nila. I-unlock via Themes
    menu.
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
+/* Orbitron/Rajdhani: nilo-load na ngayon via non-blocking <link> sa
+   index.html (see google-fonts-cdn) sa halip na @import dito, para
+   hindi maantala ang pag-render kapag offline. */
 
 body[data-theme="cyber"] {
     --dm-bg: #05070d;

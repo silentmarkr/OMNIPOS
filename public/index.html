@@ -178,34 +178,25 @@
     <link rel="stylesheet" href="css/themes/theme-noir-pro.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-mintfrost-pro.css" data-retry>
 
-    <!-- FIX: Icons (Font Awesome) — dati puro lokal na file lang
-         (css/all.min.css + public/webfonts/*.woff2/ttf) ang pinagmumulan.
-         Kapag nawala/hindi na-deploy nang tama ang mga binary font file
-         na iyon (karaniwang dahilan ng "nawawalang icons pag na-refresh"),
-         walang FA glyphs na lalabas kahit online at gumagana ang buong app.
-         Ngayon, ang online system mismo ang mag-do-download ng icon font
-         mula sa Font Awesome CDN (parehong 6.4.0 version, kaya kaparehong-
-         kapareho ang klase ng mga icon gaya ng fa-solid fa-box). Kapag
-         mabigo ang CDN mismo (walang internet, naka-block ang CDN sa
-         network na iyon), awtomatikong babalik ito sa lokal na kopya
-         bilang fallback sa halip na mawalan na lang ng icons. -->
-    <!-- FIX (blink/blank-open bug): dating RENDER-BLOCKING ang CDN link na ito
-         — hinihintay ng browser ang buong CDN request bago mag-unang paint.
-         Sa mga POS terminal na naka-LAN lang / walang internet / naka-block
-         ang cdnjs sa network, sumasabit/naghihintay ito hanggang mag-timeout
-         ang koneksyon, kaya "bubukas" lang saglit ang window at parang
-         nagba-blink/nagsasara agad dahil hindi pa tapos mag-render.
-         Ngayon, NON-BLOCKING na ito (media="print" trick) — hindi na ito
-         hinihintay bago mag-paint; ang onload ang siyang mag-a-apply nito
-         pagdating ng response. Kasabay pa rin ng dati nang onerror fallback
-         patungo sa lokal na css/all.min.css kapag mabigo ang CDN. -->
-    <link rel="stylesheet" id="fa-css-cdn"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    <!-- Font Awesome: purong lokal na ngayon, walang CDN attempt.
+         May kumpletong lokal na kopya na sa css/all.min.css (parehong
+         bersyon 6.4.0), kaya walang dahilan pang mag-DNS lookup/timeout
+         papunta sa cdnjs bago i-render ang icons — mas mabilis pa nga
+         ito kahit online, dahil zero external request. -->
+    <link rel="stylesheet" href="css/all.min.css">
+
+    <!-- Google Fonts: non-blocking na <link> (media="print" -> "all"
+         onload) sa halip na @import sa CSS files. Kapag walang internet,
+         hindi na ito hahantong sa pagkaka-stuck ng page — dire-diretso
+         itong babagsak (fail silently) at gagamitin na lang ng browser
+         ang mga fallback font na nakatakda na sa style.css/theme CSS
+         (hal. 'Inter','Segoe UI',...sans-serif). Kapag online naman,
+         gagana ito nang normal at ilo-load ang mga custom font. -->
+    <link rel="stylesheet" id="google-fonts-cdn"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600;700&family=Playfair+Display:wght@600;700;800&family=Orbitron:wght@600;700;800&family=Rajdhani:wght@400;500;600;700&family=Poppins:wght@500;600;700;800&display=swap"
           crossorigin="anonymous" referrerpolicy="no-referrer"
           media="print"
-          onload="this.media='all';this.onload=null;"
-          onerror="this.onerror=null;this.media='all';this.href='css/all.min.css';console.warn('[OmniPOS] Font Awesome CDN unreachable, gumagamit ng lokal na kopya (css/all.min.css).');">
-    <noscript><link rel="stylesheet" href="css/all.min.css"></noscript>
+          onload="this.media='all';this.onload=null;">
 
     <script>
     // Auto-retry para sa mga theme stylesheet sa itaas: kung sakaling

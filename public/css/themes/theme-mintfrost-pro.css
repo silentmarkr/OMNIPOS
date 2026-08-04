@@ -6,7 +6,9 @@
    mga gustong "clean, airy, modern SaaS" ang dating ng POS nila.
    I-unlock via Themes menu.
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap');
+/* Poppins: nilo-load na ngayon via non-blocking <link> sa index.html
+   (see google-fonts-cdn) sa halip na @import dito, para hindi
+   maantala ang pag-render kapag offline. */
 
 body[data-theme="mintfrost"] {
     --dm-bg: #071815;

@@ -6,7 +6,9 @@
    para sa body text) — para sa mga gustong mas "boutique cafe /
    premium retail" ang dating ng POS nila. I-unlock via Themes menu.
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&display=swap');
+/* Playfair Display: nilo-load na ngayon via non-blocking <link> sa
+   index.html (see google-fonts-cdn) sa halip na @import dito, para
+   hindi maantala ang pag-render kapag offline. */
 
 body[data-theme="noir"] {
     --dm-bg: #120d09;

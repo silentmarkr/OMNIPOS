@@ -61,24 +61,16 @@ const VENDOR_ASSETS = [
 
 const SHELL_ASSETS = [...SHELL_FILES, ...VENDOR_ASSETS];
 
-// Font Awesome CDN URL — pre-cache-hin din ito (cross-origin pero may CORS
-// support ang cdnjs) para gumana pa rin ang icons offline pagkatapos ng
-// unang successful load.
-const FA_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+// Font Awesome: purong lokal na (VENDOR_ASSETS may '/css/all.min.css' na
+// sa itaas), kaya wala nang hiwalay na CDN pre-cache dito — hindi na
+// kailangan pang subukang mag-fetch ng cdnjs.cloudflare.com tuwing
+// mag-i-install ang service worker offline.
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) =>
       cache.addAll(SHELL_ASSETS)
         .catch((err) => console.warn('[SW] Pre-cache warning (shell):', err))
-        .then(() =>
-          // Hiwalay na try/catch para dito: kung mabigo ang CDN habang
-          // nag-i-install (offline, blocked CDN, atbp.), hindi dapat
-          // masira ang buong pre-cache ng app shell dahil lang doon —
-          // may local fallback naman ang FA css.
-          cache.add(new Request(FA_CDN_URL, { mode: 'cors' }))
-            .catch((err) => console.warn('[SW] Pre-cache warning (FA CDN):', err))
-        )
     )
   );
   self.skipWaiting();
