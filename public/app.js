@@ -570,6 +570,7 @@ function updateSidebarFeatureLocks() {
         }
     });
     updateRolesPermissionsLockState();
+    updateCloudBackupLockState();
 }
 
 function isBadgeAllowedForFeature(featureId) {
@@ -583,6 +584,14 @@ const PREMIUM_FEATURE_INFO = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
+    // 'cloud_backup' is intentionally kept OUT of the bundle-eligible
+    // features above and out of the general Upgrade Options catalog
+    // (mirrors the server-side exclusion — see CLOUD_BACKUP_FEATURE_ID
+    // in server.js). It gets its own dedicated CTA (getCloudBackupUpgrade())
+    // and its own single-feature unlock prompt, since it involves syncing
+    // the whole database — including user accounts — to the developer's
+    // cloud storage, which deserves clear, standalone pricing and consent.
+    cloud_backup: { name:'Cloud Backup (Postgres)', price: 1499, description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost.' },
 };
 
 function guardPremiumFeature(featureId) {
@@ -590,6 +599,30 @@ function guardPremiumFeature(featureId) {
     const info = PREMIUM_FEATURE_INFO[featureId] || {};
     promptUnlockFeature(featureId, info.name, info.price, info.description);
     return true;
+}
+
+// Dedicated purchase entry point for Cloud Backup — called by the
+// "Get Cloud Backup" button in the Cloud Backup panel. Always opens the
+// single-feature unlock prompt (own price + own description), never the
+// multi-feature "Upgrade Options" tiers modal, so this purchase decision
+// stays separate and explicit.
+function getCloudBackupUpgrade() {
+    if (isFeatureUnlockedCached('cloud_backup')) return false;
+    const info = PREMIUM_FEATURE_INFO.cloud_backup;
+    return promptUnlockFeature('cloud_backup', info.name, info.price, info.description);
+}
+
+// Shows/hides the Cloud Backup panel's "Get Cloud Backup" CTA vs. the
+// normal Sync/Restore buttons, based on current unlock state. Called
+// alongside updateSidebarFeatureLocks() wherever unlock state changes.
+function updateCloudBackupLockState() {
+    const unlocked = isFeatureUnlockedCached('cloud_backup');
+    const getBtn = document.getElementById('cloud-backup-get-btn');
+    const syncBtn = document.getElementById('cloud-backup-sync-btn');
+    const restoreBtn = document.getElementById('cloud-backup-restore-btn');
+    if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
+    if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
+    if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
 }
 
 // --------------------------------------------------------------
@@ -771,6 +804,15 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
     }
 }
 
+// NOTE: Ang "Cloud Backup" feature ay SADYANG hindi kasama sa catalog na
+// kinukuha dito (server-side na ang pag-exclude, tingnan ang
+// /api/features/upgrade-catalog sa server.js) — hindi ito dapat lumabas
+// bilang isa pang à la carte checkbox o mabudol papasok sa isang bundle
+// kasama ng mga themes/reports/atbp. Ang Cloud Backup ay may sarili
+// nitong dedicated na "Get Cloud Backup" na prompt (promptUnlockFeature())
+// dahil naiiba ang klase ng consent na kailangan dito — nagpapadala ito
+// ng buong database (kasama ang user accounts) papunta sa cloud storage
+// ng developer.
 async function showUpgradeTiersModal() {
     let catalog;
     try {

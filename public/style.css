@@ -3521,6 +3521,11 @@ body.dark-mode .pd-detail-value {
     padding: 10px 12px;
     justify-content: center;
     min-width: 42px;
+    /* Bug fix: dating walang flex-shrink, kaya sa napakaliit na screen
+       (~320px) nasisiksik/na-cocompress ang mga button na ito papunta sa
+       ibaba ng isa't isa (natatabunan/"putol" ang laman ng bawat button)
+       sa halip na manatili silang magkakasunod sa isang linya. */
+    flex-shrink: 0;
 }
 .reorder-action-count-badge {
     position: absolute;
@@ -3541,25 +3546,74 @@ body.dark-mode .pd-detail-value {
    naka-sticky ito sa ilalim ng .top-header (kaya top: 69px, katumbas ng
    fixed height nito) at laging naka-left align. Nananatili itong nakikita
    habang bumababa ang user sa listahan sa ibaba, sa halip na mawala kapag
-   naka-scroll. */
+   naka-scroll.
+
+   BUG (na-verify sa aktwal na render, 375px width): sa mobile, flex-column
+   na ang .app-view (tingnan ang @media max-width:768px sa ibaba), kaya
+   ang align-self:flex-start dito ay ginagawang "shrink-to-fit" ang buong
+   bar — kasing-lapad lang ng 3 button, hindi buong lapad ng screen. Dahil
+   dito, kapag naka-scroll at naka-stick na ito sa itaas, HINDI nito
+   natatakpan nang maayos ang laman (Collapse All / Expand All / Grid
+   toggle, atbp.) na dumadaan sa likod nito — nagpapatong lang ito nang
+   magulo sa mga button/text na iyon sa halip na malinis itong tumakip
+   (tulad ng ginagawa ng .top-header na buong-lapad). Ang ayos: gawing
+   BUONG-LAPAD ang freeze bar (tanggalin ang shrink-to-fit), para malinis
+   at kumpleto ang pagtakip nito sa anumang laman na dadaan sa ilalim
+   nito habang naka-scroll — hindi na ito magpapatong-patong. */
 .reorder-header-actions-freeze {
     display: flex;
+    flex-wrap: nowrap; /* huwag payagang mag-wrap ang 3 button papunta sa
+       2 linya sa loob ng bar mismo */
     gap: 8px;
     position: sticky;
     top: 69px;
     z-index: 20;
-    align-self: flex-start;
-    /* Parehong "surface" color na ginagamit ng .top-header (puti sa light
-       mode) — hindi ito random na kulay, kaya kung magpalit ng theme
-       (theme-*.css), sumusunod din ito dahil kapareho lang ito ng
-       ginagamit na background sa ibang parte ng system, hindi hardcoded
-       na hex na maiiwan pag nagbago ang theme. */
+    align-self: stretch; /* buong lapad ng parent (dati'y flex-start na
+       nagpapaliit lang dito sa lapad ng 3 button) */
+    width: 100%;
+    box-sizing: border-box;
+    /* Parehong "surface" color na ginagamit ng .reorder-stat-card (ang
+       aktwal na "card" ng Reorder Alerts page) — hindi ito random na
+       kulay, kaya kung magpalit ng theme (theme-*.css), sumusunod din
+       ito dahil kapareho lang ito ng ginagamit na background sa mga
+       card sa ibang parte ng page, hindi hardcoded na hex na maiiwan
+       pag nagbago ang theme. */
     background-color: #ffffff;
     padding: 6px 0 10px;
     margin-bottom: 6px;
 }
 body.dark-mode .reorder-header-actions-freeze {
+    /* var(--dm-surface) — parehong variable na sumasakop sa lahat ng
+       dark/Pro theme (theme-dark.css, theme-ocean-pro.css, theme-
+       emerald-pro.css, theme-sunset-pro.css, theme-rosegold-pro.css,
+       theme-cyber-pro.css, theme-noir-pro.css, theme-mintfrost-pro.css),
+       kaya awtomatikong tumutugma ito sa kulay ng .reorder-stat-card sa
+       kahit saang theme na piliin ng user, hindi lang sa default Dark
+       Mode. */
     background-color: var(--dm-surface);
+}
+
+/* Mobile: bigyan ng ~5px na agwat ang mga button mula sa ilalim ng
+   .top-header kapag naka-scroll at naka-stick.
+
+   BUG (na-verify sa aktwal na render): ang unang tangkang ayos dito ay
+   nagpapababa lang ng "top" (69px → 74px), pero dahil ang box mismo ang
+   sticky (hindi lang ang laman nito), ang 5px na iyon ay NAGIGING
+   TRANSPARENT NA PUWANG sa pagitan ng header at ng bar — doon pa rin
+   dumadaan/sumisilip ang naka-scroll na laman sa likod (hal. Collapse
+   All / Expand All toolbar), kaya mukhang sirang overlap pa rin.
+
+   Ang tamang ayos: panatilihin ang "top: 69px" (flush/walang puwang ang
+   OPAQUE box sa ilalim ng header — walang seam na madadaanan ng
+   laman), at sa halip ay DAGDAGAN ang sarili nitong padding-top (6px →
+   11px) para lumitaw ang 5px na puwang SA LOOB ng parehong opaque
+   background — kasabay palaging sumusunod sa background-color ng bar
+   (ligtas sa lahat ng theme), hindi na "nakikita" ang kahit anong
+   laman sa likod. */
+@media screen and (max-width: 600px) {
+    .reorder-header-actions-freeze {
+        padding-top: 11px;
+    }
 }
 
 .header-action-group {

@@ -1255,10 +1255,17 @@
         <div id="cloud-backup-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
             <i class="fa-solid fa-circle-info"></i> No cloud backup has been made in this session yet.
         </div>
-        <button id="cloud-backup-sync-btn" onclick="runCloudBackupSync()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+        <!-- "Get Cloud Backup" is this feature's OWN, standalone purchase
+             button — its price and description are shown on their own,
+             separate from the general "Upgrade Options" bundle modal.
+             Toggled by updateCloudBackupLockState() in app.js. -->
+        <button id="cloud-backup-get-btn" onclick="getCloudBackupUpgrade()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+            <i class="fa-solid fa-lock"></i> Get Cloud Backup — ₱1,499
+        </button>
+        <button id="cloud-backup-sync-btn" onclick="runCloudBackupSync()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-up"></i> Cloud Backup Now
         </button>
-        <button id="cloud-backup-restore-btn" onclick="runCloudBackupRestore()" style="width: 100%; padding: 12px; margin-top: 10px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+        <button id="cloud-backup-restore-btn" onclick="runCloudBackupRestore()" style="width: 100%; padding: 12px; margin-top: 10px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-down"></i> Restore from Cloud
         </button>
         </div>

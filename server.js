@@ -1231,6 +1231,17 @@ function isVersionNewer(candidate, current) {
     return false; // eksaktong pareho ang dalawang version
 }
 
+// 'cloud_backup' ay may sariling category dahil sa likas nito: nagpapadala
+// ito ng buong database (kasama ang user accounts) papunta sa cloud
+// storage ng developer, kaya kailangan nito ng SARILI, malinaw, at
+// hiwalay na pricing/consent — HINDI dapat matabunan o maging "parang
+// libre na lang" bilang isa lang sa maraming à la carte checkbox, o
+// ma-discount papasok sa isang bundle kasama ang mga hindi kaugnay na
+// features (themes, reports, atbp.). Ginagamit ang constant na ito para
+// tuluy-tuloy na ma-exclude ang 'cloud_backup' sa mga bundle/tier at sa
+// pangkalahatang "Upgrade Options" catalog listing sa ibaba.
+const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
+
 const FEATURE_CATALOG = {
 
     ocean: { name:'Ocean Pro', price: 149, category:'theme', description:'Bagong color theme para sa buong dashboard.' },
@@ -1247,7 +1258,12 @@ const FEATURE_CATALOG = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, category:'module', description:'Profit margin, top/slow sellers, 7-day sales trend, at payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, category:'module', description:'Multi-cashier shift tracking at Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Gumawa ng custom roles at i-configure kung anong menu ang makikita ng bawat role (Roles & Permissions matrix).' },
-    cloud_backup: { name:'Cloud Backup (Postgres)', price: 1499, category:'module', description:'I-sync ang buong database — kasama na ang user accounts (walang password), unlocked features/Pro themes, at lahat ng ibang modules — papunta sa secure na cloud storage ng developer — proteksyon kung sakaling masira/mawala ang device.' },
+
+    // May sarili itong category ('cloud-service', hindi 'module') para
+    // hindi ito ma-catch ng mga generic na filter/loop na inaakalang lahat
+    // ng 'module' ay pwedeng i-bundle/i-discount nang magkasama. Tingnan
+    // ang CLOUD_BACKUP_FEATURE_ID sa itaas.
+    [CLOUD_BACKUP_FEATURE_ID]: { name:'Cloud Backup (Postgres)', price: 1499, category:'cloud-service', description:'I-sync ang buong database — kasama na ang user accounts (walang password), unlocked features/Pro themes, at lahat ng ibang modules — papunta sa secure na cloud storage ng developer — proteksyon kung sakaling masira/mawala ang device.' },
 };
 
 const DEMO_FEATURE_ID ='__demo__';
@@ -1310,8 +1326,14 @@ const UPGRADE_TIERS = [
     {
         id:'pro',
         name:'Pro Upgrade (Complete)',
-        description:'LAHAT ng modules + LAHAT ng Pro Themes — walang matitira pang naka-lock.',
-        featureIds: Object.keys(FEATURE_CATALOG),
+        description:'LAHAT ng modules + LAHAT ng Pro Themes — walang matitira pang naka-lock. (Hiwalay ibinebenta ang Cloud Backup — tingnan ang Cloud Backup panel sa Reset & Restore.)',
+        // SADYANG hindi kasama ang 'cloud_backup' dito — hindi ito dapat
+        // ma-bundle/ma-discount kasama ng ibang features. Kung gustong
+        // kunin ng user ang Cloud Backup, kailangan nilang dumaan sa
+        // sarili nitong dedicated unlock prompt (promptUnlockFeature sa
+        // app.js) kung saan malinaw lang ang presyo at ang deskripsyon
+        // nito, hiwalay sa "Upgrade Options" tiers/à la carte modal.
+        featureIds: Object.keys(FEATURE_CATALOG).filter(id => id !== CLOUD_BACKUP_FEATURE_ID),
         bundlePrice: 4499
     }
 ];
@@ -2217,9 +2239,13 @@ function getUnlockedFeatureIds() {
     return purchased;
 }
 
+// 'cloud_backup' ay SINASADYANG hindi kasama sa "Pro / fully unlocked"
+// na konsepto — tingnan ang paliwanag sa itaas ng CLOUD_BACKUP_FEATURE_ID
+// (malapit sa FEATURE_CATALOG) kung bakit ito hiwalay pinapresyuhan/
+// ibinebenta sa upgrade options.
 function isFullyProUnlocked() {
     const purchased = getPurchasedFeatureIds();
-    const allIds = Object.keys(FEATURE_CATALOG);
+    const allIds = Object.keys(FEATURE_CATALOG).filter(id => id !== CLOUD_BACKUP_FEATURE_ID);
     return allIds.length > 0 && allIds.every(id => purchased.includes(id));
 }
 
@@ -2237,7 +2263,17 @@ function requireFeature(featureId) {
             price: feature ? feature.price : null,
             description: feature ? feature.description : null,
 
-            showUpgradeTiers: attemptCount > 0 && attemptCount % 2 === 0,
+            // 'cloud_backup' ay laging dapat gamitin ang SARILI/dedicated
+            // niyang single-feature na unlock prompt (malinaw na presyo +
+            // buong description bago mag-request), HINDI ang paminsan-
+            // minsang bundled "Upgrade Options" tiers modal — dahil
+            // ibang klase ang consent na kailangan dito (nagpapadala ito
+            // ng buong database, kasama ang user accounts, papunta sa
+            // cloud storage ng developer). Kaya laging false ang
+            // showUpgradeTiers para dito, anuman ang attemptCount.
+            showUpgradeTiers: featureId === CLOUD_BACKUP_FEATURE_ID
+                ? false
+                : (attemptCount > 0 && attemptCount % 2 === 0),
             message: `"${feature ? feature.name : featureId}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
         });
     };
@@ -2719,7 +2755,7 @@ app.get('/api/features/demo-status', (req, res) => {
     });
 });
 
-app.post('/api/features/end-demo', (req, res) => {
+app.post('/api/features/end-demo', async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Aksyon Tinanggihan: Admin privileges lamang ang pwedeng magtapos ng Demo Mode nang maaga.' });
     }
@@ -2730,6 +2766,36 @@ app.post('/api/features/end-demo', (req, res) => {
     delete data.tokens[DEMO_FEATURE_ID];
     writeData(FILE_FEATURE_UNLOCKS, data);
     logAction(req.authUser.username,'Manual na tinapos ang Demo Mode bago pa man mag-expire.');
+
+    // Sabihin din sa RELAY na tapos na ang demo na ito — kung LOKAL lang
+    // ito (sa featureUnlocks.json ng OMNIPOS na ito) ang tatanggalin, may
+    // NATITIRA pa ring record ng issued demo sa RELAY (issuedUnlocks)
+    // hanggang sa mismong expiry nito. Kung mag-hard-reset o mag-restore
+    // mula sa RELAY ang device bago mag-expire ang orihinal na demo,
+    // maaaring "bumalik" pa ito kahit tinapos na ito nang maaga dito.
+    // Kaya tinatawagan ang /relay/end-demo (self-service, hindi
+    // admin-key) para TULUYANG matanggal ang demo entry sa RELAY mismo —
+    // hindi na ito maibabalik pa kahit anong restore/check-in pa mangyari.
+    // Hindi ito dapat harangin ang response papunta sa user kahit mabigo
+    // ang RELAY call (offline man ang device, o down ang RELAY) — lokal
+    // na tapos na ang demo, at "best-effort" lang ang RELAY-side cleanup.
+    if (RELAY_API_KEY) {
+        try {
+            const installationId = getOrCreateInstallationId(data);
+            const relayRes = await relayFetch(`${RELAY_URL}/relay/end-demo`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json','x-relay-key': RELAY_API_KEY },
+                body: JSON.stringify({ installationId })
+            });
+            const relayData = await relayRes.json().catch(() => null);
+            if (!relayRes.ok || !relayData || !relayData.success) {
+                console.warn('⚠️ END_DEMO: hindi na-confirm ng RELAY ang pagtatapos ng demo (lokal na tapos na ito pero maaaring "bumalik" pa mula sa RELAY sa susunod na restore):', relayData && relayData.message);
+            }
+        } catch (e) {
+            console.warn('⚠️ END_DEMO: hindi na-abot ang RELAY para tuluyang tapusin ang demo doon:', e.message);
+        }
+    }
+
     res.json({
         success: true,
         message:'Demo Mode has been closed.',
@@ -2740,7 +2806,15 @@ app.post('/api/features/end-demo', (req, res) => {
 
 app.get('/api/features/upgrade-catalog', (req, res) => {
     const alreadyPurchased = getPurchasedFeatureIds();
-    const features = Object.keys(FEATURE_CATALOG).map(id => ({ id, ...FEATURE_CATALOG[id] }));
+    // 'cloud_backup' ay laging tinatanggal dito — hindi ito dapat lumabas
+    // bilang isa pang à la carte checkbox sa pangkalahatang "Upgrade
+    // Options" modal. Ang presyo/pag-unlock nito ay dapat laging dumaan
+    // sa sarili nitong dedicated prompt (tingnan ang requireFeature() at
+    // ang showUpgradeTiers override para sa CLOUD_BACKUP_FEATURE_ID sa
+    // itaas ng file na ito).
+    const features = Object.keys(FEATURE_CATALOG)
+        .filter(id => id !== CLOUD_BACKUP_FEATURE_ID)
+        .map(id => ({ id, ...FEATURE_CATALOG[id] }));
     const tiers = UPGRADE_TIERS.map(tier => {
         const { discount, effectivePrice } = getTierPricing(tier, alreadyPurchased);
         const remainingFeatureIds = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
@@ -2767,6 +2841,14 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
     const unknown = featureIds.filter(id => !FEATURE_CATALOG[id]);
     if (unknown.length) {
         return res.status(400).json({ success: false, message: `Unknown feature(s): ${unknown.join(', ')}` });
+    }
+    // Server-side enforcement (hindi lang UI-level): kahit ma-craft man
+    // ng client ang request nito nang direkta, hindi dapat makadaan ang
+    // 'cloud_backup' sa bulk/bundle na landas. Kailangan itong i-request
+    // nang mag-isa sa pamamagitan ng /api/features/request-unlock (tingnan
+    // ang promptUnlockFeature() sa app.js).
+    if (featureIds.includes(CLOUD_BACKUP_FEATURE_ID)) {
+        return res.status(400).json({ success: false, message:'Ang Cloud Backup ay hiwalay na pinoproseso — gamitin ang sarili nitong "Get Cloud Backup" na prompt, hindi ang bundle/tier na unlock.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
