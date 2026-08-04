@@ -284,28 +284,6 @@ app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
 
 app.use(express.json({ limit:'2mb' }));
 
-// ====================================================================
-// OFFLINE_ONLY config flag — para sa mga kliyenteng WALANG internet
-// (purong Termux/LAN-only setup). Kapag "true" ang OFFLINE_ONLY sa .env:
-//   1. Hindi na susubukan ng frontend ang Font Awesome CDN — direktang
-//      lokal na css/all.min.css agad, walang kahit anong background
-//      request patungong cdnjs.cloudflare.com.
-//   2. Hindi na magpapadala ng connectivity-check pings patungong
-//      gstatic.com/google.com — ang navigator.onLine (LAN status) na
-//      lang ang basehan ng "online" indicator.
-// Static file ito (config.js) — binabasa lang minsan ang .env sa
-// pag-start ng server, kaya kailangang i-restart ang server pagkatapos
-// baguhin ang OFFLINE_ONLY sa .env para makuha ang bagong value.
-// Default (walang laman/walang linya sa .env): "false" — kaparehong-
-// kapareho ng dating gawi (CDN + connectivity ping), walang nasisira.
-// ====================================================================
-const OFFLINE_ONLY = String(process.env.OFFLINE_ONLY || '').trim().toLowerCase() === 'true';
-app.get('/config.js', (req, res) => {
-    res.type('application/javascript');
-    res.setHeader('Cache-Control','no-cache');
-    res.send(`window.OMNIPOS_OFFLINE_ONLY = ${OFFLINE_ONLY};`);
-});
-
 app.use(express.static(path.join(__dirname,'public'), {
     etag: true,
     lastModified: true,

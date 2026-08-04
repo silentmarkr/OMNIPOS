@@ -3,14 +3,6 @@
 
   
 <head>
-    <!-- OFFLINE_ONLY config — BAGO ang lahat, blocking <script src> (walang
-         async/defer) para guaranteed na naka-set na ang
-         window.OMNIPOS_OFFLINE_ONLY bago pa man maabot ng parser ang FA
-         <link>/connectivity logic sa ibaba. Lokal na file lang ito
-         (galing sa /config.js route ng server, base sa OFFLINE_ONLY sa
-         .env), kaya walang internet na kailangan para dito. -->
-    <script src="/config.js"></script>
-
     <!-- Theme preload guard: pinapatakbo ito BAGO pa man ma-load ang alinmang
          stylesheet, dahil block-parsing ang <script> na walang async/defer —
          kaya guaranteed itong tumatakbo bago pa man i-paint ng browser ang 
@@ -207,25 +199,12 @@
          hinihintay bago mag-paint; ang onload ang siyang mag-a-apply nito
          pagdating ng response. Kasabay pa rin ng dati nang onerror fallback
          patungo sa lokal na css/all.min.css kapag mabigo ang CDN. -->
-    <!-- OFFLINE_ONLY=true: direkta na lang lokal, walang kahit anong
-         subok/request patungong CDN — walang delay, walang wasted
-         background attempt para sa mga kliyenteng walang internet. -->
-    <script>
-    (function () {
-        if (window.OMNIPOS_OFFLINE_ONLY) {
-            document.write('<link rel="stylesheet" href="css/all.min.css">');
-        } else {
-            document.write(
-                '<link rel="stylesheet" id="fa-css-cdn" ' +
-                'href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" ' +
-                'crossorigin="anonymous" referrerpolicy="no-referrer" media="print" ' +
-                'onload="this.media=\'all\';this.onload=null;" ' +
-                'onerror="this.onerror=null;this.media=\'all\';this.href=\'css/all.min.css\';' +
-                'console.warn(\'[OmniPOS] Font Awesome CDN unreachable, gumagamit ng lokal na kopya (css/all.min.css).\');">'
-            );
-        }
-    })();
-    </script>
+    <link rel="stylesheet" id="fa-css-cdn"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          crossorigin="anonymous" referrerpolicy="no-referrer"
+          media="print"
+          onload="this.media='all';this.onload=null;"
+          onerror="this.onerror=null;this.media='all';this.href='css/all.min.css';console.warn('[OmniPOS] Font Awesome CDN unreachable, gumagamit ng lokal na kopya (css/all.min.css).');">
     <noscript><link rel="stylesheet" href="css/all.min.css"></noscript>
 
     <script>
@@ -1988,7 +1967,7 @@
 // package ang lumang, unpatched na public/index.html).
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js?offlineOnly=' + !!window.OMNIPOS_OFFLINE_ONLY)
+    navigator.serviceWorker.register('/service-worker.js')
       .then((reg) => console.log('[SW] Registered, scope:', reg.scope))
       .catch((err) => console.warn('[SW] Registration failed:', err));
   });
@@ -2166,7 +2145,7 @@ if ('serviceWorker' in navigator) {
 })();
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js?offlineOnly=' + !!window.OMNIPOS_OFFLINE_ONLY);
+      navigator.serviceWorker.register('/service-worker.js');
     });
   }
 </script>

@@ -9608,16 +9608,6 @@ function probeInternetEndpoint(url, timeoutMs) {
 
 window.checkRealInternetAccess = function checkRealInternetAccess(timeoutMs = 1500) {
     if (!navigator.onLine) return Promise.resolve(false);
-
-    // OFFLINE_ONLY: para sa mga kliyenteng talagang walang internet.
-    // Kung hindi ito laktawan, kahit naka-connect lang sa lokal na
-    // WiFi/LAN (walang uplink sa internet), walang tigil na susubok
-    // ito papuntang gstatic/google tuwing 2s (adaptive polling sa baba)
-    // dahil hinding-hindi ito "online" — puro wasted requests/battery.
-    // Sa OFFLINE_ONLY mode, LAN connectivity (navigator.onLine) na lang
-    // ang basehan, walang external ping.
-    if (window.OMNIPOS_OFFLINE_ONLY) return Promise.resolve(true);
-
     const bust = Date.now();
     return Promise.any([
         probeInternetEndpoint(`https://www.gstatic.com/generate_204?cachebust=${bust}`, timeoutMs),
@@ -10967,7 +10957,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js?offlineOnly=' + !!window.OMNIPOS_OFFLINE_ONLY)
+        navigator.serviceWorker.register('/service-worker.js')
             .then((reg) => {
                 console.log('[PWA] Service worker registered:', reg.scope);
 

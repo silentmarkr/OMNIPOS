@@ -6,11 +6,8 @@
  * casually read the source if they open the files in a text editor.
  *
  * Usage:
- *   npm install                    (once, to pull in javascript-obfuscator)
- *   npm run build:release          (itatanong ang mode: Pure Offline o
- *                                    Online/Offline Toggle, interactive)
- *   npm run build:release:offline  (diretso Pure Offline, walang tanong)
- *   npm run build:release:toggle   (diretso Online/Offline Toggle, walang tanong)
+ *   npm install            (once, to pull in javascript-obfuscator)
+ *   npm run build:release
  *
  * Output: /release/OMNIPOS  <-- this is what gets shipped/deployed to
  * the customer.
@@ -48,7 +45,6 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const os = require("os");
-const readline = require("readline");
 const { Worker } = require("worker_threads");
 const JavaScriptObfuscator = require("javascript-obfuscator");
 
@@ -108,69 +104,6 @@ const SERVER_TARGETS = new Set([
 const ENV_LOADER_FILENAME = "env-loader.js";
 const ENV_FILENAME = ".env";
 const ENV_KEY_FILENAME = ".env.key";
-
-// ====================================================================
-// OFFLINE_ONLY build-mode selection (para sa "Pure Offline" vs
-// "Online/Offline Toggle" na kliyente) — dati kailangan pang i-edit ng
-// developer ang source .env NANG MANUAL bago mag-build ng bawat
-// customer release. Ngayon, itatanong ito sa simula pa lang ng build
-// (o pwedeng CLI flag), tapos ang plaintext .env lang ang babaguhin
-// bago i-encrypt papunta sa release/OMNIPOS/.env — hindi nagbabago ang
-// source .env na ginagamit mo habang nagtetest/nagdedevelop.
-//
-// Paraan ng pagpili:
-//   1. CLI flag (pinaka-mabilis, useful sa scripted/batch builds):
-//        npm run build:release -- --mode=offline
-//        npm run build:release -- --mode=toggle
-//   2. Kung walang flag at interactive ang terminal (may TTY), itatanong
-//      ito nang sunud-sunod habang tumatakbo.
-//   3. Kung walang flag AT hindi interactive (hal. CI/automated run),
-//      hindi ito gagalawin — ang OFFLINE_ONLY na value na nasa source
-//      .env mo mismo ang gagamitin (walang override), para hindi masira
-//      ang mga existing na automated build pipeline.
-// ====================================================================
-function parseCliMode() {
-  const arg = process.argv.find((a) => a.startsWith("--mode="));
-  if (!arg) return null;
-  const value = arg.split("=")[1].trim().toLowerCase();
-  if (value === "offline" || value === "pure-offline") return true;
-  if (value === "toggle" || value === "online" || value === "online-offline") return false;
-  console.warn(`  [warn] Hindi nakilalang --mode=${value}, ii-ignore — itatanong na lang interactively.`);
-  return null;
-}
-
-function askOfflineMode() {
-  const cliMode = parseCliMode();
-  if (cliMode !== null) {
-    console.log(`  [mode] --mode flag: ${cliMode ? "Pure Offline" : "Online/Offline Toggle"}`);
-    return Promise.resolve(cliMode);
-  }
-
-  if (!process.stdin.isTTY) {
-    console.log(
-      "  [mode] Walang --mode flag at hindi interactive ang terminal na ito — " +
-        "gagamitin na lang ang OFFLINE_ONLY value na nasa source .env (walang override)."
-    );
-    return Promise.resolve(null);
-  }
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    console.log("\nAno bang build ito?");
-    console.log("  [1] Pure Offline        — walang internet, wala talagang CDN attempt/connectivity ping");
-    console.log("  [2] Online/Offline Toggle — normal (CDN + auto connectivity detect, kaya nitong mag-online kung meron)");
-    rl.question("Piliin (1/2): ", (answer) => {
-      rl.close();
-      const choice = answer.trim();
-      if (choice === "1") resolve(true);
-      else if (choice === "2") resolve(false);
-      else {
-        console.log("  [mode] Di-kilalang sagot, default na Online/Offline Toggle (2) ang gagamitin.");
-        resolve(false);
-      }
-    });
-  });
-}
 
 // First-party source to obfuscate (client-side, shipped to the browser).
 //
@@ -317,7 +250,7 @@ function obfuscateInWorker(srcPath, destPath, options) {
  * If no .env is found in the source (e.g. not set up yet), this is a
  * silent no-op — it's not required for the build to run.
  */
-function encryptEnvAndPatchLoader(offlineOnlyOverride) {
+function encryptEnvAndPatchLoader() {
   const envSrcPath = path.join(ROOT, ENV_FILENAME);
   const loaderSrcPath = path.join(ROOT, ENV_LOADER_FILENAME);
 
@@ -328,21 +261,7 @@ function encryptEnvAndPatchLoader(offlineOnlyOverride) {
     return Promise.resolve();
   }
 
-  let plaintext = fs.readFileSync(envSrcPath, "utf8");
-
-  // I-set/palitan ang OFFLINE_ONLY line base sa napiling build mode,
-  // pero ang SOURCE .env mismo ay hindi ginagalaw — sa release copy
-  // (in-memory `plaintext` string) lang ito nangyayari.
-  if (offlineOnlyOverride !== null && offlineOnlyOverride !== undefined) {
-    const line = `OFFLINE_ONLY=${offlineOnlyOverride}`;
-    if (/^OFFLINE_ONLY=.*$/m.test(plaintext)) {
-      plaintext = plaintext.replace(/^OFFLINE_ONLY=.*$/m, line);
-    } else {
-      plaintext += `\n${line}\n`;
-    }
-    console.log(`  [env] OFFLINE_ONLY=${offlineOnlyOverride} (release build lang, hindi nagalaw ang source .env)`);
-  }
-
+  const plaintext = fs.readFileSync(envSrcPath, "utf8");
   const key = crypto.randomBytes(32); // AES-256
   const iv = crypto.randomBytes(12); // GCM standard IV size
 
@@ -427,8 +346,7 @@ async function main() {
   console.log("Building obfuscated release build...");
   const started = Date.now();
 
-  const offlineOnlyOverride = await askOfflineMode();
-  await encryptEnvAndPatchLoader(offlineOnlyOverride);
+  await encryptEnvAndPatchLoader();
 
   const plan = planTree(ROOT, "", { obfuscate: [], copy: [] });
 
