@@ -2549,17 +2549,29 @@ async function attemptRelayFeatureSync() {
     const localFeatureIds = Object.keys(latestData.tokens);
 
     const removedFeatures = [];
-    if (localFeatureIds.length === 0) {
-        return { attempted: true, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures };
-    }
 
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/check-feature-status`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            // Ipinapasa pa rin ang call na ito kahit walang laman ang
+            // localFeatureIds (dating skinip nang buo dati) — dahil dito
+            // rin dumadaan ang "🔄 I-check ngayon" (forceIntegrityCheck)
+            // na pindot ng admin sa integrity monitor, na dapat maabot
+            // ng device kahit wala pa itong kahit isang naka-unlock na
+            // feature.
             body: JSON.stringify({ installationId, featureIds: localFeatureIds })
         });
         const relayData = await parseRelayResponse(relayRes);
+
+        if (relayData.success && relayData.forceIntegrityCheck) {
+            // Hindi na hinihintay ang katapusan nito (fire-and-forget) —
+            // ang layunin lang dito ay i-trigger AGAD ang integrity
+            // check-in sa halip na hintayin pa ang normal na 55s/24h
+            // schedule; ang resulta ay makikita pa rin sa admin panel sa
+            // pamamagitan ng normal na /relay/integrity-checkin flow.
+            runRelayIntegrityCheckin().catch(() => {});
+        }
 
         if (relayData.success && relayData.statuses && typeof relayData.statuses === 'object') {
             for (const [featureId, info] of Object.entries(relayData.statuses)) {
