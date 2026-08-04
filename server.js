@@ -1975,6 +1975,145 @@ app.get('/api/relay-backup/status', (req, res) => {
     res.json({ success: true, ...relayBackupStatus });
 });
 
+// ====================================================================
+// FILE INTEGRITY CHECK-IN ("git status" papuntang RELAY) — pana-panahon
+// na kinukuha ang sha256 hash ng BAWAT file sa sarili nitong install
+// folder (maliban sa runtime/data na inaasahang iba-iba talaga bawat
+// device — .env, .env.key, database/, node_modules/, uploads_tmp/,
+// .git/, release/, *.log), at ipinapadala papunta sa RELAY
+// (/relay/integrity-checkin) kasama ang APP_VERSION nito. Doon
+// kino-compare ito sa baseline manifest ng version na iyon (kinuha
+// mismo mula sa eksaktong release na binuo/ipinadala para dito), at
+// nakikita sa RELAY admin panel (parang "git status") kung may na-edit
+// o na-delete na file ang client — naka-red-flag doon.
+//
+// SADYANG GAMIT ang PAREHONG exclude list (SELF_UPDATE_PRESERVE, tingnan
+// sa ibaba ng file na ito) para hindi mag-report ng maling "modified/
+// deleted" para lang sa runtime data na normal namang iba-iba bawat
+// device.
+// --------------------------------------------------------------
+const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
+    '.env', '.env.key', 'database', 'node_modules', 'uploads_tmp',
+    '.git', 'release', 'cf.log', 'server.log'
+]);
+const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
+
+function computeInstallDirManifest() {
+    const manifest = {};
+    function walk(dir, relBase) {
+        let entries;
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch (err) {
+            return;
+        }
+        for (const entry of entries) {
+            if (INTEGRITY_SCAN_EXCLUDE_NAMES.has(entry.name)) continue;
+            const full = path.join(dir, entry.name);
+            const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) {
+                walk(full, rel);
+                continue;
+            }
+            if (INTEGRITY_SCAN_EXCLUDE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+            try {
+                const hash = crypto.createHash('sha256');
+                hash.update(fs.readFileSync(full));
+                manifest[rel] = hash.digest('hex');
+            } catch (err) {
+                // Hindi mababasa — laktawan na lang, hindi dapat
+                // pabagsakin ang buong check-in dahil dito.
+            }
+        }
+    }
+    walk(__dirname, '');
+    return manifest;
+}
+
+// "Dot" status para dito, kaparehong pattern ng relayBackupStatus sa
+// itaas — read-only lang, kung kailangan balang araw ng isang UI widget.
+const relayIntegrityStatus = {
+    state: 'orange', // 'orange' = waiting/hindi pa nagawa, 'green' = malinis, 'red' = may naka-flag
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastError: null,
+    flagged: false,
+    modifiedCount: 0,
+    deletedCount: 0,
+    addedCount: 0
+};
+
+async function runRelayIntegrityCheckin() {
+    if (getConnectivityMode() === 'offline') {
+        relayIntegrityStatus.state = 'orange';
+        relayIntegrityStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
+        return;
+    }
+    if (!(await isInternetLikelyUp())) {
+        relayIntegrityStatus.state = 'orange';
+        relayIntegrityStatus.lastError = 'Walang internet connection na na-detect.';
+        return;
+    }
+    if (!RELAY_API_KEY) {
+        relayIntegrityStatus.state = 'orange';
+        relayIntegrityStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
+        return;
+    }
+
+    relayIntegrityStatus.lastAttemptAt = Date.now();
+
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const files = computeInstallDirManifest();
+
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/integrity-checkin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                version: APP_VERSION,
+                files
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+
+        if (!relayData.success) {
+            relayIntegrityStatus.state = 'orange';
+            relayIntegrityStatus.lastError = relayData.message || 'Tinanggihan ng relay ang integrity check-in.';
+            return;
+        }
+
+        relayIntegrityStatus.lastSuccessAt = Date.now();
+        relayIntegrityStatus.lastError = null;
+        relayIntegrityStatus.flagged = !!relayData.flagged;
+        relayIntegrityStatus.modifiedCount = relayData.modifiedCount || 0;
+        relayIntegrityStatus.deletedCount = relayData.deletedCount || 0;
+        relayIntegrityStatus.addedCount = relayData.addedCount || 0;
+        relayIntegrityStatus.state = relayData.flagged ? 'red' : 'green';
+        console.log(
+            relayData.flagged
+                ? `🚩 RELAY_INTEGRITY: may nabago/nabura na file na na-detect (installationId: ${installationId}).`
+                : `✅ RELAY_INTEGRITY: malinis, walang tampering na na-detect (installationId: ${installationId}).`
+        );
+    } catch (err) {
+        relayIntegrityStatus.state = 'orange';
+        relayIntegrityStatus.lastError = err.message;
+        console.error('⚠️ RELAY_INTEGRITY: hindi ma-abot ang relay para sa check-in:', err.message);
+    }
+}
+
+// Konting delay (55s) mula sa startup para makasunod sa backup sync
+// (40s) at hindi magsabay sa parehong segundo — every 24h din pagkatapos.
+if (!AUTO_BACKUP_DISABLED) {
+    setTimeout(runRelayIntegrityCheckin, 55 * 1000);
+    setInterval(runRelayIntegrityCheckin, 24 * 60 * 60 * 1000).unref();
+}
+
+app.get('/api/relay-integrity/status', (req, res) => {
+    res.json({ success: true, ...relayIntegrityStatus });
+});
+
 // --------------------------------------------------------------
 // GET/POST /api/connectivity-mode
 // Ang manual na Online/Offline TOGGLE na makikita ni client sa UI
