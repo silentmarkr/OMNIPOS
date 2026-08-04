@@ -1,8 +1,10 @@
 {
   "name": "omnipos",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "scripts": {
     "build:release": "node build-release.js",
+    "build:release:offline": "node build-release.js --mode=offline",
+    "build:release:toggle": "node build-release.js --mode=toggle",
     "verify:gmail": "node verify-gmail-connection.js"
   },
   "dependencies": {

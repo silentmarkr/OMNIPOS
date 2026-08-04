@@ -66,19 +66,27 @@ const SHELL_ASSETS = [...SHELL_FILES, ...VENDOR_ASSETS];
 // unang successful load.
 const FA_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
 
+// OFFLINE_ONLY: ipinapasa ito bilang ?offlineOnly=true/false query string
+// nung nag-register ang page (tingnan sa index.html/app.js). Kapag
+// offline-only ang deployment na ito, walang saysay/wasted attempt pa
+// ang pag-precache patungong CDN — lokal na css/all.min.css lang ang
+// gamit dito, kaya laktawan na lang ito nang buo.
+const IS_OFFLINE_ONLY = new URL(self.location.href).searchParams.get('offlineOnly') === 'true';
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) =>
       cache.addAll(SHELL_ASSETS)
         .catch((err) => console.warn('[SW] Pre-cache warning (shell):', err))
-        .then(() =>
+        .then(() => {
+          if (IS_OFFLINE_ONLY) return; // walang CDN attempt kapag purely offline
           // Hiwalay na try/catch para dito: kung mabigo ang CDN habang
           // nag-i-install (offline, blocked CDN, atbp.), hindi dapat
           // masira ang buong pre-cache ng app shell dahil lang doon —
           // may local fallback naman ang FA css.
-          cache.add(new Request(FA_CDN_URL, { mode: 'cors' }))
-            .catch((err) => console.warn('[SW] Pre-cache warning (FA CDN):', err))
-        )
+          return cache.add(new Request(FA_CDN_URL, { mode: 'cors' }))
+            .catch((err) => console.warn('[SW] Pre-cache warning (FA CDN):', err));
+        })
     )
   );
   self.skipWaiting();
