@@ -12,6 +12,7 @@ const ExcelJS = require('exceljs');
 const multer = require('multer');
 const { execSync } = require('child_process');
 const { readData, writeData, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getBackupStatus } = require('./db');
+const webauthn = require('./webauthn');
 
 try {
     // Dati: process.loadEnvFile(); — pinalitan para sumuporta sa
@@ -426,7 +427,7 @@ function extractToken(req) {
     return req.headers['x-auth-token'] ||'';
 }
 
-const PUBLIC_API_PATHS = new Set(['/api/auth/login']);
+const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify']);
 
 app.use((req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
@@ -3452,6 +3453,359 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(401).json({ success: false, message:'Maling username o password.' });
 });
 
+// ====================================================================
+// FINGERPRINT / BIOMETRIC LOGIN (WebAuthn — platform authenticator)
+// ====================================================================
+// MAHALAGA: HINDI ito nagbabasa/naka-imbak ng anumang aktwal na
+// fingerprint scan. Ang biometric scan mismo (fingerprint/Face ID) ay
+// ginagawa at pinananatili ng OS ng mobile phone — dito lang tayo
+// naka-imbak ng isang PUBLIC KEY na ni-release ng phone matapos
+// matagumpay na ma-verify ang may-ari nito (parang "digital na
+// susi" na naka-lock sa loob ng device, hindi ang fingerprint mismo).
+//
+// Dahil ang navigator.credentials API ay kailangan ng "secure context"
+// (HTTPS, o eksaktong "localhost"), gagana lang ang feature na ito
+// kapag ang OmniPOS ay binuksan mismo sa parehong telepono na
+// pinaghohostan nito (http://localhost:3000) o sa cloud (HTTPS/Render).
+// Kaya nga "sa mobile device lang" makikita ang setting — tama ito.
+//
+// Dalawang flow:
+//   1. REGISTRATION (habang naka-login na) — nagpapa-enroll ng
+//      fingerprint bilang alternatibong paraan ng pag-login SA DEVICE
+//      NA ITO. /register-options -> /register-verify
+//   2. LOGIN (bago pa naka-login) — /login-options -> /login-verify
+// ====================================================================
+
+const WEBAUTHN_CHALLENGE_TTL_MS = 2 * 60 * 1000;
+const WEBAUTHN_REGISTER_CHALLENGES = new Map(); // username(lowercase) -> { challenge, expiresAt }
+const WEBAUTHN_LOGIN_CHALLENGES = new Map();    // challenge -> { username, expiresAt }
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of WEBAUTHN_REGISTER_CHALLENGES.entries()) if (now > v.expiresAt) WEBAUTHN_REGISTER_CHALLENGES.delete(k);
+    for (const [k, v] of WEBAUTHN_LOGIN_CHALLENGES.entries()) if (now > v.expiresAt) WEBAUTHN_LOGIN_CHALLENGES.delete(k);
+}, 60 * 1000).unref();
+
+function webauthnRpId(req) {
+    return req.hostname;
+}
+function webauthnExpectedOrigin(req) {
+    return `${req.protocol}://${req.get('host')}`;
+}
+
+// ---- 1a. Register options: bubuo ng challenge para sa PAG-ENROLL ----
+app.post('/api/auth/webauthn/register-options', (req, res) => {
+    const username = req.authUser.username;
+    const users = readData(FILE_USERS);
+    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    if (!user) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
+
+    const challenge = webauthn.randomChallenge();
+    WEBAUTHN_REGISTER_CHALLENGES.set(username.toLowerCase(), { challenge, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
+
+    const existingCredentials = (user.webauthnCredentials || []).map(c => ({ id: c.id, type:'public-key' }));
+
+    res.json({
+        success: true,
+        options: {
+            challenge,
+            rp: { name:'OmniPOS', id: webauthnRpId(req) },
+            user: {
+                id: Buffer.from(user.username, 'utf8').toString('base64url'),
+                name: user.username,
+                displayName: user.username
+            },
+            pubKeyCredParams: [
+                { alg: -7, type:'public-key' },   // ES256
+                { alg: -257, type:'public-key' }  // RS256
+            ],
+            authenticatorSelection: {
+                authenticatorAttachment:'platform',
+                // 'required' (hindi 'preferred'): dapat DISCOVERABLE ang
+                // credential (naka-imbak ang buong reference sa loob mismo
+                // ng authenticator/phone) — ito ang nagpapagana ng
+                // USERNAMELESS login sa ibaba: kayang makilala ng OS kung
+                // sino ang naka-enroll na account BASE LANG SA FINGERPRINT,
+                // hindi na kailangang i-type muna ang username.
+                residentKey:'required',
+                userVerification:'required'
+            },
+            attestation:'none',
+            timeout: 60000,
+            excludeCredentials: existingCredentials
+        }
+    });
+});
+
+// ---- 1b. Register verify: i-che-check ang WebAuthn credential na
+//          ibinalik ng browser (navigator.credentials.create()) at
+//          ise-save ang PUBLIC KEY lamang sa account ng user. ----
+app.post('/api/auth/webauthn/register-verify', (req, res) => {
+    try {
+        const username = req.authUser.username;
+        const { credentialId, clientDataJSON, attestationObject, deviceLabel } = req.body || {};
+        if (!credentialId || !clientDataJSON || !attestationObject) {
+            return res.status(400).json({ success: false, message:'Kulang ang datos mula sa authenticator.' });
+        }
+
+        const stored = WEBAUTHN_REGISTER_CHALLENGES.get(username.toLowerCase());
+        if (!stored || Date.now() > stored.expiresAt) {
+            return res.status(400).json({ success: false, message:'Nag-expire na ang enrollment request. Subukan muli.' });
+        }
+
+        const clientData = JSON.parse(Buffer.from(clientDataJSON,'base64url').toString('utf8'));
+        if (clientData.type !== 'webauthn.create') {
+            return res.status(400).json({ success: false, message:'Mali ang uri ng WebAuthn response.' });
+        }
+        if (clientData.challenge !== stored.challenge) {
+            return res.status(400).json({ success: false, message:'Hindi tugma ang challenge (posibleng expired o replayed na request).' });
+        }
+        if (clientData.origin !== webauthnExpectedOrigin(req)) {
+            return res.status(400).json({ success: false, message:'Hindi tugmang origin ang WebAuthn response.' });
+        }
+
+        const attestationBuf = Buffer.from(attestationObject,'base64url');
+        const { value: attObj } = webauthn.decodeCbor(attestationBuf, 0);
+        const authDataBuf = Buffer.from(attObj.get('authData'));
+        const parsed = webauthn.parseAuthenticatorData(authDataBuf);
+
+        const expectedRpIdHash = webauthn.sha256(Buffer.from(webauthnRpId(req),'utf8'));
+        if (Buffer.compare(parsed.rpIdHash, expectedRpIdHash) !== 0) {
+            return res.status(400).json({ success: false, message:'Hindi tugmang RP ID (site) ang credential.' });
+        }
+        if (!parsed.flags.userPresent || !parsed.flags.userVerified) {
+            return res.status(400).json({ success: false, message:'Hindi kumpirmadong biometric verification (kailangan tunay na fingerprint/Face ID, hindi lang pag-tap).' });
+        }
+        if (!parsed.credentialPublicKey) {
+            return res.status(400).json({ success: false, message:'Walang natanggap na public key mula sa authenticator.' });
+        }
+
+        const { keyObject } = webauthn.coseKeyToPublicKeyObject(parsed.credentialPublicKey);
+        const publicKeyJwk = keyObject.export({ format:'jwk' });
+        const credIdB64 = Buffer.from(parsed.credentialId).toString('base64url');
+
+        const users = readData(FILE_USERS);
+        // Siguraduhing hindi na dating naka-rehistro kahit saang account ang
+        // eksaktong credential ID na ito (dapat kaisa-isa).
+        const alreadyUsed = users.some(u => (u.webauthnCredentials || []).some(c => c.id === credIdB64));
+        if (alreadyUsed) {
+            return res.status(409).json({ success: false, message:'Naka-rehistro na ang fingerprint na ito.' });
+        }
+
+        const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+        if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
+
+        if (!Array.isArray(users[userIndex].webauthnCredentials)) users[userIndex].webauthnCredentials = [];
+        users[userIndex].webauthnCredentials.push({
+            id: credIdB64,
+            publicKeyJwk,
+            counter: parsed.counter,
+            deviceLabel: (deviceLabel || parseDeviceInfo(req.headers['user-agent']).label || 'Mobile device').slice(0, 80),
+            createdAt: new Date().toLocaleString('en-US', { timeZone:'Asia/Manila' })
+        });
+        writeData(FILE_USERS, users);
+        WEBAUTHN_REGISTER_CHALLENGES.delete(username.toLowerCase());
+
+        logAction(username,`Nag-enable ng Fingerprint/Biometric Login (${users[userIndex].webauthnCredentials.at(-1).deviceLabel})`);
+        res.json({ success: true, message:'Na-enable ang Fingerprint Login sa device na ito.' });
+    } catch (err) {
+        console.error('webauthn register-verify error:', err);
+        res.status(400).json({ success: false, message:'Hindi ma-verify ang fingerprint enrollment. Subukan muli.' });
+    }
+});
+
+// ---- 1c. List / remove enrolled biometric credentials ----
+app.get('/api/auth/webauthn/credentials', (req, res) => {
+    const users = readData(FILE_USERS);
+    const user = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    const creds = ((user && user.webauthnCredentials) || []).map(c => ({ id: c.id, deviceLabel: c.deviceLabel, createdAt: c.createdAt }));
+    res.json({ success: true, credentials: creds });
+});
+
+app.delete('/api/auth/webauthn/credentials/:id', (req, res) => {
+    const users = readData(FILE_USERS);
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
+
+    const before = (users[userIndex].webauthnCredentials || []).length;
+    users[userIndex].webauthnCredentials = (users[userIndex].webauthnCredentials || []).filter(c => c.id !== req.params.id);
+    if (users[userIndex].webauthnCredentials.length === before) {
+        return res.status(404).json({ success: false, message:'Hindi mahanap ang fingerprint credential na iyon.' });
+    }
+    writeData(FILE_USERS, users);
+    logAction(req.authUser.username,'Inalis ang isang Fingerprint/Biometric Login credential');
+    res.json({ success: true, message:'Naalis na ang fingerprint credential.' });
+});
+
+// ---- 2a. Login options: bubuo ng challenge para makapag-LOGIN gamit
+//          ang fingerprint (bago pa man magkaroon ng session). Kung
+//          walang ibinigay na username, USERNAMELESS mode ito — ang
+//          OS/browser mismo ng phone ang magpapakita ng listahan ng
+//          naka-enroll na account dito (o direktang gagamitin kung
+//          iisa lang), batay sa NAKA-SAVE na resident credential sa
+//          device — hindi na kailangang i-type ang username. ----
+app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options', 20, 10 * 60 * 1000), (req, res) => {
+    const username = ((req.body && req.body.username) || '').toString().trim();
+    const challenge = webauthn.randomChallenge();
+
+    if (!username) {
+        // USERNAMELESS: hindi natin alam kung sino pa lang ito — ang
+        // credentialId/userHandle na ibabalik ng authenticator mismo
+        // (pagkatapos ng fingerprint scan) ang siyang gagamitin sa
+        // /login-verify para tukuyin kung sinong account ito.
+        WEBAUTHN_LOGIN_CHALLENGES.set(challenge, { username: null, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
+        return res.json({
+            success: true,
+            challenge,
+            rpId: webauthnRpId(req),
+            userVerification:'required',
+            timeout: 60000,
+            allowCredentials: [] // sadyang blangko — nagpapagana ng discoverable/usernameless picker sa OS
+        });
+    }
+
+    const users = readData(FILE_USERS);
+    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    const credentials = (user && user.webauthnCredentials) || [];
+    if (!user || credentials.length === 0) {
+        return res.status(404).json({ success: false, message:'Walang naka-enable na Fingerprint Login para sa account/device na ito.' });
+    }
+
+    WEBAUTHN_LOGIN_CHALLENGES.set(challenge, { username: user.username, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
+
+    res.json({
+        success: true,
+        challenge,
+        rpId: webauthnRpId(req),
+        userVerification:'required',
+        timeout: 60000,
+        allowCredentials: credentials.map(c => ({ id: c.id, type:'public-key' }))
+    });
+});
+
+// ---- 2b. Login verify: i-che-check ang assertion (navigator.credentials.get())
+//          gamit ang naka-imbak na public key, tapos gagawa ng session
+//          — pareho ang resulta sa /api/auth/login kapag successful.
+//          Kung USERNAMELESS (walang naka-bind na username sa
+//          challenge), ang credentialId/userHandle na dala ng assertion
+//          ang gagamitin para tukuyin kung sinong account ito. ----
+app.post('/api/auth/webauthn/login-verify', async (req, res) => {
+    const { credentialId, clientDataJSON, authenticatorData, signature, userHandle } = req.body || {};
+    if (!credentialId || !clientDataJSON || !authenticatorData || !signature) {
+        return res.status(400).json({ success: false, message:'Kulang ang datos mula sa authenticator.' });
+    }
+
+    let clientData;
+    try {
+        clientData = JSON.parse(Buffer.from(clientDataJSON,'base64url').toString('utf8'));
+    } catch {
+        return res.status(400).json({ success: false, message:'Sirang WebAuthn response.' });
+    }
+
+    const stored = WEBAUTHN_LOGIN_CHALLENGES.get(clientData.challenge);
+    if (!stored || Date.now() > stored.expiresAt) {
+        return res.status(400).json({ success: false, message:'Nag-expire na ang login request. Subukan muli.' });
+    }
+
+    // Tukuyin kung sinong account ito BAGO pa man tumakbo ang rate-limit/
+    // device-check gates (kailangan nila ng username). Kung USERNAMELESS
+    // (walang naka-bind na username mula sa /login-options), hahanapin
+    // ang may-ari base lang sa credentialId na dala ng authenticator
+    // mismo — ito mismo ang "hindi na kailangang i-type ang username"
+    // na bahagi ng feature.
+    const users = readData(FILE_USERS);
+    let userIndex = -1;
+    let credIndex = -1;
+
+    if (stored.username) {
+        userIndex = users.findIndex(u => u.username.toLowerCase() === stored.username.toLowerCase());
+        if (userIndex !== -1) {
+            credIndex = (users[userIndex].webauthnCredentials || []).findIndex(c => c.id === credentialId);
+        }
+    } else {
+        for (let i = 0; i < users.length; i++) {
+            const idx = (users[i].webauthnCredentials || []).findIndex(c => c.id === credentialId);
+            if (idx !== -1) { userIndex = i; credIndex = idx; break; }
+        }
+    }
+
+    if (userIndex === -1 || credIndex === -1) {
+        return res.status(401).json({ success: false, message:'Hindi na naka-rehistro ang fingerprint na ito. Mag-enroll muli sa Profile settings.' });
+    }
+
+    const username = users[userIndex].username;
+
+    // Sanity check lang (hindi kritikal): kung may userHandle na dala ang
+    // assertion, dapat tumutugma ito sa base64url(username) na itinakda
+    // natin noong pag-enroll.
+    if (userHandle) {
+        const expectedHandle = Buffer.from(username,'utf8').toString('base64url');
+        if (userHandle !== expectedHandle) {
+            return res.status(401).json({ success: false, message:'Hindi tugmang account ang fingerprint na ito.' });
+        }
+    }
+
+    // Parehong anti-brute-force at anti-clone gates gaya ng /api/auth/login,
+    // para hindi maging bypass ang fingerprint login sa mga proteksyong iyon.
+    req.body.username = username;
+    if (!checkLoginRateLimit(req, res, 5, 30, LOGIN_RATE_LIMIT_WINDOW_MS)) return;
+
+    const deviceCheck = await checkDeviceBeforeLogin({ username });
+    if (!deviceCheck.allowed) {
+        return res.status(403).json({ success: false, deviceBlocked: true, message: deviceCheck.message });
+    }
+    recordLoginAttempt(req, LOGIN_RATE_LIMIT_WINDOW_MS);
+
+    try {
+        if (clientData.type !== 'webauthn.get') {
+            return res.status(400).json({ success: false, message:'Mali ang uri ng WebAuthn response.' });
+        }
+        if (clientData.origin !== webauthnExpectedOrigin(req)) {
+            return res.status(400).json({ success: false, message:'Hindi tugmang origin ang WebAuthn response.' });
+        }
+
+        const cred = users[userIndex].webauthnCredentials[credIndex];
+        const authDataBuf = Buffer.from(authenticatorData,'base64url');
+        const parsed = webauthn.parseAuthenticatorData(authDataBuf);
+
+        const expectedRpIdHash = webauthn.sha256(Buffer.from(webauthnRpId(req),'utf8'));
+        if (Buffer.compare(parsed.rpIdHash, expectedRpIdHash) !== 0) {
+            return res.status(401).json({ success: false, message:'Hindi tugmang RP ID (site) ang credential.' });
+        }
+        if (!parsed.flags.userPresent || !parsed.flags.userVerified) {
+            return res.status(401).json({ success: false, message:'Hindi kumpirmadong biometric verification.' });
+        }
+
+        const clientDataHash = webauthn.sha256(Buffer.from(clientDataJSON,'base64url'));
+        const signedData = Buffer.concat([authDataBuf, clientDataHash]);
+        const keyObject = crypto.createPublicKey({ key: cred.publicKeyJwk, format:'jwk' });
+        const sigOk = webauthn.verifySignature(keyObject, signedData, Buffer.from(signature,'base64url'));
+        if (!sigOk) {
+            return res.status(401).json({ success: false, message:'Hindi ma-verify ang fingerprint signature.' });
+        }
+
+        // Anti-clone/anti-replay counter check — kung parehong may
+        // counter support ang authenticator (hindi laging 0), dapat
+        // laging TUMATAAS ang bagong counter kaysa sa huling na-save.
+        if (!(parsed.counter === 0 && cred.counter === 0) && parsed.counter <= cred.counter) {
+            return res.status(401).json({ success: false, message:'Kahina-hinalang paulit-ulit na fingerprint signature (posibleng cloned authenticator). Mag-login gamit ang password.' });
+        }
+        cred.counter = parsed.counter;
+        writeData(FILE_USERS, users);
+        WEBAUTHN_LOGIN_CHALLENGES.delete(clientData.challenge);
+
+        const user = users[userIndex];
+        logAction(user.username,`Naka-login gamit ang Fingerprint/Biometric Login (${cred.deviceLabel || 'device'})`);
+
+        const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req));
+        const permissions = getPermissionsForRole(user.role);
+        return res.json({ success: true, user: { username: user.username, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
+    } catch (err) {
+        console.error('webauthn login-verify error:', err);
+        return res.status(400).json({ success: false, message:'Hindi ma-verify ang fingerprint login. Subukan muli o gumamit ng password.' });
+    }
+});
+
 app.post('/api/auth/logout', (req, res) => {
     if (req.authToken) {
         destroySession(req.authToken);
@@ -4388,7 +4742,7 @@ app.get('/api/logs', requirePermission('logs'), (req, res) => {
 app.get('/api/users', requirePermission('users'), (req, res) => {
     const users = readData(FILE_USERS);
 
-    const safeUsers = users.map(({ password, ...rest }) => rest);
+    const safeUsers = users.map(({ password, webauthnCredentials, ...rest }) => rest);
     res.json(safeUsers);
 });
 

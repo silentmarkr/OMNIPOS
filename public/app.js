@@ -154,6 +154,252 @@ function escapeHtml(value) {
 }
 
 /* --------------------------------------------------------------
+   FINGERPRINT / BIOMETRIC LOGIN (WebAuthn — platform authenticator)
+   -----------------------------------------------------------------
+   Gumagamit ito ng NAKA-SAVE NANG FINGERPRINT SA SETTINGS MISMO NG
+   MOBILE PHONE (OS-level biometric — Android BiometricPrompt / iOS
+   Face ID-Touch ID) sa pamamagitan ng built-in na WebAuthn API ng
+   browser. Hindi kailanman umaalis sa telepono ang aktwal na
+   fingerprint scan — isang cryptographic key lang ang ipinapadala
+   papunta sa server, kaya hindi ito "nakikita"/naka-imbak ng OmniPOS.
+
+   Dalawang dahilan kung bakit "mobile device lang makikita ang
+   setting na biometric login":
+     1. Feature-detect: mobile UA lang + may platform authenticator.
+     2. WebAuthn ay nangangailangan ng "secure context" (HTTPS, o
+        eksaktong "localhost") — gagana lang ito kapag binuksan ang
+        OmniPOS mismo sa parehong telepono na nagho-host nito
+        (http://localhost:3000), o sa Cloud/HTTPS deployment.
+   -------------------------------------------------------------- */
+
+function b64urlToBuf(b64url) {
+    let b64 = String(b64url).replace(/-/g,'+').replace(/_/g,'/');
+    while (b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+}
+
+function bufToB64url(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin ='';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function isBiometricLoginAvailable() {
+    const isMobileDeviceUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (!isMobileDeviceUA) return false;
+    if (!window.isSecureContext) return false;
+    if (!window.PublicKeyCredential || !navigator.credentials) return false;
+    try {
+        return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (e) {
+        return false;
+    }
+}
+
+// I-tsek at ipakita/itago ang "Login with Fingerprint" button sa login screen.
+(async function initBiometricLoginButton() {
+    const btn = document.getElementById('biometric-login-btn');
+    if (!btn) return;
+    const available = await isBiometricLoginAvailable();
+    // Ipinapakita lang ang button kung may platform authenticator ANG DEVICE
+    // NA ITO, kahit wala pang na-e-enroll — kapag tinapik nang walang
+    // na-enroll, magpapakita na lang ng malinaw na mensahe (tingnan sa ibaba).
+    btn.style.display = available ?'flex' :'none';
+})();
+
+async function loginWithBiometric() {
+    const errorBanner = document.getElementById('login-error');
+
+    try {
+        // USERNAMELESS: walang ipinapadalang username — ang telepono
+        // mismo (Android/iOS credential picker) ang magpapakita kung
+        // sinong account ang naka-enroll dito, batay sa fingerprint na
+        // ipipiliin/i-scan ng user. Kung iisa lang ang naka-enroll,
+        // direkta na lang itong gagamitin, walang palabas na picker pa.
+        const optRes = await fetchWithTimeout(`${API_URL}/auth/webauthn/login-options`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify({})
+        });
+        const optData = await optRes.json();
+        if (!optData.success) {
+            errorBanner.innerText = optData.message ||'Walang naka-enable na Fingerprint Login dito.';
+            errorBanner.style.display ='block';
+            return;
+        }
+
+        const assertion = await navigator.credentials.get({
+            publicKey: {
+                challenge: b64urlToBuf(optData.challenge),
+                rpId: optData.rpId,
+                timeout: optData.timeout,
+                userVerification: optData.userVerification
+                // SADYANG walang allowCredentials — ito mismo ang
+                // nagpapagana sa OS na magpakita ng discoverable
+                // credentials nito para sa site na ito, sa halip na
+                // mangailangan muna ng specific na credential ID.
+            }
+        });
+
+        const verifyRes = await fetchWithTimeout(`${API_URL}/auth/webauthn/login-verify`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify({
+                credentialId: bufToB64url(assertion.rawId),
+                clientDataJSON: bufToB64url(assertion.response.clientDataJSON),
+                authenticatorData: bufToB64url(assertion.response.authenticatorData),
+                signature: bufToB64url(assertion.response.signature),
+                userHandle: assertion.response.userHandle ? bufToB64url(assertion.response.userHandle) : null
+            })
+        });
+        const data = await verifyRes.json();
+
+        if (data.success) {
+            currentUser = data.user;
+            localStorage.setItem('posa_user', JSON.stringify(currentUser));
+            localStorage.setItem('posa_last_username', currentUser.username);
+            currentPermissions = data.permissions || {};
+            menuRegistry = data.menuRegistry || [];
+            localStorage.setItem('posa_permissions', JSON.stringify(currentPermissions));
+            localStorage.setItem('posa_menu_registry', JSON.stringify(menuRegistry));
+            if (data.token) localStorage.setItem('posa_token', data.token);
+
+            window.__logoutInProgress = false;
+            window.__sessionExpiredShown = false;
+            errorBanner.style.display ='none';
+
+            showMainSystemInterface().catch(err => {
+                console.error('Hindi inaasahang error pagka-login (biometric):', err);
+            });
+        } else {
+            errorBanner.innerText = data.message ||'Nabigo ang Fingerprint Login.';
+            errorBanner.style.display ='block';
+        }
+    } catch (err) {
+        // Ordinaryong pangyayari lang ang pag-cancel ng user sa biometric
+        // prompt — huwag na ipakita bilang error.
+        if (err && (err.name ==='NotAllowedError' || err.name ==='AbortError')) return;
+        console.error(err);
+        errorBanner.innerText ='Nabigo ang Fingerprint Login. Subukan muli o gumamit ng password.';
+        errorBanner.style.display ='block';
+    }
+}
+
+// ---- Pag-enroll/pag-manage ng fingerprint sa loob ng Edit Profile ----
+async function refreshBiometricSection() {
+    const section = document.getElementById('biometric-section');
+    if (!section) return;
+    const available = await isBiometricLoginAvailable();
+    section.style.display = available ?'block' :'none';
+    if (available) loadBiometricDevicesList();
+}
+
+async function loadBiometricDevicesList() {
+    const listEl = document.getElementById('biometric-devices-list');
+    if (!listEl) return;
+    listEl.innerHTML ='<p style="color:#64748b; font-size:0.8rem;">Loading...</p>';
+    try {
+        const res = await authFetch(`${API_URL}/auth/webauthn/credentials`);
+        const data = await res.json();
+        const creds = (data && data.credentials) || [];
+        if (creds.length === 0) {
+            listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">Wala pang naka-enable na fingerprint sa device na ito.</p>';
+            return;
+        }
+        listEl.innerHTML = creds.map(c => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                <div>
+                    <div><i class="fa-solid fa-mobile-screen-button"></i> ${escapeHtml(c.deviceLabel ||'Device')}</div>
+                    <div style="font-size:0.75rem; color:#64748b;">Na-enable: ${escapeHtml(c.createdAt ||'')}</div>
+                </div>
+                <button type="button" class="btn-icon-action delete" title="Alisin" onclick="removeBiometricCredential('${encodeURIComponent(c.id)}')"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error(err);
+        listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">Hindi makuha ang listahan ng fingerprint devices.</p>';
+    }
+}
+
+async function registerBiometricCredential() {
+    try {
+        const optRes = await authFetch(`${API_URL}/auth/webauthn/register-options`, { method:'POST' });
+        const optData = await optRes.json();
+        if (!optData.success) {
+            Swal.fire('Hindi Ma-simulan', optData.message ||'Hindi ma-simulan ang pag-enroll ng fingerprint.','error');
+            return;
+        }
+        const o = optData.options;
+
+        const credential = await navigator.credentials.create({
+            publicKey: {
+                challenge: b64urlToBuf(o.challenge),
+                rp: o.rp,
+                user: { id: b64urlToBuf(o.user.id), name: o.user.name, displayName: o.user.displayName },
+                pubKeyCredParams: o.pubKeyCredParams,
+                authenticatorSelection: o.authenticatorSelection,
+                attestation: o.attestation,
+                timeout: o.timeout,
+                excludeCredentials: (o.excludeCredentials || []).map(c => ({ id: b64urlToBuf(c.id), type: c.type }))
+            }
+        });
+
+        const deviceLabel = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform ||'Mobile device';
+        const verifyRes = await authFetch(`${API_URL}/auth/webauthn/register-verify`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify({
+                credentialId: bufToB64url(credential.rawId),
+                clientDataJSON: bufToB64url(credential.response.clientDataJSON),
+                attestationObject: bufToB64url(credential.response.attestationObject),
+                deviceLabel
+            })
+        });
+        const data = await verifyRes.json();
+        if (data.success) {
+            localStorage.setItem('posa_last_username', currentUser.username);
+            Swal.fire('Na-enable', SYSTEM_CONFIG.getSuccessMessage('Na-enable na ang Fingerprint Login sa device na ito.'),'success');
+            loadBiometricDevicesList();
+        } else {
+            Swal.fire('Hindi Ma-enable', data.message ||'Nabigo ang pag-enable ng Fingerprint Login.','error');
+        }
+    } catch (err) {
+        if (err && (err.name ==='NotAllowedError' || err.name ==='AbortError')) return;
+        console.error(err);
+        Swal.fire('Error','Hindi ma-enable ang Fingerprint Login sa device na ito.','error');
+    }
+}
+
+async function removeBiometricCredential(encodedId) {
+    const confirmResult = await Swal.fire({
+        title:'Alisin ang Fingerprint?',
+        text:'Hindi na ito magagamit para mag-login sa device na ito.',
+        icon:'warning',
+        showCancelButton: true,
+        confirmButtonText:'Alisin',
+        cancelButtonText:'Cancel'
+    });
+    if (!confirmResult.isConfirmed) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/auth/webauthn/credentials/${encodedId}`, { method:'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            loadBiometricDevicesList();
+        } else {
+            Swal.fire('Error', data.message ||'Hindi maalis ang fingerprint.','error');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Error','Hindi maalis ang fingerprint.','error');
+    }
+}
+
+/* --------------------------------------------------------------
    HAPTIC FEEDBACK (vibration sa cellphone kada tap sa POS Terminal)
    -----------------------------------------------------------------
    Gumagamit ito ng built-in na navigator.vibrate() API ng browser.
@@ -2744,6 +2990,7 @@ function openEditProfileModal() {
             :'Note: Ang mga pagbabago sa Profile Picture/Username ay mapupunta muna sa Staff Requests para sa pag-approve ng Admin.';
     }
     document.getElementById('edit-profile-modal').style.display ='flex';
+    refreshBiometricSection();
 }
 
 async function handleEditProfileSubmit(e) {
@@ -2966,6 +3213,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         if (data.success) {
             currentUser = data.user;
             localStorage.setItem('posa_user', JSON.stringify(currentUser));
+            localStorage.setItem('posa_last_username', currentUser.username);
 
             currentPermissions = data.permissions || {};
             menuRegistry = data.menuRegistry || [];

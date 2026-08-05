@@ -261,6 +261,14 @@
                     </div>
                     <button type="submit" class="btn-primary-auth">Sign In</button>
                 </form>
+                <!-- Fingerprint/Biometric Login — gumagamit ng naka-save nang
+                     fingerprint sa SETTINGS mismo ng mobile phone (OS-level).
+                     JS lang ang bahalang mag-toggle ng display nito, at
+                     ipapakita LANG ito kapag: (1) mobile device ang browser,
+                     at (2) may naka-enable nang platform authenticator dito. -->
+                <button type="button" id="biometric-login-btn" class="btn-action-outline" style="display:none; width:100%; margin-top:12px; justify-content:center;" onclick="loginWithBiometric()">
+                    <i class="fa-solid fa-fingerprint"></i> Login with Fingerprint
+                </button>
             </div>
         </div>
     </div>
@@ -1791,6 +1799,20 @@
                     <div class="input-field-group">
                         <label>Confirm New Password</label>
                         <input type="password" id="ep-confirm-password" autocomplete="new-password">
+                    </div>
+                    <!-- Fingerprint/Biometric Login section — mobile device
+                         lang ito ipinapakita (JS-gated), dahil ang naka-save
+                         na fingerprint na ginagamit dito ay nasa SETTINGS ng
+                         mismong mobile phone (OS-level biometric), hindi sa
+                         PC/desktop. -->
+                    <div id="biometric-section" style="display:none;">
+                        <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
+                        <p style="font-weight:700; margin-bottom:4px;"><i class="fa-solid fa-fingerprint"></i> Fingerprint Login <span style="font-weight:400; color:#64748b; font-size:0.8rem;">(device na ito lang)</span></p>
+                        <p style="color:#64748b; font-size:0.8rem; margin:0 0 12px;">Gumagamit ito ng naka-save nang fingerprint sa Settings ng iyong telepono. Hindi kailanman naiimbak o nakikita ng OmniPOS ang aktwal na fingerprint scan.</p>
+                        <div id="biometric-devices-list"></div>
+                        <button type="button" class="btn-action-outline" id="enable-biometric-btn" style="margin-top:8px;" onclick="registerBiometricCredential()">
+                            <i class="fa-solid fa-fingerprint"></i> I-enable ang Fingerprint Login sa device na ito
+                        </button>
                     </div>
                 </div>
                 <div class="modal-footer">
