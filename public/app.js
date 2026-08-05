@@ -3273,6 +3273,26 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 });
 
 function showAuthenticationInterface() {
+    // FIX (login screen hindi lumalabas pagka-manual-logout, kailangan pang
+    // i-refresh ang page): may "has-session" class sa <html> (idinadagdag ng
+    // preload script sa index.html kung may token sa localStorage, para
+    // walang "blink" ng login screen kapag nag-refresh ang isang naka-login
+    // na user) na naka-CSS ganito, may !important:
+    //   html.has-session #auth-view { display: none !important; }
+    //   html.has-session #main-view { display: flex !important; }
+    // Dating dito lang basta nag-toggle ng inline style.display — hindi
+    // naaalis ang "has-session" class mismo. Kaya kahit tama na ang
+    // JS (auth-view -> flex, main-view -> none), dinadaig ito ng CSS rule
+    // sa itaas (!important) hangga't naka-attach pa ang class — kaya
+    // naiiwan/naka-freeze sa main-view ang screen, at kailangan pang
+    // mag-refresh (saka lang mawawala ang class dahil wala nang token sa
+    // localStorage) bago talagang lumabas ang login screen.
+    // AYOS: alisin din dito ang class at ang kaugnay na data-preload-view
+    // attribute (parehong preload-only hints, walang epekto sa auth logic)
+    // tuwing ipapakita ang login screen.
+    document.documentElement.classList.remove('has-session');
+    document.documentElement.removeAttribute('data-preload-view');
+
     document.getElementById('auth-view').style.display ='flex';
     document.getElementById('main-view').style.display ='none';
 }
