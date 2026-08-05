@@ -3494,16 +3494,48 @@ function webauthnExpectedOrigin(req) {
 }
 
 // ---- 1a. Register options: bubuo ng challenge para sa PAG-ENROLL ----
+//
+// ROOT CAUSE FIX ("hindi gumana ang fingerprint registration sa fresh
+// release build / laging may nade-detect na 'naka-rehistro na'"):
+// Dati, ang WebAuthn `user.id` (userHandle) ay DETERMINISTIC — direktang
+// hinango sa base64url(username) (hal. "admin"). Labag ito sa WebAuthn
+// spec (ang user.id ay dapat RANDOM/opaque, HINDI dapat derivable mula
+// sa PII gaya ng username), at nagdudulot ng totoong bug dito: dahil
+// PAREHONG-PAREHO ang default na username ("admin") sa BAWAT bagong
+// customer install, at kadalasang PAREHO rin ang rpId habang nagte-test
+// (hal. parehong localhost, parehong staging/demo domain, parehong
+// telepono ang ginagamit sa pag-demo), ang (rpId, userHandle) pair ay
+// NAGIGING PARE-PAREHO sa MARAMING magkaibang "fresh" na package/install
+// — kaya ang platform authenticator MISMO (ang OS-level passkey manager
+// ng telepono — Android Credential Manager/iOS Keychain), hindi ang
+// server na ito, ang nag-aakalang MAY NAKA-REHISTRO NA itong resident
+// credential dito, kahit walang laman/fresh ang bagong database ng
+// install. Ito ang dahilan kung bakit "laging may nade-detect na
+// naka-rehistro na" kahit fresh ang bawat release build.
+//
+// FIX: gumagawa/gumagamit na tayo ng RANDOM, OPAQUE, PER-ACCOUNT na
+// userHandle (32 random bytes) na naka-imbak sa DB record mismo ng user
+// (`webauthnUserHandle`), sa halip na hinango sa username — kaya laging
+// natatangi ito kahit parehong-pareho ang username/domain sa maraming
+// install. Ginagawa lang ito minsan bawat account (lazy, on first
+// register-options call) at nagpapatuloy pagkatapos, kaya hindi
+// nagbabago ang binding ng mga credential na na-enroll na dati.
 app.post('/api/auth/webauthn/register-options', (req, res) => {
     const username = req.authUser.username;
     const users = readData(FILE_USERS);
-    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-    if (!user) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+    if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
+    const user = users[userIndex];
 
     const challenge = webauthn.randomChallenge();
     WEBAUTHN_REGISTER_CHALLENGES.set(username.toLowerCase(), { challenge, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
 
     const existingCredentials = (user.webauthnCredentials || []).map(c => ({ id: c.id, type:'public-key' }));
+
+    if (!user.webauthnUserHandle) {
+        user.webauthnUserHandle = crypto.randomBytes(32).toString('base64url');
+        writeData(FILE_USERS, users);
+    }
 
     res.json({
         success: true,
@@ -3511,7 +3543,7 @@ app.post('/api/auth/webauthn/register-options', (req, res) => {
             challenge,
             rp: { name:'OmniPOS', id: webauthnRpId(req) },
             user: {
-                id: Buffer.from(user.username, 'utf8').toString('base64url'),
+                id: user.webauthnUserHandle,
                 name: user.username,
                 displayName: user.username
             },
@@ -3736,11 +3768,18 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     const username = users[userIndex].username;
 
     // Sanity check lang (hindi kritikal): kung may userHandle na dala ang
-    // assertion, dapat tumutugma ito sa base64url(username) na itinakda
-    // natin noong pag-enroll.
+    // assertion, dapat tumutugma ito sa random/opaque na webauthnUserHandle
+    // na naka-imbak sa DB record ng account na ito (itinakda noong
+    // pag-enroll — see /register-options). HINDI na ito hinahango mula sa
+    // username (dating bug — tingnan ang komento sa /register-options).
+    // BACKWARD-COMPAT: kung walang naka-imbak na webauthnUserHandle ang
+    // account (naka-enroll ito BAGO ang fix na ito), laktawan na lang ang
+    // sanity check na ito — ang credentialId lookup + signature
+    // verification sa ibaba na ang sapat/mapagkakatiwalaang pagkakakilanlan,
+    // kaya hindi na kailangang pilitin ang legacy account na mag-re-enroll.
     if (userHandle) {
-        const expectedHandle = Buffer.from(username,'utf8').toString('base64url');
-        if (userHandle !== expectedHandle) {
+        const expectedHandle = users[userIndex].webauthnUserHandle;
+        if (expectedHandle && userHandle !== expectedHandle) {
             return res.status(401).json({ success: false, message:'Hindi tugmang account ang fingerprint na ito.' });
         }
     }
