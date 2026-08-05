@@ -230,7 +230,7 @@ function checkLoginRateLimit(req, res, maxAttemptsPerAccount, maxAttemptsPerIp, 
         res.setHeader('Retry-After', retryAfterSec);
         res.status(429).json({
             success: false,
-            message: `Sobra na sa allowed login attempts mula sa terminal na ito. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`
+            message: `Too many login attempts from this terminal. Please try again in ${retryAfterSec} seconds.`
         });
         return false;
     }
@@ -243,7 +243,7 @@ function checkLoginRateLimit(req, res, maxAttemptsPerAccount, maxAttemptsPerIp, 
             res.setHeader('Retry-After', retryAfterSec);
             res.status(429).json({
                 success: false,
-                message: `Sobra na sa allowed attempts para sa account na '${username}'. Subukan muli pagkatapos ng ${retryAfterSec} segundo. Hindi naapektuhan ang ibang account.`
+                message: `Too many attempts for account '${username}'. Please try again in ${retryAfterSec} seconds. Other accounts are not affected.`
             });
             return false;
         }
@@ -1791,7 +1791,7 @@ async function checkDeviceBeforeLogin({ username } = {}) {
     if (!result.allowed) {
         return {
             allowed: false,
-            message: 'Naka-log na ang device na ito sa developer/store owner. Maghintay ng authorization (Allow) bago ito makapag-login. Kontakin ang developer/store owner.'
+            message: 'This device has been logged with the developer/store owner. Please wait for authorization (Allow) before it can log in. Contact the developer/store owner.'
         };
     }
 
@@ -3384,7 +3384,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!username || !password) {
         return res.status(400).json({
             success: false,
-            message:'Mangyaring ilagay ang iyong tamang username at password.'
+            message:'Please enter your username and password.'
         });
     }
 
@@ -3450,7 +3450,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
     }
 
-    res.status(401).json({ success: false, message:'Maling username o password.' });
+    res.status(401).json({ success: false, message:'Incorrect username or password.' });
 });
 
 // ====================================================================
@@ -3577,7 +3577,7 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         const username = req.authUser.username;
         const { credentialId, clientDataJSON, attestationObject, deviceLabel } = req.body || {};
         if (!credentialId || !clientDataJSON || !attestationObject) {
-            return res.status(400).json({ success: false, message:'Kulang ang datos mula sa authenticator.' });
+            return res.status(400).json({ success: false, message:'Missing data from the authenticator.' });
         }
 
         const stored = WEBAUTHN_REGISTER_CHALLENGES.get(username.toLowerCase());
@@ -3587,13 +3587,13 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
 
         const clientData = JSON.parse(Buffer.from(clientDataJSON,'base64url').toString('utf8'));
         if (clientData.type !== 'webauthn.create') {
-            return res.status(400).json({ success: false, message:'Mali ang uri ng WebAuthn response.' });
+            return res.status(400).json({ success: false, message:'Invalid WebAuthn response type.' });
         }
         if (clientData.challenge !== stored.challenge) {
             return res.status(400).json({ success: false, message:'Hindi tugma ang challenge (posibleng expired o replayed na request).' });
         }
         if (clientData.origin !== webauthnExpectedOrigin(req)) {
-            return res.status(400).json({ success: false, message:'Hindi tugmang origin ang WebAuthn response.' });
+            return res.status(400).json({ success: false, message:'The WebAuthn response origin does not match.' });
         }
 
         const attestationBuf = Buffer.from(attestationObject,'base64url');
@@ -3603,7 +3603,7 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
 
         const expectedRpIdHash = webauthn.sha256(Buffer.from(webauthnRpId(req),'utf8'));
         if (Buffer.compare(parsed.rpIdHash, expectedRpIdHash) !== 0) {
-            return res.status(400).json({ success: false, message:'Hindi tugmang RP ID (site) ang credential.' });
+            return res.status(400).json({ success: false, message:'The credential RP ID (site) does not match.' });
         }
         if (!parsed.flags.userPresent || !parsed.flags.userVerified) {
             return res.status(400).json({ success: false, message:'Hindi kumpirmadong biometric verification (kailangan tunay na fingerprint/Face ID, hindi lang pag-tap).' });
@@ -3700,7 +3700,7 @@ app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options',
     const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
     const credentials = (user && user.webauthnCredentials) || [];
     if (!user || credentials.length === 0) {
-        return res.status(404).json({ success: false, message:'Walang naka-enable na Fingerprint Login para sa account/device na ito.' });
+        return res.status(404).json({ success: false, message:'Fingerprint Login is not enabled for this account/device.' });
     }
 
     WEBAUTHN_LOGIN_CHALLENGES.set(challenge, { username: user.username, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
@@ -3724,19 +3724,19 @@ app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options',
 app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     const { credentialId, clientDataJSON, authenticatorData, signature, userHandle } = req.body || {};
     if (!credentialId || !clientDataJSON || !authenticatorData || !signature) {
-        return res.status(400).json({ success: false, message:'Kulang ang datos mula sa authenticator.' });
+        return res.status(400).json({ success: false, message:'Missing data from the authenticator.' });
     }
 
     let clientData;
     try {
         clientData = JSON.parse(Buffer.from(clientDataJSON,'base64url').toString('utf8'));
     } catch {
-        return res.status(400).json({ success: false, message:'Sirang WebAuthn response.' });
+        return res.status(400).json({ success: false, message:'Corrupted WebAuthn response.' });
     }
 
     const stored = WEBAUTHN_LOGIN_CHALLENGES.get(clientData.challenge);
     if (!stored || Date.now() > stored.expiresAt) {
-        return res.status(400).json({ success: false, message:'Nag-expire na ang login request. Subukan muli.' });
+        return res.status(400).json({ success: false, message:'The login request has expired. Please try again.' });
     }
 
     // Tukuyin kung sinong account ito BAGO pa man tumakbo ang rate-limit/
@@ -3762,7 +3762,7 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     }
 
     if (userIndex === -1 || credIndex === -1) {
-        return res.status(401).json({ success: false, message:'Hindi na naka-rehistro ang fingerprint na ito. Mag-enroll muli sa Profile settings.' });
+        return res.status(401).json({ success: false, message:'This fingerprint is no longer registered. Please re-enroll it in Profile settings.' });
     }
 
     const username = users[userIndex].username;
@@ -3780,7 +3780,7 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     if (userHandle) {
         const expectedHandle = users[userIndex].webauthnUserHandle;
         if (expectedHandle && userHandle !== expectedHandle) {
-            return res.status(401).json({ success: false, message:'Hindi tugmang account ang fingerprint na ito.' });
+            return res.status(401).json({ success: false, message:'This fingerprint does not match the account.' });
         }
     }
 
@@ -3797,10 +3797,10 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
 
     try {
         if (clientData.type !== 'webauthn.get') {
-            return res.status(400).json({ success: false, message:'Mali ang uri ng WebAuthn response.' });
+            return res.status(400).json({ success: false, message:'Invalid WebAuthn response type.' });
         }
         if (clientData.origin !== webauthnExpectedOrigin(req)) {
-            return res.status(400).json({ success: false, message:'Hindi tugmang origin ang WebAuthn response.' });
+            return res.status(400).json({ success: false, message:'The WebAuthn response origin does not match.' });
         }
 
         const cred = users[userIndex].webauthnCredentials[credIndex];
@@ -3809,10 +3809,10 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
 
         const expectedRpIdHash = webauthn.sha256(Buffer.from(webauthnRpId(req),'utf8'));
         if (Buffer.compare(parsed.rpIdHash, expectedRpIdHash) !== 0) {
-            return res.status(401).json({ success: false, message:'Hindi tugmang RP ID (site) ang credential.' });
+            return res.status(401).json({ success: false, message:'The credential RP ID (site) does not match.' });
         }
         if (!parsed.flags.userPresent || !parsed.flags.userVerified) {
-            return res.status(401).json({ success: false, message:'Hindi kumpirmadong biometric verification.' });
+            return res.status(401).json({ success: false, message:'Biometric verification was not confirmed.' });
         }
 
         const clientDataHash = webauthn.sha256(Buffer.from(clientDataJSON,'base64url'));
@@ -3820,14 +3820,14 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         const keyObject = crypto.createPublicKey({ key: cred.publicKeyJwk, format:'jwk' });
         const sigOk = webauthn.verifySignature(keyObject, signedData, Buffer.from(signature,'base64url'));
         if (!sigOk) {
-            return res.status(401).json({ success: false, message:'Hindi ma-verify ang fingerprint signature.' });
+            return res.status(401).json({ success: false, message:'Unable to verify the fingerprint signature.' });
         }
 
         // Anti-clone/anti-replay counter check — kung parehong may
         // counter support ang authenticator (hindi laging 0), dapat
         // laging TUMATAAS ang bagong counter kaysa sa huling na-save.
         if (!(parsed.counter === 0 && cred.counter === 0) && parsed.counter <= cred.counter) {
-            return res.status(401).json({ success: false, message:'Kahina-hinalang paulit-ulit na fingerprint signature (posibleng cloned authenticator). Mag-login gamit ang password.' });
+            return res.status(401).json({ success: false, message:'Suspicious repeated fingerprint signature (possible cloned authenticator). Please log in with your password.' });
         }
         cred.counter = parsed.counter;
         writeData(FILE_USERS, users);
@@ -3841,7 +3841,7 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         return res.json({ success: true, user: { username: user.username, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
     } catch (err) {
         console.error('webauthn login-verify error:', err);
-        return res.status(400).json({ success: false, message:'Hindi ma-verify ang fingerprint login. Subukan muli o gumamit ng password.' });
+        return res.status(400).json({ success: false, message:'Unable to verify Fingerprint Login. Please try again or use your password.' });
     }
 });
 

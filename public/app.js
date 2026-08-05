@@ -227,7 +227,7 @@ async function loginWithBiometric() {
         });
         const optData = await optRes.json();
         if (!optData.success) {
-            errorBanner.innerText = optData.message ||'Walang naka-enable na Fingerprint Login dito.';
+            errorBanner.innerText = optData.message ||'Fingerprint Login is not enabled here.';
             errorBanner.style.display ='block';
             return;
         }
@@ -276,7 +276,7 @@ async function loginWithBiometric() {
                 console.error('Hindi inaasahang error pagka-login (biometric):', err);
             });
         } else {
-            errorBanner.innerText = data.message ||'Nabigo ang Fingerprint Login.';
+            errorBanner.innerText = data.message ||'Fingerprint Login failed.';
             errorBanner.style.display ='block';
         }
     } catch (err) {
@@ -284,7 +284,7 @@ async function loginWithBiometric() {
         // prompt — huwag na ipakita bilang error.
         if (err && (err.name ==='NotAllowedError' || err.name ==='AbortError')) return;
         console.error(err);
-        errorBanner.innerText ='Nabigo ang Fingerprint Login. Subukan muli o gumamit ng password.';
+        errorBanner.innerText ='Fingerprint Login failed. Please try again or use your password.';
         errorBanner.style.display ='block';
     }
 }
@@ -307,7 +307,7 @@ async function loadBiometricDevicesList() {
         const data = await res.json();
         const creds = (data && data.credentials) || [];
         if (creds.length === 0) {
-            listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">Wala pang naka-enable na fingerprint sa device na ito.</p>';
+            listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">No fingerprint has been enabled on this device yet.</p>';
             return;
         }
         listEl.innerHTML = creds.map(c => `
@@ -321,7 +321,7 @@ async function loadBiometricDevicesList() {
         `).join('');
     } catch (err) {
         console.error(err);
-        listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">Hindi makuha ang listahan ng fingerprint devices.</p>';
+        listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">Unable to load the list of fingerprint devices.</p>';
     }
 }
 
@@ -330,7 +330,7 @@ async function registerBiometricCredential() {
         const optRes = await authFetch(`${API_URL}/auth/webauthn/register-options`, { method:'POST' });
         const optData = await optRes.json();
         if (!optData.success) {
-            Swal.fire('Hindi Ma-simulan', optData.message ||'Hindi ma-simulan ang pag-enroll ng fingerprint.','error');
+            Swal.fire('Unable to Start', optData.message ||'Unable to start fingerprint enrollment.','error');
             return;
         }
         const o = optData.options;
@@ -362,25 +362,25 @@ async function registerBiometricCredential() {
         const data = await verifyRes.json();
         if (data.success) {
             localStorage.setItem('posa_last_username', currentUser.username);
-            Swal.fire('Na-enable', SYSTEM_CONFIG.getSuccessMessage('Na-enable na ang Fingerprint Login sa device na ito.'),'success');
+            Swal.fire('Enabled', SYSTEM_CONFIG.getSuccessMessage('Fingerprint Login has been enabled on this device.'),'success');
             loadBiometricDevicesList();
         } else {
-            Swal.fire('Hindi Ma-enable', data.message ||'Nabigo ang pag-enable ng Fingerprint Login.','error');
+            Swal.fire('Unable to Enable', data.message ||'Failed to enable Fingerprint Login.','error');
         }
     } catch (err) {
         if (err && (err.name ==='NotAllowedError' || err.name ==='AbortError')) return;
         console.error(err);
-        Swal.fire('Error','Hindi ma-enable ang Fingerprint Login sa device na ito.','error');
+        Swal.fire('Error','Unable to enable Fingerprint Login on this device.','error');
     }
 }
 
 async function removeBiometricCredential(encodedId) {
     const confirmResult = await Swal.fire({
-        title:'Alisin ang Fingerprint?',
-        text:'Hindi na ito magagamit para mag-login sa device na ito.',
+        title:'Remove Fingerprint?',
+        text:'This will no longer be usable to log in on this device.',
         icon:'warning',
         showCancelButton: true,
-        confirmButtonText:'Alisin',
+        confirmButtonText:'Remove',
         cancelButtonText:'Cancel'
     });
     if (!confirmResult.isConfirmed) return;
@@ -391,11 +391,11 @@ async function removeBiometricCredential(encodedId) {
         if (data.success) {
             loadBiometricDevicesList();
         } else {
-            Swal.fire('Error', data.message ||'Hindi maalis ang fingerprint.','error');
+            Swal.fire('Error', data.message ||'Unable to remove the fingerprint.','error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Error','Hindi maalis ang fingerprint.','error');
+        Swal.fire('Error','Unable to remove the fingerprint.','error');
     }
 }
 
@@ -3125,13 +3125,13 @@ function attachKeyboardStateWarning(inputId, warningId) {
         }
 
         if (capsLockOn && wrongLayout) {
-            warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Naka-ON ang Caps Lock at posibleng hindi English ang keyboard layout mo';
+            warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Caps Lock is ON and your keyboard layout may not be English';
             warningEl.style.display ='flex';
         } else if (capsLockOn) {
-            warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Naka-ON ang Caps Lock';
+            warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Caps Lock is ON';
             warningEl.style.display ='flex';
         } else if (wrongLayout) {
-            warningEl.innerHTML ='<i class="fa-solid fa-language"></i> Mukhang hindi English ang keyboard layout mo ngayon';
+            warningEl.innerHTML ='<i class="fa-solid fa-language"></i> Your keyboard layout doesn\'t appear to be English right now';
             warningEl.style.display ='flex';
         } else {
             warningEl.style.display ='none';
@@ -3266,7 +3266,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         }
     } catch (err) {
         errorBanner.innerText = (err && err.name ==='AbortError')
-            ?'Hindi ma-reach ang lokal na server. Tiyaking tumatakbo ang OmniPOS server (Termux) at subukan ulit.'
+            ?'Unable to reach the local server. Make sure the OmniPOS server (Termux) is running and try again.'
             :'Server communication breakdown error.';
         errorBanner.style.display ='block';
     }
@@ -5338,13 +5338,13 @@ async function openCustomerPickerForCart() {
         const res = await authFetch(`${API_URL}/customers/for-terminal`);
         if (!res.ok) {
             const errBody = await res.json().catch(() => ({}));
-            Swal.fire('Hindi Makuha ang Customers', errBody.message ||'Hindi makuha ang listahan ng customers.','error');
+            Swal.fire('Unable to Load Customers', errBody.message ||'Unable to load the customer list.','error');
             return;
         }
         customers = await res.json();
         if (!Array.isArray(customers)) customers = [];
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makuha ang listahan ng customers.','error');
+        Swal.fire('Connection Error','Unable to load the customer list.','error');
         return;
     }
     window.__swalCustomers = customers;

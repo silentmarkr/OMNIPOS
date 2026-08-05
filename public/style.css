@@ -3565,6 +3565,12 @@ body.dark-mode .pd-detail-value {
     flex-wrap: nowrap; /* huwag payagang mag-wrap ang 3 button papunta sa
        2 linya sa loob ng bar mismo */
     gap: 8px;
+    /* Explicit na nilagay ito (kahit "flex-start" na naman ang default ng
+       justify-content) para siguradong naka-left align ang 3 button
+       (Create PO / Export CSV / Print) sa loob ng buong-lapad (100%) na
+       freeze bar — hindi ito dependent sa default browser behavior kung
+       sakaling may CSS reset/override sa parent na nagbabago ng default. */
+    justify-content: flex-start;
     position: sticky;
     top: 69px;
     z-index: 20;

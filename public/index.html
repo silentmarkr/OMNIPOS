@@ -819,10 +819,10 @@
                          terminal pa ang pinagbuksan nito, online man o offline/
                          locally connected lang ang cashier na iyon. -->
                     <div class="report-container" id="shift-close-control-panel" style="margin-bottom: 20px; padding: 20px; display:none; border: 1px solid var(--border-color);">
-                        <h3><i class="fa-solid fa-user-shield"></i> Admin/Supervisor Control — Piliin ang Shift na Titingnan/Isasara</h3>
-                        <p class="recovery-desc">Bilang Admin/Supervisor, may kontrol ka sa pagsara ng shift ng ibang cashier kahit ibang device o POS terminal pa ang ginamit nila, online man o offline/locally connected lang sila.</p>
+                        <h3><i class="fa-solid fa-user-shield"></i> Admin/Supervisor Control — Select Shift to View/Close</h3>
+                        <p class="recovery-desc">As an Admin/Supervisor, you can close another cashier's shift even if they used a different device or POS terminal, whether they're online or offline/locally connected.</p>
                         <select id="shift-close-target-cashier" class="shift-close-target-select" onchange="onShiftCloseTargetCashierChange()">
-                            <option value="">— Sariling Shift Ko —</option>
+                            <option value="">— My Own Shift —</option>
                         </select>
                         <div id="shift-close-target-notice" style="margin-top:10px; font-weight:600;"></div>
                     </div>
@@ -838,11 +838,11 @@
                         <ul id="shift-payment-breakdown-list" style="margin-top:15px; padding-left:20px; line-height:2;"></ul>
                     </div>
                     <div class="report-container" style="margin-top: 20px; padding: 20px;">
-                        <h3><i class="fa-solid fa-cash-register"></i> Isara ang Shift (Z-Reading)</h3>
-                        <p class="recovery-desc">Sinasarado nito ang kasalukuyang shift at nagsisimula ng bagong shift period. Hindi na ito maaaring bawiin.</p>
+                        <h3><i class="fa-solid fa-cash-register"></i> Close Shift (Z-Reading)</h3>
+                        <p class="recovery-desc">This closes the current shift and starts a new shift period. This action cannot be undone.</p>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin: 15px 0;">
                             <div>
-                                <label class="input-label-field">Beginning Cash Float <small style="opacity:.7;">(naka-set sa simula ng shift, sarili ng cashier)</small></label>
+                                <label class="input-label-field">Beginning Cash Float <small style="opacity:.7;">(set at the start of the shift by the cashier)</small></label>
                                 <input type="number" id="shift-beginning-cash" class="large-payment-input" placeholder="0.00" readonly>
                             </div>
                             <div>
@@ -851,7 +851,7 @@
                             </div>
                         </div>
                         <textarea id="shift-close-notes" placeholder="Optional notes..." style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-color); margin-bottom:12px;"></textarea>
-                        <button class="btn-confirm-payment-action" onclick="closeCurrentShift()"><i class="fa-solid fa-lock"></i> Isara ang Shift Ngayon</button>
+                        <button class="btn-confirm-payment-action" onclick="closeCurrentShift()"><i class="fa-solid fa-lock"></i> Close Shift Now</button>
                     </div>
                     <div class="report-container" style="margin-top: 20px; padding: 20px;">
                         <h3>Shift History</h3>
@@ -1333,7 +1333,7 @@
                         <div id="faq-ai-result" style="margin-top:16px;"></div>
                     </div>
 
-                    <h3 style="max-width:800px; margin-top:28px;">Karaniwang Tanong (Common Questions)</h3>
+                    <h3 style="max-width:800px; margin-top:28px;">Common Questions</h3>
                     <div class="faq-container" style="max-width: 800px;">
 
                         <details class="faq-item">
@@ -1659,7 +1659,7 @@
                                 <input type="file" id="p-form-photo-camera-input" accept="image/*" capture="environment" style="display:none;" onchange="handleProductPhotoSelect(event)">
                                 <button type="button" class="btn-action-outline" onclick="document.getElementById('p-form-photo-camera-input').click()"><i class="fa-solid fa-camera"></i> Kumuha ng Litrato</button>
                                 <button type="button" class="btn-action-outline" onclick="document.getElementById('p-form-photo-input').click()"><i class="fa-solid fa-image"></i> Pumili sa Gallery</button>
-                                <button type="button" class="btn-action-outline" id="p-form-photo-remove-btn" style="display:none;color:#dc2626;border-color:#dc2626;" onclick="removeProductPhoto()">Alisin</button>
+                                <button type="button" class="btn-action-outline" id="p-form-photo-remove-btn" style="display:none;color:#dc2626;border-color:#dc2626;" onclick="removeProductPhoto()">Remove</button>
                             </div>
                         </div>
                     </div>
@@ -1807,11 +1807,11 @@
                          PC/desktop. -->
                     <div id="biometric-section" style="display:none;">
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
-                        <p style="font-weight:700; margin-bottom:4px;"><i class="fa-solid fa-fingerprint"></i> Fingerprint Login <span style="font-weight:400; color:#64748b; font-size:0.8rem;">(device na ito lang)</span></p>
-                        <p style="color:#64748b; font-size:0.8rem; margin:0 0 12px;">Gumagamit ito ng naka-save nang fingerprint sa Settings ng iyong telepono. Hindi kailanman naiimbak o nakikita ng OmniPOS ang aktwal na fingerprint scan.</p>
+                        <p style="font-weight:700; margin-bottom:4px;"><i class="fa-solid fa-fingerprint"></i> Fingerprint Login <span style="font-weight:400; color:#64748b; font-size:0.8rem;">(this device only)</span></p>
+                        <p style="color:#64748b; font-size:0.8rem; margin:0 0 12px;">This uses the fingerprint already saved in your phone's Settings. OmniPOS never stores or has access to the actual fingerprint scan.</p>
                         <div id="biometric-devices-list"></div>
                         <button type="button" class="btn-action-outline" id="enable-biometric-btn" style="margin-top:8px;" onclick="registerBiometricCredential()">
-                            <i class="fa-solid fa-fingerprint"></i> I-enable ang Fingerprint Login sa device na ito
+                            <i class="fa-solid fa-fingerprint"></i> Enable Fingerprint Login on This Device
                         </button>
                     </div>
                 </div>
