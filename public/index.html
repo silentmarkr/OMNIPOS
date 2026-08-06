@@ -259,6 +259,18 @@
                         <input type="password" id="login-password" placeholder="Password" required>
                         <div id="password-keyboard-warning" class="keyboard-warning" style="display:none;"></div>
                     </div>
+                    <!-- Terms and Conditions acceptance — required before the customer/store
+                         owner can sign in. The checkbox itself is a plain HTML "required"
+                         field (native browser validation), and login-form's submit handler
+                         in app.js also re-checks it and shows the full Terms via
+                         showTermsAndConditions() (SweetAlert2 modal) so the text is always
+                         one tap away without leaving the login screen. -->
+                    <div class="input-group terms-agree-group" style="display:flex; align-items:flex-start; gap:8px; margin: 4px 0 14px;">
+                        <input type="checkbox" id="login-terms-agree" required style="margin-top:3px; width:16px; height:16px; flex-shrink:0;">
+                        <label for="login-terms-agree" style="font-size:0.85rem; line-height:1.4; color:#64748b; cursor:pointer;">
+                            I have read and agree to the <a href="#" id="login-terms-link" onclick="event.preventDefault(); showTermsAndConditions();" style="color:var(--primary-blue,#2563eb); text-decoration:underline;">Terms and Conditions</a>.
+                        </label>
+                    </div>
                     <button type="submit" class="btn-primary-auth">Sign In</button>
                 </form>
                 <!-- Fingerprint/Biometric Login — gumagamit ng naka-save nang
@@ -1221,6 +1233,22 @@
         </p>
         <button id="relay-sync-btn" onclick="syncFeaturesFromRelay()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-cloud-arrow-down"></i> Sync with Relay Now
+        </button>
+        </div>
+    </div>
+
+    <!-- 1.55 TERMS AND CONDITIONS (view-anytime, Settings) -->
+    <div class="system-update-container rr-card" data-rr-card="terms-conditions" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
+            <i class="fa-solid fa-file-contract"></i> Terms and Conditions
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
+        </h3>
+        <div class="rr-card-body">
+        <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
+            You agreed to these Terms and Conditions when you first signed in. You can review the full text again at any time.
+        </p>
+        <button id="settings-view-terms-btn" onclick="showTermsAndConditions()" style="padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem; width:100%;">
+            <i class="fa-solid fa-file-lines"></i> View Terms and Conditions
         </button>
         </div>
     </div>

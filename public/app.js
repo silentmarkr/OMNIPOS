@@ -3192,6 +3192,23 @@ attachKeyboardStateWarning('login-password','password-keyboard-warning');
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+
+    // GUARD: Terms and Conditions must be accepted before sign-in is allowed.
+    // The checkbox already carries the native "required" attribute, but we
+    // re-check here in JS (and surface the full Terms via a SweetAlert modal)
+    // since this handler calls e.preventDefault() unconditionally above, which
+    // can short-circuit native form validation depending on browser/webview.
+    const termsCheckbox = document.getElementById('login-terms-agree');
+    if (termsCheckbox && !termsCheckbox.checked) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Terms and Conditions Required',
+            text: 'Please read and accept the Terms and Conditions before signing in.',
+            confirmButtonText: 'Read Terms and Conditions'
+        }).then(() => showTermsAndConditions());
+        return;
+    }
+
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value.trim();
     const errorBanner = document.getElementById('login-error');
@@ -10892,6 +10909,64 @@ async function showMainSystemInterface() {
             console.error('Fallback view also failed to render — please try reloading the page:', finalErr);
         }
     }
+}
+
+// ============================================================================
+// TERMS AND CONDITIONS
+// Shown (1) on the login screen before the customer/store owner can sign in
+// for the first time, via the required "login-terms-agree" checkbox, and
+// (2) any time afterward from Settings > Terms and Conditions. Uses the same
+// SweetAlert2 modal pattern as the rest of the app (see
+// showGoogleAppVerificationFAQ below) so no new UI library is introduced.
+// ============================================================================
+function showTermsAndConditions() {
+    Swal.fire({
+        title: '<i class="fa-solid fa-file-contract"></i> Terms and Conditions',
+        html: `
+            <div style="text-align:left; font-size:0.88rem; line-height:1.6; max-height:60vh; overflow-y:auto; padding-right:6px;">
+
+                <p style="color:#64748b; font-size:0.8rem;">Last updated: ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}</p>
+
+                <p>These Terms and Conditions ("Terms") govern access to and use of the OmniPOS point-of-sale software ("Software", "System") by the business or individual using it ("Customer", "you"). By checking the acceptance box on the sign-in screen, or by otherwise accessing or using the Software, you confirm that you have read, understood, and agree to be bound by these Terms. If you do not agree, do not use the Software.</p>
+
+                <p><strong>1. License Grant</strong><br>
+                Subject to your compliance with these Terms, you are granted a limited, non-exclusive, non-transferable license to install and use the Software on the devices and installation(s) authorized to you. Ownership of the Software, including its source code, design, and underlying architecture, remains with its developer at all times. No title or ownership rights are transferred to you.</p>
+
+                <p><strong>2. Permitted Use</strong><br>
+                You may use the Software solely for your own lawful business operations, including point-of-sale transactions, inventory management, reporting, and related administrative functions. You are responsible for all activity that occurs under your account, including safeguarding your username, password, and any device used to sign in.</p>
+
+                <p><strong>3. Restrictions</strong><br>
+                You must not, and must not permit any third party to: (a) reverse-engineer, decompile, or disassemble the Software; (b) tamper with, bypass, or attempt to circumvent any licensing, activation, or premium-feature unlock mechanism; (c) copy, clone, redistribute, sublicense, rent, lease, or resell the Software or access to it without prior written authorization; or (d) use the Software for any unlawful purpose. Any installation found to be tampered with, cloned, or improperly duplicated may be automatically flagged, isolated, or have its features restricted to protect the integrity of the licensing system.</p>
+
+                <p><strong>4. Premium / Pro Features and Activation</strong><br>
+                Certain features are locked by default and are unlocked through a verification process (such as a one-time activation code) administered by the developer. Requests for activation are subject to review and approval at the developer's discretion. Misuse of the activation process, including attempts to generate, share, or reuse unauthorized activation codes, is strictly prohibited and may result in suspension of access.</p>
+
+                <p><strong>5. Your Data and Your Customers' Data</strong><br>
+                All sales, inventory, and customer/loyalty records you enter into the Software belong to you. You are solely responsible for the accuracy of this data and for complying with applicable data privacy laws with respect to your own customers' personal information (e.g., names, contact details, purchase history) that you choose to store in the System. Where optional cloud backup or sync features are enabled, data is transmitted and stored solely to provide that feature and is not accessed for any other purpose without your consent, except as required to maintain, secure, or troubleshoot the service.</p>
+
+                <p><strong>6. Service Availability</strong><br>
+                Core features (checkout, inventory, reporting) are designed to function on your local network without requiring continuous internet access. Certain features (e.g., email-based OTP verification, cloud backup, or activation requests) require an active internet connection and depend on third-party services (such as email providers) that are outside the developer's control.</p>
+
+                <p><strong>7. Disclaimer of Warranties</strong><br>
+                The Software is provided "as is" and "as available," without warranties of any kind, whether express or implied, including but not limited to implied warranties of merchantability, fitness for a particular purpose, or non-infringement. The developer does not warrant that the Software will be uninterrupted, error-free, or completely secure.</p>
+
+                <p><strong>8. Limitation of Liability</strong><br>
+                To the fullest extent permitted by law, the developer shall not be liable for any indirect, incidental, special, or consequential damages, including loss of profits, revenue, data, or business opportunity, arising from or related to your use of, or inability to use, the Software.</p>
+
+                <p><strong>9. Suspension and Termination</strong><br>
+                Access to premium features or activation services may be suspended or terminated if these Terms are violated, including in cases of attempted cloning, tampering, or unauthorized redistribution. Core, locally-hosted functionality of the Software that does not depend on the developer's servers is not affected by such suspension.</p>
+
+                <p><strong>10. Changes to These Terms</strong><br>
+                These Terms may be updated from time to time. Continued use of the Software after an update constitutes acceptance of the revised Terms. The current version can always be reviewed from Settings &gt; Terms and Conditions within the Software.</p>
+
+                <p><strong>11. Contact</strong><br>
+                For questions about these Terms, please reach out through the support channel provided by your Software vendor/developer.</p>
+
+            </div>
+        `,
+        confirmButtonText: 'Close',
+        width: '640px'
+    });
 }
 
 function showGoogleAppVerificationFAQ() {
