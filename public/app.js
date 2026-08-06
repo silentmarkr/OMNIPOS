@@ -69,7 +69,7 @@ async function authFetch(url, options = {}) {
             localStorage.removeItem('posa_user');
             localStorage.removeItem('posa_token');
             if (typeof Swal !=='undefined') {
-                Swal.fire('Session Expired','Nag-expire o naging invalid ang iyong session. Mangyaring mag-login muli.','warning')
+                Swal.fire('Session Expired','Your session has expired or become invalid. Please log in again.','warning')
                     .then(() => window.location.reload());
             } else {
                 window.location.reload();
@@ -131,9 +131,9 @@ function showUnlockRequestError(reqData, fallbackMessage) {
     if (reqData && reqData.pendingAuthorization) {
         Swal.fire({
             icon:'info',
-            title:'Naghihintay ng Authorization',
+            title:'Waiting for Authorization',
             html: '<p style="font-size:0.85rem;color:#64748b;margin:0;">' +
-                (reqData.message ||'Naipadala na ang device na ito para sa authorization ng developer/store owner. Subukan ulit pagkatapos ka nilang i-\"Allow\".') +
+                (reqData.message ||'This device has been sent to the developer/store owner for authorization. Try again after they \"Allow\" it.') +
                 '</p>',
             confirmButtonText:'OK',
             confirmButtonColor:'#2563eb',
@@ -937,13 +937,13 @@ async function pollUntilApproved(url, body) {
                             body: JSON.stringify(body)
                         });
                         const data = await res.json();
-                        if (data.pending) continue; // ituloy pa ang paghihintay
+                        if (data.pending) continue; // keep waiting
                         stopped = true;
                         Swal.close();
                         resolve(data);
                         return;
                     } catch (e) {
-                        // pansamantalang network hiccup lang, ituloy ang pag-poll
+                        // just a temporary network hiccup, keep polling
                     }
                 }
             },
@@ -1082,7 +1082,7 @@ async function showUpgradeTiersModal() {
         .filter(t => t.featureIds.length > 0);
 
     if (features.length === 0) {
-        Swal.fire('Naka-unlock na!','Lahat ng available na feature ay naka-unlock na sa installation na ito.','success');
+        Swal.fire('Unlocked!','All available features are now unlocked on this installation.','success');
         return true;
     }
 
@@ -1128,7 +1128,7 @@ async function showUpgradeTiersModal() {
         width: 480,
         html:
             `<div style="text-align:left;max-height:60vh;overflow-y:auto;">` +
-                `<p style="font-size:0.8rem;color:#94a3b8;margin:0 0 10px;">Pumili ng isang package, o mag-à la carte sa ibaba — ang mag-de-decide lang na "Upgrade Now" button ay gumagana kahit alin ang piliin mo.</p>` +
+                `<p style="font-size:0.8rem;color:#94a3b8;margin:0 0 10px;">Choose a package, or go à la carte below — just click "Upgrade Now" and it works with whichever you pick.</p>` +
                 `<div style="font-weight:600;font-size:0.82rem;margin-bottom:6px;color:#334155;">Packages</div>` +
                 `<div id="uw-tier-list">${tierCardsHtml}</div>` +
                 `<div style="font-weight:600;font-size:0.82rem;margin:14px 0 6px;color:#334155;">Or pick individual features</div>` +
@@ -1211,7 +1211,7 @@ async function showUpgradeTiersModal() {
                 ? tiers.find(t => t.id === selectedTierId).featureIds
                 : Array.from(selectedFeatureIds);
             if (featureIds.length === 0) {
-                Swal.showValidationMessage('Pumili muna ng isang package o kahit isang feature.');
+                Swal.showValidationMessage('Please select a package or at least one feature first.');
                 return false;
             }
             return { featureIds, tierId: selectedTierId };
@@ -1278,7 +1278,7 @@ async function requestBulkUnlock(featureIds, tierId) {
         if (reqData.alreadyUnlocked) {
             await refreshUnlockedFeaturesFromServer();
             initDemoModeUI();
-            Swal.fire('Already Unlocked!','Naka-unlock na ang lahat ng napili.','success');
+            Swal.fire('Already Unlocked!','All selected items are now unlocked.','success');
             return true;
         }
         Swal.fire({
@@ -1601,8 +1601,8 @@ function handleDemoExpired() {
             toast: true,
             position:'top-end',
             icon:'info',
-            title:'Natapos na ang Demo Mode',
-            text:'Ire-refresh ang system...',
+            title:'Demo Mode Ended',
+            text:'Refreshing the system...',
             showConfirmButton: false,
             timer: 1500,
             timerProgressBar: true,
@@ -1633,8 +1633,8 @@ async function initDemoModeUI() {
 
 async function endDemoModeManually() {
     const confirmResult = await Swal.fire({
-        title:'Tapusin ang Demo Mode?',
-        text:'Ibabalik agad sa naka-lock na state ang lahat ng premium features na dating bukas dahil sa demo. Hindi ito maaaring bawiin.',
+        title:'End Demo Mode?',
+        text:'This will immediately revert all premium features that were opened for the demo back to their locked state. This cannot be undone.',
         icon:'warning',
         showCancelButton: true,
         confirmButtonText:'End Demo',
@@ -1652,7 +1652,7 @@ async function endDemoModeManually() {
         const res = await authFetch(`${API_URL}/features/end-demo`, { method:'POST' });
         const data = await res.json();
         if (!data.success) {
-            Swal.fire('Hindi Natapos', data.message ||'May problema sa pagtapos ng Demo Mode.','error');
+            Swal.fire('Not Completed', data.message ||'There was a problem ending Demo Mode.','error');
             return;
         }
         if (Array.isArray(data.unlockedFeatureIds)) {
@@ -1660,9 +1660,9 @@ async function endDemoModeManually() {
         }
         updateSidebarFeatureLocks();
         await initDemoModeUI();
-        Swal.fire('Tapos na ang Demo Mode','Ibinalik na ang naka-lock na state.','success');
+        Swal.fire('Demo Mode Ended','The locked state has been restored.','success');
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
@@ -1673,8 +1673,8 @@ async function promptDemoMode() {
     const confirmResult = await Swal.fire({
         title:'✨ Try Full Demo Mode',
         html:
-'<p style="margin:0 0 8px;">Ma-a-unlock nang pansamantala ANG LAHAT ng premium features (walang nakalock) — may TIME LIMIT lang ito.</p>' +
-'<p style="font-size:0.82rem;color:#94a3b8;margin:0;">Isang activation request ang ipapadala sa developer/store owner. Kapag na-approve, bibigyan ka ng 6-digit code para i-activate.</p>',
+'<p style="margin:0 0 8px;">ALL premium features will be temporarily unlocked (nothing stays locked) — but only for a TIME LIMIT.</p>' +
+'<p style="font-size:0.82rem;color:#94a3b8;margin:0;">An activation request will be sent to the developer/store owner. Once approved, you will be given a 6-digit code to activate it.</p>',
         icon:'info',
         showCancelButton: true,
         showDenyButton: true,
@@ -1705,7 +1705,7 @@ async function promptDemoMode() {
         if (reqData.alreadyActive) {
             await refreshUnlockedFeaturesFromServer();
             await initDemoModeUI();
-            Swal.fire('Aktibo na!','Aktibo na ang Demo Mode.','success');
+            Swal.fire('Active!','Demo Mode is now active.','success');
             return true;
         }
         await Swal.fire({
@@ -1758,7 +1758,7 @@ async function promptDemoMode() {
         }
         updateSidebarFeatureLocks();
         await initDemoModeUI();
-        Swal.fire('Demo Mode Activated!','Lahat ng features ay bukas na — pansamantala lang ito, may time limit.','success');
+        Swal.fire('Demo Mode Activated!','All features are now open — this is temporary only, with a time limit.','success');
         return true;
     } catch (e) {
         Swal.fire('Error','Could not reach the server to complete verification.','error');
@@ -2276,7 +2276,7 @@ async function openAddCustomerForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Customer',
         html: `
-            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Buong Pangalan">
+            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Full Name">
             <input type="text" id="swal-cust-phone" class="swal2-input" placeholder="Phone Number (optional)">
             <input type="email" id="swal-cust-email" class="swal2-input" placeholder="Email (optional)">
         `,
@@ -2286,7 +2286,7 @@ async function openAddCustomerForm() {
         preConfirm: () => {
             const name = document.getElementById('swal-cust-name').value.trim();
             if (!name) {
-                Swal.showValidationMessage('Kailangan ng pangalan.');
+                Swal.showValidationMessage('Name is required.');
                 return false;
             }
             return {
@@ -2306,13 +2306,13 @@ async function openAddCustomerForm() {
         });
         const data = await res.json();
         if (data.success) {
-            Swal.fire({ icon:'success', title:'Naidagdag ang Customer!', timer: 1300, showConfirmButton: false });
+            Swal.fire({ icon:'success', title:'Customer Added!', timer: 1300, showConfirmButton: false });
             loadCustomersView();
         } else {
-            Swal.fire('Error', data.message ||'Hindi na-save ang customer.','error');
+            Swal.fire('Error', data.message ||'Could not save the customer.','error');
         }
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
@@ -2349,21 +2349,21 @@ async function openEditCustomerForm(id) {
             Swal.fire({ icon:'success', title:'Na-update!', timer: 1200, showConfirmButton: false });
             loadCustomersView();
         } else {
-            Swal.fire('Error', data.message ||'Hindi na-update.','error');
+            Swal.fire('Error', data.message ||'Could not update.','error');
         }
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
 async function deleteCustomerConfirm(id) {
     const cust = globalCustomers.find(c => c.id === id);
     const result = await Swal.fire({
-        title: `Burahin si ${cust ? cust.name :'customer na ito'}?`,
-        text:'Hindi na maibabalik ang aksyon na ito.',
+        title: `Delete ${cust ? cust.name :'this customer'}?`,
+        text:'This action cannot be undone.',
         icon:'warning',
         showCancelButton: true,
-        confirmButtonText:'Oo, burahin'
+        confirmButtonText:'Yes, delete'
     });
     if (!result.isConfirmed) return;
 
@@ -2373,10 +2373,10 @@ async function deleteCustomerConfirm(id) {
         if (data.success) {
             loadCustomersView();
         } else {
-            Swal.fire('Error', data.message ||'Hindi na-delete.','error');
+            Swal.fire('Error', data.message ||'Could not delete.','error');
         }
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
@@ -2582,13 +2582,13 @@ async function closeCurrentShift() {
     const targetCashier = shiftControlSelectedCashier ||'';
 
     const confirmResult = await Swal.fire({
-        title:'Isara ang Shift?',
+        title:'Close Shift?',
         text: targetCashier
-            ? `Isasara mo ang shift ni "${targetCashier}" (Admin/Supervisor Control). Magsisimula ang bagong shift period niya pagkatapos nito. Hindi na ito maaaring bawiin.`
-            :'Magsisimula ang bagong shift period pagkatapos nito. Hindi na ito maaaring bawiin.',
+            ? `You are about to close "${targetCashier}"'s shift (Admin/Supervisor Control). Their new shift period will begin after this. This cannot be undone.`
+            :'A new shift period will begin after this. This cannot be undone.',
         icon:'warning',
         showCancelButton: true,
-        confirmButtonText:'Oo, isara ang shift'
+        confirmButtonText:'Yes, close shift'
     });
     if (!confirmResult.isConfirmed) return;
 
@@ -2607,16 +2607,16 @@ async function closeCurrentShift() {
                 else if (v > 0) varianceMsg = `<br><br><b style="color:#16a34a;">Cash Over: ₱${v.toFixed(2)}</b>`;
                 else varianceMsg = `<br><br><b style="color:#16a34a;">Cash Exact — walang kulang o sobra.</b>`;
             }
-            Swal.fire({ title:'Naisara ang Shift!', html: `Z-Reading ID: ${data.shift.id}${varianceMsg}`, icon:'success' });
+            Swal.fire({ title:'Shift Closed!', html: `Z-Reading ID: ${data.shift.id}${varianceMsg}`, icon:'success' });
             document.getElementById('shift-beginning-cash').value ='';
             document.getElementById('shift-ending-cash').value ='';
             document.getElementById('shift-close-notes').value ='';
             loadShiftReportView();
         } else {
-            Swal.fire('Hindi Ma-close', data.message ||'May problema sa pagsara ng shift.','warning');
+            Swal.fire('Unable to Close', data.message ||'There was a problem closing the shift.','warning');
         }
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
@@ -2627,7 +2627,7 @@ async function openPromoCodesManager() {
         const res = await authFetch(`${API_URL}/promocodes`);
         promos = res.ok ? await res.json() : [];
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makuha ang promo codes.','error');
+        Swal.fire('Connection Error','Could not retrieve the promo codes.','error');
         return;
     }
     renderPromoCodesModal(promos);
@@ -2654,7 +2654,7 @@ function renderPromoCodesModal(promos) {
         `,
         showConfirmButton: false,
         showCancelButton: true,
-        cancelButtonText:'Isara',
+        cancelButtonText:'Close',
         width: 460
     });
 }
@@ -2663,7 +2663,7 @@ async function openAddPromoCodeForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Promo Code',
         html: `
-            <input type="text" id="swal-promo-code" class="swal2-input" placeholder="CODE (hal. SUMMER20)" style="text-transform:uppercase;">
+            <input type="text" id="swal-promo-code" class="swal2-input" placeholder="CODE (e.g. SUMMER20)" style="text-transform:uppercase;">
             <select id="swal-promo-type" class="swal2-select">
                 <option value="percent">Percent (%)</option>
                 <option value="fixed">Fixed Amount (₱)</option>
@@ -2680,7 +2680,7 @@ async function openAddPromoCodeForm() {
             const code = document.getElementById('swal-promo-code').value.trim();
             const value = document.getElementById('swal-promo-value').value;
             if (!code || !value) {
-                Swal.showValidationMessage('Kailangan ng code at value.');
+                Swal.showValidationMessage('Code and value are required.');
                 return false;
             }
             return {
@@ -2706,19 +2706,19 @@ async function openAddPromoCodeForm() {
             Swal.fire({ icon:'success', title:'Promo Code Added!', timer: 1300, showConfirmButton: false })
                 .then(() => openPromoCodesManager());
         } else {
-            Swal.fire('Error', data.message ||'Hindi na-save ang promo code.','error');
+            Swal.fire('Error', data.message ||'Could not save the promo code.','error');
         }
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
 async function deletePromoCodeConfirm(code) {
     const result = await Swal.fire({
-        title: `Burahin ang promo code "${code}"?`,
+        title: `Delete promo code "${code}"?`,
         icon:'warning',
         showCancelButton: true,
-        confirmButtonText:'Oo, burahin'
+        confirmButtonText:'Yes, delete'
     });
     if (!result.isConfirmed) return;
     try {
@@ -2727,10 +2727,10 @@ async function deletePromoCodeConfirm(code) {
         if (data.success) {
             openPromoCodesManager();
         } else {
-            Swal.fire('Error', data.message ||'Hindi na-delete.','error');
+            Swal.fire('Error', data.message ||'Could not delete.','error');
         }
     } catch (e) {
-        Swal.fire('Connection Error','Hindi makonekta sa server.','error');
+        Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
 
@@ -3004,16 +3004,16 @@ async function handleEditProfileSubmit(e) {
     const wantsPasswordChange = !!(currentPassword || newPassword || confirmPassword);
     if (wantsPasswordChange) {
         if (!currentPassword || !newPassword || !confirmPassword) {
-            Swal.fire('Missing Values','Kumpletuhin ang lahat ng password fields (o iwanan silang lahat na blangko kung hindi mo babaguhin ang password).','warning');
+            Swal.fire('Missing Values','Please complete all password fields (or leave them all blank if you are not changing the password).','warning');
             return;
         }
         if (newPassword !== confirmPassword) {
-            Swal.fire('Hindi Tugma','Hindi magkatugma ang bagong password at confirm password.','warning');
+            Swal.fire('Mismatch','The new password and confirm password do not match.','warning');
             return;
         }
     }
     if (!newUsername) {
-        Swal.fire('Missing Values','Hindi pwedeng blangko ang username.','warning');
+        Swal.fire('Missing Values','Username cannot be blank.','warning');
         return;
     }
 
@@ -3059,9 +3059,9 @@ async function handleEditProfileSubmit(e) {
         closeModal('edit-profile-modal');
         e.target.reset();
         if (profileWentPending) {
-            Swal.fire('Naisumite', SYSTEM_CONFIG.getSuccessMessage('Naisumite ang Edit Profile request mo. Hihintayin ang pag-approve ng Admin.'),'info');
+            Swal.fire('Submitted', SYSTEM_CONFIG.getSuccessMessage('Your Edit Profile request has been submitted. Waiting for Admin approval.'),'info');
         } else {
-            Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage('Na-update na ang profile mo.'),'success');
+            Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage('Your profile has been updated.'),'success');
         }
     } catch (err) {
         console.error(err);
@@ -4303,12 +4303,12 @@ async function checkBackupHealthBanner() {
 
         Swal.fire({
             icon:'warning',
-            title:'Nabibigo ang Auto-Backup',
-            html: `Nabigo na ang scheduled database backup nang <b>${status.consecutiveFailures}</b> sunod-sunod na beses.<br>
-                   Huling matagumpay na backup: <b>${lastOk}</b>.<br>
+            title:'Auto-Backup Failing',
+            html: `The scheduled database backup has failed <b>${status.consecutiveFailures}</b> times in a row.<br>
+                   Last successful backup: <b>${lastOk}</b>.<br>
                    <small style="color:#64748b;">${escapeHtml(status.lastFailureMessage || '')}</small><br><br>
-                   Puwedeng dahilan: puno na ang storage, o walang write permission sa backup folder. Kontakin ang developer/IT support kung magpapatuloy ito.`,
-            confirmButtonText:'Naintindihan'
+                   Possible reason: storage is full, or there is no write permission on the backup folder. Contact developer/IT support if this continues.`,
+            confirmButtonText:'Understood'
         });
     } catch (e) {
         // Tahimik na huwag pansinin — hindi ito dapat makasira sa
@@ -4868,7 +4868,7 @@ async function adjustCartQty(code, adjustment) {
         if (!isAdmin) {
             const { value: adminPassword } = await Swal.fire({
                 title:'🔒 Supervisor Override Requested',
-                html: `Quantity reduction to zero for <b>${escapeHtml(item.name)}</b> will remove this item. Kailangan ng Admin o awtorisadong Supervisor/Manager password:`,
+                html: `Quantity reduction to zero for <b>${escapeHtml(item.name)}</b> will remove this item. Admin or authorized Supervisor/Manager password is required:`,
                 input:'password',
                 inputPlaceholder:'Admin/Supervisor password',
                 showCancelButton: true,
@@ -4986,7 +4986,7 @@ async function removeCartItem(code) {
     if (!isAdmin) {
         const { value: adminPassword } = await Swal.fire({
             title:'🔒 Supervisor Override Requested',
-            html: `Kailangan ng Admin o awtorisadong Supervisor/Manager password para i-void ang <b>${escapeHtml(targetItem.name)}</b> mula sa active checkout.`,
+            html: `Admin or authorized Supervisor/Manager password is required to void <b>${escapeHtml(targetItem.name)}</b> from the active checkout.`,
             input:'password',
             inputPlaceholder:'Admin/Supervisor password',
             showCancelButton: true,
@@ -5099,7 +5099,7 @@ async function handleClearCart() {
 
     const { value: adminPassword } = await Swal.fire({
         title:'⚠️ Transaction Void Command Request',
-        html:'Kailangan ng Admin o awtorisadong Supervisor/Manager password para dito:',
+        html:'Admin or authorized Supervisor/Manager password is required for this:',
         input:'password',
         inputPlaceholder:'Admin/Supervisor password',
         showCancelButton: true,
@@ -5269,11 +5269,11 @@ function toggleSeniorPwdDiscount() {
         }
         Swal.fire({
             title:'Senior Citizen / PWD Discount',
-            text:'Ilagay ang ID Number para sa resibo (RA 9994 / RA 10754 — 20% discount):',
+            text:'Enter the ID Number for the receipt (RA 9994 / RA 10754 — 20% discount):',
             input:'text',
             inputPlaceholder:'Senior/PWD ID Number',
             showCancelButton: true,
-            confirmButtonText:'I-apply ang 20%'
+            confirmButtonText:'Apply 20%'
         }).then(result => {
             if (result.isConfirmed && result.value && result.value.trim()) {
                 cartSeniorPwdId = result.value.trim();
@@ -5306,7 +5306,7 @@ async function applyPromoCodeToCart() {
 
     let subtotal = getCartNetSubtotal();
     if (subtotal <= 0) {
-        Swal.fire('Empty Cart','Magdagdag muna ng item sa cart bago mag-apply ng promo code.','warning');
+        Swal.fire('Empty Cart','Add an item to the cart first before applying a promo code.','warning');
         return;
     }
     try {
@@ -5321,13 +5321,13 @@ async function applyPromoCodeToCart() {
             discountInput.value = data.discountAmount.toFixed(2);
             discountInput.setAttribute('readonly', true);
             updateCartTotals();
-            Swal.fire({ icon:'success', title:'Na-apply ang Promo!', text: `${code}: -₱${data.discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
+            Swal.fire({ icon:'success', title:'Promo Applied!', text: `${code}: -₱${data.discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
         } else {
             Swal.fire('Invalid Promo Code', data.message ||'This code cannot be used.','error');
         }
     } catch (e) {
         console.warn(e);
-        Swal.fire('Connection Error','Hindi makonekta sa server para i-validate ang promo code.','error');
+        Swal.fire('Connection Error','Could not connect to the server to validate the promo code.','error');
     }
 }
 
@@ -5378,14 +5378,14 @@ async function openCustomerPickerForCart() {
     };
 
     await Swal.fire({
-        title:'Pumili ng Customer',
+        title:'Select Customer',
         html: `
-            <input type="text" id="swal-cust-search" class="swal2-input" placeholder="Maghanap ng pangalan/phone..." oninput="window.__filterSwalCustomerList(this.value)">
+            <input type="text" id="swal-cust-search" class="swal2-input" placeholder="Search by name/phone..." oninput="window.__filterSwalCustomerList(this.value)">
             <div id="swal-cust-list" style="max-height:260px;overflow-y:auto;">${buildRowsHtml(customers)}</div>
         `,
         showConfirmButton: false,
         showCancelButton: true,
-        cancelButtonText:'Walk-in (Walang Customer)',
+        cancelButtonText:'Walk-in (No Customer)',
         didOpen: () => attachRowClicks(customers)
     });
 
@@ -5563,7 +5563,7 @@ async function submitFinalPaymentTransaction() {
         }
         const allocated = Math.round(activeLines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0) * 100) / 100;
         if (allocated < dueAmount) {
-            Swal.fire('Validation Error', `Payment validation exception: Kulang pa ng ₱${(dueAmount - allocated).toFixed(2)} ang split payment allocation.`,'error');
+            Swal.fire('Validation Error', `Payment validation exception: Still short by ₱${(dueAmount - allocated).toFixed(2)} in the split payment allocation.`,'error');
             return;
         }
         payments = activeLines.map(l => ({ method: l.method, amount: Math.round((parseFloat(l.amount) || 0) * 100) / 100 }));
@@ -5646,7 +5646,7 @@ async function submitFinalPaymentTransaction() {
             if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
         } else if (output.outOfStock) {
 
-            Swal.fire('Ubos na ang Stock', output.message,'warning');
+            Swal.fire('Out of Stock', output.message,'warning');
             if (typeof loadTerminalCatalog ==='function') loadTerminalCatalog();
         } else {
             Swal.fire('Server Error', `API Server Exception Error: ${output.message}`,'error');
@@ -6213,7 +6213,7 @@ async function requestReceiptCounterReset() {
 
 function openReceiptPreview() {
     if (shoppingCart.length === 0) {
-        Swal.fire('Walang laman ang cart','Magdagdag muna ng item bago mag-preview ng resibo.','warning');
+        Swal.fire('Empty Cart','Add an item first before previewing the receipt.','warning');
         return;
     }
 
@@ -6355,7 +6355,7 @@ async function emailCurrentReceipt() {
         return;
     }
     if (!currentReceiptTransaction || !currentReceiptTransaction.id) {
-        Swal.fire('Error','Walang aktibong resibo na maipapadala.','error');
+        Swal.fire('Error','No active receipt to send.','error');
         return;
     }
 
@@ -6378,14 +6378,14 @@ async function emailCurrentReceipt() {
         });
         const output = await res.json();
         if (output.success) {
-            Swal.fire('Sent!', `Naipadala ang resibo sa ${toEmail}`,'success');
+            Swal.fire('Sent!', `Receipt sent to ${toEmail}`,'success');
             if (emailInput) emailInput.value ='';
         } else {
-            Swal.fire('Failed', output.message ||'Hindi naipadala ang resibo.','error');
+            Swal.fire('Failed', output.message ||'Could not send the receipt.','error');
         }
     } catch (e) {
         console.warn(e);
-        Swal.fire('Connection Error','Hindi makonekta sa server para ipadala ang resibo.','error');
+        Swal.fire('Connection Error','Could not connect to the server to send the receipt.','error');
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
@@ -6865,12 +6865,12 @@ function openProductModal(mode, code ='') {
                 updateProductPhotoPreview(match.image ||'');
             } else {
                 document.getElementById('product-modal').style.display = 'none';
-                Swal.fire('Hindi Nahanap', 'Hindi mahanap ang product na ito — maaaring na-delete na ito sa ibang device/session.', 'error');
+                Swal.fire('Not Found', 'Could not find this product — it may have been deleted on another device/session.', 'error');
             }
         }).catch(err => {
             console.error('Failed to load product data for edit:', err);
             document.getElementById('product-modal').style.display = 'none';
-            Swal.fire('Connection Error', 'Hindi nakuha ang product data mula sa server. Suriin ang koneksyon at subukan ulit.', 'error');
+            Swal.fire('Connection Error', 'Could not retrieve the product data from the server. Check your connection and try again.', 'error');
         });
     }
     document.getElementById('product-modal').style.display ='flex';
@@ -6881,7 +6881,7 @@ function handleProductPhotoSelect(event) {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-        Swal.fire('Maling File Type','Larawan lang (JPG, PNG, atbp.) ang pwedeng i-upload bilang product photo.','error');
+        Swal.fire('Wrong File Type','Only images (JPG, PNG, etc.) can be uploaded as a product photo.','error');
         event.target.value ='';
         return;
     }
@@ -7052,7 +7052,7 @@ async function downloadAuthFetch(url, fallbackFilename) {
         URL.revokeObjectURL(blobUrl);
     } catch (err) {
         console.error('Download error:', err);
-        Swal.fire('Download Failed','Nagka-error habang dina-download ang file.','error');
+        Swal.fire('Download Failed','An error occurred while downloading the file.','error');
     }
 }
 
@@ -7069,8 +7069,8 @@ let selectedImportMode ='skip';
 
 function triggerProductImport() {
     Swal.fire({
-        title:'Paano i-import ang file?',
-        html:'<p style="font-size:14px;color:#64748b;">Kung may Product Code na dati nang naka-record...</p>',
+        title:'How would you like to import the file?',
+        html:'<p style="font-size:14px;color:#64748b;">If a Product Code is already on record...</p>',
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText:'Update Existing',
@@ -7101,8 +7101,8 @@ async function handleProductImportFile(event) {
     formData.append('mode', selectedImportMode ||'skip');
 
     Swal.fire({
-        title:'Ini-import ang mga produkto...',
-        text:'Sandali lang po.',
+        title:'Importing products...',
+        text:'Please wait a moment.',
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading()
     });
@@ -7117,7 +7117,7 @@ async function handleProductImportFile(event) {
         event.target.value ='';
 
         if (!reply.success) {
-            Swal.fire('Import Failed', reply.message ||'Hindi ma-import ang file.','error');
+            Swal.fire('Import Failed', reply.message ||'Could not import the file.','error');
             return;
         }
 
@@ -7157,7 +7157,7 @@ async function handleProductImportFile(event) {
     } catch (error) {
         console.error(error);
         event.target.value ='';
-        Swal.fire('Connection Lost','❌ Hindi makonekta sa server. Subukan ulit.','error');
+        Swal.fire('Connection Lost','❌ Could not connect to the server. Try again.','error');
     }
 }
 
@@ -7254,7 +7254,7 @@ async function generateSelectedBarcodePreview() {
     if (!isAdmin) {
         const { value: adminPassword } = await Swal.fire({
             title:'🔒 Admin Authorization Required',
-            html:'Kailangan ng Admin password bago maka-print ng barcode.',
+            html:'Admin password is required before printing a barcode.',
             input:'password',
             inputPlaceholder:'Admin password',
             showCancelButton: true,
@@ -7263,7 +7263,7 @@ async function generateSelectedBarcodePreview() {
         });
 
         if (!adminPassword || adminPassword.trim() ==="") {
-            Swal.fire('Cancelled','Kinansela ang pag-print ng barcode.','info');
+            Swal.fire('Cancelled','Barcode printing was cancelled.','info');
             return;
         }
 
@@ -7282,7 +7282,7 @@ async function generateSelectedBarcodePreview() {
             authMethod ="PASSWORD_VERIFIED";
         } catch (error) {
             console.error(error);
-            Swal.fire('Connection Error','Hindi ma-verify ang Admin password sa ngayon.','error');
+            Swal.fire('Connection Error','Could not verify the Admin password right now.','error');
             return;
         }
     } else {
@@ -8898,7 +8898,7 @@ async function handleInventoryScanResult(code) {
     const product = cachedInventoryProducts.find(p => p.code === code);
 
     if (!product) {
-        Swal.fire('Hindi Nahanap', `Walang produktong tumutugma sa code na "${code}".`,'warning');
+        Swal.fire('Not Found', `No product matches the code "${code}".`,'warning');
         return;
     }
 
@@ -8996,16 +8996,16 @@ function openScanToAddStockPrompt() {
         title:'Scan Barcode to Add Stock',
         html: `
             <input id="stock-scan-input" type="text" class="swal2-input"
-                   placeholder="I-scan o i-type ang barcode dito..." autocomplete="off">
+                   placeholder="Scan or type the barcode here..." autocomplete="off">
             <div id="stock-scan-status" style="min-height:60px; font-size:0.9rem; color:#94a3b8; text-align:left; padding:6px 4px;">
-                Naghihintay ng scan...
+                Waiting for scan...
             </div>
             <div style="display:flex; gap:8px; justify-content:center; margin-top:6px;">
                 <button type="button" id="stock-scan-save-btn" class="swal2-styled swal2-confirm" style="background:#16a34a;" disabled>
-                    <i class="fa-solid fa-floppy-disk"></i> I-save
+                    <i class="fa-solid fa-floppy-disk"></i> Save
                 </button>
                 <button type="button" id="stock-scan-close-btn" class="swal2-styled swal2-cancel">
-                    Isara
+                    Close
                 </button>
             </div>
         `,
@@ -9036,7 +9036,7 @@ function openScanToAddStockPrompt() {
                         saveBtn.setAttribute('disabled', true);
                         const statusEl = document.getElementById('stock-scan-status');
                         if (statusEl) {
-                            statusEl.innerHTML += `<div style="color:#22c55e; margin-top:6px;"><i class="fa-solid fa-check"></i> Na-save ang produkto.</div>`;
+                            statusEl.innerHTML += `<div style="color:#22c55e; margin-top:6px;"><i class="fa-solid fa-check"></i> Product saved.</div>`;
                         }
                     } else {
                         saveBtn.removeAttribute('disabled');
@@ -9125,8 +9125,8 @@ async function handleScanStockPromptInput(rawCode) {
 
         Swal.fire({
             title:'Not Exist',
-            html: (savedPrevious ? `Na-save na ang idinagdag na stock ng naunang na-scan na produkto.<br><br>` :'') +
-                  `Walang tumutugmang produkto sa code na <b>${escapeHtml(cleanCode)}</b>. Punuan na lang ang ibang detalye para irehistro bilang bagong produkto.`,
+            html: (savedPrevious ? `Added stock for the previously scanned product has been saved.<br><br>` :'') +
+                  `No product matches the code <b>${escapeHtml(cleanCode)}</b>. Please fill in the other details to register it as a new product.`,
             icon:'warning',
             confirmButtonText:'OK'
         }).then(() => {
@@ -9214,8 +9214,8 @@ async function handleProductFormScanResult(code) {
 
         Swal.fire({
             title:'Not Exist',
-            html: (savedPrevious ? `Na-save na ang idinagdag na stock ng naunang na-scan na produkto.<br><br>` :'') +
-                  `Walang tumutugmang produkto sa code na <b>${code}</b>. Punuan na lang ang ibang detalye para irehistro bilang bagong produkto.`,
+            html: (savedPrevious ? `Added stock for the previously scanned product has been saved.<br><br>` :'') +
+                  `No product matches the code <b>${code}</b>. Please fill in the other details to register it as a new product.`,
             icon:'warning',
             confirmButtonText:'OK'
         }).then(() => {
@@ -9290,8 +9290,8 @@ async function handleHardwareScanProductForm(scannedCode) {
 
         Swal.fire({
             title:'Not Exist',
-            html: (savedPrevious ? `Na-save na ang idinagdag na stock ng naunang na-scan na produkto.<br><br>` :'') +
-                  `Walang tumutugmang produkto sa code na <b>${escapeHtml(cleanCode)}</b>. Punuan na lang ang ibang detalye para irehistro bilang bagong produkto.`,
+            html: (savedPrevious ? `Added stock for the previously scanned product has been saved.<br><br>` :'') +
+                  `No product matches the code <b>${escapeHtml(cleanCode)}</b>. Please fill in the other details to register it as a new product.`,
             icon:'warning',
             confirmButtonText:'OK'
         }).then(() => {
@@ -9845,7 +9845,7 @@ async function pollMyShiftClosedRemotely() {
                 Swal.fire({
                     icon:'info',
                     title:'Shift Closed',
-                    text:'Isinara na ang iyong shift/Z-Reading (Admin/Supervisor Control). Ibinalik ka sa Home view.',
+                    text:'Your shift/Z-Reading has been closed (Admin/Supervisor Control). You have been returned to the Home view.',
                     timer: 3000,
                     showConfirmButton: false
                 });
@@ -10354,11 +10354,11 @@ function triggerSystemRestore() {
                 })
                 .catch(err => {
                     console.error(err);
-                    Swal.fire('Server Connection Error','Nagkaproblema sa pagkonekta sa server. Siguraduhing tumatakbo ang server.js.','error');
+                    Swal.fire('Server Connection Error','There was a problem connecting to the server. Make sure server.js is running.','error');
                 });
 
             } catch (err) {
-                Swal.fire('Invalid Format','Maling format ng JSON file. Siguraduhing ito ang backup file mula sa email.','error');
+                Swal.fire('Invalid Format','Invalid JSON file format. Make sure this is the backup file from the email.','error');
             }
         };
         reader.readAsText(file);
@@ -10924,10 +10924,10 @@ async function handleVoidTransaction(transactionId) {
     const { value: adminPassword } = await Swal.fire({
         title: isAdmin ?'🔒 Admin Authorization Required' :'🔒 Void Authorization Required',
         html: isAdmin
-            ?'Kailangan ng Admin password para i-void ang transaction na ito. Ibabalik nito ang stock sa inventory.'
-            :'Kailangan ng Admin o awtorisadong Supervisor/Manager password para i-void ang transaction na ito. Ibabalik nito ang stock sa inventory.',
+            ?'Admin password is required to void this transaction. This will return the stock to inventory.'
+            :'Admin or authorized Supervisor/Manager password is required to void this transaction. This will return the stock to inventory.',
         input:'password',
-        inputPlaceholder: isAdmin ?'Ilagay ang Admin password' :'Admin/Supervisor password',
+        inputPlaceholder: isAdmin ?'Enter Admin password' :'Admin/Supervisor password',
         showCancelButton: true,
         confirmButtonColor:'#2563eb',
         cancelButtonColor:'#ef4444'
@@ -10947,10 +10947,10 @@ async function handleVoidTransaction(transactionId) {
 
         const result = await response.json();
         if (result.success) {
-            Swal.fire('Success', result.message ||'Na-void ang transaction at na-restore ang stock!','success');
+            Swal.fire('Success', result.message ||'Transaction voided and stock restored!','success');
             location.reload();
         } else {
-            Swal.fire('Error', result.message ||'Hindi ma-void ang transaction.','error');
+            Swal.fire('Error', result.message ||'Could not void the transaction.','error');
         }
     } catch (err) {
         console.error("Void Error:", err);
@@ -10964,8 +10964,8 @@ function searchInsideBackupFile() {
 
     if (!fileInput.files || fileInput.files.length === 0) {
         Swal.fire({
-            title:'Walang File',
-            text:'Mangyaring pumili muna ng Full Backup file (.json).',
+            title:'No File',
+            text:'Please select a Full Backup file (.json) first.',
             icon:'warning',
             confirmButtonColor:'#2563eb'
         });
@@ -10974,8 +10974,8 @@ function searchInsideBackupFile() {
 
     if (!searchId) {
         Swal.fire({
-            title:'Kailangan ng ID o Keyword',
-            text:'Mangyaring ilagay ang ID na iyong hinahanap.',
+            title:'ID or Keyword Required',
+            text:'Please enter the ID you are searching for.',
             icon:'warning',
             confirmButtonColor:'#2563eb'
         });
@@ -11075,11 +11075,11 @@ function searchInsideBackupFile() {
                 }
 
                 Swal.fire({
-                    title: `Rekord Nahanap sa ${foundSection}!`,
+                    title: `Record Found in ${foundSection}!`,
                     html: `
                         <div style="text-align: left; margin-top: 10px; font-family: 'Segoe UI', system-ui, sans-serif;">
                             <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 12px;">
-                                <i class="fa-solid fa-file-invoice"></i> Mula sa file: <strong>${file.name}</strong>
+                                <i class="fa-solid fa-file-invoice"></i> From file: <strong>${file.name}</strong>
                             </p>
                             <div style="border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; max-height: 380px; overflow-y: auto; background: #ffffff; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
                                 <table style="width: 100%; border-collapse: collapse; text-align: left;">
@@ -11089,14 +11089,14 @@ function searchInsideBackupFile() {
                         </div>
                     `,
                     icon:'success',
-                    confirmButtonText:'Salamat',
+                    confirmButtonText:'Thanks',
                     confirmButtonColor:'#2563eb',
                     width:'600px'
                 });
             } else {
                 Swal.fire({
-                    title:'Hindi Nahanap',
-                    text: `Walang tumutugmang rekord para sa "${searchId}" sa loob ng anumang kategorya sa file na ${file.name}.`,
+                    title:'Not Found',
+                    text: `No matching record found for "${searchId}" in any category in the file ${file.name}.`,
                     icon:'info',
                     confirmButtonColor:'#2563eb'
                 });
@@ -11105,8 +11105,8 @@ function searchInsideBackupFile() {
         } catch (error) {
             console.error("Backup search error:", error);
             Swal.fire({
-                title:'Error sa Pagbasa',
-                text:'Hindi mabasa ang file. Siguraduhing ito ay tamang Full Backup JSON file ng OmniPOS.',
+                title:'Read Error',
+                text:'Could not read the file. Make sure this is a valid Full Backup JSON file from OmniPOS.',
                 icon:'error',
                 confirmButtonColor:'#ef4444'
             });
@@ -11260,7 +11260,7 @@ async function handleHardwareScanTerminal(scannedCode) {
         if (product.stock <= 0 || qtyInBasket >= product.stock) {
             Swal.fire({
                 toast: true, position:'top-end', icon:'error',
-                title: `Ubos na ang stock: ${product.name}`,
+                title: `Out of stock: ${product.name}`,
                 showConfirmButton: false, timer: 2000, timerProgressBar: true
             });
             return;
@@ -11277,7 +11277,7 @@ async function handleHardwareScanTerminal(scannedCode) {
     } else {
         Swal.fire({
             toast: true, position:'top-end', icon:'warning',
-            title: `Walang produktong tumutugma sa code: ${cleanCode}`,
+            title: `No product matches the code: ${cleanCode}`,
             showConfirmButton: false, timer: 2000, timerProgressBar: true
         });
     }
@@ -11300,8 +11300,8 @@ function handleHardwareScanTransaction(scannedCode) {
         reopenReceiptFromHistory(match.id);
     } else {
         Swal.fire({
-            title:'Hindi Nahanap',
-            text: `Walang transaction record na tumutugma sa ID na "${cleanCode}".`,
+            title:'Not Found',
+            text: `No transaction record matches the ID "${cleanCode}".`,
             icon:'info',
             confirmButtonColor:'#2563eb'
         });
@@ -11331,7 +11331,7 @@ function handleHardwareScanInventory(scannedCode) {
     } else {
         Swal.fire({
             toast: true, position:'top-end', icon:'warning',
-            title: `Walang produktong tumutugma sa code: ${cleanCode}`,
+            title: `No product matches the code: ${cleanCode}`,
             showConfirmButton: false, timer: 2000, timerProgressBar: true
         });
     }

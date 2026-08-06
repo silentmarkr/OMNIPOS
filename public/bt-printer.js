@@ -46,7 +46,7 @@ function saveBluetoothPrinterUuids() {
     localStorage.setItem(BT_PRINTER_STORAGE_KEYS.serviceUuid, serviceVal);
     localStorage.setItem(BT_PRINTER_STORAGE_KEYS.charUuid, charVal);
     if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'success', title: 'Na-save', text: 'Na-update ang Bluetooth printer UUID settings.', timer: 1500, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Saved', text: 'Bluetooth printer UUID settings have been updated.', timer: 1500, showConfirmButton: false });
     }
 }
 
@@ -114,7 +114,7 @@ function hideBtPrintButtons() {
 
 async function pairBluetoothPrinter() {
     if (!isWebBluetoothSupported()) {
-        Swal.fire('Hindi Supported', 'Hindi supported ng browser/device na ito ang Web Bluetooth. Gumamit ng Chrome for Android.', 'error');
+        Swal.fire('Not Supported', 'This browser/device does not support Web Bluetooth. Use Chrome for Android.', 'error');
         return;
     }
     const { serviceUuid, charUuid } = getBtPrinterUuids();
@@ -135,11 +135,11 @@ async function pairBluetoothPrinter() {
 
         localStorage.setItem(BT_PRINTER_STORAGE_KEYS.deviceName, btPrinterDevice.name || 'Bluetooth Printer');
         updateBtPrinterStatusUI();
-        Swal.fire({ icon: 'success', title: 'Naka-pair!', text: `Konektado sa "${btPrinterDevice.name || 'printer'}".`, timer: 1800, showConfirmButton: false });
+        Swal.fire({ icon: 'success', title: 'Paired!', text: `Connected to "${btPrinterDevice.name || 'printer'}".`, timer: 1800, showConfirmButton: false });
     } catch (err) {
         console.warn('[BT Printer] Pairing failed/cancelled:', err);
         if (err && err.name !== 'NotFoundError') {
-            Swal.fire('Hindi Nag-connect', `Hindi makapag-pair sa printer: ${err.message || err}. Subukan i-check ang Service/Characteristic UUID sa Advanced settings.`, 'error');
+            Swal.fire('Connection Failed', `Could not pair with printer: ${err.message || err}. Try checking the Service/Characteristic UUID in Advanced settings.`, 'error');
         }
     }
 }
@@ -334,7 +334,7 @@ async function ensureBtPrinterConnected() {
 async function printReceiptViaBluetooth(prefix) {
     prefix = prefix || 'r';
     if (!isWebBluetoothSupported()) {
-        Swal.fire('Hindi Supported', 'Hindi supported ng browser/device na ito ang Web Bluetooth.', 'error');
+        Swal.fire('Not Supported', 'This browser/device does not support Web Bluetooth.', 'error');
         return;
     }
 
@@ -342,11 +342,11 @@ async function printReceiptViaBluetooth(prefix) {
     if (!connected) {
         const result = await Swal.fire({
             icon: 'info',
-            title: 'Kailangan Munang I-pair',
-            text: 'Walang aktibong koneksyon sa Bluetooth printer. I-pair muna ito ngayon?',
+            title: 'Pairing Required',
+            text: 'There is no active connection to the Bluetooth printer. Pair it now?',
             showCancelButton: true,
-            confirmButtonText: 'I-pair Ngayon',
-            cancelButtonText: 'Kanselahin'
+            confirmButtonText: 'Pair Now',
+            cancelButtonText: 'Cancel'
         });
         if (result.isConfirmed) {
             await pairBluetoothPrinter();
@@ -367,7 +367,7 @@ async function printReceiptViaBluetooth(prefix) {
         if (typeof playScanBeep === 'function') playScanBeep();
     } catch (err) {
         console.error('[BT Printer] Print failed:', err);
-        Swal.fire('Print Error', `Hindi na-print: ${err.message || err}`, 'error');
+        Swal.fire('Print Error', `Could not print: ${err.message || err}`, 'error');
     }
 }
 
@@ -378,13 +378,13 @@ async function printReceiptViaBluetooth(prefix) {
 // napiling item, kaya walang kailangang i-scrape ulit sa DOM/SVG.
 async function printBarcodeSheetViaBluetooth() {
     if (!isWebBluetoothSupported()) {
-        Swal.fire('Hindi Supported', 'Hindi supported ng browser/device na ito ang Web Bluetooth.', 'error');
+        Swal.fire('Not Supported', 'This browser/device does not support Web Bluetooth.', 'error');
         return;
     }
 
     const items = (typeof window !== 'undefined' && window.__lastBarcodePrintBatch) || [];
     if (!items.length) {
-        Swal.fire('Walang Napili', 'Pumili muna ng item at i-generate ang Print Preview bago mag-BT print.', 'info');
+        Swal.fire('Nothing Selected', 'Select an item and generate the Print Preview first before BT printing.', 'info');
         return;
     }
 
@@ -392,11 +392,11 @@ async function printBarcodeSheetViaBluetooth() {
     if (!connected) {
         const result = await Swal.fire({
             icon: 'info',
-            title: 'Kailangan Munang I-pair',
-            text: 'Walang aktibong koneksyon sa Bluetooth printer. I-pair muna ito ngayon?',
+            title: 'Pairing Required',
+            text: 'There is no active connection to the Bluetooth printer. Pair it now?',
             showCancelButton: true,
-            confirmButtonText: 'I-pair Ngayon',
-            cancelButtonText: 'Kanselahin'
+            confirmButtonText: 'Pair Now',
+            cancelButtonText: 'Cancel'
         });
         if (result.isConfirmed) {
             await pairBluetoothPrinter();
@@ -416,14 +416,14 @@ async function printBarcodeSheetViaBluetooth() {
         if (typeof playScanBeep === 'function') playScanBeep();
     } catch (err) {
         console.error('[BT Printer] Barcode print failed:', err);
-        Swal.fire('Print Error', `Hindi na-print: ${err.message || err}`, 'error');
+        Swal.fire('Print Error', `Could not print: ${err.message || err}`, 'error');
     }
 }
 
 async function testPrintBluetoothPrinter() {
     const connected = await ensureBtPrinterConnected();
     if (!connected) {
-        Swal.fire('Wala pang Naka-pair', 'I-pair muna ang printer bago mag-test print.', 'warning');
+        Swal.fire('Not Paired Yet', 'Pair the printer first before test printing.', 'warning');
         return;
     }
     const paperSize = (typeof receiptSettingsCache !== 'undefined' && receiptSettingsCache && receiptSettingsCache.paperSize) || '58mm';
