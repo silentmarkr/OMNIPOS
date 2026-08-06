@@ -165,7 +165,7 @@
 
     <title>OmniPOS - Point of Sale System</title>
   
-    <link rel="stylesheet" href="style.css?v=20260725-5">
+    <link rel="stylesheet" href="style.css?v=20260807-2">
     <!-- Pro Themes: bawat isa ay hiwalay na file, naglalagay lang ng --dm-* variable
          palette sa ilalim ng body[data-theme="..."]. Idagdag lang ng bagong <link>
          dito kapag may bagong theme file — walang kailangang baguhin sa style.css. -->
@@ -266,7 +266,7 @@
                          showTermsAndConditions() (SweetAlert2 modal) so the text is always
                          one tap away without leaving the login screen. -->
                     <div class="input-group terms-agree-group" style="display:flex; align-items:flex-start; gap:8px; margin: 4px 0 14px;">
-                        <input type="checkbox" id="login-terms-agree" required style="margin-top:3px; width:16px; height:16px; flex-shrink:0;">
+                        <input type="checkbox" id="login-terms-agree" required style="margin-top:3px; width:16px; height:16px; min-width:16px; min-height:16px; flex-shrink:0;">
                         <label for="login-terms-agree" style="font-size:0.85rem; line-height:1.4; color:#64748b; cursor:pointer;">
                             I have read and agree to the <a href="#" id="login-terms-link" onclick="event.preventDefault(); showTermsAndConditions();" style="color:var(--primary-blue,#2563eb); text-decoration:underline;">Terms and Conditions</a>.
                         </label>
