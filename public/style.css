@@ -2162,7 +2162,7 @@ body.dark-mode .rank-row .rank-name {
 }
 
 body.dark-mode .overview-greeting-row {
-    background: linear-gradient(120deg, #1c2333 0%, #1c1c24 45%, #1e1b33 100%);
+    background: linear-gradient(120deg, var(--dm-surface) 0%, var(--dm-surface-alt) 45%, var(--dm-bg) 100%);
     background-size: 220% 220%;
     border-color: var(--dm-border);
 }
@@ -3166,7 +3166,7 @@ body.dark-mode .overview-greeting-row {
 }
 
 body.dark-mode .pd-photo-box {
-    background: linear-gradient(145deg, #1e293b, #111827);
+    background: linear-gradient(145deg, var(--dm-surface), var(--dm-bg));
     border-color: var(--dm-border);
 }
 
@@ -3175,7 +3175,7 @@ body.dark-mode .pd-detail-row {
 }
 
 body.dark-mode .pd-detail-label {
-    color: #94a3b8;
+    color: var(--dm-text-secondary);
 }
 
 body.dark-mode .pd-detail-value {
@@ -5886,7 +5886,7 @@ body.dark-mode .data-table th {
 }
 
 body.dark-mode .data-table td {
-    color: #e5e7eb;
+    color: var(--dm-text-primary);
     border-bottom-color: var(--dm-border);
 }
 
@@ -6117,8 +6117,8 @@ body.dark-mode .report-reset-zone {
     border-top-color: var(--terminal-border);
 }
 body.dark-mode .reset-notice-box code {
-    background-color: var(--terminal-card-bg);
-    color: #2d313a;
+    background-color: var(--dm-surface);
+    color: var(--dm-text-primary);
 }
 
 
@@ -6585,8 +6585,8 @@ body.dark-mode .quick-access-grid .qa-card.text-danger p {
 body.dark-mode .system-reset-container,
 body.dark-mode .receipt-custom-container,
 body.dark-mode .recovery-section {
-    background-color: var(--terminal-card-bg) !important;
-    border-color: var(--terminal-border) !important;
+    background-color: var(--dm-surface) !important;
+    border-color: var(--dm-border) !important;
     border-radius: var(--dm-radius, 12px) !important;
 }
 
@@ -6609,7 +6609,7 @@ body.dark-mode #view-transactions .recovery-section {
    ang ino-override dito (hindi border-color) para manatili ang
    sadyang --warning-gold na accent border nito bilang visual cue. */
 body.dark-mode #rc-otp-sender-config {
-    background-color: var(--terminal-card-bg) !important;
+    background-color: var(--dm-surface) !important;
 }
 
 body.dark-mode .system-reset-container h3,
@@ -6620,14 +6620,14 @@ body.dark-mode .recovery-section h3 {
 
 body.dark-mode .system-reset-container input,
 body.dark-mode .receipt-custom-container input {
-    background-color: var(--terminal-dark-bg) !important;
-    border-color: var(--terminal-border) !important;
-    color: #f3f4f6 !important;
+    background-color: var(--dm-bg) !important;
+    border-color: var(--dm-border) !important;
+    color: var(--dm-text-primary) !important;
 }
 
 body.dark-mode .system-reset-container input::placeholder,
 body.dark-mode .receipt-custom-container input::placeholder {
-    color: #4b5563 !important;
+    color: var(--dm-text-muted) !important;
 }
 
 /* Form inputs hover effect inside dark mode for professional feedback */
@@ -7174,12 +7174,12 @@ body.dark-mode .faq-intro-text,
   background: rgba(37, 99, 235, 0.08);
 }
 body.dark-mode .faq-ai-box input, .dark .faq-ai-box input {
-  background-color: var(--terminal-dark-bg, #111c2e) !important;
-  border-color: var(--terminal-border, rgba(255,255,255,0.12)) !important;
-  color: #f3f4f6 !important;
+  background-color: var(--dm-bg) !important;
+  border-color: var(--dm-border) !important;
+  color: var(--dm-text-primary) !important;
 }
 body.dark-mode .faq-ai-box input::placeholder, .dark .faq-ai-box input::placeholder {
-  color: #6b7280 !important;
+  color: var(--dm-text-muted) !important;
 }
 
 body.dark-mode .faq-suggest-box, .dark .faq-suggest-box {
