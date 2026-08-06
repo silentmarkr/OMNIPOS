@@ -1200,19 +1200,19 @@
              under Receipt Customization > Google App Verification — so there is
              no need to enter a separate Admin Gmail + App Password each time
              this feature is used. -->
-        <div id="reset-google-app-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
+        <div id="reset-google-app-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
             <i class="fa-solid fa-spinner fa-spin"></i> Retrieving verified Google App status&hellip;
         </div>
 
         <!-- Form Fields -->
         <div style="margin-bottom: 14px;">
             <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Type "RESET" to confirm target execution:</label>
-            <input type="text" id="reset-confirm-word" placeholder="RESET" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.95rem; background: var(--terminal-dark-bg, #ffffff); color: inherit;">
+            <input type="text" id="reset-confirm-word" class="rr-terminal-input" placeholder="RESET" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.95rem;">
         </div>
 
         <div style="margin-bottom: 20px;">
             <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Secondary Backup Email <span style="font-weight:normal;">(will receive the backup file)</span>:</label>
-            <input type="email" id="reset-additional-email" placeholder="backup-recipient@gmail.com" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem; background: var(--terminal-dark-bg, #ffffff); color: inherit;">
+            <input type="email" id="reset-additional-email" class="rr-terminal-input" placeholder="backup-recipient@gmail.com" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;">
         </div>
 
         <button id="reset-execute-btn" onclick="executeSystemHardReset()" style="width: 100%; padding: 12px; background: var(--danger-red); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
@@ -1263,7 +1263,7 @@
         <p style="font-size: 0.85rem; margin-bottom: 14px; color: var(--text-muted); line-height: 1.5;">
             Check whether a new OMNIPOS version is available, then deploy it directly to Render — no data will be affected.
         </p>
-        <div id="system-update-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
+        <div id="system-update-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
             <i class="fa-solid fa-circle-info"></i> Click "Check for Updates" to see the current status.
         </div>
         <div style="display:flex; gap: 10px; flex-wrap: wrap;">
@@ -1288,7 +1288,7 @@
             Sync the entire database (all modules, including user accounts but excluding passwords) to secure online storage.
             This is a premium feature — it must be unlocked before use.
         </p>
-        <div id="cloud-backup-status" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--terminal-dark-bg, #f8fafc);">
+        <div id="cloud-backup-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
             <i class="fa-solid fa-circle-info"></i> No cloud backup has been made in this session yet.
         </div>
         <!-- "Get Cloud Backup" is this feature's OWN, standalone purchase

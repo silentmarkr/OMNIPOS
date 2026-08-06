@@ -7740,6 +7740,47 @@ body.dark-mode .reorder-card-actions {
 }
 
 /* --------------------------------------------------------------
+   BUG FIX: "System Update" version text AND "System Hard Reset"
+   typed text were UNREADABLE in Day Mode. Root cause: these status
+   boxes/inputs (#reset-google-app-status, #reset-confirm-word,
+   #reset-additional-email, #system-update-status, #cloud-backup-status)
+   used inline `background: var(--terminal-dark-bg, #f8fafc)`. Ang
+   `--terminal-dark-bg` ay laging naka-DEFINE bilang #111827 (dark
+   navy) sa `:root` — kaya ang fallback (#f8fafc) ay HINDI kailanman
+   nagagamit sa anumang mode. Resulta: palaging madilim/navy ang
+   background ng mga box/input na ito kahit Day Mode, habang ang text
+   ay nagmana (`color: inherit`) ng madilim na --text-primary — kaya
+   madilim-sa-madilim at hindi mabasa. Ngayon, gumagamit na ito ng
+   sariling class (.rr-status-box / .rr-terminal-input) na may
+   EXPLICIT na kulay per mode/theme sa halip na umasa sa isang
+   variable na hindi naman talaga nagbabago. */
+.rr-status-box {
+    background: var(--pos-neutral-soft, #eef1f5);
+    color: var(--text-primary);
+}
+body.dark-mode .rr-status-box {
+    background: var(--dm-surface-alt);
+    color: var(--dm-text-primary);
+}
+
+.rr-terminal-input {
+    background: #ffffff;
+    color: var(--text-primary);
+}
+.rr-terminal-input::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+}
+body.dark-mode .rr-terminal-input {
+    background: var(--dm-surface);
+    color: var(--dm-text-primary);
+}
+body.dark-mode .rr-terminal-input::placeholder {
+    color: var(--dm-text-muted);
+    opacity: 1;
+}
+
+/* --------------------------------------------------------------
    "Restore Purchased Features" card (Reset/Restore tab).
    Previously used the same undefined --top-header-bg / plain white
    card treatment as the neighboring System Recovery card, so it
@@ -7858,6 +7899,89 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn {
 }
 body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     background: var(--dm-accent-hover, #6a48ff) !important;
+}
+
+/* ====================================================================
+   ADVANCED CHECKBOX — unified, theme-aware appearance
+   Dating plain/default browser checkbox lang ang ginagamit sa buong
+   app (walang custom na istilo maliban sa isang lugar lang na may
+   `accent-color`) kaya iba-iba ang itsura nito depende sa browser at
+   HINDI ito tumutugma sa Day Mode / Dark Mode / kahit anong Pro theme.
+   Ginawa itong sariling box + checkmark (appearance: none) na
+   gumagamit ng parehong semantic accent tokens na ginagamit na ng
+   buong app: --pos-accent sa Day Mode, at --dm-accent sa Dark Mode
+   (na in-o-override na ng bawat Pro theme sa css/themes/) — kaya
+   awtomatiko itong tumutugma sa kulay ng kahit anong tema, kasama
+   ang bagong ".rr-status-box" / hard reset panel sa itaas.
+   ==================================================================== */
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    margin: 0;
+    border: 2px solid var(--border-color);
+    border-radius: 5px;
+    background: #ffffff;
+    display: inline-block;
+    position: relative;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+    border-color: var(--pos-accent, #2563eb);
+}
+
+input[type="checkbox"]:focus-visible {
+    outline: none;
+    border-color: var(--pos-accent, #2563eb);
+    box-shadow: 0 0 0 3px var(--pos-accent-soft, #eaf1ff);
+}
+
+input[type="checkbox"]:checked {
+    background: var(--pos-accent, #2563eb);
+    border-color: var(--pos-accent, #2563eb);
+}
+
+input[type="checkbox"]:checked::after {
+    content: '\f00c';
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 11px;
+    line-height: 1;
+    color: #ffffff;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+input[type="checkbox"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Dark Mode + kahit anong Pro theme (--dm-accent/--dm-surface/--dm-border
+   ang nagbabago per-theme, tingnan ang public/css/themes/) */
+body.dark-mode input[type="checkbox"] {
+    background: var(--dm-surface);
+    border-color: var(--dm-border);
+}
+body.dark-mode input[type="checkbox"]:hover:not(:disabled) {
+    border-color: var(--dm-accent, #7c5cff);
+}
+body.dark-mode input[type="checkbox"]:focus-visible {
+    border-color: var(--dm-accent, #7c5cff);
+    box-shadow: 0 0 0 3px var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
+}
+body.dark-mode input[type="checkbox"]:checked {
+    background: var(--dm-accent, #7c5cff);
+    border-color: var(--dm-accent, #7c5cff);
 }
 
 /* ====================================================================
