@@ -10415,7 +10415,7 @@ document.addEventListener('DOMContentLoaded', initDeskClock);
 
 let idleTimer = null;
 let countdownInterval = null;
-const IDLE_TIMEOUT_LIMIT = 100000;
+const IDLE_TIMEOUT_LIMIT = 5 * 60 * 1000; // 5 minutes ng walang galaw bago mag-warning
 const COUNTDOWN_DURATION = 15;
 
 function initIdleTimer() {

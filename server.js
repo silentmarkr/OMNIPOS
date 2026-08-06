@@ -2092,23 +2092,102 @@ async function runRelayIntegrityCheckin() {
         relayIntegrityStatus.deletedCount = relayData.deletedCount || 0;
         relayIntegrityStatus.addedCount = relayData.addedCount || 0;
         relayIntegrityStatus.state = relayData.flagged ? 'red' : 'green';
-        console.log(
-            relayData.flagged
-                ? `🚩 RELAY_INTEGRITY: may nabago/nabura na file na na-detect (installationId: ${installationId}).`
-                : `✅ RELAY_INTEGRITY: malinis, walang tampering na na-detect (installationId: ${installationId}).`
-        );
+        // (Sinadyang tinanggal ang console.log dito — silent, walang lumalabas
+        // sa Termux terminal. Nasa relayIntegrityStatus/API na lang ang resulta.)
     } catch (err) {
         relayIntegrityStatus.state = 'orange';
         relayIntegrityStatus.lastError = err.message;
-        console.error('⚠️ RELAY_INTEGRITY: hindi ma-abot ang relay para sa check-in:', err.message);
+        // (Sinadyang tinanggal ang console.error dito — silent din ang mga error.)
     }
 }
 
 // Konting delay (55s) mula sa startup para makasunod sa backup sync
 // (40s) at hindi magsabay sa parehong segundo — every 24h din pagkatapos.
+// Ito ang SAFETY-NET na scheduled check-in — nananatili ito kahit may
+// real-time watcher na sa ibaba (tingnan REAL-TIME INTEGRITY WATCHER),
+// para may bumubuo pa ring "clean" na check-in kahit walang file na
+// nagbago (at sakaling na-miss ng watcher ang isang event, hal. habang
+// naka-offline o bago pa nag-start ang app).
 if (!AUTO_BACKUP_DISABLED) {
     setTimeout(runRelayIntegrityCheckin, 55 * 1000);
     setInterval(runRelayIntegrityCheckin, 24 * 60 * 60 * 1000).unref();
+}
+
+// ====================================================================
+// REAL-TIME INTEGRITY WATCHER — sa halip na hintayin ang susunod na
+// 24-oras na naka-iskedyul na check-in, dito ay DINE-DETECT AGAD
+// (event-driven, HINDI polling kada segundo) kapag may na-edit/na-
+// delete/na-add na file sa install folder gamit ang fs.watch() per
+// directory. Kapag may nangyaring pagbabago:
+//   1. DEBOUNCE (5s) — para sama-samang mahawakan ang maramihang
+//      sunod-sunod na save (hal. galing sa isang editor/deploy).
+//   2. THROTTLE (min 5s gap sa pagitan ng dalawang check-in) — proteksyon
+//      pa rin laban sa sunod-sunod na tawag, pero mas mabilis na ngayon.
+// Full manifest pa rin ang ipinapadala kada check-in (kailangan ito ng
+// RELAY para makita rin ang mga DELETED file, hindi lang MODIFIED) —
+// pero event-driven na ang trigger sa halip na "every 1 second", kaya
+// halos instant makikita sa RELAY admin panel ang pagbabago nang hindi
+// pinapabagal ang sistema. SILENT ito — walang console output na
+// lumalabas sa Termux terminal; tahimik na tumatakbo sa localhost:3000.
+// --------------------------------------------------------------
+let integrityWatchDebounceTimer = null;
+let integrityWatchLastRunAt = 0;
+const INTEGRITY_WATCH_DEBOUNCE_MS = 5 * 1000;
+const INTEGRITY_WATCH_MIN_GAP_MS = 5 * 1000;
+const integrityWatchers = new Map(); // dir path -> fs.FSWatcher
+
+function scheduleIntegrityCheckinFromWatcher(changedPath) {
+    if (integrityWatchDebounceTimer) clearTimeout(integrityWatchDebounceTimer);
+    integrityWatchDebounceTimer = setTimeout(() => {
+        integrityWatchDebounceTimer = null;
+        const wait = Math.max(0, INTEGRITY_WATCH_MIN_GAP_MS - (Date.now() - integrityWatchLastRunAt));
+        setTimeout(() => {
+            integrityWatchLastRunAt = Date.now();
+            runRelayIntegrityCheckin().catch(() => {});
+        }, wait);
+    }, INTEGRITY_WATCH_DEBOUNCE_MS);
+}
+
+function watchDirForIntegrity(dir) {
+    if (integrityWatchers.has(dir)) return;
+    try {
+        const watcher = fs.watch(dir, { persistent: false }, (eventType, filename) => {
+            scheduleIntegrityCheckinFromWatcher(filename ? path.join(dir, filename) : dir);
+        });
+        watcher.on('error', () => { integrityWatchers.delete(dir); });
+        integrityWatchers.set(dir, watcher);
+    } catch (err) {
+        // Hindi na-watch (hal. permission issue sa Termux/Android) —
+        // hindi dapat pabagsakin ang buong app dahil dito, mananatili
+        // na lang ang 24h na scheduled fallback sa itaas.
+    }
+}
+
+function refreshIntegrityWatchers() {
+    // NOTE: fs.watch sa bawat directory nang hiwalay (hindi umaasa sa
+    // { recursive: true }, na hindi consistent kumilos sa lahat ng
+    // Linux/Android environment) — kaya paulit-ulit itong tinatawag
+    // (kada 5 min) para masaklaw din ang mga BAGONG subdirectory na
+    // nagawa pagkatapos mag-start.
+    function walk(dir) {
+        let entries;
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch (err) {
+            return;
+        }
+        watchDirForIntegrity(dir);
+        for (const entry of entries) {
+            if (INTEGRITY_SCAN_EXCLUDE_NAMES.has(entry.name)) continue;
+            if (entry.isDirectory()) walk(path.join(dir, entry.name));
+        }
+    }
+    walk(__dirname);
+}
+
+if (!AUTO_BACKUP_DISABLED) {
+    setTimeout(refreshIntegrityWatchers, 10 * 1000);
+    setInterval(refreshIntegrityWatchers, 5 * 60 * 1000).unref();
 }
 
 app.get('/api/relay-integrity/status', (req, res) => {
