@@ -273,7 +273,7 @@ async function loginWithBiometric() {
             errorBanner.style.display ='none';
 
             showMainSystemInterface().catch(err => {
-                console.error('Hindi inaasahang error pagka-login (biometric):', err);
+                console.error('Unexpected error during biometric login:', err);
             });
         } else {
             errorBanner.innerText = data.message ||'Fingerprint Login failed.';
@@ -568,7 +568,7 @@ async function refreshUnlockedThemesFromServer() {
             renderThemeMenu();
         }
     } catch (e) {
-        console.warn('Hindi makuha ang theme unlock status mula sa server, gagamitin muna ang cache.', e);
+        console.warn('Could not fetch theme unlock status from the server, using cache instead.', e);
     }
 }
 
@@ -771,7 +771,7 @@ async function refreshUnlockedFeaturesFromServer() {
             fullyPurchasedCache = !!data.fullyPurchased;
         }
     } catch (e) {
-        console.warn('Hindi makuha ang feature unlock status mula sa server.', e);
+        console.warn('Could not fetch feature unlock status from the server.', e);
     }
     updateSidebarFeatureLocks();
     return unlockedFeatureIdsCache || [];
@@ -950,7 +950,7 @@ async function pollUntilApproved(url, body) {
         }).then((result) => {
             if (!stopped && result.dismiss === Swal.DismissReason.cancel) {
                 stopped = true;
-                resolve({ success: false, cancelled: true, message: 'Kinansela ang paghihintay.' });
+                resolve({ success: false, cancelled: true, message: 'Waiting cancelled.' });
             }
         });
     });
@@ -1103,7 +1103,7 @@ async function showUpgradeTiersModal() {
             `</div>` +
             `<div style="font-size:0.78rem;color:#94a3b8;margin-top:2px;">${escapeHtml(t.description ||'')}</div>` +
             (showOriginalStrike
-                ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">Presyo na lang para sa mga natitirang naka-lock na feature (may naunang nabili ka na nang hiwalay)</div>`
+                ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">Price for the remaining locked features only (you already purchased some separately)</div>`
                 :'') +
             (t.alaCartePrice > effectivePrice
                 ? `<div style="font-size:0.72rem;color:#16a34a;margin-top:2px;">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
@@ -1488,7 +1488,7 @@ function ensureDemoModeContainer() {
         el.innerHTML =
             `<span id="demo-float-icon" class="demo-float-icon">🕒</span>` +
             `<span id="demo-float-label" class="demo-float-label"></span>` +
-            `<button id="demo-float-end-btn" type="button" class="demo-float-end-btn" title="Tapusin ang Demo Mode ngayon">✕</button>`;
+            `<button id="demo-float-end-btn" type="button" class="demo-float-end-btn" title="End Demo Mode now">✕</button>`;
         document.body.appendChild(el);
         restoreDemoFloatPosition(el);
         makeDemoFloatDraggable(el);
@@ -1627,7 +1627,7 @@ async function initDemoModeUI() {
         const data = await res.json();
         renderDemoModeUI(data);
     } catch (e) {
-        console.warn('Hindi makuha ang demo status.', e);
+        console.warn('Could not fetch demo status.', e);
     }
 }
 
@@ -1944,7 +1944,7 @@ if (categorySelect) {
 
     if (currentUser) {
         showMainSystemInterface().catch(err => {
-            console.error('Hindi inaasahang error habang nire-restore ang session pagka-reload (showMainSystemInterface):', err);
+            console.error('Unexpected error while restoring session after reload (showMainSystemInterface):', err);
         });
     } else {
         showAuthenticationInterface();
@@ -2235,7 +2235,7 @@ async function loadCustomersView() {
         const res = await authFetch(`${API_URL}/customers`);
         globalCustomers = res.ok ? await res.json() : [];
     } catch (e) {
-        console.warn('Hindi makuha ang customers:', e);
+        console.warn('Could not fetch customers:', e);
         globalCustomers = [];
     }
     renderCustomersTable();
@@ -2252,7 +2252,7 @@ function renderCustomersTable() {
     );
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#94a3b8;">Walang customer na natagpuan.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#94a3b8;">No customers found.</td></tr>`;
         return;
     }
 
@@ -2346,7 +2346,7 @@ async function openEditCustomerForm(id) {
         });
         const data = await res.json();
         if (data.success) {
-            Swal.fire({ icon:'success', title:'Na-update!', timer: 1200, showConfirmButton: false });
+            Swal.fire({ icon:'success', title:'Updated!', timer: 1200, showConfirmButton: false });
             loadCustomersView();
         } else {
             Swal.fire('Error', data.message ||'Could not update.','error');
@@ -2431,7 +2431,7 @@ async function checkShiftOpeningCashGate() {
         myShiftLockedState = true;
         loadShiftReportView();
     } catch (e) {
-        console.warn('Hindi ma-check ang beginning cash gate:', e);
+        console.warn('Could not check beginning cash gate:', e);
     }
 }
 
@@ -2460,7 +2460,7 @@ async function loadShiftOpenListPicker() {
         selectEl.value = stillExists ? previousSelection :'';
         shiftControlSelectedCashier = selectEl.value;
     } catch (e) {
-        console.warn('Hindi makuha ang listahan ng mga bukas na shift:', e);
+        console.warn('Could not fetch list of open shifts:', e);
     }
 }
 
@@ -2508,7 +2508,7 @@ async function loadShiftReportView() {
 
             if (closeNoticeEl) {
                 closeNoticeEl.innerHTML = data.viewingOtherCashier
-                    ? `<i class="fa-solid fa-user-shield"></i> Tinitingnan/isasara mo ang shift ni <b>${escapeHtml(data.cashier)}</b> (Admin/Supervisor Control).`
+                    ? `<i class="fa-solid fa-user-shield"></i> You're viewing/closing the shift of <b>${escapeHtml(data.cashier)}</b> (Admin/Supervisor Control).`
                     :'';
             }
 
@@ -2528,12 +2528,12 @@ async function loadShiftReportView() {
                     const methods = Object.keys(s.paymentBreakdown || {});
                     listEl.innerHTML = methods.length
                         ? methods.map(m => `<li>${escapeHtml(m)}: ${s.paymentBreakdown[m].count} tx — ₱${s.paymentBreakdown[m].total.toFixed(2)}</li>`).join('')
-                        :'<li style="color:#94a3b8;">Wala pang transaksyon sa open shift na ito.</li>';
+                        :'<li style="color:#94a3b8;">No transactions yet on this open shift.</li>';
                 }
             }
         }
     } catch (e) {
-        console.warn('Hindi makuha ang current shift summary:', e);
+        console.warn('Could not fetch current shift summary:', e);
     }
 
     try {
@@ -2561,16 +2561,16 @@ async function loadShiftReportView() {
                             <td>${escapeHtml(h.id)}</td>
                             <td>${escapeHtml(h.closedBy)}</td>
                             <td>${new Date(h.periodStart).toLocaleString()} - ${new Date(h.periodEnd).toLocaleString()}</td>
-                            <td class="num-cell">${h.transactionCount}${h.noSalesShift ? '<br><span style="font-size:0.72rem; color:#94a3b8;">(Walang Benta - Handover)</span>' :''}</td>
+                            <td class="num-cell">${h.transactionCount}${h.noSalesShift ? '<br><span style="font-size:0.72rem; color:#94a3b8;">(No Sales - Handover)</span>' :''}</td>
                             <td class="num-cell">₱${(parseFloat(h.netSales) || 0).toFixed(2)}</td>
                             <td class="num-cell" title="Begin ₱${beginVal} + Cash Sales ₱${cashSalesVal} = Expected ₱${expectedVal} | Counted ₱${endVal}">${varianceCell}</td>
                         </tr>`;
                     }).join('')
-                    : `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Wala pang naisarang shift.</td></tr>`;
+                    : `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">No closed shifts yet.</td></tr>`;
             }
         }
     } catch (e) {
-        console.warn('Hindi makuha ang shift history:', e);
+        console.warn('Could not fetch shift history:', e);
     }
 }
 
@@ -2605,7 +2605,7 @@ async function closeCurrentShift() {
                 const v = data.shift.cashVariance;
                 if (v < 0) varianceMsg = `<br><br><b style="color:#dc2626;">Cash Short: ₱${Math.abs(v).toFixed(2)}</b>`;
                 else if (v > 0) varianceMsg = `<br><br><b style="color:#16a34a;">Cash Over: ₱${v.toFixed(2)}</b>`;
-                else varianceMsg = `<br><br><b style="color:#16a34a;">Cash Exact — walang kulang o sobra.</b>`;
+                else varianceMsg = `<br><br><b style="color:#16a34a;">Cash Exact — no shortage or overage.</b>`;
             }
             Swal.fire({ title:'Shift Closed!', html: `Z-Reading ID: ${data.shift.id}${varianceMsg}`, icon:'success' });
             document.getElementById('shift-beginning-cash').value ='';
@@ -2644,7 +2644,7 @@ function renderPromoCodesModal(promos) {
                 <button class="btn-icon-action delete" onclick="deletePromoCodeConfirm('${escapeHtml(p.code)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
             </div>
         </div>
-    `).join('') :'<p style="padding:14px;color:#94a3b8;">Wala pang promo code.</p>';
+    `).join('') :'<p style="padding:14px;color:#94a3b8;">No promo codes yet.</p>';
 
     Swal.fire({
         title:'Discounts & Promo Codes',
@@ -2929,7 +2929,7 @@ async function loadActiveUsers() {
         const res = await authFetch('/api/auth/active-sessions');
         const data = await res.json();
         if (!data.success || !Array.isArray(data.activeUsers) || data.activeUsers.length === 0) {
-            list.innerHTML ='<div class="uw-au-empty">Walang naka-login na user.</div>';
+            list.innerHTML ='<div class="uw-au-empty">No user logged in.</div>';
             setActiveUsersBadgeCount(0);
             return;
         }
@@ -2968,7 +2968,7 @@ async function loadActiveUsers() {
             </div>`;
         }).join('');
     } catch (err) {
-        list.innerHTML ='<div class="uw-au-empty" style="color:#ef4444;">Hindi ma-load ang active users.</div>';
+        list.innerHTML ='<div class="uw-au-empty" style="color:#ef4444;">Could not load active users.</div>';
     }
 }
 
@@ -2987,7 +2987,7 @@ function openEditProfileModal() {
         const canApplyDirectly = isAdmin || !!currentPermissions.edit_user_profile;
         note.innerText = canApplyDirectly
             ?''
-            :'Note: Ang mga pagbabago sa Profile Picture/Username ay mapupunta muna sa Staff Requests para sa pag-approve ng Admin.';
+            :'Note: Changes to Profile Picture/Username will go to Staff Requests first for Admin approval.';
     }
     document.getElementById('edit-profile-modal').style.display ='flex';
     refreshBiometricSection();
@@ -3240,7 +3240,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
             // "unhandled promise rejection" — walang error na lumalabas sa
             // user, at "parang nag-freeze" lang dahil walang laman ang view.
             showMainSystemInterface().catch(err => {
-                console.error('Hindi inaasahang error pagka-login (showMainSystemInterface):', err);
+                console.error('Unexpected error during login (showMainSystemInterface):', err);
             });
 
             // Upgrade Options modal: dapat lumabas sa UNANG login (1st), at
@@ -3346,7 +3346,7 @@ async function refreshLowStockBadge() {
             }
         });
     } catch (e) {
-        console.warn('Hindi ma-refresh ang low stock badge:', e);
+        console.warn('Could not refresh low stock badge:', e);
     }
 }
 
@@ -3449,7 +3449,7 @@ async function loadReorderView() {
         renderReorderTable();
         renderPurchaseOrdersTable();
     } catch (e) {
-        console.warn('Hindi ma-load ang Reorder Alerts:', e);
+        console.warn('Could not load Reorder Alerts:', e);
         if (tbody) tbody.innerHTML = `<tr class="reorder-empty-row"><td colspan="9" style="text-align:center;padding:20px;color:#ef4444;">Connection error — could not load reorder data.</td></tr>`;
     }
 }
@@ -4299,7 +4299,7 @@ async function checkBackupHealthBanner() {
         backupHealthWarningShown = true;
         const lastOk = status.lastSuccessAt
             ? new Date(status.lastSuccessAt).toLocaleString('en-PH')
-            :'wala pang matagumpay na backup';
+            :'no successful backup yet';
 
         Swal.fire({
             icon:'warning',
@@ -4731,7 +4731,7 @@ function renderTerminalProducts() {
                 let iconClass = getCategoryIconClass(p.category);
 
                 card.innerHTML = `
-                    <div class="t-prod-icon" onclick="event.stopPropagation(); showProductDetails('${escapeHtml(p.code)}')" title="Tingnan ang detalye">${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}">` : `<i class="${iconClass}"></i>`}</div>
+                    <div class="t-prod-icon" onclick="event.stopPropagation(); showProductDetails('${escapeHtml(p.code)}')" title="View details">${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}">` : `<i class="${iconClass}"></i>`}</div>
                     <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
                     <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
                     <div class="t-prod-stock">Stock: ${availableStock}</div>
@@ -4741,11 +4741,11 @@ function renderTerminalProducts() {
                 gridOutput.appendChild(card);
             } catch (cardError) {
 
-                console.error("Nilaktawan ang isang produkto dahil sa error sa card render:", p, cardError);
+                console.error("Skipped a product due to a card render error:", p, cardError);
             }
         });
     } catch (renderError) {
-        console.error("Nabigo ang pag-render ng Terminal product list:", renderError);
+        console.error("Failed to render Terminal product list:", renderError);
     }
 }
 
@@ -5197,7 +5197,7 @@ function renderCartRows() {
                 container.appendChild(row);
             } catch (rowError) {
 
-                console.error("Nilaktawan ang isang cart row dahil sa error:", item, rowError);
+                console.error("Skipped a cart row due to an error:", item, rowError);
             }
         });
 
@@ -5205,7 +5205,7 @@ function renderCartRows() {
         if (cartBadge) cartBadge.innerText = totalItems;
         updateCartTotals();
     } catch (cartRenderError) {
-        console.error("Nabigo ang pag-render ng cart rows:", cartRenderError);
+        console.error("Failed to render cart rows:", cartRenderError);
     } finally {
 
         if (typeof renderTerminalProducts ==='function') {
@@ -5263,7 +5263,7 @@ function toggleSeniorPwdDiscount() {
     if (checkbox.checked) {
         let subtotal = getCartNetSubtotal();
         if (subtotal <= 0) {
-            Swal.fire('Empty Cart','Magdagdag muna ng item sa cart.','warning');
+            Swal.fire('Empty Cart','Add an item to the cart first.','warning');
             checkbox.checked = false;
             return;
         }
@@ -5351,9 +5351,9 @@ async function openCustomerPickerForCart() {
 
     const buildRowsHtml = (list) => (list.map(c =>
         `<div class="cust-pick-row" data-id="${escapeHtml(c.id)}" style="padding:10px;border-bottom:1px solid #eee;cursor:pointer;text-align:left;">
-            <strong>${escapeHtml(c.name)}</strong><br><small>${escapeHtml(c.phone ||'walang phone')} · ${c.points || 0} pts</small>
+            <strong>${escapeHtml(c.name)}</strong><br><small>${escapeHtml(c.phone ||'no phone')} · ${c.points || 0} pts</small>
         </div>`
-    ).join('')) ||'<p style="padding:10px;color:#94a3b8;">Wala pang customer. Mag-add muna sa Customers page.</p>';
+    ).join('')) ||'<p style="padding:10px;color:#94a3b8;">No customers yet. Add one first on the Customers page.</p>';
 
     const attachRowClicks = (list) => {
         document.querySelectorAll('.cust-pick-row').forEach(row => {
@@ -5558,7 +5558,7 @@ async function submitFinalPaymentTransaction() {
 
         const activeLines = splitPaymentLines.filter(l => (parseFloat(l.amount) || 0) > 0);
         if (activeLines.length < 1) {
-            Swal.fire('Validation Error','Maglagay ng halaga sa kahit isang payment method.','error');
+            Swal.fire('Validation Error','Enter an amount for at least one payment method.','error');
             return;
         }
         const allocated = Math.round(activeLines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0) * 100) / 100;
@@ -6351,7 +6351,7 @@ async function emailCurrentReceipt() {
     const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!toEmail || !emailPattern.test(toEmail)) {
-        Swal.fire('Invalid Email','Maglagay ng wastong email address.','warning');
+        Swal.fire('Invalid Email','Enter a valid email address.','warning');
         return;
     }
     if (!currentReceiptTransaction || !currentReceiptTransaction.id) {
@@ -6367,7 +6367,7 @@ async function emailCurrentReceipt() {
     try {
         receiptImage = generateReceiptImageDataUrl(currentReceiptTransaction);
     } catch (imgErr) {
-        console.warn('Hindi na-generate ang receipt image:', imgErr);
+        console.warn('Could not generate receipt image:', imgErr);
     }
 
     try {
@@ -6633,7 +6633,7 @@ function toggleColumnFilter(field, evt) {
     dropdown.id ='col-filter-dropdown';
     dropdown.className ='col-filter-dropdown';
     dropdown.innerHTML = `
-        <div class="col-filter-search"><input type="text" placeholder="Maghanap..." oninput="filterColumnFilterOptions(this.value)"></div>
+        <div class="col-filter-search"><input type="text" placeholder="Search..." oninput="filterColumnFilterOptions(this.value)"></div>
         <div class="col-filter-selectall"><input type="checkbox" id="col-filter-selectall-cb"><span>Piliin Lahat</span></div>
         <div class="col-filter-list" id="col-filter-list"></div>
         <div class="col-filter-actions">
@@ -6664,7 +6664,7 @@ function renderColumnFilterOptions(values, selectedSet) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
     if (values.length === 0) {
-        list.innerHTML = `<div class="col-filter-empty">Walang laman</div>`;
+        list.innerHTML = `<div class="col-filter-empty">Empty</div>`;
         return;
     }
     list.innerHTML = values.map(v => {
@@ -6785,7 +6785,7 @@ function renderInventoryProductsTable() {
                 const safeCode = escapeHtml(p.code);
                 const safeCodeAttr = safeCode.replace(/'/g,'&#39;');
                 row.innerHTML = `
-                    <td>${p.image ? `<img class="inv-thumb" src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="Tingnan ang detalye">` : `<div class="inv-thumb-fallback" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="Tingnan ang detalye"><i class="${getCategoryIconClass(p.category)}"></i></div>`}</td>
+                    <td>${p.image ? `<img class="inv-thumb" src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="View details">` : `<div class="inv-thumb-fallback" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="View details"><i class="${getCategoryIconClass(p.category)}"></i></div>`}</td>
                     <td class="font-bold">${safeCode}</td>
                     <td>${escapeHtml(p.name)}</td>
                     <td><span class="badge-role cashier">${escapeHtml(p.category)}</span></td>
@@ -6802,11 +6802,11 @@ function renderInventoryProductsTable() {
                 tbody.appendChild(row);
             } catch (rowError) {
 
-                console.error("Nilaktawan ang isang produkto sa Inventory table dahil sa error sa row render:", p, rowError);
+                console.error("Skipped a product in the Inventory table due to a row render error:", p, rowError);
             }
         });
     } catch (renderError) {
-        console.error("Nabigo ang pag-render ng Inventory product table:", renderError);
+        console.error("Failed to render Inventory product table:", renderError);
     }
 }
 
@@ -7028,7 +7028,7 @@ async function downloadAuthFetch(url, fallbackFilename) {
     try {
         const res = await authFetch(url);
         if (!res.ok) {
-            let msg ='Hindi ma-download ang file.';
+            let msg ='Could not download the file.';
             try {
                 const data = await res.json();
                 msg = data.message || msg;
@@ -7128,19 +7128,19 @@ async function handleProductImportFile(event) {
         if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
 
-        let summaryHtml = `<p>✅ Matagumpay na naidagdag: <b>${reply.added}</b> produkto</p>`;
+        let summaryHtml = `<p>✅ Successfully added: <b>${reply.added}</b> product(s)</p>`;
         if (reply.updated) {
-            summaryHtml += `<p>🔄 Na-update: <b>${reply.updated}</b> existing na produkto</p>`;
+            summaryHtml += `<p>🔄 Updated: <b>${reply.updated}</b> existing product(s)</p>`;
         }
         if (reply.newCategories && reply.newCategories.length) {
-            summaryHtml += `<p>🏷️ Bagong category na naidagdag: <b>${reply.newCategories.join(', ')}</b></p>`;
+            summaryHtml += `<p>🏷️ New categories added: <b>${reply.newCategories.join(', ')}</b></p>`;
         }
         if (reply.skipped) {
-            summaryHtml += `<p>⚠️ Na-skip: <b>${reply.skipped}</b> hilera (duplicate code o kulang na data)</p>`;
+            summaryHtml += `<p>⚠️ Skipped: <b>${reply.skipped}</b> row(s) (duplicate code or missing data)</p>`;
         }
         if (reply.errors && reply.errors.length) {
             summaryHtml += `<div style="text-align:left;max-height:150px;overflow:auto;margin-top:10px;padding:8px;background:#fef2f2;border-radius:6px;font-size:12.5px;color:#b91c1c;">${reply.errors.join('<br>')}</div>`;
-            summaryHtml += `<div style="margin-top:10px;"><button type="button" id="download-import-errors-btn" class="btn-action-outline" style="font-size:12.5px;padding:6px 12px;">📥 I-download ang Error Report (CSV)</button></div>`;
+            summaryHtml += `<div style="margin-top:10px;"><button type="button" id="download-import-errors-btn" class="btn-action-outline" style="font-size:12.5px;padding:6px 12px;">📥 Download Error Report (CSV)</button></div>`;
         }
 
         Swal.fire({
@@ -7298,7 +7298,7 @@ async function generateSelectedBarcodePreview() {
                 username: currentUser ? currentUser.username :"Unknown Cashier",
                 user: currentUser ? currentUser.username :"Unknown Cashier",
                 authMethod: authMethod,
-                details: { itemsCount: checkboxes.length, message: `Nag-print ng ${checkboxes.length} barcode label(s) (${authMethod}).` }
+                details: { itemsCount: checkboxes.length, message: `Printed ${checkboxes.length} barcode label(s) (${authMethod}).` }
             })
         });
     } catch (logError) {
@@ -7375,7 +7375,7 @@ function renderRankList(elementId, rows, opts) {
     if (!el) return;
     el.innerHTML = '';
     if (!rows || rows.length === 0) {
-        el.innerHTML = `<li class="rank-empty">${opts.emptyMessage || 'Wala pang data.'}</li>`;
+        el.innerHTML = `<li class="rank-empty">${opts.emptyMessage || 'No data yet.'}</li>`;
         return;
     }
     rows.forEach((row, idx) => {
@@ -7426,22 +7426,22 @@ async function loadSalesAnalyticsReport() {
         }
 
         renderRankList('top-products-list', (data.topProducts || []).map(p => ({ name: p.name, value: `${p.qty} sold` })),
-            { emptyMessage: 'Wala pang sales data.' });
+            { emptyMessage: 'No sales data yet.' });
 
         renderRankList('slow-products-list', (data.slowProducts || []).map(p => ({ name: p.name, value: `${p.qty} sold` })),
-            { emptyMessage: 'Wala pang sales data.' });
+            { emptyMessage: 'No sales data yet.' });
 
         if (!data.hasCostData) {
-            renderRankList('profit-by-product-list', [], { emptyMessage: 'Wala pang Cost Price na naka-set sa mga produkto. Idagdag ito sa Inventory > Edit Product para lumabas ang profit dito.' });
+            renderRankList('profit-by-product-list', [], { emptyMessage: 'No Cost Price set on any products yet. Add it in Inventory > Edit Product for profit to show here.' });
         } else {
             renderRankList('profit-by-product-list', (data.profitByProduct || []).map(p => ({ name: p.name, value: `₱${p.profit.toFixed(2)}`, negative: p.profit < 0 })),
-                { emptyMessage: 'Wala pang sales data.' });
+                { emptyMessage: 'No sales data yet.' });
         }
 
         const paymentRows = Object.entries(data.paymentBreakdown || {})
             .sort((a, b) => b[1] - a[1])
             .map(([method, total]) => ({ name: method, value: `₱${total.toFixed(2)}` }));
-        renderRankList('payment-breakdown-list', paymentRows, { emptyMessage: 'Wala pang sales data.' });
+        renderRankList('payment-breakdown-list', paymentRows, { emptyMessage: 'No sales data yet.' });
 
     } catch (e) { console.error(e); }
   checkAdminResetVisibility();
@@ -8826,7 +8826,7 @@ async function resetPasswordTrigger(targetUsername) {
         return;
     }
 
-    const adminPassword = await promptAdminPasswordConfirm(`Force reset password ng: ${targetUsername}`);
+    const adminPassword = await promptAdminPasswordConfirm(`Force reset password for: ${targetUsername}`);
     if (!adminPassword) return;
 
     try {
@@ -8893,7 +8893,7 @@ async function handleInventoryScanResult(code) {
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { cachedInventoryProducts = data; globalProducts = data; })
-        .catch(e => console.warn("Hindi na-refresh sa background ang products:", e));
+        .catch(e => console.warn("Failed to background-refresh products:", e));
 
     const product = cachedInventoryProducts.find(p => p.code === code);
 
@@ -8984,9 +8984,9 @@ async function saveAccumulatedStockIfPending() {
             loadDashboardMetrics();
             return true;
         }
-        console.warn('Hindi na-save ang naipong stock dagdag:', reply.message);
+        console.warn('Could not save queued stock addition:', reply.message);
     } catch (e) {
-        console.warn('Connection error habang sine-save ang naipong stock dagdag:', e);
+        console.warn('Connection error while saving queued stock addition:', e);
     }
     return false;
 }
@@ -9061,7 +9061,7 @@ async function handleScanStockPromptInput(rawCode) {
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { globalProducts = data; })
-        .catch(e => console.warn("Hindi na-refresh sa background ang products:", e));
+        .catch(e => console.warn("Failed to background-refresh products:", e));
 
     addProductScanSession.active = true;
 
@@ -9147,7 +9147,7 @@ async function handleProductFormScanResult(code) {
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { globalProducts = data; })
-        .catch(e => console.warn("Hindi na-refresh sa background ang products:", e));
+        .catch(e => console.warn("Failed to background-refresh products:", e));
 
     addProductScanSession.active = true;
 
@@ -9194,7 +9194,7 @@ async function handleProductFormScanResult(code) {
             newStockEl.textContent = stockInput.value;
         }
         if (feedback) {
-            feedback.innerText = `✔ ${match.name} — i-scan ulit para dagdagan pa, o mag-scan ng ibang item.`;
+            feedback.innerText = `✔ ${match.name} — scan again to add more, or scan a different item.`;
             feedback.style.color ='#22c55e';
         }
     } else {
@@ -9234,7 +9234,7 @@ async function handleHardwareScanProductForm(scannedCode) {
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { globalProducts = data; })
-        .catch(e => console.warn("Hindi na-refresh sa background ang products:", e));
+        .catch(e => console.warn("Failed to background-refresh products:", e));
 
     addProductScanSession.active = true;
 
@@ -9362,8 +9362,8 @@ function setScanResultMode(mode) {
     const feedback = document.getElementById('qr-scanner-feedback');
     if (feedback) {
         feedback.innerText = (mode ==='EDIT')
-            ?'Scan to Edit: agad bubukas ang Edit Product form pagkatapos ma-scan.'
-            :'Search mode: ipapakita/i-hihighlight ang produkto sa table pagkatapos ma-scan.';
+            ?'Scan to Edit: the Edit Product form opens immediately after scanning.'
+            :'Search mode: the product will be shown/highlighted in the table after scanning.';
         feedback.style.color ='#38bdf8';
     }
 }
@@ -9516,14 +9516,14 @@ async function handleScannedBarcode(scannedCode) {
             globalProducts = data;
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
         })
-        .catch(e => console.warn("Hindi na-refresh sa background ang products:", e));
+        .catch(e => console.warn("Failed to background-refresh products:", e));
 
     const product = globalProducts.find(p => p.code === scannedCode.trim());
     if (product) {
         const cartItem = shoppingCart.find(item => item.code === product.code);
         const qtyInBasket = cartItem ? cartItem.quantity : 0;
         if (product.stock <= 0 || qtyInBasket >= product.stock) {
-            document.getElementById('qr-scanner-feedback').innerText = `❌ Ubos na o kulang na ang stock para sa ${product.name}`;
+            document.getElementById('qr-scanner-feedback').innerText = `❌ Out of stock or insufficient stock for ${product.name}`;
             document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
             return;
         }
@@ -9531,7 +9531,7 @@ async function handleScannedBarcode(scannedCode) {
         document.getElementById('qr-scanner-feedback').innerText = `✔ Naidagdag: ${product.name}`;
         document.getElementById('qr-scanner-feedback').style.color ='#22c55e';
     } else {
-        document.getElementById('qr-scanner-feedback').innerText = `❌ Walang product na tumugma sa code na na-scan [ ${scannedCode} ]`;
+        document.getElementById('qr-scanner-feedback').innerText = `❌ No product matches the scanned code [ ${scannedCode} ]`;
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     }
 }
@@ -9801,7 +9801,7 @@ async function syncOfflineTransactions() {
                 successfulSyncs.push(item.transaction.id);
             }
         } catch (err) {
-            console.error(`Bigo ang pag-sync ng offline transaction ID ${item.transaction.id}. Ihihinto muna ang sync.`, err);
+            console.error(`Failed to sync offline transaction ID ${item.transaction.id}. Sync stopped.`, err);
             break;
         }
     }
@@ -9810,7 +9810,7 @@ async function syncOfflineTransactions() {
     localStorage.setItem('offline_transactions', JSON.stringify(offlineTx));
 
     if (successfulSyncs.length > 0) {
-        console.log(`Na-sync na ang ${successfulSyncs.length} offline transaction(s) papunta sa server.`);
+        console.log(`Synced ${successfulSyncs.length} offline transaction(s) to the server.`);
 
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
         if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
@@ -9818,7 +9818,7 @@ async function syncOfflineTransactions() {
 }
 
 window.addEventListener('online', () => {
-    console.log("Bumalik ang internet connection — sinisimulan ang pag-sync ng offline transactions...");
+    console.log("Internet connection restored — starting sync of offline transactions...");
     syncOfflineTransactions();
 });
 
@@ -9984,27 +9984,27 @@ function initNetworkStatusIndicator() {
     async function updateStatusIndicator() {
 
         if (!navigator.onLine) {
-            applyState('offline','System Status: Walang naka-connect na WiFi o naka-off ang Data SIM');
+            applyState('offline','System Status: No WiFi connected or Data SIM is off');
             return;
         }
 
         if (realInternetCheckInFlight) return;
         realInternetCheckInFlight = true;
 
-        applyState('connecting','System Status: Naka-connect sa network, hinihintay ang internet connection...');
+        applyState('connecting','System Status: Connected to network, waiting for internet connection...');
 
         const hasRealInternet = await window.checkRealInternetAccess();
         realInternetCheckInFlight = false;
 
         if (!navigator.onLine) {
-            applyState('offline','System Status: Walang naka-connect na WiFi o naka-off ang Data SIM');
+            applyState('offline','System Status: No WiFi connected or Data SIM is off');
             return;
         }
 
         if (hasRealInternet) {
             applyState('online','System Status: Connected to Internet');
         } else {
-            applyState('connecting','System Status: Naka-connect sa network, hinihintay ang internet connection...');
+            applyState('connecting','System Status: Connected to network, waiting for internet connection...');
         }
     }
 
@@ -10136,12 +10136,12 @@ function showInstallAppBanner({ mode }) {
         <div class="install-app-banner-copy">
             <p class="install-app-banner-title">I-install ang OmniPOS</p>
             <p class="install-app-banner-desc">${mode === 'ios'
-                ? 'Tap <i class="fa-solid fa-arrow-up-from-bracket"></i> Share, tapos "Add to Home Screen" — para full-screen, walang browser bar.'
-                : 'Para full-screen ang view, walang browser address bar, at mas mabilis mag-launch.'}</p>
+                ? 'Tap <i class="fa-solid fa-arrow-up-from-bracket"></i> Share, then "Add to Home Screen" — for full-screen, no browser bar.'
+                : 'For a full-screen view, no browser address bar, and faster launch.'}</p>
         </div>
         <div class="install-app-banner-actions">
             ${mode === 'android' ? `<button type="button" class="install-app-banner-btn" id="install-app-banner-confirm">Install</button>` : ''}
-            <button type="button" class="install-app-banner-dismiss" id="install-app-banner-dismiss" aria-label="Isara">
+            <button type="button" class="install-app-banner-dismiss" id="install-app-banner-dismiss" aria-label="Close">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
@@ -10296,7 +10296,7 @@ function playScanBeep() {
 
         oscillator.stop(audioCtx.currentTime + 0.08);
     } catch (error) {
-        console.warn("Hindi mapatugtog ang scan audio:", error);
+        console.warn("Could not play scan audio:", error);
     }
 }
 
@@ -10677,7 +10677,7 @@ async function handleLogout(type ='manual') {
         if (txtUser) txtUser.value ='';
         if (txtPass) txtPass.value ='';
     } catch (err) {
-        console.error('May error habang nililinis ang UI state sa logout (di-nakakaharang, tuloy pa rin ang navigation):', err);
+        console.error('Error while cleaning up UI state on logout (non-blocking, navigation continues):', err);
     } finally {
         try {
             history.pushState({ view:'auth-view' },'','');
@@ -10839,7 +10839,7 @@ async function showMainSystemInterface() {
                 await refreshUnlockedThemesFromServer();
                 await initDemoModeUI();
             } catch (err) {
-                console.warn('Hindi natapos ang otomatikong Relay sync pagka-login:', err);
+                console.warn('Automatic Relay sync did not complete after login:', err);
             }
         })();
 
@@ -10864,7 +10864,7 @@ async function showMainSystemInterface() {
         // unang benta bago pa matapos ang background fetch na ito.
         receiptSettingsPromise = fetchReceiptSettings();
     } catch (err) {
-        console.error('Hindi inaasahang error habang nagla-load ang main system interface pagka-login (mag-tuloy pa rin sa pagpapakita ng view):', err);
+        console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);
     } finally {
         // FIX (ito ang HULING linya ng depensa laban sa "freeze"/blangkong
         // main-view): kahit anong error pa ang mangyari sa itaas, dapat
@@ -10889,7 +10889,7 @@ async function showMainSystemInterface() {
                 history.replaceState({ view:'overview' },'','');
             }
         } catch (finalErr) {
-            console.error('Hindi rin na-render ang fallback view — pakisubukan mag-reload ng page:', finalErr);
+            console.error('Fallback view also failed to render — please try reloading the page:', finalErr);
         }
     }
 }
@@ -11145,12 +11145,12 @@ function buksanScannerParaSaBackup() {
                 if (SearchBtn) {
                     SearchBtn.click();
                 } else {
-                    console.error("Hindi mahanap ang button na may tekstong 'Hanapin' sa HTML.");
+                    console.error("Could not find the button with the text 'Search' in the HTML.");
                 }
             }, 300);
 
         } else {
-            console.error("Hindi mahanap ang input text box para sa backup ID.");
+            console.error("Could not find the input text box for the backup ID.");
         }
     };
 }
@@ -11168,7 +11168,7 @@ function applyDeviceScanRestrictions() {
         document.querySelectorAll('.btn-scan-qr:not(.btn-scan-hardware-only), .btn-scan-backup').forEach(btn => {
             btn.disabled = true;
             btn.classList.add('scan-btn-disabled');
-            btn.title ='Available lamang ang camera scan sa mobile o tablet device. Gumamit ng external barcode scanner sa search box.';
+            btn.title ='Camera scan is only available on mobile or tablet devices. Use an external barcode scanner in the search box.';
         });
     }
 
@@ -11249,7 +11249,7 @@ async function handleHardwareScanTerminal(scannedCode) {
             globalProducts = data;
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
         })
-        .catch(e => console.warn("Hindi na-refresh sa background ang products:", e));
+        .catch(e => console.warn("Failed to background-refresh products:", e));
 
     const product = globalProducts.find(p => p.code === cleanCode);
 
