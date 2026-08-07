@@ -4772,7 +4772,10 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
 }
 
 .barcode-print-card-unit p {
-    font-size: 0.7rem;
+    /* Pinaliit mula 0.7rem -> 0.55rem: sobrang laki dati ang product name
+       kumpara sa barcode number sa ilalim nito. Nananatiling bold at may
+       ellipsis truncation kaya readable pa rin ito kahit maliit na. */
+    font-size: 0.55rem;
     font-weight: 700;
     margin-bottom: 4px;
     color: #000;
@@ -5473,6 +5476,21 @@ body.dark-mode .bottom-nav-item:active {
     }
     body.print-target-receipt #printable-receipt-area {
         padding: 10mm !important;
+        /* AYOS: bago nito, walang width/max-width na naka-set dito para
+           sa print, kaya kapag mas malaki ang napiling paper (hal. A4,
+           Letter, 3x5 index card) kaysa sa aktwal na disenyo ng resibo
+           (makitid/thermal-receipt-width na column), naka-stretch ito sa
+           buong lapad ng papel o naka-dikit sa kaliwa sa halip na naka-
+           center — kaya "off-center" ang buong resibo. Dito, pinananatili
+           itong isang makitid na column (katulad ng totoong resibo) na
+           naka-cap sa 80mm, pero awtomatikong lumiliit pa rin (100%)
+           kapag mas maliit ang available width (hal. 58mm/80mm thermal
+           paper) — at naka-center sa gitna ng anumang paper size gamit
+           ang margin: 0 auto. */
+        width: 100% !important;
+        max-width: 80mm !important;
+        margin: 0 auto !important;
+        box-sizing: border-box !important;
     }
     body.print-target-receipt #printable-receipt-area,
     body.print-target-receipt #printable-receipt-area * { visibility: visible; }
@@ -5527,6 +5545,23 @@ body.dark-mode .bottom-nav-item:active {
     body.print-target-receipt .receipt-footer-msg-id {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
+    }
+    /* AYOS: sinisiguro ang pag-center ng barcode container (hindi na
+       umaasa sa inline style lang na text-align:center), at ang aktwal
+       na SVG barcode ay na-cap na sa max-width:100% ng magulang nito
+       (kasabay ng height:auto) para "auto-fit" ito — awtomatikong
+       lumiliit ang barcode kapag mas makitid ang napiling paper kaysa sa
+       fixed pixel width na ginawa ni JsBarcode, sa halip na ma-clip/
+       maputol ito sa gilid ng papel (na siyang dating dahilan kung bakit
+       parang "hindi naka-center"/naka-off ang barcode). */
+    body.print-target-receipt .receipt-barcode-container {
+        text-align: center !important;
+        width: 100% !important;
+    }
+    body.print-target-receipt .receipt-barcode-container svg,
+    body.print-target-receipt #receipt-barcode {
+        max-width: 100% !important;
+        height: auto !important;
     }
 
     /* When printing barcodes sheet unit */

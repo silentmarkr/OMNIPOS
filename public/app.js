@@ -7439,7 +7439,9 @@ async function generateSelectedBarcodePreview() {
                     width: 1.5,
                     height: 45,
                     displayValue: true,
-                    fontSize: 10,
+                    // Dinagdagan ng konti mula 10 -> 12 para mas malinaw
+                    // makita ang product ID/code sa ilalim ng barcode.
+                    fontSize: 12,
                     margin: 5
                 });
             }, 20);
