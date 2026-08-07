@@ -512,6 +512,8 @@ const MENU_REGISTRY = [
 
     { key:'void_own_password', label:'Transactions — Void gamit ang Sariling Password (Hindi na kailangan ng Admin Password)' },
 
+    { key:'manual_discount_own_password', label:'Transactions — Authorize Manual Discount With Own Password (Admin Password Not Required)' },
+
     { key:'reports',      label:'Sales Report' },
     { key:'users',        label:'Users' },
     { key:'logs',         label:'User Logs' },
@@ -641,6 +643,17 @@ function findPasswordAuthorizer(users, password, permissionKey) {
 
 function findVoidAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'void_own_password');
+}
+
+// For Manual Discounts (item-level or cart-level "MANUAL" discount type):
+// requires the Admin password, or the password of an account with the
+// `manual_discount_own_password` permission (e.g. Supervisor/Manager) —
+// a Cashier can no longer apply a discretionary discount (e.g. 100% off)
+// without verification, since this is the most common "sweethearting"
+// fraud vector (the price is lowered in the system, but the customer is
+// still charged full price, and the cashier pockets the difference).
+function findManualDiscountAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'manual_discount_own_password');
 }
 
 // Para sa Shift Close / Z-Reading: kailangan ng Admin password, o
@@ -4654,6 +4667,47 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
         cartDiscount = Math.round(Math.min(Math.max(0, parseFloat(transaction.discount) || 0), netAfterItemDiscounts) * 100) / 100;
     }
 
+    // ------------------------------------------------------------------
+    // SECURITY FIX: previously, manual discounts (item-level
+    // `itemDiscount` and cart-level `discountType: MANUAL`) were simply
+    // accepted from whoever was logged into the terminal (even a
+    // Cashier) — no password or approval was required, unlike
+    // void/shift-close. This was the easiest "sweethearting" fraud
+    // vector: lower the price in the system while still charging the
+    // customer full price, then pocket the difference. Now, whenever
+    // there's a manual discount (item or cart) GREATER THAN ZERO, a
+    // `transaction.discountAuthPassword` is required that matches the
+    // Admin or an account with the `manual_discount_own_password`
+    // permission — checked against ALL accounts (same as void), since
+    // it's usually a Supervisor typing their own password, not the
+    // Cashier logged into the terminal.
+    // ------------------------------------------------------------------
+    const manualDiscountTotal = Math.round((itemDiscountTotal + (discountType ==='MANUAL' ? cartDiscount : 0)) * 100) / 100;
+    let discountAuthorizedBy = null;
+
+    if (manualDiscountTotal > 0) {
+        const discountAuthPassword = transaction.discountAuthPassword;
+        if (!discountAuthPassword) {
+            return res.status(400).json({
+                success: false,
+                code:'DISCOUNT_AUTH_REQUIRED',
+                message:'An Admin/Supervisor password is required to authorize this manual discount.'
+            });
+        }
+        const authUsers = readData(FILE_USERS);
+        const discountAuthResult = findManualDiscountAuthorizer(authUsers, discountAuthPassword);
+        if (!discountAuthResult) {
+            return res.status(403).json({
+                success: false,
+                code:'WRONG_ADMIN_PASSWORD',
+                message:'Incorrect password. Manual discount was not authorized.'
+            });
+        }
+        discountAuthorizedBy = discountAuthResult.isAdmin
+            ? `${discountAuthResult.user.username} (Admin)`
+            : `${discountAuthResult.user.username} (RBAC)`;
+    }
+
     const verifiedTotal = Math.max(0, Math.round((netAfterItemDiscounts - cartDiscount) * 100) / 100);
 
     // Kumpirmahin na ang binayad (single payment o split payments) ay
@@ -4676,6 +4730,8 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
     transaction.discount = cartDiscount;
     transaction.total = verifiedTotal;
     transaction.change = Math.round((tendered - verifiedTotal) * 100) / 100;
+    transaction.discountAuthorizedBy = discountAuthorizedBy;
+    delete transaction.discountAuthPassword;
 
     transaction.items.forEach(item => {
         const prod = products.find(p => p.code === item.code);
@@ -4712,7 +4768,7 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
     writeData(FILE_TRANSACTIONS, transactions);
     writeData(FILE_PRODUCTS, products);
 
-    logAction(username, `Processed sale transaction: ${transaction.id}`);
+    logAction(username, `Processed sale transaction: ${transaction.id}` + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : ''));
     res.json({ success: true, currentTransaction: transaction });
 
 });
@@ -5582,6 +5638,14 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), (
     // ang naka-login sa terminal (hal. Cashier).
     if (purpose ==='void') {
         const authResult = findVoidAuthorizer(users, adminPassword);
+        if (authResult) {
+            return res.json({ success: true, message:'Authorized' });
+        }
+        return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
+    }
+
+    if (purpose ==='manual_discount') {
+        const authResult = findManualDiscountAuthorizer(users, adminPassword);
         if (authResult) {
             return res.json({ success: true, message:'Authorized' });
         }

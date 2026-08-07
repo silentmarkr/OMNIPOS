@@ -5625,6 +5625,52 @@ async function submitFinalPaymentTransaction() {
     }
 
     let discount = parseFloat(document.getElementById('cart-discount-input').value) || 0;
+
+    // SECURITY: if there's a manual discount (item-level or cart-level
+    // "MANUAL"), an Admin/Supervisor must authorize with their password
+    // before the sale can proceed — this prevents "sweethearting" (the
+    // price is lowered in the system while the customer is still
+    // charged full price).
+    const itemDiscountSum = shoppingCart.reduce((s, i) => s + Math.max(0, parseFloat(i.itemDiscount) || 0), 0);
+    const manualDiscountTotal = Math.round((itemDiscountSum + (cartDiscountType ==='MANUAL' ? discount : 0)) * 100) / 100;
+    let discountAuthPassword = null;
+
+    if (manualDiscountTotal > 0) {
+        const { value: pw } = await Swal.fire({
+            title:'🔒 Manual Discount Authorization',
+            html: `This sale has a manual discount of <b>₱${manualDiscountTotal.toFixed(2)}</b>. An Admin or Supervisor password is required to authorize it:`,
+            input:'password',
+            inputPlaceholder:'Password',
+            showCancelButton: true,
+            confirmButtonColor:'#2563eb',
+            cancelButtonColor:'#ef4444'
+        });
+
+        if (!pw || pw.trim() ==='') {
+            Swal.fire('Cancelled','Authorization is required to proceed with a sale that has a manual discount.','info');
+            return;
+        }
+
+        try {
+            const verifyRes = await authFetch(`${API_URL}/auth/verify-void`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({ adminPassword: pw, purpose:'manual_discount' })
+            });
+            const verifyOut = await verifyRes.json();
+            if (!verifyOut.success) {
+                Swal.fire('Access Denied', verifyOut.message ||'Incorrect password.','error');
+                return;
+            }
+        } catch (verifyErr) {
+            console.warn(verifyErr);
+            Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
+            return;
+        }
+
+        discountAuthPassword = pw;
+    }
+
     const txId ='TX-' + Date.now();
 
     const transactionPayload = {
@@ -5641,6 +5687,7 @@ async function submitFinalPaymentTransaction() {
         })),
         total: dueAmount,
         discount: discount,
+        discountAuthPassword: discountAuthPassword,
         discountType: cartDiscountType,
         promoCode: cartDiscountType ==='PROMO' ? cartPromoCode :'',
         seniorPwdId: cartDiscountType ==='SENIOR_PWD' ? cartSeniorPwdId :'',
