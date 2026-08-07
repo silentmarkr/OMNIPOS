@@ -2592,11 +2592,35 @@ async function closeCurrentShift() {
     });
     if (!confirmResult.isConfirmed) return;
 
+    // SECURITY FIX: dati'y basta ika-close agad ang shift/Z-Reading pagkatapos
+    // lang ng generic "Yes, close shift" confirm — walang paraan para
+    // ma-verify na Admin/Manager/Supervisor mismo ang nag-approve bago
+    // isara ang cash drawer/till. Ngayon, kailangan munang i-type ang
+    // Admin/Manager/Supervisor password (parehong pattern gaya ng Void
+    // Transaction) bago tuluyang ipadala ang request sa server — at
+    // dinodouble-check pa rin ito sa backend (/api/shift/close) mismo.
+    const { value: adminPassword } = await Swal.fire({
+        title:'🔒 Admin/Supervisor Password Required',
+        html: targetCashier
+            ? `To close "${escapeHtml(targetCashier)}"'s shift / Z-Reading, enter an Admin or authorized Supervisor/Manager password:`
+            :'To close this shift / Z-Reading, enter an Admin or authorized Supervisor/Manager password:',
+        input:'password',
+        inputPlaceholder:'Admin/Supervisor password',
+        showCancelButton: true,
+        confirmButtonColor:'#2563eb',
+        cancelButtonColor:'#ef4444'
+    });
+
+    if (!adminPassword || adminPassword.trim() ==="") {
+        Swal.fire('Cancelled','Shift close was not authorized — no password entered.','info');
+        return;
+    }
+
     try {
         const res = await authFetch(`${API_URL}/shift/close`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ endingCashCounted, notes, targetCashier })
+            body: JSON.stringify({ endingCashCounted, notes, targetCashier, adminPassword })
         });
         const data = await res.json();
         if (data.success) {
@@ -2612,6 +2636,8 @@ async function closeCurrentShift() {
             document.getElementById('shift-ending-cash').value ='';
             document.getElementById('shift-close-notes').value ='';
             loadShiftReportView();
+        } else if (data.code ==='WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Authorization Rejected', data.message ||'Wrong Admin/Supervisor password.','error');
         } else {
             Swal.fire('Unable to Close', data.message ||'There was a problem closing the shift.','warning');
         }

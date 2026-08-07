@@ -528,6 +528,8 @@ const MENU_REGISTRY = [
 
     { key:'shift_close_control', label:'Shift / Z-Reading — Admin/Supervisor Control (Close Other Cashiers\' Shift)' },
 
+    { key:'shift_close_own_password', label:'Shift / Z-Reading — Pwedeng Mag-authorize ng Close gamit ang Sariling Password (Hindi na kailangan ng Admin Password)' },
+
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)' },
 
     { key:'products_direct_apply', label:'Products — Add/Update/Delete Direct Apply (No Approval Needed)' },
@@ -559,13 +561,13 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
+        permissions: { terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
     },
     {
         name:'Cashier',
         protected: false,
 
-        permissions: { terminal: true, dashboard: false, products: false, barcode: false, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: false, shift_close_control: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
+        permissions: { terminal: true, dashboard: false, products: false, barcode: false, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
     }
 ];
 
@@ -609,7 +611,12 @@ function getPermissionsForRole(roleName) {
 // nila para paunahan ang void. Kaya kailangang hanapin sa LAHAT ng
 // accounts kung kaninong password ang na-type, hindi lang sa account
 // ng kasalukuyang naka-login.
-function findVoidAuthorizer(users, password) {
+// GENERIC na bersyon: parehong logic gamit ng void at ng shift-close
+// (Z-Reading) authorization — hinahanap sa LAHAT ng accounts kung
+// kaninong password ang na-type (Admin, o kung sino man ang may
+// `permissionKey` na permission), dahil hindi laging ang naka-login sa
+// terminal ang Supervisor/Manager na nagta-type ng sariling password.
+function findPasswordAuthorizer(users, password, permissionKey) {
     if (!password) return null;
     for (const u of users) {
         let match = false;
@@ -622,14 +629,27 @@ function findVoidAuthorizer(users, password) {
 
         const role = (u.role ||'').toLowerCase();
         if (role ==='admin') return { user: u, isAdmin: true };
-        if (!!getPermissionsForRole(u.role).void_own_password) return { user: u, isAdmin: false };
+        if (permissionKey && !!getPermissionsForRole(u.role)[permissionKey]) return { user: u, isAdmin: false };
 
-        // Tumugma ang password sa account na ito pero walang void access
-        // ang role nila — huwag nang ituloy ang paghahanap, dahil iisa
-        // lamang ang account na dapat tumugma sa isang password.
+        // Tumugma ang password sa account na ito pero walang access ang
+        // role nila para dito — huwag nang ituloy ang paghahanap, dahil
+        // iisa lamang ang account na dapat tumugma sa isang password.
         return null;
     }
     return null;
+}
+
+function findVoidAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'void_own_password');
+}
+
+// Para sa Shift Close / Z-Reading: kailangan ng Admin password, o
+// password ng account na may `shift_close_own_password` permission
+// (hal. Supervisor/Manager role) — hindi puwedeng basta i-close ng
+// Cashier ang sariling shift nang walang pag-verify na ito, kahit
+// naka-login na sila sa terminal.
+function findShiftCloseAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'shift_close_own_password');
 }
 
 function requirePermission(menuKey) {
@@ -2119,9 +2139,9 @@ if (!AUTO_BACKUP_DISABLED) {
 // (event-driven, HINDI polling kada segundo) kapag may na-edit/na-
 // delete/na-add na file sa install folder gamit ang fs.watch() per
 // directory. Kapag may nangyaring pagbabago:
-//   1. DEBOUNCE (5s) — para sama-samang mahawakan ang maramihang
+//   1. DEBOUNCE (0.8s) — para sama-samang mahawakan ang maramihang
 //      sunod-sunod na save (hal. galing sa isang editor/deploy).
-//   2. THROTTLE (min 5s gap sa pagitan ng dalawang check-in) — proteksyon
+//   2. THROTTLE (min 1.5s gap sa pagitan ng dalawang check-in) — proteksyon
 //      pa rin laban sa sunod-sunod na tawag, pero mas mabilis na ngayon.
 // Full manifest pa rin ang ipinapadala kada check-in (kailangan ito ng
 // RELAY para makita rin ang mga DELETED file, hindi lang MODIFIED) —
@@ -2132,8 +2152,8 @@ if (!AUTO_BACKUP_DISABLED) {
 // --------------------------------------------------------------
 let integrityWatchDebounceTimer = null;
 let integrityWatchLastRunAt = 0;
-const INTEGRITY_WATCH_DEBOUNCE_MS = 5 * 1000;
-const INTEGRITY_WATCH_MIN_GAP_MS = 5 * 1000;
+const INTEGRITY_WATCH_DEBOUNCE_MS = 800;
+const INTEGRITY_WATCH_MIN_GAP_MS = 1500;
 const integrityWatchers = new Map(); // dir path -> fs.FSWatcher
 
 function scheduleIntegrityCheckinFromWatcher(changedPath) {
@@ -3974,58 +3994,29 @@ app.get('/api/auth/active-sessions', (req, res) => {
     res.json({ success: true, activeUsers: sessions, count: sessions.length });
 });
 
+// SECURITY FIX: tinanggal ang function body ng dating '/api/products/checkout'.
+// Legacy/unused na endpoint ito (hindi na tinatawag ng frontend/public/app.js)
+// na diretsong nagbabawas ng stock BATAY LANG SA SINABI NG CLIENT — walang
+// pag-verify ng presyo, walang paglikha ng aktwal na transaction/resibo, at
+// walang audit log. Kung natira ito nang gumagana, may paraan ang isang
+// Cashier (o kahit sino na naka-login) na direktang tumawag dito (hal. sa
+// Postman/devtools) para "ayusin"/ibaba ang stock ng isang item — halimbawa
+// pagkatapos nilang kunin/ibigay ang paninda nang hindi ito na-ring sa
+// checkout — nang hindi ito lumalabas sa Transactions o Logs. Iniwan ang
+// route pero pinatay ang function nito (410 Gone) sa halip na basta alisin,
+// para malinaw ang dahilan kung sakaling may lumang client pa ring tatawag
+// dito, at para may makuhang forensic trail kung sino ang sumusubok pa rin.
 app.post('/api/products/checkout', requirePermission('terminal'), (req, res) => {
     try {
-        const { cartItems } = req.body;
-
-        // VALIDATION FIX: dating basta tinatawag agad ang cartItems.forEach()
-        // — kung wala o hindi array ang cartItems, mag-e-error nang generic
-        // "Server database error" (500) sa halip na malinaw na sabihin kung
-        // ano talaga ang mali sa request.
-        if (!Array.isArray(cartItems) || cartItems.length === 0) {
-            return res.status(400).json({ success: false, message: 'Walang laman ang cart o hindi valid ang cart data.' });
-        }
-
-        const invalidItems = cartItems.filter(ci =>
-            !ci || typeof ci.code !== 'string' || !ci.code.trim() ||
-            !Number.isFinite(parseInt(ci.quantity)) || parseInt(ci.quantity) <= 0
-        );
-        if (invalidItems.length > 0) {
-            return res.status(400).json({ success: false, message: 'May item sa cart na walang valid na product code o quantity.' });
-        }
-
-        let products = readData(FILE_PRODUCTS);
-        const insufficientStock = [];
-
-        cartItems.forEach(cartItem => {
-            const qty = parseInt(cartItem.quantity);
-            const prodIndex = products.findIndex(p => p.code === cartItem.code);
-            if (prodIndex !== -1) {
-                if (products[prodIndex].stock >= qty) {
-                    products[prodIndex].stock -= qty;
-                } else {
-                    // May na-request na quantity na hindi na kasya sa
-                    // available stock (hal. na-checkout na ng ibang terminal
-                    // bago pa natin ito maproseso) — huwag i-deduct (para
-                    // hindi negative ang stock), pero i-flag ito pabalik sa
-                    // client sa halip na tahimik lang na hindi isasama.
-                    insufficientStock.push({
-                        code: cartItem.code,
-                        name: products[prodIndex].name,
-                        requestedQty: qty,
-                        availableStock: products[prodIndex].stock
-                    });
-                }
-            }
-        });
-
-        writeData(FILE_PRODUCTS, products);
-
-        res.json({ success: true, updatedProducts: products, insufficientStock });
-    } catch (error) {
-        console.error("Checkout server error:", error);
-        res.status(500).json({ success: false, message:"Server database error" });
+        logAction(req.authUser && req.authUser.username, `Blocked call to removed endpoint /api/products/checkout (security fix — direct stock manipulation na walang transaction record). Payload: ${JSON.stringify(req.body || {}).slice(0, 300)}`);
+    } catch (e) {
+        console.error('Failed to log blocked /api/products/checkout attempt:', e);
     }
+    res.status(410).json({
+        success: false,
+        code:'ENDPOINT_REMOVED',
+        message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin para baguhin ang stock nang walang naitatalang benta at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
+    });
 });
 
 app.get('/api/products', (req, res) => {
@@ -4389,19 +4380,25 @@ app.post('/api/products', (req, res) => {
 
 });
 
+// SECURITY FIX: tinanggal ang function body ng dating '/api/products/deduct'.
+// Ito ang PINAKA-MALALANG bug — walang requirePermission(...) kaya KAHIT
+// ANONG naka-login na role (kahit pinaka-mababa) ay pwedeng tumawag dito
+// direkta, walang pag-verify ng presyo, walang paglikha ng transaction
+// record, at walang logAction (walang audit trail). Legacy/unused na rin
+// ito sa frontend (public/app.js). Katulad ng '/api/products/checkout',
+// iniwan ang route pero pinatay ang function nito (410 Gone) at nilagyan
+// ng logging kung sino man ang susubok pa ring tumawag dito.
 app.post('/api/products/deduct', (req, res) => {
-    const { items } = req.body;
-    let products = readData(FILE_PRODUCTS);
-
-    items.forEach(cartItem => {
-        const product = products.find(p => p.code === cartItem.code);
-        if (product && product.stock >= cartItem.quantity) {
-            product.stock -= cartItem.quantity;
-        }
+    try {
+        logAction(req.authUser && req.authUser.username, `Blocked call to removed endpoint /api/products/deduct (security fix — walang permission check dati, direct stock manipulation na walang transaction record). Payload: ${JSON.stringify(req.body || {}).slice(0, 300)}`);
+    } catch (e) {
+        console.error('Failed to log blocked /api/products/deduct attempt:', e);
+    }
+    res.status(410).json({
+        success: false,
+        code:'ENDPOINT_REMOVED',
+        message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin ng kahit sinong naka-login para baguhin ang stock nang walang permission check at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
-
-    writeData(FILE_PRODUCTS, products);
-    res.json({ success: true, products });
 });
 
 app.put('/api/products/:code', (req, res) => {
@@ -6261,6 +6258,29 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), (req,
     const isAdminRole = (role ||'').toLowerCase() ==='admin';
     const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
 
+    // SECURITY FIX: dati'y basta ika-close agad ang shift/Z-Reading ng
+    // isang naka-login na Cashier — walang paraan para ma-verify ng
+    // Admin/Manager/Supervisor na sila mismo ang nag-approve ng
+    // pag-close (hal. bago mag-alis ng till/cash drawer). Kaya kayang
+    // gawin ng isang Cashier na kupitan ang cash count nang walang
+    // ibang tao na nakakaalam. Ngayon, kailangan muna ng Admin password,
+    // o password ng account na may `shift_close_own_password`
+    // permission (hal. Supervisor/Manager role) — pareho ang pattern
+    // dito sa ginagamit na sa Void Transaction authorization.
+    const { adminPassword } = req.body;
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ng Admin/Manager/Supervisor password para isara ang shift / Z-Reading.' });
+    }
+    const usersForShiftClose = readData(FILE_USERS);
+    const shiftCloseAuth = findShiftCloseAuthorizer(usersForShiftClose, adminPassword);
+    if (!shiftCloseAuth) {
+        return res.status(403).json({
+            success: false,
+            code:'WRONG_ADMIN_PASSWORD',
+            message:'Maling password. Hindi pinahintulutan ang pag-close ng shift / Z-Reading.'
+        });
+    }
+
     const requestedTarget = (req.body.targetCashier ||'').toString().trim();
     let targetCashier = req.authUser.username;
     let closedOnBehalf = false;
@@ -6335,9 +6355,12 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), (req,
             ? `, Cash SHORT ₱${Math.abs(cashVariance).toFixed(2)}`
             : (cashVariance > 0 ? `, Cash OVER ₱${cashVariance.toFixed(2)}` :', Cash Exact'));
     const noSalesLog = isZeroActivityClose ?' (Walang Transaksyon - Shift Handover Lang)' :'';
+    const authorizedByLog = shiftCloseAuth.isAdmin
+        ?'Authorized by Admin'
+        : `Authorized via Own Password (${shiftCloseAuth.user.username}, RBAC)`;
     const actionLog = closedOnBehalf
-        ? `Closed shift / Z-Reading ${record.id} ng cashier '${targetCashier}' (Admin/Supervisor Control): ${summary.transactionCount} tx, Net Sales ₱${summary.netSales}${varianceLog}${noSalesLog}`
-        : `Closed shift / Z-Reading ${record.id}: ${summary.transactionCount} tx, Net Sales ₱${summary.netSales}${varianceLog}${noSalesLog}`;
+        ? `Closed shift / Z-Reading ${record.id} ng cashier '${targetCashier}' (Admin/Supervisor Control): ${summary.transactionCount} tx, Net Sales ₱${summary.netSales}${varianceLog}${noSalesLog} — ${authorizedByLog}`
+        : `Closed shift / Z-Reading ${record.id}: ${summary.transactionCount} tx, Net Sales ₱${summary.netSales}${varianceLog}${noSalesLog} — ${authorizedByLog}`;
     logAction(req.authUser.username, actionLog);
     res.json({ success: true, shift: record });
 });
