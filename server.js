@@ -548,6 +548,14 @@ const MENU_REGISTRY = [
 
     { key:'receipt_settings_direct_apply', label:'Receipt Customization — Direct Apply (No Approval Needed)' },
 
+    { key:'store_settings_view', label:'Users — Store & Sales Settings Tab (view/open access)' },
+
+    { key:'store_settings_direct_apply', label:'Store & Sales Settings — Direct Apply (No Approval Needed)' },
+
+    { key:'ux_settings_view', label:'Users — Appearance/UX Settings Tab (view/open access)' },
+
+    { key:'ux_settings_direct_apply', label:'Appearance/UX Settings — Direct Apply (No Approval Needed)' },
+
     { key:'relay_unlock_request', label:'Features/Themes — Pwedeng Mag-send ng Unlock/Demo OTP Request sa Relay' },
 ];
 
@@ -563,13 +571,13 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
+        permissions: { terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, relay_unlock_request: false }
     },
     {
         name:'Cashier',
         protected: false,
 
-        permissions: { terminal: true, dashboard: false, products: false, barcode: false, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, relay_unlock_request: false }
+        permissions: { terminal: true, dashboard: false, products: false, barcode: false, transactions: true, transactions_view_all: false, void_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, shiftreport: true, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, relay_unlock_request: false }
     }
 ];
 
@@ -1057,6 +1065,172 @@ app.post('/api/receipt-settings/reset-counter', rateLimit('otp-reset-verify', 12
     logAction(username ||'Unknown','Na-reset ang Receipt Customization counter (bumalik sa 2 libreng attempts)');
 
     res.json({ success: true, message:'Na-reset ang counter — may 2 libreng pag-customize na muli.', settings: getReceiptSettingsPublic(settings) });
+});
+
+// ---------------------------------------------------------------------
+// STORE & SALES SETTINGS (tax rate, payment methods, senior/PWD discount)
+// ---------------------------------------------------------------------
+const FILE_STORE_SETTINGS = 'storeSettings';
+
+const DEFAULT_STORE_SETTINGS = {
+    currencyCode: 'PHP',
+    currencySymbol: '₱',
+    taxEnabled: false,
+    taxLabel: 'VAT',
+    taxRate: 12,
+    pricesIncludeTax: true,
+    paymentMethods: { cash: true, gcash: false, maya: false, card: false, bankTransfer: false },
+    seniorPwdDiscountEnabled: false,
+    seniorPwdDiscountRate: 20,
+    loyaltyEnabled: true,
+    loyaltyEarnRate: 100,
+    loyaltyPointValue: 1,
+    updatedAt: null
+};
+
+const VALID_CURRENCY_CODES = ['PHP', 'USD', 'EUR', 'JPY', 'SGD'];
+
+function getStoreSettingsPublic(rawSettings) {
+    const s = rawSettings || DEFAULT_STORE_SETTINGS;
+    const pm = s.paymentMethods || DEFAULT_STORE_SETTINGS.paymentMethods;
+    return {
+        currencyCode: VALID_CURRENCY_CODES.includes(s.currencyCode) ? s.currencyCode : DEFAULT_STORE_SETTINGS.currencyCode,
+        currencySymbol: s.currencySymbol || DEFAULT_STORE_SETTINGS.currencySymbol,
+        taxEnabled: !!s.taxEnabled,
+        taxLabel: s.taxLabel || DEFAULT_STORE_SETTINGS.taxLabel,
+        taxRate: Number.isFinite(s.taxRate) ? s.taxRate : DEFAULT_STORE_SETTINGS.taxRate,
+        pricesIncludeTax: s.pricesIncludeTax !== false,
+        paymentMethods: {
+            cash: pm.cash !== false,
+            gcash: !!pm.gcash,
+            maya: !!pm.maya,
+            card: !!pm.card,
+            bankTransfer: !!pm.bankTransfer
+        },
+        seniorPwdDiscountEnabled: !!s.seniorPwdDiscountEnabled,
+        seniorPwdDiscountRate: Number.isFinite(s.seniorPwdDiscountRate) ? s.seniorPwdDiscountRate : DEFAULT_STORE_SETTINGS.seniorPwdDiscountRate,
+        loyaltyEnabled: s.loyaltyEnabled !== false,
+        loyaltyEarnRate: Number.isFinite(s.loyaltyEarnRate) && s.loyaltyEarnRate > 0 ? s.loyaltyEarnRate : DEFAULT_STORE_SETTINGS.loyaltyEarnRate,
+        loyaltyPointValue: Number.isFinite(s.loyaltyPointValue) && s.loyaltyPointValue >= 0 ? s.loyaltyPointValue : DEFAULT_STORE_SETTINGS.loyaltyPointValue,
+        updatedAt: s.updatedAt || null
+    };
+}
+
+app.get('/api/store-settings', (req, res) => {
+    const settings = readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS);
+    res.json(getStoreSettingsPublic(settings));
+});
+
+app.post('/api/store-settings', requirePermission('store_settings_view'), (req, res) => {
+    const { username } = req.body;
+    const incoming = getStoreSettingsPublic(req.body || {});
+
+    if (!VALID_CURRENCY_CODES.includes(incoming.currencyCode)) {
+        return res.status(400).json({ success: false, message: `Di-wastong currency. Pumili sa: ${VALID_CURRENCY_CODES.join(', ')}` });
+    }
+    if (incoming.taxRate < 0 || incoming.taxRate > 100) {
+        return res.status(400).json({ success: false, message: 'Ang tax rate ay dapat nasa pagitan ng 0 at 100.' });
+    }
+    if (incoming.seniorPwdDiscountRate < 0 || incoming.seniorPwdDiscountRate > 100) {
+        return res.status(400).json({ success: false, message: 'Ang Senior/PWD discount rate ay dapat nasa pagitan ng 0 at 100.' });
+    }
+    if (incoming.loyaltyEarnRate <= 0) {
+        return res.status(400).json({ success: false, message: 'Ang Loyalty earn rate (₱ kada point) ay dapat higit sa 0.' });
+    }
+    if (incoming.loyaltyPointValue < 0) {
+        return res.status(400).json({ success: false, message: 'Ang Loyalty point value ay hindi puwedeng negative.' });
+    }
+
+    const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).store_settings_direct_apply;
+
+    if (!canApplyDirectly) {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({
+            id: 'REQ-' + Date.now(),
+            requester: req.authUser.username,
+            type: 'STORE_SETTINGS_UPDATE',
+            data: incoming,
+            timestamp: new Date().toLocaleString()
+        });
+        writeData(FILE_REQUESTS, requests);
+        logAction(req.authUser.username, 'Nag-submit ng Store & Sales Settings change request para sa Admin approval');
+        return res.json({ success: true, pending: true, message: 'Isinumite ang Store & Sales Settings request para sa Admin approval.' });
+    }
+
+    incoming.updatedAt = new Date().toISOString();
+    writeData(FILE_STORE_SETTINGS, incoming);
+    logAction(username || req.authUser.username, 'Binago ang Store & Sales Settings (tax/payment methods/discount)');
+
+    res.json({ success: true, message: 'Na-update ang Store & Sales Settings.', settings: incoming });
+});
+
+// ---------------------------------------------------------------------
+// UX / APPEARANCE SETTINGS (dark mode default, low-stock alert threshold,
+// dashboard widget visibility, scanner sound)
+// ---------------------------------------------------------------------
+const FILE_UX_SETTINGS = 'uxSettings';
+
+const DEFAULT_UX_SETTINGS = {
+    darkModeDefault: false,
+    lowStockAlertThreshold: 10,
+    scannerSound: true,
+    dashboardWidgets: { salesToday: true, lowStock: true, topProducts: true, recentTransactions: true },
+    updatedAt: null
+};
+
+function getUxSettingsPublic(rawSettings) {
+    const s = rawSettings || DEFAULT_UX_SETTINGS;
+    const w = s.dashboardWidgets || DEFAULT_UX_SETTINGS.dashboardWidgets;
+    return {
+        darkModeDefault: !!s.darkModeDefault,
+        lowStockAlertThreshold: Number.isFinite(s.lowStockAlertThreshold) ? s.lowStockAlertThreshold : DEFAULT_UX_SETTINGS.lowStockAlertThreshold,
+        scannerSound: s.scannerSound !== false,
+        dashboardWidgets: {
+            salesToday: w.salesToday !== false,
+            lowStock: w.lowStock !== false,
+            topProducts: w.topProducts !== false,
+            recentTransactions: w.recentTransactions !== false
+        },
+        updatedAt: s.updatedAt || null
+    };
+}
+
+app.get('/api/ux-settings', (req, res) => {
+    const settings = readData(FILE_UX_SETTINGS, DEFAULT_UX_SETTINGS);
+    res.json(getUxSettingsPublic(settings));
+});
+
+app.post('/api/ux-settings', requirePermission('ux_settings_view'), (req, res) => {
+    const { username } = req.body;
+    const incoming = getUxSettingsPublic(req.body || {});
+
+    if (incoming.lowStockAlertThreshold < 0) {
+        return res.status(400).json({ success: false, message: 'Ang low-stock threshold ay hindi puwedeng negative.' });
+    }
+
+    const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).ux_settings_direct_apply;
+
+    if (!canApplyDirectly) {
+        let requests = readData(FILE_REQUESTS);
+        requests.push({
+            id: 'REQ-' + Date.now(),
+            requester: req.authUser.username,
+            type: 'UX_SETTINGS_UPDATE',
+            data: incoming,
+            timestamp: new Date().toLocaleString()
+        });
+        writeData(FILE_REQUESTS, requests);
+        logAction(req.authUser.username, 'Nag-submit ng Appearance/UX Settings change request para sa Admin approval');
+        return res.json({ success: true, pending: true, message: 'Isinumite ang Appearance/UX Settings request para sa Admin approval.' });
+    }
+
+    incoming.updatedAt = new Date().toISOString();
+    writeData(FILE_UX_SETTINGS, incoming);
+    logAction(username || req.authUser.username, 'Binago ang Appearance/UX Settings (dark mode/low-stock/widgets)');
+
+    res.json({ success: true, message: 'Na-update ang Appearance/UX Settings.', settings: incoming });
 });
 
 const FILE_FEATURE_UNLOCKS ='featureUnlocks';
@@ -4560,6 +4734,33 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
 
     let transactions = readData(FILE_TRANSACTIONS);
     let products = readData(FILE_PRODUCTS);
+    let customers = readData(FILE_CUSTOMERS, []);
+
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+
+    // Payment method validation — tinatanggihan ang benta kung gumagamit
+    // ng payment method na hindi naka-enable sa Store & Sales Settings
+    // (hal. na-disable na ang GCash pero pinilit pa rin gamitin sa
+    // client). Sinusuri pareho ang single-method at split-payment flow.
+    const enabledMethodKeys = Object.entries(storeSettings.paymentMethods)
+        .filter(([, enabled]) => enabled)
+        .map(([key]) => key.toLowerCase());
+    const methodAliasMap = { cash:'cash', gcash:'gcash', maya:'maya', paymaya:'maya', card:'card', banktransfer:'banktransfer', bank_transfer:'banktransfer' };
+    function isMethodEnabled(rawMethod) {
+        const norm = String(rawMethod || 'cash').toLowerCase().replace(/[\s_-]/g, '');
+        const key = methodAliasMap[norm] || norm;
+        return enabledMethodKeys.includes(key);
+    }
+    const paymentMethodsUsed = Array.isArray(transaction.payments) && transaction.payments.length > 0
+        ? transaction.payments.map(p => p.method)
+        : [transaction.method || transaction.payment_method || 'cash'];
+    const disabledMethodUsed = paymentMethodsUsed.find(m => !isMethodEnabled(m));
+    if (disabledMethodUsed) {
+        return res.status(400).json({
+            success: false,
+            message: `Ang payment method na "${disabledMethodUsed}" ay hindi naka-enable sa Store & Sales Settings. Puntahan ang Users > Store & Sales para i-enable.`
+        });
+    }
 
     // ------------------------------------------------------------------
     // SECURITY FIX: dati, ang quantity/price/discount/total ng transaction
@@ -4650,7 +4851,11 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
         if (!transaction.seniorPwdId || !String(transaction.seniorPwdId).trim()) {
             return res.status(400).json({ success: false, message: 'Kailangan ng Senior/PWD ID Number para sa discount na ito.' });
         }
-        cartDiscount = Math.round(netAfterItemDiscounts * 0.20 * 100) / 100;
+        if (!storeSettings.seniorPwdDiscountEnabled) {
+            return res.status(400).json({ success: false, message: 'Naka-disable ang Senior/PWD Discount. Puntahan ang Users > Store & Sales para i-enable.' });
+        }
+        const seniorPwdRate = Math.min(Math.max(0, storeSettings.seniorPwdDiscountRate), 100) / 100;
+        cartDiscount = Math.round(netAfterItemDiscounts * seniorPwdRate * 100) / 100;
     } else if (discountType === 'PROMO') {
         const promoCode = String(transaction.promoCode || '').toUpperCase();
         const promos = readData(FILE_PROMOCODES, []);
@@ -4665,6 +4870,37 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
         cartDiscount = Math.round(Math.min(Math.max(promoDiscount, 0), netAfterItemDiscounts) * 100) / 100;
     } else if (discountType === 'MANUAL') {
         cartDiscount = Math.round(Math.min(Math.max(0, parseFloat(transaction.discount) || 0), netAfterItemDiscounts) * 100) / 100;
+    } else if (discountType === 'LOYALTY') {
+        // Loyalty points redemption — hindi basta tinitiwalaan ang bilang
+        // ng points o ang halaga ng discount na ipinasa ng client. Ang
+        // TALAGANG points balance ng customer sa database ang batayan,
+        // at ang pinal na redeemed count ay ino-overwrite dito
+        // (transaction.loyaltyPointsRedeemed) para ito rin ang magiging
+        // basehan pagbawas ng points sa customer record sa ibaba.
+        if (!storeSettings.loyaltyEnabled) {
+            return res.status(400).json({ success: false, message: 'Naka-disable ang Loyalty Points redemption. Puntahan ang Users > Store & Sales para i-enable.' });
+        }
+        if (!transaction.customerId) {
+            return res.status(400).json({ success: false, message: 'Pumili muna ng customer para makagamit ng loyalty points.' });
+        }
+        const redeemingCustomer = customers.find(c => c.id === transaction.customerId);
+        if (!redeemingCustomer) {
+            return res.status(400).json({ success: false, message: 'Customer not found.' });
+        }
+        const requestedPoints = Math.max(0, parseInt(transaction.loyaltyPointsRedeemed) || 0);
+        const availablePoints = Math.max(0, redeemingCustomer.points || 0);
+        const pointValue = Math.max(0, parseFloat(storeSettings.loyaltyPointValue) || 0);
+        let pointsToRedeem = Math.min(requestedPoints, availablePoints);
+        cartDiscount = Math.round(Math.min(pointsToRedeem * pointValue, netAfterItemDiscounts) * 100) / 100;
+        // Kung na-cap ang discount dahil sa net subtotal, ibalik din ang
+        // redeemed points sa proporsyonal na halaga (hindi dapat mas
+        // marami ang points na babawasin kaysa sa aktwal na na-apply na discount).
+        pointsToRedeem = pointValue > 0 ? Math.floor(cartDiscount / pointValue) : 0;
+        cartDiscount = Math.round(pointsToRedeem * pointValue * 100) / 100;
+        if (pointsToRedeem <= 0) {
+            return res.status(400).json({ success: false, message: 'Walang sapat na loyalty points para gamitin.' });
+        }
+        transaction.loyaltyPointsRedeemed = pointsToRedeem;
     }
 
     // ------------------------------------------------------------------
@@ -4710,17 +4946,36 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
 
     const verifiedTotal = Math.max(0, Math.round((netAfterItemDiscounts - cartDiscount) * 100) / 100);
 
+    // Tax computation (base sa Store & Sales Settings). Kapag "prices
+    // include tax" ang setup, HINDI na dinadagdag ang tax sa total —
+    // in-eextract lang ito para sa reporting (ang presyo mismo ng produkto
+    // ay itinuturing na tax-inclusive na). Kapag hindi kasama ang tax sa
+    // presyo, idinadagdag ito sa verifiedTotal para makuha ang GRAND total
+    // na dapat bayaran.
+    let taxAmount = 0;
+    const taxRatePct = Math.min(Math.max(0, storeSettings.taxRate), 100);
+    if (storeSettings.taxEnabled && taxRatePct > 0) {
+        if (storeSettings.pricesIncludeTax) {
+            taxAmount = Math.round((verifiedTotal - (verifiedTotal / (1 + taxRatePct / 100))) * 100) / 100;
+        } else {
+            taxAmount = Math.round(verifiedTotal * (taxRatePct / 100) * 100) / 100;
+        }
+    }
+    const grandTotal = (storeSettings.taxEnabled && !storeSettings.pricesIncludeTax)
+        ? Math.round((verifiedTotal + taxAmount) * 100) / 100
+        : verifiedTotal;
+
     // Kumpirmahin na ang binayad (single payment o split payments) ay
-    // sapat para sa VERIFIED total — dati'y hindi ito kinukumpirma laban
-    // sa recomputed na halaga.
+    // sapat para sa VERIFIED total (kasama na ang tax kung applicable) —
+    // dati'y hindi ito kinukumpirma laban sa recomputed na halaga.
     const tendered = Array.isArray(transaction.payments) && transaction.payments.length > 0
         ? transaction.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
         : (parseFloat(transaction.received ?? transaction.amount_paid) || 0);
 
-    if (Math.round(tendered * 100) / 100 < verifiedTotal - 0.01) {
+    if (Math.round(tendered * 100) / 100 < grandTotal - 0.01) {
         return res.status(400).json({
             success: false,
-            message: `Hindi tama ang binayad — kulang ito (₱${tendered.toFixed(2)}) kumpara sa tamang total (₱${verifiedTotal.toFixed(2)}).`
+            message: `Hindi tama ang binayad — kulang ito (₱${tendered.toFixed(2)}) kumpara sa tamang total (₱${grandTotal.toFixed(2)}).`
         });
     }
 
@@ -4728,8 +4983,12 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
     // SERVER-VERIFIED na values — hindi na ito galing direkta sa client.
     transaction.items = resolvedItems;
     transaction.discount = cartDiscount;
-    transaction.total = verifiedTotal;
-    transaction.change = Math.round((tendered - verifiedTotal) * 100) / 100;
+    transaction.subtotalBeforeTax = verifiedTotal;
+    transaction.taxRate = storeSettings.taxEnabled ? taxRatePct : 0;
+    transaction.taxAmount = taxAmount;
+    transaction.taxInclusive = !!storeSettings.pricesIncludeTax;
+    transaction.total = grandTotal;
+    transaction.change = Math.round((tendered - grandTotal) * 100) / 100;
     transaction.discountAuthorizedBy = discountAuthorizedBy;
     delete transaction.discountAuthPassword;
 
@@ -4741,15 +5000,21 @@ app.post('/api/transactions', requirePermission('terminal'), (req, res) => {
     });
 
     if (transaction.customerId) {
-        const customers = readData(FILE_CUSTOMERS, []);
         const cust = customers.find(c => c.id === transaction.customerId);
         if (cust) {
-            const redeem = Math.max(0, parseInt(transaction.loyaltyPointsRedeemed) || 0);
+            // Ang `redeem` dito ay galing na sa server-validated
+            // `transaction.loyaltyPointsRedeemed` (na-overwrite sa itaas sa
+            // LOYALTY discount branch, hindi mula sa raw client input),
+            // kaya siguradong hindi ito lalagpas sa totoong points balance.
+            const redeem = discountType === 'LOYALTY' ? Math.max(0, parseInt(transaction.loyaltyPointsRedeemed) || 0) : 0;
             if (redeem > 0) {
                 cust.points = Math.max(0, (cust.points || 0) - redeem);
+            } else {
+                transaction.loyaltyPointsRedeemed = 0;
             }
 
-            const earned = Math.floor((parseFloat(transaction.total) || 0) / 100);
+            const earnRate = storeSettings.loyaltyEnabled ? (parseFloat(storeSettings.loyaltyEarnRate) || 100) : 0;
+            const earned = earnRate > 0 ? Math.floor((parseFloat(transaction.total) || 0) / earnRate) : 0;
             cust.points = (cust.points || 0) + earned;
             cust.totalSpent = Math.round(((cust.totalSpent || 0) + (parseFloat(transaction.total) || 0)) * 100) / 100;
             cust.visits = (cust.visits || 0) + 1;
@@ -5709,10 +5974,14 @@ function computeLowStockItems() {
         }
     });
 
+    const uxSettingsForThreshold = readData(FILE_UX_SETTINGS, DEFAULT_UX_SETTINGS);
+    const defaultLowStockThreshold = Number.isFinite(uxSettingsForThreshold.lowStockAlertThreshold)
+        ? uxSettingsForThreshold.lowStockAlertThreshold : DEFAULT_UX_SETTINGS.lowStockAlertThreshold;
+
     const items = products
         .map(p => {
             const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='')
-                ? parseInt(p.lowStockThreshold) : 5;
+                ? parseInt(p.lowStockThreshold) : defaultLowStockThreshold;
             const stock = parseInt(p.stock || 0);
             const suggestedReorderQty = p.reorderQty ? parseInt(p.reorderQty) : Math.max((threshold * 2) - stock, threshold, 1);
             const key = (p.code ||'').trim().toLowerCase();

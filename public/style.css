@@ -2926,6 +2926,15 @@ body.dark-mode .overview-greeting-row {
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
+    /* AYOS ("lumalampas sa card" na presyo): grid item ito ng
+       .terminal-products-grid (display:grid). Bawat grid item ay may
+       default na "automatic minimum size" na base sa CONTENT nito
+       (max-content) sa halip na sa laki ng track (minmax(150px, 1fr)) —
+       kaya kapag mas mahaba ang presyo/pangalan kaysa 150px, pilit
+       pinapalaki ng browser ang buong card (o pinapalabas ang laman sa
+       gilid nito) sa halip na i-wrap/i-shrink ito. Ang min-width:0 dito
+       ang nag-a-allow sa card na sumunod sa aktwal na track width. */
+    min-width: 0;
 }
 
 .t-product-card:hover {
@@ -2997,6 +3006,12 @@ body.dark-mode .overview-greeting-row {
     font-weight: 700;
     font-size: 0.95rem;
     margin-bottom: 4px;
+    /* AYOS: kasama ng min-width:0 sa .t-product-card sa itaas — kapag
+       mahaba ang presyo (hal. ₱12,345.00+), mag-wa-wrap na lang ito sa
+       loob ng card sa halip na mag-overflow palabas ng gilid nito. */
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .t-prod-stock {
@@ -4747,6 +4762,27 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
     margin-bottom: 15px;
 }
 
+.settings-group-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted, #64748b);
+    margin: 18px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.settings-group-title:first-child { margin-top: 0; }
+
+.form-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 14px;
+}
+@media screen and (max-width: 560px) {
+    .form-grid-2col { grid-template-columns: 1fr; }
+}
+
 .barcode-matrix-grid-sheet-layout {
     /* PANATILIHIN itong 5-column grid — ito ang dating itsura ng
        ON-SCREEN "Print Preview" modal sa loob mismo ng app (bago pa
@@ -4755,34 +4791,58 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
        (tingnan sa ibaba) — doon lang ito dapat kumapit, dahil doon lang
        talaga tinutukoy ang aktwal na print output/system print preview.
     */
+    /* BAGO: lahat ng sukat/bilang ng column ay ngayon nagba-base na sa
+       CSS custom properties (--barcode-*) na ita-take-take ng JS mula sa
+       "Barcode Print Settings" modal (Settings button sa print preview).
+       Ang fallback value pagkatapos ng comma sa bawat var() ay EKSAKTONG
+       kapareho ng dating hard-coded na default — kaya walang magbabago
+       sa itsura kung hindi pa binuksan/binago ng user ang bagong settings
+       modal (backward-compatible ang default behavior). */
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(var(--barcode-columns, 5), 1fr);
+    gap: var(--barcode-card-gap, 0px);
     background: white;
 }
 
 .barcode-print-card-unit {
-    border: 1px dashed #cbd5e1;
-    padding: 12px 8px;
-    text-align: center;
-    background: white;
+    border-style: var(--barcode-border-style, dashed);
+    /* BAGO: adjustable na ang KAPAL/thickness ng cut-line border
+       (--barcode-border-width) — 1px pa rin ang default, gaya ng dati. */
+    border-width: var(--barcode-border-width, 1px);
+    border-color: var(--barcode-border-color, #cbd5e1);
+    padding: var(--barcode-card-padding-v, 12px) var(--barcode-card-padding-h, 8px);
+    /* BAGO: adjustable na ang FIXED HEIGHT ng bawat label
+       (--barcode-card-height) — "auto" pa rin ang default (sumusunod sa
+       laman), kaya walang magbabago hangga't hindi ito sinet ng user. */
+    height: var(--barcode-card-height, auto);
+    box-sizing: border-box;
+    text-align: var(--barcode-text-align, center);
+    background: var(--barcode-card-bg, white);
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    /* BAGO: hiwalay na ngayon ang HORIZONTAL (--barcode-align-items) at
+       VERTICAL (--barcode-justify-content) na alignment ng laman
+       (product name + barcode) SA LOOB mismo ng border cutline — bago
+       ito ay "center" lang, hindi pa ito nababago sa settings modal. */
+    align-items: var(--barcode-align-items, center);
+    justify-content: var(--barcode-justify-content, center);
 }
 
 .barcode-print-card-unit p {
     /* Pinaliit mula 0.7rem -> 0.55rem: sobrang laki dati ang product name
        kumpara sa barcode number sa ilalim nito. Nananatiling bold at may
-       ellipsis truncation kaya readable pa rin ito kahit maliit na. */
-    font-size: 0.55rem;
+       ellipsis truncation kaya readable pa rin ito kahit maliit na.
+       Ngayon, adjustable na ito sa Barcode Print Settings modal
+       (--barcode-name-font-size), pareho pa rin ang default (0.55rem). */
+    font-size: var(--barcode-name-font-size, 0.55rem);
     font-weight: 700;
     margin-bottom: 4px;
-    color: #000;
+    color: var(--barcode-ink-color, #000);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 150px;
+    display: var(--barcode-name-display, block);
 }
 
 .barcode-print-card-unit svg {
@@ -5638,8 +5698,12 @@ body.dark-mode .bottom-nav-item:active {
         box-decoration-break: clone !important;
         /* Tunay na fixed margin sa LAHAT ng gilid (kaliwa/kanan/taas/
            baba), bawat page — hindi na umaasa sa @page margin lang o sa
-           dating flex centering na hindi consistent. */
-        padding: 10mm !important;
+           dating flex centering na hindi consistent.
+           BAGO: adjustable na ang bawat gilid (top/right/bottom/left)
+           sa Barcode Print Settings modal (--barcode-sheet-margin-*),
+           para maayos ang "nasagad sa itaas/gilid" na isyu depende sa
+           printer — 10mm pa rin ang default sa lahat ng gilid. */
+        padding: var(--barcode-sheet-margin-top, 10mm) var(--barcode-sheet-margin-right, 10mm) var(--barcode-sheet-margin-bottom, 10mm) var(--barcode-sheet-margin-left, 10mm) !important;
     }
 
     /* MGA SUMUSUNOD NA RULE AY PARA SA AKTWAL NA PRINT/SYSTEM PRINT
@@ -5662,7 +5726,10 @@ body.dark-mode .bottom-nav-item:active {
        dito sa halip. */
     body.print-target-barcode .barcode-matrix-grid-sheet-layout {
         display: block !important;
-        text-align: center !important;
+        /* Sinusunod na rin ng print output ang Alignment na pinili sa
+           Barcode Print Settings modal (--barcode-text-align), pareho
+           pa rin ang default na "center". */
+        text-align: var(--barcode-text-align, center) !important;
     }
     body.print-target-barcode .barcode-print-card-unit {
         display: inline-block !important;
@@ -5687,16 +5754,25 @@ body.dark-mode .bottom-nav-item:active {
            malalaking papel, may natitira nang puwang na aktwal na
            magagamit ng `text-align:center` sa parent — kaya ngayon
            TALAGANG naka-center na bawat row (at bawat susunod na page,
-           dahil parehong container/rule lang ito para sa buong sheet). */
-        width: min(19%, 32mm) !important;
-        /* Inalis ang gap/margin sa pagitan ng bawat barcode card ayon
-           sa hiling — magkadikit na ngayon ang mga card sa isa't isa
-           (ang dashed border pa rin ang nagsisilbing cut line). Ang
-           `text-align:center` naman sa parent (.barcode-matrix-grid-
-           sheet-layout) pa rin ang nagpapa-center ng buong row/block
-           kada page, hindi apektado ng pag-alis ng margin na ito. */
-        margin: 0 !important;
-        border: 1px dashed #000000 !important;
+           dahil parehong container/rule lang ito para sa buong sheet).
+
+           BAGO: dating hard-coded na "19%" (para sa 5 columns) at "32mm"
+           max — ngayon dynamic na ito base sa --barcode-columns (bilang
+           ng barcode kada row) at --barcode-card-max-width mula sa
+           Barcode Print Settings modal. Ang calc(100% / columns) ang
+           kumukuha ng katumbas na "19%"-style value para sa KAHIT ANONG
+           bilang ng column na pinili (hindi lang limitado sa 5), habang
+           ang min() pa rin ang nag-a-apply ng max size cap. */
+        width: min(calc(100% / var(--barcode-columns, 5)), var(--barcode-card-max-width, 32mm)) !important;
+        /* Ang gap sa pagitan ng bawat card ay adjustable na rin
+           (--barcode-card-gap) — 0 pa rin ang default (magkadikit, ang
+           dashed border pa rin ang cut line). Ang alignment ng parent sa
+           itaas pa rin ang nagpapa-posisyon ng buong row/block. */
+        margin: 0 var(--barcode-card-gap, 0px) var(--barcode-card-gap, 0px) 0 !important;
+        border-style: var(--barcode-border-style, dashed) !important;
+        border-width: var(--barcode-border-width, 1px) !important;
+        border-color: var(--barcode-print-border-color, #000000) !important;
+        background: var(--barcode-card-bg, white) !important;
         box-sizing: border-box !important;
         /* Pumipigil ito sa isang barcode label na maputol sa gitna
            kapag napuno na ang isang page — buo itong ililipat sa
@@ -7160,9 +7236,52 @@ body.dark-mode .faq-intro-text,
   letter-spacing: 0.03em;
   margin-bottom: 8px;
 }
+.faq-ai-breadcrumb {
+  font-size: 0.76rem;
+  color: #16a34a;
+  margin-bottom: 4px;
+}
+.faq-ai-breadcrumb i { font-size: 0.65rem; margin: 0 3px; }
 .faq-ai-question {
   margin: 0 0 10px;
   font-size: 1.05rem;
+}
+.faq-ai-sourcelink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary-blue, #2563eb);
+  text-decoration: none;
+}
+.faq-ai-sourcelink:hover { text-decoration: underline; }
+.faq-ai-sourcelink i { font-size: 0.75rem; }
+
+/* Category group headings sa loob ng buong "Common Questions" list (na
+   ngayo'y direktang ginagawa mula sa parehong AI knowledge base). */
+.faq-cat-heading {
+  margin: 22px 0 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.faq-cat-heading:first-child { margin-top: 0; }
+body.dark-mode .faq-cat-heading, .dark .faq-cat-heading { color: #9a9ba8; }
+
+/* "Jump to source" flash — panandaliang highlight sa aktwal na FAQ entry
+   sa listahan kapag ipinunta rito galing sa suggestion/related-topic link,
+   para malinaw kung SAAN talaga ito "dinala" (gaya ng browser's
+   ":target"/"scroll-to-text" highlight kapag pumunta ka sa isang link). */
+.faq-item-flash {
+  animation: faqFlashHighlight 1.6s ease-out;
+}
+@keyframes faqFlashHighlight {
+  0%   { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.55); border-color: var(--primary-blue, #2563eb); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 .faq-suggest-box {
   position: absolute;
@@ -7176,37 +7295,103 @@ body.dark-mode .faq-intro-text,
   box-shadow: 0 8px 20px rgba(0,0,0,0.12);
   z-index: 50;
   overflow: hidden;
-  max-height: 280px;
+  max-height: 360px;
   overflow-y: auto;
 }
+/* AYOS (modernized): dating <button> ang bawat suggestion — walang
+   totoong href, kaya walang "open in new tab"/hover-preview ng URL na
+   gaya ng totoong search result. Ngayon totoong <a href="#faq-full-...">
+   ang bawat item — parang tunay na Google search suggestion na may URL,
+   pero doon direkta itong tumuturo sa aktwal na sagot sa ibaba ng page. */
+.faq-suggest-header {
+  padding: 8px 12px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.12);
+}
+.faq-suggest-header i { color: var(--primary-blue, #2563eb); margin-right: 4px; }
 .faq-suggest-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   width: 100%;
   text-align: left;
-  padding: 9px 12px;
+  padding: 10px 12px;
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 0.88rem;
+  text-decoration: none;
   color: var(--text-primary, #1e293b);
   border-bottom: 1px solid rgba(100, 116, 139, 0.12);
 }
 .faq-suggest-item:last-child { border-bottom: none; }
-.faq-suggest-item i { color: var(--primary-blue, #2563eb); font-size: 0.8rem; flex-shrink: 0; }
-.faq-suggest-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.faq-suggest-item em {
-  font-style: normal;
-  font-size: 0.72rem;
-  color: #64748b;
-  background: rgba(100, 116, 139, 0.12);
-  padding: 2px 7px;
-  border-radius: 999px;
+.faq-suggest-icon {
+  color: var(--primary-blue, #2563eb);
+  font-size: 0.8rem;
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.1);
+  margin-top: 2px;
+}
+.faq-suggest-main { flex: 1; min-width: 0; }
+.faq-suggest-title {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.faq-suggest-title mark, .faq-suggest-desc mark {
+  background: none;
+  color: var(--primary-blue, #2563eb);
+  font-weight: 700;
+}
+.faq-suggest-breadcrumb {
+  display: block;
+  font-size: 0.7rem;
+  color: #16a34a;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.faq-suggest-breadcrumb i { font-size: 0.6rem; margin: 0 2px; }
+.faq-suggest-desc {
+  display: block;
+  font-size: 0.76rem;
+  color: #64748b;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.faq-suggest-go {
+  flex-shrink: 0;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  margin-top: 4px;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 .faq-suggest-item:hover, .faq-suggest-item.active {
   background: rgba(37, 99, 235, 0.08);
+}
+.faq-suggest-item:hover .faq-suggest-go,
+.faq-suggest-item.active .faq-suggest-go {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--primary-blue, #2563eb);
 }
 body.dark-mode .faq-ai-box input, .dark .faq-ai-box input {
   background-color: var(--dm-bg) !important;
@@ -7228,6 +7413,13 @@ body.dark-mode .faq-suggest-item, .dark .faq-suggest-item {
 body.dark-mode .faq-suggest-item:hover, .dark .faq-suggest-item:hover,
 body.dark-mode .faq-suggest-item.active, .dark .faq-suggest-item.active {
   background: rgba(59, 130, 246, 0.15);
+}
+body.dark-mode .faq-suggest-title, .dark .faq-suggest-title { color: #f5f5f7; }
+body.dark-mode .faq-suggest-desc, .dark .faq-suggest-desc { color: #9a9ba8; }
+body.dark-mode .faq-suggest-breadcrumb, .dark .faq-suggest-breadcrumb { color: #4ade80; }
+body.dark-mode .faq-suggest-header, .dark .faq-suggest-header {
+  color: #64748b;
+  border-bottom-color: rgba(255,255,255,0.08);
 }
 
 .faq-verdict {
@@ -7252,6 +7444,7 @@ body.dark-mode .faq-suggest-item.active, .dark .faq-suggest-item.active {
   color: #b45309;
   background: rgba(245, 158, 11, 0.16);
 }
+body.dark-mode .faq-ai-breadcrumb, .dark .faq-ai-breadcrumb { color: #4ade80; }
 body.dark-mode .faq-verdict-oo, .dark .faq-verdict-oo { color: #4ade80; }
 body.dark-mode .faq-verdict-hindi, .dark .faq-verdict-hindi { color: #f87171; }
 body.dark-mode .faq-verdict-depende, .dark .faq-verdict-depende { color: #fbbf24; }
@@ -8019,7 +8212,7 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     color: #e2e8f0;
 }
 
-@media (min-width: 640px) {
+@media screen and (min-width: 640px) {
     .install-app-banner {
         left: auto;
         right: 20px;

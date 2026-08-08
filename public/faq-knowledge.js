@@ -101,7 +101,7 @@ window.OMNIPOS_FAQ_KB = [
   category: 'Roles & Permissions',
   question: 'Paano gumagana ang Roles at Permissions?',
   keywords: ['roles', 'permissions', 'permission matrix', 'access control', 'menu access', 'sino pwede'],
-  answer: `<p>Ang Admin ang nagtatakda kung anong menu o feature ang makikita/magagamit ng bawat role (Admin, Staff, Cashier, o custom na role) sa pamamagitan ng <strong>Permission Matrix</strong> sa Users tab — simpleng on/off lang ito kada menu, hindi na kailangan mag-request ng developer para baguhin ito.</p>
+  answer: `<p>Ang Admin ang nagtatakda kung anong menu o feature ang makikita/magagamit ng bawat role (Admin, Staff, Cashier, o custom na role) sa pamamagitan ng <strong>Permission Matrix</strong> sa Settings tab — simpleng on/off lang ito kada menu, hindi na kailangan mag-request ng developer para baguhin ito.</p>
   <p><strong>Admin</strong> ay laging may access sa lahat, kahit anong naka-set sa matrix.</p>`
 },
 {
@@ -115,14 +115,14 @@ window.OMNIPOS_FAQ_KB = [
     <li><strong>Staff</strong> — POS Terminal, Dashboard, Products, Barcode, sariling Transactions, Customers, Shift/Z-Reading (kasama ang mga sales amount).</li>
     <li><strong>Cashier</strong> — POS Terminal, sariling Transactions, Customers, Shift/Z-Reading, pero <strong>hindi</strong> nakikita ang Gross Sales/Discount/Net Sales figures.</li>
   </ul>
-  <p>Puwede kang gumawa ng bagong custom na role (hal. "Supervisor") sa Users tab, at doon mo rin itatakda kung anong menu ang pwede nilang gamitin.</p>`
+  <p>Puwede kang gumawa ng bagong custom na role (hal. "Supervisor") sa Settings tab, at doon mo rin itatakda kung anong menu ang pwede nilang gamitin.</p>`
 },
 {
   id: 'roles-add-user',
   category: 'Roles & Permissions',
   question: 'Paano magdagdag ng bagong user o cashier account?',
   keywords: ['add user', 'bagong cashier', 'gumawa ng account', 'new employee account', 'magdagdag ng user'],
-  answer: `<p>Pumunta sa <strong>Users</strong> tab (Admin access lang). I-click ang "Add User", punan ang username, password, at piliin ang role. Awtomatiko na ring naka-encrypt/naka-secure ang password na ilalagay mo — hindi ito kailanman naka-plain text.</p>`
+  answer: `<p>Pumunta sa <strong>Settings</strong> tab (Admin access lang), sa loob ng <strong>Users Management</strong> tab. I-click ang "Add User", punan ang username, password, at piliin ang role. Awtomatiko na ring naka-encrypt/naka-secure ang password na ilalagay mo — hindi ito kailanman naka-plain text.</p>`
 },
 {
   id: 'roles-edit-profile',

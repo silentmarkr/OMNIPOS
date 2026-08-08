@@ -113,6 +113,56 @@
     return tmp.textContent || tmp.innerText || '';
   }
 
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Google-style bold highlight ng mga salitang tumugma sa query — tumatanggap
+  // ng PLAIN text (hindi pa naka-escape), nagbabalik ng SAFE html string na
+  // may <mark> sa mga match. Pinapaikli muna ang tokens paglaki-laki (pinaka-
+  // mahabang salita muna) para hindi ma-split ang mas mahabang match ng mas
+  // maiksing substring nito.
+  function highlight(text, tokens) {
+    const escaped = escapeHtml(text || '');
+    if (!tokens || !tokens.length) return escaped;
+    const uniq = Array.from(new Set(tokens.filter(t => t && t.length > 1)))
+      .sort((a, b) => b.length - a.length)
+      .map(escapeRegex);
+    if (!uniq.length) return escaped;
+    const re = new RegExp('(' + uniq.join('|') + ')', 'gi');
+    return escaped.replace(re, '<mark>$1</mark>');
+  }
+
+  // Bumubuo ng maikling "search snippet" (parang meta-description sa Google)
+  // mula sa laman ng sagot — kinukuha ang pinakaunang bahaging may match sa
+  // query, para mas kapaki-pakinabang kaysa laging simula lang ng text.
+  function buildSnippet(entry, tokens, maxLen) {
+    const plain = stripHtml(entry.answer).replace(/\s+/g, ' ').trim();
+    maxLen = maxLen || 130;
+    let start = 0;
+    if (tokens && tokens.length) {
+      const lower = plain.toLowerCase();
+      for (const t of tokens) {
+        const idx = lower.indexOf(t.toLowerCase());
+        if (idx !== -1) { start = Math.max(0, idx - 30); break; }
+      }
+    }
+    let snippet = plain.slice(start, start + maxLen);
+    if (start > 0) snippet = '…' + snippet;
+    if (start + maxLen < plain.length) snippet += '…';
+    return highlight(snippet, tokens);
+  }
+
+  function slugId(id) {
+    return 'faq-full-' + String(id).replace(/[^a-zA-Z0-9_-]/g, '');
+  }
+
   function scoreEntry(entry, queryTokens) {
     const kwText = normalize(entry.keywords.join(' '));
     const qText = normalize(entry.question);
@@ -202,36 +252,43 @@
     container.innerHTML = `
       <div class="faq-ai-answer">
         <div class="faq-ai-badge"><i class="fa-solid fa-wand-magic-sparkles"></i> Sagot batay sa OmniPOS System Knowledge Base</div>
+        <div class="faq-ai-breadcrumb">OmniPOS FAQ <i class="fa-solid fa-angle-right"></i> ${escapeHtml(top.category)}</div>
         <h3 class="faq-ai-question">${escapeHtml(top.question)}</h3>
         ${verdict ? `
         <div class="faq-verdict ${verdict.cls}">
           <i class="fa-solid ${verdict.icon}"></i> ${verdict.text}
         </div>` : ''}
         <div class="faq-ai-body">${top.answer}</div>
+        <a href="#${slugId(top.id)}" class="faq-ai-sourcelink" data-faq-id="${escapeHtml(top.id)}" data-faq-q="${escapeHtml(top.question)}">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i> Buksan sa buong listahan ng FAQ
+        </a>
         ${related.length ? `
           <div class="faq-ai-related">
             <strong>Kaugnay na tanong:</strong>
             <ul>
-              ${related.map(r => `<li><button type="button" class="faq-link" onclick="OmniFAQ.ask('${escapeHtml(r.question).replace(/'/g, "\\'")}')">${escapeHtml(r.question)}</button></li>`).join('')}
+              ${related.map(r => `<li><a href="#${slugId(r.id)}" class="faq-link" data-faq-id="${escapeHtml(r.id)}" data-faq-q="${escapeHtml(r.question)}">${escapeHtml(r.question)}</a></li>`).join('')}
             </ul>
           </div>` : ''}
       </div>`;
+
+    // I-bind ang mga totoong <a href="#faq-full-...">: normal click = mag-
+    // navigate papunta sa aktwal na entry sa ibaba (buksan + i-scroll +
+    // i-flash), pero HINDI hinaharang ang gitnang-click/ctrl/cmd-click (para
+    // gumana pa rin ang "buksan sa bagong tab" gaya ng totoong link).
+    container.querySelectorAll('a[data-faq-id]').forEach(a => {
+      a.addEventListener('click', (ev) => goTo(a.dataset.faqId, a.dataset.faqQ, ev));
+    });
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
-  // --- Autocomplete suggestion dropdown ---------------------------------
+  // --- Autocomplete suggestion dropdown (Google-style, totoong <a> links) ---
   let activeSuggestIndex = -1;
 
   function renderSuggestions(query) {
     const box = document.getElementById('faq-ai-suggestions');
     if (!box) return;
 
-    const matches = suggest(query, 6);
+    const tokens = expandTokens(tokenize(query));
+    const matches = suggest(query, 8);
     activeSuggestIndex = -1;
 
     if (!matches.length) {
@@ -240,14 +297,28 @@
       return;
     }
 
-    box.innerHTML = matches.map((m, i) => `
-      <button type="button" class="faq-suggest-item" data-index="${i}"
-              onmousedown="event.preventDefault(); OmniFAQ.ask(${JSON.stringify(m.question)})">
-        <i class="fa-solid fa-magnifying-glass"></i>
-        <span>${escapeHtml(m.question)}</span>
-        <em>${escapeHtml(m.category)}</em>
-      </button>`).join('');
+    // Header ng dropdown, gaya ng "Search suggestions" na label ng Google —
+    // nililinaw na ito'y totoong resulta mula sa knowledge base, hindi random.
+    box.innerHTML = `
+      <div class="faq-suggest-header"><i class="fa-solid fa-bolt"></i> Mga tugmang tanong sa knowledge base</div>
+      ${matches.map((m, i) => `
+      <a href="#${slugId(m.id)}" class="faq-suggest-item" data-index="${i}" data-faq-id="${escapeHtml(m.id)}" data-faq-q="${escapeHtml(m.question)}">
+        <span class="faq-suggest-icon"><i class="fa-solid fa-magnifying-glass"></i></span>
+        <span class="faq-suggest-main">
+          <span class="faq-suggest-title">${highlight(m.question, tokens)}</span>
+          <span class="faq-suggest-breadcrumb">OmniPOS FAQ <i class="fa-solid fa-angle-right"></i> ${escapeHtml(m.category)}</span>
+          <span class="faq-suggest-desc">${buildSnippet(m, tokens)}</span>
+        </span>
+        <span class="faq-suggest-go"><i class="fa-solid fa-arrow-right"></i></span>
+      </a>`).join('')}`;
     box.style.display = 'block';
+
+    box.querySelectorAll('a.faq-suggest-item').forEach(a => {
+      // mousedown-preventDefault: para hindi mawala/ma-blur muna ang input
+      // (na siyang nagsasara ng dropdown) BAGO pa man maregister ang click.
+      a.addEventListener('mousedown', (ev) => ev.preventDefault());
+      a.addEventListener('click', (ev) => goTo(a.dataset.faqId, a.dataset.faqQ, ev));
+    });
   }
 
   function hideSuggestions() {
@@ -273,10 +344,83 @@
     const items = box.querySelectorAll('.faq-suggest-item');
     const el = items[activeSuggestIndex];
     if (!el) return false;
-    const question = el.querySelector('span').textContent;
-    hideSuggestions();
-    window.OmniFAQ.ask(question);
+    goTo(el.dataset.faqId, el.dataset.faqQ, null);
     return true;
+  }
+
+  // --------------------------------------------------------------
+  // GO TO / JUMP-TO-SOURCE — ito ang gumagawa ng suggestion dropdown/
+  // related-topics links na "totoong link" (parang Google search result):
+  //   • may TOTOONG href (#faq-full-<id>) kaya gumagana ang right-click
+  //     "open in new tab", middle-click, at Ctrl/Cmd+Click gaya ng
+  //     anumang normal na link (HINDI natin hina-hijack ang mga ito).
+  //   • sa normal/left click: agad ipinapakita ang mabilisang AI answer
+  //     SA ITAAS, TAPOS awtomatikong binubuksan + sini-scroll papunta
+  //     + hinihighlight (flash) ang ACTUAL na FAQ entry sa ibaba (ang
+  //     "totoong pinagmulan"), kaya konektado talaga ang suggestion sa
+  //     tunay na laman — hindi na basta nawawala sa hangin.
+  // --------------------------------------------------------------
+  function goTo(id, question, event) {
+    // Huwag hadlangan ang totoong "buksan sa bagong tab" (middle-click,
+    // Ctrl/Cmd+Click) — hayaang sundin ng browser ang default na link
+    // behavior gamit ang totoong href.
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    if (event) event.preventDefault();
+
+    hideSuggestions();
+    const input = document.getElementById('faq-ai-input');
+    const resultBox = document.getElementById('faq-ai-result');
+    if (input) input.value = question;
+    if (resultBox) {
+      renderAnswer(question, resultBox);
+      resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    const targetId = slugId(id);
+    const target = document.getElementById(targetId);
+    if (target) {
+      if ('open' in target) target.open = true;
+      setTimeout(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('faq-item-flash');
+        setTimeout(() => target.classList.remove('faq-item-flash'), 1600);
+      }, resultBox ? 350 : 0);
+    }
+    if (history.replaceState) history.replaceState(null, '', '#' + targetId);
+  }
+
+  // --------------------------------------------------------------
+  // Bumubuo ng "Common Questions" na buong listahan (accordion) DIREKTA
+  // mula sa parehong knowledge base (window.OMNIPOS_FAQ_KB) — dati,
+  // hiwalay/duplicate na hand-typed na HTML block ito sa index.html na
+  // hindi kumokonekta sa AI search/suggestions sa itaas (magkaibang
+  // laman pa nga minsan). Ngayon, ISANG source-of-truth na lang ang KB:
+  // dito nagmumula ang parehong AI answers, suggestion dropdown, AT ang
+  // buong listahan sa ibaba — kaya laging magkatugma sila, at may
+  // TOTOONG id (#faq-full-<id>) ang bawat item na puwedeng direktang
+  // itarget/i-link ng suggestions.
+  // --------------------------------------------------------------
+  function renderFullList() {
+    const container = document.getElementById('faq-common-list');
+    if (!container) return;
+    const kb = window.OMNIPOS_FAQ_KB || [];
+
+    let html = '';
+    let lastCategory = null;
+    kb.forEach(entry => {
+      if (entry.category !== lastCategory) {
+        html += `<h4 class="faq-cat-heading">${escapeHtml(entry.category)}</h4>`;
+        lastCategory = entry.category;
+      }
+      html += `
+        <details class="faq-item" id="${slugId(entry.id)}">
+          <summary>${escapeHtml(entry.question)}</summary>
+          <div>${entry.answer}</div>
+        </details>`;
+    });
+    container.innerHTML = html;
   }
 
   // Public API — tinatawag ito mula sa index.html (input box + buttons)
@@ -294,6 +438,8 @@
       renderAnswer(query.trim(), resultBox);
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     },
+    goTo: goTo,
+    renderFullList: renderFullList,
     search: search,
     suggest: suggest,
     onInput: function (value) { renderSuggestions(value); },
@@ -308,4 +454,24 @@
     },
     hideSuggestions: hideSuggestions
   };
+
+  // I-render agad ang buong listahan pagka-load ng script (nasa ibaba na ng
+  // <body> ang script tags nito, kaya handa na ang DOM). Kung sakaling
+  // may direktang naka-link papunta sa isang tanong (hal. #faq-full-...
+  // mula sa ibang session/bookmark), i-scroll at buksan ito agad.
+  document.addEventListener('DOMContentLoaded', initFullListAndDeepLink);
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initFullListAndDeepLink();
+  }
+
+  function initFullListAndDeepLink() {
+    renderFullList();
+    if (location.hash && location.hash.indexOf('#faq-full-') === 0) {
+      const target = document.getElementById(location.hash.slice(1));
+      if (target && 'open' in target) {
+        target.open = true;
+        setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+      }
+    }
+  }
 })();

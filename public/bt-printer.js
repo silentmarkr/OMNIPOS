@@ -163,6 +163,14 @@ function escposText(str) {
     return (str || '').replace(/₱/g, 'P ');
 }
 
+// BAGO: nababasa na ang "Auto-cut paper" na setting (Receipt Customization
+// > Printing Preferences) — TRUE pa rin ang default (walang ibang value
+// naka-save), kaya eksaktong kapareho ng dating laging-naka-ON na behavior
+// kung hindi ito babaguhin ng user.
+function isAutoCutEnabled() {
+    return localStorage.getItem('omnipos_bt_autocut') !=='false';
+}
+
 function padLine(left, right, width) {
     left = escposText(left);
     right = escposText(right);
@@ -201,6 +209,8 @@ function buildEscPosReceiptBytes(data, charWidth) {
     });
 
     pushText('-'.repeat(charWidth)); nl();
+    if (data.subtotal) { pushText(padLine('Subtotal', data.subtotal, charWidth)); nl(); }
+    if (data.tax) { pushText(padLine(data.taxLabel || 'Tax', data.tax, charWidth)); nl(); }
     bytes.push(ESC, 0x45, 0x01); // bold on
     pushText(padLine('TOTAL', data.total, charWidth)); nl();
     bytes.push(ESC, 0x45, 0x00); // bold off
@@ -213,7 +223,11 @@ function buildEscPosReceiptBytes(data, charWidth) {
     if (data.footerText) { pushText(data.footerText); nl(); }
     nl(); nl(); nl();
 
-    bytes.push(GS, 0x56, 0x00); // full cut (walang epekto sa printers na walang cutter)
+    // BAGO: adjustable na ang cut command base sa "Auto-cut paper" setting
+    // (default: ON, kapareho ng dating laging naka-send na command).
+    if (isAutoCutEnabled()) {
+        bytes.push(GS, 0x56, 0x00); // full cut (walang epekto sa printers na walang cutter)
+    }
 
     return new Uint8Array(bytes);
 }
@@ -260,7 +274,9 @@ function buildEscPosBarcodeSheetBytes(items, charWidth) {
         }
     });
 
-    bytes.push(GS, 0x56, 0x00); // full cut (walang epekto sa printers na walang cutter)
+    if (isAutoCutEnabled()) {
+        bytes.push(GS, 0x56, 0x00); // full cut (walang epekto sa printers na walang cutter)
+    }
     return new Uint8Array(bytes);
 }
 
@@ -290,6 +306,18 @@ function collectReceiptDataFromDom(prefix) {
         time: getText(`${prefix}-time`),
         cashier: getText(`${prefix}-cashier`),
         items,
+        subtotal: (() => {
+            const row = document.getElementById(`${prefix}-subtotal-row`);
+            return row && row.style.display !== 'none' ? getText(`${prefix}-subtotal-amount`) : '';
+        })(),
+        taxLabel: (() => {
+            const row = document.getElementById(`${prefix}-tax-row`);
+            return row && row.style.display !== 'none' ? getText(`${prefix}-tax-label`) : '';
+        })(),
+        tax: (() => {
+            const row = document.getElementById(`${prefix}-tax-row`);
+            return row && row.style.display !== 'none' ? getText(`${prefix}-tax-amount`) : '';
+        })(),
         total: getText(`${prefix}-total`),
         method: getText(`${prefix}-method`),
         paid: getText(`${prefix}-paid`),

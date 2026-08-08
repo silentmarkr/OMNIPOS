@@ -529,6 +529,7 @@ let scannerTarget ='PRODUCT';
 let cartDiscountType ='NONE';
 let cartPromoCode ='';
 let cartSeniorPwdId ='';
+let cartLoyaltyPointsRedeemed = 0;
 let selectedCartCustomer = null;
 
 let addProductScanSession = { active: false, lastScannedFormCode: null };
@@ -5293,8 +5294,11 @@ function handleManualDiscountInput() {
     cartDiscountType ='MANUAL';
     cartPromoCode ='';
     cartSeniorPwdId ='';
+    cartLoyaltyPointsRedeemed = 0;
     const checkbox = document.getElementById('cart-senior-pwd-toggle');
     if (checkbox) checkbox.checked = false;
+    const loyaltyInput = document.getElementById('cart-loyalty-input');
+    if (loyaltyInput) loyaltyInput.value ='';
     updateCartTotals();
 }
 
@@ -5303,7 +5307,16 @@ function toggleSeniorPwdDiscount() {
     const discountInput = document.getElementById('cart-discount-input');
     if (!checkbox || !discountInput) return;
 
+    const seniorPwdEnabled = !storeSettingsCache || storeSettingsCache.seniorPwdDiscountEnabled !== false;
+    const seniorPwdRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate))
+        ? storeSettingsCache.seniorPwdDiscountRate : 20;
+
     if (checkbox.checked) {
+        if (!seniorPwdEnabled) {
+            Swal.fire('Naka-disable', 'Naka-disable ang Senior/PWD Discount sa Store & Sales Settings.', 'warning');
+            checkbox.checked = false;
+            return;
+        }
         let subtotal = getCartNetSubtotal();
         if (subtotal <= 0) {
             Swal.fire('Empty Cart','Add an item to the cart first.','warning');
@@ -5312,19 +5325,22 @@ function toggleSeniorPwdDiscount() {
         }
         Swal.fire({
             title:'Senior Citizen / PWD Discount',
-            text:'Enter the ID Number for the receipt (RA 9994 / RA 10754 — 20% discount):',
+            text: `Enter the ID Number for the receipt (RA 9994 / RA 10754 — ${seniorPwdRatePct}% discount):`,
             input:'text',
             inputPlaceholder:'Senior/PWD ID Number',
             showCancelButton: true,
-            confirmButtonText:'Apply 20%'
+            confirmButtonText: `Apply ${seniorPwdRatePct}%`
         }).then(result => {
             if (result.isConfirmed && result.value && result.value.trim()) {
                 cartSeniorPwdId = result.value.trim();
                 cartDiscountType ='SENIOR_PWD';
                 cartPromoCode ='';
+                cartLoyaltyPointsRedeemed = 0;
                 const promoInput = document.getElementById('cart-promo-input');
                 if (promoInput) promoInput.value ='';
-                discountInput.value = (subtotal * 0.20).toFixed(2);
+                const loyaltyInput = document.getElementById('cart-loyalty-input');
+                if (loyaltyInput) loyaltyInput.value ='';
+                discountInput.value = (subtotal * (seniorPwdRatePct / 100)).toFixed(2);
                 discountInput.setAttribute('readonly', true);
                 updateCartTotals();
             } else {
@@ -5361,6 +5377,9 @@ async function applyPromoCodeToCart() {
             cartDiscountType ='PROMO';
             cartPromoCode = code;
             cartSeniorPwdId ='';
+            cartLoyaltyPointsRedeemed = 0;
+            const loyaltyInput = document.getElementById('cart-loyalty-input');
+            if (loyaltyInput) loyaltyInput.value ='';
             discountInput.value = data.discountAmount.toFixed(2);
             discountInput.setAttribute('readonly', true);
             updateCartTotals();
@@ -5432,13 +5451,94 @@ async function openCustomerPickerForCart() {
         didOpen: () => attachRowClicks(customers)
     });
 
+    // Kung nagpalit ng customer (o pinili ang Walk-in), i-reset ang
+    // anumang active na loyalty points redemption dahil sa ibang
+    // customer na iyon galing (o wala nang customer).
+    if (cartDiscountType ==='LOYALTY') {
+        cartDiscountType ='NONE';
+        cartLoyaltyPointsRedeemed = 0;
+        const discountInput = document.getElementById('cart-discount-input');
+        if (discountInput) { discountInput.value = 0; discountInput.removeAttribute('readonly'); }
+        updateCartTotals();
+    }
+    updateLoyaltyRowForCustomer();
+
     if (!selectedCartCustomer) return;
+}
+
+function updateLoyaltyRowForCustomer() {
+    const row = document.getElementById('cart-loyalty-row');
+    const avail = document.getElementById('cart-loyalty-available');
+    const input = document.getElementById('cart-loyalty-input');
+    const loyaltyOn = !storeSettingsCache || storeSettingsCache.loyaltyEnabled !== false;
+    if (!row) return;
+    if (loyaltyOn && selectedCartCustomer && (selectedCartCustomer.points || 0) > 0) {
+        row.style.display ='';
+        if (avail) avail.innerText = selectedCartCustomer.points || 0;
+    } else {
+        row.style.display ='none';
+    }
+    if (input) input.value ='';
+}
+
+function applyLoyaltyPointsToCart() {
+    if (guardPremiumFeature('customer_crm')) return;
+    if (!selectedCartCustomer) {
+        Swal.fire('No Customer Selected','Pumili muna ng customer para makagamit ng loyalty points.','warning');
+        return;
+    }
+    const input = document.getElementById('cart-loyalty-input');
+    const discountInput = document.getElementById('cart-discount-input');
+    let pts = parseInt(input ? input.value : 0) || 0;
+    const available = selectedCartCustomer.points || 0;
+
+    if (pts <= 0) {
+        Swal.fire('Invalid Amount','Maglagay ng bilang ng points na gagamitin.','warning');
+        return;
+    }
+    if (pts > available) pts = available;
+
+    const subtotal = getCartNetSubtotal();
+    if (subtotal <= 0) {
+        Swal.fire('Empty Cart','Add an item to the cart first.','warning');
+        return;
+    }
+
+    const pointValue = (storeSettingsCache && Number.isFinite(storeSettingsCache.loyaltyPointValue))
+        ? storeSettingsCache.loyaltyPointValue : 1;
+    let discountAmount = Math.min(pts * pointValue, subtotal);
+    // Kung na-cap ang discount sa subtotal, i-align din pababa ang
+    // bilang ng points na ipapakita/ipapadala para tugma ang halaga.
+    pts = pointValue > 0 ? Math.floor(discountAmount / pointValue) : 0;
+    discountAmount = Math.round(pts * pointValue * 100) / 100;
+
+    if (pts <= 0) {
+        Swal.fire('Invalid Amount','Hindi sapat ang halaga ng points para sa isang discount.','warning');
+        return;
+    }
+
+    const checkbox = document.getElementById('cart-senior-pwd-toggle');
+    if (checkbox) checkbox.checked = false;
+    const promoInput = document.getElementById('cart-promo-input');
+    if (promoInput) promoInput.value ='';
+
+    cartDiscountType ='LOYALTY';
+    cartLoyaltyPointsRedeemed = pts;
+    cartPromoCode ='';
+    cartSeniorPwdId ='';
+
+    discountInput.value = discountAmount.toFixed(2);
+    discountInput.setAttribute('readonly', true);
+    if (input) input.value = pts;
+    updateCartTotals();
+    Swal.fire({ icon:'success', title:'Points Redeemed!', text: `${pts} pts: -₱${discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
 }
 
 function resetCartDiscountAndCustomerState() {
     cartDiscountType ='NONE';
     cartPromoCode ='';
     cartSeniorPwdId ='';
+    cartLoyaltyPointsRedeemed = 0;
     selectedCartCustomer = null;
 
     const discountInput = document.getElementById('cart-discount-input');
@@ -5449,10 +5549,22 @@ function resetCartDiscountAndCustomerState() {
     if (seniorCheckbox) seniorCheckbox.checked = false;
     const customerBtn = document.getElementById('cart-customer-btn');
     if (customerBtn) customerBtn.innerHTML ='Walk-in <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i>';
+    const loyaltyRow = document.getElementById('cart-loyalty-row');
+    if (loyaltyRow) loyaltyRow.style.display ='none';
+    const loyaltyInput = document.getElementById('cart-loyalty-input');
+    if (loyaltyInput) loyaltyInput.value ='';
 }
 
 function closeModal(modalId) {
     document.getElementById(modalId).style.display ='none';
+
+    // AYOS: i-clear din agad ang print-target class (tingnan ang komento
+    // sa mga function na nagbubukas ng #receipt-modal / #barcode-preview-
+    // modal) kapag isinara ang alinman sa dalawang ito — hindi na
+    // naghihintay sa 'afterprint' lang, para hindi ito "makadikit" sa
+    // <body> kung sakaling isinara ang modal nang hindi muna nag-print.
+    if (modalId ==='receipt-modal') document.body.classList.remove('print-target-receipt');
+    if (modalId ==='barcode-preview-modal') document.body.classList.remove('print-target-barcode');
 }
 
 function selectPaymentMethod(method) {
@@ -5691,6 +5803,7 @@ async function submitFinalPaymentTransaction() {
         discountType: cartDiscountType,
         promoCode: cartDiscountType ==='PROMO' ? cartPromoCode :'',
         seniorPwdId: cartDiscountType ==='SENIOR_PWD' ? cartSeniorPwdId :'',
+        loyaltyPointsRedeemed: cartDiscountType ==='LOYALTY' ? cartLoyaltyPointsRedeemed : 0,
         payment_method: paymentMethodLabel,
         method: paymentMethodLabel,
         amount_paid: received,
@@ -5728,6 +5841,7 @@ async function submitFinalPaymentTransaction() {
             renderCartRows();
             closeModal('payment-modal');
             await renderInvoiceReceipt(output.currentTransaction || transactionPayload);
+            triggerAutoPrintIfEnabled();
 
             localTransactionsList.unshift(output.currentTransaction || transactionPayload);
             localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
@@ -5764,6 +5878,7 @@ async function submitFinalPaymentTransaction() {
         renderCartRows();
         closeModal('payment-modal');
         await renderInvoiceReceipt(transactionPayload);
+        triggerAutoPrintIfEnabled();
 
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
 
@@ -5772,6 +5887,48 @@ async function submitFinalPaymentTransaction() {
 }
 
 let receiptSettingsCache = null;
+
+// ===================== PRINTING PREFERENCES (device-local) =====================
+// Auto-print at Auto-cut — parehong naka-save sa localStorage (per-
+// device/terminal, katulad ng pattern ng Bluetooth printer pairing sa
+// bt-printer.js), hindi ito server-side setting dahil iba-iba ang aktwal
+// na naka-konektang printer sa bawat counter/kiosk.
+function saveAutoPrintPreference() {
+    const toggle = document.getElementById('rc-auto-print-toggle');
+    localStorage.setItem('omnipos_auto_print_receipt', toggle && toggle.checked ?'true' :'false');
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-print enabled' :'Auto-print disabled', showConfirmButton:false, timer:1500 });
+    }
+}
+
+function saveAutoCutPreference() {
+    const toggle = document.getElementById('rc-auto-cut-toggle');
+    localStorage.setItem('omnipos_bt_autocut', toggle && toggle.checked ?'true' :'false');
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-cut enabled' :'Auto-cut disabled', showConfirmButton:false, timer:1500 });
+    }
+}
+
+// Tinatawag pagkatapos mag-render ng resibo (bagong sale lang, hindi
+// pag-reprint mula sa History) — kung naka-ON ang "Auto-print receipt
+// after every sale", awtomatikong mag-p-print gamit ang Bluetooth printer
+// kung naka-pair/konektado, kung hindi ay ang normal na window.print().
+function triggerAutoPrintIfEnabled() {
+    if (localStorage.getItem('omnipos_auto_print_receipt') !=='true') return;
+    // Maikling delay para makumpleto muna ang pag-guhit ng barcode sa loob
+    // ng receipt (may sarili itong setTimeout 50ms sa renderInvoiceReceipt).
+    setTimeout(() => {
+        try {
+            if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
+                typeof printReceiptViaBluetooth ==='function') {
+                printReceiptViaBluetooth('r');
+            } else {
+                window.print();
+            }
+        } catch (e) { console.error('Auto-print failed:', e); }
+    }, 150);
+}
+// ===================== END PRINTING PREFERENCES =====================
 // FIX: hawak dito ang promise ng background fetch ng receipt settings
 // (tingnan showMainSystemInterface at renderInvoiceReceipt) para may
 // paraan ang unang resibo ng session na "hintayin" ito kung sakaling
@@ -5910,6 +6067,15 @@ async function loadReceiptCustomizationPanel() {
     setVal('rc-form-header', s.headerText);
     setVal('rc-form-footer', s.footerText);
     setVal('rc-form-papersize', s.paperSize);
+
+    // BAGO: "Printing Preferences" — device-local lang ito (localStorage),
+    // kaya hindi galing sa receiptSettingsCache (server) ito, iba't ibang
+    // terminal/counter ang pwedeng magkaiba dito (hal. may naka-BT printer,
+    // wala naman sa iba).
+    const autoPrintToggle = document.getElementById('rc-auto-print-toggle');
+    if (autoPrintToggle) autoPrintToggle.checked = localStorage.getItem('omnipos_auto_print_receipt') ==='true';
+    const autoCutToggle = document.getElementById('rc-auto-cut-toggle');
+    if (autoCutToggle) autoCutToggle.checked = localStorage.getItem('omnipos_bt_autocut') !=='false';
 
     const statusEl = document.getElementById('receipt-custom-status');
     const resetBtn = document.getElementById('rc-reset-counter-btn');
@@ -6205,6 +6371,223 @@ async function saveReceiptCustomization() {
     } catch (err) {
         console.error(err);
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
+    }
+}
+
+// ---------------------------------------------------------------------
+// STORE & SALES SETTINGS
+// ---------------------------------------------------------------------
+let storeSettingsCache = null;
+
+async function fetchStoreSettings() {
+    try {
+        const res = await authFetch(`${API_URL}/store-settings`);
+        storeSettingsCache = await res.json();
+    } catch (err) {
+        console.error(err);
+        storeSettingsCache = null;
+    }
+    return storeSettingsCache;
+}
+
+async function loadStoreSettingsPanel() {
+    const s = await fetchStoreSettings();
+    if (!s) return;
+
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+
+    setVal('ss-currency-code', s.currencyCode);
+    setChecked('ss-tax-enabled', s.taxEnabled);
+    setVal('ss-tax-label', s.taxLabel);
+    setVal('ss-tax-rate', s.taxRate);
+    setChecked('ss-prices-include-tax', s.pricesIncludeTax);
+    setChecked('ss-pm-cash', s.paymentMethods.cash);
+    setChecked('ss-pm-gcash', s.paymentMethods.gcash);
+    setChecked('ss-pm-maya', s.paymentMethods.maya);
+    setChecked('ss-pm-card', s.paymentMethods.card);
+    setChecked('ss-pm-banktransfer', s.paymentMethods.bankTransfer);
+    setChecked('ss-senior-pwd-enabled', s.seniorPwdDiscountEnabled);
+    setVal('ss-senior-pwd-rate', s.seniorPwdDiscountRate);
+    setChecked('ss-loyalty-enabled', s.loyaltyEnabled);
+    setVal('ss-loyalty-earn-rate', s.loyaltyEarnRate);
+    setVal('ss-loyalty-point-value', s.loyaltyPointValue);
+
+    const statusEl = document.getElementById('store-settings-status');
+    if (statusEl) {
+        statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
+        statusEl.style.color = '#64748b';
+    }
+}
+
+async function saveStoreSettings() {
+    const payload = {
+        currencyCode: document.getElementById('ss-currency-code').value,
+        taxEnabled: document.getElementById('ss-tax-enabled').checked,
+        taxLabel: (document.getElementById('ss-tax-label').value || '').trim() || 'VAT',
+        taxRate: parseFloat(document.getElementById('ss-tax-rate').value) || 0,
+        pricesIncludeTax: document.getElementById('ss-prices-include-tax').checked,
+        paymentMethods: {
+            cash: document.getElementById('ss-pm-cash').checked,
+            gcash: document.getElementById('ss-pm-gcash').checked,
+            maya: document.getElementById('ss-pm-maya').checked,
+            card: document.getElementById('ss-pm-card').checked,
+            bankTransfer: document.getElementById('ss-pm-banktransfer').checked
+        },
+        seniorPwdDiscountEnabled: document.getElementById('ss-senior-pwd-enabled').checked,
+        seniorPwdDiscountRate: parseFloat(document.getElementById('ss-senior-pwd-rate').value) || 0,
+        loyaltyEnabled: document.getElementById('ss-loyalty-enabled').checked,
+        loyaltyEarnRate: parseFloat(document.getElementById('ss-loyalty-earn-rate').value) || 100,
+        loyaltyPointValue: parseFloat(document.getElementById('ss-loyalty-point-value').value) || 0,
+        username: currentUser ? (currentUser.username || currentUser.name) : 'Unknown'
+    };
+
+    try {
+        const res = await authFetch(`${API_URL}/store-settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success && data.pending) {
+            Swal.fire('Submitted for Approval', data.message || 'The Store & Sales Settings request has been submitted for Admin approval.', 'info');
+        } else if (data.success) {
+            Swal.fire('Saved!', 'Store & Sales Settings have been updated.', 'success');
+            storeSettingsCache = data.settings || storeSettingsCache;
+            loadStoreSettingsPanel();
+            applyPaymentMethodVisibility();
+        } else {
+            Swal.fire('Error', data.message || 'Failed to save Store & Sales Settings.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+
+// ---------------------------------------------------------------------
+// APPEARANCE / UX SETTINGS
+// ---------------------------------------------------------------------
+let uxSettingsCache = null;
+
+async function fetchUxSettings() {
+    try {
+        const res = await authFetch(`${API_URL}/ux-settings`);
+        uxSettingsCache = await res.json();
+    } catch (err) {
+        console.error(err);
+        uxSettingsCache = null;
+    }
+    return uxSettingsCache;
+}
+
+async function loadUxSettingsPanel() {
+    const s = await fetchUxSettings();
+    if (!s) return;
+
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+
+    setChecked('ux-dark-mode-default', s.darkModeDefault);
+    setVal('ux-low-stock-threshold', s.lowStockAlertThreshold);
+    setChecked('ux-scanner-sound', s.scannerSound);
+    setChecked('ux-widget-salestoday', s.dashboardWidgets.salesToday);
+    setChecked('ux-widget-lowstock', s.dashboardWidgets.lowStock);
+    setChecked('ux-widget-topproducts', s.dashboardWidgets.topProducts);
+    setChecked('ux-widget-recenttx', s.dashboardWidgets.recentTransactions);
+
+    const statusEl = document.getElementById('ux-settings-status');
+    if (statusEl) {
+        statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
+        statusEl.style.color = '#64748b';
+    }
+}
+
+// Live preview lang ito sa Appearance tab (hindi pa persisted) — para
+// makita agad ng admin kung ano ang itsura bago i-Save. Kung naka-unlock
+// na ang Dark theme sa device na ito, gagamitin ang normal applyTheme()
+// flow (walang persist). Kapag hindi pa unlocked, huwag munang baguhin
+// ang actual theme classes — mananatili ito bilang plain checkbox lang
+// na sasagutin sa pag-Save (server-side default setting, hiwalay sa
+// premium per-device theme unlock).
+function previewDarkMode(isChecked) {
+    if (typeof THEME_CATALOG === 'undefined' || typeof isThemeUnlocked !== 'function') return;
+    const darkTheme = THEME_CATALOG.find(t => t.id === 'dark');
+    if (isChecked && darkTheme && !isThemeUnlocked(darkTheme)) {
+        // Huwag i-preview ang locked theme — panatilihin lang ang checkbox state.
+        return;
+    }
+    if (typeof applyTheme === 'function') {
+        applyTheme(isChecked ? 'dark' : 'day', { persist: false });
+    }
+}
+
+async function saveUxSettings() {
+    const payload = {
+        darkModeDefault: document.getElementById('ux-dark-mode-default').checked,
+        lowStockAlertThreshold: parseInt(document.getElementById('ux-low-stock-threshold').value, 10) || 0,
+        scannerSound: document.getElementById('ux-scanner-sound').checked,
+        dashboardWidgets: {
+            salesToday: document.getElementById('ux-widget-salestoday').checked,
+            lowStock: document.getElementById('ux-widget-lowstock').checked,
+            topProducts: document.getElementById('ux-widget-topproducts').checked,
+            recentTransactions: document.getElementById('ux-widget-recenttx').checked
+        },
+        username: currentUser ? (currentUser.username || currentUser.name) : 'Unknown'
+    };
+
+    try {
+        const res = await authFetch(`${API_URL}/ux-settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success && data.pending) {
+            Swal.fire('Submitted for Approval', data.message || 'The Appearance/UX Settings request has been submitted for Admin approval.', 'info');
+        } else if (data.success) {
+            Swal.fire('Saved!', 'Appearance/UX Settings have been updated.', 'success');
+            uxSettingsCache = data.settings || uxSettingsCache;
+            loadUxSettingsPanel();
+        } else {
+            Swal.fire('Error', data.message || 'Failed to save Appearance/UX Settings.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+
+// Itinatago ang mga payment method button sa Terminal na hindi naka-
+// enable sa Store & Sales Settings (Users > Store & Sales). Kung ang
+// currently-selected na method ay na-disable, awtomatikong lilipat sa
+// Cash (dapat laging naka-enable ang Cash bilang fallback).
+function applyPaymentMethodVisibility() {
+    const pm = (storeSettingsCache && storeSettingsCache.paymentMethods) || { cash: true, gcash: false, maya: false, card: false, bankTransfer: false };
+    const map = { cash: 'pay-method-cash', gcash: 'pay-method-gcash', maya: 'pay-method-maya', card: 'pay-method-card' };
+    let selectedIsHidden = false;
+    Object.entries(map).forEach(([key, id]) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const enabled = pm[key] !== false || key === 'cash';
+        btn.style.display = enabled ? '' : 'none';
+        if (!enabled && btn.classList.contains('active')) selectedIsHidden = true;
+    });
+    if (selectedIsHidden && typeof selectPaymentMethod === 'function') {
+        selectPaymentMethod('CASH');
+    }
+
+    const seniorPwdRateLabel = document.getElementById('cart-senior-pwd-rate-label');
+    if (seniorPwdRateLabel && storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate)) {
+        seniorPwdRateLabel.textContent = storeSettingsCache.seniorPwdDiscountRate;
+    }
+    const seniorPwdToggleLabel = document.querySelector('.senior-pwd-toggle-label');
+    if (seniorPwdToggleLabel) {
+        const disabled = storeSettingsCache && storeSettingsCache.seniorPwdDiscountEnabled === false;
+        seniorPwdToggleLabel.style.opacity = disabled ? '0.4' : '';
+        seniorPwdToggleLabel.title = disabled ? 'Naka-disable sa Store & Sales Settings' : '';
     }
 }
 
@@ -6544,6 +6927,31 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         }
     }
 
+    // Tax breakdown — makikita lang kapag naka-enable ang tax sa Store &
+    // Sales Settings noong ginawa ang transaksyon (nakasave na per-
+    // transaction ito, kaya hindi nagbabago kahit baguhin pa ang setting
+    // pagkatapos). Kapag tax-inclusive ang setup, ipinapakita bilang
+    // reference lang ang Subtotal (before tax) kasama ang extracted tax
+    // amount, pero hindi na ito idinadagdag pa sa TOTAL.
+    const subtotalRow = document.getElementById('r-subtotal-row');
+    const taxRow = document.getElementById('r-tax-row');
+    const taxAmt = parseFloat(tx.taxAmount) || 0;
+    if (taxRow && taxAmt > 0) {
+        const taxRatePart = Number.isFinite(tx.taxRate) && tx.taxRate > 0 ? ` (${tx.taxRate}%)` : '';
+        document.getElementById('r-tax-label').innerText = `${tx.taxInclusive ? 'VAT Incl.' : 'Tax'}${taxRatePart}`;
+        document.getElementById('r-tax-amount').innerText = `₱${taxAmt.toFixed(2)}`;
+        taxRow.style.display ='flex';
+        if (subtotalRow && Number.isFinite(tx.subtotalBeforeTax)) {
+            document.getElementById('r-subtotal-amount').innerText = `₱${parseFloat(tx.subtotalBeforeTax).toFixed(2)}`;
+            subtotalRow.style.display = tx.taxInclusive ? 'none' : 'flex';
+        } else if (subtotalRow) {
+            subtotalRow.style.display ='none';
+        }
+    } else {
+        if (taxRow) taxRow.style.display ='none';
+        if (subtotalRow) subtotalRow.style.display ='none';
+    }
+
     const customerRow = document.getElementById('r-customer-row');
     if (customerRow) {
         if (tx.customerName) {
@@ -6605,6 +7013,28 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     }
 
     document.getElementById('receipt-modal').style.display ='flex';
+
+    // 🖨️ AYOS (blangkong unang page sa aktwal na print/"Save as PDF" sa
+    // Android — hindi ito nare-reproduce sa desktop Chrome DevTools/
+    // headless print pipeline, dahil doon maasahan ang 'beforeprint'
+    // event bago pa man mag-umpisa ang pagination). ROOT CAUSE: dating
+    // umaasa lang tayo sa 'beforeprint' listener (applyActivePrintPageSize
+    // sa baba) para idagdag ang 'print-target-receipt' class sa <body> —
+    // pero sa Chrome for Android/WebView, hindi laging sunod-sunod
+    // (synchronous) ang pagitan ng event na iyon at ng simula ng aktwal
+    // na pag-layout/pagination ng print output. Kung mauna ang
+    // pagination bago pa man ma-apply ng listener ang class, ang UNANG
+    // page ay nala-layout gamit ang LUMANG estado (wala pang
+    // 'print-target-receipt' kaya wala pang laman na visible — blangko),
+    // at saka lang "nahahabol" ng sumunod na page ang tamang estado (kaya
+    // doon lumalabas ang resibo). AYOS: itakda na agad ang class dito
+    // mismo sa oras na bubukas ang resibo (hindi na naghihintay sa
+    // 'beforeprint') — kaya bago pa man tawagin ang window.print()
+    // (manual na Print button o auto-print), nasa tamang estado na ang
+    // <body>. Nananatili pa rin ang 'beforeprint' listener sa baba bilang
+    // fallback lang (hal. print mula sa browser menu/Ctrl+P).
+    document.body.classList.add('print-target-receipt');
+    document.body.classList.remove('print-target-barcode');
 }
 
 function resetSaleTerminalCycle() {
@@ -7331,6 +7761,250 @@ function toggleSelectAllBarcodes(master) {
     document.querySelectorAll('.barcode-select-item').forEach(cb => cb.checked = master.checked);
 }
 
+// ===================== BARCODE PRINT SETTINGS (Advanced/Flexible) =====================
+// Bagong module: pinapayagan ang user na i-customize ang laki (width/height) ng
+// barcode, font size ng product name/ID, bilang ng barcode kada row (columns),
+// alignment, kulay (colored o black), border/cut-line style, padding, gap, at
+// max label width — lahat "flexible" para tumugma sa kahit anong printer.
+// Ang mga default value sa ibaba ay EKSAKTONG kapareho ng dating hard-coded na
+// setting bago idagdag ang feature na ito, kaya kung hindi pa nagse-set ang
+// user ng kahit ano, EKSAKTONG PAREHO pa rin ang output (walang nabago).
+const DEFAULT_BARCODE_SETTINGS = {
+    columns: 5,            // ilang barcode kada row
+    alignment:'center',   // left | center | right — posisyon ng row sa print
+    cardMaxWidth: 32,       // mm, sa aktwal na print lang gumagana
+    cardHeight: 0,          // mm, 0 = auto (sumusunod sa laman)
+    cardGap: 0,             // px, puwang sa pagitan ng bawat label
+    cardPaddingV: 12,       // px, padding taas/baba ng bawat label
+    cardPaddingH: 8,        // px, padding kaliwa/kanan ng bawat label
+    marginTop: 10,          // mm, margin ng buong sheet sa print (taas)
+    marginRight: 10,        // mm, margin ng buong sheet sa print (kanan)
+    marginBottom: 10,       // mm, margin ng buong sheet sa print (baba)
+    marginLeft: 10,         // mm, margin ng buong sheet sa print (kaliwa)
+    contentHAlign:'center',// left | center | right — laman SA LOOB ng cut-line
+    contentVAlign:'middle',// top | middle | bottom — laman SA LOOB ng cut-line
+    barWidth: 1.5,          // kapal ng bawat bar ng barcode
+    barHeight: 45,          // px, taas ng barcode
+    codeFontSize: 12,       // pt, laki ng font ng code number sa ilalim
+    barcodeMargin: 5,       // px, quiet zone/margin sa paligid ng barcode
+    showCode: true,         // ipakita ba ang code number sa ilalim ng barcode
+    showName: true,         // ipakita ba ang product name sa itaas ng barcode
+    nameFontSize: 9,        // px, laki ng font ng product name
+    barcodeColor:'#000000',// kulay ng barcode bars + text (colored o black)
+    borderStyle:'dashed',  // dashed | solid | dotted | none
+    borderWidth: 1,         // px, kapal ng cut-line border
+    borderColor:'#000000',// kulay ng cut-line border
+    cardBg:'#ffffff'       // background ng bawat label
+};
+const BARCODE_SETTINGS_STORAGE_KEY ='omnipos_barcode_print_settings';
+
+function getBarcodeSettings() {
+    try {
+        const saved = localStorage.getItem(BARCODE_SETTINGS_STORAGE_KEY);
+        if (saved) return Object.assign({}, DEFAULT_BARCODE_SETTINGS, JSON.parse(saved));
+    } catch (e) { console.error('Failed to load barcode print settings:', e); }
+    return Object.assign({}, DEFAULT_BARCODE_SETTINGS);
+}
+
+function saveBarcodeSettingsToStorage(settings) {
+    try {
+        localStorage.setItem(BARCODE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch (e) { console.error('Failed to save barcode print settings:', e); }
+}
+
+// I-apply ang mga setting bilang CSS custom properties sa <html> root, para
+// magamit ito ng style.css (on-screen preview grid AT ng @media print rules).
+function applyBarcodeSettingsToDom(settings) {
+    const root = document.documentElement.style;
+    const hAlignMap = { left:'flex-start', center:'center', right:'flex-end' };
+    const vAlignMap = { top:'flex-start', middle:'center', bottom:'flex-end' };
+
+    root.setProperty('--barcode-columns', settings.columns);
+    root.setProperty('--barcode-text-align', settings.alignment);
+    root.setProperty('--barcode-card-max-width', settings.cardMaxWidth +'mm');
+    root.setProperty('--barcode-card-height', settings.cardHeight && settings.cardHeight > 0 ? settings.cardHeight +'mm' :'auto');
+    root.setProperty('--barcode-card-gap', settings.cardGap +'px');
+    root.setProperty('--barcode-card-padding-v', settings.cardPaddingV +'px');
+    root.setProperty('--barcode-card-padding-h', settings.cardPaddingH +'px');
+    root.setProperty('--barcode-sheet-margin-top', settings.marginTop +'mm');
+    root.setProperty('--barcode-sheet-margin-right', settings.marginRight +'mm');
+    root.setProperty('--barcode-sheet-margin-bottom', settings.marginBottom +'mm');
+    root.setProperty('--barcode-sheet-margin-left', settings.marginLeft +'mm');
+    root.setProperty('--barcode-align-items', hAlignMap[settings.contentHAlign] ||'center');
+    root.setProperty('--barcode-justify-content', vAlignMap[settings.contentVAlign] ||'center');
+    root.setProperty('--barcode-name-font-size', settings.nameFontSize +'px');
+    root.setProperty('--barcode-name-display', settings.showName ?'block' :'none');
+    root.setProperty('--barcode-ink-color', settings.barcodeColor);
+    root.setProperty('--barcode-border-style', settings.borderStyle);
+    root.setProperty('--barcode-border-width', settings.borderWidth +'px');
+    root.setProperty('--barcode-border-color', settings.borderColor);
+    root.setProperty('--barcode-print-border-color', settings.borderColor);
+    root.setProperty('--barcode-card-bg', settings.cardBg);
+
+    const hint = document.getElementById('barcode-preview-col-hint');
+    if (hint) hint.textContent = settings.columns;
+}
+
+function populateBarcodeSettingsForm(settings) {
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    set('bset-columns', settings.columns);
+    set('bset-alignment', settings.alignment);
+    set('bset-card-max-width', settings.cardMaxWidth);
+    set('bset-card-height', settings.cardHeight);
+    set('bset-card-gap', settings.cardGap);
+    set('bset-card-padding-v', settings.cardPaddingV);
+    set('bset-card-padding-h', settings.cardPaddingH);
+    set('bset-margin-top', settings.marginTop);
+    set('bset-margin-right', settings.marginRight);
+    set('bset-margin-bottom', settings.marginBottom);
+    set('bset-margin-left', settings.marginLeft);
+    set('bset-content-halign', settings.contentHAlign);
+    set('bset-content-valign', settings.contentVAlign);
+    set('bset-bar-width', settings.barWidth);
+    set('bset-bar-height', settings.barHeight);
+    set('bset-code-font-size', settings.codeFontSize);
+    set('bset-barcode-margin', settings.barcodeMargin);
+    set('bset-show-code', settings.showCode ?'true' :'false');
+    set('bset-barcode-color', settings.barcodeColor);
+    set('bset-name-font-size', settings.nameFontSize);
+    set('bset-show-name', settings.showName ?'true' :'false');
+    set('bset-border-style', settings.borderStyle);
+    set('bset-border-width', settings.borderWidth);
+    set('bset-border-color', settings.borderColor);
+    set('bset-card-bg', settings.cardBg);
+}
+
+function readBarcodeSettingsFromForm() {
+    const num = (id, fallback) => {
+        const el = document.getElementById(id);
+        const v = el ? parseFloat(el.value) : NaN;
+        return isNaN(v) ? fallback : v;
+    };
+    const str = (id, fallback) => {
+        const el = document.getElementById(id);
+        return el && el.value !=='' ? el.value : fallback;
+    };
+    return {
+        columns: Math.min(10, Math.max(1, Math.round(num('bset-columns', DEFAULT_BARCODE_SETTINGS.columns)))),
+        alignment: str('bset-alignment', DEFAULT_BARCODE_SETTINGS.alignment),
+        cardMaxWidth: num('bset-card-max-width', DEFAULT_BARCODE_SETTINGS.cardMaxWidth),
+        cardHeight: Math.max(0, num('bset-card-height', DEFAULT_BARCODE_SETTINGS.cardHeight)),
+        cardGap: num('bset-card-gap', DEFAULT_BARCODE_SETTINGS.cardGap),
+        cardPaddingV: num('bset-card-padding-v', DEFAULT_BARCODE_SETTINGS.cardPaddingV),
+        cardPaddingH: num('bset-card-padding-h', DEFAULT_BARCODE_SETTINGS.cardPaddingH),
+        marginTop: num('bset-margin-top', DEFAULT_BARCODE_SETTINGS.marginTop),
+        marginRight: num('bset-margin-right', DEFAULT_BARCODE_SETTINGS.marginRight),
+        marginBottom: num('bset-margin-bottom', DEFAULT_BARCODE_SETTINGS.marginBottom),
+        marginLeft: num('bset-margin-left', DEFAULT_BARCODE_SETTINGS.marginLeft),
+        contentHAlign: str('bset-content-halign', DEFAULT_BARCODE_SETTINGS.contentHAlign),
+        contentVAlign: str('bset-content-valign', DEFAULT_BARCODE_SETTINGS.contentVAlign),
+        barWidth: num('bset-bar-width', DEFAULT_BARCODE_SETTINGS.barWidth),
+        barHeight: num('bset-bar-height', DEFAULT_BARCODE_SETTINGS.barHeight),
+        codeFontSize: num('bset-code-font-size', DEFAULT_BARCODE_SETTINGS.codeFontSize),
+        barcodeMargin: num('bset-barcode-margin', DEFAULT_BARCODE_SETTINGS.barcodeMargin),
+        showCode: str('bset-show-code','true') ==='true',
+        barcodeColor: str('bset-barcode-color', DEFAULT_BARCODE_SETTINGS.barcodeColor),
+        nameFontSize: num('bset-name-font-size', DEFAULT_BARCODE_SETTINGS.nameFontSize),
+        showName: str('bset-show-name','true') ==='true',
+        borderStyle: str('bset-border-style', DEFAULT_BARCODE_SETTINGS.borderStyle),
+        borderWidth: num('bset-border-width', DEFAULT_BARCODE_SETTINGS.borderWidth),
+        borderColor: str('bset-border-color', DEFAULT_BARCODE_SETTINGS.borderColor),
+        cardBg: str('bset-card-bg', DEFAULT_BARCODE_SETTINGS.cardBg)
+    };
+}
+
+function openBarcodePrintSettingsModal() {
+    populateBarcodeSettingsForm(getBarcodeSettings());
+    document.getElementById('barcode-print-settings-modal').style.display ='flex';
+}
+
+function applyBarcodeSettingsFromForm() {
+    const settings = readBarcodeSettingsFromForm();
+    saveBarcodeSettingsToStorage(settings);
+    applyBarcodeSettingsToDom(settings);
+    closeModal('barcode-print-settings-modal');
+
+    // Kung bukas pa/may laman ang print preview, i-refresh agad ito gamit
+    // ang bagong settings nang hindi na kailangang piliin ulit ang mga item.
+    if (Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
+        renderBarcodeSheetPreview(window.__lastBarcodePrintBatch);
+    }
+
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'success', title:'Barcode print settings applied', showConfirmButton:false, timer:1500 });
+    }
+}
+
+function resetBarcodeSettingsToDefault() {
+    const defaults = Object.assign({}, DEFAULT_BARCODE_SETTINGS);
+    saveBarcodeSettingsToStorage(defaults);
+    applyBarcodeSettingsToDom(defaults);
+    populateBarcodeSettingsForm(defaults);
+
+    if (Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
+        renderBarcodeSheetPreview(window.__lastBarcodePrintBatch);
+    }
+
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'info', title:'Reset to default settings', showConfirmButton:false, timer:1500 });
+    }
+}
+
+// Iginuhit ang buong barcode sheet (batch = [{code, name, qty}, ...]) papunta
+// sa preview container, gamit ang kasalukuyang Barcode Print Settings. Ginawa
+// itong hiwalay na function para magamit ulit (re-render) kapag nag-Apply ng
+// bagong settings habang bukas pa ang Print Preview modal.
+function renderBarcodeSheetPreview(batch) {
+    const settings = getBarcodeSettings();
+    applyBarcodeSettingsToDom(settings);
+
+    const sheetContainer = document.getElementById('barcode-sheet-print-container');
+    sheetContainer.innerHTML ='';
+    window.__lastBarcodePrintBatch = batch;
+
+    batch.forEach(({ code, name, qty }) => {
+        for (let loop = 0; loop < qty; loop++) {
+            const cellUnit = document.createElement('div');
+            cellUnit.className ='barcode-print-card-unit';
+
+            const uniqueId = `svg-print-${code}-${loop}-${Math.random().toString(36).slice(2,7)}`;
+            cellUnit.innerHTML = `
+                <p>${escapeHtml(name)}</p>
+                <svg id="${uniqueId}"></svg>
+            `;
+            sheetContainer.appendChild(cellUnit);
+
+            setTimeout(() => {
+                JsBarcode(`#${uniqueId}`, code, {
+                    format:"CODE128",
+                    width: settings.barWidth,
+                    height: settings.barHeight,
+                    displayValue: settings.showCode,
+                    fontSize: settings.codeFontSize,
+                    margin: settings.barcodeMargin,
+                    lineColor: settings.barcodeColor
+                });
+            }, 20);
+        }
+    });
+
+    document.getElementById('barcode-preview-modal').style.display ='flex';
+
+    // 🖨️ AYOS: kaparehong ayos ng resibo (tingnan ang komento sa itaas ng
+    // 'print-target-receipt' sa loob ng function na nagbubukas ng
+    // #receipt-modal) — itakda na agad ang class dito sa oras na
+    // bubukas ang barcode sheet, hindi na naghihintay sa 'beforeprint'.
+    document.body.classList.add('print-target-barcode');
+    document.body.classList.remove('print-target-receipt');
+}
+// I-apply agad ang naka-save (o default) na Barcode Print Settings paglo-load
+// ng app, para tama na ang CSS variables kahit hindi pa nabubuksan ang Print
+// Preview modal (hal. kapag direktang nag-print gamit ang Bluetooth path).
+document.addEventListener('DOMContentLoaded', () => {
+    try { applyBarcodeSettingsToDom(getBarcodeSettings()); } catch (e) { console.error(e); }
+});
+// ===================== END BARCODE PRINT SETTINGS =====================
+
 async function generateSelectedBarcodePreview() {
     const checkboxes = document.querySelectorAll('.barcode-select-item:checked');
     if(checkboxes.length === 0) {
@@ -7395,9 +8069,6 @@ async function generateSelectedBarcodePreview() {
         console.error(logError);
     }
 
-    const sheetContainer = document.getElementById('barcode-sheet-print-container');
-    sheetContainer.innerHTML ='';
-
     // BAGO: itago ang huling na-generate na batch ({code, name, qty} bawat
     // piniling produkto) para magamit ng Bluetooth thermal printer path
     // (printBarcodeSheetViaBluetooth sa bt-printer.js) — kailangan ito dahil
@@ -7407,7 +8078,6 @@ async function generateSelectedBarcodePreview() {
     // Android WebView setup) — kaya "hindi gumagana" ang print button doon
     // kahit tama na ang laman ng preview. May BT fallback naman na ang resibo
     // dati (printReceiptViaBluetooth), pero wala pang katulad nito ang barcode.
-    window.__lastBarcodePrintBatch = [];
     if (typeof showBtPrintButtons === 'function' && typeof hideBtPrintButtons === 'function') {
         if (typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic) {
             showBtPrintButtons();
@@ -7416,39 +8086,19 @@ async function generateSelectedBarcodePreview() {
         }
     }
 
+    const batch = [];
     checkboxes.forEach((cb) => {
         const code = cb.getAttribute('data-code');
         const name = cb.getAttribute('data-name');
         const printQty = parseInt(document.getElementById(`bar-qty-${code}`).value) || 1;
-        window.__lastBarcodePrintBatch.push({ code, name, qty: printQty });
-
-        for(let loop = 0; loop < printQty; loop++) {
-            const cellUnit = document.createElement('div');
-            cellUnit.className ='barcode-print-card-unit';
-
-            const uniqueId = `svg-print-${code}-${loop}`;
-            cellUnit.innerHTML = `
-                <p>${escapeHtml(name)}</p>
-                <svg id="${uniqueId}"></svg>
-            `;
-            sheetContainer.appendChild(cellUnit);
-
-            setTimeout(() => {
-                JsBarcode(`#${uniqueId}`, code, {
-                    format:"CODE128",
-                    width: 1.5,
-                    height: 45,
-                    displayValue: true,
-                    // Dinagdagan ng konti mula 10 -> 12 para mas malinaw
-                    // makita ang product ID/code sa ilalim ng barcode.
-                    fontSize: 12,
-                    margin: 5
-                });
-            }, 20);
-        }
+        batch.push({ code, name, qty: printQty });
     });
 
-    document.getElementById('barcode-preview-modal').style.display ='flex';
+    // BAGO: ang aktwal na pag-guhit ng barcode sheet (gamit ang laki, bilang
+    // ng column, kulay, alignment, atbp. mula sa Barcode Print Settings) ay
+    // nasa hiwalay na renderBarcodeSheetPreview() na, para magamit din ito
+    // pag nag-Apply ng bagong settings habang bukas pa ang preview modal.
+    renderBarcodeSheetPreview(batch);
 }
 
 let currentAnalyticsRange = 'all';
@@ -10955,6 +11605,13 @@ async function showMainSystemInterface() {
         // ma-await ito ng renderInvoiceReceipt() kung sakaling mauna ang
         // unang benta bago pa matapos ang background fetch na ito.
         receiptSettingsPromise = fetchReceiptSettings();
+
+        // Bagong Store & Sales / Appearance settings — kailangan ng
+        // storeSettingsCache bago mag-render ng Terminal (payment methods,
+        // Senior/PWD rate) kaya hina-await agad (maliit lang na payload).
+        try { await fetchStoreSettings(); } catch (e) { console.error('fetchStoreSettings failed (non-blocking):', e); }
+        try { await fetchUxSettings(); } catch (e) { console.error('fetchUxSettings failed (non-blocking):', e); }
+        applyPaymentMethodVisibility();
     } catch (err) {
         console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);
     } finally {

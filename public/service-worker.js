@@ -22,7 +22,7 @@
 // nang hindi na kailangang tandaan pa na i-bump ang CACHE_VERSION sa bawat release.
 // Ang mga bihirang magbago na VENDOR libraries/fonts/icons na lang (VENDOR_ASSETS
 // sa ibaba) ang nananatiling cache-first para bilis pa rin ang overall load.
-const CACHE_VERSION = 'omnipos-shell-v40';
+const CACHE_VERSION = 'omnipos-shell-v43';
 
 // Mga file na madalas magbago (core app shell) — NETWORK-FIRST na, cache lang
 // bilang offline fallback. Dati kasama ito sa SHELL_ASSETS na cache-first.
