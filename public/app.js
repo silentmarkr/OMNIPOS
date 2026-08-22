@@ -9622,8 +9622,12 @@ const CART_PANE_DEFAULT_WIDTH = 580;
 const CART_PANE_MIN_WIDTH = CART_PANE_DEFAULT_WIDTH;
 const CART_PANE_MAX_WIDTH = 960;
 
-const CART_PANE_PRODUCT_RESERVE_GRID = 420;
-const CART_PANE_PRODUCT_RESERVE_LIST = 480;
+// Reserved space for the product grid/list pane. Lowered so the cart pane can
+// take priority when resized wider — the product grid/list now shrinks first
+// instead of capping how far the cart pane (with the Customer + Charge/Total
+// row) can grow.
+const CART_PANE_PRODUCT_RESERVE_GRID = 300;
+const CART_PANE_PRODUCT_RESERVE_LIST = 340;
 
 function getSavedCartPaneWidth() {
     const raw = localStorage.getItem(CART_PANE_WIDTH_KEY);

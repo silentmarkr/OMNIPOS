@@ -382,7 +382,9 @@ body {
 }
 
 .sidebar {
-    width: 260px;
+    width: 16.25rem; /* was fixed 260px; rem-based so width auto-scales with the Font Size (%) accessibility setting instead of clipping/wrapping the logo & menu text */
+    min-width: 200px;
+    max-width: 90vw;
     background-color: var(--bg-sidebar-dark);
     color: #94a3b8;
     display: flex;
@@ -405,6 +407,14 @@ body {
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid #1e293b;
+}
+
+.sidebar-brand > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap; /* keep the cash-register icon + "OmniPOS" wordmark on a single line at any Font Size setting */
+    min-width: 0;
 }
 
 .sidebar-menu {
@@ -1260,6 +1270,14 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     z-index: 90;
 }
 
+.header-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap; /* keep the hamburger button and the OmniPOS logo on one row, even if logo text size grows */
+    gap: 14px;
+    min-width: 0;
+}
+
 .hamburger-menu {
     display: block; 
     background: none;
@@ -1267,6 +1285,7 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     font-size: 1.3rem;
     cursor: pointer;
     color: var(--text-primary);
+    flex-shrink: 0;
 }
 
 .terminal-brand-header {
@@ -1285,6 +1304,7 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     flex-shrink: 0;
     cursor: pointer;
     white-space: nowrap;
+    min-width: 0;
 }
 
 .header-desktop-logo:active {
@@ -1292,7 +1312,7 @@ body.dark-mode .uw-theme-option.is-locked:hover {
 }
 
 .header-desktop-logo-text {
-    font-size: 1.15rem;
+    font-size: 1.5rem; /* matched to .sidebar-brand's default logo size */
     font-weight: 800;
     color: var(--text-primary);
     white-space: nowrap;
@@ -1338,7 +1358,7 @@ body.dark-mode .header-desktop-logo-text {
 }
 
 .top-header.terminal-header-mode .terminal-brand-label {
-    font-size: 1.45rem;
+    font-size: 1.5rem; /* matched to .sidebar-brand / header logo default size */
 }
 
 .top-header.terminal-header-mode {
@@ -2360,7 +2380,7 @@ body.cart-pane-resizing-cursor {
     }
 
     .terminal-cart-pane .cart-summary-block {
-        width: 580px; 
+        width: 100%; /* track the (resizable) cart pane's actual width instead of a fixed 580px, so widening the pane gives the customer pane + charge/total row real extra room instead of leaving dead space */
         max-width: 100%; 
         flex-shrink: 0;
         align-self: flex-start;
@@ -5012,7 +5032,7 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
         min-width: 0;
     }
     .terminal-cart-pane.customer-pane-expanded .cart-checkout-sticky .summary-total-row {
-        font-size: 1.15rem;
+        font-size: 1.4rem; /* keep TOTAL the same size whether or not the customer pane content is shown */
     }
 }
 
