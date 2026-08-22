@@ -9617,10 +9617,10 @@ function initTerminalLayoutSwap() {
 document.addEventListener('DOMContentLoaded', initTerminalLayoutSwap);
 
 const CART_PANE_WIDTH_KEY = 'omnipos_terminal_cart_pane_width';
-const CART_PANE_DEFAULT_WIDTH = 580;
+const CART_PANE_DEFAULT_WIDTH = 680; // widened further per request
 
 const CART_PANE_MIN_WIDTH = CART_PANE_DEFAULT_WIDTH;
-const CART_PANE_MAX_WIDTH = 960;
+const CART_PANE_MAX_WIDTH = 1040;
 
 // Reserved space for the product grid/list pane. Lowered so the cart pane can
 // take priority when resized wider — the product grid/list now shrinks first

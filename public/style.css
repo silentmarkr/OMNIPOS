@@ -406,6 +406,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 14px; /* guaranteed breathing room between the OmniPOS wordmark and the PRO badge, on desktop and mobile */
     border-bottom: 1px solid #1e293b;
 }
 
@@ -906,9 +907,10 @@ body {
 
 .sidebar-pro-badge {
     display: inline-flex;
-    align-items: right;
+    align-items: center;
     gap: 6px;
     flex-shrink: 0;
+    margin-left: auto; /* pin to the right while keeping .sidebar-brand's gap as the min spacing from the logo */
     border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.06);
     color: #cbd5e1;
@@ -2332,7 +2334,7 @@ body.dark-mode .overview-greeting-row {
 }
 
 .terminal-cart-pane {
-    width: 580px;
+    width: 680px; /* kept in sync with CART_PANE_DEFAULT_WIDTH in app.js */
     background-color: #1f2937;
     border-right: 1px solid var(--terminal-border);
     display: flex;
@@ -2446,7 +2448,7 @@ body.cart-pane-resizing-cursor {
     padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px; 
+    gap: 2px; /* compact list — more items visible in the cart pane */
     scrollbar-width: thin;
     scrollbar-color: #374151 transparent;
 }
@@ -2467,51 +2469,59 @@ body.cart-pane-resizing-cursor {
 .cart-item-row {
     background-color: #111827;
     border-radius: 8px;
-    padding: 10px; 
+    padding: 5px 10px; /* shorter row height */
     display: flex;
-    flex-direction: column;
-    gap: 6px; 
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 10px;
     border: 1px solid var(--terminal-border);
 }
 
+.cart-item-details {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .cart-item-details h4 {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
     color: #f3f4f6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .cart-item-meta-row {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 8px; 
-    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 8px;
+    flex-shrink: 0; /* product name is the only column that truncates; controls keep their size */
 }
 
 .cart-item-each-price {
-    font-size: 0.8rem;
-    color: #9ca3af;
-    white-space: nowrap;
+    display: none; /* redundant with the line total now that everything sits in one compact row */
 }
 
 .cart-item-discount-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
 }
 
 .cart-item-discount-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: #94a3b8;
     white-space: nowrap;
 }
 
 .cart-item-discount-input {
-    width: 64px;
-    padding: 4px 6px;
+    width: 54px;
+    padding: 3px 5px;
     border: 1px solid var(--terminal-border);
     border-radius: 6px;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     background: #1f2937;
     color: #e5e7eb;
 }
@@ -2519,9 +2529,9 @@ body.cart-pane-resizing-cursor {
 .quantity-control-buttons-block {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     background: #1f2937;
-    padding: 4px 8px;
+    padding: 2px 6px;
     border-radius: 6px;
     border: 1px solid var(--terminal-border);
 }
@@ -2532,20 +2542,20 @@ body.cart-pane-resizing-cursor {
     color: #9ca3af;
     cursor: pointer;
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 0.9rem;
     padding: 0 4px;
 }
 
 .quantity-control-buttons-block span {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
     min-width: 16px;
     text-align: center;
 }
 
 .quantity-control-buttons-block .cart-qty-input {
-    width: 42px;
-    font-size: 0.9rem;
+    width: 36px;
+    font-size: 0.85rem;
     font-weight: 600;
     text-align: center;
     background: transparent;
@@ -2571,16 +2581,16 @@ body.cart-pane-resizing-cursor {
     font-variant-numeric: tabular-nums;
     font-weight: 700;
     color: var(--success-green);
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
 .cart-item-total-price-pane i {
     color: var(--danger-red);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .cart-summary-block {
@@ -5009,32 +5019,8 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
     background: #263043;
 }
 
-@media screen and (min-width: 1025px) {
-    .terminal-cart-pane.customer-pane-expanded .cart-summary-block {
-        display: grid;
-        grid-template-columns: 1fr 210px;
-        column-gap: 16px;
-        row-gap: 10px;
-        align-items: start;
-    }
-    .terminal-cart-pane.customer-pane-expanded .cart-summary-block > .cart-customer-row,
-    .terminal-cart-pane.customer-pane-expanded .cart-summary-block > .cart-customer-subpane {
-        grid-column: 1;
-    }
-    .terminal-cart-pane.customer-pane-expanded .cart-summary-block > .cart-checkout-sticky {
-        grid-column: 2;
-        
-        grid-row: 1 / -1;
-        align-self: end;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        min-width: 0;
-    }
-    .terminal-cart-pane.customer-pane-expanded .cart-checkout-sticky .summary-total-row {
-        font-size: 1.4rem; /* keep TOTAL the same size whether or not the customer pane content is shown */
-    }
-}
+/* Customer pane content stays stacked above the TOTAL/Charge row on desktop
+   (no longer split into a left/right one-row layout). */
 
 .cart-customer-row, .cart-promo-row {
     align-items: center;
@@ -8552,11 +8538,11 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     }
     .terminal-theme .cart-items-wrapper {
         padding: 2px;
-        gap: 8px;
+        gap: 2px;
     }
     .terminal-theme .cart-item-row {
         border-radius: 14px;
-        padding: 10px 12px;
+        padding: 6px 12px;
         border-left: 3px solid var(--primary-blue);
     }
     .terminal-theme .quantity-control-buttons-block {
@@ -8624,7 +8610,7 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     }
 
     .terminal-theme .cart-item-row {
-        padding: 10px 12px;
+        padding: 6px 12px;
         gap: 6px;
     }
     .terminal-theme .cart-item-details h4 {
