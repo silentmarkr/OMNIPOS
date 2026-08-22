@@ -665,6 +665,7 @@ async function refreshUnlockedThemesFromServer() {
         if (data && data.success && Array.isArray(data.unlockedThemeIds)) {
             localStorage.setItem('posa_unlocked_themes_cache', JSON.stringify(data.unlockedThemeIds));
             renderThemeMenu();
+            if (typeof renderTerminalThemeMenu ==='function') renderTerminalThemeMenu();
         }
     } catch (e) {
         console.warn('Could not fetch theme unlock status from the server, using cache instead.', e);
@@ -779,6 +780,181 @@ function renderThemeMenu() {
 '</button>'
         );
     }).join('');
+}
+
+// ============================================================================
+// TERMINAL-ONLY THEMES
+// ----------------------------------------------------------------------------
+// A separate, self-contained theme picker that lives inside the sidebar's
+// user-profile dropdown but only ever affects the POS Terminal screen
+// (#view-terminal). It is intentionally decoupled from the store-wide
+// `posa_theme` selection (setTheme/applyTheme above):
+//   - It has its own storage key (TERMINAL_THEME_STORAGE_KEY) so switching it
+//     never touches or is touched by the rest of OmniPOS's look.
+//   - The dropdown entry itself is only ever visible while the cashier is
+//     inside the Terminal view; it disappears everywhere else.
+//   - Only themes already unlocked (same unlock pool as the store themes)
+//     show up here, and selecting one actually re-skins the terminal (which
+//     previously ignored the store's data-theme entirely).
+//   - When switched back to "Default", the Terminal simply falls back to its
+//     own independent Day/Night toggle (terminal_daymode), which itself
+//     always defaults to dark mode.
+// ============================================================================
+
+const TERMINAL_THEME_STORAGE_KEY ='terminal_extra_theme';
+
+function getUnlockedTerminalThemes() {
+    const unlockedIds = getUnlockedThemeIds();
+    return THEME_CATALOG.filter(t => t.pro && unlockedIds.includes(t.id));
+}
+
+function getActiveTerminalThemeId() {
+    return localStorage.getItem(TERMINAL_THEME_STORAGE_KEY) ||'';
+}
+
+function updateTerminalThemesMenuVisibility() {
+    const isTerminalView = sessionStorage.getItem('currentView') ==='terminal';
+
+    const sidebarToggleRow = document.getElementById('uw-terminalthemes-toggle');
+    if (sidebarToggleRow) {
+        sidebarToggleRow.style.display = isTerminalView ?'' :'none';
+        if (!isTerminalView) {
+            document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
+            document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
+        }
+    }
+
+    const headerToggleRow = document.getElementById('hu-terminalthemes-toggle');
+    if (headerToggleRow) {
+        headerToggleRow.style.display = isTerminalView ?'' :'none';
+        if (!isTerminalView) closeHeaderTerminalThemesSubmenu();
+    }
+}
+
+function buildTerminalThemeOptionsHtml(optionClass, labelClass, badgeSlotClass) {
+    const unlockedThemes = getUnlockedTerminalThemes();
+    const activeId = getActiveTerminalThemeId();
+
+    let html =
+'<button type="button" class="' + optionClass + (activeId ?'' :' active') +'" ' +
+'data-theme-id="" onclick="setTerminalTheme(\'\')">' +
+'<i class="fa-solid fa-moon"></i> ' +
+'<span class="' + labelClass +'">Default (Terminal Dark)</span>' +
+'<span class="' + badgeSlotClass +'"></span>' +
+'</button>';
+
+    if (unlockedThemes.length === 0) {
+        html +='<div class="uw-au-empty">No unlocked Pro themes yet.</div>';
+    } else {
+        html += unlockedThemes.map((theme) => {
+            const isActive = theme.id === activeId;
+            return (
+'<button type="button" class="' + optionClass + (isActive ?' active' :'') +'" ' +
+'data-theme-id="' + theme.id +'" onclick="setTerminalTheme(\'' + theme.id +'\')">' +
+'<i class="fa-solid ' + theme.icon +'"></i> ' +
+'<span class="' + labelClass +'">' + theme.name +'</span>' +
+'<span class="' + badgeSlotClass +'"><span class="uw-theme-pro-badge">PRO</span></span>' +
+'</button>'
+            );
+        }).join('');
+    }
+    return html;
+}
+
+function renderTerminalThemeMenu() {
+    const sidebarContainer = document.getElementById('uw-terminalthemes-submenu');
+    if (sidebarContainer) {
+        sidebarContainer.innerHTML = buildTerminalThemeOptionsHtml('uw-theme-option','uw-theme-option-label','uw-theme-badge-slot');
+    }
+    const headerContainer = document.getElementById('hu-terminalthemes-submenu');
+    if (headerContainer) {
+        headerContainer.innerHTML = buildTerminalThemeOptionsHtml('hu-theme-option','hu-theme-option-label','hu-theme-badge-slot');
+    }
+}
+
+function updateTerminalThemeSelectionUI(activeId) {
+    document.querySelectorAll('#uw-terminalthemes-submenu .uw-theme-option, #hu-terminalthemes-submenu .hu-theme-option').forEach((btn) => {
+        btn.classList.toggle('active', (btn.dataset.themeId ||'') === activeId);
+    });
+}
+
+// Applies (or clears, when themeId is falsy) the terminal-only theme onto the
+// live DOM. `persist:false` is used when merely re-applying an already-saved
+// choice (e.g. on view switch) so we don't re-write localStorage needlessly.
+function applyTerminalExtraTheme(themeId, opts) {
+    opts = opts || {};
+    const terminalSection = document.getElementById('view-terminal');
+    const headerEl = document.getElementById('app-top-header');
+    if (!terminalSection) return;
+
+    if (themeId) {
+        terminalSection.setAttribute('data-terminal-theme', themeId);
+        document.body.setAttribute('data-terminal-theme', themeId);
+        // A Pro terminal theme takes over completely while active; the
+        // terminal's own Day/Night toggle is paused (not lost — just parked)
+        // until this is switched back to Default.
+        terminalSection.classList.remove('terminal-daymode');
+        if (headerEl) headerEl.classList.remove('terminal-daymode');
+        document.body.classList.remove('terminal-modal-daymode');
+    } else {
+        terminalSection.removeAttribute('data-terminal-theme');
+        document.body.removeAttribute('data-terminal-theme');
+        // Back to Default: hand control back to the terminal's own
+        // Day/Night toggle, which defaults to dark mode.
+        if (typeof applySavedTerminalDayMode ==='function') applySavedTerminalDayMode();
+    }
+
+    if (opts.persist !== false) {
+        if (themeId) localStorage.setItem(TERMINAL_THEME_STORAGE_KEY, themeId);
+        else localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
+    }
+
+    updateTerminalThemeSelectionUI(themeId ||'');
+    syncColorSchemeDeclaration();
+}
+
+function setTerminalTheme(themeId) {
+    if (themeId) {
+        const theme = THEME_CATALOG.find(t => t.id === themeId);
+        if (!theme || !isThemeUnlocked(theme)) {
+            // Safety net only — the submenu already filters to unlocked
+            // themes, so this should not normally happen.
+            return;
+        }
+    }
+    applyTerminalExtraTheme(themeId);
+}
+
+// Re-applies whatever terminal-only theme (if any) was previously saved.
+// Called whenever the Terminal view is (re)loaded.
+function applySavedTerminalExtraTheme() {
+    const savedId = getActiveTerminalThemeId();
+    const theme = savedId ? THEME_CATALOG.find(t => t.id === savedId) : null;
+    if (theme && isThemeUnlocked(theme)) {
+        applyTerminalExtraTheme(savedId, { persist: false });
+    } else {
+        if (savedId) localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
+        applyTerminalExtraTheme('', { persist: false });
+    }
+    renderTerminalThemeMenu();
+}
+
+function toggleTerminalThemesSubmenu(event) {
+    if (event) event.stopPropagation();
+    const submenu = document.getElementById('uw-terminalthemes-submenu');
+    const caret = document.getElementById('uw-terminalthemes-caret');
+    if (!submenu) return;
+    const isOpen = submenu.classList.toggle('open');
+    if (caret) caret.classList.toggle('rotated', isOpen);
+
+    document.getElementById('uw-themes-submenu')?.classList.remove('open');
+    document.getElementById('uw-themes-caret')?.classList.remove('rotated');
+    closeActiveUsersSubmenu();
+
+    if (isOpen) {
+        refreshUnlockedThemesFromServer().then(() => renderTerminalThemeMenu());
+        renderTerminalThemeMenu();
+    }
 }
 
 const CT_DEFAULTS = {
@@ -2018,6 +2194,11 @@ document.addEventListener("DOMContentLoaded", () => {
     initCustomTheme();
     refreshUnlockedThemesFromServer();
     refreshUnlockedFeaturesFromServer();
+    renderTerminalThemeMenu();
+    updateTerminalThemesMenuVisibility();
+    if (sessionStorage.getItem('currentView') ==='terminal' && typeof applySavedTerminalExtraTheme ==='function') {
+        applySavedTerminalExtraTheme();
+    }
     initDemoModeUI();
     initNetworkStatusIndicator();
     initInstallAppBanner();
@@ -2204,8 +2385,13 @@ function switchView(viewKey, opts) {
 
     if (viewKey ==='reorder') { startReorderPolling(); } else { stopReorderPolling(); }
 
-    if (viewKey ==='terminal') applySavedTerminalDayMode();
-    else document.body.classList.remove('terminal-modal-daymode');
+    if (viewKey ==='terminal') {
+        applySavedTerminalDayMode();
+        if (typeof applySavedTerminalExtraTheme ==='function') applySavedTerminalExtraTheme();
+    } else {
+        document.body.classList.remove('terminal-modal-daymode');
+        document.body.removeAttribute('data-terminal-theme');
+    }
     if (typeof updateHeaderDayDarkModeUI ==='function') updateHeaderDayDarkModeUI();
     if (viewKey ==='products') loadInventoryProductsTable();
     if (viewKey ==='barcode') loadBarcodeGeneratorModule();
@@ -2225,6 +2411,7 @@ function switchView(viewKey, opts) {
     if (viewKey ==='shiftreport') loadShiftReportView();
     if (viewKey ==='reorder') loadReorderView();
     sessionStorage.setItem('currentView', viewKey);
+    if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
 
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
 
@@ -3431,6 +3618,7 @@ function closeHeaderUserMenu() {
     const wrap = document.getElementById('header-user-menu-wrap');
     if (wrap) wrap.classList.remove('open');
     closeHeaderSettingsSubmenu();
+    closeHeaderTerminalThemesSubmenu();
     document.removeEventListener('click', closeHeaderUserMenuOnOutsideClick);
 }
 
@@ -3441,12 +3629,31 @@ function toggleHeaderSettingsSubmenu(event) {
     if (!submenu) return;
     const isOpen = submenu.classList.toggle('open');
     if (caret) caret.classList.toggle('rotated', isOpen);
-    if (isOpen) updateHeaderDayDarkModeUI();
+    if (isOpen) { updateHeaderDayDarkModeUI(); closeHeaderTerminalThemesSubmenu(); }
 }
 
 function closeHeaderSettingsSubmenu() {
     document.getElementById('hu-settings-submenu')?.classList.remove('open');
     document.getElementById('hu-settings-caret')?.classList.remove('rotated');
+}
+
+function toggleHeaderTerminalThemesSubmenu(event) {
+    if (event) event.stopPropagation();
+    const submenu = document.getElementById('hu-terminalthemes-submenu');
+    const caret = document.getElementById('hu-terminalthemes-caret');
+    if (!submenu) return;
+    const isOpen = submenu.classList.toggle('open');
+    if (caret) caret.classList.toggle('rotated', isOpen);
+    if (isOpen) {
+        closeHeaderSettingsSubmenu();
+        refreshUnlockedThemesFromServer().then(() => renderTerminalThemeMenu());
+        renderTerminalThemeMenu();
+    }
+}
+
+function closeHeaderTerminalThemesSubmenu() {
+    document.getElementById('hu-terminalthemes-submenu')?.classList.remove('open');
+    document.getElementById('hu-terminalthemes-caret')?.classList.remove('rotated');
 }
 
 function headerToggleDayDarkMode() {
@@ -3551,6 +3758,8 @@ function closeUserWidgetMenu() {
     document.getElementById('user-widget-dropdown')?.classList.remove('open');
     document.getElementById('uw-themes-submenu')?.classList.remove('open');
     document.getElementById('uw-themes-caret')?.classList.remove('rotated');
+    document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
+    document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
     closeActiveUsersSubmenu();
 }
 
@@ -3570,6 +3779,8 @@ function toggleUserWidgetMenu(event) {
 
         document.getElementById('uw-themes-submenu')?.classList.remove('open');
         document.getElementById('uw-themes-caret')?.classList.remove('rotated');
+        document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
+        document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
         closeActiveUsersSubmenu();
     }
 }
@@ -3650,8 +3861,12 @@ function toggleThemesSubmenu(event) {
     const isOpen = submenu.classList.toggle('open');
     if (caret) caret.classList.toggle('rotated', isOpen);
 
-    if (isOpen) closeActiveUsersSubmenu();
-    if (isOpen) refreshUnlockedThemesFromServer();
+    if (isOpen) {
+        closeActiveUsersSubmenu();
+        document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
+        document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
+        refreshUnlockedThemesFromServer();
+    }
 }
 
 document.addEventListener('click', (e) => {
@@ -3718,6 +3933,8 @@ function toggleActiveUsersSubmenu(event) {
 
         document.getElementById('uw-themes-submenu')?.classList.remove('open');
         document.getElementById('uw-themes-caret')?.classList.remove('rotated');
+        document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
+        document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
         loadActiveUsers();
 
         loadSidebarNetworkInfo();
@@ -4207,26 +4424,19 @@ function applyRoleBasedAccessControls(role) {
 
 async function refreshLowStockBadge() {
     const badge = document.getElementById('lowstock-bell-badge');
-    const menuBadge = document.getElementById('reorder-menu-badge');
-    if (!badge && !menuBadge) return;
+    if (!badge) return;
     try {
         const res = await authFetch(`${API_URL}/products/low-stock`);
         const data = await res.json();
         const count = data && data.count ? data.count : 0;
 
         const badgeAllowed = isBadgeAllowedForFeature('purchase_orders');
-        [
-            { el: badge, allowed: badgeAllowed },
-            { el: menuBadge, allowed: badgeAllowed }
-        ].forEach(({ el, allowed }) => {
-            if (!el) return;
-            if (count > 0 && allowed) {
-                el.innerText = count > 99 ?'99+' : count;
-                el.style.display ='inline-block';
-            } else {
-                el.style.display ='none';
-            }
-        });
+        if (count > 0 && badgeAllowed) {
+            badge.innerText = count > 99 ?'99+' : count;
+            badge.style.display ='inline-block';
+        } else {
+            badge.style.display ='none';
+        }
     } catch (e) {
         console.warn('Could not refresh low stock badge:', e);
     }
@@ -14650,12 +14860,17 @@ function applyLockdownForRemovedFeatures(removedFeatures) {
     const currentView = sessionStorage.getItem('currentView') || 'overview';
     let themeWasReverted = false;
 
+    const activeTerminalThemeId = (typeof getActiveTerminalThemeId ==='function') ? getActiveTerminalThemeId() : '';
+
     removedFeatures.forEach((removed) => {
         if (removed.category === 'theme') {
             if (currentThemeId === removed.featureId) {
 
                 applyTheme('dark');
                 themeWasReverted = true;
+            }
+            if (activeTerminalThemeId === removed.featureId && typeof applyTerminalExtraTheme ==='function') {
+                applyTerminalExtraTheme('');
             }
         } else {
             const affectedView = RELAY_SYNC_VIEW_FEATURE_MAP[removed.featureId];
@@ -14668,6 +14883,7 @@ function applyLockdownForRemovedFeatures(removedFeatures) {
     if (themeWasReverted) {
         renderThemeMenu();
     }
+    if (typeof renderTerminalThemeMenu === 'function') renderTerminalThemeMenu();
     if (typeof updateSidebarFeatureLocks === 'function') updateSidebarFeatureLocks();
 }
 

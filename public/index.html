@@ -304,6 +304,13 @@
                     <div class="uw-submenu" id="uw-themes-submenu">
                         
                     </div>
+                    <div class="uw-item uw-has-sub" id="uw-terminalthemes-toggle" onclick="toggleTerminalThemesSubmenu(event)" style="display:none;">
+                        <span><i class="fa-solid fa-swatchbook"></i> Terminal Themes</span>
+                        <i class="fa-solid fa-chevron-down uw-sub-caret" id="uw-terminalthemes-caret"></i>
+                    </div>
+                    <div class="uw-submenu" id="uw-terminalthemes-submenu">
+                        
+                    </div>
                     <a href="#" class="uw-item uw-logout" onclick="handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
                 </div>
             </div>
@@ -320,7 +327,7 @@
                         <a href="#" class="sub-menu-item" id="menu-inventory-dashboard" onclick="switchView('dashboard')"><i class="fa-solid fa-gauge" style="font-size: 0.85rem; margin-right: 5px;"></i> Dashboard</a>
                         <a href="#" class="sub-menu-item" id="menu-products" onclick="switchView('products')"><i class="fa-solid fa-box" style="font-size: 0.85rem; margin-right: 5px;"></i> Products</a>
                         <a href="#" class="sub-menu-item" id="menu-barcode" onclick="switchView('barcode')"><i class="fa-solid fa-barcode" style="font-size: 0.85rem; margin-right: 5px;"></i>Barcode</a>
-                        <a href="#" class="sub-menu-item" id="menu-reorder" onclick="switchView('reorder')"><i class="fa-solid fa-truck-fast" style="font-size: 0.85rem; margin-right: 5px;"></i>Reorder Alerts <span id="reorder-menu-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span><span id="menu-reorder-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span></a>
+                        <a href="#" class="sub-menu-item" id="menu-reorder" onclick="switchView('reorder')"><i class="fa-solid fa-truck-fast" style="font-size: 0.85rem; margin-right: 5px;"></i>Reorder Alerts <span id="menu-reorder-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-reorder-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                     </div>
                 </div>
 
@@ -380,6 +387,13 @@
                                 <button type="button" class="hu-item hu-toggle-item connectivity-mode-pill" id="connectivity-mode-btn" onclick="toggleConnectivityMode()" data-tooltip="Checking… confirming if there is an internet connection." aria-label="Checking… confirming if there is an internet connection." data-mode="connecting">
                                     <span><i class="fa-solid fa-wifi" id="connectivity-mode-icon"></i> <span id="connectivity-mode-label">Checking…</span></span>
                                 </button>
+                            </div>
+                            <div class="hu-item hu-has-sub" id="hu-terminalthemes-toggle" onclick="toggleHeaderTerminalThemesSubmenu(event)" style="display:none;">
+                                <span><i class="fa-solid fa-swatchbook"></i> Terminal Themes</span>
+                                <i class="fa-solid fa-chevron-down hu-sub-caret" id="hu-terminalthemes-caret"></i>
+                            </div>
+                            <div class="hu-submenu" id="hu-terminalthemes-submenu">
+                                
                             </div>
                         </div>
                     </div>

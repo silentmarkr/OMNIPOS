@@ -547,6 +547,8 @@ body {
 }
 
 .sub-menu-item {
+    display: flex;
+    align-items: center;
     padding: 10px 16px;
     color: #64748b;
     text-decoration: none;
@@ -554,6 +556,19 @@ body {
     font-weight: 500;
     border-radius: 6px;
     transition: all 0.2s;
+}
+
+.sub-menu-item .menu-pro-lock,
+.sub-menu-item .menu-pro-badge {
+    margin-left: auto;
+}
+
+.sub-menu-item .menu-pro-lock i {
+    width: auto;
+    height: auto;
+    font-size: inherit;
+    margin-right: 0;
+    background-color: transparent;
 }
 
 .sub-menu-item:hover, .sub-menu-item.active {
@@ -822,6 +837,12 @@ body {
     transition: opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
                 transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
                 visibility 0s linear 0s;
+}
+
+#uw-terminalthemes-submenu.open {
+    max-height: 50vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 @media screen and (max-width: 768px) {
@@ -3665,6 +3686,138 @@ body.dark-mode .pd-detail-value {
     color: var(--dm-text-secondary);
 }
 
+/* ============================================================
+   TERMINAL-ONLY PRO THEMES
+   ------------------------------------------------------------
+   Hiwalay ito sa themes ng buong OmniPOS (data-theme sa <body>).
+   Ito ay applied lang sa loob ng POS Terminal via ang
+   [data-terminal-theme] attribute (see applyTerminalExtraTheme
+   sa app.js), gamit ang parehong --dm-* variables na kino-consume
+   na ng lahat ng .terminal-theme descendant rules sa ibaba, kaya
+   awtomatikong na-re-skin ang buong terminal (cart pane, product
+   grid, search, chips, atbp.) kapag pinili ang isa dito — kahit
+   walang kinalaman sa store-wide theme na naka-set sa <body>.
+   Ang mga kulay dito ay kopya ng eksaktong palette ng bawat Pro
+   theme (see /css/themes/theme-*.css) para consistent ang dating.
+   ============================================================ */
+
+.terminal-theme[data-terminal-theme="ocean"] {
+    --dm-bg: #05141c;
+    --dm-surface: #0b232f;
+    --dm-surface-alt: #0f2c3a;
+    --dm-border: #1c3d4c;
+    --dm-text-primary: #eafcff;
+    --dm-text-secondary: #8fb8c4;
+    --dm-text-muted: #5f818c;
+    --dm-accent: #22d3ee;
+    --dm-accent-hover: #06b6d4;
+    --dm-accent-soft: rgba(34, 211, 238, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="emerald"] {
+    --dm-bg: #071510;
+    --dm-surface: #0d2119;
+    --dm-surface-alt: #122a20;
+    --dm-border: #1e3d2f;
+    --dm-text-primary: #eafff4;
+    --dm-text-secondary: #8fc4a8;
+    --dm-text-muted: #5f8c73;
+    --dm-accent: #22c55e;
+    --dm-accent-hover: #16a34a;
+    --dm-accent-soft: rgba(34, 197, 94, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="sunset"] {
+    --dm-bg: #180d05;
+    --dm-surface: #241407;
+    --dm-surface-alt: #2c1a0b;
+    --dm-border: #40260f;
+    --dm-text-primary: #fff6ea;
+    --dm-text-secondary: #c9a279;
+    --dm-text-muted: #8c6f52;
+    --dm-accent: #f59e0b;
+    --dm-accent-hover: #d97706;
+    --dm-accent-soft: rgba(245, 158, 11, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="rosegold"] {
+    --dm-bg: #170a12;
+    --dm-surface: #24101c;
+    --dm-surface-alt: #2c1422;
+    --dm-border: #402038;
+    --dm-text-primary: #fff0f6;
+    --dm-text-secondary: #d192b0;
+    --dm-text-muted: #916078;
+    --dm-accent: #ec4899;
+    --dm-accent-hover: #db2777;
+    --dm-accent-soft: rgba(236, 72, 153, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="cyber"] {
+    --dm-bg: #05070d;
+    --dm-surface: #0b0f1a;
+    --dm-surface-alt: #101625;
+    --dm-border: #1f2a44;
+    --dm-text-primary: #eafcff;
+    --dm-text-secondary: #8ea3c9;
+    --dm-text-muted: #5a6a8c;
+    --dm-accent: #22e5ff;
+    --dm-accent-hover: #ff2ee6;
+    --dm-accent-soft: rgba(34, 229, 255, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="noir"] {
+    --dm-bg: #120d09;
+    --dm-surface: #1c140d;
+    --dm-surface-alt: #241a11;
+    --dm-border: #3a2a1a;
+    --dm-text-primary: #f7ecdc;
+    --dm-text-secondary: #c7a985;
+    --dm-text-muted: #8a725a;
+    --dm-accent: #d4a256;
+    --dm-accent-hover: #c08c3e;
+    --dm-accent-soft: rgba(212, 162, 86, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="mintfrost"] {
+    --dm-bg: #071815;
+    --dm-surface: #0d211d;
+    --dm-surface-alt: #122a24;
+    --dm-border: #1e3a33;
+    --dm-text-primary: #eafff8;
+    --dm-text-secondary: #8fc9b8;
+    --dm-text-muted: #5f8c7c;
+    --dm-accent: #2dd4bf;
+    --dm-accent-hover: #14b8a6;
+    --dm-accent-soft: rgba(45, 212, 191, 0.16);
+}
+
+.terminal-theme[data-terminal-theme="liquidglass"] {
+    --dm-bg: #0b0f1a;
+    --dm-surface: rgba(30, 38, 58, 0.55);
+    --dm-surface-alt: rgba(42, 52, 78, 0.62);
+    --dm-border: rgba(255, 255, 255, 0.14);
+    --dm-text-primary: #f3f6ff;
+    --dm-text-secondary: #b7c2e0;
+    --dm-text-muted: #7d89ac;
+    --dm-accent: #0a84ff;
+    --dm-accent-hover: #409cff;
+    --dm-accent-soft: rgba(10, 132, 255, 0.18);
+}
+
+.terminal-theme[data-terminal-theme="galaxyambient"] {
+    --dm-bg: #0a0a0c;
+    --dm-surface: rgba(24, 24, 28, 0.86);
+    --dm-surface-alt: rgba(34, 34, 40, 0.92);
+    --dm-border: rgba(255, 255, 255, 0.08);
+    --dm-text-primary: #f3f3f5;
+    --dm-text-secondary: #adadb8;
+    --dm-text-muted: #75757f;
+    --dm-accent: #1a73e8;
+    --dm-accent-hover: #4c93f0;
+    --dm-accent-soft: rgba(26, 115, 232, 0.18);
+}
+
 .terminal-theme .terminal-cart-pane {
     background-color: var(--dm-surface);
     border-right: 1px solid var(--dm-border);
@@ -3774,7 +3927,7 @@ body.dark-mode .pd-detail-value {
     border: 1px solid var(--dm-border);
 }
 
-body:not(.dark-mode):not([data-theme]) .terminal-theme .t-product-card {
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]) .t-product-card {
     background-color: #1c1c24;
 }
 
@@ -4871,7 +5024,7 @@ body.dark-mode .btn-fullscreen-toggle:hover {
         color: #ffffff;
     }
     
-    body:not(.dark-mode):not([data-theme]) .terminal-theme .btn-fullscreen-toggle {
+    body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]) .btn-fullscreen-toggle {
         background: rgba(28, 28, 36, 0.78) !important;
         color: #f5f5f7 !important;
         border-color: rgba(255, 255, 255, 0.08) !important;
@@ -8868,21 +9021,21 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     background-color: #ffffff !important;
 }
 
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) .t-product-card,
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) #terminal-grid-output .t-product-card,
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) #terminal-grid-output.terminal-list-view .t-product-card {
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) .t-product-card,
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) #terminal-grid-output .t-product-card,
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) #terminal-grid-output.terminal-list-view .t-product-card {
     background-color: #1c1c24 !important;
     border-color: #262733 !important;
 }
 
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) .t-product-card.tap-active {
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) .t-product-card.tap-active {
     background-color: #22232d !important;
     border-color: #7c5cff !important;
 }
 
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) .t-prod-icon,
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) #terminal-grid-output .t-prod-icon,
-body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode) #terminal-grid-output.terminal-list-view .t-prod-icon {
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) .t-prod-icon,
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) #terminal-grid-output .t-prod-icon,
+body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) #terminal-grid-output.terminal-list-view .t-prod-icon {
     background-color: #20283d !important;
 }
 
@@ -9406,6 +9559,12 @@ body.dark-mode .top-header.terminal-header-mode.terminal-daymode .header-user-ca
     padding-top: 2px;
 }
 
+#hu-terminalthemes-submenu.open {
+    max-height: 46vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
 #hu-settings-submenu #btn-fullscreen-toggle,
 #hu-settings-submenu .hu-toggle-item {
     width: 100% !important;
@@ -9456,6 +9615,87 @@ body.dark-mode .hu-item {
 }
 body.dark-mode .hu-item:hover {
     background-color: var(--dm-surface-alt, #22232d);
+}
+
+.hu-theme-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 10px;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: #334155;
+    cursor: pointer;
+    text-align: left;
+    box-sizing: border-box;
+}
+
+.hu-theme-option .fa-solid:first-child {
+    width: 16px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: #64748b;
+    flex-shrink: 0;
+}
+
+.hu-theme-option-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.hu-theme-badge-slot {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.hu-theme-option:hover {
+    background-color: #f1f5f9;
+}
+
+.hu-theme-option.active {
+    background-color: #eff6ff;
+    color: var(--primary-blue, #2563eb);
+}
+
+.hu-theme-option.active .fa-solid:first-child {
+    color: var(--primary-blue, #2563eb);
+}
+
+.hu-theme-option.active::after {
+    content: '\f00c';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--primary-blue, #2563eb);
+}
+
+.hu-theme-option.active .hu-theme-badge-slot {
+    margin-left: 8px;
+}
+
+body.dark-mode .hu-theme-option {
+    color: var(--dm-text-secondary, #d3d4dc);
+}
+body.dark-mode .hu-theme-option:hover {
+    background-color: var(--dm-surface-alt, #22232d);
+}
+body.dark-mode .hu-theme-option.active {
+    background-color: var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
+    color: var(--dm-accent, #7c5cff);
+}
+body.dark-mode .hu-theme-option.active .fa-solid:first-child,
+body.dark-mode .hu-theme-option.active::after {
+    color: var(--dm-accent, #7c5cff);
 }
 body.dark-mode #hu-settings-submenu #btn-fullscreen-toggle.is-fullscreen-active {
     background-color: var(--dm-accent-soft, rgba(124, 92, 255, 0.16)) !important;
