@@ -1283,21 +1283,12 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     gap: 10px;
     text-decoration: none;
     flex-shrink: 0;
-    padding: 4px 10px 4px 4px;
-    border-radius: 10px;
-    transition: background-color 0.2s;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.header-desktop-logo:hover {
-    background-color: #f1f5f9;
-}
-
-.header-desktop-logo-img {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    display: block;
-    flex-shrink: 0;
+.header-desktop-logo:active {
+    opacity: 0.75;
 }
 
 .header-desktop-logo-text {
@@ -1305,10 +1296,6 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     font-weight: 800;
     color: var(--text-primary);
     white-space: nowrap;
-}
-
-body.dark-mode .header-desktop-logo:hover {
-    background-color: var(--dm-surface-alt, #1e293b);
 }
 
 body.dark-mode .header-desktop-logo-text {

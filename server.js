@@ -428,6 +428,7 @@ const DEFAULT_CATEGORIES = ['Beverages','Dairy','Snacks','Bakery','Grains'];
 const FILE_CATEGORIES ='categories';
 const FILE_CARTS ='carts';
 const FILE_CUSTOMERS ='customers';
+const FILE_DEBTS ='debts';
 const FILE_PROMOCODES ='promocodes';
 const FILE_SHIFTS ='shifts';
 const FILE_SHIFT_META ='shiftMeta';
@@ -5967,7 +5968,7 @@ app.post('/api/transactions', requirePermission('terminal'), async (req, res) =>
 });
 
 async function processTransaction(req, res) {
-    const { transaction, username } = req.body;
+    const { transaction, username, creditDebtInfo } = req.body;
 
     if (!transaction || typeof transaction !== 'object' || !Array.isArray(transaction.items) || transaction.items.length === 0) {
         return res.status(400).json({ success: false, message: 'Walang laman o hindi valid ang transaction items.' });
@@ -5990,8 +5991,20 @@ async function processTransaction(req, res) {
         .filter(([, enabled]) => enabled)
         .map(([key]) => key.toLowerCase());
     const methodAliasMap = { cash:'cash', gcash:'gcash', maya:'maya', paymaya:'maya', card:'card', banktransfer:'banktransfer', bank_transfer:'banktransfer' };
+    // "C-Credit" (Customer Credit / utang) is not a real money-in method — it's an
+    // accounting entry that routes the sale to the Debtors ledger instead of cash
+    // drawer/e-wallet/card, so it's intentionally NOT gated by the Store & Sales
+    // Settings payment-method toggles (same way Cash is always considered available).
+    const creditMethodAliases = new Set(['ccredit', 'credit', 'customercredit']);
+    function normalizeMethodKeyLoose(rawMethod) {
+        return String(rawMethod || '').toLowerCase().replace(/[\s_-]/g, '');
+    }
+    function isCreditMethod(rawMethod) {
+        return creditMethodAliases.has(normalizeMethodKeyLoose(rawMethod));
+    }
     function isMethodEnabled(rawMethod) {
         const norm = String(rawMethod || 'cash').toLowerCase().replace(/[\s_-]/g, '');
+        if (creditMethodAliases.has(norm)) return true;
         const key = methodAliasMap[norm] || norm;
         return enabledMethodKeys.includes(key);
     }
@@ -6004,6 +6017,28 @@ async function processTransaction(req, res) {
             success: false,
             message: `Ang payment method na "${disabledMethodUsed}" ay hindi naka-enable sa Store & Sales Settings. Puntahan ang Users > Store & Sales para i-enable.`
         });
+    }
+
+    const usesCreditPayment = paymentMethodsUsed.some(isCreditMethod);
+    if (usesCreditPayment) {
+        if (paymentMethodsUsed.length > 1) {
+            return res.status(400).json({ success: false, message: 'Hindi pwedeng i-split ang Customer Credit (C-Credit) kasama ang ibang payment method.' });
+        }
+        const unlockedIds = getUnlockedFeatureIds();
+        if (!unlockedIds.includes('customer_crm')) {
+            const feature = FEATURE_CATALOG['customer_crm'];
+            return res.status(402).json({
+                success: false,
+                featureLocked: true,
+                featureId: 'customer_crm',
+                featureName: feature ? feature.name : 'customer_crm',
+                price: feature ? feature.price : null,
+                message: `"${feature ? feature.name : 'Customer CRM'}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
+            });
+        }
+        if (!creditDebtInfo || !String(creditDebtInfo.customerName || '').trim()) {
+            return res.status(400).json({ success: false, message: 'Kailangan ng pangalan ng debtor (Add Debt form) bago maproseso ang bentang C-Credit.' });
+        }
     }
 
     const eWalletMethods = new Set(['gcash', 'maya', 'paymaya']);
@@ -6124,6 +6159,9 @@ async function processTransaction(req, res) {
         cartDiscount = Math.round(Math.min(Math.max(0, parseFloat(transaction.discount) || 0), netAfterItemDiscounts) * 100) / 100;
     } else if (discountType === 'LOYALTY') {
 
+        if (usesCreditPayment) {
+            return res.status(400).json({ success: false, message: 'Hindi puwedeng gumamit ng Loyalty Points redemption sa isang C-Credit (utang) na benta — hindi pa ito totoong bayad.' });
+        }
         if (!storeSettings.loyaltyEnabled) {
             return res.status(400).json({ success: false, message: 'Naka-disable ang Loyalty Points redemption. Puntahan ang Users > Store & Sales para i-enable.' });
         }
@@ -6289,7 +6327,9 @@ async function processTransaction(req, res) {
             }
             delete transaction._loyaltyCardRotate;
 
-            const earnRate = storeSettings.loyaltyEnabled ? (parseFloat(storeSettings.loyaltyEarnRate) || 100) : 0;
+            // C-Credit (utang) sales don't earn loyalty points — no real payment
+            // has come in yet, only when the debt gets settled would that apply.
+            const earnRate = (storeSettings.loyaltyEnabled && !usesCreditPayment) ? (parseFloat(storeSettings.loyaltyEarnRate) || 100) : 0;
             const earned = earnRate > 0 ? Math.floor((parseFloat(transaction.total) || 0) / earnRate) : 0;
             cust.points = (cust.points || 0) + earned;
             cust.totalSpent = Math.round(((cust.totalSpent || 0) + (parseFloat(transaction.total) || 0)) * 100) / 100;
@@ -6313,6 +6353,47 @@ async function processTransaction(req, res) {
         + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : '')
         + (transaction.loyaltyAuthorizedBy ? ` (Loyalty redemption authorized by: ${transaction.loyaltyAuthorizedBy})` : ''));
 
+    // ---- C-Credit sale => auto-create a linked Debtor/Debt record ----
+    // The sale above already went through the normal flow (inventory reduced,
+    // transaction recorded like any other sale). When paid via C-Credit, we
+    // additionally drop a debt record so the amount owed — and which
+    // products it's for — shows up in the Debtors ledger.
+    let createdDebt = null;
+    if (usesCreditPayment) {
+        const debts = readData(FILE_DEBTS, []);
+        const debtorName = String(creditDebtInfo.customerName).trim();
+        const debtItems = (transaction.items || []).map(it => ({
+            code: it.code || '',
+            name: it.name || '',
+            quantity: parseInt(it.quantity, 10) || 0,
+            price: parseFloat(it.price) || 0
+        }));
+        let dueAtIso = null;
+        if (creditDebtInfo.dueAt) {
+            const parsedDue = new Date(creditDebtInfo.dueAt);
+            if (!isNaN(parsedDue.getTime())) dueAtIso = parsedDue.toISOString();
+        }
+        createdDebt = {
+            id: 'DEBT-' + Date.now() + '-' + crypto.randomBytes(3).toString('hex'),
+            customerName: debtorName,
+            phone: String(creditDebtInfo.phone || ''),
+            amount: transaction.total,
+            amountPaid: 0,
+            note: String(creditDebtInfo.note || ''),
+            items: debtItems,
+            transactionId: transaction.id,
+            borrowedAt: new Date().toISOString(),
+            dueAt: dueAtIso,
+            status: 'unpaid',
+            createdBy: req.authUser.username,
+            createdAt: new Date().toISOString(),
+            paidAt: null
+        };
+        debts.unshift(createdDebt);
+        writeData(FILE_DEBTS, debts);
+        logAction(username, `Auto-recorded a debt from C-Credit sale ${transaction.id}: ${debtorName} — ₱${(transaction.total || 0).toFixed(2)}`);
+    }
+
     runFraudChecks('sale', { transaction });
 
     try {
@@ -6335,7 +6416,7 @@ async function processTransaction(req, res) {
         console.error('Sale webhook error:', webhookErr.message);
     }
 
-    res.json({ success: true, currentTransaction: transaction, newLoyaltyCardToken });
+    res.json({ success: true, currentTransaction: transaction, newLoyaltyCardToken, debt: createdDebt });
 
 }
 
@@ -7834,12 +7915,36 @@ async function processVoidTransaction(req, res) {
         });
     }
 
+    // ---- Linked C-Credit debt: a void cancels the sale entirely, so any
+    // Debtors-ledger record created from this transaction must be cancelled
+    // too. If the debtor already paid something against it, block the void
+    // instead of silently erasing that payment history. ----
+    const debts = readData(FILE_DEBTS, []);
+    const linkedDebtIndex = debts.findIndex(d => d.transactionId === transactionId);
+    if (linkedDebtIndex !== -1) {
+        const linkedDebt = debts[linkedDebtIndex];
+        const linkedDebtPaid = parseFloat(linkedDebt.amountPaid) || 0;
+        if (linkedDebtPaid > 0) {
+            return res.status(400).json({
+                success: false,
+                code: 'DEBT_HAS_PAYMENT',
+                message: `Hindi puwedeng i-void ang transaksyong ito dahil may naitalang bayad na (₱${linkedDebtPaid.toFixed(2)}) sa kaugnay na debt ni ${linkedDebt.customerName}. Ayusin muna ang debt record (Debtors) bago mag-void.`
+            });
+        }
+    }
+
     targetTx.items.forEach(item => {
         let prod = products.find(p => p.code === item.code || p.name === item.name);
         if (prod) {
             prod.stock = (parseInt(prod.stock) || 0) + parseInt(item.quantity);
         }
     });
+
+    if (linkedDebtIndex !== -1) {
+        debts.splice(linkedDebtIndex, 1);
+        writeData(FILE_DEBTS, debts);
+        logAction(requester, `Naalis ang kaugnay na debt record dahil na-void ang Transaction ID: ${transactionId}`);
+    }
 
     if (targetTx.customerId) {
         const customers = readData(FILE_CUSTOMERS, []);
@@ -8000,6 +8105,38 @@ async function processRefundTransaction(req, res) {
             if (cust.totalSpent < 0) cust.totalSpent = 0;
             writeData(FILE_CUSTOMERS, customers);
         }
+    }
+
+    // ---- Linked C-Credit debt: a refund lowers what the debtor actually
+    // still owes, using the same refundRatio applied to the transaction, so
+    // the Debtors ledger stays in sync with the sale. Never drop the amount
+    // below what's already been paid. ----
+    const debts = readData(FILE_DEBTS, []);
+    const linkedDebtIndex = debts.findIndex(d => d.transactionId === transactionId);
+    if (linkedDebtIndex !== -1) {
+        const linkedDebt = debts[linkedDebtIndex];
+        const paidSoFar = parseFloat(linkedDebt.amountPaid) || 0;
+        let newDebtAmount = Math.round(((parseFloat(linkedDebt.amount) || 0) - refundAmount) * 100) / 100;
+        if (newDebtAmount < 0) newDebtAmount = 0;
+        if (newDebtAmount < paidSoFar) newDebtAmount = paidSoFar;
+        linkedDebt.amount = newDebtAmount;
+        if (linkedDebt.amount <= 0 || paidSoFar >= linkedDebt.amount) {
+            linkedDebt.status = 'paid';
+            if (!linkedDebt.paidAt) linkedDebt.paidAt = new Date().toISOString();
+            // Only a real earlier cash payment that now happens to cover the
+            // (refund-reduced) balance counts as "settled" for points — a
+            // balance that hit zero purely because it got refunded away is
+            // not a payment and shouldn't earn anything.
+            if (paidSoFar > 0 && paidSoFar >= linkedDebt.amount) {
+                awardLoyaltyPointsForPaidDebt(linkedDebt, requester || 'system');
+            }
+        } else if (paidSoFar > 0) {
+            linkedDebt.status = 'partial';
+        } else {
+            linkedDebt.status = 'unpaid';
+        }
+        writeData(FILE_DEBTS, debts);
+        logAction(requester || 'Unknown', `Na-adjust ang kaugnay na debt ni ${linkedDebt.customerName} dahil sa refund — natitirang utang ngayon: ₱${linkedDebt.amount.toFixed(2)} (Transaction ${transactionId})`);
     }
 
     transactions[txIndex] = targetTx;
@@ -8512,6 +8649,180 @@ app.delete('/api/customers/:id', requirePermission('customers'), requireFeature(
     customers = customers.filter(c => c.id !== req.params.id);
     writeData(FILE_CUSTOMERS, customers);
     logAction(req.authUser.username, `Deleted customer ID: ${req.params.id}`);
+    res.json({ success: true });
+});
+
+// Awards loyalty points once a C-Credit debt is fully settled. Points were
+// intentionally withheld at time of sale (see usesCreditPayment in the sale
+// handler) since no real payment had come in yet — this is where that
+// deferred earn actually happens, mirroring a normal cash sale's earn logic.
+// Only works if the original sale had a customer selected in the cart
+// (transaction.customerId); a debt with just a free-text debtor name/phone
+// (no linked customer account) has nowhere to credit points to.
+// `debt` is mutated in place (pointsAwarded/loyaltyPointsEarned) — caller is
+// responsible for writeData(FILE_DEBTS, ...) afterward.
+function awardLoyaltyPointsForPaidDebt(debt, actorUsername) {
+    if (!debt || debt.pointsAwarded || !debt.transactionId) return;
+
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    if (!storeSettings.loyaltyEnabled) return;
+
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const linkedTx = transactions.find(t => t.id === debt.transactionId);
+    if (!linkedTx || !linkedTx.customerId) return;
+
+    const customers = readData(FILE_CUSTOMERS, []);
+    const cust = customers.find(c => c.id === linkedTx.customerId);
+    if (!cust) return;
+
+    const earnRate = parseFloat(storeSettings.loyaltyEarnRate) || 100;
+    const earned = earnRate > 0 ? Math.floor((parseFloat(debt.amount) || 0) / earnRate) : 0;
+
+    debt.pointsAwarded = true;
+    if (earned <= 0) return;
+
+    cust.points = (cust.points || 0) + earned;
+    writeData(FILE_CUSTOMERS, customers);
+    debt.loyaltyPointsEarned = earned;
+    logAction(actorUsername || 'system', `Nag-earn ng ${earned} loyalty points si ${cust.name} matapos ma-fully paid ang C-Credit debt (₱${(parseFloat(debt.amount) || 0).toFixed(2)}, Debt ID: ${debt.id}).`);
+}
+
+// ================== DEBTS / DEBTORS TRACKING ==================
+// Separate module from the regular Customers list — for tracking
+// customers/people who "borrowed now, will pay later/on Friday, etc."
+// Each record has a note and a dueAt (date/time payment is due) — the
+// "time remaining before due" is NOT computed here (only an ISO string
+// is stored); it's computed live on the client (app.js) using dueAt so
+// it stays accurate no matter how many hours/days the app stays open.
+// Uses the same requirePermission/requireFeature gate as the Customers
+// module (customer_crm) since this is an extension of customer
+// management.
+app.get('/api/debts', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    res.json(readData(FILE_DEBTS, []));
+});
+
+app.post('/api/debts', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    const { customerName, phone, amount, note, dueAt, items, transactionId } = req.body;
+    if (!customerName || !customerName.trim()) {
+        return res.status(400).json({ success: false, message:'Debtor name is required.' });
+    }
+    const parsedAmount = parseFloat(amount);
+    if (!parsedAmount || parsedAmount <= 0) {
+        return res.status(400).json({ success: false, message:'A valid amount owed is required.' });
+    }
+    let dueAtIso = null;
+    if (dueAt) {
+        const parsedDue = new Date(dueAt);
+        if (isNaN(parsedDue.getTime())) {
+            return res.status(400).json({ success: false, message:'The due date/time is not valid.' });
+        }
+        dueAtIso = parsedDue.toISOString();
+    }
+    const debts = readData(FILE_DEBTS, []);
+    const debt = {
+        id:'DEBT-' + Date.now() +'-' + crypto.randomBytes(3).toString('hex'),
+        customerName: customerName.trim(),
+        phone: phone ||'',
+        amount: parsedAmount,
+        amountPaid: 0,
+        note: note ||'',
+        items: Array.isArray(items)
+            ? items.map(it => ({
+                code: (it && it.code) || '',
+                name: (it && it.name) || '',
+                quantity: parseInt(it && it.quantity, 10) || 0,
+                price: parseFloat(it && it.price) || 0
+            })).filter(it => it.name)
+            : [],
+        transactionId: transactionId ? String(transactionId) : null,
+        borrowedAt: new Date().toISOString(),
+        dueAt: dueAtIso,
+        status:'unpaid',
+        createdBy: req.authUser.username,
+        createdAt: new Date().toISOString(),
+        paidAt: null
+    };
+    debts.unshift(debt);
+    writeData(FILE_DEBTS, debts);
+    logAction(req.authUser.username, `Added a new debt record: ${debt.customerName} — ₱${debt.amount.toFixed(2)}`);
+    res.json({ success: true, debt });
+});
+
+app.put('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    const debts = readData(FILE_DEBTS, []);
+    const idx = debts.findIndex(d => d.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, message:'Debt record not found.' });
+
+    const { customerName, phone, amount, note, dueAt } = req.body;
+    if (customerName !== undefined && customerName.trim()) debts[idx].customerName = customerName.trim();
+    if (phone !== undefined) debts[idx].phone = phone;
+    if (note !== undefined) debts[idx].note = note;
+    if (dueAt !== undefined) {
+        if (!dueAt) {
+            debts[idx].dueAt = null;
+        } else {
+            const parsedDue = new Date(dueAt);
+            if (isNaN(parsedDue.getTime())) {
+                return res.status(400).json({ success: false, message:'The due date/time is not valid.' });
+            }
+            debts[idx].dueAt = parsedDue.toISOString();
+        }
+    }
+    if (amount !== undefined) {
+        const parsedAmount = parseFloat(amount);
+        if (!parsedAmount || parsedAmount <= 0) {
+            return res.status(400).json({ success: false, message:'A valid amount is required.' });
+        }
+        debts[idx].amount = parsedAmount;
+        if (debts[idx].amountPaid >= debts[idx].amount) {
+            debts[idx].status ='paid';
+            if (!debts[idx].paidAt) debts[idx].paidAt = new Date().toISOString();
+            awardLoyaltyPointsForPaidDebt(debts[idx], req.authUser.username);
+        } else if (debts[idx].amountPaid > 0) {
+            debts[idx].status ='partial';
+        } else {
+            debts[idx].status ='unpaid';
+        }
+    }
+    writeData(FILE_DEBTS, debts);
+    res.json({ success: true, debt: debts[idx] });
+});
+
+app.post('/api/debts/:id/payment', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    const debts = readData(FILE_DEBTS, []);
+    const idx = debts.findIndex(d => d.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, message:'Debt record not found.' });
+
+    const paymentAmount = parseFloat(req.body.amount);
+    if (!paymentAmount || paymentAmount <= 0) {
+        return res.status(400).json({ success: false, message:'A valid payment amount is required.' });
+    }
+    const debt = debts[idx];
+    const remainingBefore = Math.max(0, debt.amount - (debt.amountPaid || 0));
+    if (paymentAmount > remainingBefore + 0.01) {
+        return res.status(400).json({ success: false, message:`The payment (₱${paymentAmount.toFixed(2)}) exceeds the remaining balance (₱${remainingBefore.toFixed(2)}).` });
+    }
+    debt.amountPaid = Math.min(debt.amount, (debt.amountPaid || 0) + paymentAmount);
+    if (debt.amountPaid >= debt.amount) {
+        debt.status ='paid';
+        debt.paidAt = new Date().toISOString();
+        awardLoyaltyPointsForPaidDebt(debt, req.authUser.username);
+    } else {
+        debt.status ='partial';
+    }
+    writeData(FILE_DEBTS, debts);
+    logAction(req.authUser.username, `Recorded a payment for ${debt.customerName}'s debt: ₱${paymentAmount.toFixed(2)}`);
+    res.json({ success: true, debt });
+});
+
+app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+    let debts = readData(FILE_DEBTS, []);
+    if (!debts.some(d => d.id === req.params.id)) {
+        return res.status(404).json({ success: false, message:'Debt record not found.' });
+    }
+    debts = debts.filter(d => d.id !== req.params.id);
+    writeData(FILE_DEBTS, debts);
+    logAction(req.authUser.username, `Deleted debt record ID: ${req.params.id}`);
     res.json({ success: true });
 });
 

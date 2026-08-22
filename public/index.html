@@ -328,6 +328,7 @@
                 <a href="#" class="menu-item" id="menu-reports" onclick="switchView('reports')"><i class="fa-solid fa-chart-line"></i> Sales Report <span id="menu-reports-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-reports-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-transactions" onclick="switchView('transactions')"><i class="fa-solid fa-receipt"></i> Transaction</a>
                 <a href="#" class="menu-item" id="menu-customers" onclick="switchView('customers')"><i class="fa-solid fa-address-book"></i> Customers <span id="menu-customers-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-customers-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-debts" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar"></i> Debtors <span id="menu-debts-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-debts-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-logs" onclick="switchView('logs')"><i class="fa-solid fa-clock-rotate-left"></i> User Logs</a>
                 <a href="#" class="menu-item" id="menu-users" onclick="switchView('users')"><i class="fa-solid fa-gear"></i> Settings</a>
@@ -341,10 +342,9 @@
             <header class="top-header" id="app-top-header">
                 <div class="header-left">
                     <button class="hamburger-menu" id="btn-sidebar-toggle" onclick="openSidebarMenu()"><i class="fa-solid fa-bars"></i></button>
-                    <a href="#" class="header-desktop-logo" id="header-desktop-logo" onclick="event.preventDefault(); switchView('overview');" title="Go to Overview" aria-label="OmniPOS - Go to Overview">
-                        <img src="icons/icon-192.png" alt="" class="header-desktop-logo-img">
+                    <span class="header-desktop-logo" id="header-desktop-logo" onclick="switchView('overview')" title="Go to Overview" aria-label="OmniPOS - Go to Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}">
                         <span class="header-desktop-logo-text brand-word">Omn<span class="brand-i-wrap">i</span>POS</span>
-                    </a>
+                    </span>
                     <div class="terminal-brand-header" id="terminal-brand-header">
                         <span class="terminal-brand-label" onclick="switchView('overview')" title="Bumalik sa Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}"><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i</span>POS</span></span>
                         <button class="btn-terminal-back" onclick="switchView('overview')" title="Bumalik sa Overview">
@@ -1001,6 +1001,43 @@
                                 </tr>
                             </thead>
                             <tbody id="customers-table-body"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="view-debts" class="app-view" style="display:none;">
+                    <div class="view-header-row" style="margin-bottom: 15px;">
+                        <h2 id="page-title-debts">Debtors / Debts</h2>
+                        <button class="btn-action-global" onclick="openAddDebtForm()"><i class="fa-solid fa-plus"></i> Add Debt</button>
+                    </div>
+                    <div class="terminal-top-controls">
+                        <div class="search-box-container">
+                            <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
+                            <input type="text" id="debt-search-input" placeholder="Search name or phone..." oninput="renderDebtsTable()" autocomplete="off">
+                        </div>
+                        <select id="debt-status-filter" class="logs-filter-select" onchange="renderDebtsTable()" style="margin-left:10px;">
+                            <option value="all">All Statuses</option>
+                            <option value="unpaid">Unpaid</option>
+                            <option value="partial">Partial</option>
+                            <option value="paid">Paid</option>
+                            <option value="overdue">Overdue</option>
+                        </select>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Amount</th>
+                                    <th>Paid</th>
+                                    <th>Remaining</th>
+                                    <th>Details</th>
+                                    <th>Due</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="debts-table-body"></tbody>
                         </table>
                     </div>
                 </section>
@@ -2541,6 +2578,7 @@
                     <button id="pay-method-gcash" class="method-btn" onclick="selectPaymentMethod('GCASH')"><i class="fa-solid fa-mobile-screen-button"></i> GCash</button>
                     <button id="pay-method-maya" class="method-btn" onclick="selectPaymentMethod('MAYA')"><i class="fa-solid fa-wallet"></i> Maya</button>
                     <button id="pay-method-card" class="method-btn" onclick="selectPaymentMethod('CARD')"><i class="fa-solid fa-credit-card"></i> Card</button>
+                    <button id="pay-method-ccredit" class="method-btn" style="grid-column: span 2;" onclick="selectPaymentMethod('CCREDIT')"><i class="fa-solid fa-file-invoice-dollar"></i> C-Credit</button>
                 </div>
                 <div class="payment-calculation-block">
                     <label class="input-label-field">CASH RECEIVED</label>

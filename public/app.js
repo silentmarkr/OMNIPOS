@@ -609,6 +609,10 @@ let customCategories = [];
 let shoppingCart = [];
 let activeTerminalCategory ='All';
 let selectedPaymentMethod ='CASH';
+// Draft info collected via the "Add Debt" form when C-Credit is chosen as the
+// payment method at checkout. Holds { customerName, phone, note, dueAt } and is
+// sent along with the sale so the server can create the linked debt record.
+let pendingCreditDebtDraft = null;
 
 let splitPaymentMode = false;
 let splitPaymentLines = [];
@@ -1046,6 +1050,7 @@ function isFeatureUnlockedCached(featureId) {
 
 const SIDEBAR_FEATURE_LOCK_MAP = {
 'menu-customers-lock':'customer_crm',
+'menu-debts-lock':'customer_crm',
 'menu-shiftreport-lock':'shift_management',
 'menu-reports-lock':'advanced_reports',
 'export-csv-lock':'advanced_reports',
@@ -2216,6 +2221,7 @@ function switchView(viewKey, opts) {
     if (viewKey ==='users') { loadUsersTable(); loadPendingRequestsTable(); loadRolesPermissionMatrix(); loadFraudAlertsTable(); updateUsersTabVisibility(); }
     if (viewKey ==='logs') loadSystemAuditLogs();
     if (viewKey ==='customers') loadCustomersView();
+    if (viewKey ==='debts') { loadDebtsView(); startDebtsCountdownRefresh(); } else { stopDebtsCountdownRefresh(); }
     if (viewKey ==='shiftreport') loadShiftReportView();
     if (viewKey ==='reorder') loadReorderView();
     sessionStorage.setItem('currentView', viewKey);
@@ -2237,6 +2243,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     reports:      { text:'Sales Analytics',     hideIds: ['page-title-reports'] },
     transactions: { text:'Transaction',         hideIds: ['page-title-transactions'] },
     customers:    { text:'Customers',           hideIds: ['page-title-customers'] },
+    debts:        { text:'Debtors',             hideIds: ['page-title-debts'] },
     shiftreport:  { text:'Shift / Z-Reading',   hideIds: ['page-title-shiftreport'] },
     logs:         { text:'System Audit Logs',   hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 hideIds: ['page-title-faq'] }
@@ -2489,6 +2496,352 @@ async function deleteCustomerConfirm(id) {
         const data = await res.json();
         if (data.success) {
             loadCustomersView();
+        } else {
+            Swal.fire('Error', data.message ||'Could not delete.','error');
+        }
+    } catch (e) {
+        Swal.fire('Connection Error','Could not connect to the server.','error');
+    }
+}
+
+// ================== DEBTS / DEBTORS TRACKING ==================
+let globalDebts = [];
+let debtsCountdownTimer = null;
+
+async function loadDebtsView() {
+    try {
+        const res = await authFetch(`${API_URL}/debts`);
+        globalDebts = res.ok ? await res.json() : [];
+    } catch (e) {
+        console.warn('Could not fetch debts:', e);
+        globalDebts = [];
+    }
+    renderDebtsTable();
+}
+
+// Live-computes the "time remaining" from dueAt (not stored on the
+// server) — so it stays accurate no matter how long the app has been
+// open. Called repeatedly by startDebtsCountdownRefresh while the
+// Debts page is open.
+function formatDebtDueCountdown(dueAtIso) {
+    if (!dueAtIso) return { text:'No due date', overdue: false, hasDue: false };
+    const dueMs = new Date(dueAtIso).getTime();
+    const diffMs = dueMs - Date.now();
+    const overdue = diffMs < 0;
+    const absMs = Math.abs(diffMs);
+    const days = Math.floor(absMs / (24 * 60 * 60 * 1000));
+    const hours = Math.floor((absMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+    const minutes = Math.floor((absMs % (60 * 60 * 1000)) / (60 * 1000));
+
+    let parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0 || days > 0) parts.push(`${hours}h`);
+    parts.push(`${minutes}m`);
+    const durationText = parts.join(' ');
+
+    return {
+        text: overdue ? `Overdue by ${durationText}` : `${durationText} remaining`,
+        overdue,
+        hasDue: true
+    };
+}
+
+function startDebtsCountdownRefresh() {
+    stopDebtsCountdownRefresh();
+    debtsCountdownTimer = setInterval(() => {
+        const view = document.getElementById('view-debts');
+        if (view && view.style.display !=='none') renderDebtsTable();
+    }, 30000);
+}
+
+function stopDebtsCountdownRefresh() {
+    if (debtsCountdownTimer) {
+        clearInterval(debtsCountdownTimer);
+        debtsCountdownTimer = null;
+    }
+}
+
+function renderDebtsTable() {
+    const tbody = document.getElementById('debts-table-body');
+    if (!tbody) return;
+    const searchEl = document.getElementById('debt-search-input');
+    const q = (searchEl ? searchEl.value :'').trim().toLowerCase();
+    const filterEl = document.getElementById('debt-status-filter');
+    const statusFilter = filterEl ? filterEl.value :'all';
+
+    let filtered = globalDebts.filter(d =>
+        !q || (d.customerName ||'').toLowerCase().includes(q) || (d.phone ||'').includes(q)
+    );
+    filtered = filtered.filter(d => {
+        if (statusFilter ==='all') return true;
+        if (statusFilter ==='overdue') {
+            return d.status !=='paid' && d.dueAt && new Date(d.dueAt).getTime() < Date.now();
+        }
+        return d.status === statusFilter;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:#94a3b8;">No debt records found.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(d => {
+        const remaining = Math.max(0, (d.amount || 0) - (d.amountPaid || 0));
+        const due = formatDebtDueCountdown(d.dueAt);
+        const dueColor = d.status ==='paid' ?'#94a3b8' : (due.overdue ?'#ef4444' :'#f59e0b');
+        const statusColors = { unpaid:'#ef4444', partial:'#f59e0b', paid:'#22c55e' };
+        const statusLabels = { unpaid:'Unpaid', partial:'Partial', paid:'Paid' };
+        return `
+        <tr>
+            <td>${escapeHtml(d.customerName)}${d.phone ? `<br><span style="font-size:0.8rem;color:#94a3b8;">${escapeHtml(d.phone)}</span>` :''}</td>
+            <td class="num-cell">₱${(parseFloat(d.amount) || 0).toFixed(2)}</td>
+            <td class="num-cell">₱${(parseFloat(d.amountPaid) || 0).toFixed(2)}</td>
+            <td class="num-cell"><b>₱${remaining.toFixed(2)}</b></td>
+            <td style="text-align:center;">
+                <button class="btn-clear" onclick="openDebtDetailsModal('${escapeHtml(d.id)}')" style="color: var(--primary-blue); padding: 4px 8px; font-size: 0.9rem;">
+                    <i class="fa-solid fa-eye"></i> View
+                </button>
+            </td>
+            <td style="color:${dueColor};font-size:0.85rem;">
+                ${d.dueAt ? new Date(d.dueAt).toLocaleString() + '<br>' :''}
+                <b>${due.text}</b>
+            </td>
+            <td><span class="badge" style="background-color:${statusColors[d.status] ||'#94a3b8'};">${statusLabels[d.status] || d.status}</span></td>
+            <td>
+                <div class="action-icon-btns-row">
+                    ${d.status !=='paid' ? `<button class="btn-icon-action" onclick="openRecordDebtPaymentForm('${escapeHtml(d.id)}')" title="Record a payment" style="color:#22c55e;"><i class="fa-solid fa-money-bill-wave"></i></button>` :''}
+                    <button class="btn-icon-action edit" onclick="openEditDebtForm('${escapeHtml(d.id)}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
+                    <button class="btn-icon-action delete" onclick="deleteDebtConfirm('${escapeHtml(d.id)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+// Compact "View" modal for a debt row — shows the Note and the linked
+// products/items (from a C-Credit sale) without bloating the table row
+// height. Mirrors the look of the Transactions "View Receipt" action, but
+// includes a Note section since debts (unlike receipts) carry one.
+function openDebtDetailsModal(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+
+    const remaining = Math.max(0, (debt.amount || 0) - (debt.amountPaid || 0));
+    const statusLabels = { unpaid:'Unpaid', partial:'Partial', paid:'Paid' };
+    const statusColors = { unpaid:'#ef4444', partial:'#f59e0b', paid:'#22c55e' };
+
+    const itemsHtml = (Array.isArray(debt.items) && debt.items.length)
+        ? `<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:0.85rem;">
+             <thead>
+                 <tr style="border-bottom:1px solid #e2e8f0;">
+                     <th style="text-align:left;padding:4px;">Item</th>
+                     <th style="text-align:center;padding:4px;">Qty</th>
+                     <th style="text-align:right;padding:4px;">Price</th>
+                     <th style="text-align:right;padding:4px;">Subtotal</th>
+                 </tr>
+             </thead>
+             <tbody>
+                 ${debt.items.map(it => `
+                     <tr style="border-bottom:1px solid #f1f5f9;">
+                         <td style="text-align:left;padding:4px;">${escapeHtml(it.name)}</td>
+                         <td style="text-align:center;padding:4px;">${parseInt(it.quantity) || 0}</td>
+                         <td style="text-align:right;padding:4px;">₱${(parseFloat(it.price) || 0).toFixed(2)}</td>
+                         <td style="text-align:right;padding:4px;">₱${((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0)).toFixed(2)}</td>
+                     </tr>
+                 `).join('')}
+             </tbody>
+           </table>`
+        : `<p style="color:#94a3b8;font-size:0.85rem;margin-top:6px;">No linked products for this debt.</p>`;
+
+    Swal.fire({
+        title: `Debt Details — ${escapeHtml(debt.customerName)}`,
+        html: `
+            <div style="text-align:left;font-size:0.9rem;">
+                <p style="margin:2px 0;"><b>Phone:</b> ${escapeHtml(debt.phone || 'None')}</p>
+                <p style="margin:2px 0;"><b>Amount Owed:</b> ₱${(parseFloat(debt.amount) || 0).toFixed(2)}</p>
+                <p style="margin:2px 0;"><b>Paid:</b> ₱${(parseFloat(debt.amountPaid) || 0).toFixed(2)}</p>
+                <p style="margin:2px 0;"><b>Remaining:</b> ₱${remaining.toFixed(2)}</p>
+                <p style="margin:2px 0;"><b>Status:</b> <span class="badge" style="background-color:${statusColors[debt.status] || '#94a3b8'};">${statusLabels[debt.status] || debt.status}</span></p>
+                <p style="margin:2px 0;"><b>Due:</b> ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}</p>
+                ${debt.transactionId ? `<p style="margin:2px 0;"><b>Linked Transaction:</b> ${escapeHtml(debt.transactionId)}</p>` :''}
+                <p style="margin:12px 0 2px;"><b>Note:</b></p>
+                <p style="margin:2px 0;color:#475569;white-space:pre-wrap;">${escapeHtml(debt.note || 'No note provided.')}</p>
+                <p style="margin:12px 0 2px;"><b>Items Purchased:</b></p>
+                ${itemsHtml}
+            </div>
+        `,
+        width: 480,
+        confirmButtonText:'Close'
+    });
+}
+
+async function openAddDebtForm() {
+    const { value: formValues } = await Swal.fire({
+        title:'Add Debt',
+        html: `
+            <input type="text" id="swal-debt-name" class="swal2-input" placeholder="Debtor's Full Name">
+            <input type="text" id="swal-debt-phone" class="swal2-input" placeholder="Phone Number (optional)">
+            <input type="number" id="swal-debt-amount" class="swal2-input" placeholder="Amount Owed (₱)" min="0.01" step="0.01">
+            <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note (e.g. reason, when borrowed, etc.)"></textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time (when payment is due):</label>
+            <input type="datetime-local" id="swal-debt-due" class="swal2-input">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText:'Save',
+        preConfirm: () => {
+            const name = document.getElementById('swal-debt-name').value.trim();
+            const amount = document.getElementById('swal-debt-amount').value;
+            if (!name) {
+                Swal.showValidationMessage('Name is required.');
+                return false;
+            }
+            if (!amount || parseFloat(amount) <= 0) {
+                Swal.showValidationMessage('A valid amount is required.');
+                return false;
+            }
+            return {
+                customerName: name,
+                phone: document.getElementById('swal-debt-phone').value.trim(),
+                amount: parseFloat(amount),
+                note: document.getElementById('swal-debt-note').value.trim(),
+                dueAt: document.getElementById('swal-debt-due').value || null
+            };
+        }
+    });
+    if (!formValues) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/debts`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify(formValues)
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire({ icon:'success', title:'Debt added!', timer: 1300, showConfirmButton: false });
+            loadDebtsView();
+        } else {
+            Swal.fire('Error', data.message ||'Could not save the debt.','error');
+        }
+    } catch (e) {
+        Swal.fire('Connection Error','Could not connect to the server.','error');
+    }
+}
+
+async function openEditDebtForm(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+
+    const dueLocalValue = debt.dueAt
+        ? new Date(new Date(debt.dueAt).getTime() - new Date(debt.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+        :'';
+
+    const { value: formValues } = await Swal.fire({
+        title:'Edit Debt',
+        html: `
+            <input type="text" id="swal-debt-name" class="swal2-input" placeholder="Full Name" value="${escapeHtml(debt.customerName)}">
+            <input type="text" id="swal-debt-phone" class="swal2-input" placeholder="Phone Number" value="${escapeHtml(debt.phone ||'')}">
+            <input type="number" id="swal-debt-amount" class="swal2-input" placeholder="Amount Owed (₱)" min="0.01" step="0.01" value="${debt.amount}">
+            <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note">${escapeHtml(debt.note ||'')}</textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time:</label>
+            <input type="datetime-local" id="swal-debt-due" class="swal2-input" value="${dueLocalValue}">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText:'Update',
+        preConfirm: () => {
+            const amount = document.getElementById('swal-debt-amount').value;
+            if (!amount || parseFloat(amount) <= 0) {
+                Swal.showValidationMessage('A valid amount is required.');
+                return false;
+            }
+            return {
+                customerName: document.getElementById('swal-debt-name').value.trim(),
+                phone: document.getElementById('swal-debt-phone').value.trim(),
+                amount: parseFloat(amount),
+                note: document.getElementById('swal-debt-note').value.trim(),
+                dueAt: document.getElementById('swal-debt-due').value || null
+            };
+        }
+    });
+    if (!formValues) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}`, {
+            method:'PUT',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify(formValues)
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire({ icon:'success', title:'Updated!', timer: 1200, showConfirmButton: false });
+            loadDebtsView();
+        } else {
+            Swal.fire('Error', data.message ||'Could not update.','error');
+        }
+    } catch (e) {
+        Swal.fire('Connection Error','Could not connect to the server.','error');
+    }
+}
+
+async function openRecordDebtPaymentForm(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+    const remaining = Math.max(0, (debt.amount || 0) - (debt.amountPaid || 0));
+
+    const { value: paymentAmount } = await Swal.fire({
+        title: `Payment — ${escapeHtml(debt.customerName)}`,
+        html: `<p style="color:#94a3b8;margin-bottom:8px;">Remaining balance: <b>₱${remaining.toFixed(2)}</b></p>
+               <input type="number" id="swal-debt-payment" class="swal2-input" placeholder="Amount Paid (₱)" min="0.01" step="0.01" max="${remaining}">`,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText:'Record Payment',
+        preConfirm: () => {
+            const val = parseFloat(document.getElementById('swal-debt-payment').value);
+            if (!val || val <= 0) {
+                Swal.showValidationMessage('A valid amount is required.');
+                return false;
+            }
+            return val;
+        }
+    });
+    if (!paymentAmount) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}/payment`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify({ amount: paymentAmount })
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire({ icon:'success', title: data.debt.status ==='paid' ?'Fully paid!' :'Payment recorded!', timer: 1300, showConfirmButton: false });
+            loadDebtsView();
+        } else {
+            Swal.fire('Error', data.message ||'Could not record the payment.','error');
+        }
+    } catch (e) {
+        Swal.fire('Connection Error','Could not connect to the server.','error');
+    }
+}
+
+async function deleteDebtConfirm(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    const result = await Swal.fire({
+        title: `Delete the debt record for ${debt ? debt.customerName :'this customer'}?`,
+        text:'This action cannot be undone.',
+        icon:'warning',
+        showCancelButton: true,
+        confirmButtonText:'Yes, delete'
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}`, { method:'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            loadDebtsView();
         } else {
             Swal.fire('Error', data.message ||'Could not delete.','error');
         }
@@ -6839,12 +7192,13 @@ function closeModal(modalId) {
 
 function cancelPaymentModal() {
     closeModal('payment-modal');
+    pendingCreditDebtDraft = null;
     if (typeof updateCartTotals ==='function') updateCartTotals();
 }
 
 function selectPaymentMethod(method) {
     selectedPaymentMethod = method;
-    const allMethodBtns = { CASH:'pay-method-cash', GCASH:'pay-method-gcash', MAYA:'pay-method-maya', CARD:'pay-method-card' };
+    const allMethodBtns = { CASH:'pay-method-cash', GCASH:'pay-method-gcash', MAYA:'pay-method-maya', CARD:'pay-method-card', CCREDIT:'pay-method-ccredit' };
     const cashInput = document.getElementById('pay-modal-received-input');
 
     Object.entries(allMethodBtns).forEach(([key, elId]) => {
@@ -6866,6 +7220,70 @@ function selectPaymentMethod(method) {
     }
 
     updateEwalletQrBlockVisibility(method);
+
+    if (method ==='CCREDIT') {
+        promptCreditDebtDraft();
+    } else {
+        pendingCreditDebtDraft = null;
+    }
+}
+
+// Called when the cashier selects "C-Credit" (Customer Credit / utang) as the
+// payment method. Opens the same-style "Add Debt" form used on the Debtors
+// page — pre-filled from the customer already selected in the Customer pane
+// (if any), leaving only Note and Due Date for the cashier to fill in. If a
+// walk-in (no customer selected), the Name/Phone fields are left blank/editable.
+async function promptCreditDebtDraft() {
+    if (guardPremiumFeature('customer_crm')) {
+        selectPaymentMethod('CASH');
+        return;
+    }
+
+    let dueAmount = parseFloat((document.getElementById('pay-modal-amount-due') || {}).innerText?.replace('₱','')) || 0;
+    const cust = selectedCartCustomer;
+    const nameVal = cust ? (cust.name ||'') :'';
+    const phoneVal = cust ? (cust.phone ||'') :'';
+    const nameLocked = !!(cust && cust.name);
+
+    const { value: formValues } = await Swal.fire({
+        title:'Add Debt (Customer Credit)',
+        html: `
+            <p style="text-align:left;color:#94a3b8;font-size:0.85rem;margin:0 0 8px;">Ang bentang ito ay ipapasok sa <b>Debtors</b> sa halip na cash/e-wallet/card.</p>
+            <input type="text" id="swal-credit-name" class="swal2-input" placeholder="Debtor's Full Name" value="${escapeHtml(nameVal)}" ${nameLocked ? 'readonly style="background:#f1f5f9;"' : ''}>
+            <input type="text" id="swal-credit-phone" class="swal2-input" placeholder="Phone Number (optional)" value="${escapeHtml(phoneVal)}">
+            <input type="text" class="swal2-input" value="₱${dueAmount.toFixed(2)}" readonly style="background:#f1f5f9;" title="Amount owed = sale total">
+            <textarea id="swal-credit-note" class="swal2-textarea" placeholder="Note (hal. dahilan, kailan babayaran, atbp.)"></textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time (kailan babayaran):</label>
+            <input type="datetime-local" id="swal-credit-due" class="swal2-input">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText:'Save & Continue',
+        cancelButtonText:'Cancel',
+        allowOutsideClick: false,
+        preConfirm: () => {
+            const name = document.getElementById('swal-credit-name').value.trim();
+            if (!name) {
+                Swal.showValidationMessage("Kailangan ng pangalan ng debtor.");
+                return false;
+            }
+            return {
+                customerName: name,
+                phone: document.getElementById('swal-credit-phone').value.trim(),
+                note: document.getElementById('swal-credit-note').value.trim(),
+                dueAt: document.getElementById('swal-credit-due').value || null
+            };
+        }
+    });
+
+    if (!formValues) {
+        // Cashier backed out of providing debt info — fall back to Cash so the
+        // payment modal isn't left in a half-configured C-Credit state.
+        selectPaymentMethod('CASH');
+        return;
+    }
+
+    pendingCreditDebtDraft = formValues;
 }
 
 function updateEwalletQrBlockVisibility(method) {
@@ -7086,6 +7504,11 @@ async function submitFinalPaymentTransactionInner() {
     let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱',''));
     let received, change, paymentMethodLabel, payments = null;
 
+    if (!splitPaymentMode && selectedPaymentMethod ==='CCREDIT' && !pendingCreditDebtDraft) {
+        Swal.fire('Kailangan ng Debt Info','Punan muna ang detalye ng utang bago magpatuloy.','warning');
+        return;
+    }
+
     if (splitPaymentMode) {
 
         const activeLines = splitPaymentLines.filter(l => (parseFloat(l.amount) || 0) > 0);
@@ -7262,7 +7685,11 @@ async function submitFinalPaymentTransactionInner() {
         const res = await authFetch(`${API_URL}/transactions`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ transaction: transactionPayload, username: currentUser.username })
+            body: JSON.stringify({
+                transaction: transactionPayload,
+                username: currentUser.username,
+                creditDebtInfo: (paymentMethodLabel ==='CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null
+            })
         });
         const output = await res.json();
 
@@ -7310,12 +7737,22 @@ async function submitFinalPaymentTransactionInner() {
 
             if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
             if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
+
+            if (output.debt) {
+                pendingCreditDebtDraft = null;
+                const debtsView = document.getElementById('view-debts');
+                if (debtsView && debtsView.style.display !=='none' && typeof loadDebtsView ==='function') {
+                    loadDebtsView();
+                }
+            }
         } else if (output.outOfStock) {
 
             Swal.fire('Out of Stock', output.message,'warning');
             if (typeof loadTerminalCatalog ==='function') loadTerminalCatalog();
         } else if (output.code ==='LOYALTY_AUTH_REQUIRED' || output.code ==='LOYALTY_CARD_INVALID') {
             Swal.fire('Loyalty Redemption Not Authorized', output.message,'warning');
+        } else if (output.featureLocked) {
+            // authFetch() already shows the premium-unlock prompt for 402 responses.
         } else {
             Swal.fire('Server Error', `API Server Exception Error: ${output.message}`,'error');
         }
