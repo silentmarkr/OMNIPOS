@@ -2501,7 +2501,7 @@ const FEATURE_CATALOG = {
     promo_codes: { name:'Promo Codes Module', price: 499, category:'module', description:'Create discount/promo codes that can be used at checkout.' },
     advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, category:'module', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     purchase_orders: { name:'Purchase Orders Module', price: 999, category:'module', description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
-    customer_crm: { name:'Customer Profiles & Loyalty', price: 799, category:'module', description:'Customer profiles, loyalty points, and purchase history for every customer.' },
+    customer_crm: { name:'Customer Profiles, Loyalty & Debtors', price: 799, category:'module', description:'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, category:'module', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
     multi_branch: { name:'Multi-Branch Dashboard', price: 999, category:'module', description:'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.' },

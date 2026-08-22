@@ -416,6 +416,18 @@ body {
     gap: 8px;
     white-space: nowrap; /* keep the cash-register icon + "OmniPOS" wordmark on a single line at any Font Size setting */
     min-width: 0;
+    /* BUG FIX: "min-width: 0" lets the flexbox math shrink this wordmark
+       box below its own text width so the .sidebar-brand gap/PRO badge
+       always keeps their space — but "overflow" defaults to visible, so
+       the glyphs kept painting past the shrunk box edge instead of being
+       clipped. Visually that painted-over overflow reached right past
+       the 14px gap and touched/overlapped the PRO badge, even though the
+       boxes themselves were correctly spaced (this is why the gap fix
+       looked like it "wasn't working" at larger Font Size settings or on
+       narrow/mobile widths). Clipping the overflow (and ellipsis-ing it)
+       makes the wordmark truncate instead of bleeding into the badge. */
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .sidebar-menu {

@@ -2631,26 +2631,28 @@ function openDebtDetailsModal(id) {
     const statusColors = { unpaid:'#ef4444', partial:'#f59e0b', paid:'#22c55e' };
 
     const itemsHtml = (Array.isArray(debt.items) && debt.items.length)
-        ? `<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:0.85rem;">
+        ? `<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+           <table style="width:100%;min-width:360px;border-collapse:collapse;margin-top:6px;font-size:0.85rem;">
              <thead>
                  <tr style="border-bottom:1px solid #e2e8f0;">
-                     <th style="text-align:left;padding:4px;">Item</th>
-                     <th style="text-align:center;padding:4px;">Qty</th>
-                     <th style="text-align:right;padding:4px;">Price</th>
-                     <th style="text-align:right;padding:4px;">Subtotal</th>
+                     <th style="text-align:left;padding:4px;white-space:nowrap;">Item</th>
+                     <th style="text-align:center;padding:4px;white-space:nowrap;">Qty</th>
+                     <th style="text-align:right;padding:4px;white-space:nowrap;">Price</th>
+                     <th style="text-align:right;padding:4px;white-space:nowrap;">Subtotal</th>
                  </tr>
              </thead>
              <tbody>
                  ${debt.items.map(it => `
                      <tr style="border-bottom:1px solid #f1f5f9;">
                          <td style="text-align:left;padding:4px;">${escapeHtml(it.name)}</td>
-                         <td style="text-align:center;padding:4px;">${parseInt(it.quantity) || 0}</td>
-                         <td style="text-align:right;padding:4px;">₱${(parseFloat(it.price) || 0).toFixed(2)}</td>
-                         <td style="text-align:right;padding:4px;">₱${((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0)).toFixed(2)}</td>
+                         <td style="text-align:center;padding:4px;white-space:nowrap;">${parseInt(it.quantity) || 0}</td>
+                         <td style="text-align:right;padding:4px;white-space:nowrap;">₱${(parseFloat(it.price) || 0).toFixed(2)}</td>
+                         <td style="text-align:right;padding:4px;white-space:nowrap;">₱${((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0)).toFixed(2)}</td>
                      </tr>
                  `).join('')}
              </tbody>
-           </table>`
+           </table>
+           </div>`
         : `<p style="color:#94a3b8;font-size:0.85rem;margin-top:6px;">No linked products for this debt.</p>`;
 
     Swal.fire({
