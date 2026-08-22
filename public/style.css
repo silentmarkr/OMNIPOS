@@ -382,8 +382,16 @@ body {
 }
 
 .sidebar {
-    width: 16.25rem; /* was fixed 260px; rem-based so width auto-scales with the Font Size (%) accessibility setting instead of clipping/wrapping the logo & menu text */
-    min-width: 200px;
+    /* Widened + made fluid: clamp(floor, preferred, ceiling) so the
+       sidebar auto-adjusts to the viewport (wider on desktop, sensibly
+       floored on mobile) instead of a single fixed number — this is the
+       real fix for the OmniPOS wordmark + PRO badge fitting on one row
+       without wrapping or getting covered, on both mobile and desktop.
+       floor 18rem / ceiling 21rem are both up from the old fixed
+       16.25rem (260px). max-width: 90vw still protects very narrow
+       phones from an overflowing sidebar. */
+    width: clamp(16.5rem, 22vw, 21rem);
+    min-width: 220px;
     max-width: 90vw;
     background-color: var(--bg-sidebar-dark);
     color: #94a3b8;
@@ -404,9 +412,18 @@ body {
     font-weight: 800;
     color: #ffffff;
     display: flex;
+    /* No flex-wrap: the OmniPOS wordmark and PRO badge must always stay
+       on the SAME row — never wrap/drop to a second line. The wider
+       .sidebar above (clamp(18rem, 22vw, 21rem)) is what gives this row
+       enough real estate to fit both without wrapping or shrinking. */
     align-items: center;
-    justify-content: space-between;
-    gap: 14px; /* guaranteed breathing room between the OmniPOS wordmark and the PRO badge, on desktop and mobile */
+    /* "flex-start" (not "space-between") + the PRO badge's own
+       margin-left:auto removed — otherwise the badge gets pushed all
+       the way to the far edge of the (now wider) sidebar, landing far
+       from the logo. With flex-start, the badge just follows right
+       after the logo, separated only by the fixed "gap" below. */
+    justify-content: flex-start;
+    gap: 12px; /* breathing room between the OmniPOS wordmark and the PRO badge — enough to clear the badge's own glow/shadow (~10px blur when unlocked/"is-crown") without pushing it far away */
     border-bottom: 1px solid #1e293b;
 }
 
@@ -415,19 +432,13 @@ body {
     align-items: center;
     gap: 8px;
     white-space: nowrap; /* keep the cash-register icon + "OmniPOS" wordmark on a single line at any Font Size setting */
-    min-width: 0;
-    /* BUG FIX: "min-width: 0" lets the flexbox math shrink this wordmark
-       box below its own text width so the .sidebar-brand gap/PRO badge
-       always keeps their space — but "overflow" defaults to visible, so
-       the glyphs kept painting past the shrunk box edge instead of being
-       clipped. Visually that painted-over overflow reached right past
-       the 14px gap and touched/overlapped the PRO badge, even though the
-       boxes themselves were correctly spaced (this is why the gap fix
-       looked like it "wasn't working" at larger Font Size settings or on
-       narrow/mobile widths). Clipping the overflow (and ellipsis-ing it)
-       makes the wordmark truncate instead of bleeding into the badge. */
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* The OmniPOS wordmark box can never be compressed below its own
+       content width — the logo is guaranteed to stay fully intact
+       (never shrunk, never ellipsis'd/clipped, never wrapped). Fitting
+       it alongside the PRO badge on the same row is handled by giving
+       the sidebar itself more width (see .sidebar and .sidebar-brand
+       above), not by shrinking the logo. */
+    flex-shrink: 0;
 }
 
 .sidebar-menu {
@@ -922,7 +933,11 @@ body {
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
-    margin-left: auto; /* pin to the right while keeping .sidebar-brand's gap as the min spacing from the logo */
+    /* No margin-left: auto — that pinned the badge to the far right
+       edge of .sidebar-brand, which (now that .sidebar is wider) put a
+       big empty gap between it and the OmniPOS logo. justify-content:
+       flex-start on .sidebar-brand plus the fixed "gap" there is what
+       keeps this badge sitting right beside the logo instead. */
     border: 1px solid rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.06);
     color: #cbd5e1;
