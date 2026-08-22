@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer Display — OmniPOS</title>
+<link rel="icon" href="icons/icon-192.png">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: #f1f5f9;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+  header img { width: 36px; height: 36px; border-radius: 8px; }
+  header h1 { font-size: 1.2rem; margin: 0; font-weight: 600; }
+  #store-name { color: #94a3b8; font-size: 0.85rem; }
+  #cd-clock { margin-left: auto; color: #94a3b8; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 24px 28px; }
+
+  #idle-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 10px;
+  }
+  #idle-screen i { font-size: 3.4rem; color: #38bdf8; opacity: 0.85; }
+  #idle-screen h2 { font-size: 1.6rem; margin: 0; }
+  #idle-screen p { color: #94a3b8; margin: 0; }
+  #idle-default, #idle-showcase {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  
+  #idle-showcase-img {
+    width: 220px; height: 220px; object-fit: cover; border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+    animation: cdFadeIn 0.5s ease;
+  }
+  #idle-showcase-name { font-size: 1.3rem; margin: 4px 0 0; }
+  #idle-showcase-price { color: #38bdf8; font-size: 1.5rem; font-weight: 700; margin: 0; }
+  @keyframes cdFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  #cart-screen { display: none; flex: 1; min-height: 0; flex-direction: column; }
+
+  #cd-item-count {
+    flex-shrink: 0; text-align: right; color: #94a3b8; font-size: 0.8rem;
+    margin-bottom: 6px; letter-spacing: 0.02em;
+  }
+
+  #cart-list { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 16px; scroll-behavior: smooth; }
+  .cd-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-size: 1.05rem;
+    transition: padding 0.15s ease, font-size 0.15s ease;
+  }
+  .cd-row .cd-name { font-weight: 600; }
+  .cd-row .cd-qty { color: #94a3b8; font-size: 0.85rem; margin-left: 8px; }
+  .cd-row .cd-line-total { font-weight: 600; }
+
+  @keyframes cdRowFlash {
+    0% { background: rgba(56,189,248,0.32); }
+    100% { background: transparent; }
+  }
+  .cd-row-flash { animation: cdRowFlash 1.4s ease-out; border-radius: 6px; }
+
+  #cart-list.compact .cd-row { padding: 5px 0; font-size: 0.9rem; }
+  #cart-list.compact .cd-row .cd-qty { font-size: 0.78rem; }
+
+  #totals-block {
+    flex-shrink: 0;
+    border-top: 2px solid rgba(255,255,255,0.15);
+    padding-top: 16px;
+    font-size: 1.1rem;
+  }
+  #totals-block .cd-total-row { display: flex; justify-content: space-between; padding: 4px 0; }
+  #totals-block .cd-grand-total { font-size: 2rem; font-weight: 700; color: #38bdf8; }
+
+  #cd-savings-badge {
+    display: none; align-items: center; gap: 6px; justify-content: flex-end;
+    color: #4ade80; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;
+  }
+  #cd-savings-badge span { background: rgba(34,197,94,0.15); border: 1px solid rgba(74,222,128,0.35); padding: 3px 10px; border-radius: 999px; }
+
+  #paid-screen {
+    display: none; flex: 1; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; gap: 12px;
+  }
+  #paid-screen i { font-size: 4rem; color: #22c55e; }
+  #paid-screen h2 { font-size: 2rem; margin: 0; }
+  #paid-screen p { color: #94a3b8; margin: 0; font-size: 1.1rem; }
+  #cd-loyalty-block { display: none; margin-top: 4px; }
+  #cd-loyalty-earned { color: #38bdf8; font-weight: 700; font-size: 1.05rem; margin: 0; }
+  #cd-loyalty-balance { color: #94a3b8; font-size: 0.9rem; margin: 2px 0 0; }
+
+  #ewallet-screen {
+    display: none; flex: 1; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; gap: 10px;
+  }
+  #ewallet-screen h2 { margin: 0; font-size: 1.4rem; }
+  #ew-qr-img { width: 240px; height: 240px; object-fit: contain; background: #fff; border-radius: 16px; padding: 10px; }
+  #ew-amount { font-size: 1.6rem; font-weight: 700; color: #38bdf8; margin: 4px 0 0; }
+
+  #offline-banner {
+    display: none; background: #7c2d12; color: #fed7aa; text-align: center;
+    padding: 8px; font-size: 0.85rem;
+  }
+
+  #cd-fullscreen-prompt {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(15,23,42,0.97);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; cursor: pointer; text-align: center; padding: 20px;
+  }
+  #cd-fullscreen-prompt i { font-size: 3rem; color: #38bdf8; }
+  #cd-fullscreen-prompt h2 { margin: 0; font-size: 1.4rem; }
+  #cd-fullscreen-prompt p { margin: 0; color: #94a3b8; font-size: 0.9rem; max-width: 380px; }
+</style>
+</head>
+<body>
+  <div id="cd-fullscreen-prompt">
+    <i class="fa-solid fa-expand">⛶</i>
+    <h2>Tap to Go Fullscreen</h2>
+    <p>I-tap para maging fullscreen ang display na ito. Hindi ito nakakaapekto sa screen ng cashier terminal.</p>
+  </div>
+  <div id="offline-banner"><i class="fa-solid fa-triangle-exclamation"></i> Not connected to the POS terminal yet — open this from the same browser as the terminal.</div>
+  <header>
+    <img src="icons/icon-192.png" alt="OmniPOS">
+    <div>
+      <h1>OmniPOS</h1>
+      <div id="store-name">Customer Display</div>
+    </div>
+    <div id="cd-clock"></div>
+  </header>
+
+  <main>
+    <div id="idle-screen">
+      <div id="idle-default">
+        <i>🛒</i>
+        <h2>Welcome!</h2>
+        <p>Your order will appear here as items are added.</p>
+      </div>
+      <div id="idle-showcase" style="display:none;">
+        <img id="idle-showcase-img" alt="">
+        <h2 id="idle-showcase-name"></h2>
+        <p id="idle-showcase-price"></p>
+        <p style="color:#64748b;font-size:0.75rem;">Featured Item</p>
+      </div>
+    </div>
+
+    <div id="cart-screen">
+      <div id="cd-item-count"></div>
+      <div id="cart-list"></div>
+      <div id="totals-block">
+        <div id="cd-savings-badge"><span>💸 You saved <span id="cd-savings-amount"></span></span></div>
+        <div class="cd-total-row"><span>Subtotal</span><span id="cd-subtotal">₱0.00</span></div>
+        <div class="cd-total-row" id="cd-discount-row" style="display:none;"><span>Discount</span><span id="cd-discount">-₱0.00</span></div>
+        <div class="cd-total-row cd-grand-total"><span>Total</span><span id="cd-total">₱0.00</span></div>
+      </div>
+    </div>
+
+    <div id="ewallet-screen">
+      <h2 id="ew-title">Scan to Pay</h2>
+      <img id="ew-qr-img" alt="Payment QR" style="display:none;">
+      <p id="ew-amount"></p>
+      <p style="color:#94a3b8;font-size:0.85rem;">Please show your payment confirmation to the cashier.</p>
+    </div>
+
+    <div id="paid-screen">
+      <i class="fa-solid fa-circle-check">✔</i>
+      <h2>Thank you!</h2>
+      <p id="cd-paid-total"></p>
+      <div id="cd-loyalty-block">
+        <p id="cd-loyalty-earned"></p>
+        <p id="cd-loyalty-balance"></p>
+      </div>
+    </div>
+  </main>
+
+<script>
+
+let idleResetTimer = null;
+let idleShowcase = [];
+let idleRotateIndex = 0;
+let idleRotateTimer = null;
+let prevQtyByKey = {};
+
+function requestCdFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (!req) return Promise.reject(new Error('Fullscreen API not supported'));
+  return req.call(el);
+}
+function isCdFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+function updateFullscreenPromptVisibility() {
+  const prompt = document.getElementById('cd-fullscreen-prompt');
+  if (prompt) prompt.style.display = isCdFullscreen() ? 'none' : 'flex';
+}
+requestCdFullscreen().then(updateFullscreenPromptVisibility).catch(updateFullscreenPromptVisibility);
+document.getElementById('cd-fullscreen-prompt').addEventListener('click', () => {
+  requestCdFullscreen().then(updateFullscreenPromptVisibility).catch(() => {});
+});
+['fullscreenchange', 'webkitfullscreenchange', 'MSFullscreenChange'].forEach(evt => {
+  document.addEventListener(evt, updateFullscreenPromptVisibility);
+});
+updateFullscreenPromptVisibility();
+
+function formatPeso(n) {
+  const v = parseFloat(n) || 0;
+  return '₱' + v.toFixed(2);
+}
+
+function tickClock() {
+  const el = document.getElementById('cd-clock');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+function startIdleRotation() {
+  stopIdleRotation();
+  const defaultEl = document.getElementById('idle-default');
+  const showcaseEl = document.getElementById('idle-showcase');
+  if (!idleShowcase.length) {
+    defaultEl.style.display = 'flex';
+    showcaseEl.style.display = 'none';
+    return;
+  }
+  defaultEl.style.display = 'none';
+  showcaseEl.style.display = 'flex';
+  renderIdleItem(idleShowcase[idleRotateIndex % idleShowcase.length]);
+  idleRotateTimer = setInterval(() => {
+    idleRotateIndex = (idleRotateIndex + 1) % idleShowcase.length;
+    renderIdleItem(idleShowcase[idleRotateIndex]);
+  }, 4500);
+}
+function stopIdleRotation() {
+  if (idleRotateTimer) { clearInterval(idleRotateTimer); idleRotateTimer = null; }
+}
+function renderIdleItem(item) {
+  const img = document.getElementById('idle-showcase-img');
+  if (item.image) { img.src = item.image; img.style.display = 'block'; } else { img.style.display = 'none'; }
+  document.getElementById('idle-showcase-name').textContent = item.name || '';
+  document.getElementById('idle-showcase-price').textContent = Number.isFinite(parseFloat(item.price)) ? formatPeso(item.price) : '';
+}
+
+function showScreen(id) {
+  ['idle-screen', 'cart-screen', 'ewallet-screen', 'paid-screen'].forEach(s => {
+    document.getElementById(s).style.display = (s === id) ? 'flex' : 'none';
+  });
+  if (id === 'idle-screen') startIdleRotation(); else stopIdleRotation();
+}
+
+function renderCart(data) {
+  const items = data.items || [];
+  if (items.length === 0) { prevQtyByKey = {}; showScreen('idle-screen'); return; }
+
+  
+
+  
+  if (idleResetTimer) { clearTimeout(idleResetTimer); idleResetTimer = null; }
+
+  showScreen('cart-screen');
+  const list = document.getElementById('cart-list');
+  const nextQtyByKey = {};
+  list.innerHTML = items.map(i => {
+    const key = i.code || i.name;
+    const qty = parseInt(i.quantity) || 0;
+
+    
+
+    const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
+    const lineTotal = Math.max(0, ((parseFloat(i.price) || 0) * qty) - itemDiscount);
+    const isNew = !(key in prevQtyByKey) || qty > prevQtyByKey[key];
+    nextQtyByKey[key] = qty;
+    return `<div class="cd-row${isNew ? ' cd-row-flash' : ''}">
+      <span><span class="cd-name">${escapeText(i.name)}</span><span class="cd-qty">x${qty}</span></span>
+      <span class="cd-line-total">${formatPeso(lineTotal)}</span>
+    </div>`;
+  }).join('');
+  prevQtyByKey = nextQtyByKey;
+
+  
+
+  
+  const threshold = parseInt(data.compactThreshold, 10) || 8;
+  list.classList.toggle('compact', items.length > threshold);
+
+  const totalQty = items.reduce((sum, i) => sum + (parseInt(i.quantity) || 0), 0);
+  const countEl = document.getElementById('cd-item-count');
+  if (countEl) {
+    countEl.textContent = `${items.length} item${items.length === 1 ? '' : 's'} • ${totalQty} pc${totalQty === 1 ? '' : 's'}`;
+  }
+
+  
+  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+
+  document.getElementById('cd-subtotal').textContent = formatPeso(data.subtotal);
+  document.getElementById('cd-total').textContent = formatPeso(data.total);
+  const discountRow = document.getElementById('cd-discount-row');
+  const savingsBadge = document.getElementById('cd-savings-badge');
+  const discountAmt = parseFloat(data.discount) || 0;
+  if (discountAmt > 0) {
+    discountRow.style.display = 'flex';
+    document.getElementById('cd-discount').textContent = '-' + formatPeso(discountAmt);
+    savingsBadge.style.display = 'flex';
+    document.getElementById('cd-savings-amount').textContent = formatPeso(discountAmt);
+  } else {
+    discountRow.style.display = 'none';
+    savingsBadge.style.display = 'none';
+  }
+}
+
+function escapeText(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+function showPaidScreen(data) {
+  showScreen('paid-screen');
+  document.getElementById('cd-paid-total').textContent =
+    `You paid ${formatPeso(data.total)} — Ref: ${data.reference || ''}`;
+
+  
+  
+  const loyaltyBlock = document.getElementById('cd-loyalty-block');
+  const earnedEl = document.getElementById('cd-loyalty-earned');
+  const balanceEl = document.getElementById('cd-loyalty-balance');
+  if (data.customerName && ((parseInt(data.loyaltyPointsEarned) || 0) > 0 || Number.isFinite(data.loyaltyPointsBalance))) {
+    loyaltyBlock.style.display = 'block';
+    const earned = parseInt(data.loyaltyPointsEarned) || 0;
+    earnedEl.textContent = earned > 0
+      ? `🎉 ${escapeText(data.customerName)} earned +${earned} pts!`
+      : `Hi, ${escapeText(data.customerName)}!`;
+    balanceEl.textContent = Number.isFinite(data.loyaltyPointsBalance)
+      ? `Points Balance: ${data.loyaltyPointsBalance}` : '';
+  } else {
+    loyaltyBlock.style.display = 'none';
+  }
+
+  if (idleResetTimer) clearTimeout(idleResetTimer);
+  idleResetTimer = setTimeout(() => showScreen('idle-screen'), 6000);
+}
+
+function showEwalletScreen(data) {
+  if (idleResetTimer) clearTimeout(idleResetTimer);
+  showScreen('ewallet-screen');
+  document.getElementById('ew-title').textContent =
+    `Scan to Pay with ${data.method === 'GCASH' ? 'GCash' : 'Maya'}`;
+  const img = document.getElementById('ew-qr-img');
+  if (data.qrImage) { img.src = data.qrImage; img.style.display = 'block'; }
+  else { img.style.display = 'none'; }
+  document.getElementById('ew-amount').textContent = `Amount: ${formatPeso(data.amount)}`;
+}
+
+if (typeof BroadcastChannel !== 'undefined') {
+  document.getElementById('offline-banner').style.display = 'none';
+  const channel = new BroadcastChannel('omnipos-customer-display');
+  channel.onmessage = (event) => {
+    const data = event.data || {};
+    if (data.storeName) document.getElementById('store-name').textContent = data.storeName;
+    if (data.type === 'paid') {
+      showPaidScreen(data);
+    } else if (data.type === 'cart') {
+
+      
+
+      
+
+      
+
+      
+      const onPaidScreen = document.getElementById('paid-screen').style.display !== 'none';
+      const hasItems = (data.items || []).length > 0;
+      if (onPaidScreen && !hasItems) {
+        
+      } else {
+        renderCart(data);
+      }
+    } else if (data.type === 'ewallet') {
+      showEwalletScreen(data);
+    } else if (data.type === 'idle-content') {
+      idleShowcase = data.showcase || [];
+      idleRotateIndex = 0;
+      if (document.getElementById('idle-screen').style.display !== 'none') startIdleRotation();
+    }
+  };
+} else {
+  document.getElementById('offline-banner').style.display = 'block';
+}
+</script>
+</body>
+</html>

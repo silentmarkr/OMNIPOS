@@ -1,0 +1,16 @@
+/* ============================================================
+   THEME: Ocean Pro (Premium / Paid Add-on)
+   Deep navy surfaces na may cyan accent. I-unlock via Themes menu.
+   ============================================================ */
+body[data-theme="ocean"] {
+    --dm-bg: #05141c;
+    --dm-surface: #0b232f;
+    --dm-surface-alt: #0f2c3a;
+    --dm-border: #1c3d4c;
+    --dm-text-primary: #eafcff;
+    --dm-text-secondary: #8fb8c4;
+    --dm-text-muted: #5f818c;
+    --dm-accent: #22d3ee;
+    --dm-accent-hover: #06b6d4;
+    --dm-accent-soft: rgba(34, 211, 238, 0.16);
+}

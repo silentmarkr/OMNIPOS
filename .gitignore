@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.key
+.omnipos-device-seed
+database/
+uploads_tmp/
+server.log
+cf.log
+*.patch
+certs/

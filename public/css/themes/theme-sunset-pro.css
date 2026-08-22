@@ -1,0 +1,17 @@
+/* ============================================================
+   THEME: Sunset Pro (Premium / Paid Add-on)
+   Warm dark brown/maroon surfaces na may amber accent. I-unlock via
+   Themes menu.
+   ============================================================ */
+body[data-theme="sunset"] {
+    --dm-bg: #180d05;
+    --dm-surface: #241407;
+    --dm-surface-alt: #2c1a0b;
+    --dm-border: #40260f;
+    --dm-text-primary: #fff6ea;
+    --dm-text-secondary: #c9a279;
+    --dm-text-muted: #8c6f52;
+    --dm-accent: #f59e0b;
+    --dm-accent-hover: #d97706;
+    --dm-accent-soft: rgba(245, 158, 11, 0.16);
+}

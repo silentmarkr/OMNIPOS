@@ -1,0 +1,210 @@
+/* ============================================================
+   THEME: Galaxy Ambient Pro (Premium / Paid Add-on)
+   Hango sa "Ambient Design" ng Samsung One UI 9 — malalim na
+   charcoal/black na base na may malambot na ambient blur (mas
+   "solid frosted" kaysa see-through glass), sobrang lapad na
+   rounded corners, "floating" na sidebar (parang floating bottom
+   bar ng One UI), at makapal/tactile na dating ng mga control.
+   I-unlock via Themes menu.
+   ============================================================ */
+/* Roboto: karaniwang default system font sa Android/Samsung
+   devices — gagamitin agad kung available sa device ng user,
+   kaya hindi na kailangang mag-@import pa. */
+
+body[data-theme="galaxyambient"] {
+    --dm-bg: #0a0a0c;
+    --dm-surface: rgba(24, 24, 28, 0.86);
+    --dm-surface-alt: rgba(34, 34, 40, 0.92);
+    --dm-border: rgba(255, 255, 255, 0.08);
+    --dm-text-primary: #f3f3f5;
+    --dm-text-secondary: #adadb8;
+    --dm-text-muted: #75757f;
+    --dm-accent: #1a73e8;
+    --dm-accent-hover: #4c93f0;
+    --dm-accent-soft: rgba(26, 115, 232, 0.18);
+
+    --dm-font-heading: -apple-system, 'SamsungOne', 'Roboto', 'Segoe UI', sans-serif;
+    --dm-font-body: -apple-system, 'SamsungOne', 'Roboto', 'Segoe UI', sans-serif;
+
+    /* Border language: sobrang lapad ng rounded corners — ito ang
+       pinaka-kilalang signature ng One UI (malalaking pill-like
+       cards), makapal na "tactile" na border sa mga control. */
+    --dm-radius: 28px;
+    --dm-radius-sm: 18px;
+    --dm-radius-lg: 34px;
+    --dm-border-width: 1.5px;
+}
+
+/* Ambient background: mas "solid ambient blur" na dating (hindi
+   masyadong makulay/see-through gaya ng liquid glass) — malabo,
+   halos monochrome na glow lang sa likod ng mga surface, katulad
+   ng One UI notification shade / quick settings blur. */
+body[data-theme="galaxyambient"] {
+    background-color: var(--dm-bg);
+    background-image:
+        radial-gradient(circle at 20% 15%, rgba(26, 115, 232, 0.14), transparent 50%),
+        radial-gradient(circle at 82% 78%, rgba(90, 60, 220, 0.10), transparent 55%);
+    background-attachment: fixed;
+}
+
+/* ---- Ambient/frosted panels (mas "solid" na blur, hindi
+   transparent) ------------------------------------------------- */
+body[data-theme="galaxyambient"] .top-header,
+body[data-theme="galaxyambient"] .metric-card,
+body[data-theme="galaxyambient"] .qa-card,
+body[data-theme="galaxyambient"] .overview-trend-card,
+body[data-theme="galaxyambient"] .table-container,
+body[data-theme="galaxyambient"] .report-container,
+body[data-theme="galaxyambient"] .user-widget-dropdown,
+body[data-theme="galaxyambient"] .uw-submenu,
+body[data-theme="galaxyambient"] .swal2-popup {
+    background-color: var(--dm-surface);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border: var(--dm-border-width) solid var(--dm-border);
+    box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.6);
+}
+
+body[data-theme="galaxyambient"] .metric-card,
+body[data-theme="galaxyambient"] .qa-card,
+body[data-theme="galaxyambient"] .overview-trend-card,
+body[data-theme="galaxyambient"] .table-container,
+body[data-theme="galaxyambient"] .report-container {
+    border-radius: var(--dm-radius);
+    transition: transform 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+body[data-theme="galaxyambient"] .metric-card:hover,
+body[data-theme="galaxyambient"] .qa-card:hover,
+body[data-theme="galaxyambient"] .overview-trend-card:hover {
+    transform: translateY(-2px);
+    background-color: var(--dm-surface-alt);
+    box-shadow: 0 14px 30px -14px rgba(26, 115, 232, 0.35);
+}
+
+/* ---- "Floating" sidebar — kagaya ng floating bottom bar ng
+   One UI 9 (hindi na dumidikit sa gilid, may padding/margin at
+   sariling rounded shadow-card) ---------------------------------- */
+/* BUG FIX (round 2): tinanggal na dati ang "overflow:hidden" dito
+   (round 1 fix) pero NAGPAPATULOY pa rin ang pagkaka-clip/naputol ng
+   user-widget-dropdown / uw-submenu. Dahilan pala: ang "backdrop-filter"
+   MISMO sa .sidebar element ang lumalabag — sa maraming Chromium/Android
+   browsers, kapag may backdrop-filter (o filter) mismo sa isang
+   container, ni-clip/kino-crop nito ang mga "position:absolute" na
+   child na lumalabas sa hangganan nito, kahit wala nang overflow:hidden
+   (side-effect ng pag-render ng blur sa sarili nitong bounded layer).
+   Ito ang tunay na dahilan kaya ganoon pa rin kahit tanggal na ang
+   overflow:hidden.
+
+   FIX: inilipat ang blur/glass effect papunta sa isang HIWALAY na
+   ::before pseudo-element na naka-absolute FILL sa loob ng .sidebar
+   (may sarili itong border-radius + overflow:hidden + backdrop-filter,
+   at negative z-index para laging nasa likod). Ang .sidebar mismo ay
+   WALA NANG backdrop-filter/background/overflow — kaya ang mga dropdown
+   na lumalabas dito ay hindi na naa-apektuhan/naklip ng blur layer. */
+body[data-theme="galaxyambient"] .sidebar {
+    top: 12px;
+    bottom: 12px;
+    left: 12px;
+    position: fixed;
+    isolation: isolate;
+}
+
+body[data-theme="galaxyambient"] .sidebar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--dm-radius-lg);
+    background-color: var(--dm-surface);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    border: var(--dm-border-width) solid var(--dm-border);
+    box-shadow: 0 16px 36px -16px rgba(0, 0, 0, 0.65);
+    pointer-events: none;
+}
+
+body[data-theme="galaxyambient"] .sidebar-brand {
+    background-color: transparent;
+    border-bottom-color: var(--dm-border);
+}
+
+/* BUG FIX: kapag NAKATAGO ang sidebar sa mobile (walang
+   "sidebar-mobile-active" sa body), ang base rules (style.css) ay
+   nag-a-apply lang ng "transform: translateX(-100%)" — ibig sabihin
+   inilalayo lang nito ang sidebar base sa SARILI nitong lapad (260px).
+   Dahil "floating" ang sidebar dito (may extra na "left: 12px" offset,
+   hindi "left: 0" gaya ng ibang themes), hindi kasama sa -100% translate
+   ang dagdag na 12px na iyon — kaya may natitirang ~12px na sliver ng
+   sidebar na nakikita pa rin sa kaliwang gilid ng screen kahit
+   "nakatago" na dapat. Idinagdag ang extra 12px sa translate para
+   talagang lumabas nang tuluyan ang sidebar sa screen kapag nakasara.
+   Hindi ito nakakaapekto sa OPEN state dahil may sariling
+   "!important" na override ang body.sidebar-mobile-active .sidebar
+   (sa style.css) na mas matimbang pa rin dito. */
+@media screen and (max-width: 1024px) {
+    body[data-theme="galaxyambient"] .sidebar {
+        transform: translateX(calc(-100% - 12px));
+    }
+}
+
+/* ---- Makapal/tactile na sliders at pill buttons ------------------ */
+body[data-theme="galaxyambient"] .btn-action-global,
+body[data-theme="galaxyambient"] .btn-action-outline {
+    border-radius: 999px;
+    font-weight: 600;
+    transition: transform 0.2s ease, background-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+body[data-theme="galaxyambient"] .btn-action-global:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px -8px rgba(26, 115, 232, 0.5);
+}
+
+body[data-theme="galaxyambient"] .btn-action-global:active {
+    transform: scale(0.96);
+}
+
+/* ---- Sidebar menu items: malaking rounded highlight, parang
+   "chunky" na pill ng One UI quick settings toggles -------------- */
+body[data-theme="galaxyambient"] .sidebar-menu a,
+body[data-theme="galaxyambient"] .menu-item,
+body[data-theme="galaxyambient"] .menu-item-header,
+body[data-theme="galaxyambient"] .sub-menu-item {
+    border-radius: var(--dm-radius-sm);
+    transition: background-color 0.25s ease, color 0.2s ease;
+}
+
+body[data-theme="galaxyambient"] .sidebar-menu a:hover,
+body[data-theme="galaxyambient"] .sidebar-menu li.active a,
+body[data-theme="galaxyambient"] .menu-item:hover,
+body[data-theme="galaxyambient"] .menu-item.active,
+body[data-theme="galaxyambient"] .menu-item-header:hover {
+    background-color: var(--dm-accent-soft);
+    color: #ffffff;
+}
+
+/* ---- Dropdown/submenu: mabilis, hindi masyadong "bouncy" na
+   fade-in — mas "matipid"/utilitarian ang motion ng One UI kaysa
+   sa spring-heavy na liquid glass ------------------------------- */
+body[data-theme="galaxyambient"] .uw-submenu,
+body[data-theme="galaxyambient"] .user-widget-dropdown {
+    border-radius: var(--dm-radius);
+    animation: ga-panel-in 0.22s ease-out;
+}
+
+@keyframes ga-panel-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body[data-theme="galaxyambient"] .uw-submenu,
+    body[data-theme="galaxyambient"] .user-widget-dropdown {
+        animation: none;
+    }
+}
+
+body[data-theme="galaxyambient"] .swal2-popup {
+    border-radius: var(--dm-radius-lg);
+}

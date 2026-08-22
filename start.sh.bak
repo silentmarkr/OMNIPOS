@@ -1,0 +1,175 @@
+#!/data/data/com.termux/files/usr/bin/bash
+#
+# start.sh — OMNIPOS supervisor loop para sa Termux.
+#
+# Bakit kailangan ito: kapag pinatakbo mo lang ng direkta ang
+# "node server.js", isang beses lang tatakbo iyon — kapag lumabas
+# ang process (halimbawa: pagkatapos mag-self-update ang system sa
+# Settings > Check for Updates, o kung sakaling mag-crash), kailangan
+# mo pa ring i-run ulit manually.
+#
+# Ang script na ito ay isang tuloy-tuloy na loop: kapag lumabas ang
+# "node server.js" sa kahit anong dahilan, awtomatiko itong
+# papatakbuhin ulit — kaya kapag nag-deploy ng bagong update ang
+# customer, hindi na niya kailangang buksan pa ulit ang Termux at
+# i-type ulit ang "node server.js".
+#
+# BAGO sa bersyon na ito (v2):
+#   1. CRASH-LOOP PROTECTION — kung paulit-ulit na agad mag-e-exit ang
+#      server.js (hal. sira ang .env, corrupted DB, missing module),
+#      dati ay tuluy-tuloy itong mag-re-restart kada 1s nang walang
+#      hinto — pwedeng mag-flood ng logs / mag-ubos ng battery. Ngayon,
+#      binabantayan kung ilang beses na-exit sa loob ng maikling window;
+#      pag sobra, humihinto muna nang mas matagal (backoff) bago subukan
+#      ulit.
+#   2. LOGGING SA FILE — hindi na lang sa terminal lumalabas ang mga
+#      mensahe; naka-log din ang lahat (may timestamp) sa
+#      logs/supervisor.log, para makita mo pa rin kung ano ang nangyari
+#      kahit na-close/na-scroll away ang Termux session.
+#   3. NAIIBA ANG TREATMENT sa "planned exit" (hal. self-update, exit
+#      code 0) laban sa "crash" (non-zero exit code) — planned exit ay
+#      mabilis lang mag-restart, crash ay dumadaan sa backoff logic.
+#   4. PID / LOCK FILE — pinipigilan na ma-double-run ang supervisor loop
+#      (hal. sakaling pindutin ulit ang widget habang tumatakbo pa yung
+#      isa).
+#   5. OPTIONAL: Termux wake-lock at notification — pinipigilan ng
+#      wake-lock na basta i-kill ng Android ang session dahil sa
+#      battery optimization; may notification din para makita agad na
+#      tumatakbo ang OMNIPOS. Kung wala ang Termux:API app/package,
+#      sine-skip lang nang tahimik ang mga ito (hindi mag-e-error).
+#
+# PAANO GAMITIN (isang beses lang ito i-setup):
+#   1. cd sa install folder ng OMNIPOS (kung nasaan ang server.js)
+#   2. chmod +x start.sh
+#   3. ./start.sh
+#
+# Iwanan mo na lang bukas ang Termux session na ito (o gamitin ang
+# Termux widget/notification para hindi ito ma-close ng Android).
+
+cd "$(dirname "$0")" || exit 1
+
+# ------------------------------------------------------------------
+# Config
+# ------------------------------------------------------------------
+LOG_DIR="./logs"
+LOG_FILE="$LOG_DIR/supervisor.log"
+LOCK_FILE="./.start.sh.lock"
+
+NORMAL_DELAY=1          # segundo bago mag-restart sa planned exit (code 0)
+CRASH_DELAY=5           # segundo bago mag-restart sa ordinaryong crash
+BACKOFF_DELAY=30        # segundo kapag paulit-ulit na crash (crash-loop)
+CRASH_WINDOW=60         # segundo — bilangan ng crashes sa loob ng window na ito
+CRASH_THRESHOLD=5       # kung umabot dito ang crash count sa loob ng window, mag-backoff
+
+mkdir -p "$LOG_DIR"
+
+# ------------------------------------------------------------------
+# Logging helper — sabay lumalabas sa terminal AT naka-log sa file
+# ------------------------------------------------------------------
+log() {
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "$msg"
+    echo "$msg" >> "$LOG_FILE"
+}
+
+# ------------------------------------------------------------------
+# PID / lock file — iwas double-run ng supervisor loop mismo
+# ------------------------------------------------------------------
+if [ -f "$LOCK_FILE" ]; then
+    OLD_PID="$(cat "$LOCK_FILE" 2>/dev/null)"
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        log "❌ May tumatakbo na supervisor loop (PID $OLD_PID). Hindi na papatakbuhin ulit."
+        exit 1
+    else
+        log "⚠️  May natirang lock file mula sa dating session (PID $OLD_PID, hindi na tumatakbo) — nililinis."
+        rm -f "$LOCK_FILE"
+    fi
+fi
+echo "$$" > "$LOCK_FILE"
+
+# ------------------------------------------------------------------
+# Optional: Termux wake-lock + notification (kung available)
+# ------------------------------------------------------------------
+HAS_TERMUX_API=0
+if command -v termux-wake-lock >/dev/null 2>&1; then
+    HAS_TERMUX_API=1
+    termux-wake-lock
+    log "🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session)."
+fi
+if command -v termux-notification >/dev/null 2>&1; then
+    timeout 3 termux-notification --id omnipos-supervisor \
+        --title "OMNIPOS" \
+        --content "Tumatakbo ang supervisor loop." \
+        --ongoing
+fi
+
+# ------------------------------------------------------------------
+# Cleanup kapag hiniverso ang script (Ctrl+C, kill, atbp.)
+# ------------------------------------------------------------------
+cleanup() {
+    log "🛑 Ihihinto ang supervisor loop (signal received)."
+    [ "$HAS_TERMUX_API" -eq 1 ] && termux-wake-unlock 2>/dev/null
+    command -v termux-notification-remove >/dev/null 2>&1 && termux-notification-remove omnipos-supervisor
+    rm -f "$LOCK_FILE"
+    exit 0
+}
+trap cleanup INT TERM
+
+log "🚀 OMNIPOS supervisor loop — sinisimulan ang server.js..."
+
+# ------------------------------------------------------------------
+# Main loop na may crash-loop protection
+# ------------------------------------------------------------------
+crash_timestamps=()
+
+while true; do
+    # FIX: "setsid" dito rin (hindi lang sa labas, sa OmniPOS-LAN.sh) —
+    # kahit naka-setsid na ang start.sh mismo, dagdag na proteksyon ito:
+    # kung sakaling patakbuhin ang start.sh na ito NANG DIRETSO (hal.
+    # manual na "bash start.sh" sa loob ng Termux, hindi sa widget),
+    # gagawa pa rin ito ng bagong session PARA MISMO sa node process,
+    # kaya immune ito sa SIGHUP/SIGINT na maaaring dumating mula sa
+    # terminal (exit code 129 = SIGHUP, 130 = SIGINT — parehong
+    # nangyari dati dahil parte pa rin ng session ng terminal ang
+    # node process).
+    if command -v setsid >/dev/null 2>&1; then
+        setsid node server.js
+    else
+        node server.js
+    fi
+    EXIT_CODE=$?
+
+    if [ "$EXIT_CODE" -eq 0 ]; then
+        # Planned/clean exit (hal. self-update trigger) — mabilis lang mag-restart
+        log "ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng ${NORMAL_DELAY}s..."
+        sleep "$NORMAL_DELAY"
+        continue
+    fi
+
+    # Crash (non-zero exit) — i-record ang timestamp para sa crash-loop detection
+    now=$(date +%s)
+    crash_timestamps+=("$now")
+
+    # Alisin ang mga timestamp na lampas na sa CRASH_WINDOW
+    cutoff=$((now - CRASH_WINDOW))
+    filtered=()
+    for t in "${crash_timestamps[@]}"; do
+        [ "$t" -ge "$cutoff" ] && filtered+=("$t")
+    done
+    crash_timestamps=("${filtered[@]}")
+    crash_count=${#crash_timestamps[@]}
+
+    log "⚠️  Lumabas ang server.js sa error (exit code: ${EXIT_CODE}). ${crash_count} crash(es) sa loob ng huling ${CRASH_WINDOW}s."
+
+    if [ "$crash_count" -ge "$CRASH_THRESHOLD" ]; then
+        log "🔴 CRASH LOOP DETECTED — ${crash_count} crashes sa loob ng ${CRASH_WINDOW}s. Titigil muna ng ${BACKOFF_DELAY}s bago subukan ulit. I-check ang logs/supervisor.log at ang .env/database."
+        command -v termux-notification >/dev/null 2>&1 && termux-notification --id omnipos-crashloop \
+            --title "⚠️ OMNIPOS crash loop" \
+            --content "Paulit-ulit na crash — pakicheck ang server."
+        sleep "$BACKOFF_DELAY"
+        # i-reset ang window pagkatapos ng backoff para hindi agad ulit mag-trigger
+        crash_timestamps=()
+    else
+        sleep "$CRASH_DELAY"
+    fi
+done

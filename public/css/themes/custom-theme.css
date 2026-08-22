@@ -1,0 +1,255 @@
+/* ============================================================
+   CUSTOM THEME STUDIO — additive override layer
+   ============================================================
+   Sinadyang HIWALAY na file ito, hindi binago ang style.css o ang
+   mga css/themes/theme-*-pro.css — layer lang ito sa IBABAW ng mga
+   ito (naka-load na PANGHULI sa <head> ng index.html). Bawat rule
+   dito ay naka-GATE sa likod ng isang [data-ct-*] attribute sa
+   <html> — kung hindi na-set ng user ang attribute na iyon (default
+   state, walang binago), WALANG kahit isang rule dito ang mag-a-
+   apply. Ibig sabihin: kung hindi ginalaw ng user ang Custom Theme
+   Studio, EKSAKTONG kapareho pa rin ng dati ang buong UI — walang
+   panganib na masira ang existing na disenyo/Pro Themes.
+
+   Font size (root font-size) at Accent Color ay direktang
+   ginagawa sa JS (applyCustomTheme() sa app.js) bilang inline CSS
+   custom properties / root font-size — HINDI dito, dahil mas
+   epektibo/tumpak ang JS-computed na paraan para doon (rem-based
+   scale, at derived hover/soft shades ng accent color). Dito lang
+   ang mga bahaging talagang nangangailangan ng bagong CSS rule:
+   corner radius, border thickness, card style, header style, at
+   density — dahil hardcoded pa ang mga value na ito sa buong
+   style.css (walang existing variable na pwede lang i-override).
+   ============================================================ */
+
+:root {
+  /* Fallback defaults — ginagamit LANG kung sadyang tumawag ang ibang
+     bahagi ng CSS dito (wala talaga tayong ginagamit nito ngayon,
+     nandito lang bilang dokumentasyon/singular source of truth ng
+     mga posibleng preset value sa itaas). */
+  --ct-radius-sharp: 4px;
+  --ct-radius-rounded: 12px;
+  --ct-radius-xl: 20px;
+  --ct-radius-pill: 999px;
+}
+
+/* ------------------------------------------------------------
+   1. CORNER RADIUS — mga reusable card class na natagpuan sa buong
+      app (metric cards, modals, quick-action cards, POS terminal
+      product cards, reorder cards, transaction search card, atbp.)
+   ------------------------------------------------------------ */
+html[data-ct-radius="sharp"] .metric-card,
+html[data-ct-radius="sharp"] .modal-card,
+html[data-ct-radius="sharp"] .qa-card,
+html[data-ct-radius="sharp"] .t-product-card,
+html[data-ct-radius="sharp"] .reorder-card,
+html[data-ct-radius="sharp"] .reorder-stat-card,
+html[data-ct-radius="sharp"] .overview-trend-card,
+html[data-ct-radius="sharp"] .rr-card-body,
+html[data-ct-radius="sharp"] .tx-search-card,
+html[data-ct-radius="sharp"] .recovery-inner-card,
+html[data-ct-radius="sharp"] .receipt-custom-container,
+html[data-ct-radius="sharp"] .barcode-print-card-unit {
+  border-radius: 4px !important;
+}
+html[data-ct-radius="xl"] .metric-card,
+html[data-ct-radius="xl"] .modal-card,
+html[data-ct-radius="xl"] .qa-card,
+html[data-ct-radius="xl"] .t-product-card,
+html[data-ct-radius="xl"] .reorder-card,
+html[data-ct-radius="xl"] .reorder-stat-card,
+html[data-ct-radius="xl"] .overview-trend-card,
+html[data-ct-radius="xl"] .rr-card-body,
+html[data-ct-radius="xl"] .tx-search-card,
+html[data-ct-radius="xl"] .recovery-inner-card,
+html[data-ct-radius="xl"] .receipt-custom-container,
+html[data-ct-radius="xl"] .barcode-print-card-unit {
+  border-radius: 20px !important;
+}
+html[data-ct-radius="pill"] .qa-card,
+html[data-ct-radius="pill"] .t-product-card,
+html[data-ct-radius="pill"] .reorder-stat-card,
+html[data-ct-radius="pill"] .tx-search-card {
+  border-radius: 28px !important;
+}
+/* Sadyang hindi kasama ang malalaking card (.metric-card, .modal-card,
+   .reorder-card) sa "pill" preset — mukhang kakaiba/masyadong bilog
+   ang malalaking parihaba kapag pinabilog nang husto; mananatili sila
+   sa katamtamang 18px bilang pinaka-magandang itsura pa rin sa pill mode. */
+html[data-ct-radius="pill"] .metric-card,
+html[data-ct-radius="pill"] .modal-card,
+html[data-ct-radius="pill"] .reorder-card,
+html[data-ct-radius="pill"] .overview-trend-card,
+html[data-ct-radius="pill"] .rr-card-body,
+html[data-ct-radius="pill"] .recovery-inner-card,
+html[data-ct-radius="pill"] .receipt-custom-container,
+html[data-ct-radius="pill"] .barcode-print-card-unit {
+  border-radius: 18px !important;
+}
+
+/* ------------------------------------------------------------
+   2. BORDER THICKNESS — nagbabago lang ng WIDTH, kinukuha pa rin
+      ang kulay mula sa existing --dm-border / --border-color, kaya
+      tuloy-tuloy pa ring naaayon sa kung anumang Pro Theme ang aktibo.
+   ------------------------------------------------------------ */
+html[data-ct-border="none"] .metric-card,
+html[data-ct-border="none"] .qa-card,
+html[data-ct-border="none"] .t-product-card,
+html[data-ct-border="none"] .reorder-card,
+html[data-ct-border="none"] .tx-search-card {
+  border-color: transparent !important;
+}
+html[data-ct-border="medium"] .metric-card,
+html[data-ct-border="medium"] .qa-card,
+html[data-ct-border="medium"] .t-product-card,
+html[data-ct-border="medium"] .reorder-card,
+html[data-ct-border="medium"] .tx-search-card {
+  border-width: 2px !important;
+}
+html[data-ct-border="bold"] .metric-card,
+html[data-ct-border="bold"] .qa-card,
+html[data-ct-border="bold"] .t-product-card,
+html[data-ct-border="bold"] .reorder-card,
+html[data-ct-border="bold"] .tx-search-card {
+  border-width: 3px !important;
+}
+
+/* ------------------------------------------------------------
+   3. CARD STYLE — Flat / Elevated (default) / Bordered / Glass
+   ------------------------------------------------------------ */
+html[data-ct-card="flat"] .metric-card,
+html[data-ct-card="flat"] .qa-card,
+html[data-ct-card="flat"] .t-product-card,
+html[data-ct-card="flat"] .reorder-card,
+html[data-ct-card="flat"] .tx-search-card {
+  box-shadow: none !important;
+}
+html[data-ct-card="bordered"] .metric-card,
+html[data-ct-card="bordered"] .qa-card,
+html[data-ct-card="bordered"] .t-product-card,
+html[data-ct-card="bordered"] .reorder-card,
+html[data-ct-card="bordered"] .tx-search-card {
+  box-shadow: none !important;
+  border-width: 2px !important;
+}
+/* BUG FIX: dating iisang rule lang ito na direktang gumagamit ng
+   var(--dm-surface, #ffffff) bilang batayan ng color-mix(). Ang
+   problema, GLOBAL na variable ang --dm-surface (naka-declare sa
+   :root ng style.css bilang #1c1c24 — MADILIM) at HINDI ito naka-
+   scope sa body.dark-mode — kaya kahit Day Mode ang totoong tema,
+   ang "Glass" card style ay laging naghahalo sa madilim na kulay na
+   ito, resulta'y kulay-abo/translucent-dark ang metric cards kahit
+   naka-Day Mode (halos di-mabasa ang label text sa itaas nito).
+   Ayos: hatiin sa DALAWANG rule — Day Mode (default, wala pang
+   body.dark-mode) ay gumagamit ng puti/light bilang batayan ng
+   glass mix; --dm-surface lang ang ginagamit kapag TALAGANG naka-
+   body.dark-mode (o naka-Pro theme na may sariling --dm-surface). */
+html[data-ct-card="glass"] .metric-card,
+html[data-ct-card="glass"] .qa-card,
+html[data-ct-card="glass"] .t-product-card,
+html[data-ct-card="glass"] .reorder-card,
+html[data-ct-card="glass"] .tx-search-card {
+  /* Fallback muna (rgba, suportado ng lahat ng browser) bago ang
+     color-mix() — kung hindi kilala ng browser ang color-mix(),
+     babalewalain lang nito ang linyang iyon at mananatili sa fallback
+     sa halip na mawalan ng background/masira ang itsura. */
+  background: rgba(255,255,255,0.55) !important;
+  background: color-mix(in srgb, #ffffff 55%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+}
+
+html[data-ct-card="glass"] body.dark-mode .metric-card,
+html[data-ct-card="glass"] body.dark-mode .qa-card,
+html[data-ct-card="glass"] body.dark-mode .t-product-card,
+html[data-ct-card="glass"] body.dark-mode .reorder-card,
+html[data-ct-card="glass"] body.dark-mode .tx-search-card {
+  background: rgba(28,28,36,0.55) !important;
+  background: color-mix(in srgb, var(--dm-surface, #1c1c24) 55%, transparent) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+}
+
+/* ------------------------------------------------------------
+   4. HEADER STYLE — .top-header lang (pangunahing navigation bar sa
+      itaas), sinadyang hindi kasama ang modal/cart headers para hindi
+      masyadong biglaan/overwhelming ang epekto sa buong app.
+   ------------------------------------------------------------ */
+html[data-ct-header="gradient"] .top-header {
+  background: linear-gradient(135deg, var(--dm-accent, #2563eb), var(--dm-accent-hover, #1d4ed8)) !important;
+}
+html[data-ct-header="gradient"] .top-header,
+html[data-ct-header="gradient"] .top-header * {
+  color: #ffffff !important;
+}
+html[data-ct-header="glass"] .top-header {
+  background: rgba(255,255,255,0.65) !important;
+  background: color-mix(in srgb, var(--dm-surface, #ffffff) 65%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom-color: rgba(255,255,255,0.14) !important;
+}
+
+/* ------------------------------------------------------------
+   5. DENSITY — nag-aadjust ng padding ng mga card (Compact/Spacious;
+      Comfortable = default, walang override kaya wala ring entry dito)
+   ------------------------------------------------------------ */
+html[data-ct-density="compact"] .metric-card,
+html[data-ct-density="compact"] .qa-card { padding: 14px !important; }
+html[data-ct-density="compact"] .t-product-card { padding: 9px !important; }
+html[data-ct-density="compact"] .reorder-card { padding: 8px 10px !important; }
+
+html[data-ct-density="spacious"] .metric-card,
+html[data-ct-density="spacious"] .qa-card { padding: 32px !important; }
+html[data-ct-density="spacious"] .t-product-card { padding: 20px !important; }
+html[data-ct-density="spacious"] .reorder-card { padding: 18px 20px !important; }
+
+/* ------------------------------------------------------------
+   5b. TABLE ROW SIZE — vertical padding ng LAHAT ng .data-table
+       rows (products, transactions, customers, users, atbp.), kontrolado
+       ng iisang --ct-row-pad-y variable na sinusulat ng applyCustomTheme()
+       sa app.js. "Auto-fit" (default) ay proportional lang sa Font Size
+       slider — kaya laging naka-preserve ang parehong "look" ng row sa
+       anumang font scale nang hindi kinakailangang i-set ito nang
+       hiwalay. Ang "compact/comfortable/spacious" presets at "custom"
+       (exact px) ay hindi apektado ng font scale — sadyang independent
+       mula dito ang mga ito. Horizontal padding (18px) ay hindi
+       ginagalaw dito, vertical lang para hindi masira ang column widths. */
+.data-table th,
+.data-table td {
+  padding-top: var(--ct-row-pad-y, 14px) !important;
+  padding-bottom: var(--ct-row-pad-y, 14px) !important;
+}
+
+/* ------------------------------------------------------------
+   6. REDUCED MOTION — inaalis ang transitions/animations ng buong
+      app para sa mga taong sensitive sa motion o gustong mas mabilis/
+      mas simpleng interface (madalas ding hiling sa accessibility).
+   ------------------------------------------------------------ */
+html[data-ct-motion="reduced"] *,
+html[data-ct-motion="reduced"] *::before,
+html[data-ct-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ------------------------------------------------------------
+   7. HIGH CONTRAST — pinapalakas ang text/border contrast, kapaki-
+      pakinabang sa maliwanag na lugar (hal. tabi ng bintana) o para
+      sa mga taong may low-vision.
+   ------------------------------------------------------------ */
+html[data-ct-contrast="high"] {
+  --dm-text-secondary: var(--dm-text-primary) !important;
+  --dm-text-muted: var(--dm-text-primary) !important;
+}
+html[data-ct-contrast="high"] .metric-card,
+html[data-ct-contrast="high"] .qa-card,
+html[data-ct-contrast="high"] .t-product-card,
+html[data-ct-contrast="high"] .reorder-card,
+html[data-ct-contrast="high"] .tx-search-card,
+html[data-ct-contrast="high"] .top-header {
+  border-width: 2px !important;
+  border-color: currentColor !important;
+}

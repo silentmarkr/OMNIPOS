@@ -1,0 +1,218 @@
+/* ============================================================
+   THEME: Liquid Glass Pro (Premium / Paid Add-on)
+   Translucent/layered na "liquid glass" na dating — frosted-glass
+   surfaces (backdrop blur), malambot na layered shadows, malapad
+   na rounded corners, at fluid/spring-style na hover animations —
+   para sa mga gustong mas "modern OS glass" ang dating ng POS
+   nila. I-unlock via Themes menu.
+   ============================================================ */
+/* Space Grotesk/Inter: nilo-load na ngayon via non-blocking <link>
+   sa index.html (see google-fonts-cdn) sa halip na @import dito,
+   para hindi maantala ang pag-render kapag offline. */
+
+body[data-theme="liquidglass"] {
+    /* Base surfaces ay bahagyang translucent (rgba) — sinasadya, dahil
+       ang backdrop-filter blur sa ibaba ang siyang gumagawa ng aktwal
+       na "frosted glass" na epekto sa itaas ng --dm-bg + ng layered
+       glow sa background-image. */
+    --dm-bg: #0b0f1a;
+    --dm-surface: rgba(30, 38, 58, 0.55);
+    --dm-surface-alt: rgba(42, 52, 78, 0.62);
+    --dm-border: rgba(255, 255, 255, 0.14);
+    --dm-text-primary: #f3f6ff;
+    --dm-text-secondary: #b7c2e0;
+    --dm-text-muted: #7d89ac;
+    --dm-accent: #0a84ff;
+    --dm-accent-hover: #409cff;
+    --dm-accent-soft: rgba(10, 132, 255, 0.18);
+
+    --dm-font-heading: -apple-system, 'SF Pro Display', 'Space Grotesk', 'Poppins', sans-serif;
+    --dm-font-body: -apple-system, 'SF Pro Text', 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    /* Border language: malapad/malambot na rounded corners, manipis
+       na border para hindi maputol ang glass illusion */
+    --dm-radius: 20px;
+    --dm-radius-sm: 14px;
+    --dm-radius-lg: 26px;
+    --dm-border-width: 1px;
+}
+
+/* Layered/animated na "glow blobs" sa likod ng buong app — ito ang
+   nagbibigay ng kulay na sinasalamin/binabalot ng mga frosted glass
+   panel sa ibabaw nito. Fixed ang position kaya hindi ito gumagalaw
+   habang nag-sscroll — parang malayong background layer. */
+body[data-theme="liquidglass"] {
+    background-color: var(--dm-bg);
+    background-image:
+        radial-gradient(circle at 12% 18%, rgba(77, 168, 255, 0.30), transparent 42%),
+        radial-gradient(circle at 85% 12%, rgba(168, 109, 255, 0.24), transparent 45%),
+        radial-gradient(circle at 78% 82%, rgba(45, 212, 191, 0.20), transparent 48%),
+        radial-gradient(circle at 15% 88%, rgba(255, 122, 200, 0.16), transparent 45%);
+    background-attachment: fixed;
+    animation: lg-drift 22s ease-in-out infinite alternate;
+}
+
+@keyframes lg-drift {
+    0%   { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%; }
+    100% { background-position: 6% 4%, 94% 6%, 94% 94%, 6% 96%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body[data-theme="liquidglass"] {
+        animation: none;
+    }
+}
+
+/* ---- Frosted-glass panels ------------------------------------- */
+body[data-theme="liquidglass"] .sidebar,
+body[data-theme="liquidglass"] .sidebar-brand,
+body[data-theme="liquidglass"] .top-header,
+body[data-theme="liquidglass"] .metric-card,
+body[data-theme="liquidglass"] .qa-card,
+body[data-theme="liquidglass"] .overview-trend-card,
+body[data-theme="liquidglass"] .table-container,
+body[data-theme="liquidglass"] .report-container,
+body[data-theme="liquidglass"] .user-widget-dropdown,
+body[data-theme="liquidglass"] .uw-submenu,
+body[data-theme="liquidglass"] .swal2-popup {
+    background-color: var(--dm-surface);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+    border: var(--dm-border-width) solid var(--dm-border);
+    box-shadow:
+        0 12px 32px -12px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+body[data-theme="liquidglass"] .metric-card,
+body[data-theme="liquidglass"] .qa-card,
+body[data-theme="liquidglass"] .overview-trend-card {
+    border-radius: var(--dm-radius);
+    transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.45s ease, background-color 0.3s ease;
+}
+
+body[data-theme="liquidglass"] .metric-card:hover,
+body[data-theme="liquidglass"] .qa-card:hover,
+body[data-theme="liquidglass"] .overview-trend-card:hover {
+    transform: translateY(-4px) scale(1.015);
+    background-color: var(--dm-surface-alt);
+    box-shadow:
+        0 20px 40px -14px rgba(77, 168, 255, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+/* ---- Pill-shaped, glossy buttons -------------------------------- */
+body[data-theme="liquidglass"] .btn-action-global,
+body[data-theme="liquidglass"] .btn-action-outline {
+    position: relative;
+    overflow: hidden;
+    border-radius: 999px;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0));
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.35s ease, background-color 0.3s ease;
+}
+
+/* BUG FIX: yung "overflow: hidden" sa itaas ay para lang i-contain ang
+   ::after "gloss sweep" highlight sa loob ng pill shape. Pero
+   naka-cclip/naipit din nito ang .reorder-action-count-badge (hal. sa
+   "Create PO" icon button sa Reorder Alerts) — dapat "float" ito PALABAS
+   sa gilid ng button (position:absolute; top:-4px; right:-4px) pero
+   dahil sa overflow:hidden ng parent, hindi ito lumalabas/lumulutang.
+   Sa icon-only na buttons (may badge dito), i-restore ang overflow:visible
+   para lumutang ulit ang badge, at itago na lang ang ::after sweep
+   sa mga ito (maliit lang naman ang icon-only buttons, hindi gaanong
+   mapapansin ang kawalan ng sweep effect dito). Ang mga regular na
+   pill button na may text label (walang badge) ay hindi apektado —
+   nananatili silang naka-overflow:hidden para sa sweep effect. */
+body[data-theme="liquidglass"] .btn-action-global.btn-action-icon-only,
+body[data-theme="liquidglass"] .btn-action-outline.btn-action-icon-only {
+    overflow: visible;
+}
+
+body[data-theme="liquidglass"] .btn-action-global.btn-action-icon-only::after,
+body[data-theme="liquidglass"] .btn-action-outline.btn-action-icon-only::after {
+    display: none;
+}
+
+/* "Lensing" sweep — gumagaya sa paraan ng pagsalamin ng liquid glass sa
+   ilaw kapag gumagalaw/ hinahawakan ang iPhone; dito, ito'y tumatakbo
+   bilang isang mabilis na highlight sweep kapag naka-hover. */
+body[data-theme="liquidglass"] .btn-action-global::after,
+body[data-theme="liquidglass"] .btn-action-outline::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(115deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    transform: skewX(-20deg);
+    pointer-events: none;
+}
+
+body[data-theme="liquidglass"] .btn-action-global:hover::after,
+body[data-theme="liquidglass"] .btn-action-outline:hover::after {
+    animation: lg-sweep 0.9s ease forwards;
+}
+
+@keyframes lg-sweep {
+    from { left: -60%; }
+    to   { left: 130%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body[data-theme="liquidglass"] .btn-action-global:hover::after,
+    body[data-theme="liquidglass"] .btn-action-outline:hover::after {
+        animation: none;
+    }
+}
+
+body[data-theme="liquidglass"] .btn-action-global:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 10px 24px -8px rgba(77, 168, 255, 0.55);
+}
+
+body[data-theme="liquidglass"] .btn-action-global:active {
+    transform: translateY(0) scale(0.97);
+    transition-duration: 0.15s;
+}
+
+/* ---- Sidebar menu: fluid highlight transition ------------------- */
+body[data-theme="liquidglass"] .sidebar-menu a,
+body[data-theme="liquidglass"] .menu-item,
+body[data-theme="liquidglass"] .menu-item-header,
+body[data-theme="liquidglass"] .sub-menu-item {
+    transition: background-color 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                color 0.3s ease, transform 0.3s ease;
+    border-radius: var(--dm-radius-sm);
+}
+
+body[data-theme="liquidglass"] .sidebar-menu a:hover,
+body[data-theme="liquidglass"] .sidebar-menu li.active a,
+body[data-theme="liquidglass"] .menu-item:hover,
+body[data-theme="liquidglass"] .menu-item.active,
+body[data-theme="liquidglass"] .menu-item-header:hover {
+    background-color: var(--dm-accent-soft);
+    color: #ffffff;
+    transform: translateX(2px);
+}
+
+/* ---- Dropdown/submenu entrance: soft fade + rise ---------------- */
+body[data-theme="liquidglass"] .uw-submenu,
+body[data-theme="liquidglass"] .user-widget-dropdown {
+    border-radius: var(--dm-radius);
+    animation: lg-panel-in 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes lg-panel-in {
+    from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---- Modal / SweetAlert glass treatment -------------------------- */
+body[data-theme="liquidglass"] .swal2-popup {
+    border-radius: var(--dm-radius-lg);
+}

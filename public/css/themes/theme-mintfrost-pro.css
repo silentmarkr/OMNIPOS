@@ -1,0 +1,46 @@
+/* ============================================================
+   THEME: Mint Frost Pro (Premium / Paid Add-on)
+   Malamig na deep slate-teal surfaces na may mint/aqua accent,
+   pill-rounded na sulok, at malambing/modern na font pairing
+   (Poppins para sa headings, Inter para sa body text) — para sa
+   mga gustong "clean, airy, modern SaaS" ang dating ng POS nila.
+   I-unlock via Themes menu.
+   ============================================================ */
+/* Poppins: nilo-load na ngayon via non-blocking <link> sa index.html
+   (see google-fonts-cdn) sa halip na @import dito, para hindi
+   maantala ang pag-render kapag offline. */
+
+body[data-theme="mintfrost"] {
+    --dm-bg: #071815;
+    --dm-surface: #0d211d;
+    --dm-surface-alt: #122a24;
+    --dm-border: #1e3a33;
+    --dm-text-primary: #eafff8;
+    --dm-text-secondary: #8fc9b8;
+    --dm-text-muted: #5f8c7c;
+    --dm-accent: #2dd4bf;
+    --dm-accent-hover: #14b8a6;
+    --dm-accent-soft: rgba(45, 212, 191, 0.16);
+
+    /* Typography: malambing/modern heading font + malinaw na body font */
+    --dm-font-heading: 'Poppins', 'Space Grotesk', sans-serif;
+    --dm-font-body: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    /* Border language: pill-rounded na sulok, walang gaanong makapal
+       na border para sa "clean/airy" na dating */
+    --dm-radius: 18px;
+    --dm-radius-sm: 12px;
+    --dm-radius-lg: 22px;
+    --dm-border-width: 1px;
+}
+
+body[data-theme="mintfrost"] .btn-action-global,
+body[data-theme="mintfrost"] .btn-action-outline {
+    border-radius: 999px; /* tunay na "pill" shape sa mga button */
+}
+
+body[data-theme="mintfrost"] .metric-card,
+body[data-theme="mintfrost"] .qa-card,
+body[data-theme="mintfrost"] .overview-trend-card {
+    box-shadow: 0 10px 24px -12px rgba(45, 212, 191, 0.22);
+}
