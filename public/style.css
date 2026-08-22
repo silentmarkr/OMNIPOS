@@ -9556,13 +9556,13 @@ body.dark-mode .hu-user-info {
     border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 body.dark-mode .hu-user-info-name {
-    color: #f5f5fa;
+    color: var(--dm-text-primary, #f5f5fa);
 }
 body.dark-mode .hu-user-info-role {
-    color: #9a9ba8;
+    color: var(--dm-text-muted, #9a9ba8);
 }
 body.dark-mode .header-user-dropdown::before {
-    background-color: #1c1c24;
+    background-color: var(--dm-surface, #1c1c24);
     border-color: rgba(255, 255, 255, 0.08);
 }
 #app-top-header[data-terminal-theme] .header-user-dropdown::before {
@@ -9711,22 +9711,23 @@ body.dark-mode .hu-divider {
     display: none !important;
 }
 
-/* Fixed dark palette — deliberately NOT reading --dm-surface /
-   --dm-text-secondary here, since those get overridden by whichever
-   store-wide Pro theme (body[data-theme]) is active. The dropdown
-   keeps this one look in dark mode regardless of Pro theme, except
-   inside the Terminal — see the data-terminal-theme override block
-   further below, which re-introduces the variables on purpose. */
+/* Outside the Terminal, the dropdown follows whichever store-wide
+   OmniPOS theme is active (Settings > Themes — body[data-theme]),
+   same as the rest of the app, via the shared --dm-* variables.
+   Inside the Terminal this gets overridden by higher-specificity
+   rules further below (.top-header.terminal-header-mode and
+   #app-top-header[data-terminal-theme]) so it follows the Terminal's
+   own Day/Night state and Terminal Theme instead. */
 body.dark-mode .header-user-dropdown {
-    background-color: #1c1c24;
+    background-color: var(--dm-surface, #1c1c24);
     border-color: rgba(255, 255, 255, 0.08);
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
 }
 body.dark-mode .hu-item {
-    color: #d3d4dc;
+    color: var(--dm-text-secondary, #d3d4dc);
 }
 body.dark-mode .hu-item:hover {
-    background-color: #22232d;
+    background-color: var(--dm-surface-alt, #22232d);
 }
 
 .hu-theme-option {
@@ -9796,18 +9797,135 @@ body.dark-mode .hu-item:hover {
 }
 
 body.dark-mode .hu-theme-option {
-    color: #d3d4dc;
+    color: var(--dm-text-secondary, #d3d4dc);
 }
 body.dark-mode .hu-theme-option:hover {
-    background-color: #22232d;
+    background-color: var(--dm-surface-alt, #22232d);
 }
 body.dark-mode .hu-theme-option.active {
-    background-color: rgba(124, 92, 255, 0.16);
-    color: #7c5cff;
+    background-color: var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
+    color: var(--dm-accent, #7c5cff);
 }
 body.dark-mode .hu-theme-option.active .fa-solid:first-child,
 body.dark-mode .hu-theme-option.active::after {
+    color: var(--dm-accent, #7c5cff);
+}
+
+/* ------------------------------------------------------------
+   Inside the POS Terminal, the dropdown must follow the Terminal's
+   OWN Day/Night toggle (terminal_daymode / .terminal-daymode on
+   #app-top-header) instead of the store-wide dark/light mode
+   (body.dark-mode) — those two are intentionally independent (see
+   TERMINAL-ONLY THEMES notes in app.js). Without this, the dropdown
+   stayed locked to whatever body.dark-mode happened to be, so
+   switching only the Terminal's own Day/Night left it mismatched.
+
+   1) Default entering the Terminal (no .terminal-daymode yet) always
+      gets the dark treatment, since the Terminal itself defaults to
+      dark — regardless of the store's own light/dark setting.
+   2) Once .terminal-daymode is added (Terminal's own light mode),
+      !important forces the light card back on, overriding both the
+      rule above and body.dark-mode.
+   These come before the data-terminal-theme Pro overrides below, so
+   an active Terminal Theme (higher specificity) still wins over both.
+   ------------------------------------------------------------ */
+.top-header.terminal-header-mode .header-user-dropdown {
+    background-color: #1c1c24;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+.top-header.terminal-header-mode .header-user-dropdown::before {
+    background-color: #1c1c24;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+.top-header.terminal-header-mode .hu-user-info {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.top-header.terminal-header-mode .hu-user-info-name {
+    color: #f5f5fa;
+}
+.top-header.terminal-header-mode .hu-user-info-role {
+    color: #9a9ba8;
+}
+.top-header.terminal-header-mode .hu-item,
+.top-header.terminal-header-mode .hu-theme-option {
+    color: #d3d4dc;
+}
+.top-header.terminal-header-mode .hu-item i,
+.top-header.terminal-header-mode .hu-theme-option .fa-solid:first-child {
+    color: #9a9ba8;
+}
+.top-header.terminal-header-mode .hu-item:hover,
+.top-header.terminal-header-mode .hu-theme-option:hover {
+    background-color: #22232d;
+}
+.top-header.terminal-header-mode .hu-theme-option.active {
+    background-color: rgba(124, 92, 255, 0.16);
     color: #7c5cff;
+}
+.top-header.terminal-header-mode .hu-theme-option.active .fa-solid:first-child,
+.top-header.terminal-header-mode .hu-theme-option.active::after {
+    color: #7c5cff;
+}
+.top-header.terminal-header-mode .hu-divider {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.top-header.terminal-header-mode.terminal-daymode .header-user-dropdown,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .header-user-dropdown {
+    background-color: #ffffff !important;
+    border-color: rgba(0, 0, 0, 0.06) !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .header-user-dropdown::before,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .header-user-dropdown::before {
+    background-color: #ffffff !important;
+    border-color: rgba(0, 0, 0, 0.06) !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-user-info,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-user-info {
+    border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-user-info-name,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-user-info-name {
+    color: #1e293b !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-user-info-role,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-user-info-role {
+    color: #64748b !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-item,
+.top-header.terminal-header-mode.terminal-daymode .hu-theme-option,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-item,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-theme-option {
+    color: #334155 !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-item i,
+.top-header.terminal-header-mode.terminal-daymode .hu-theme-option .fa-solid:first-child,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-item i,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-theme-option .fa-solid:first-child {
+    color: #64748b !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-item:hover,
+.top-header.terminal-header-mode.terminal-daymode .hu-theme-option:hover,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-item:hover,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-theme-option:hover {
+    background-color: #f1f5f9 !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-theme-option.active,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-theme-option.active {
+    background-color: #eff6ff !important;
+    color: #2563eb !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-theme-option.active .fa-solid:first-child,
+.top-header.terminal-header-mode.terminal-daymode .hu-theme-option.active::after,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-theme-option.active .fa-solid:first-child,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-theme-option.active::after {
+    color: #2563eb !important;
+}
+.top-header.terminal-header-mode.terminal-daymode .hu-divider,
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .hu-divider {
+    background-color: rgba(0, 0, 0, 0.08) !important;
 }
 
 /* ------------------------------------------------------------

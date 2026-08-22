@@ -583,3 +583,6 @@
 [2026-08-23 05:14:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
 [2026-08-23 05:14:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 [2026-08-23 05:35:05] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-23 06:10:49] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-23 06:10:52] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-23 06:27:56] 🛑 Ihihinto ang supervisor loop (signal received).

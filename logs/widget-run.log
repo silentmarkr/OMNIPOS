@@ -1,8 +1,8 @@
-[2026-08-23 05:14:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-23 05:14:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-23 06:10:49] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-23 06:10:52] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
 Terminated                 setsid node server.js
-[2026-08-23 05:35:05] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-23 06:27:56] 🛑 Ihihinto ang supervisor loop (signal received).
