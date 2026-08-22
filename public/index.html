@@ -311,7 +311,7 @@
                     <div class="uw-submenu" id="uw-terminalthemes-submenu">
                         
                     </div>
-                    <a href="#" class="uw-item uw-logout" onclick="handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+                    <a href="#" class="uw-item uw-logout" onclick="handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> Sign Out</a>
                 </div>
             </div>
 
@@ -373,6 +373,10 @@
                             <span class="header-user-caret"><i class="fa-solid fa-chevron-down"></i></span>
                         </button>
                         <div class="header-user-dropdown" id="header-user-dropdown">
+                            <div class="hu-user-info" id="hu-user-info">
+                                <strong class="hu-user-info-name" id="hu-user-info-name">admin</strong>
+                                <small class="hu-user-info-role" id="hu-user-info-role">Administrator</small>
+                            </div>
                             <div class="hu-item hu-has-sub" id="hu-settings-toggle" onclick="toggleHeaderSettingsSubmenu(event)">
                                 <span><i class="fa-solid fa-gear"></i> Settings</span>
                                 <i class="fa-solid fa-chevron-down hu-sub-caret" id="hu-settings-caret"></i>
@@ -395,6 +399,10 @@
                             <div class="hu-submenu" id="hu-terminalthemes-submenu">
                                 
                             </div>
+                            <div class="hu-divider" id="hu-logout-divider"></div>
+                            <a href="#" class="hu-item hu-logout" id="hu-logout-btn" onclick="handleLogout(); return false;">
+                                <span><i class="fa-solid fa-right-from-bracket"></i> Sign Out</span>
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -576,7 +584,7 @@
                         <div class="qa-card" onclick="switchView('transactions')"><i class="fa-solid fa-credit-card" style="color:#06b6d4;"></i><p>Transactions</p></div>
                         <div class="qa-card" onclick="switchView('users')"><i class="fa-solid fa-gear" style="color:#8b5cf6;"></i><p>Settings</p></div>
                         <div class="qa-card" onclick="switchView('logs')"><i class="fa-solid fa-stopwatch" style="color:#64748b;"></i><p>User Logs</p></div>
-                        <div class="qa-card text-danger" onclick="handleLogout()"><i class="fa-solid fa-door-open" style="color:#ef4444;"></i><p>Logout</p></div>
+                        <div class="qa-card text-danger" onclick="handleLogout()"><i class="fa-solid fa-door-open" style="color:#ef4444;"></i><p>Sign Out</p></div>
                     </div>
                 </section>
 

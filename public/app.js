@@ -890,6 +890,13 @@ function applyTerminalExtraTheme(themeId, opts) {
     if (themeId) {
         terminalSection.setAttribute('data-terminal-theme', themeId);
         document.body.setAttribute('data-terminal-theme', themeId);
+        // Also tag the header itself (not just #view-terminal) so the
+        // account dropdown — which lives in the header, outside
+        // #view-terminal — can pick up the same palette via CSS while the
+        // cashier is inside the Terminal. Everywhere else in OmniPOS the
+        // dropdown stays on its own fixed look, untouched by this or by
+        // the store-wide Pro theme (see .header-user-dropdown in style.css).
+        if (headerEl) headerEl.setAttribute('data-terminal-theme', themeId);
         // A Pro terminal theme takes over completely while active; the
         // terminal's own Day/Night toggle is paused (not lost — just parked)
         // until this is switched back to Default.
@@ -899,6 +906,7 @@ function applyTerminalExtraTheme(themeId, opts) {
     } else {
         terminalSection.removeAttribute('data-terminal-theme');
         document.body.removeAttribute('data-terminal-theme');
+        if (headerEl) headerEl.removeAttribute('data-terminal-theme');
         // Back to Default: hand control back to the terminal's own
         // Day/Night toggle, which defaults to dark mode.
         if (typeof applySavedTerminalDayMode ==='function') applySavedTerminalDayMode();
@@ -3600,6 +3608,7 @@ function toggleHeaderUserMenu(event) {
     if (!wrap) return;
     const isOpen = wrap.classList.toggle('open');
     if (isOpen) {
+        renderHeaderUserDropdownInfo();
         document.addEventListener('click', closeHeaderUserMenuOnOutsideClick);
     } else {
         closeHeaderSettingsSubmenu();
@@ -3917,7 +3926,20 @@ function renderSidebarUserWidget() {
             ? `<img src="${currentUser.avatar}" alt="">`
             : `<i class="fa-solid fa-user"></i>`;
     }
+    renderHeaderUserDropdownInfo();
     updateActiveUsersBadge();
+}
+
+// Name/role block shown at the top of the header's account dropdown
+// (#header-user-dropdown), mirroring the sidebar widget: shows the
+// editable display name when the user has set one, falling back to the
+// login username otherwise.
+function renderHeaderUserDropdownInfo() {
+    if (!currentUser) return;
+    const nameEl = document.getElementById('hu-user-info-name');
+    const roleEl = document.getElementById('hu-user-info-role');
+    if (nameEl) nameEl.innerText = currentUser.displayName || currentUser.username;
+    if (roleEl) roleEl.innerText = currentUser.role ||'';
 }
 
 let activeUsersRefreshTimer = null;
