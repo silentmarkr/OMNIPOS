@@ -2541,9 +2541,13 @@ body.cart-pane-resizing-cursor {
 }
 
 .cart-item-meta-row {
-    display: flex;
+    /* Grid (hindi flex) para FIXED ang lapad ng bawat column (Disc / Qty /
+       Presyo) sa lahat ng row — kaya kahit magkaiba ang haba ng pangalan ng
+       produkto o bilang ng digit ng presyo/qty, palaging magkatapat
+       (aligned) ang mga column sa bawat row. */
+    display: grid;
+    grid-template-columns: 96px 92px 108px;
     align-items: center;
-    flex-wrap: nowrap;
     gap: 8px;
     flex-shrink: 0; /* product name is the only column that truncates; controls keep their size */
 }
@@ -2632,6 +2636,7 @@ body.cart-pane-resizing-cursor {
     font-size: 0.85rem;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
 }
 
@@ -7141,8 +7146,9 @@ body.dark-mode .quick-access-grid .qa-card.text-danger p {
 
 #terminal-grid-output.terminal-list-view .t-product-card .t-prod-price {
     margin: 0 !important;
-    flex: 0 0 auto; 
-    min-width: 68px;
+    flex: 0 0 90px; /* fixed width (hindi lang min-width) para hindi gumagalaw
+                        ang column kahit magkaiba ang bilang ng digit ng presyo */
+    width: 90px;
     text-align: right;
     font-weight: bold;
     color: var(--success-green);
@@ -7151,8 +7157,8 @@ body.dark-mode .quick-access-grid .qa-card.text-danger p {
 
 #terminal-grid-output.terminal-list-view .t-product-card .t-prod-stock {
     margin: 0 !important;
-    flex: 0 0 auto;
-    min-width: 56px;
+    flex: 0 0 64px; /* fixed width din — palaging magkatapat ang Stock column */
+    width: 64px;
     text-align: right;
     color: #94a3b8;
     white-space: nowrap;
@@ -8866,8 +8872,8 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
         line-height: 1.25;
     }
     .terminal-theme .cart-item-meta-row {
+        grid-template-columns: 84px 88px 88px;
         gap: 8px;
-        flex-wrap: nowrap;
     }
     .terminal-theme .cart-item-each-price {
         font-size: 0.7rem;

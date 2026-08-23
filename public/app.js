@@ -467,43 +467,116 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
     });
 }
 
-function attachHoverPreview(el, onShow, onHide, durationMs) {
+// Isang shared na "coordinator" (hindi per-element) para sa hover preview ng
+// buong product grid. Dati, magkakahiwalay na state ang h4/price/stock ng
+// isang product card — kaya sa sobrang liit na galaw ng pointer papunta sa
+// katabing text (h4 -> price -> stock) ng IISANG product, nag-fi-fire ang
+// pointerleave ng luma bago pa man makapasok ang pointerenter ng bago, kaya
+// nawawala-lumalabas (blink) ang peek nang paulit-ulit habang nakatigil lang
+// naman talaga sa iisang product. Dito, iisang groupKey (product code) ang
+// ginagamit para malaman kung "parehong product pa rin" ang hinover — kung
+// oo, hindi na ito nagpapa-restart/hide. May 5-segundong auto-hide (blink
+// off) din habang paulit-ulit na naka-hover sa iisang product, at kapag
+// dumiretso ang pointer sa ibang product, agad na nawawala ang dati (kahit
+// hindi pa naabot ang 5s nito) para makapalit kaagad ang bago.
+const hoverPeekCoordinator = {
+    groupKey: null,
+    showTimer: null,
+    leaveTimer: null,
+    autoHideTimer: null,
+    reshowTimer: null,
+    isVisible: false
+};
+
+function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
     if (!el || el.__hoverPreviewBound) return;
     el.__hoverPreviewBound = true;
     durationMs = durationMs || 1000;
 
-    let hoverTimer = null;
-    let isShowing = false;
+    const AUTO_HIDE_MS = 5000;
+    const SWITCH_DELAY_MS = 150;
+    const LEAVE_GRACE_MS = 180;
+    const RESHOW_GAP_MS = 400;
 
-    const clearHoverTimer = function () {
-        if (hoverTimer) {
-            clearTimeout(hoverTimer);
-            hoverTimer = null;
-        }
+    const c = hoverPeekCoordinator;
+
+    const clearAllTimers = function () {
+        clearTimeout(c.showTimer); c.showTimer = null;
+        clearTimeout(c.leaveTimer); c.leaveTimer = null;
+        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
+        clearTimeout(c.reshowTimer); c.reshowTimer = null;
     };
 
     const doHide = function () {
-        clearHoverTimer();
-        if (isShowing) {
-            isShowing = false;
+        clearAllTimers();
+        if (c.isVisible) {
+            c.isVisible = false;
             onHide();
         }
+        c.groupKey = null;
+    };
+
+    const doShow = function (e) {
+        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
+        clearTimeout(c.reshowTimer); c.reshowTimer = null;
+        c.isVisible = true;
+        c.groupKey = groupKey;
+        onShow(e);
+
+        // Awtomatikong itago (blink off) pagkalipas ng 5s ng patuloy na
+        // pagpapakita. Kung nananatili pa rin ang pointer sa parehong
+        // product (hindi pa na-hide ng ibang mekanismo), muling ipapakita
+        // pagkalipas ng maikling pahinga — ito ang paulit-ulit na "blink
+        // every 5 seconds" habang nananatili sa isang product.
+        c.autoHideTimer = setTimeout(function () {
+            c.isVisible = false;
+            onHide();
+            c.reshowTimer = setTimeout(function () {
+                if (c.groupKey === groupKey) doShow(e);
+            }, RESHOW_GAP_MS);
+        }, AUTO_HIDE_MS);
     };
 
     el.addEventListener('pointerenter', function (e) {
-
         if (e.pointerType && e.pointerType !== 'mouse') return;
-        clearHoverTimer();
-        hoverTimer = setTimeout(function () {
-            hoverTimer = null;
-            isShowing = true;
-            onShow(e);
-        }, durationMs);
+
+        clearTimeout(c.leaveTimer);
+        c.leaveTimer = null;
+
+        if (c.groupKey === groupKey && (c.isVisible || c.showTimer || c.reshowTimer)) {
+
+            return;
+        }
+
+        const switchingProduct = !!(c.groupKey && c.groupKey !== groupKey);
+        clearTimeout(c.showTimer); c.showTimer = null;
+        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
+        clearTimeout(c.reshowTimer); c.reshowTimer = null;
+
+        if (switchingProduct) {
+
+            if (c.isVisible) { c.isVisible = false; onHide(); }
+            c.groupKey = null;
+            c.showTimer = setTimeout(function () {
+                c.showTimer = null;
+                doShow(e);
+            }, SWITCH_DELAY_MS);
+        } else {
+            c.showTimer = setTimeout(function () {
+                c.showTimer = null;
+                doShow(e);
+            }, durationMs);
+        }
     });
 
     el.addEventListener('pointerleave', function (e) {
         if (e.pointerType && e.pointerType !== 'mouse') return;
-        doHide();
+
+        clearTimeout(c.leaveTimer);
+        c.leaveTimer = setTimeout(function () {
+            c.leaveTimer = null;
+            if (c.groupKey === groupKey) doHide();
+        }, LEAVE_GRACE_MS);
     });
 }
 
@@ -6562,7 +6635,8 @@ function renderTerminalProducts() {
                             prodInfoEl,
                             () => showProductImagePeek(prodIconEl, p),
                             () => hideProductImagePeek(),
-                            1000
+                            1000,
+                            p.code
                         );
                     });
                 }
