@@ -1,6 +1,205 @@
-[2026-08-24 04:46:25] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-24 04:46:28] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-24 05:14:41] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-24 05:14:44] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+Bulk image search error for OIL-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for OIL-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for OIL-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for OIL-004: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BRK-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BRK-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BRK-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BRK-004: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BRK-005: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CHN-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CHN-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for SPR-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for SPR-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for SPK-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for SPK-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for SPK-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for FIL-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for FIL-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for FIL-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BAT-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BAT-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BAT-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for TIR-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for TIR-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for TIR-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for TIR-004: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for TIR-005: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BLB-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BLB-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BLB-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CDI-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CDI-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CLU-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CLU-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for CLU-003: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BLT-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for BLT-002: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for GSK-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for PST-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for RGS-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for MIR-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for LVR-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for FTR-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for GRP-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for SHK-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for STR-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+Bulk image search error for REG-001: Error: SerpAPI Image Search error (HTTP 429).
+    at searchProductImages (/data/data/com.termux/files/home/OMNIPOS/server.js:2194:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:5735:37
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed

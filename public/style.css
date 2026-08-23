@@ -2366,6 +2366,30 @@ body.dark-mode .rank-row .rank-name {
     #quick-access-dock .qa-card:focus-visible {
         box-shadow: 0 10px 20px -8px rgba(15, 23, 42, 0.35);
     }
+
+    /* FIX: the dock also carries the shared ".ov-anim" fade-in class
+       (used by every Overview widget), whose "ovRiseIn" keyframes
+       animate the "transform" property to "translateY(0) scale(1)"
+       with "forwards" fill-mode. Because an element only has ONE
+       "transform" value, that animated end-state completely replaces
+       the "translateX(-50%)" set above (needed to center the dock on
+       "left:50%"), permanently pushing the whole dock to the right
+       half of the screen once the animation finishes. Giving the dock
+       its own keyframes that keep "translateX(-50%)" in both the
+       "from" and "to" states fixes the centering while preserving the
+       same rise-in motion. The shared rule is "#view-overview .ov-anim"
+       (1 ID + 1 class), so matching that specificity exactly would tie
+       and lose to source order; "#view-overview #quick-access-dock.ov-anim"
+       (2 IDs + 1 class) is deliberately higher so this always wins
+       regardless of where either rule sits in the file. */
+    #view-overview #quick-access-dock.ov-anim {
+        animation-name: qaDockRiseIn;
+    }
+}
+
+@keyframes qaDockRiseIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.985); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
 /* Respect reduced-motion users: keep the dock usable/visible, just
