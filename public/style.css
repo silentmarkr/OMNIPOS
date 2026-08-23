@@ -2892,6 +2892,25 @@ body.cart-pane-resizing-cursor {
     flex-shrink: 0;
 }
 
+@media screen and (min-width: 769px) {
+    /* Ilipat ang search box sa ibaba ng product pane (parallel/naka-freeze
+       katabi ng Charge row sa Cart pane) — gamit ang flex 'order' lang, hindi
+       kailangan galawin ang HTML. Ang grid lang (may sarili nang scroll) ang
+       gitna, kaya nananatiling frozen sa taas ang filter row + view-toggle
+       button, at frozen din sa ibaba ang search box. */
+    #terminal-product-pane #terminal-top-controls {
+        order: 3;
+        margin-top: 14px;
+        margin-bottom: 0;
+    }
+    #terminal-product-pane .category-header-row {
+        order: 1;
+    }
+    #terminal-product-pane .terminal-products-grid {
+        order: 2;
+    }
+}
+
 .terminal-top-controls .search-box-container {
     flex: 1;
     min-width: 220px;
@@ -6036,6 +6055,19 @@ body.dark-mode .bottom-nav-item:active {
     .tabs-container {
         justify-content: flex-start !important;
     }
+
+    #view-users .tabs-container {
+        position: sticky;
+        top: 69px;
+        z-index: 89;
+        background-color: #ffffff;
+        padding-top: 10px;
+        box-sizing: border-box;
+    }
+
+    body.dark-mode #view-users .tabs-container {
+        background-color: var(--dm-surface);
+    }
 }
 
 @media screen and (max-width: 768px) {
@@ -8638,6 +8670,33 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
         align-items: center;
         gap: 8px;
         margin-bottom: 14px;
+        /* I-freeze din ang filter row (category chips) + view-toggle button
+           sa mobile, kasabay ng search box na naka-freeze na sa ibaba
+           (.cart-checkout-sticky). Ginaya dito ang eksaktong paraan ng
+           pag-freeze noon: position:fixed (hindi sticky) — dahil
+           position:sticky pala ay hindi talaga nag-a-apply/gumagana dito
+           (may parent context na sumisira sa sticky), kaya fixed + explicit
+           top offset (katumbas ng taas ng .top-header) na lang, tulad
+           mismo ng ginawa sa cart-checkout-sticky sa ibaba. Dahil
+           tinatanggal ito sa normal flow, may margin-top ang
+           .terminal-products-grid sa ibaba para hindi matakpan ang unang
+           row ng products. */
+        position: fixed;
+        top: 69px;
+        left: 0;
+        right: 0;
+        z-index: 45;
+        background: var(--terminal-dark-bg, #121218);
+        padding: 10px 12px;
+        margin-bottom: 0;
+    }
+    .terminal-theme.terminal-daymode .category-header-row {
+        background: #f8fafc;
+    }
+    .terminal-theme .terminal-products-grid {
+        /* Reserbadong puwang para sa ngayo'y naka-fixed na .category-header-row
+           sa itaas (taas ng row mismo + dating gap papunta sa grid). */
+        margin-top: 60px;
     }
     .terminal-theme .category-chips-row {
         margin-bottom: 0;
@@ -8774,6 +8833,15 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     .terminal-theme .terminal-product-pane {
         padding: 12px 12px 16px;
     }
+
+    /* Kapag naka-relocate (via JS) ang search box dito — product view sa
+       mobile — may sarili nang margin-bottom ang #terminal-top-controls sa
+       mobile (10px) kaya may gap na bago ang TOTAL row. Kapag walang laman
+       (desktop, o cart view/drawer-expanded), itago para walang stray na gap. */
+}
+
+#mobile-terminal-search-slot:empty {
+    display: none;
 }
 
 @media screen and (max-width: 768px) {

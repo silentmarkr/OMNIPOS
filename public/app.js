@@ -666,10 +666,45 @@ async function refreshUnlockedThemesFromServer() {
             localStorage.setItem('posa_unlocked_themes_cache', JSON.stringify(data.unlockedThemeIds));
             renderThemeMenu();
             if (typeof renderTerminalThemeMenu ==='function') renderTerminalThemeMenu();
+            // Ngayon lang — pagkatapos ng totoong sagot ng server — dapat isipin
+            // kung i-downgrade ang naka-save na Terminal Pro theme. Bago nito
+            // (bago pa dumating ang sagot na 'to), palaging kino-keep na muna
+            // ang naka-save na pinili ng user sa applySavedTerminalExtraTheme().
+            if (sessionStorage.getItem('currentView') ==='terminal' && typeof revalidateTerminalThemeAfterUnlockSync ==='function') {
+                revalidateTerminalThemeAfterUnlockSync();
+            }
         }
     } catch (e) {
         console.warn('Could not fetch theme unlock status from the server, using cache instead.', e);
     }
+}
+
+function updateMetaThemeColor() {
+    const header = document.getElementById('app-top-header');
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!header || !metaThemeColor) return;
+
+    const bg = getComputedStyle(header).backgroundColor;
+    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        metaThemeColor.setAttribute('content', bg);
+    }
+}
+
+function initDynamicThemeColor() {
+    updateMetaThemeColor();
+
+    const observerOptions = { attributes: true, attributeFilter: ['class', 'data-theme', 'data-terminal-theme', 'data-ct-header', 'style'] };
+
+    new MutationObserver(updateMetaThemeColor).observe(document.documentElement, observerOptions);
+    new MutationObserver(updateMetaThemeColor).observe(document.body, observerOptions);
+
+    const header = document.getElementById('app-top-header');
+    if (header) {
+        new MutationObserver(updateMetaThemeColor).observe(header, { attributes: true, attributeFilter: ['class', 'data-terminal-theme'] });
+    }
+
+    // Failsafe kung sakaling may async na theme change na di na-catch ng mga observer sa itaas.
+    window.addEventListener('load', updateMetaThemeColor);
 }
 
 function initDarkMode() {
@@ -935,16 +970,47 @@ function setTerminalTheme(themeId) {
 
 // Re-applies whatever terminal-only theme (if any) was previously saved.
 // Called whenever the Terminal view is (re)loaded.
+//
+// IMPORTANT: hindi ito dapat mag-check ng isThemeUnlocked() dito, dahil sa
+// unang segundo ng pag-reload, ang lokal na "posa_unlocked_themes_cache" ay
+// maaaring hindi pa updated (kasabay pa lang natatawag ang
+// refreshUnlockedThemesFromServer() na async at hindi hinihintay). Kung
+// gagate natin dito, may posibilidad na basta na lang ma-delete yung naka-
+// save na napiling theme ng user kahit totoo namang naka-unlock ito — kaya
+// nawawala ito tuwing nag-re-refresh. Sa halip, i-restore muna agad ang
+// huling naka-save na pinili (dahil kumpirmado na 'to noong una itong napili),
+// at ang totoong pag-verify/downgrade (kung talaga namang na-revoke na ang
+// unlock) ay ginagawa na lang sa revalidateTerminalThemeAfterUnlockSync(),
+// pagkatapos ma-kumpirma ng totoong sagot ng server.
 function applySavedTerminalExtraTheme() {
     const savedId = getActiveTerminalThemeId();
     const theme = savedId ? THEME_CATALOG.find(t => t.id === savedId) : null;
-    if (theme && isThemeUnlocked(theme)) {
+
+    if (theme) {
         applyTerminalExtraTheme(savedId, { persist: false });
+    } else if (savedId) {
+        // Hindi na kilalang theme id (halimbawa: tinanggal na sa catalog) — safe i-clear.
+        localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
+        applyTerminalExtraTheme('', { persist: false });
     } else {
-        if (savedId) localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
         applyTerminalExtraTheme('', { persist: false });
     }
     renderTerminalThemeMenu();
+}
+
+// Tinatawag lang PAGKATAPOS ng totoong (awaited) sagot ng server tungkol sa
+// unlocked themes. Dito lang dapat mangyari ang pag-downgrade/pag-clear ng
+// naka-save na Terminal theme — at kapag kumpirmado na talagang hindi na ito
+// unlocked, hindi dahil sa boot-time na race/stale cache.
+function revalidateTerminalThemeAfterUnlockSync() {
+    const savedId = getActiveTerminalThemeId();
+    if (!savedId) return;
+    const theme = THEME_CATALOG.find(t => t.id === savedId);
+    if (!theme || !isThemeUnlocked(theme)) {
+        localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
+        applyTerminalExtraTheme('', { persist: false });
+        renderTerminalThemeMenu();
+    }
 }
 
 function toggleTerminalThemesSubmenu(event) {
@@ -2199,6 +2265,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setupDropdownHandlers();
     initDarkMode();
+    initDynamicThemeColor();
     initCustomTheme();
     refreshUnlockedThemesFromServer();
     refreshUnlockedFeaturesFromServer();
@@ -2207,11 +2274,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sessionStorage.getItem('currentView') ==='terminal' && typeof applySavedTerminalExtraTheme ==='function') {
         applySavedTerminalExtraTheme();
     }
+    if (sessionStorage.getItem('currentView') ==='terminal' && typeof relocateTerminalSearchForMobile ==='function') {
+        relocateTerminalSearchForMobile();
+    }
+    window.addEventListener('resize', () => {
+        if (sessionStorage.getItem('currentView') ==='terminal' && typeof relocateTerminalSearchForMobile ==='function') {
+            relocateTerminalSearchForMobile();
+        }
+    });
     initDemoModeUI();
     initNetworkStatusIndicator();
     initInstallAppBanner();
     initAuthDeviceScaling();
     initFullscreenToggleButton();
+    initHeaderDoubleTapFullscreen();
 
     const sidebar = document.querySelector('.sidebar');
     if (sidebar) {
@@ -2393,9 +2469,12 @@ function switchView(viewKey, opts) {
 
     if (viewKey ==='reorder') { startReorderPolling(); } else { stopReorderPolling(); }
 
+    if (viewKey ==='users' && typeof centerActiveUserTab ==='function') { centerActiveUserTab(); }
+
     if (viewKey ==='terminal') {
         applySavedTerminalDayMode();
         if (typeof applySavedTerminalExtraTheme ==='function') applySavedTerminalExtraTheme();
+        if (typeof relocateTerminalSearchForMobile ==='function') relocateTerminalSearchForMobile();
     } else {
         document.body.classList.remove('terminal-modal-daymode');
         document.body.removeAttribute('data-terminal-theme');
@@ -3702,6 +3781,30 @@ function toggleCustomerPane() {
     if (btn) btn.setAttribute('aria-expanded', isNowExpanded ?'true' :'false');
 }
 
+// Sa mobile view ng Terminal: kapag naka-show ang product grid/list (hindi
+// naka-drawer-expand ang cart), inililipat ang search box papunta sa loob ng
+// cart-checkout-sticky (sa itaas ng TOTAL row) — dahil dun palaging
+// nakikita/naka-freeze ito. Kapag naka-expand ang cart drawer (Cart pane ang
+// nakikita), o desktop naman ang lapad ng screen, ibinabalik ito sa orihinal
+// nitong pwesto sa loob ng Product pane — walang binabago doon.
+function relocateTerminalSearchForMobile() {
+    const topControls = document.getElementById('terminal-top-controls');
+    const slot = document.getElementById('mobile-terminal-search-slot');
+    const productPane = document.getElementById('terminal-product-pane');
+    const terminalSection = document.getElementById('view-terminal');
+    if (!topControls || !slot || !productPane || !terminalSection) return;
+
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const isDrawerExpanded = terminalSection.classList.contains('cart-drawer-expanded');
+    const shouldBeInSlot = isMobile && !isDrawerExpanded;
+
+    if (shouldBeInSlot) {
+        if (topControls.parentElement !== slot) slot.appendChild(topControls);
+    } else if (topControls.parentElement !== productPane) {
+        productPane.insertBefore(topControls, productPane.firstChild);
+    }
+}
+
 function toggleCartDrawer() {
     const terminalSection = document.getElementById('view-terminal');
     const btn = document.getElementById('btn-cart-drawer-toggle');
@@ -3731,6 +3834,8 @@ function toggleCartDrawer() {
         searchInput.disabled = isNowExpanded && isMobileDrawerView;
         if (searchInput.disabled) searchInput.blur();
     }
+
+    relocateTerminalSearchForMobile();
 }
 
 function setupDropdownHandlers() {
@@ -13070,6 +13175,27 @@ function updateUsersTabVisibility() {
     }
 }
 
+function centerActiveUserTab(activeBtn) {
+    if (!isMobileOrTabletScreen()) return;
+
+    const container = document.querySelector('#view-users .tabs-container');
+    if (!container) return;
+
+    const btn = activeBtn || container.querySelector('.tab-btn.active');
+    if (!btn) return;
+
+    requestAnimationFrame(() => {
+        if (container.scrollWidth <= container.clientWidth) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        const btnCenterRelativeToContainer = (btnRect.left - containerRect.left) + (btnRect.width / 2);
+        const targetScrollLeft = container.scrollLeft + btnCenterRelativeToContainer - (containerRect.width / 2);
+
+        container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
+    });
+}
+
 function switchUserTab(tabId, element) {
 
     if (Object.prototype.hasOwnProperty.call(USER_TAB_PERMISSION_MAP, tabId) && !isUserTabAllowed(tabId)) {
@@ -13095,6 +13221,7 @@ function switchUserTab(tabId, element) {
     document.getElementById(tabId).style.display ='flex';
     if (element) {
         element.classList.add('active');
+        centerActiveUserTab(element);
     }
 }
 
@@ -13114,6 +13241,14 @@ function initUsersViewSwipeTabs() {
 
     function isInsideHorizontalScroller(target) {
         if (!target || typeof target.closest !== 'function') return false;
+
+        // Sliding along the tab bar itself should only scroll the tabs, never switch pages.
+        if (target.closest('.tabs-container')) return true;
+
+        // Dragging on adjustment controls (range sliders, dropdowns, text fields) should
+        // never be interpreted as a swipe-to-change-tab gesture.
+        if (target.closest('input, select, textarea')) return true;
+
         const scroller = target.closest('.table-container, .permission-matrix-scroll');
         if (!scroller) return false;
         return scroller.scrollWidth > scroller.clientWidth + 1;
@@ -16207,6 +16342,55 @@ function initFullscreenToggleButton() {
     updateFullscreenButtonUI();
 }
 
+function isHeaderInteractiveTarget(target) {
+    if (!target || typeof target.closest !== 'function') return false;
+    // Anumang button, link, o element na may sariling onclick/role — huwag
+    // patakbuhin ang fullscreen toggle dito (logo, hamburger, bell, user menu, atbp.)
+    return !!target.closest('button, a, [role="button"], [onclick], input, select, textarea, .header-user-menu-wrap, #header-user-dropdown');
+}
+
+function initHeaderDoubleTapFullscreen() {
+    const header = document.getElementById('app-top-header');
+    if (!header) return;
+
+    // Desktop: native double-click
+    header.addEventListener('dblclick', (e) => {
+        if (isHeaderInteractiveTarget(e.target)) return;
+        toggleAppFullscreen();
+    });
+
+    // Mobile: manual double-tap detection — hindi laging maaasahang mag-fire
+    // ang native "dblclick" mula sa dalawang magkasunod na tap sa touchscreen.
+    const DOUBLE_TAP_MAX_DELAY = 350;
+    const DOUBLE_TAP_MAX_MOVE = 20;
+    let lastTapTime = 0;
+    let lastTapX = 0;
+    let lastTapY = 0;
+
+    header.addEventListener('touchend', (e) => {
+        if (isHeaderInteractiveTarget(e.target)) {
+            lastTapTime = 0;
+            return;
+        }
+        if (!e.changedTouches || !e.changedTouches.length) return;
+
+        const touch = e.changedTouches[0];
+        const now = Date.now();
+        const movedX = Math.abs(touch.clientX - lastTapX);
+        const movedY = Math.abs(touch.clientY - lastTapY);
+
+        if (lastTapTime && (now - lastTapTime) <= DOUBLE_TAP_MAX_DELAY && movedX <= DOUBLE_TAP_MAX_MOVE && movedY <= DOUBLE_TAP_MAX_MOVE) {
+            lastTapTime = 0;
+            e.preventDefault();
+            toggleAppFullscreen();
+        } else {
+            lastTapTime = now;
+            lastTapX = touch.clientX;
+            lastTapY = touch.clientY;
+        }
+    });
+}
+
 let deferredInstallPromptEvent = null;
 
 function initInstallAppBanner() {
@@ -16457,7 +16641,22 @@ function triggerSystemRestore() {
                         backupData: parsedBackupData
                     })
                 })
-                .then(res => res.json())
+                .then(async (res) => {
+                    let data = null;
+                    try {
+                        data = await res.json();
+                    } catch (parseErr) {
+                        // May sagot ang server (hindi ito network failure) pero hindi
+                        // JSON yung laman — karaniwang dahilan: sobrang laki ng file.
+                        throw new Error(res.ok
+                            ?'Hindi mabasa ang sagot ng server.'
+                            : `Tinanggihan ng server ang request (status ${res.status}). Maaaring sobrang laki ng backup file.`);
+                    }
+                    if (!res.ok) {
+                        throw new Error((data && data.message) || `Tinanggihan ng server ang request (status ${res.status}).`);
+                    }
+                    return data;
+                })
                 .then(data => {
                     if (data.success) {
                         Swal.fire({
@@ -16473,7 +16672,12 @@ function triggerSystemRestore() {
                 })
                 .catch(err => {
                     console.error(err);
-                    Swal.fire('Server Connection Error','There was a problem connecting to the server. Make sure server.js is running.','error');
+                    if (err instanceof TypeError) {
+                        // Totoong hindi-maabot ang server (offline/hindi tumatakbo).
+                        Swal.fire('Server Connection Error','There was a problem connecting to the server. Make sure server.js is running.','error');
+                    } else {
+                        Swal.fire('Restore Failed', err.message ||'May problema sa pag-restore. Subukan ulit.','error');
+                    }
                 });
 
             } catch (err) {

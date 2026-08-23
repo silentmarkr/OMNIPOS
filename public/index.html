@@ -639,6 +639,7 @@
                                     <input type="number" id="cart-discount-input" value="0" min="0" oninput="handleManualDiscountInput()" autocomplete="off">
                                 </div>
                                 <div class="cart-checkout-sticky">
+                                    <div class="mobile-terminal-search-slot" id="mobile-terminal-search-slot"></div>
                                     <div class="summary-total-row">
                                         <span>TOTAL</span>
                                         <button class="btn-cart-drawer-toggle" id="btn-cart-drawer-toggle" onclick="toggleCartDrawer()" title="Ipakita/Itago ang Cart at Customer">
@@ -653,7 +654,7 @@
                         </div>
 
                         <div class="terminal-product-pane" id="terminal-product-pane">
-                            <div class="terminal-top-controls">
+                            <div class="terminal-top-controls" id="terminal-top-controls">
                                 <div class="search-box-container">
                                     <input type="text" id="terminal-search" placeholder="Search product name or ID..." oninput="renderTerminalProducts()" autocomplete="off">
                                     <button class="btn-scan-qr scan-icon-floating" onclick="openQRScanner()" title="Scan QR">

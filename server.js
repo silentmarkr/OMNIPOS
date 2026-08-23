@@ -229,7 +229,29 @@ app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
     }
 } : undefined));
 
-app.use(express.json({ limit:'2mb' }));
+app.use(express.json({ limit:'1gb' }));
+
+// Kapag na-reject ng body-parser yung request (halimbawa: sobrang laki ng
+// backup file na ipinadala, o sira ang JSON), default na plain-text/HTML na
+// error page ang ibabalik ni Express — na hindi nababasa ng res.json() sa
+// client, kaya nagiging misleading yung "Server Connection Error / Make sure
+// server.js is running" kahit tumatakbo naman talaga ang server. Dito, sinisigurado
+// nating JSON pa rin ang isasagot para tama ang lalabas na error sa client.
+app.use((err, req, res, next) => {
+    if (err && err.type ==='entity.too.large') {
+        return res.status(413).json({
+            success: false,
+            message:'Masyadong malaki ang file/data na ipinadala. Paki-check ang laki ng backup file.'
+        });
+    }
+    if (err && (err.type ==='entity.parse.failed' || err instanceof SyntaxError)) {
+        return res.status(400).json({
+            success: false,
+            message:'Hindi mabasa ang datos na ipinadala — maaaring sira o maling format ang file.'
+        });
+    }
+    next(err);
+});
 
 app.use(express.static(path.join(__dirname,'public'), {
     etag: true,
