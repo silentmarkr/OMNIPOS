@@ -5,9 +5,28 @@ const fs = require('fs');
 const os = require('os');
 const { DatabaseSync } = require('node:sqlite');
 
-const DB_DIR = path.join(__dirname, 'database');
+// BUG FIX: dating laging path.join(__dirname, 'database') ang DB_DIR —
+// ibig sabihin nasa LOOB ng app code folder mismo ang buong database
+// (kasama ang installationId, hardwareFingerprint, deviceSeed sa
+// featureUnlocks). Sa Render (walang Persistent Disk), ephemeral ang
+// buong filesystem kada bagong deploy — bagong container, blangkong
+// disk — kaya mawawala ang database/ folder na ito at magge-generate
+// ng BAGONG installationId tuwing may git push + Render deploy, kahit
+// parehong service/parehong "device" naman ito.
+//
+// Ayos: pwede na ngayong i-override ang lokasyon ng database gamit ang
+// OMNIPOS_DATA_DIR env var — itakda ito sa mount path ng isang Render
+// Persistent Disk (hal. "/var/data") sa Render dashboard, para hindi
+// nasa loob ng ephemeral code folder ang database at hindi mawawala
+// kada deploy. Kung walang naka-set na OMNIPOS_DATA_DIR (hal. sa
+// Termux/local install), gagana pa rin ito nang eksaktong kagaya ng
+// dati (database/ sa loob ng app folder) — walang epekto sa mga
+// existing na installation.
+const DB_DIR = process.env.OMNIPOS_DATA_DIR
+    ? path.join(process.env.OMNIPOS_DATA_DIR, 'database')
+    : path.join(__dirname, 'database');
 if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR);
+    fs.mkdirSync(DB_DIR, { recursive: true });
 }
 const DB_PATH = path.join(DB_DIR, 'omnipos.db');
 

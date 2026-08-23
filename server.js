@@ -3458,6 +3458,19 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
             return res.status(402).json(relayData);
         }
 
+        // BUG FIX: kapag masyado nang malaki ang datos ng store (lumagpas sa
+        // limit ng RELAY para sa cloud-backup upload), tinutugunan na ito ng
+        // RELAY ng malinaw na JSON message (payloadTooLarge: true) sa halip
+        // na basta i-reject nang tahimik. Ipinapasa ito rito bilang sarili
+        // niyang 413 (hindi na lang generic 502), para makapag-display ang
+        // frontend ng malinaw na prompt sa user (tingnan ang message sa RELAY)
+        // sa halip na basta "cloud backup failed."
+        if (relayRes.status === 413 || relayData.payloadTooLarge) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'Masyado nang malaki ang datos para ma-backup sa cloud.';
+            return res.status(413).json({ success: false, payloadTooLarge: true, message: cloudBackupStatus.lastError });
+        }
+
         if (!relayData.success) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'Tinanggihan ng RELAY ang cloud backup upload.';
