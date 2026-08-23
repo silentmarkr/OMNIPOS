@@ -1697,6 +1697,13 @@
                         <span style="font-size:0.78rem; color:var(--text-muted);">Automatically prints the receipt (Bluetooth printer if paired, otherwise the normal Print dialog) after payment is confirmed — no need to press the "Print" button.</span>
                     </span>
                 </label>
+                <label style="display:flex; align-items:flex-start; gap:8px; font-size:0.88rem; cursor:pointer; user-select:none; margin-bottom:12px;">
+                    <input type="checkbox" id="rc-auto-cash-drawer-toggle" onchange="saveAutoOpenDrawerPreference()" style="margin-top:3px;" autocomplete="off">
+                    <span>
+                        <b>Auto-open cash drawer</b> <span style="font-size:0.75rem; color:#94a3b8;">(Bluetooth thermal printer)</span><br>
+                        <span style="font-size:0.78rem; color:var(--text-muted);">Right after a Cash (or partly-Cash split) sale is confirmed, sends a drawer-kick command through the paired Bluetooth printer — the same way the drawer's RJ11 cable normally gets triggered on real POS terminals. Card/GCash/Maya-only sales won't open it. No effect if no cash drawer is wired to your printer.</span>
+                    </span>
+                </label>
                 <label style="display:flex; align-items:flex-start; gap:8px; font-size:0.88rem; cursor:pointer; user-select:none;">
                     <input type="checkbox" id="rc-auto-cut-toggle" onchange="saveAutoCutPreference()" style="margin-top:3px;" autocomplete="off">
                     <span>

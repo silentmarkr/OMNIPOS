@@ -149,6 +149,35 @@ function isAutoCutEnabled() {
     return localStorage.getItem('omnipos_bt_autocut') !=='false';
 }
 
+// Standard ESC/POS cash-drawer "kick-out" command: ESC p m t1 t2 (0x1B 0x70 m t1 t2).
+// `m` selects which drawer connector pin fires (0 = pin 2, the common default on almost
+// all thermal printers' RJ11/RJ12 drawer port; 1 = pin 5, used by a minority of models).
+// t1/t2 are the pulse on/off timing in ~2ms units — 0x19/0xFA (25/250) is the widely
+// used default that reliably trips virtually every drawer solenoid on the market.
+function buildEscPosCashDrawerKickBytes(pin) {
+    const ESC = 0x1b;
+    const m = pin === 1 ? 0x01 : 0x00;
+    return [ESC, 0x70, m, 0x19, 0xfa];
+}
+
+async function openCashDrawerViaBluetooth() {
+    // Silent by design: this runs automatically after a cash sale, so a shop without
+    // a Bluetooth printer/cash drawer attached should never see an error popup for it.
+    if (!isWebBluetoothSupported()) return;
+
+    const connected = await ensureBtPrinterConnected();
+    if (!connected || !btPrinterCharacteristic) {
+        console.warn('[Cash Drawer] Skipped — no paired/connected Bluetooth printer.');
+        return;
+    }
+
+    try {
+        await writeBytesInChunks(btPrinterCharacteristic, buildEscPosCashDrawerKickBytes(0));
+    } catch (err) {
+        console.warn('[Cash Drawer] Kick command failed:', err);
+    }
+}
+
 function padLine(left, right, width) {
     left = escposText(left);
     right = escposText(right);

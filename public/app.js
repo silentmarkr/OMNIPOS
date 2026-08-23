@@ -8190,6 +8190,7 @@ async function submitFinalPaymentTransactionInner() {
 
             await renderInvoiceReceipt(output.currentTransaction || transactionPayload);
             triggerAutoPrintIfEnabled();
+            triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
 
             if (output.newLoyaltyCardToken && typeof showLoyaltyCardQrDisplay ==='function') {
                 showLoyaltyCardQrDisplay(output.newLoyaltyCardToken, selectedCartCustomer ? selectedCartCustomer.name :'', 'rotating',
@@ -8245,6 +8246,7 @@ async function submitFinalPaymentTransactionInner() {
         closeModal('payment-modal');
         await renderInvoiceReceipt(transactionPayload);
         triggerAutoPrintIfEnabled();
+        triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
 
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
 
@@ -8299,6 +8301,44 @@ function saveAutoCutPreference() {
     if (typeof Swal !=='undefined') {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-cut enabled' :'Auto-cut disabled', showConfirmButton:false, timer:1500 });
     }
+}
+
+function saveAutoOpenDrawerPreference() {
+    const toggle = document.getElementById('rc-auto-cash-drawer-toggle');
+    localStorage.setItem('omnipos_auto_open_drawer', toggle && toggle.checked ?'true' :'false');
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-open cash drawer enabled' :'Auto-open cash drawer disabled', showConfirmButton:false, timer:1500 });
+    }
+}
+
+function isAutoOpenDrawerEnabled() {
+    return localStorage.getItem('omnipos_auto_open_drawer') !=='false';
+}
+
+// A cash drawer is almost never wired directly to the computer/tablet — it's cabled
+// (RJ11/RJ12) into the back of the receipt printer instead. Opening it automatically
+// means sending a tiny "kick" command (industry-standard ESC/POS: 1B 70 00 19 FA) to
+// that connected printer, which then pulses power down the cable to trip the drawer's
+// solenoid latch. Since OmniPOS's only direct hardware channel today is the paired
+// Bluetooth thermal printer (see bt-printer.js), that's the path used here — the
+// regular browser Print dialog (window.print) has no way to reach real printer
+// hardware directly, so a drawer wired to a printer used only via that dialog can't
+// be triggered from here. Only fires for Cash (or a Cash portion of a Split payment),
+// mirroring how real POS terminals only pop the drawer when actual cash changes hands.
+function triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments) {
+    if (!isAutoOpenDrawerEnabled()) return;
+
+    const hasCashPortion = paymentMethodLabel ==='CASH' ||
+        (Array.isArray(payments) && payments.some(p => p && p.method ==='CASH'));
+    if (!hasCashPortion) return;
+
+    setTimeout(() => {
+        try {
+            if (typeof openCashDrawerViaBluetooth ==='function') {
+                openCashDrawerViaBluetooth();
+            }
+        } catch (e) { console.warn('Auto-open cash drawer failed:', e); }
+    }, 150);
 }
 
 function triggerAutoPrintIfEnabled() {
@@ -8606,6 +8646,8 @@ async function loadReceiptCustomizationPanel() {
     if (autoPrintToggle) autoPrintToggle.checked = localStorage.getItem('omnipos_auto_print_receipt') ==='true';
     const autoCutToggle = document.getElementById('rc-auto-cut-toggle');
     if (autoCutToggle) autoCutToggle.checked = localStorage.getItem('omnipos_bt_autocut') !=='false';
+    const autoDrawerToggle = document.getElementById('rc-auto-cash-drawer-toggle');
+    if (autoDrawerToggle) autoDrawerToggle.checked = localStorage.getItem('omnipos_auto_open_drawer') !=='false';
 
     const statusEl = document.getElementById('receipt-custom-status');
     const resetBtn = document.getElementById('rc-reset-counter-btn');
@@ -17580,6 +17622,116 @@ function isDesktopOrLaptopDevice() {
     const mobileTabletRegex =/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet|Silk/i;
     return !mobileTabletRegex.test(ua);
 }
+
+// ---- Global external barcode scanner auto-detect & auto-focus ----
+// Lets a cashier scan a barcode from anywhere on the page — no need to click/tap into
+// a search box first. Works on desktop, mobile, and tablet: a USB-OTG or Bluetooth
+// external barcode scanner registers with the OS as a keyboard (HID), so it produces
+// the exact same fast keystroke-then-Enter pattern on a phone/tablet as it does on a PC.
+// is open), a scanner-speed burst of keystrokes ending in Enter is treated as a scan and
+// automatically routed to whichever search box belongs to the page currently on screen
+// (Terminal, Product Inventory, or Transaction History), reusing the exact same
+// scan-handling logic those boxes already use. If the user has actually clicked into
+// any input/textarea (including one of these search boxes, or a form field inside a
+// modal like the barcode field on the Add/Edit Product screen), this router steps aside
+// so that field's own normal behavior/listener handles the keystrokes instead.
+let __globalScanBuffer ='';
+let __globalScanLastKeyTime = 0;
+let __globalScanResetId = null;
+const GLOBAL_SCAN_GAP_MS = 45;
+const GLOBAL_SCAN_MIN_LENGTH = 4;
+
+function isEditableElementFocused() {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag ==='INPUT' || tag ==='TEXTAREA' || tag ==='SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
+}
+
+function isAnyModalOpen() {
+    const overlays = document.querySelectorAll('.modal-overlay, .swal2-container');
+    for (let i = 0; i < overlays.length; i++) {
+        if (window.getComputedStyle(overlays[i]).display !=='none') return true;
+    }
+    return false;
+}
+
+function isViewVisible(viewId) {
+    const el = document.getElementById(viewId);
+    return !!el && window.getComputedStyle(el).display !=='none';
+}
+
+function handleHardwareScanGenericSearch(inputId, filterFnName, scannedCode) {
+    const cleanCode = (scannedCode ||'').trim();
+    if (!cleanCode) return;
+
+    const input = document.getElementById(inputId);
+    if (input) {
+        input.value = cleanCode;
+        input.focus();
+    }
+    if (typeof window[filterFnName] ==='function') window[filterFnName]();
+    if (typeof playScanBeep ==='function') playScanBeep();
+}
+
+function routeGlobalScannedCode(code) {
+    const cleanCode = (code ||'').trim();
+    if (!cleanCode) return;
+
+    if (isViewVisible('view-terminal')) {
+        const input = document.getElementById('terminal-search');
+        if (input) input.focus();
+        if (typeof handleHardwareScanTerminal ==='function') handleHardwareScanTerminal(cleanCode);
+    } else if (isViewVisible('view-products')) {
+        const input = document.getElementById('inventory-search');
+        if (input) input.focus();
+        if (typeof handleHardwareScanInventory ==='function') handleHardwareScanInventory(cleanCode);
+    } else if (isViewVisible('view-transactions')) {
+        const input = document.getElementById('tx-history-search');
+        if (input) input.focus();
+        if (typeof handleHardwareScanTransaction ==='function') handleHardwareScanTransaction(cleanCode);
+    } else if (isViewVisible('view-customers')) {
+        handleHardwareScanGenericSearch('customer-search-input','renderCustomersTable', cleanCode);
+    } else if (isViewVisible('view-debts')) {
+        handleHardwareScanGenericSearch('debt-search-input','renderDebtsTable', cleanCode);
+    } else if (isViewVisible('view-reorder')) {
+        handleHardwareScanGenericSearch('reorder-search-input','renderReorderTable', cleanCode);
+    }
+    // Any other page has no relevant search box, so there's nothing to auto-route to.
+}
+
+document.addEventListener('keydown', function (e) {
+    // Works on desktop AND mobile/tablet: Bluetooth or USB-OTG external barcode
+    // scanners identify themselves to the OS as a keyboard (HID), so they fire the
+    // exact same fast keystroke bursts on phones/tablets as they do on a PC keyboard.
+    // The on-screen virtual keyboard is unaffected since this only engages when
+    // nothing editable is focused (see isEditableElementFocused below).
+    if (isEditableElementFocused()) return;
+    if (isAnyModalOpen()) return;
+
+    const now = Date.now();
+    const delta = now - __globalScanLastKeyTime;
+    __globalScanLastKeyTime = now;
+
+    if (e.key ==='Enter') {
+        if (__globalScanBuffer.length >= GLOBAL_SCAN_MIN_LENGTH) {
+            e.preventDefault();
+            const scanned = __globalScanBuffer;
+            __globalScanBuffer ='';
+            routeGlobalScannedCode(scanned);
+        }
+        return;
+    }
+
+    if (e.key.length === 1) {
+        __globalScanBuffer = (delta <= GLOBAL_SCAN_GAP_MS) ? (__globalScanBuffer + e.key) : e.key;
+    }
+
+    if (__globalScanResetId) clearTimeout(__globalScanResetId);
+    __globalScanResetId = setTimeout(() => { __globalScanBuffer =''; }, 300);
+});
 
 function applyDeviceScanRestrictions() {
     const isDesktop = isDesktopOrLaptopDevice();
