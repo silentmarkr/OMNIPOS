@@ -3314,18 +3314,28 @@ body.cart-pane-resizing-cursor {
     gap: 4px;
     background: none;
     border: none;
-    color: #38bdf8;
+    color: #ffffff;
     font-size: 1.3rem;
     font-weight: 800;
     padding: 0;
     pointer-events: none;
     transform: rotate(-10deg);
+    -webkit-text-stroke: 1.4px #000000;
+    paint-order: stroke fill;
+    text-shadow:
+        -1.5px -1.5px 0 #000,
+        1.5px -1.5px 0 #000,
+        -1.5px  1.5px 0 #000,
+        1.5px  1.5px 0 #000,
+        0 0 6px rgba(0,0,0,0.85);
     filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
     animation: cartBadgePop 0.25s ease-out;
 }
 
 .t-prod-cart-badge i {
     font-size: 1.15rem;
+    -webkit-text-stroke: 1.4px #000000;
+    paint-order: stroke fill;
 }
 
 @keyframes cartBadgePop {
@@ -3335,8 +3345,9 @@ body.cart-pane-resizing-cursor {
 }
 
 .terminal-theme.terminal-daymode .t-prod-cart-badge {
-    color: #2563eb;
-    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.25));
+    color: #ffffff;
+    -webkit-text-stroke: 1.4px #000000;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35));
 }
 
 .prod-photo-upload-row {
@@ -10107,4 +10118,25 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
         min-width: 200px;
         right: -6px;
     }
+}
+
+/* Faster, smoother toast animation for external barcode scanner confirmations
+   (used on the Terminal/Search product screen) so back-to-back scans don't feel
+   delayed by the default toast fade/slide timing. */
+.scan-fast-toast.swal2-toast {
+    transition: none !important;
+}
+.scan-fast-toast-in {
+    animation: scanFastToastIn 0.12s ease-out !important;
+}
+.scan-fast-toast-out {
+    animation: scanFastToastOut 0.1s ease-in !important;
+}
+@keyframes scanFastToastIn {
+    0%   { transform: translateY(-10px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes scanFastToastOut {
+    0%   { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(-10px); opacity: 0; }
 }

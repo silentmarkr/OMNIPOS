@@ -656,7 +656,7 @@
                         <div class="terminal-product-pane" id="terminal-product-pane">
                             <div class="terminal-top-controls" id="terminal-top-controls">
                                 <div class="search-box-container">
-                                    <input type="text" id="terminal-search" placeholder="Search product name or ID..." oninput="renderTerminalProducts()" autocomplete="off">
+                                    <input type="text" id="terminal-search" placeholder="Search product name or ID..." oninput="onTerminalSearchInput()" onkeydown="onTerminalSearchKeydown(event)" autocomplete="off">
                                     <button class="btn-scan-qr scan-icon-floating" onclick="openQRScanner()" title="Scan QR">
                                         <i class="fa-solid fa-qrcode"></i>
                                     </button>

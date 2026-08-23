@@ -6556,6 +6556,59 @@ function getCategoryIconClass(category) {
     return iconDictionary[category] ||'fa-solid fa-box';
 }
 
+// ---- Terminal search: distinguish external barcode scanner input from manual typing ----
+// Hardware scanners "type" each character extremely fast (usually <15ms apart) since
+// they're a keyboard-wedge device blasting the full code in one burst, then Enter.
+// A human typing on a keyboard is almost always slower than that between keystrokes.
+// We use this timing gap to detect a scan in progress and skip live filtering entirely
+// while it happens, so the product pane never flickers/filters mid-scan. Manual typing
+// (slower, natural pauses) still filters normally and instantly.
+let __termSearchLastKeyTime = 0;
+let __termSearchIsScan = false;
+let __termSearchResetId = null;
+let __termSearchDebounceId = null;
+const TERM_SEARCH_SCAN_GAP_MS = 45; // max ms between keystrokes to be considered "scanner speed"
+const TERM_SEARCH_FILTER_DELAY_MS = 40; // tiny grace delay so a scan's 1st char never flickers the grid
+
+function onTerminalSearchKeydown(e) {
+    const now = Date.now();
+    const delta = now - __termSearchLastKeyTime;
+    __termSearchLastKeyTime = now;
+
+    if (e.key === 'Enter') {
+        // Enter is handled by the hardware-scanner listener (adds to cart / clears search).
+        // Reset scan-tracking state right away so the next input starts clean.
+        __termSearchIsScan = false;
+        if (__termSearchDebounceId) { clearTimeout(__termSearchDebounceId); __termSearchDebounceId = null; }
+        return;
+    }
+
+    if (e.key.length === 1) {
+        if (delta <= TERM_SEARCH_SCAN_GAP_MS) {
+            __termSearchIsScan = true;
+            // A scan is confirmed in progress — cancel any pending manual-search filter render.
+            if (__termSearchDebounceId) { clearTimeout(__termSearchDebounceId); __termSearchDebounceId = null; }
+        } else {
+            __termSearchIsScan = false;
+        }
+    }
+
+    if (__termSearchResetId) clearTimeout(__termSearchResetId);
+    __termSearchResetId = setTimeout(() => { __termSearchIsScan = false; }, 300);
+}
+
+function onTerminalSearchInput() {
+    if (__termSearchIsScan) {
+        // Likely mid-scan: don't touch the product grid at all until we know otherwise.
+        return;
+    }
+    if (__termSearchDebounceId) clearTimeout(__termSearchDebounceId);
+    __termSearchDebounceId = setTimeout(() => {
+        // Re-check right before rendering in case the next keystroke just revealed a scan.
+        if (!__termSearchIsScan) renderTerminalProducts();
+    }, TERM_SEARCH_FILTER_DELAY_MS);
+}
+
 function renderTerminalProducts() {
 
     hideProductImagePeek();
@@ -17628,24 +17681,32 @@ async function handleHardwareScanTerminal(scannedCode) {
             Swal.fire({
                 toast: true, position:'top-end', icon:'error',
                 title: `Out of stock: ${product.name}`,
-                showConfirmButton: false, timer: 2000, timerProgressBar: true
+                showConfirmButton: false, timer: 1200, timerProgressBar: true,
+                customClass: { popup:'scan-fast-toast' },
+                showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
             });
             return;
         }
 
+        // Add to cart immediately — the confirmation toast below is purely informational
+        // and never blocks or delays the item from landing in the cart.
         addItemToCart(product);
         if (typeof playScanBeep ==='function') playScanBeep();
 
         Swal.fire({
             toast: true, position:'top-end', icon:'success',
             title: `Naidagdag sa cart: ${product.name}`,
-            showConfirmButton: false, timer: 1500, timerProgressBar: true
+            showConfirmButton: false, timer: 800, timerProgressBar: true,
+            customClass: { popup:'scan-fast-toast' },
+            showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
         });
     } else {
         Swal.fire({
             toast: true, position:'top-end', icon:'warning',
             title: `No product matches the code: ${cleanCode}`,
-            showConfirmButton: false, timer: 2000, timerProgressBar: true
+            showConfirmButton: false, timer: 1500, timerProgressBar: true,
+            customClass: { popup:'scan-fast-toast' },
+            showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
         });
     }
 }
