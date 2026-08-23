@@ -18143,6 +18143,81 @@ function initQuickAccessFishEye() {
 }
 document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
 
+// ============================================================
+// Quick Access floating dock — width sync with Overview siblings
+// Makes the floating dock's width match its Overview siblings —
+// e.g. the Sales Trend card — exactly, instead of the old fixed
+// ~680px guess, while keeping it centered at the bottom of the
+// screen. Recomputes on load, on window resize, and via
+// ResizeObserver whenever the reference card's rendered size
+// changes (sidebar width change, zoom, font-load reflow, switching
+// back into the Overview view, etc.). Only ever touches
+// #quick-access-dock; a no-op if that element or its reference
+// sibling isn't present, and it removes its own sync state below
+// the desktop breakpoint so the CSS fallback (centered, capped
+// width) takes over on tablet/mobile untouched.
+// ============================================================
+(function initQuickAccessDockWidthSync() {
+    const dock = document.getElementById('quick-access-dock');
+    if (!dock) return;
+
+    const desktopQuery = window.matchMedia('(min-width: 1025px)');
+    let rafId = null;
+
+    function getReferenceCard() {
+        return document.getElementById('ov-adv-chart-card') ||
+            document.querySelector('#view-overview .overview-trend-card');
+    }
+
+    function syncDockWidth() {
+        if (!desktopQuery.matches) {
+            dock.classList.remove('qa-dock-synced');
+            dock.style.removeProperty('--qa-dock-width');
+            return;
+        }
+        const ref = getReferenceCard();
+        if (!ref) return;
+        const rect = ref.getBoundingClientRect();
+        if (!rect.width) return; // Overview isn't the active view right now
+        dock.style.setProperty('--qa-dock-width', rect.width + 'px');
+        dock.classList.add('qa-dock-synced');
+    }
+
+    function requestSync() {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(syncDockWidth);
+    }
+
+    window.addEventListener('resize', requestSync, { passive: true });
+    window.addEventListener('load', requestSync);
+
+    if (typeof desktopQuery.addEventListener === 'function') {
+        desktopQuery.addEventListener('change', requestSync);
+    } else if (typeof desktopQuery.addListener === 'function') {
+        desktopQuery.addListener(requestSync); // Safari/older-browser fallback
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(requestSync);
+        ro.observe(document.body);
+        const ref = getReferenceCard();
+        if (ref) ro.observe(ref);
+    }
+
+    // Re-sync whenever the app navigates back into Overview, since the
+    // reference card reports zero width while its view is hidden.
+    if (typeof window.switchView === 'function') {
+        const originalSwitchView = window.switchView;
+        window.switchView = function (viewKey, opts) {
+            const result = originalSwitchView.apply(this, arguments);
+            requestSync();
+            return result;
+        };
+    }
+
+    requestSync();
+})();
+
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')
