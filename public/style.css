@@ -2240,6 +2240,114 @@ body.dark-mode .rank-row .rank-name {
     border-color: #bfdbfe;
 }
 
+/* ============================================================
+   Floating "Quick Access" dock (Desktop only)
+   Scoped to #quick-access-dock inside #view-overview specifically,
+   gated to (min-width:1025px) so tablet/mobile keep the original
+   static grid layout untouched. Nothing here overrides styles
+   outside this ID, so no other screen/component is affected.
+   ============================================================ */
+@media screen and (min-width: 1025px) {
+    /* Reserve room at the bottom of the Overview page so the fixed
+       dock never covers the last card/section while scrolling. */
+    #view-overview {
+        padding-bottom: 96px;
+    }
+
+    /* The heading is redundant once the grid becomes a self-explanatory
+       floating dock, so it's hidden here only (desktop Overview) —
+       it still shows normally on tablet/mobile. */
+    #quick-access-title {
+        display: none;
+    }
+
+    #quick-access-dock {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        z-index: 400;
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        grid-template-columns: none;
+        gap: 10px;
+        width: max-content;
+        max-width: min(680px, calc(100vw - 300px));
+        padding: 10px 16px;
+        overflow-x: auto;
+        overflow-y: visible;
+        scrollbar-width: none;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        box-shadow: 0 18px 38px -14px rgba(15, 23, 42, 0.28), 0 3px 10px -2px rgba(15, 23, 42, 0.08);
+        -webkit-backdrop-filter: blur(18px) saturate(180%);
+        backdrop-filter: blur(18px) saturate(180%);
+    }
+
+    #quick-access-dock::-webkit-scrollbar {
+        display: none;
+    }
+
+    #quick-access-dock .qa-card {
+        flex: 0 0 auto;
+        width: 66px;
+        /* !important here on purpose: Custom Theme Studio's Density
+           setting (compact/spacious) targets ".qa-card" globally with
+           !important (see css/themes/custom-theme.css, loaded AFTER
+           this file). Without matching !important + this ID-scoped
+           selector's higher specificity, a Spacious/Compact density
+           choice would blow up (or shrink) the dock's icon slots and
+           break the compact floating-dock look. Everything else about
+           the active theme/preset — accent color, border color, card
+           style (flat/glass/bordered), corner radius — is intentionally
+           LEFT UN-forced below, so those still flow through normally. */
+        padding: 10px 6px 8px !important;
+        border-radius: 14px;
+        gap: 4px;
+        transform-origin: bottom center;
+        will-change: transform;
+    }
+
+    #quick-access-dock .qa-card p {
+        font-size: 0.6rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    #quick-access-dock .qa-card i {
+        font-size: 1.25rem;
+    }
+
+    /* The fish-eye magnification itself is driven by JS (see app.js,
+       initQuickAccessFishEye), which only sets an inline transform on
+       .qa-card while the pointer is over the dock. This transition is
+       what makes those JS-driven scale/lift updates feel smooth — it
+       reuses the same springy easing already used elsewhere in Overview
+       (see #view-overview .qa-card above) so the dock matches the rest
+       of the app's motion language instead of introducing a new one. */
+    #quick-access-dock .qa-card {
+        transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease;
+    }
+
+    #quick-access-dock .qa-card:hover,
+    #quick-access-dock .qa-card:focus-visible {
+        box-shadow: 0 10px 20px -8px rgba(15, 23, 42, 0.35);
+    }
+}
+
+/* Respect reduced-motion users: keep the dock usable/visible, just
+   remove the magnification motion so nothing "moves" unexpectedly. */
+@media screen and (min-width: 1025px) and (prefers-reduced-motion: reduce) {
+    #quick-access-dock .qa-card {
+        transition: none !important;
+        transform: none !important;
+    }
+}
+
 @keyframes ovRiseIn {
     from { opacity: 0; transform: translateY(14px) scale(0.985); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -3329,7 +3437,10 @@ body.cart-pane-resizing-cursor {
         1.5px  1.5px 0 #000,
         0 0 6px rgba(0,0,0,0.85);
     filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
-    animation: cartBadgePop 0.25s ease-out;
+    /* Blink/pop-in animation intentionally disabled: the badge is re-rendered
+       on every cart change (even for products the user isn't touching), which
+       made it look like it was blinking. It now just appears at its resting
+       state below (no animation), with zero effect on any other element. */
 }
 
 .t-prod-cart-badge i {

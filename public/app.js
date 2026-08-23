@@ -18060,6 +18060,89 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 })();
 
+// ============================================================
+// Quick Access floating dock — desktop "fish-eye" hover effect
+// (mirrors a macOS-dock-style magnification). Fully self-contained:
+// it only ever touches elements inside #quick-access-dock, only
+// runs when #quick-access-dock exists in the DOM, and only applies
+// its effect when the matchMedia check below matches (desktop width
+// + a real mouse/trackpad). On any other screen, or if the dock
+// markup isn't present, this function does nothing and exits early
+// — so it cannot affect mobile/tablet layout, the terminal view, or
+// any other part of the app.
+function initQuickAccessFishEye() {
+    const dock = document.getElementById('quick-access-dock');
+    if (!dock) return;
+
+    const fishEyeActive = window.matchMedia('(min-width: 1025px) and (hover: hover) and (pointer: fine)');
+    const MAX_SCALE = 1.5;   // magnification at the exact pointer position
+    const LIFT_PX = 16;      // how far the magnified icon rises
+    const INFLUENCE_PX = 95; // how far (in px) neighboring icons still feel the effect
+
+    let rafId = null;
+
+    function resetCards() {
+        dock.querySelectorAll('.qa-card').forEach((card) => {
+            card.style.transform = '';
+            card.style.zIndex = '';
+        });
+    }
+
+    function applyFishEye(pointerX) {
+        const cards = dock.querySelectorAll('.qa-card');
+        cards.forEach((card) => {
+            const rect = card.getBoundingClientRect();
+            const cardCenterX = rect.left + rect.width / 2;
+            const distance = Math.abs(pointerX - cardCenterX);
+
+            if (distance >= INFLUENCE_PX) {
+                card.style.transform = '';
+                card.style.zIndex = '';
+                return;
+            }
+
+            const proximity = 1 - (distance / INFLUENCE_PX); // 0..1, 1 = right under the pointer
+            const scale = 1 + (MAX_SCALE - 1) * proximity;
+            const lift = LIFT_PX * proximity;
+
+            card.style.transform = `translateY(-${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`;
+            card.style.zIndex = proximity > 0.05 ? '2' : '';
+        });
+    }
+
+    function onPointerMove(e) {
+        if (!fishEyeActive.matches) return;
+        const pointerX = e.clientX;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => applyFishEye(pointerX));
+    }
+
+    function onPointerLeave() {
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        resetCards();
+    }
+
+    dock.addEventListener('mousemove', onPointerMove, { passive: true });
+    dock.addEventListener('mouseleave', onPointerLeave, { passive: true });
+
+    // If the window is resized/rotated across the desktop breakpoint
+    // (or a mouse gets disconnected on a touch device), immediately
+    // drop any leftover magnification so nothing is left mid-scale.
+    const handleMediaChange = (ev) => {
+        if (!ev.matches) resetCards();
+    };
+    if (typeof fishEyeActive.addEventListener === 'function') {
+        fishEyeActive.addEventListener('change', handleMediaChange);
+    } else if (typeof fishEyeActive.addListener === 'function') {
+        // Safari/older-browser fallback
+        fishEyeActive.addListener(handleMediaChange);
+    }
+}
+document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
+
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')
