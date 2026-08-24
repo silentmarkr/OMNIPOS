@@ -3020,7 +3020,7 @@ const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
     // binagong file — false positive kada check-in.
     '.env', '.env.key', 'database', 'node_modules', 'uploads_tmp',
     '.git', 'release', 'cf.log', 'server.log', '.start.sh.lock',
-    '.self-update-backup'
+    '.self-update-backup', 'package-lock.json', 'certs'
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
 
@@ -9365,6 +9365,24 @@ async function startOmniposServer() {
             });
         });
     } else {
+        // BUG FIX (root cause ng "hindi mag-run nang ayos" / crash-loop
+        // sa start.sh): dati, walang .on('error', ...) sa plain-HTTP
+        // app.listen() dito (may error handler na lang ang HTTPS branch
+        // sa itaas). Kapag may lumang/orphaned server.js pa ring
+        // nakabuhol sa PORT (halimbawa: nag-Stop o nag-Restart gamit
+        // ang widget pero hindi pa talaga natapos i-kill ang dating
+        // proseso bago mag-restart), ang listen() ay naglalabas ng
+        // EADDRINUSE na error na WALANG naghihintay na listener dito —
+        // nagiging isang unhandled 'error' event ito sa EventEmitter,
+        // na agad nagpapa-crash (uncaught exception) ng buong process.
+        // Ito ang eksaktong crash-loop na nakikita sa
+        // logs/supervisor.log (paulit-ulit na crash bawat ~5s, walang
+        // "Server running..." na sumusulpot sa pagitan) — dahil bawat
+        // pagsubok ng supervisor loop ay bumabangga rin agad sa parehong
+        // nakaharang na PORT.
+        // Ayos: hulihin ang 'error' event, ilabas nang malinaw kung ano
+        // talaga ang problema (lalo na EADDRINUSE), tapos mag-exit(1) sa
+        // paraang malinaw — sa halip na basta mag-crash nang tahimik.
         app.listen(PORT, HOST, () => {
             console.log(`Server running at http://${HOST}:${PORT}`);
             if (isProduction) {
@@ -9372,6 +9390,13 @@ async function startOmniposServer() {
             } else {
                 console.log("MODE: Development (Localhost Access Only)");
             }
+        }).on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.error(`❌ Hindi ma-start ang server — GINAGAMIT NA ang PORT ${PORT} (malamang may dati/orphaned na server.js process na hindi pa talaga namatay). Patayin muna ang lumang proseso ("pkill -9 -f 'node server.js'") bago subukan ulit.`);
+            } else {
+                console.error('❌ Nabigo ang pag-start ng HTTP server:', err.message);
+            }
+            process.exit(1);
         });
     }
 
