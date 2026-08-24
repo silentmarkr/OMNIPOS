@@ -222,15 +222,10 @@ echo ""
             # "localhost" (not "127.0.0.1") is required for WebAuthn/
             # Fingerprint Login to work as a valid RP ID.
             URL="http://localhost:3000/"
-            # Launch the installed PWA (WebAPK) directly if present, to
-            # skip the "choose OmniPOS or Chrome" chooser; otherwise
-            # fall back to the browser.
-            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
-            if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
-                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
-            fi
-            sleep 1
-            am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+            # IMPORTANT: Do NOT force a WebAPK/PWA and do NOT send HOME.
+            # Android may show "Choose OmniPOS or Chrome". Leave that
+            # chooser open so the user can actually select an app.
+            command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
             break
         fi
         sleep 0.5
@@ -302,12 +297,9 @@ echo ""
     for i in $(seq 1 60); do
         if curl -s -o /dev/null http://localhost:3000/; then
             URL="http://localhost:3000/"
-            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
-            if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
-                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
-            fi
-            sleep 1
-            am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+            # Do not force the installed PWA and do not close the Android
+            # app chooser. The user can choose OmniPOS or Chrome normally.
+            command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
             break
         fi
         sleep 0.5
@@ -364,14 +356,9 @@ echo ""
     fi
 
     LOCAL_URL="http://localhost:3000/"
-    WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
-    if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$LOCAL_URL" >/dev/null 2>&1; then
-        command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$LOCAL_URL"
-    fi
+    # Do not force WebAPK/PWA and do not close the chooser.
+    command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$LOCAL_URL"
     command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Server ready: $LOCAL_URL"
-
-    sleep 20
-    am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
 ) &
 disown
 
@@ -559,7 +546,7 @@ if [ "$PLATFORM" = "termux" ]; then
     echo "  3. Find and drag 'Termux:Widget' — 4 TIMES (once per shortcut)"
     echo "  4. Choose 'Start-OmniPOS', 'Stop-OmniPOS', 'Restart-OmniPOS', and 'OmniPOS-LAN'"
     echo ""
-    echo "  - 'Start-OmniPOS'   = normal, same device only (localhost)"
+    echo "  - 'Start-OmniPOS'   = normal, same device only (localhost; Android app chooser stays open)"
     echo "  - 'OmniPOS-LAN'     = can be accessed by ANOTHER device (same WiFi)"
     echo "  - 'Stop-OmniPOS'    = to stop the server if needed"
     echo "  - 'Restart-OmniPOS' = one tap to restart (stops first, then starts again)"
@@ -608,55 +595,16 @@ if [ "$PLATFORM" = "termux" ]; then
 
     command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 
-    # Note: the OmniPOS PWA cannot be silently installed by a script —
-    # Android requires one manual tap on "Install app"/"Add to Home
-    # screen" in the browser, as a security restriction with no
-    # workaround. Once installed, it is auto-detected and used instead
-    # of the browser on every subsequent launch (Start/Restart/
-    # OmniPOS-LAN widgets, and here) — no chooser dialog.
-    if ! pm list packages 2>/dev/null | grep -q 'org\.chromium\.webapk\.'; then
-        echo "💡 Tip: on first launch, tap \"Install app\"/\"Add to Home screen\""
-        echo "   in the browser to make OmniPOS a standalone app (no address"
-        echo "   bar, opens directly next time, no more \"choose OmniPOS or"
-        echo "   Chrome\" prompt)."
-        echo ""
-    fi
-
-    # Background helper: waits for the server, opens OmniPOS (as the
-    # installed PWA if available), then hides Termux — see the comment
-    # near "exec" below for why this runs separately from the server.
+    # PWA AUTO-DEFAULT REMOVED.
+    # The installer only opens the normal Android URL chooser. It does not
+    # force OmniPOS/WebAPK, does not wait for installation, and does not
+    # send Android HOME. This prevents the "Choose Chrome or OmniPOS" dialog
+    # from being closed before the user can select an app.
     (
         for i in $(seq 1 60); do
             if curl -s -o /dev/null http://localhost:3000/; then
-                # "localhost" (not "127.0.0.1") is required by
-                # WebAuthn/Fingerprint Login as a valid RP ID.
                 URL="http://localhost:3000/"
-                WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
-                if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
-                    command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
-
-                    # Fix: if the PWA isn't installed yet, this is the
-                    # ONE moment Android requires a manual tap (no way
-                    # to script around that OS-level restriction). So
-                    # actively wait for it here instead of leaving it
-                    # to chance — once the tap happens, immediately
-                    # relaunch as the installed PWA so the chooser
-                    # never shows again from here on.
-                    if [ -z "$WEBAPK_PKG" ]; then
-                        command -v termux-toast >/dev/null 2>&1 && termux-toast "👉 Tap \"Install app\" / \"Add to Home screen\" to finish setup"
-                        for j in $(seq 1 150); do
-                            sleep 2
-                            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
-                            if [ -n "$WEBAPK_PKG" ]; then
-                                am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1
-                                command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Installed — OmniPOS will open directly from now on."
-                                break
-                            fi
-                        done
-                    fi
-                fi
-                sleep 2
-                am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
                 break
             fi
             sleep 0.5
