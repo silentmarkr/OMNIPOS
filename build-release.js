@@ -36,6 +36,21 @@ const EXCLUDE = new Set([
   // na ito sa live/production na directory, huwag itong isama sa
   // resulting omnipos-client.zip.
   ".self-update-backup",
+  // BUG FIX: dev/build-only tooling na nasasama pala sa omnipos-client.zip
+  // dahil wala silang exclude entry — hindi ito runtime files ng client:
+  //   - build-release.js / obfuscate-worker.js: ito mismo ang build script
+  //     at ang worker nito. Nangangailangan ng javascript-obfuscator
+  //     (devDependency, hindi ini-install ng `npm install --omit=dev` sa
+  //     client), kaya patay na code lang sa client — at naglalantad pa ng
+  //     buong obfuscation config/EXCLUDE list (dapat confidential).
+  //   - start.sh.bak: stray backup file lang, walang gamit sa client.
+  //   - vacuum-now.js: developer-only diagnostic CLI — redundant na dahil
+  //     may built-in auto-vacuum na ang server.js pagkatapos ng hard reset
+  //     (vacuumDatabase() sa db.js).
+  "build-release.js",
+  "obfuscate-worker.js",
+  "start.sh.bak",
+  "vacuum-now.js",
 ]);
 
 const EXCLUDE_EXTENSIONS = new Set([".patch", ".log"]);
