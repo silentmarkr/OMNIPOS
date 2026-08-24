@@ -4453,6 +4453,116 @@ body.dark-mode .btn-action-outline:hover {
     }
 }
 
+/* MOBILE — Products page toolbar (hiling): icon-only na lang ang mga
+   button (Download Template, Import Excel/CSV, Export CSV, Bulk Upload
+   Photos, Bulk Search Images, Promo Codes, Add Product), lahat magkasing-
+   laki, naka-isang row lang (hindi na nagwo-wrap), at naka-center bilang
+   isang grupo — sa halip na ang dating i-stretch nang 1 1 auto bawat
+   button papuno sa buong lapad (na siyang nagdudulot ng 2 per row /
+   ilang hilera). Ginagamit lang dito ang EXISTING theme variables (walang
+   bagong kulay na idinagdag) — kaya awtomatikong tama pa rin ito sa
+   light mode at sa dark mode (var(--dm-*) overrides), dahil pareho pa
+   rin ang .btn-action-outline / body.dark-mode .btn-action-outline na
+   nagbibigay ng kulay/border sa itaas — dito, LAYOUT/SIZE na lang ang
+   binabago, hindi kulay.
+   Ang .btn-action-label span (ang text label sa loob ng bawat button) ay
+   itinatago dito — ang icon (<i>) na lang ang nakikita. flex:1 1 0 na may
+   max-width cap ang ginagamit (sa halip na fixed width) para: (a)
+   magkasing-laki lahat ng button dahil parehong flex-basis 0 lahat, (b)
+   awtomatikong lumiit nang sabay-sabay kung masikip ang screen (walang
+   ma-o-overflow/mawo-wrap), at (c) may natitirang space na sa
+   justify-content:center mismo ang bahalang mag-center sa buong row kapag
+   mas malapad ang screen kaysa sa max-width cap x 7 button. */
+@media screen and (max-width: 640px) {
+    #view-products .header-action-group {
+        flex-wrap: nowrap;
+        justify-content: center;
+        gap: 6px;
+    }
+    #view-products .header-action-group .btn-action-outline {
+        /* KNOB — BUTTON (icon container) SIZE: itaas/ibaba ang min-width
+           at max-width para palakihin/paliitin ang buong parisukat na
+           button (kasama ang icon dito sa loob). Dapat magkapareho ang
+           dalawa kung gusto mong FIXED ang laki (hindi na lumiliit sa
+           masikip na screen); panatilihing mas mababa ang min-width sa
+           max-width kung gusto mong awtomatiko pa ring lumiit nang sabay
+           kapag makitid ang screen (default na behavior dito). */
+        position: relative;
+        flex: 1 1 0;
+        min-width: 34px;
+        max-width: 48px;
+        aspect-ratio: 1 / 1;
+        padding: 0;
+        gap: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+    #view-products .header-action-group .btn-action-outline .btn-action-label {
+        display: none;
+    }
+    /* KNOB — ICON SIZE: ito ang direktang kumokontrol sa laki ng fa-solid
+       icon sa loob ng bawat button (hiwalay sa laki ng button mismo sa
+       itaas) — taasan (hal. 1.2rem, 1.4rem) para lumaki ang icon, ibaba
+       (hal. 0.9rem) para lumiit, nang hindi na kailangang galawin ang
+       laki ng button. */
+    #view-products .header-action-group .btn-action-outline i {
+        font-size: 1.05rem;
+    }
+    /* Yung "PRO"/lock indicator (dating kasunod lang ng text sa loob ng
+       button) ay ginagawang maliit na badge sa kanang-itaas na sulok ng
+       icon-only button sa halip — kapareho ng existing na "PRO" gradient
+       (amber → pink) na ginagamit na ng .sidebar-pro-badge.is-crown sa
+       ibang parte ng app, para tuloy-tuloy pa rin ang parehong "PRO"
+       visual language kahit icon-only na ang button. */
+    #view-products .header-action-group .btn-action-outline .menu-pro-lock,
+    #view-products .header-action-group .btn-action-outline .menu-pro-badge {
+        /* KNOB — BADGE POSITION: baguhin ang top/right (hal. -3px para
+           mas nakadikit sa sulok, -8px para mas malayo/nakalutang) para
+           i-adjust kung saan eksaktong nakapatong ang badge sa button. */
+        position: absolute;
+        top: -1px;
+        right: -1px;
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        /* KNOB — BADGE SIZE: itaas/ibaba nang sabay ang min-width, height,
+           at font-size (magkatugma dapat ang tatlo) para palakihin o
+           paliitin ang buong "PRO"/lock badge sa sulok. */
+        min-width: 10px;
+        height: 10px;
+        padding: 0 3px;
+        font-size: 0.25rem;
+        line-height: 1;
+        color: #ffffff;
+        background: linear-gradient(135deg, #fde68a 0%, #f59e0b 45%, #ec4899 100%);
+        border-radius: 999px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    #view-products .header-action-group .btn-action-outline .menu-pro-lock i {
+        /* Dapat kasing-laki (o bahagyang mas maliit) ito ng font-size ng
+           badge sa itaas — ito yung lock ICON sa loob ng badge mismo
+           (para sa Export CSV / Promo Codes na naka-lock). */
+        font-size: 0.55rem;
+        color: #ffffff;
+    }
+}
+
+/* MOBILE — Products table: dahil isang row na lang ngayon ang toolbar sa
+   itaas (tingnan ang komento sa itaas), mas maraming vertical space ang
+   nabakante — dito, dinaragdagan ang max-height ng table-container
+   (Products page LANG — gamit ang #view-products scope, hindi ang lahat
+   ng ibang pahina na gumagamit din ng generic .table-container) para
+   mas maraming row ng produkto ang makita nang sabay nang walang scroll,
+   OVERRIDE lang ang max-height — HINDI ginagalaw ang margin-bottom, kaya
+   pareho pa rin ang laki ng gap sa ibaba nito, gaya ng hiniling. */
+@media screen and (max-width: 480px) {
+    #view-products .table-container { max-height: 66vh; }
+}
+@media screen and (min-width: 481px) and (max-width: 640px) {
+    #view-products .table-container { max-height: 64vh; }
+}
+
 .table-container {
     background-color: #ffffff;
     border-radius: 4px; 

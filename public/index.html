@@ -684,25 +684,25 @@
                         <h2 id="page-title-products">Product Inventory Management</h2>
                         <div class="header-action-group">
                             <button class="btn-action-outline" onclick="downloadProductTemplate()" title="Mag-download ng Excel template para sa bulk product entry">
-                                <i class="fa-solid fa-file-arrow-down"></i> Download Template
+                                <i class="fa-solid fa-file-arrow-down"></i><span class="btn-action-label"> Download Template</span>
                             </button>
                             <button class="btn-action-outline" onclick="triggerProductImport()" title="Mag-import ng pinunuang Excel o CSV file">
-                                <i class="fa-solid fa-file-import"></i> Import Excel/CSV
+                                <i class="fa-solid fa-file-import"></i><span class="btn-action-label"> Import Excel/CSV</span>
                             </button>
                             <button class="btn-action-outline" onclick="exportProductsCsv()" title="I-download ang kasalukuyang inventory bilang CSV">
-                                <i class="fa-solid fa-file-export"></i> Export CSV <span id="export-csv-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="export-csv-pro" class="menu-pro-badge" style="display:none;">PRO</span>
+                                <i class="fa-solid fa-file-export"></i><span class="btn-action-label"> Export CSV</span> <span id="export-csv-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="export-csv-pro" class="menu-pro-badge" style="display:none;">PRO</span>
                             </button>
                             <input type="file" id="import-file-input" accept=".xlsx,.csv" style="display:none;" onchange="handleProductImportFile(event)" autocomplete="off">
                             <button class="btn-action-outline" onclick="openBulkPhotoModal()" title="Upload multiple product photos at once — auto-matched by filename">
-                                <i class="fa-solid fa-images"></i> Bulk Upload Photos
+                                <i class="fa-solid fa-images"></i><span class="btn-action-label"> Bulk Upload Photos</span>
                             </button>
                             <button class="btn-action-outline" onclick="openBulkImageSearchModal()" title="Automatically search and propose a photo for products that don't have one yet">
-                                <i class="fa-solid fa-magnifying-glass-plus"></i> Bulk Search Images
+                                <i class="fa-solid fa-magnifying-glass-plus"></i><span class="btn-action-label"> Bulk Search Images</span>
                             </button>
                             <button class="btn-action-outline" onclick="openPromoCodesManager()" title="Mamahala ng discount promo codes">
-                                <i class="fa-solid fa-tags"></i> Promo Codes <span id="promo-codes-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="promo-codes-pro" class="menu-pro-badge" style="display:none;">PRO</span>
+                                <i class="fa-solid fa-tags"></i><span class="btn-action-label"> Promo Codes</span> <span id="promo-codes-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="promo-codes-pro" class="menu-pro-badge" style="display:none;">PRO</span>
                             </button>
-                            <button class="btn-action-outline" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i> Add Product</button>
+                            <button class="btn-action-outline" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i><span class="btn-action-label"> Add Product</span></button>
                         </div>
                     </div>
                     <div class="terminal-top-controls">
