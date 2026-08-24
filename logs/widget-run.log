@@ -203,3 +203,13 @@ Bulk image search error for REG-001: Error: SerpAPI Image Search error (HTTP 429
 ⚠️  Could not reach Relay for the feature status check: fetch failed
 ⚠️  Could not reach Relay for auto-restore check: fetch failed
 ⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+Terminated                 setsid node server.js
+[2026-08-24 07:18:45] 🛑 Ihihinto ang supervisor loop (signal received).

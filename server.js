@@ -2683,6 +2683,28 @@ function computeHardwareFingerprint(data) {
 }
 
 function getOrCreateInstallationId(data) {
+    // FIX: sa Render Free plan, walang Persistent Disk, kaya ephemeral
+    // ang buong filesystem (pati ang SQLite file kung saan naka-save
+    // dating ang installationId) kada bagong deploy — bagong random
+    // UUID kada git push kahit iisa lang talaga ang device.
+    //
+    // Ayos: kung naka-set ang OMNIPOS_FIXED_INSTALLATION_ID env var
+    // (itakda ito ISANG BESES sa Render dashboard, hindi sa .env file
+    // dahil hindi na-deploy yun), GAMITIN palagi ito bilang
+    // installationId — hindi na ito mababago pa kada deploy dahil naka-
+    // save na sa Render env vars mismo, hindi sa disk. Kung wala
+    // itong env var (hal. lokal na Termux install na may sariling
+    // disk), babalik sa dating behavior: generate once, i-save sa
+    // local DB.
+    const fixedId = process.env.OMNIPOS_FIXED_INSTALLATION_ID;
+    if (fixedId) {
+        if (data.installationId !== fixedId) {
+            data.installationId = fixedId;
+            writeData(FILE_FEATURE_UNLOCKS, data);
+        }
+        return data.installationId;
+    }
+
     if (data.installationId) return data.installationId;
     data.installationId = crypto.randomUUID();
     writeData(FILE_FEATURE_UNLOCKS, data);
@@ -2989,8 +3011,16 @@ app.get('/api/relay-backup/status', (req, res) => {
 });
 
 const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
+    // BUG FIX: dating hindi tugma ang exclude list na ito sa ginagamit
+    // ng RELAY (buildFileManifest) at ng build-release.js (EXCLUDE set)
+    // — kulang ng '.start.sh.lock' at '.self-update-backup' dito, kaya
+    // kapag naka-start.sh ang OMNIPOS (may .start.sh.lock habang
+    // tumatakbo) o may natirang self-update backup folder, PALAGING
+    // "added" ang lumalabas sa integrity check kahit walang tunay na
+    // binagong file — false positive kada check-in.
     '.env', '.env.key', 'database', 'node_modules', 'uploads_tmp',
-    '.git', 'release', 'cf.log', 'server.log'
+    '.git', 'release', 'cf.log', 'server.log', '.start.sh.lock',
+    '.self-update-backup'
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
 
@@ -9309,28 +9339,67 @@ app.get('/ca-cert.pem', (req, res) => {
     res.sendFile(path.resolve(caPath));
 });
 
-if (httpsOptions) {
-    const https = require('https');
-    https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
-        console.log(`Server running at https://${HOST}:${PORT} (LAN HTTPS)`);
-        if (isProduction) {
-            console.log("MODE: Production (Public/Online Access Enabled, HTTPS)");
-        } else {
-            console.log("MODE: Development (Localhost Access Only, HTTPS)");
-        }
-    }).on('error', (err) => {
-        console.error('⚠️  Nabigo ang HTTPS listen, babalik sa plain HTTP:', err.message);
-        app.listen(PORT, HOST, () => {
-            console.log(`Server running at http://${HOST}:${PORT} (HTTPS fallback)`);
+// BUG FIX: sa Render Free plan, ephemeral ang buong disk kada deploy —
+// kaya bago tumanggap ng traffic, subukan munang i-restore ang
+// pinakahuling snapshot mula sa Postgres (cloud-snapshot.js) kung
+// mukhang bago/blangko ang lokal na SQLite. Kailangan itong async, kaya
+// nakabalot na ngayon sa isang startup function ang buong listen logic.
+const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
+
+async function startOmniposServer() {
+    await restoreFromCloudIfNeeded();
+
+    if (httpsOptions) {
+        const https = require('https');
+        https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
+            console.log(`Server running at https://${HOST}:${PORT} (LAN HTTPS)`);
+            if (isProduction) {
+                console.log("MODE: Production (Public/Online Access Enabled, HTTPS)");
+            } else {
+                console.log("MODE: Development (Localhost Access Only, HTTPS)");
+            }
+        }).on('error', (err) => {
+            console.error('⚠️  Nabigo ang HTTPS listen, babalik sa plain HTTP:', err.message);
+            app.listen(PORT, HOST, () => {
+                console.log(`Server running at http://${HOST}:${PORT} (HTTPS fallback)`);
+            });
         });
-    });
-} else {
-    app.listen(PORT, HOST, () => {
-        console.log(`Server running at http://${HOST}:${PORT}`);
-        if (isProduction) {
-            console.log("MODE: Production (Public/Online Access Enabled)");
-        } else {
-            console.log("MODE: Development (Localhost Access Only)");
-        }
-    });
+    } else {
+        app.listen(PORT, HOST, () => {
+            console.log(`Server running at http://${HOST}:${PORT}`);
+            if (isProduction) {
+                console.log("MODE: Production (Public/Online Access Enabled)");
+            } else {
+                console.log("MODE: Development (Localhost Access Only)");
+            }
+        });
+    }
+
+    // BUG FIX: karagdagang proteksyon habang tumatakbo — regular na
+    // nag-p-push din ng snapshot papunta sa Postgres bawat 5 minuto,
+    // hindi lang umaasa sa SIGTERM sa oras ng deploy.
+    setInterval(() => {
+        pushSnapshotToCloud().catch((err) => {
+            console.error('⚠️  [cloud-snapshot] Nabigo ang scheduled push:', err.message);
+        });
+    }, 5 * 60 * 1000);
 }
+
+// BUG FIX: nagpapadala ang Render ng SIGTERM sa lumang container BAGO
+// ito patayin sa susunod na deploy — gamitin ito bilang huling
+// pagkakataon para ma-save ang pinakabagong datos sa Postgres bago
+// mawala ang lokal na disk.
+async function handleShutdownSignal(signal) {
+    console.log(`ℹ️  Natanggap ang ${signal} — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...`);
+    try {
+        await pushSnapshotToCloud();
+    } catch (err) {
+        console.error('⚠️  [cloud-snapshot] Nabigo ang shutdown push:', err.message);
+    } finally {
+        process.exit(0);
+    }
+}
+process.on('SIGTERM', () => handleShutdownSignal('SIGTERM'));
+process.on('SIGINT', () => handleShutdownSignal('SIGINT'));
+
+startOmniposServer();
