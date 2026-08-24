@@ -510,18 +510,18 @@ window.OMNIPOS_FAQ_KB_TL = [
   keywords: ['factory reset', 'system reset', 'hard reset', 'clear all data', 'burahin lahat ng data'],
   answer: `<p>Ang <strong>Hard Factory Reset</strong> ay ADMIN-ONLY na aksyon, at ito ang sunud-sunod na mangyayari:</p>
   <ol>
-    <li>Kokolektahin ang <strong>KUMPLETONG backup</strong> ng lahat ng data (users, products, transactions, logs, requests, categories, customers, shifts, atbp.).</li>
+    <li>Kokolektahin ang <strong>KUMPLETONG backup</strong> ng bawat data module sa system — kasama na ang users, products, transactions, refunds, logs, requests, categories, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, at Fraud & Anomaly Alerts.</li>
     <li>Ipapadala muna ang backup na ito sa email mo — <strong>kung mag-fail ang email</strong> (hal. maling app password), <strong>ihihinto ang buong reset</strong> at LIGTAS pa rin ang data.</li>
-    <li>Kapag successful ang email, saka lang isasagawa ang pagbura: babalik ang users sa default set of accounts, mabubura ang products/transactions/requests/customers/shifts/logs, at babalik sa default categories.</li>
+    <li>Kapag successful ang email, saka lang isasagawa ang pagbura: babalik ang users sa default set of accounts, at mabubura ang lahat ng business/transactional data — products, transactions, refunds, requests, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, shift records, user activity logs, loyalty card security data, at Fraud & Anomaly Alerts (kasama na ang live fraud-velocity counters na ginagamit sa detection) — habang babalik naman sa default set ang categories.</li>
   </ol>
-  <p><strong>Sinasadyang HINDI ginagalaw:</strong> ang bilang ng LIBRENG pag-customize ng resibo — para hindi magamit ang Factory Reset para lang maibalik ang 2 free attempts.</p>`
+  <p><strong>Sinasadyang HINDI ginagalaw:</strong> ang bilang ng LIBRENG pag-customize ng resibo, pati na rin ang device identity/license data (installation ID, hardware fingerprint, device verification, Relay authorization) at system configuration (Store Settings, UX Settings, Receipt Settings, Advanced Settings, Roles & Permissions, Connectivity Mode) — para hindi magamit ang Factory Reset para lang maibalik ang 2 free attempts, at para hindi nawawala ang identity/configuration ng device.</p>`
 },
 {
   id: 'system-restore-backup',
   category: 'System Reset',
   question: 'Paano mag-restore mula sa backup file?',
   keywords: ['restore backup', 'ibalik ang backup', 'import backup file', 'recover data'],
-  answer: `<p>Sa Restore Backup feature, kailangan ang Admin username, password, at ang backup file (galing sa dating Factory Reset email o manual export). Kapag na-verify ang admin credentials, ise-synchronize ang lahat ng data (users, products, transactions, user logs, requests, categories, carts) mula sa laman ng backup file na iyon.</p>`
+  answer: `<p>Sa Restore Backup feature, kailangan ang Admin username, password, at ang backup file (galing sa dating Factory Reset email o manual export). Kapag na-verify ang admin credentials, ise-synchronize pabalik sa system ang <strong>bawat data module na nasa backup file na iyon</strong> — kasama ang users, products, transactions, refunds, user logs, requests, categories, carts, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, at Fraud & Anomaly Alerts, pati na rin ang iba pang module na naroroon sa file.</p>`
 },
 
 {

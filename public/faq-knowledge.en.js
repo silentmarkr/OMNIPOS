@@ -510,18 +510,18 @@ window.OMNIPOS_FAQ_KB_EN = [
   keywords: ['factory reset', 'system reset', 'hard reset', 'clear all data', 'burahin lahat ng data'],
   answer: `<p>The <strong>Hard Factory Reset</strong> is an ADMIN-ONLY action, and here's the sequence of what happens:</p>
   <ol>
-    <li>A <strong>COMPLETE backup</strong> of all data is collected (users, products, transactions, logs, requests, categories, customers, shifts, etc.).</li>
+    <li>A <strong>COMPLETE backup</strong> of every data module in the system is collected — this includes users, products, transactions, refunds, logs, requests, categories, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, and Fraud & Anomaly Alerts.</li>
     <li>This backup is sent to your email first — <strong>if the email fails</strong> (e.g. wrong app password), <strong>the entire reset is stopped</strong> and your data remains SAFE.</li>
-    <li>Once the email succeeds, only then does the erasing happen: users revert to the default set of accounts, products/transactions/requests/customers/shifts/logs are deleted, and categories revert to the default set.</li>
+    <li>Once the email succeeds, only then does the erasing happen: users revert to the default set of accounts, and all business/transactional data is deleted — products, transactions, refunds, requests, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, shift records, user activity logs, loyalty card security data, and Fraud & Anomaly Alerts (including the live fraud-velocity counters used for detection) — while categories revert to the default set.</li>
   </ol>
-  <p><strong>Deliberately left untouched:</strong> the count of FREE receipt customizations — so Factory Reset can't be used just to get the 2 free attempts back.</p>`
+  <p><strong>Deliberately left untouched:</strong> the count of FREE receipt customizations, plus device identity/license data (installation ID, hardware fingerprint, device verification, Relay authorization) and system configuration (Store Settings, UX Settings, Receipt Settings, Advanced Settings, Roles & Permissions, Connectivity Mode) — so Factory Reset can't be used just to get the 2 free attempts back, and the device doesn't lose its identity or configuration.</p>`
 },
 {
   id: 'system-restore-backup',
   category: 'System Reset',
   question: 'How do I restore from a backup file?',
   keywords: ['restore backup', 'ibalik ang backup', 'import backup file', 'recover data'],
-  answer: `<p>In the Restore Backup feature, you need the Admin username, password, and the backup file (from a previous Factory Reset email or a manual export). Once the admin credentials are verified, all data (users, products, transactions, user logs, requests, categories, carts) is synced from the contents of that backup file.</p>`
+  answer: `<p>In the Restore Backup feature, you need the Admin username, password, and the backup file (from a previous Factory Reset email or a manual export). Once the admin credentials are verified, <strong>every data module found in that backup file</strong> is synced back into the system — this covers users, products, transactions, refunds, user logs, requests, categories, carts, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, and Fraud & Anomaly Alerts, plus any other module present in the file.</p>`
 },
 
 {

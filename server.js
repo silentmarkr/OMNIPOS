@@ -460,6 +460,7 @@ const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
 
 const MENU_REGISTRY = [
 
+    { key:'overview',     label:'Overview / Home Dashboard (Landing Page After Login)', group:'Core' },
     { key:'terminal',     label:'POS Terminal', group:'Core' },
     { key:'dashboard',    label:'Inventory Dashboard', group:'Core' },
     { key:'products',     label:'Products', group:'Core' },
@@ -523,13 +524,17 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
     },
     {
         name:'Cashier',
         protected: false,
 
-        permissions: { terminal: true, dashboard: false, products: false, barcode: false, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
+        // Cashier role is intentionally locked down to the POS Terminal only.
+        // "overview" (the home/landing dashboard shown right after login) is
+        // explicitly disabled so that Terminal is the only screen that opens
+        // for this role. All other menu keys stay false for the same reason.
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
     }
 ];
 
@@ -7740,7 +7745,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 from: `"OmniPOS Core System" <${otpMailCreds.user}>`,
                 to: recipients.join(', '),
                 subject: `💻 OmniPOS: Full System Reset & Synchronized Backup - ${petsa_ng_ayon}`,
-                text: `Good day,\n\nThe system database has undergone a Hard Factory Reset.\n\nThis email includes the attached 'omnipos_full_backup.json' (${backupSizeMb} MB) containing all synchronized tables (including customers and shift/Z-Reading records) as they were right before the deletion.${imagesNoteForEmail}`,
+                text: `Good day,\n\nThe system database has undergone a Hard Factory Reset.\n\nThis email includes the attached 'omnipos_full_backup.json' (${backupSizeMb} MB) containing every synchronized data module (including customers, shift/Z-Reading records, refunds, debts, promo codes, purchase orders, low-stock tracking, loyalty security data, and Fraud & Anomaly Alerts) as they were right before the deletion.${imagesNoteForEmail}`,
                 attachments: [
                     {
                         filename: `omnipos_full_backup_${Date.now()}.json`,
@@ -7806,6 +7811,21 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             writeData(FILE_CUSTOMERS, []);
             writeData(FILE_SHIFTS, []);
             writeData(FILE_SHIFT_META, {});
+
+            // BUG FIX: dati ay hindi kasama ang mga sumusunod sa Hard
+            // Reset kaya nananatili ang datos nila kahit pagkatapos
+            // mag-"factory reset" — kasama na rito ang Fraud & Anomaly
+            // Alerts (ang partikular na na-ulat na hindi na-reset), pati
+            // na rin ang ibang business/transactional data na naka-ugnay
+            // sa mga products/customers/transactions na binubura na.
+            writeData(FILE_FRAUD_ALERTS, []);
+            fraudVelocityLog.clear();
+            writeData(FILE_REFUNDS, []);
+            writeData(FILE_DEBTS, []);
+            writeData(FILE_PROMOCODES, []);
+            writeData(FILE_PURCHASE_ORDERS, []);
+            writeData(FILE_LOWSTOCK_TRACKING, {});
+            writeData(FILE_LOYALTY_SECURITY, {});
 
             const initialCategories = ['Beverages','Dairy','Snacks','Bakery','Grains'];
             writeData(FILE_CATEGORIES, initialCategories);

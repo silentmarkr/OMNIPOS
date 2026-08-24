@@ -2476,7 +2476,17 @@ function switchView(viewKey, opts) {
     const isAdmin = userRole ==='admin';
     if (!isAdmin && Object.prototype.hasOwnProperty.call(currentPermissions || {}, viewKey) && !currentPermissions[viewKey]) {
         console.warn(`[OmniPOS] Access denied to view "${viewKey}" for role "${userRole ||'unknown'}"`);
-        viewKey ='overview';
+        // Dynamic fallback: don't blindly send the user to "overview" — that
+        // view is itself permission-gated (see MENU_REGISTRY 'overview' key).
+        // Prefer Terminal (the one screen every selling role needs), then
+        // Overview, then just leave the requested view up to render an
+        // empty/blocked state rather than looping back to something also
+        // denied (e.g. a Cashier locked to Terminal only).
+        if (currentPermissions && currentPermissions.terminal) {
+            viewKey ='terminal';
+        } else if (currentPermissions && currentPermissions.overview) {
+            viewKey ='overview';
+        }
     }
 
     const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders' };
@@ -4611,6 +4621,12 @@ function applyRoleBasedAccessControls(role) {
         const elId = MENU_ID_OVERRIDES[m.key] || `menu-${m.key}`;
         const el = document.getElementById(elId);
         if (el) el.style.display = (isAdmin || currentPermissions[m.key]) ?'' :'none';
+
+        // Also hide the matching bottom-nav (mobile) shortcut, if any, so a
+        // restricted role (e.g. Cashier locked to Terminal only) can't see
+        // or tap into a screen the sidebar already hides.
+        const bottomNavEl = document.getElementById(`bn-${m.key}`);
+        if (bottomNavEl) bottomNavEl.style.display = (isAdmin || currentPermissions[m.key]) ?'' :'none';
     });
 
     const inventoryGroup = document.getElementById('menu-inventory-group');
