@@ -6,3 +6,8 @@
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
 ⚠️ [DB SIZE WATCH] Ang module "products" ay lumagpas na sa 2.0 MB (kasalukuyan: 3.64 MB). Isaalang-alang ang pag-archive/normalize nito bago ito mag-cause ng nakikitang pagbagal sa bawat pagsulat.
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted

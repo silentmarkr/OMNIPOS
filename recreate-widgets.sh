@@ -2,7 +2,7 @@
 
 set -e
 
-RECREATE_WIDGETS_VERSION="2"
+RECREATE_WIDGETS_VERSION="3"
 
 FILES="Start-OmniPOS.sh Stop-OmniPOS.sh Restart-OmniPOS.sh OmniPOS-LAN.sh"
 
@@ -14,16 +14,16 @@ done
 needs_recreate() {
     for f in $FILES; do
         path="$HOME/.shortcuts/$f"
-        [ -f "$path" ] || return 0   # missing file -> kailangan
-        grep -q "RECREATE_WIDGETS_VERSION:${RECREATE_WIDGETS_VERSION}" "$path" 2>/dev/null || return 0  # outdated -> kailangan
+        [ -f "$path" ] || return 0
+        grep -q "RECREATE_WIDGETS_VERSION:${RECREATE_WIDGETS_VERSION}" "$path" 2>/dev/null || return 0
     done
-    return 1  # lahat present at updated -> hindi kailangan
+    return 1
 }
 
 countdown_close() {
     echo ""
     for i in 5 4 3 2 1; do
-        printf "\r⏳ Isasara ang Termux sa loob ng %ds... / Closing Termux in %ds...   " "$i" "$i"
+        printf "\rClosing Termux in %ds...   " "$i"
         sleep 1
     done
     echo ""
@@ -31,20 +31,6 @@ countdown_close() {
 }
 
 if [ "$FORCE" -ne 1 ] && ! needs_recreate; then
-    echo ""
-    echo "✅ HINDI KAILANGAN — kumpleto at updated na ang 4 widget shortcuts sa ~/.shortcuts/."
-    echo "   Malamang ito ang dahilan kung bakit nawala ang widget sa home screen:"
-    echo "     • Na-uninstall/na-reinstall lang ang Termux:Widget app, o"
-    echo "     • Aksidenteng natanggal lang ang widget mismo sa home screen."
-    echo "   Ang mismong .sh files (na kailangan lang ng script na ito) ay LIGTAS pa rin dito."
-    echo ""
-    echo "   Gawin na lang ito:"
-    echo "     1. I-long-press ang blangkong home screen"
-    echo "     2. Piliin ang 'Widgets'"
-    echo "     3. Hanapin ang 'Termux:Widget', i-drag ito 4 beses papunta sa home screen"
-    echo "     4. Piliin: Start-OmniPOS, Stop-OmniPOS, Restart-OmniPOS, OmniPOS-LAN"
-    echo ""
-    echo "------------------------------------------------------------------"
     echo ""
     echo "✅ NOT NEEDED — all 4 widget shortcuts already exist and are up to date in ~/.shortcuts/."
     echo "   This is most likely why the home-screen widget disappeared:"
@@ -58,17 +44,17 @@ if [ "$FORCE" -ne 1 ] && ! needs_recreate; then
     echo "     3. Find 'Termux:Widget' and drag it to the home screen 4 times"
     echo "     4. Choose: Start-OmniPOS, Stop-OmniPOS, Restart-OmniPOS, OmniPOS-LAN"
     echo ""
-    echo "   (Kung gusto mo pa ring pilit i-recreate / to force-recreate anyway: bash recreate-widgets.sh --force)"
+    echo "   (To force-recreate anyway: bash recreate-widgets.sh --force)"
     countdown_close
 fi
 
 mkdir -p "$HOME/.shortcuts"
 
-echo "🧷 Ginagawa ulit ang 4 widget shortcuts sa ~/.shortcuts/ ..."
+echo "🧷 Recreating the 4 widget shortcuts in ~/.shortcuts/ ..."
 
 cat > "$HOME/.shortcuts/Start-OmniPOS.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# RECREATE_WIDGETS_VERSION:2
+# RECREATE_WIDGETS_VERSION:3
 command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 cd ~/OMNIPOS || { echo "❌ Could not find the ~/OMNIPOS folder."; exit 1; }
 mkdir -p logs
@@ -77,30 +63,41 @@ echo ""
 echo "⏳ Starting the OmniPOS server, please wait..."
 echo ""
 
-if command -v setsid >/dev/null 2>&1; then
-    setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-else
-    nohup ./start.sh > logs/widget-run.log 2>&1 &
-fi
+# Background helper: waits for the server to respond, opens OmniPOS
+# (as the installed PWA if available, browser otherwise), then hides
+# Termux. Kept separate from the server process itself — see the
+# comment near "exec" below.
+(
+    for i in $(seq 1 60); do
+        if curl -s -o /dev/null http://localhost:3000/; then
+            URL="http://localhost:3000/"
+            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+            if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
+                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
+            fi
+            sleep 1
+            am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+            break
+        fi
+        sleep 0.5
+    done
+) &
 disown
 
-for i in $(seq 1 60); do
-  if curl -s -o /dev/null http://localhost:3000/; then
-    echo "✅ Server ready — opening OmniPOS..."
-    sleep 1
-    break
-  fi
-  sleep 0.5
-done
-
-command -v termux-open-url >/dev/null 2>&1 && termux-open-url http://localhost:3000/
-exit
+# Fix: the server used to die when leaving/reopening the app because
+# this script backgrounded start.sh with `disown` and then exited —
+# Termux:Widget (RunCommandService) only keeps its background-kill
+# protection alive while the invoking task is still running. Using
+# `exec` instead keeps this same PID running (like a server started
+# manually in an interactive Termux session) for as long as the
+# server runs, retaining that protection.
+exec ./start.sh >> logs/widget-run.log 2>&1
 EOF
 chmod +x "$HOME/.shortcuts/Start-OmniPOS.sh"
 
 cat > "$HOME/.shortcuts/Stop-OmniPOS.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# RECREATE_WIDGETS_VERSION:2
+# RECREATE_WIDGETS_VERSION:3
 echo "🛑 Stopping the OmniPOS server..."
 pkill -f start.sh 2>/dev/null
 pkill -f "node server.js" 2>/dev/null
@@ -129,7 +126,7 @@ chmod +x "$HOME/.shortcuts/Stop-OmniPOS.sh"
 
 cat > "$HOME/.shortcuts/Restart-OmniPOS.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# RECREATE_WIDGETS_VERSION:2
+# RECREATE_WIDGETS_VERSION:3
 echo ""
 echo "🔁 Restarting the OmniPOS server..."
 echo ""
@@ -161,30 +158,32 @@ mkdir -p logs
 echo "⏳ Starting the OmniPOS server again, please wait..."
 echo ""
 
-if command -v setsid >/dev/null 2>&1; then
-    setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-else
-    nohup ./start.sh > logs/widget-run.log 2>&1 &
-fi
+# Background helper — see the explanation in Start-OmniPOS.sh.
+(
+    for i in $(seq 1 60); do
+        if curl -s -o /dev/null http://localhost:3000/; then
+            URL="http://localhost:3000/"
+            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+            if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
+                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
+            fi
+            sleep 1
+            am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+            break
+        fi
+        sleep 0.5
+    done
+) &
 disown
 
-for i in $(seq 1 60); do
-  if curl -s -o /dev/null http://localhost:3000/; then
-    echo "✅ Server ready — opening OmniPOS..."
-    sleep 1
-    break
-  fi
-  sleep 0.5
-done
-
-command -v termux-open-url >/dev/null 2>&1 && termux-open-url http://localhost:3000/
-exit
+# Fix: `exec` instead of disown+exit — see Start-OmniPOS.sh.
+exec ./start.sh >> logs/widget-run.log 2>&1
 EOF
 chmod +x "$HOME/.shortcuts/Restart-OmniPOS.sh"
 
 cat > "$HOME/.shortcuts/OmniPOS-LAN.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# RECREATE_WIDGETS_VERSION:2
+# RECREATE_WIDGETS_VERSION:3
 command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 cd ~/OMNIPOS || { echo "❌ Could not find the ~/OMNIPOS folder."; exit 1; }
 mkdir -p logs
@@ -209,50 +208,47 @@ if [ -z "$LAN_IP" ]; then
 fi
 echo ""
 
-if command -v setsid >/dev/null 2>&1; then
-    NODE_ENV=production setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-else
-    NODE_ENV=production nohup ./start.sh > logs/widget-run.log 2>&1 &
-fi
+# Background helper — see the explanation in Start-OmniPOS.sh.
+(
+    SERVER_UP=0
+    for i in $(seq 1 180); do
+        if curl -s -o /dev/null "http://localhost:3000/"; then
+            SERVER_UP=1
+            break
+        fi
+        sleep 0.5
+    done
+
+    if [ "$SERVER_UP" -ne 1 ]; then
+        command -v termux-toast >/dev/null 2>&1 && termux-toast "⚠️ Hasn't started yet — check the logs."
+        exit 0
+    fi
+
+    LOCAL_URL="http://localhost:3000/"
+    WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+    if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$LOCAL_URL" >/dev/null 2>&1; then
+        command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$LOCAL_URL"
+    fi
+    command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Server ready: $LOCAL_URL"
+
+    sleep 20
+    am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+) &
 disown
 
-SERVER_UP=0
-for i in $(seq 1 180); do
-  if curl -s -o /dev/null "http://localhost:3000/"; then
-    SERVER_UP=1
-    echo ""
-    break
-  fi
-  if [ $((i % 4)) -eq 0 ]; then printf "."; fi
-  sleep 0.5
-done
-
-if [ "$SERVER_UP" -ne 1 ]; then
-  echo "⚠️  Server is not responding yet. Check: tail -n 40 logs/supervisor.log"
-  command -v termux-toast >/dev/null 2>&1 && termux-toast "⚠️ Hasn't started yet — check the logs."
-  sleep 8
-  exit 1
-fi
-
-LAN_URL="http://$LAN_IP:3000"
-LOCAL_URL="http://localhost:3000"
-echo "🌐 Open on another device (same WiFi): $LAN_URL"
+echo "🌐 Open on another device (same WiFi): http://$LAN_IP:3000"
 echo ""
 
-command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$LOCAL_URL"
-command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Server ready: $LOCAL_URL"
-
-sleep 20
-am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
-exit 0
+# Fix: `exec` instead of disown+exit — see Start-OmniPOS.sh.
+exec env NODE_ENV=production ./start.sh >> logs/widget-run.log 2>&1
 EOF
 chmod +x "$HOME/.shortcuts/OmniPOS-LAN.sh"
 
 echo ""
-echo "✅ Nagawa ulit ang 4 widget shortcuts (hindi nagalaw ang ~/OMNIPOS o ang database)."
+echo "✅ Recreated the 4 widget shortcuts (~/OMNIPOS and the database were not touched)."
 echo ""
-echo "Susunod na hakbang sa device ng client:"
-echo "  1. Long-press sa blangkong home screen"
-echo "  2. Piliin ang 'Widgets'"
-echo "  3. Hanapin at i-drag ang 'Termux:Widget' — 4 BESES (isa per shortcut)"
-echo "  4. Piliin: 'Start-OmniPOS', 'Stop-OmniPOS', 'Restart-OmniPOS', 'OmniPOS-LAN'"
+echo "Next steps on the client's device:"
+echo "  1. Long-press the empty home screen"
+echo "  2. Tap 'Widgets'"
+echo "  3. Find 'Termux:Widget' and drag it to the home screen — 4 TIMES (once per shortcut)"
+echo "  4. Choose: 'Start-OmniPOS', 'Stop-OmniPOS', 'Restart-OmniPOS', 'OmniPOS-LAN'"

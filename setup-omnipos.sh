@@ -16,6 +16,14 @@ echo "🖥️  Detected platform: $PLATFORM"
 echo ""
 
 if [ "$PLATFORM" = "termux" ]; then
+    # Fix: acquire the wake-lock BEFORE anything that switches focus
+    # away from Termux (storage permission dialog, overlay permission
+    # in the launcher script, etc.) — without it, Android can throttle
+    # Termux in the background while the user is off granting a
+    # permission, which is part of why the setup used to appear to
+    # "hang" needing a Y/n answer by the time they came back.
+    command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
+
     echo "🔧 [1/5] Requesting storage access..."
     termux-setup-storage
     sleep 2
@@ -27,8 +35,26 @@ echo "📦 [2/5] Checking/installing required tools (node, unzip, curl)..."
 
 if [ "$PLATFORM" = "termux" ]; then
     export DEBIAN_FRONTEND=noninteractive
-    yes | pkg update -y && yes | pkg upgrade -y
-    yes | pkg install nodejs unzip curl termux-api util-linux -y
+
+    # Fix: dpkg's --force-confold/--force-confdef only silence DPKG's
+    # own config-file prompt. Some packages manage their config files
+    # through a separate tool called `ucf`, which has its OWN prompt
+    # that those dpkg flags do NOT cover — this was the remaining gap
+    # that could still show an interactive "Y/n" during pkg
+    # update/upgrade regardless of when the user comes back to Termux.
+    export UCF_FORCE_CONFFOLD=1
+    export UCF_FORCE_CONFFNEW=0
+    export UCF_FORCE_CONFFMISS=1
+
+    # Fix: prevents the setup from stalling on an interactive
+    # "Do you want to continue? [Y/n]" prompt (e.g. a repo
+    # origin/label change or a config-file conflict) that `yes |`
+    # alone does not answer. Forces apt/dpkg to run fully
+    # non-interactively.
+    APT_NONINTERACTIVE_OPTS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Acquire::AllowReleaseInfoChange::Origin=true -o Acquire::AllowReleaseInfoChange::Label=true -o Acquire::AllowReleaseInfoChange::Suite=true -o Acquire::AllowReleaseInfoChange::Version=true -o Acquire::AllowReleaseInfoChange::Codename=true"
+    yes | pkg update -y $APT_NONINTERACTIVE_OPTS
+    yes | pkg upgrade -y $APT_NONINTERACTIVE_OPTS
+    yes | pkg install nodejs unzip curl termux-api util-linux -y $APT_NONINTERACTIVE_OPTS
 
 elif [ "$PLATFORM" = "macos" ]; then
 
@@ -65,42 +91,30 @@ else
         fi
     fi
 
-    # BUG FIX (e-receipt sending errors out even after "verified" na sa
-    # Receipt Customization): mailer.js (getGmailApiFallbackConfig/
-    # sendViaGmailApi — ang Gmail API/HTTPS fallback na ginagamit kapag
-    # na-block/na-timeout ang SMTP) at ilang parte ng server.js ay
-    # umaasa sa GLOBAL fetch(), na Node 18+ lang built-in (walang
-    # node-fetch fallback sa code). Ang "verified" checkbox sa Receipt
-    # Customization ay pumapasa kahit lumang Node dahil ang unang
-    # sinusubukan ni verifyMailCredentialsSmart() ay direktang SMTP
-    # transporter.verify() — hindi pa nito nagagamit ang fetch(). Pero
-    # kapag na-block/timeout ang SMTP sa aktwal na pagpapadala ng
-    # resibo (karaniwan sa Termux/mobile data), doon lang tinatawag ang
-    # fetch()-based fallback — kaya "ReferenceError: fetch is not
-    # defined" (o katulad) ang error kahit "verified" na, kung lumang
-    # Node (madalas Node 12–18 sa default apt/dnf repos ng Debian/
-    # Ubuntu/Fedora LTS) ang na-install. Dito, sinisiguro na Node 18+
-    # ang aktwal na naka-install bago magpatuloy — kung mas luma, ini-
-    # upgrade via NodeSource (apt/dnf) o pacman (Arch, karaniwan naman
-    # laging bago ang Node dito).
+    # Fix: e-receipt sending needs Node 18+ (global fetch(), used by
+    # mailer.js's Gmail API fallback). Older Node passes the
+    # "verified" check in Receipt Customization but fails later with
+    # a fetch-related error when SMTP is blocked/times out — common
+    # on Termux/mobile data. Enforce Node 18+ here, upgrading via
+    # NodeSource (apt/dnf) or pacman if needed.
     NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
     if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
-        echo "⚠️  Masyadong luma ang Node.js na naka-install ($(node -v 2>/dev/null || echo 'wala')) — kailangan ng Node 18+ (para gumana ang fetch()-based Gmail API fallback ng e-receipt)."
+        echo "⚠️  Installed Node.js is too old ($(node -v 2>/dev/null || echo 'not found')) — Node 18+ is required for the e-receipt Gmail API fallback."
         if command -v apt-get >/dev/null 2>&1; then
-            echo "   Ini-upgrade ang Node.js gamit ang NodeSource (may sudo password)..."
+            echo "   Upgrading Node.js via NodeSource (may prompt for sudo password)..."
             curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
             sudo apt-get install -y nodejs
         elif command -v dnf >/dev/null 2>&1; then
-            echo "   Ini-upgrade ang Node.js gamit ang NodeSource (may sudo password)..."
+            echo "   Upgrading Node.js via NodeSource (may prompt for sudo password)..."
             curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash -
             sudo dnf install -y nodejs
         else
-            echo "❌ Hindi awtomatikong ma-upgrade ang Node.js dito. Mangyaring mag-install nang manu-mano ng Node.js 18 o mas bago (https://nodejs.org), tapos patakbuhin muli ang script na ito."
+            echo "❌ Could not upgrade Node.js automatically here. Please install Node.js 18+ manually (https://nodejs.org), then run this script again."
             exit 1
         fi
         NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
         if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
-            echo "❌ Hindi pa rin sapat ang Node.js version pagkatapos i-upgrade. Mag-install nang manu-mano ng Node.js 18+ tapos ulitin ang script."
+            echo "❌ Node.js version is still not sufficient after upgrading. Please install Node.js 18+ manually, then run this script again."
             exit 1
         fi
     fi
@@ -143,10 +157,9 @@ rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 unzip -q "$ZIP_PATH" -d "$INSTALL_DIR"
 
-# SAFETY NET: sakaling nakasama sa zip ang isang stray .start.sh.lock
-# (hal. mula sa isang lumang build na nagawa habang tumatakbo ang
-# server sa panig ng developer) — tanggalin agad para hindi tignang
-# "may tumatakbo na" ni start.sh sa unang pagsisimula.
+# Safety net: remove any stray .start.sh.lock that may have shipped
+# inside the zip, so start.sh doesn't mistake it for an already-running
+# instance on first launch.
 rm -f "$INSTALL_DIR/.start.sh.lock"
 
 echo "🗑️  Removing the zip file from Downloads..."
@@ -164,8 +177,19 @@ if grep -q "^\s*termux-notification --id omnipos-supervisor" start.sh 2>/dev/nul
     sed -i.bak 's/^\(\s*\)termux-notification --id omnipos-supervisor/\1timeout 3 termux-notification --id omnipos-supervisor/' start.sh && rm -f start.sh.bak
 fi
 
-if grep -qE "^\s*node server\.js\s*$" start.sh 2>/dev/null && ! grep -q "setsid node server.js" start.sh 2>/dev/null; then
-    sed -i.bak 's/^\(\s*\)node server\.js\s*$/\1if command -v setsid >\/dev\/null 2>\&1; then setsid node server.js; else node server.js; fi/' start.sh && rm -f start.sh.bak
+# Fix: `setsid node server.js` detaches the server into a BRAND NEW
+# session, separate from start.sh's own session. That escapes the
+# exact protection the `exec ./start.sh` trick (see the widget
+# shortcuts below) is meant to give — start.sh itself stays alive
+# (wake-lock notification stays visible), but the detached node
+# process is no longer inside the protected session/process group, so
+# Android kills it as soon as you leave and reopen the app. Plain
+# `node server.js` (same session as start.sh) does not have this
+# problem. So: always run it plain, and undo the setsid wrap if an
+# older version of this script already applied it to an existing
+# start.sh.
+if grep -q "setsid node server.js" start.sh 2>/dev/null; then
+    sed -i.bak 's/if command -v setsid >\/dev\/null 2>&1; then setsid node server\.js; else node server\.js; fi/node server.js/' start.sh && rm -f start.sh.bak
 fi
 
 if grep -q "^\s*termux-wake-lock\s*$" start.sh 2>/dev/null; then
@@ -179,6 +203,7 @@ if [ "$PLATFORM" = "termux" ]; then
 
     cat > "$HOME/.shortcuts/Start-OmniPOS.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# RECREATE_WIDGETS_VERSION:3
 command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 cd ~/OMNIPOS || { echo "❌ Could not find the ~/OMNIPOS folder."; exit 1; }
 mkdir -p logs
@@ -187,31 +212,50 @@ echo ""
 echo "⏳ Starting the OmniPOS server, please wait..."
 echo ""
 
-if command -v setsid >/dev/null 2>&1; then
-    setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-else
-    nohup ./start.sh > logs/widget-run.log 2>&1 &
-fi
+# Background helper: waits for the server to respond, opens OmniPOS
+# (as the installed PWA if available, browser otherwise), then hides
+# Termux. Kept separate from the server process itself — see the
+# comment above "exec" below.
+(
+    for i in $(seq 1 60); do
+        if curl -s -o /dev/null http://localhost:3000/; then
+            # "localhost" (not "127.0.0.1") is required for WebAuthn/
+            # Fingerprint Login to work as a valid RP ID.
+            URL="http://localhost:3000/"
+            # Launch the installed PWA (WebAPK) directly if present, to
+            # skip the "choose OmniPOS or Chrome" chooser; otherwise
+            # fall back to the browser.
+            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+            if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
+                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
+            fi
+            sleep 1
+            am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+            break
+        fi
+        sleep 0.5
+    done
+) &
 disown
 
-for i in $(seq 1 60); do
-  if curl -s -o /dev/null http://localhost:3000/; then
-    echo "✅ Server ready — opening OmniPOS..."
-    sleep 1
-    break
-  fi
-  sleep 0.5
-done
-
-# IMPORTANT: "localhost" (NOT "127.0.0.1") — this is needed by
-# WebAuthn/Fingerprint Login as a valid RP ID.
-command -v termux-open-url >/dev/null 2>&1 && termux-open-url http://localhost:3000/
-exit
+# Fix: the server used to die when leaving/reopening the app because
+# this script backgrounded start.sh with `disown` and then exited —
+# Termux:Widget (RunCommandService) only keeps its background-kill
+# protection alive while the invoking task is still running, so once
+# this script exited, the disowned start.sh/node processes lost that
+# protection (the wake-lock notification stays visible but is purely
+# cosmetic — it does not prevent the kill). This is also why a server
+# started manually inside an interactive Termux session doesn't die:
+# that session never exits. Using `exec` instead of `disown`+exit
+# keeps this same PID running for as long as the server runs, so the
+# RunCommandService protection is retained.
+exec ./start.sh >> logs/widget-run.log 2>&1
 EOF
     chmod +x "$HOME/.shortcuts/Start-OmniPOS.sh"
 
     cat > "$HOME/.shortcuts/Stop-OmniPOS.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# RECREATE_WIDGETS_VERSION:3
 echo "🛑 Stopping the OmniPOS server..."
 pkill -f start.sh 2>/dev/null
 pkill -f "node server.js" 2>/dev/null
@@ -230,6 +274,7 @@ EOF
 
     cat > "$HOME/.shortcuts/Restart-OmniPOS.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# RECREATE_WIDGETS_VERSION:3
 echo ""
 echo "🔁 Restarting the OmniPOS server..."
 echo ""
@@ -252,31 +297,32 @@ mkdir -p logs
 echo "⏳ Starting the OmniPOS server again, please wait..."
 echo ""
 
-if command -v setsid >/dev/null 2>&1; then
-    setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-else
-    nohup ./start.sh > logs/widget-run.log 2>&1 &
-fi
+# Background helper — see the explanation in Start-OmniPOS.sh.
+(
+    for i in $(seq 1 60); do
+        if curl -s -o /dev/null http://localhost:3000/; then
+            URL="http://localhost:3000/"
+            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+            if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
+                command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
+            fi
+            sleep 1
+            am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+            break
+        fi
+        sleep 0.5
+    done
+) &
 disown
 
-for i in $(seq 1 60); do
-  if curl -s -o /dev/null http://localhost:3000/; then
-    echo "✅ Server ready — opening OmniPOS..."
-    sleep 1
-    break
-  fi
-  sleep 0.5
-done
-
-# IMPORTANT: "localhost" (NOT "127.0.0.1") — this is needed by
-# WebAuthn/Fingerprint Login as a valid RP ID.
-command -v termux-open-url >/dev/null 2>&1 && termux-open-url http://localhost:3000/
-exit
+# Fix: `exec` instead of disown+exit — see Start-OmniPOS.sh.
+exec ./start.sh >> logs/widget-run.log 2>&1
 EOF
     chmod +x "$HOME/.shortcuts/Restart-OmniPOS.sh"
 
     cat > "$HOME/.shortcuts/OmniPOS-LAN.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# RECREATE_WIDGETS_VERSION:3
 command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 cd ~/OMNIPOS || { echo "❌ Could not find the ~/OMNIPOS folder."; exit 1; }
 mkdir -p logs
@@ -301,42 +347,39 @@ if [ -z "$LAN_IP" ]; then
 fi
 echo ""
 
-if command -v setsid >/dev/null 2>&1; then
-    NODE_ENV=production setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-else
-    NODE_ENV=production nohup ./start.sh > logs/widget-run.log 2>&1 &
-fi
+# Background helper — see the explanation in Start-OmniPOS.sh.
+(
+    SERVER_UP=0
+    for i in $(seq 1 180); do
+        if curl -s -o /dev/null "http://localhost:3000/"; then
+            SERVER_UP=1
+            break
+        fi
+        sleep 0.5
+    done
+
+    if [ "$SERVER_UP" -ne 1 ]; then
+        command -v termux-toast >/dev/null 2>&1 && termux-toast "⚠️ Hasn't started yet — check the logs."
+        exit 0
+    fi
+
+    LOCAL_URL="http://localhost:3000/"
+    WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+    if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$LOCAL_URL" >/dev/null 2>&1; then
+        command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$LOCAL_URL"
+    fi
+    command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Server ready: $LOCAL_URL"
+
+    sleep 20
+    am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+) &
 disown
 
-SERVER_UP=0
-for i in $(seq 1 180); do
-  if curl -s -o /dev/null "http://localhost:3000/"; then
-    SERVER_UP=1
-    echo ""
-    break
-  fi
-  if [ $((i % 4)) -eq 0 ]; then printf "."; fi
-  sleep 0.5
-done
-
-if [ "$SERVER_UP" -ne 1 ]; then
-  echo "⚠️  Server is not responding yet. Check: tail -n 40 logs/supervisor.log"
-  command -v termux-toast >/dev/null 2>&1 && termux-toast "⚠️ Hasn't started yet — check the logs."
-  sleep 8
-  exit 1
-fi
-
-LAN_URL="http://$LAN_IP:3000"
-LOCAL_URL="http://localhost:3000"
-echo "🌐 Open on another device (same WiFi): $LAN_URL"
+echo "🌐 Open on another device (same WiFi): http://$LAN_IP:3000"
 echo ""
 
-command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$LOCAL_URL"
-command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Server ready: $LOCAL_URL"
-
-sleep 20
-am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
-exit 0
+# Fix: `exec` instead of disown+exit — see Start-OmniPOS.sh.
+exec env NODE_ENV=production ./start.sh >> logs/widget-run.log 2>&1
 EOF
     chmod +x "$HOME/.shortcuts/OmniPOS-LAN.sh"
 
@@ -565,27 +608,66 @@ if [ "$PLATFORM" = "termux" ]; then
 
     command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
-    else
-        nohup ./start.sh > logs/widget-run.log 2>&1 &
+    # Note: the OmniPOS PWA cannot be silently installed by a script —
+    # Android requires one manual tap on "Install app"/"Add to Home
+    # screen" in the browser, as a security restriction with no
+    # workaround. Once installed, it is auto-detected and used instead
+    # of the browser on every subsequent launch (Start/Restart/
+    # OmniPOS-LAN widgets, and here) — no chooser dialog.
+    if ! pm list packages 2>/dev/null | grep -q 'org\.chromium\.webapk\.'; then
+        echo "💡 Tip: on first launch, tap \"Install app\"/\"Add to Home screen\""
+        echo "   in the browser to make OmniPOS a standalone app (no address"
+        echo "   bar, opens directly next time, no more \"choose OmniPOS or"
+        echo "   Chrome\" prompt)."
+        echo ""
     fi
+
+    # Background helper: waits for the server, opens OmniPOS (as the
+    # installed PWA if available), then hides Termux — see the comment
+    # near "exec" below for why this runs separately from the server.
+    (
+        for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://localhost:3000/; then
+                # "localhost" (not "127.0.0.1") is required by
+                # WebAuthn/Fingerprint Login as a valid RP ID.
+                URL="http://localhost:3000/"
+                WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+                if [ -z "$WEBAPK_PKG" ] || ! am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1; then
+                    command -v termux-open-url >/dev/null 2>&1 && termux-open-url "$URL"
+
+                    # Fix: if the PWA isn't installed yet, this is the
+                    # ONE moment Android requires a manual tap (no way
+                    # to script around that OS-level restriction). So
+                    # actively wait for it here instead of leaving it
+                    # to chance — once the tap happens, immediately
+                    # relaunch as the installed PWA so the chooser
+                    # never shows again from here on.
+                    if [ -z "$WEBAPK_PKG" ]; then
+                        command -v termux-toast >/dev/null 2>&1 && termux-toast "👉 Tap \"Install app\" / \"Add to Home screen\" to finish setup"
+                        for j in $(seq 1 150); do
+                            sleep 2
+                            WEBAPK_PKG="$(pm list packages 2>/dev/null | sed -n 's/^package:\(org\.chromium\.webapk\..*\)$/\1/p' | head -n 1)"
+                            if [ -n "$WEBAPK_PKG" ]; then
+                                am start -n "$WEBAPK_PKG/org.chromium.webapk.shell_apk.MainActivity" -d "$URL" >/dev/null 2>&1
+                                command -v termux-toast >/dev/null 2>&1 && termux-toast "✅ Installed — OmniPOS will open directly from now on."
+                                break
+                            fi
+                        done
+                    fi
+                fi
+                sleep 2
+                am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+                break
+            fi
+            sleep 0.5
+        done
+    ) &
     disown
 
-    for i in $(seq 1 60); do
-        if curl -s -o /dev/null http://localhost:3000/; then
-            echo "✅ Server ready — opening OmniPOS..."
-            break
-        fi
-        sleep 0.5
-    done
-
-    # IMPORTANT: "localhost" (NOT "127.0.0.1") — needed by
-    # WebAuthn/Fingerprint Login as a valid RP ID.
-    command -v termux-open-url >/dev/null 2>&1 && termux-open-url http://localhost:3000/
-    sleep 2
-
+    # Fix: see the detailed explanation in Start-OmniPOS.sh above —
+    # `exec` into start.sh instead of disown+exit, so this task keeps
+    # running (and keeps Termux's background-kill protection) for as
+    # long as the server runs.
     echo "🙈 Hiding Termux — OmniPOS is now running in the background..."
-    am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
-    exit 0
+    exec ./start.sh >> logs/widget-run.log 2>&1
 fi

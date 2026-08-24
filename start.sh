@@ -4,13 +4,12 @@ cd "$(dirname "$0")" || exit 1
 LOG_DIR="./logs"
 LOG_FILE="$LOG_DIR/supervisor.log"
 LOCK_FILE="./.start.sh.lock"
-# BUG FIX (root cause ng walang-katapusang "Verify live" stack-up):
-# ginagawa ngayon ng server.js ang backup na ito (SELF_UPDATE_BACKUP_DIR
-# sa server.js) BAGO mag-apply ng self-update. Kapag may crash loop
-# pagkatapos ng restart (bago o luma man ang dahilan — mismatched
-# dependency, sirang bagong release, atbp.), ibinabalik agad dito ng
-# supervisor loop ang dating gumaganang bersyon sa halip na paikot-ikot
-# na mag-crash magpakailanman habang nakatigil ang "Verify live" sa UI.
+# Bug fix (root cause of the endless "Verify live" hang): server.js
+# now creates this backup (SELF_UPDATE_BACKUP_DIR in server.js) BEFORE
+# applying a self-update. If a crash loop happens after a restart (for
+# any reason — mismatched dependency, a broken new release, etc.), the
+# supervisor loop below restores this last-known-good version instead
+# of crash-looping forever while the UI stays stuck on "Verify live."
 SELF_UPDATE_BACKUP_DIR="./.self-update-backup"
 
 NORMAL_DELAY=1
@@ -61,12 +60,11 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# BUG FIX: ibinabalik ang naka-backup na dating gumaganang bersyon
-# (kung mayroon) pabalik sa app root, at binubura ang backup dir
-# pagkatapos — para hindi na ito paulit-ulit na maibalik sa susunod na
-# hindi-naman-related na crash loop. Tingnan ang komento sa itaas ng
-# SELF_UPDATE_BACKUP_DIR at ang malaking komento sa server.js
-# (SELF_UPDATE_BACKUP_DIR) para sa buong konteksto.
+# Bug fix: restores the backed-up last-known-good version (if any)
+# back to the app root, then deletes the backup dir afterward — so it
+# doesn't get restored again on a later, unrelated crash loop. See the
+# SELF_UPDATE_BACKUP_DIR comment above and the larger comment in
+# server.js (SELF_UPDATE_BACKUP_DIR) for the full context.
 restore_self_update_backup() {
     if [ -d "$SELF_UPDATE_BACKUP_DIR" ]; then
         log "🔙 Crash loop pagkatapos ng self-update — nakita ang backup ng dating bersyon. Ibinabalik ito bago subukan ulit..."
@@ -84,11 +82,14 @@ crash_timestamps=()
 
 while true; do
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid node server.js
-    else
-        node server.js
-    fi
+    # Fix: run node PLAIN, no setsid. setsid puts node in a brand new
+    # session, detached from start.sh's own session — which escapes
+    # the exact protection the widget's `exec ./start.sh` trick gives.
+    # start.sh (and its wake-lock notification) stays alive, but a
+    # setsid'd node child does not — Android kills it as soon as you
+    # leave and reopen the app. Plain `node server.js` (same session
+    # as start.sh) does not have this problem.
+    node server.js
     EXIT_CODE=$?
 
     if [ "$EXIT_CODE" -eq 0 ]; then
@@ -114,12 +115,11 @@ while true; do
     if [ "$crash_count" -ge "$CRASH_THRESHOLD" ]; then
         log "🔴 CRASH LOOP DETECTED — ${crash_count} crashes sa loob ng ${CRASH_WINDOW}s. I-check ang logs/supervisor.log at ang .env/database."
 
-        # BUG FIX: bago basta mag-30s backoff at ulit-uliting mag-crash,
-        # tingnan muna kung may naka-backup na dating gumaganang bersyon
-        # mula sa isang self-update — kung meron, ibalik agad ito para
-        # awtomatikong "gumaling" ang device sa halip na manatiling
-        # walang-katapusang stuck ang "Verify live" sa UI habang
-        # naghihintay ng manual na pag-aayos.
+        # Bug fix: before just backing off 30s and crash-looping
+        # again, check first whether there's a backed-up last-known-
+        # good version from a self-update — if so, restore it right
+        # away so the device auto-recovers instead of staying stuck on
+        # "Verify live" in the UI waiting for a manual fix.
         if restore_self_update_backup; then
             crash_timestamps=()
             sleep "$CRASH_DELAY"
