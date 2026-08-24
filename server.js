@@ -2623,14 +2623,35 @@ function getAndroidProp(name) {
     }
 }
 
+const IS_VOLATILE_CLOUD_HOST = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
+
 function getOrCreateDeviceSeed(data) {
+    // FIX #2: sa volatile host (Render free plan, walang persistent disk),
+    // HINDI na dapat mag-generate/mag-save ng random seed dahil ephemeral
+    // din ang file kung saan ito naka-imbak — mawawala ito kada deploy,
+    // kahit iisang OMNIPOS_FIXED_INSTALLATION_ID na naman ang gamit.
+    // Resulta noon: parehong installationId pero IBANG "fingerprint" kada
+    // deploy dahil random ang seed na bahagi nito — na-flag ito ng RELAY
+    // bilang posibleng clone (403) kahit iisa lang talaga ang device.
+    //
+    // Ayos: sa volatile host, i-derive ang seed nang DETERMINISTIC mula
+    // mismo sa fixed installation id (env var, hindi disk) — kaya pareho
+    // palagi ang seed (at ang buong fingerprint) kada deploy. Kung walang
+    // fixed id na naka-set, walang paraan para maging stable ang seed sa
+    // volatile host — ibalik na lang ang null dito, para malinis na
+    // mag-skip ng fingerprint enforcement ang caller (computeHardwareFingerprint)
+    // sa halip na mag-compute ng random/hindi-stable na fingerprint.
+    if (IS_VOLATILE_CLOUD_HOST) {
+        const fixedId = process.env.OMNIPOS_FIXED_INSTALLATION_ID;
+        if (!fixedId) return null;
+        return crypto.createHash('sha256').update(`omnipos-fixed-seed:${fixedId}`).digest('hex');
+    }
+
     if (data.deviceSeed) return data.deviceSeed;
     data.deviceSeed = crypto.randomBytes(32).toString('hex');
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.deviceSeed;
 }
-
-const IS_VOLATILE_CLOUD_HOST = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
 
 function getNonAndroidMachineParts() {
 
@@ -2678,11 +2699,20 @@ function computeHardwareFingerprint(data) {
     const seed = getOrCreateDeviceSeed(data);
 
     if (androidParts.length > 0) {
-        return crypto.createHash('sha256').update([...androidParts, seed].join('|')).digest('hex');
+        // May stable hardware props na mula mismo sa Android device — kung
+        // wala mang stable seed (volatile host + walang fixed id), sapat na
+        // ang androidParts mag-isa dahil hardware-based na ito.
+        const parts = seed ? [...androidParts, seed] : androidParts;
+        return crypto.createHash('sha256').update(parts.join('|')).digest('hex');
     }
 
     const machineParts = getNonAndroidMachineParts();
     const allParts = [...machineParts, seed].filter(Boolean);
+    // FIX #2: kung walang natitirang bahagi (volatile host, walang fixed id
+    // kaya null ang seed, at wala ring machine parts dahil volatile din),
+    // ibalik ang null sa halip na mag-hash lang ng random-per-deploy na seed.
+    // Sinusuportahan na ng caller (checkDeviceBeforeLogin) ang null fingerprint
+    // bilang "hindi ma-enforce" — clean skip, hindi false clone-flag.
     if (allParts.length === 0) return null;
     return crypto.createHash('sha256').update(allParts.join('|')).digest('hex');
 }
