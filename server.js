@@ -13,7 +13,7 @@ const ExcelJS = require('exceljs');
 const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const { readData, writeData, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getBackupStatus } = require('./db');
 const webauthn = require('./webauthn');
 
@@ -2211,6 +2211,164 @@ async function searchProductImages(query) {
     throw new Error('Unsupported o hindi pa naka-configure ang IMAGE_SEARCH_PROVIDER.');
 }
 
+// ============================================================================
+// OMNI SEARCH IMAGES — free, no-API-key image search providers
+// ----------------------------------------------------------------------------
+// English version note: everything below (this section, its routes, and the
+// matching frontend code) is new. It does NOT touch the SerpApi/Google/Bing
+// (paid) provider above — that flow is left completely untouched.
+//
+// Each free provider below is tried in order for a given query. If a
+// provider errors out, is blocked, or returns nothing usable, the cascade
+// automatically falls through to the next free provider — that's the
+// "self-healing" fallback the feature is built around, so one blocked site
+// (e.g. Bing returning a CAPTCHA page) never breaks the whole search.
+// ============================================================================
+
+const OMNI_FREE_SEARCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+async function omniFetchText(url, headers = {}, timeoutMs = 10000) {
+    const r = await imageSearchProviderFetchWithTimeout(url, {
+        headers: { 'User-Agent': OMNI_FREE_SEARCH_USER_AGENT, 'Accept-Encoding': 'identity', ...headers }
+    }, timeoutMs);
+    const body = await r.text();
+    return { statusCode: r.status, body };
+}
+
+async function searchDuckDuckGoImagesFree(query, timeoutMs = 10000) {
+    const tokenUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`;
+    const { statusCode, body: html } = await omniFetchText(tokenUrl, {}, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`DuckDuckGo token page returned HTTP ${statusCode}.`);
+    const m = html.match(/vqd=['"]?([\d-]+)['"]?/);
+    if (!m) throw new Error('DuckDuckGo vqd token not found (page layout may have changed).');
+
+    const searchUrl = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${encodeURIComponent(m[1])}&f=,,,&p=1`;
+    const { statusCode: sc2, body: jsonBody } = await omniFetchText(searchUrl, { Referer: 'https://duckduckgo.com/' }, timeoutMs);
+    if (sc2 < 200 || sc2 >= 300) throw new Error(`DuckDuckGo image search returned HTTP ${sc2}.`);
+    const data = JSON.parse(jsonBody);
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) throw new Error('DuckDuckGo returned no image results.');
+    return results.slice(0, 10).map((it, i) => ({
+        id: `ddg${i}`, provider: 'DuckDuckGo',
+        title: (it.title || '').slice(0, 140),
+        thumbnailUrl: it.thumbnail || it.image,
+        imageUrl: it.image,
+        width: it.width || null, height: it.height || null
+    })).filter(r => r.imageUrl && r.thumbnailUrl);
+}
+
+async function searchBingImagesFree(query, timeoutMs = 10000) {
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&mkt=en-US`;
+    const { statusCode, body: html } = await omniFetchText(url, { 'Accept-Language': 'en-US,en;q=0.9' }, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Bing (free) returned HTTP ${statusCode} (may be temporarily blocking this network).`);
+
+    const out = [];
+    const attrRegex = /m="({.*?})"/g;
+    let am;
+    while ((am = attrRegex.exec(html)) && out.length < 10) {
+        try {
+            const obj = JSON.parse(am[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+            if (obj.murl) {
+                out.push({
+                    id: `bingfree${out.length}`, provider: 'Bing (free)',
+                    title: (obj.t || '').slice(0, 140),
+                    thumbnailUrl: obj.turl || obj.murl,
+                    imageUrl: obj.murl,
+                    width: obj.mw || null, height: obj.mh || null
+                });
+            }
+        } catch {
+            // One malformed entry shouldn't stop the whole scan — skip it and keep going.
+        }
+    }
+    if (!out.length) throw new Error('Bing (free) returned no parsable image results (layout may have changed, or the request was blocked).');
+    return out;
+}
+
+async function searchOpenverseImagesFree(query, timeoutMs = 10000) {
+    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=10`;
+    const { statusCode, body } = await omniFetchText(url, {}, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Openverse returned HTTP ${statusCode}.`);
+    const data = JSON.parse(body);
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) throw new Error('Openverse returned no image results.');
+    return results.slice(0, 10).map((it, i) => ({
+        id: `ov${i}`, provider: 'Openverse',
+        title: (it.title || '').slice(0, 140),
+        thumbnailUrl: it.thumbnail || it.url,
+        imageUrl: it.url,
+        width: it.width || null, height: it.height || null
+    })).filter(r => r.imageUrl && r.thumbnailUrl);
+}
+
+async function searchWikimediaCommonsImagesFree(query, timeoutMs = 10000) {
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent('file:' + query)}&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url%7Csize&iiurlwidth=400&format=json&origin=*`;
+    const { statusCode, body } = await omniFetchText(url, {}, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Wikimedia Commons returned HTTP ${statusCode}.`);
+    const data = JSON.parse(body);
+    const pages = data && data.query && data.query.pages ? Object.values(data.query.pages) : [];
+    const out = [];
+    for (const p of pages) {
+        const info = p.imageinfo && p.imageinfo[0];
+        if (info && info.url) {
+            out.push({
+                id: `wm${out.length}`, provider: 'Wikimedia Commons',
+                title: (p.title || '').replace(/^File:/, '').slice(0, 140),
+                thumbnailUrl: info.thumburl || info.url,
+                imageUrl: info.url,
+                width: info.width || null, height: info.height || null
+            });
+        }
+    }
+    if (!out.length) throw new Error('Wikimedia Commons returned no image results.');
+    return out;
+}
+
+async function searchYandexImagesFree(query, timeoutMs = 10000) {
+    const url = `https://yandex.com/images/search?text=${encodeURIComponent(query)}`;
+    const { statusCode, body: html } = await omniFetchText(url, {}, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Yandex returned HTTP ${statusCode}.`);
+    const matches = [...html.matchAll(/"img_href":"(https?:[^"]+)"/g)];
+    if (!matches.length) throw new Error('Yandex returned no parsable image results (likely blocked/CAPTCHA on this network).');
+    return matches.slice(0, 10).map((m, i) => {
+        const imageUrl = m[1].replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+        return { id: `yx${i}`, provider: 'Yandex', title: '', thumbnailUrl: imageUrl, imageUrl, width: null, height: null };
+    });
+}
+
+// Order matters: most reliable / most product-relevant free sources first,
+// Yandex last since it's the most likely to serve a CAPTCHA instead of results.
+const OMNI_FREE_IMAGE_PROVIDERS = [
+    { name: 'DuckDuckGo', run: searchDuckDuckGoImagesFree },
+    { name: 'Bing (free)', run: searchBingImagesFree },
+    { name: 'Openverse', run: searchOpenverseImagesFree },
+    { name: 'Wikimedia Commons', run: searchWikimediaCommonsImagesFree },
+    { name: 'Yandex', run: searchYandexImagesFree }
+];
+
+async function omniFreeImageSearch(query, timeoutMs = 10000) {
+    const q = (query || '').toString().trim().slice(0, 150);
+    if (!q) {
+        const err = new Error('Maglagay muna ng search term.');
+        err.statusCode = 400;
+        throw err;
+    }
+    const errors = [];
+    for (const provider of OMNI_FREE_IMAGE_PROVIDERS) {
+        try {
+            const results = await provider.run(q, timeoutMs);
+            if (results && results.length) return { provider: provider.name, results };
+        } catch (err) {
+            // Self-healing fallback: this free provider failed or got blocked —
+            // move on to the next one in the cascade automatically.
+            errors.push(`${provider.name}: ${err.message}`);
+        }
+    }
+    const err = new Error(`All free image search providers failed or returned nothing for "${q}". (${errors.join(' | ')})`);
+    err.statusCode = 502;
+    throw err;
+}
+
 const IMAGE_SEARCH_SESSION_TTL_MS = 10 * 60 * 1000;
 const imageSearchSessions = new Map();
 
@@ -2250,6 +2408,237 @@ setInterval(() => {
 
 function sleepMs(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============================================================================
+// OMNI SEARCH IMAGES — background job orchestration
+// ----------------------------------------------------------------------------
+// "Omni Search Images" runs the free-provider cascade above as a detached
+// background OS process (a separate Node process from the running OmniPOS
+// server, spawned via child_process.spawn — this is what makes it a real
+// background job on Termux: nothing about it is printed to the terminal the
+// user is using, and all output only ever reaches the app through the live
+// progress endpoint below). If spawning a background process isn't possible
+// for any reason (missing permissions, unusual Termux/Node setup, etc.), the
+// server automatically falls back to running the exact same search logic
+// in-process instead, so the feature keeps working either way.
+//
+// The worker process reports progress back to the main server through a
+// small internal HTTP callback server bound ONLY to 127.0.0.1 (never
+// reachable from outside the device), authenticated with a random
+// per-job secret so nothing else on the device can inject fake progress.
+// ============================================================================
+
+const OMNI_SEARCH_WORKER_SCRIPT = path.join(__dirname, 'omnipos-search-image.js');
+const OMNI_SEARCH_SESSION_TTL_MS = BULK_IMAGE_SEARCH_SESSION_TTL_MS;
+const OMNI_SEARCH_PROGRESS_TTL_MS = BULK_IMAGE_SEARCH_PROGRESS_TTL_MS;
+
+const omniImageSearchSessions = new Map();   // nonce -> { username, createdAt, items: Map(code -> proposal) }
+const omniImageSearchProgress = new Map();   // nonce -> live progress object (polled by the frontend)
+const omniImageSearchJobs = new Map();       // nonce -> { secret, username, clearFallback }
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [nonce, sess] of omniImageSearchSessions.entries()) {
+        if (now - sess.createdAt > OMNI_SEARCH_SESSION_TTL_MS) omniImageSearchSessions.delete(nonce);
+    }
+    for (const [nonce, p] of omniImageSearchProgress.entries()) {
+        if (now - p.startedAt > OMNI_SEARCH_PROGRESS_TTL_MS) { omniImageSearchProgress.delete(nonce); omniImageSearchJobs.delete(nonce); }
+    }
+}, 5 * 60 * 1000).unref();
+
+let omniInternalCallbackServer = null;
+let omniInternalCallbackPort = null;
+
+// Self-troubleshooting: handles a progress update posted by the worker
+// process. Validates that it truly came from this device (loopback only)
+// and carries the correct per-job secret before trusting anything in it.
+function handleOmniProgressUpdate(remoteAddress, payload) {
+    const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
+    if (!isLoopback) throw new Error('Forbidden: internal-only endpoint.');
+
+    const nonce = payload && payload.nonce;
+    const job = nonce ? omniImageSearchJobs.get(nonce) : null;
+    if (!job || !payload || job.secret !== payload.secret) {
+        throw new Error('Invalid or expired Omni Search job token.');
+    }
+
+    // The background process is alive and reporting — cancel the
+    // "hasn't reported anything yet" self-healing fallback timer.
+    if (typeof job.clearFallback === 'function') job.clearFallback();
+
+    const progress = omniImageSearchProgress.get(nonce);
+    if (!progress || progress.finished) return; // already finished elsewhere — no-op
+
+    if (payload.type === 'item') {
+        progress.proposals.push(payload.proposal);
+        progress.done = payload.done;
+        progress.updatedAt = Date.now();
+    } else if (payload.type === 'finished') {
+        const items = new Map();
+        (payload.items || []).forEach(it => { if (it && it.code) items.set(it.code, it); });
+        omniImageSearchSessions.set(nonce, { username: job.username, createdAt: Date.now(), items });
+        progress.finished = true;
+        progress.updatedAt = Date.now();
+    } else if (payload.type === 'error') {
+        progress.error = payload.message || 'Omni Search Images failed.';
+        progress.finished = true;
+        progress.updatedAt = Date.now();
+    }
+}
+
+function ensureOmniInternalCallbackServer() {
+    if (omniInternalCallbackServer) return Promise.resolve(omniInternalCallbackPort);
+    return new Promise((resolve, reject) => {
+        const srv = http.createServer((req, res) => {
+            if (req.method !== 'POST' || req.url !== '/omni-progress') {
+                res.writeHead(404); res.end(); return;
+            }
+            let body = '';
+            req.on('data', (chunk) => {
+                body += chunk;
+                if (body.length > 2 * 1024 * 1024) req.destroy(); // guard against runaway payloads
+            });
+            req.on('end', () => {
+                try {
+                    const payload = JSON.parse(body || '{}');
+                    handleOmniProgressUpdate(req.socket.remoteAddress, payload);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true }));
+                } catch (err) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: false, message: err.message }));
+                }
+            });
+            req.on('error', () => { try { res.destroy(); } catch {} });
+        });
+        srv.on('error', reject);
+        // Bound to 127.0.0.1 only (loopback) — never reachable from the LAN/internet.
+        srv.listen(0, '127.0.0.1', () => {
+            omniInternalCallbackServer = srv;
+            omniInternalCallbackPort = srv.address().port;
+            resolve(omniInternalCallbackPort);
+        });
+    });
+}
+
+// Fallback path: runs the exact same free-provider cascade directly inside
+// the main OmniPOS process (fully non-blocking async, same pattern as the
+// existing SerpApi/Google/Bing bulk search job above). Used automatically
+// whenever spawning the separate background worker process isn't possible.
+async function runOmniImageSearchInProcess(nonce, targets, username) {
+    const progress = omniImageSearchProgress.get(nonce);
+    if (!progress || progress.finished) return;
+
+    const items = new Map();
+    try {
+        for (let i = 0; i < targets.length; i++) {
+            if (progress.finished) break; // the background process may have finished meanwhile
+            const p = targets[i];
+            try {
+                const { provider, results } = await omniFreeImageSearch(`${p.name} product photo`);
+                const best = results[0];
+                if (best) {
+                    items.set(p.code, { imageUrl: best.imageUrl, thumbnailUrl: best.thumbnailUrl, title: best.title, provider });
+                    progress.proposals.push({ code: p.code, name: p.name, found: true, thumbnailUrl: best.thumbnailUrl, title: best.title, provider });
+                } else {
+                    progress.proposals.push({ code: p.code, name: p.name, found: false, message: 'No image found.' });
+                }
+            } catch (err) {
+                console.error(`Omni Search Images error for ${p.code}:`, err);
+                progress.proposals.push({ code: p.code, name: p.name, found: false, message: 'Search failed for this product.' });
+            }
+            progress.done = i + 1;
+            progress.updatedAt = Date.now();
+            if (i < targets.length - 1) await sleepMs(450);
+        }
+        if (!progress.finished) {
+            omniImageSearchSessions.set(nonce, { username, createdAt: Date.now(), items });
+            progress.finished = true;
+            progress.updatedAt = Date.now();
+        }
+    } catch (err) {
+        console.error('Omni Search Images in-process job failed:', err);
+        if (!progress.finished) {
+            progress.error = err.message || 'Omni Search Images failed.';
+            progress.finished = true;
+            progress.updatedAt = Date.now();
+        }
+    }
+}
+
+// Primary path: spawns omnipos-search-image.js as a real, detached
+// background OS process. Falls back to the in-process runner above the
+// moment anything about the spawn looks wrong (self-healing).
+async function runOmniImageSearchJob(nonce, targets, username) {
+    const progress = omniImageSearchProgress.get(nonce);
+    if (!progress) return;
+
+    let callbackPort;
+    try {
+        callbackPort = await ensureOmniInternalCallbackServer();
+    } catch (err) {
+        console.warn('⚠️  Omni Search Images: could not start the internal progress callback server — running the search in-process instead. Detalye:', err.message);
+        return runOmniImageSearchInProcess(nonce, targets, username);
+    }
+
+    const secret = crypto.randomBytes(24).toString('hex');
+    const jobFile = path.join(os.tmpdir(), `omnipos-omni-search-${nonce}.json`);
+
+    try {
+        fs.writeFileSync(jobFile, JSON.stringify({
+            nonce, secret, host: '127.0.0.1', port: callbackPort,
+            targets: targets.map(p => ({ code: p.code, name: p.name }))
+        }));
+    } catch (err) {
+        console.warn('⚠️  Omni Search Images: could not write the background job file — running the search in-process instead. Detalye:', err.message);
+        return runOmniImageSearchInProcess(nonce, targets, username);
+    }
+
+    let handedOff = false;
+    let fallbackTimer = null;
+    const triggerFallback = (reason) => {
+        if (handedOff) return;
+        handedOff = true;
+        if (fallbackTimer) clearTimeout(fallbackTimer);
+        console.warn(`⚠️  Omni Search Images (job ${nonce}): ${reason} — automatically switching to the in-process fallback so the search still completes.`);
+        runOmniImageSearchInProcess(nonce, targets, username).catch(e => console.error('Omni Search Images in-process fallback failed:', e));
+    };
+
+    omniImageSearchJobs.set(nonce, { secret, username, clearFallback: () => { handedOff = true; if (fallbackTimer) clearTimeout(fallbackTimer); } });
+
+    let child;
+    try {
+        child = spawn(process.execPath, [OMNI_SEARCH_WORKER_SCRIPT, jobFile], {
+            cwd: __dirname,
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true
+        });
+    } catch (err) {
+        try { fs.unlinkSync(jobFile); } catch {}
+        return triggerFallback(`could not spawn the background worker process (${err.message})`);
+    }
+
+    // Self-healing safety net: if 20s pass with zero progress reported by
+    // the worker, assume the background process can't run properly in this
+    // Termux/Node environment and fall back automatically instead of
+    // leaving the UI stuck.
+    fallbackTimer = setTimeout(() => {
+        if (!progress.finished && progress.done === 0) {
+            try { if (child && !child.killed) child.kill(); } catch {}
+            triggerFallback('background worker reported no progress after 20s (it may not have been able to start)');
+        }
+    }, 20000);
+
+    child.once('error', (err) => triggerFallback(`background worker process error (${err.message})`));
+    child.once('exit', (code, signal) => {
+        if (!handedOff && !progress.finished && code !== 0) {
+            triggerFallback(`background worker exited early (code ${code}${signal ? ', signal ' + signal : ''})`);
+        }
+    });
+
+    child.unref();
 }
 
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
@@ -5726,6 +6115,83 @@ app.post('/api/products/image-search/select', rateLimit('product-image-search-se
     }
 });
 
+// ============================================================================
+// Single-product Omni Search (free) — same free/no-API-key provider cascade
+// used by the bulk Omni Search Images flow above (searchDuckDuckGoImagesFree,
+// searchBingImagesFree, searchOpenverseImagesFree,
+// searchWikimediaCommonsImagesFree, searchYandexImagesFree via
+// omniFreeImageSearch). This lets the single-product "Search Image" modal
+// (used from the Add/Edit Product form) offer an "Omni Search" option that
+// works even when IMAGE_SEARCH_PROVIDER / IMAGE_SEARCH_API_KEY are not
+// configured, since it needs no API key at all. The existing paid
+// /api/products/image-search flow above is left completely untouched.
+// ============================================================================
+
+const OMNI_SINGLE_SEARCH_SESSION_TTL_MS = 10 * 60 * 1000;
+const omniSingleSearchSessions = new Map();
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [nonce, sess] of omniSingleSearchSessions.entries()) {
+        if (now - sess.createdAt > OMNI_SINGLE_SEARCH_SESSION_TTL_MS) omniSingleSearchSessions.delete(nonce);
+    }
+}, 5 * 60 * 1000).unref();
+
+app.post('/api/products/image-search/omni', rateLimit('product-image-search-omni', 20, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
+    try {
+        const { provider, results } = await omniFreeImageSearch(req.body && req.body.query);
+        const nonce = crypto.randomBytes(16).toString('hex');
+        const items = new Map();
+        results.forEach(r => items.set(r.id, { imageUrl: r.imageUrl, thumbnailUrl: r.thumbnailUrl }));
+        omniSingleSearchSessions.set(nonce, { username: req.authUser.username, createdAt: Date.now(), items });
+
+        res.json({
+            success: true,
+            nonce,
+            provider,
+            results: results.map(({ imageUrl, ...rest }) => rest)
+        });
+    } catch (err) {
+        console.error('Omni product image search error:', err);
+        res.status(err.statusCode === 400 ? 400 : 502).json({ success: false, message: err.message || 'Omni Search failed.' });
+    }
+});
+
+app.post('/api/products/image-search/omni/select', rateLimit('product-image-search-omni-select', 30, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
+    const { nonce, id } = req.body || {};
+    const sess = omniSingleSearchSessions.get(nonce);
+    if (!sess || sess.username !== req.authUser.username || (Date.now() - sess.createdAt > OMNI_SINGLE_SEARCH_SESSION_TTL_MS)) {
+        return res.status(400).json({ success: false, message: 'This search session has expired or is invalid. Please search again.' });
+    }
+    const item = sess.items.get(id);
+    if (!item) {
+        return res.status(400).json({ success: false, message: 'Invalid selection — not part of your earlier search results.' });
+    }
+
+    // Same self-healing fallback as the bulk Omni Search flow: try the
+    // full-size image URL first, then fall back to the thumbnail (usually
+    // served from the search provider's own CDN, so it's less likely to be
+    // hotlink-blocked) — so one blocked source doesn't fail the selection.
+    const candidateUrls = [item.imageUrl, item.thumbnailUrl].filter((u, i, arr) => u && arr.indexOf(u) === i);
+
+    let lastErr = null;
+    for (const candidateUrl of candidateUrls) {
+        try {
+            const { buffer, mimetype } = await fetchImageBuffer(candidateUrl, { maxBytes: 6 * 1024 * 1024 });
+            if (!/^image\/(jpeg|png|webp|gif)$/i.test(mimetype)) {
+                lastErr = new Error('Unsupported image format from this source.');
+                continue;
+            }
+            return res.json({ success: true, dataUrl: `data:${mimetype};base64,${buffer.toString('base64')}`, mimetype });
+        } catch (err) {
+            console.error(`Omni product image select/fetch error (${candidateUrl}):`, err);
+            lastErr = err;
+        }
+    }
+
+    res.status(502).json({ success: false, message: (lastErr && lastErr.message) || 'Could not download the selected image.' });
+});
+
 app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search', 5, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     if (!isImageSearchConfigured()) {
         return res.status(501).json({
@@ -5940,6 +6406,129 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
     }
 
     res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products });
+});
+
+// ============================================================================
+// OMNI SEARCH IMAGES — routes (free, no API key required)
+// ----------------------------------------------------------------------------
+// Mirrors the "Bulk Search Images" endpoints above, but uses the free
+// multi-provider cascade (DuckDuckGo → Bing (free) → Openverse → Wikimedia
+// Commons → Yandex) instead of the configured paid provider (SerpApi /
+// Google / Bing API), so it works with zero setup. The existing SerpApi
+// flow above is untouched.
+//
+// "Apply" is intentionally shared with the paid flow's
+// POST /api/products/bulk-image-search/apply route above — it only ever
+// takes a product code + already-downloaded image data, so it works
+// identically no matter which search flow produced the image.
+// ============================================================================
+
+app.post('/api/products/omni-image-search', rateLimit('product-omni-image-search', 5, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
+    const onlyMissing = req.body?.onlyMissing !== false;
+    let limit = parseInt(req.body?.limit, 10);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 50;
+    limit = Math.min(limit, 100);
+
+    const allProducts = readData(FILE_PRODUCTS);
+    let targets = onlyMissing ? allProducts.filter(p => p && !p.image) : allProducts.slice();
+    const totalEligible = targets.length;
+    const truncated = targets.length > limit;
+    targets = targets.slice(0, limit);
+
+    if (!targets.length) {
+        return res.json({ success: true, nonce: null, totalTargeted: 0, totalEligible, truncated: false, proposals: [] });
+    }
+
+    const nonce = crypto.randomBytes(16).toString('hex');
+
+    omniImageSearchProgress.set(nonce, {
+        username: req.authUser.username,
+        total: targets.length,
+        done: 0,
+        proposals: [],
+        finished: false,
+        error: null,
+        totalEligible,
+        truncated,
+        startedAt: Date.now(),
+        updatedAt: Date.now()
+    });
+
+    // Respond immediately — the actual search runs as a background job
+    // (real detached OS process when possible, transparently falling back
+    // to an in-process background task otherwise). Live progress is
+    // available via the /progress endpoint below.
+    res.json({ success: true, nonce, totalTargeted: targets.length, totalEligible, truncated });
+
+    runOmniImageSearchJob(nonce, targets, req.authUser.username).catch(err => {
+        console.error('Omni Search Images job dispatch failed:', err);
+        const p = omniImageSearchProgress.get(nonce);
+        if (p && !p.finished) { p.error = err.message || 'Omni Search Images failed to start.'; p.finished = true; p.updatedAt = Date.now(); }
+    });
+});
+
+// GET /api/products/omni-image-search/progress
+// Polled by the frontend roughly every second while the Omni Search runs,
+// to show live progress (X/Y searched, ETA) the same way the paid Bulk
+// Search Images flow does above.
+app.get('/api/products/omni-image-search/progress', rateLimit('product-omni-image-search-progress', 1200, 60 * 60 * 1000), requirePermission('products'), (req, res) => {
+    const nonce = req.query?.nonce;
+    const progress = nonce ? omniImageSearchProgress.get(nonce) : null;
+    if (!progress || progress.username !== req.authUser.username) {
+        return res.status(400).json({ success: false, message: 'Invalid o expired na Omni Search session. Mag-search ulit.' });
+    }
+
+    const elapsedMs = Date.now() - progress.startedAt;
+    const avgMsPerItem = progress.done > 0 ? elapsedMs / progress.done : null;
+    const remainingItems = Math.max(0, progress.total - progress.done);
+    const etaMs = (!progress.finished && avgMsPerItem != null) ? Math.round(avgMsPerItem * remainingItems) : 0;
+
+    res.json({
+        success: true,
+        total: progress.total,
+        done: progress.done,
+        finished: progress.finished,
+        error: progress.error,
+        proposals: progress.proposals,
+        totalEligible: progress.totalEligible,
+        truncated: progress.truncated,
+        etaMs
+    });
+});
+
+app.post('/api/products/omni-image-search/fetch', rateLimit('product-omni-image-search-fetch', 300, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
+    const { nonce, code } = req.body || {};
+    const sess = omniImageSearchSessions.get(nonce);
+    if (!sess || sess.username !== req.authUser.username || (Date.now() - sess.createdAt > OMNI_SEARCH_SESSION_TTL_MS)) {
+        return res.status(400).json({ success: false, message: 'Expired na o invalid ang Omni Search session na ito. Mag-search ulit.' });
+    }
+    const proposal = sess.items.get(code);
+    if (!proposal) {
+        return res.status(400).json({ success: false, message: 'Invalid na produkto — wala ito sa kanina mong Omni Search results.' });
+    }
+
+    // Same self-healing fallback as the paid flow: try the full-size image
+    // URL first, then fall back to the thumbnail (usually served from the
+    // search provider's own CDN, so it's less likely to be hotlink-blocked).
+    const candidateUrls = [proposal.imageUrl, proposal.thumbnailUrl]
+        .filter((u, i, arr) => u && arr.indexOf(u) === i);
+
+    let lastErr = null;
+    for (const candidateUrl of candidateUrls) {
+        try {
+            const { buffer, mimetype } = await fetchImageBuffer(candidateUrl, { maxBytes: 6 * 1024 * 1024 });
+            if (!/^image\/(jpeg|png|webp|gif)$/i.test(mimetype)) {
+                lastErr = new Error('Hindi suportadong image format ang galing sa source na ito.');
+                continue;
+            }
+            return res.json({ success: true, code, dataUrl: `data:${mimetype};base64,${buffer.toString('base64')}`, mimetype });
+        } catch (err) {
+            console.error(`Omni Search Images fetch error for ${code} (${candidateUrl}):`, err);
+            lastErr = err;
+        }
+    }
+
+    res.status(502).json({ success: false, message: (lastErr && lastErr.message) || 'Hindi ma-download ang larawan para sa produktong ito.' });
 });
 
 app.get('/api/requests', requirePermission('pending_requests'), (req, res) => {

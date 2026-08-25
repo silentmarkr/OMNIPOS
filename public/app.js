@@ -29,7 +29,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOU
 }
 
 async function authFetch(url, options = {}) {
-    const token = localStorage.getItem('posa_token');
+    const token = localStorage.getItem('omnipos_token');
     const opts = { ...options };
     opts.headers = {
         ...(options.headers || {}),
@@ -55,8 +55,8 @@ async function authFetch(url, options = {}) {
 
         if (!window.__sessionExpiredShown && !window.__logoutInProgress) {
             window.__sessionExpiredShown = true;
-            localStorage.removeItem('posa_user');
-            localStorage.removeItem('posa_token');
+            localStorage.removeItem('omnipos_user');
+            localStorage.removeItem('omnipos_token');
             if (typeof Swal !=='undefined') {
                 Swal.fire('Session Expired','Your session has expired or become invalid. Please log in again.','warning')
                     .then(() => window.location.reload());
@@ -207,13 +207,13 @@ async function loginWithBiometric() {
 
         if (data.success) {
             currentUser = data.user;
-            localStorage.setItem('posa_user', JSON.stringify(currentUser));
-            localStorage.setItem('posa_last_username', currentUser.username);
+            localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
+            localStorage.setItem('omnipos_last_username', currentUser.username);
             currentPermissions = data.permissions || {};
             menuRegistry = data.menuRegistry || [];
-            localStorage.setItem('posa_permissions', JSON.stringify(currentPermissions));
-            localStorage.setItem('posa_menu_registry', JSON.stringify(menuRegistry));
-            if (data.token) localStorage.setItem('posa_token', data.token);
+            localStorage.setItem('omnipos_permissions', JSON.stringify(currentPermissions));
+            localStorage.setItem('omnipos_menu_registry', JSON.stringify(menuRegistry));
+            if (data.token) localStorage.setItem('omnipos_token', data.token);
 
             window.__logoutInProgress = false;
             window.__sessionExpiredShown = false;
@@ -306,7 +306,7 @@ async function registerBiometricCredential() {
         });
         const data = await verifyRes.json();
         if (data.success) {
-            localStorage.setItem('posa_last_username', currentUser.username);
+            localStorage.setItem('omnipos_last_username', currentUser.username);
             Swal.fire('Enabled', SYSTEM_CONFIG.getSuccessMessage('Fingerprint Login has been enabled on this device.'),'success');
             loadBiometricDevicesList();
         } else {
@@ -626,22 +626,22 @@ const SYSTEM_CONFIG = {
 
 let currentUser = null;
 try {
-    const storedUser = localStorage.getItem('posa_user');
+    const storedUser = localStorage.getItem('omnipos_user');
     if (storedUser && storedUser !=='undefined') {
         currentUser = JSON.parse(storedUser);
     }
 } catch (e) {
     console.warn("Corrupted local session found. Clearing data.");
-    localStorage.removeItem('posa_user');
-    localStorage.removeItem('posa_token');
+    localStorage.removeItem('omnipos_user');
+    localStorage.removeItem('omnipos_token');
 }
 
 let currentPermissions = {};
 let menuRegistry = [];
 try {
-    const storedPerms = localStorage.getItem('posa_permissions');
+    const storedPerms = localStorage.getItem('omnipos_permissions');
     if (storedPerms && storedPerms !=='undefined') currentPermissions = JSON.parse(storedPerms);
-    const storedRegistry = localStorage.getItem('posa_menu_registry');
+    const storedRegistry = localStorage.getItem('omnipos_menu_registry');
     if (storedRegistry && storedRegistry !=='undefined') menuRegistry = JSON.parse(storedRegistry);
 } catch (e) {
     currentPermissions = {};
@@ -667,8 +667,8 @@ async function refreshPermissions() {
             currentPermissions = {};
         }
 
-        localStorage.setItem('posa_permissions', JSON.stringify(currentPermissions));
-        localStorage.setItem('posa_menu_registry', JSON.stringify(menuRegistry));
+        localStorage.setItem('omnipos_permissions', JSON.stringify(currentPermissions));
+        localStorage.setItem('omnipos_menu_registry', JSON.stringify(menuRegistry));
         applyRoleBasedAccessControls(currentUser.role);
         if (typeof updateUsersTabVisibility ==='function') updateUsersTabVisibility();
     } catch (err) {
@@ -721,7 +721,7 @@ const THEME_CATALOG = [
 
 function getUnlockedThemeIds() {
     try {
-        return JSON.parse(localStorage.getItem('posa_unlocked_themes_cache') ||'[]');
+        return JSON.parse(localStorage.getItem('omnipos_unlocked_themes_cache') ||'[]');
     } catch (e) {
         return [];
     }
@@ -736,7 +736,7 @@ async function refreshUnlockedThemesFromServer() {
         const res = await authFetch('/api/themes/status');
         const data = await res.json();
         if (data && data.success && Array.isArray(data.unlockedThemeIds)) {
-            localStorage.setItem('posa_unlocked_themes_cache', JSON.stringify(data.unlockedThemeIds));
+            localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(data.unlockedThemeIds));
             renderThemeMenu();
             if (typeof renderTerminalThemeMenu ==='function') renderTerminalThemeMenu();
             // Ngayon lang — pagkatapos ng totoong sagot ng server — dapat isipin
@@ -782,9 +782,9 @@ function initDynamicThemeColor() {
 
 function initDarkMode() {
 
-    let savedThemeId = localStorage.getItem('posa_theme');
+    let savedThemeId = localStorage.getItem('omnipos_theme');
     if (!savedThemeId) {
-        savedThemeId = localStorage.getItem('posa_darkmode') ==='true' ?'dark' :'day';
+        savedThemeId = localStorage.getItem('omnipos_darkmode') ==='true' ?'dark' :'day';
     }
     const theme = THEME_CATALOG.find(t => t.id === savedThemeId) || THEME_CATALOG[0];
 
@@ -795,9 +795,9 @@ function initDarkMode() {
 }
 
 function isStoreThemeDay() {
-    var savedThemeId = localStorage.getItem('posa_theme');
+    var savedThemeId = localStorage.getItem('omnipos_theme');
     if (!savedThemeId) {
-        savedThemeId = localStorage.getItem('posa_darkmode') ==='true' ?'dark' :'day';
+        savedThemeId = localStorage.getItem('omnipos_darkmode') ==='true' ?'dark' :'day';
     }
     return savedThemeId ==='day';
 }
@@ -834,8 +834,8 @@ function applyTheme(themeId, opts) {
     root.style.removeProperty('--dm-bg');
     syncColorSchemeDeclaration();
     if (opts.persist !== false) {
-        localStorage.setItem('posa_theme', theme.id);
-        localStorage.setItem('posa_darkmode', String(!isDay));
+        localStorage.setItem('omnipos_theme', theme.id);
+        localStorage.setItem('omnipos_darkmode', String(!isDay));
     }
     updateThemeSelectionUI(theme.id);
 
@@ -868,7 +868,7 @@ function renderThemeMenu() {
     const container = document.getElementById('uw-themes-submenu');
     if (!container) return;
     const unlockedIds = getUnlockedThemeIds();
-    const currentThemeId = localStorage.getItem('posa_theme') ||'day';
+    const currentThemeId = localStorage.getItem('omnipos_theme') ||'day';
 
     container.innerHTML = THEME_CATALOG.map((theme) => {
         const locked = theme.pro && !unlockedIds.includes(theme.id);
@@ -896,7 +896,7 @@ function renderThemeMenu() {
 // A separate, self-contained theme picker that lives inside the sidebar's
 // user-profile dropdown but only ever affects the POS Terminal screen
 // (#view-terminal). It is intentionally decoupled from the store-wide
-// `posa_theme` selection (setTheme/applyTheme above):
+// `omnipos_theme` selection (setTheme/applyTheme above):
 //   - It has its own storage key (TERMINAL_THEME_STORAGE_KEY) so switching it
 //     never touches or is touched by the rest of OmniPOS's look.
 //   - The dropdown entry itself is only ever visible while the cashier is
@@ -1045,7 +1045,7 @@ function setTerminalTheme(themeId) {
 // Called whenever the Terminal view is (re)loaded.
 //
 // IMPORTANT: hindi ito dapat mag-check ng isThemeUnlocked() dito, dahil sa
-// unang segundo ng pag-reload, ang lokal na "posa_unlocked_themes_cache" ay
+// unang segundo ng pag-reload, ang lokal na "omnipos_unlocked_themes_cache" ay
 // maaaring hindi pa updated (kasabay pa lang natatawag ang
 // refreshUnlockedThemesFromServer() na async at hindi hinihintay). Kung
 // gagate natin dito, may posibilidad na basta na lang ma-delete yung naka-
@@ -1113,7 +1113,7 @@ const CT_DEFAULTS = {
 
 const CT_ROW_PAD_BASE = 14;
 const CT_ROW_PAD_PRESET = { compact: 8, comfortable: 14, spacious: 22 };
-const CT_STORAGE_KEY ='posa_custom_theme';
+const CT_STORAGE_KEY ='omnipos_custom_theme';
 
 function ctShade(hex, percent) {
     try {
@@ -1330,7 +1330,7 @@ async function promptUnlockTheme(theme) {
         }
 
         if (Array.isArray(confirmData.unlockedThemeIds)) {
-            localStorage.setItem('posa_unlocked_themes_cache', JSON.stringify(confirmData.unlockedThemeIds));
+            localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(confirmData.unlockedThemeIds));
         }
         applyTheme(theme.id);
         renderThemeMenu();
@@ -2141,7 +2141,7 @@ function renderDemoFloatWidget(status, fullyPurchased, demoActive) {
     const labelEl = document.getElementById('demo-float-label');
     const endBtn = document.getElementById('demo-float-end-btn');
 
-    const activeUser = JSON.parse(localStorage.getItem('posa_user') ||'null');
+    const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const isAdminRole = ((activeUser && activeUser.role) ||'').toLowerCase() ==='admin';
 
     if (endBtn) endBtn.classList.toggle('demo-float-end-enabled', isAdminRole);
@@ -2434,7 +2434,7 @@ if (categorySelect) {
 
 async function guardShiftReportAccess(isAdminOrSupervisor) {
 
-    const token = localStorage.getItem('posa_token');
+    const token = localStorage.getItem('omnipos_token');
     try {
         const res = await window.fetch(`${API_URL}/shift/current`, {
             headers: token ? {'Authorization': `Bearer ${token}` } : {}
@@ -2471,7 +2471,7 @@ function switchView(viewKey, opts) {
     if (typeof closeAllSidebarMenuDropdowns ==='function') closeAllSidebarMenuDropdowns();
     if (typeof closeAllResetRestoreCards ==='function') closeAllResetRestoreCards();
 
-    const activeUser = JSON.parse(localStorage.getItem('posa_user') ||'null');
+    const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const userRole = (activeUser && activeUser.role ||'').toLowerCase();
     const isAdmin = userRole ==='admin';
     if (!isAdmin && Object.prototype.hasOwnProperty.call(currentPermissions || {}, viewKey) && !currentPermissions[viewKey]) {
@@ -3426,7 +3426,7 @@ async function loadShiftOpenListPicker() {
         const data = await res.json();
         if (!data.success) return;
 
-        const activeUser = JSON.parse(localStorage.getItem('posa_user') ||'null');
+        const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
         const myUsername = (activeUser && activeUser.username) ||'';
         const previousSelection = shiftControlSelectedCashier;
 
@@ -3453,7 +3453,7 @@ function onShiftCloseTargetCashierChange() {
 
 async function loadShiftReportView() {
 
-    const activeUser = JSON.parse(localStorage.getItem('posa_user') ||'null');
+    const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const isAdmin = ((activeUser && activeUser.role) ||'').toLowerCase() ==='admin';
     const canViewAmounts = isAdmin || !!(currentPermissions && currentPermissions.shiftreport_view_amounts);
     const canControlOtherShifts = isAdmin || !!(currentPermissions && currentPermissions.shift_close_control);
@@ -4311,7 +4311,7 @@ async function handleEditProfileSubmit(e) {
                 currentUser.avatar = data.avatar || null;
                 currentUser.username = data.username || currentUser.username;
             }
-            localStorage.setItem('posa_user', JSON.stringify(currentUser));
+            localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
             renderSidebarUserWidget();
 
             if (typeof renderOverviewGreeting === 'function') renderOverviewGreeting();
@@ -4345,7 +4345,7 @@ async function handleEditProfileSubmit(e) {
 document.getElementById('edit-profile-form')?.addEventListener('submit', handleEditProfileSubmit);
 
 function checkAdminResetVisibility() {
-    const currentUser = JSON.parse(localStorage.getItem('posa_user'));
+    const currentUser = JSON.parse(localStorage.getItem('omnipos_user'));
     const resetSection = document.getElementById('admin-reset-section');
 
     if (resetSection) {
@@ -4562,16 +4562,16 @@ async function promptLoginOtp(loginToken, errorBanner) {
 
 async function completeLoginSuccess(data) {
     currentUser = data.user;
-    localStorage.setItem('posa_user', JSON.stringify(currentUser));
-    localStorage.setItem('posa_last_username', currentUser.username);
+    localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
+    localStorage.setItem('omnipos_last_username', currentUser.username);
 
     currentPermissions = data.permissions || {};
     menuRegistry = data.menuRegistry || [];
-    localStorage.setItem('posa_permissions', JSON.stringify(currentPermissions));
-    localStorage.setItem('posa_menu_registry', JSON.stringify(menuRegistry));
+    localStorage.setItem('omnipos_permissions', JSON.stringify(currentPermissions));
+    localStorage.setItem('omnipos_menu_registry', JSON.stringify(menuRegistry));
 
     if (data.token) {
-        localStorage.setItem('posa_token', data.token);
+        localStorage.setItem('omnipos_token', data.token);
     }
 
     window.__logoutInProgress = false;
@@ -4584,7 +4584,7 @@ async function completeLoginSuccess(data) {
         console.error('Unexpected error during login (showMainSystemInterface):', err);
     });
 
-    const loginCountKey = `posa_login_count_${(currentUser.username || currentUser.name ||'').toLowerCase()}`;
+    const loginCountKey = `omnipos_login_count_${(currentUser.username || currentUser.name ||'').toLowerCase()}`;
     const loginCount = (parseInt(localStorage.getItem(loginCountKey), 10) || 0) + 1;
     localStorage.setItem(loginCountKey, String(loginCount));
 
@@ -5590,7 +5590,7 @@ function renderOverviewGreeting() {
     else if (hour < 18) timeGreeting ='Magandang hapon';
     else timeGreeting ='Magandang gabi';
 
-    const activeUser = currentUser || JSON.parse(localStorage.getItem('posa_user') ||'null');
+    const activeUser = currentUser || JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const displayName = (activeUser && (activeUser.displayName || activeUser.username || activeUser.name)) ||'Admin';
 
     greetEl.innerText = `${timeGreeting}, ${displayName}!`;
@@ -6222,7 +6222,7 @@ async function loadBranchesWidget() {
 
     try {
 
-        const token = localStorage.getItem('posa_token');
+        const token = localStorage.getItem('omnipos_token');
         const res = await fetch(`${API_URL}/branches/summary`, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
@@ -11489,17 +11489,17 @@ function resizeImageDataUrlForProduct(dataUrl) {
     });
 }
 
-let productImageSearchState = { nonce: null, busy: false };
+let productImageSearchState = { nonce: null, busy: false, source: null };
 
 function openProductImageSearchModal() {
     const nameVal = (document.getElementById('p-form-name').value || '').trim();
-    productImageSearchState = { nonce: null, busy: false };
+    productImageSearchState = { nonce: null, busy: false, source: null };
     document.getElementById('p-image-search-query').value = nameVal;
     document.getElementById('p-image-search-results').innerHTML = '';
     document.getElementById('p-image-search-status').textContent = '';
     document.getElementById('product-image-search-modal').style.display = 'flex';
     if (nameVal) {
-        performProductImageSearch();
+        performOmniProductImageSearch();
     } else {
         document.getElementById('p-image-search-query').focus();
     }
@@ -11521,6 +11521,7 @@ async function performProductImageSearch() {
     if (productImageSearchState.busy) return;
 
     productImageSearchState.busy = true;
+    productImageSearchState.source = 'paid';
     statusEl.textContent = 'Searching...';
     resultsEl.innerHTML = '';
 
@@ -11545,13 +11546,7 @@ async function performProductImageSearch() {
         }
 
         statusEl.textContent = `${data.results.length} result(s) — click one to use it, then review and Save.`;
-        resultsEl.innerHTML = data.results.map(r => {
-            const safeTitle = (r.title || '').replace(/"/g, '&quot;');
-            const safeThumb = (r.thumbnailUrl || '').replace(/"/g, '&quot;');
-            return `<button type="button" class="p-image-search-thumb" onclick="selectSearchedProductImage('${r.id}')" title="${safeTitle}">
-                <img src="${safeThumb}" alt="${safeTitle}" loading="lazy">
-            </button>`;
-        }).join('');
+        renderProductImageSearchResults(data.results);
     } catch (err) {
         console.error('Image search error:', err);
         statusEl.textContent = 'Connection error while searching. Please try again.';
@@ -11560,13 +11555,78 @@ async function performProductImageSearch() {
     }
 }
 
+// Free, no-API-key version of the search above — same self-healing provider
+// cascade (DuckDuckGo → Bing (free) → Openverse → Wikimedia Commons →
+// Yandex) used by the "Omni Search" option in the Bulk Search Images modal,
+// just scoped to this one product instead of running over a whole batch.
+async function performOmniProductImageSearch() {
+    const query = (document.getElementById('p-image-search-query').value || '').trim();
+    const statusEl = document.getElementById('p-image-search-status');
+    const resultsEl = document.getElementById('p-image-search-results');
+
+    if (!query) {
+        statusEl.textContent = 'Type a search term first.';
+        return;
+    }
+    if (productImageSearchState.busy) return;
+
+    productImageSearchState.busy = true;
+    productImageSearchState.source = 'omni';
+    statusEl.textContent = 'Omni Search running (trying free sources)...';
+    resultsEl.innerHTML = '';
+
+    try {
+        const res = await authFetch(`${API_URL}/products/image-search/omni`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            statusEl.textContent = data.message || 'Omni Search failed.';
+            return;
+        }
+
+        productImageSearchState.nonce = data.nonce;
+
+        if (!data.results || !data.results.length) {
+            statusEl.textContent = 'No results found. Try a different search term.';
+            return;
+        }
+
+        statusEl.textContent = `${data.results.length} result(s) via ${data.provider} — click one to use it, then review and Save.`;
+        renderProductImageSearchResults(data.results);
+    } catch (err) {
+        console.error('Omni image search error:', err);
+        statusEl.textContent = 'Connection error while searching. Please try again.';
+    } finally {
+        productImageSearchState.busy = false;
+    }
+}
+
+function renderProductImageSearchResults(results) {
+    const resultsEl = document.getElementById('p-image-search-results');
+    resultsEl.innerHTML = results.map(r => {
+        const safeTitle = (r.title || '').replace(/"/g, '&quot;');
+        const safeThumb = (r.thumbnailUrl || '').replace(/"/g, '&quot;');
+        return `<button type="button" class="p-image-search-thumb" onclick="selectSearchedProductImage('${r.id}')" title="${safeTitle}">
+            <img src="${safeThumb}" alt="${safeTitle}" loading="lazy">
+        </button>`;
+    }).join('');
+}
+
 async function selectSearchedProductImage(id) {
     if (!productImageSearchState.nonce) return;
     const statusEl = document.getElementById('p-image-search-status');
     statusEl.textContent = 'Loading image...';
 
+    const endpoint = productImageSearchState.source === 'omni'
+        ? '/products/image-search/omni/select'
+        : '/products/image-search/select';
+
     try {
-        const res = await authFetch(`${API_URL}/products/image-search/select`, {
+        const res = await authFetch(`${API_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nonce: productImageSearchState.nonce, id })
@@ -12121,11 +12181,13 @@ function openBulkImageSearchModal() {
     document.getElementById('bulk-imgsearch-selectall-row').style.display = 'none';
     document.getElementById('bulk-imgsearch-apply-btn').style.display = 'none';
     document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
+    if (typeof resetOmniImageSearchUI === 'function') resetOmniImageSearchUI();
     document.getElementById('bulk-image-search-modal').style.display = 'flex';
 }
 
 function closeBulkImageSearchModal() {
     stopBulkImageSearchPolling();
+    if (typeof stopOmniImageSearchPolling === 'function') stopOmniImageSearchPolling();
     document.getElementById('bulk-image-search-modal').style.display = 'none';
 }
 
@@ -12393,6 +12455,295 @@ async function applyBulkImageSearchSelections() {
         closeBulkImageSearchModal();
     } catch (err) {
         console.error('Bulk image apply error:', err);
+        statusEl.textContent = 'Connection error while applying the photos. Please try again.';
+        applyBtn.disabled = false;
+    }
+}
+
+// ============================================================================
+// OMNI SEARCH IMAGES — free, no-API-key image search (new)
+// ----------------------------------------------------------------------------
+// Mirrors the Bulk Search Images flow above, but talks to the free
+// /api/products/omni-image-search endpoints instead. It runs quietly in the
+// background on the server (a separate background process, invisible to
+// the user) and reports live progress here, exactly like the paid flow
+// above. Applying selected photos reuses the same
+// POST /api/products/bulk-image-search/apply endpoint as the paid flow,
+// since applying only ever needs a product code + already-downloaded image.
+// ============================================================================
+
+let omniImageSearchState = { nonce: null, proposals: [], pollTimer: null };
+
+function stopOmniImageSearchPolling() {
+    if (omniImageSearchState.pollTimer) {
+        clearTimeout(omniImageSearchState.pollTimer);
+        omniImageSearchState.pollTimer = null;
+    }
+}
+
+function resetOmniImageSearchUI() {
+    stopOmniImageSearchPolling();
+    omniImageSearchState = { nonce: null, proposals: [], pollTimer: null };
+    const statusEl = document.getElementById('omni-imgsearch-status');
+    const listEl = document.getElementById('omni-imgsearch-preview-list');
+    const selectAllRow = document.getElementById('omni-imgsearch-selectall-row');
+    const applyBtn = document.getElementById('omni-imgsearch-apply-btn');
+    const progressWrap = document.getElementById('omni-imgsearch-progress-wrap');
+    if (statusEl) statusEl.textContent = '';
+    if (listEl) listEl.innerHTML = '';
+    if (selectAllRow) selectAllRow.style.display = 'none';
+    if (applyBtn) applyBtn.style.display = 'none';
+    if (progressWrap) progressWrap.style.display = 'none';
+}
+
+function updateOmniImageSearchProgressUI(done, total, etaMs) {
+    const wrap = document.getElementById('omni-imgsearch-progress-wrap');
+    const bar = document.getElementById('omni-imgsearch-progress-bar');
+    const text = document.getElementById('omni-imgsearch-progress-text');
+    wrap.style.display = 'block';
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    bar.style.width = `${pct}%`;
+    const etaText = formatBulkImageSearchEta(etaMs);
+    text.textContent = `${done}/${total} searched (${pct}%)${etaText ? ' — ' + etaText : ''}`;
+}
+
+async function startOmniImageSearch() {
+    const onlyMissing = document.getElementById('bulk-imgsearch-only-missing').checked;
+    let limit = parseInt(document.getElementById('bulk-imgsearch-limit').value, 10);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 50;
+    limit = Math.min(limit, 100);
+
+    const startBtn = document.getElementById('omni-imgsearch-start-btn');
+    const statusEl = document.getElementById('omni-imgsearch-status');
+    const listEl = document.getElementById('omni-imgsearch-preview-list');
+    const progressWrap = document.getElementById('omni-imgsearch-progress-wrap');
+
+    stopOmniImageSearchPolling();
+    startBtn.disabled = true;
+    document.getElementById('omni-imgsearch-selectall-row').style.display = 'none';
+    document.getElementById('omni-imgsearch-apply-btn').style.display = 'none';
+    listEl.innerHTML = '';
+    progressWrap.style.display = 'none';
+    statusEl.textContent = 'Starting Omni Search (free)...';
+
+    try {
+        const res = await authFetch(`${API_URL}/products/omni-image-search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ onlyMissing, limit }),
+            timeoutMs: 30000
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            statusEl.textContent = data.message || 'Omni Search Images failed to start.';
+            startBtn.disabled = false;
+            return;
+        }
+
+        if (!data.nonce || !data.totalTargeted) {
+            statusEl.textContent = onlyMissing
+                ? 'All products already have a photo — nothing to search for.'
+                : 'No products found to search for.';
+            startBtn.disabled = false;
+            return;
+        }
+
+        omniImageSearchState.nonce = data.nonce;
+        omniImageSearchState.totalEligible = data.totalEligible;
+        omniImageSearchState.truncated = data.truncated;
+        statusEl.textContent = `Searching ${data.totalTargeted} product(s) using free sources — running quietly in the background...`;
+        updateOmniImageSearchProgressUI(0, data.totalTargeted, null);
+
+        pollOmniImageSearchProgress(startBtn);
+    } catch (err) {
+        console.error('Omni Search Images error:', err);
+        statusEl.textContent = 'Connection error while searching. Please try again.';
+        startBtn.disabled = false;
+    }
+}
+
+async function pollOmniImageSearchProgress(startBtn) {
+    const statusEl = document.getElementById('omni-imgsearch-status');
+    const nonce = omniImageSearchState.nonce;
+    if (!nonce) return;
+
+    try {
+        const res = await authFetch(`${API_URL}/products/omni-image-search/progress?nonce=${encodeURIComponent(nonce)}`, {
+            timeoutMs: 15000
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            statusEl.textContent = data.message || 'Lost track of the search progress. Please try again.';
+            document.getElementById('omni-imgsearch-progress-wrap').style.display = 'none';
+            startBtn.disabled = false;
+            return;
+        }
+
+        updateOmniImageSearchProgressUI(data.done, data.total, data.etaMs);
+
+        if (data.error) {
+            statusEl.textContent = data.error;
+            document.getElementById('omni-imgsearch-progress-wrap').style.display = 'none';
+            startBtn.disabled = false;
+            return;
+        }
+
+        if (!data.finished) {
+            omniImageSearchState.pollTimer = setTimeout(() => pollOmniImageSearchProgress(startBtn), 900);
+            return;
+        }
+
+        document.getElementById('omni-imgsearch-progress-wrap').style.display = 'none';
+        omniImageSearchState.proposals = data.proposals || [];
+
+        if (!omniImageSearchState.proposals.length) {
+            statusEl.textContent = 'No products found to search for.';
+            startBtn.disabled = false;
+            return;
+        }
+
+        const foundCount = omniImageSearchState.proposals.filter(p => p.found).length;
+        let statusText = `Found images for ${foundCount}/${omniImageSearchState.proposals.length} product(s).`;
+        if (omniImageSearchState.truncated) {
+            statusText += ` Only the first ${data.total} of ${omniImageSearchState.totalEligible} eligible products were processed this run — lower "Products to process" or run again for the rest.`;
+        }
+        statusText += ' Review below, then Apply.';
+        statusEl.textContent = statusText;
+
+        renderOmniImageSearchPreview();
+        document.getElementById('omni-imgsearch-selectall-row').style.display = foundCount ? 'flex' : 'none';
+        startBtn.disabled = false;
+    } catch (err) {
+        console.error('Omni Search Images progress poll error:', err);
+        // Transient network hiccup — retry on the next tick instead of giving up.
+        omniImageSearchState.pollTimer = setTimeout(() => pollOmniImageSearchProgress(startBtn), 1500);
+    }
+}
+
+function renderOmniImageSearchPreview() {
+    const listEl = document.getElementById('omni-imgsearch-preview-list');
+    listEl.innerHTML = omniImageSearchState.proposals.map((p, idx) => {
+        if (!p.found) {
+            return `<div class="bulk-imgsearch-item is-notfound">
+                <img src="" alt="" style="visibility:hidden;">
+                <div class="bulk-imgsearch-item-info">
+                    <div class="bulk-imgsearch-item-name">${(p.name || '').replace(/</g, '&lt;')}</div>
+                    <div class="bulk-imgsearch-item-code">${(p.code || '').replace(/</g, '&lt;')}</div>
+                </div>
+                <div class="bulk-imgsearch-item-status">${p.message || 'No image found'}</div>
+            </div>`;
+        }
+        const safeThumb = (p.thumbnailUrl || '').replace(/"/g, '&quot;');
+        const providerBadge = p.provider ? `<div style="font-size:11px;color:#16a34a;">via ${(p.provider || '').replace(/</g, '&lt;')}</div>` : '';
+        return `<div class="bulk-imgsearch-item">
+            <input type="checkbox" checked data-omni-imgsearch-idx="${idx}" onchange="updateOmniImageSearchApplyBtn()">
+            <img src="${safeThumb}" alt="" loading="lazy">
+            <div class="bulk-imgsearch-item-info">
+                <div class="bulk-imgsearch-item-name">${(p.name || '').replace(/</g, '&lt;')}</div>
+                <div class="bulk-imgsearch-item-code">${(p.code || '').replace(/</g, '&lt;')}</div>
+                ${providerBadge}
+            </div>
+        </div>`;
+    }).join('');
+    updateOmniImageSearchApplyBtn();
+}
+
+function setAllOmniImageSearchSelections(checked) {
+    document.querySelectorAll('[data-omni-imgsearch-idx]').forEach(cb => { cb.checked = checked; });
+    updateOmniImageSearchApplyBtn();
+}
+
+function updateOmniImageSearchApplyBtn() {
+    const checked = document.querySelectorAll('[data-omni-imgsearch-idx]:checked').length;
+    const btn = document.getElementById('omni-imgsearch-apply-btn');
+    if (checked > 0) {
+        btn.style.display = 'inline-block';
+        btn.innerHTML = `<i class="fa-solid fa-upload"></i> Apply Selected Photos (${checked})`;
+    } else {
+        btn.style.display = 'none';
+    }
+}
+
+async function applyOmniImageSearchSelections() {
+    const checkedBoxes = Array.from(document.querySelectorAll('[data-omni-imgsearch-idx]:checked'));
+    if (!checkedBoxes.length || !omniImageSearchState.nonce) return;
+
+    const selectedCodes = checkedBoxes.map(cb => omniImageSearchState.proposals[parseInt(cb.dataset.omniImgsearchIdx, 10)].code);
+    const statusEl = document.getElementById('omni-imgsearch-status');
+    const applyBtn = document.getElementById('omni-imgsearch-apply-btn');
+    applyBtn.disabled = true;
+
+    const updates = [];
+    const downloadFailed = [];
+
+    for (let i = 0; i < selectedCodes.length; i++) {
+        const code = selectedCodes[i];
+        statusEl.textContent = `Downloading and preparing photo ${i + 1}/${selectedCodes.length} (${code})...`;
+        try {
+            const res = await authFetch(`${API_URL}/products/omni-image-search/fetch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nonce: omniImageSearchState.nonce, code }),
+                timeoutMs: 30000
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                downloadFailed.push(code);
+                continue;
+            }
+            const resized = await resizeImageDataUrlForProduct(data.dataUrl);
+            updates.push({ code, image: resized });
+        } catch (err) {
+            console.error(`Omni image download failed for ${code}:`, err);
+            downloadFailed.push(code);
+        }
+    }
+
+    if (!updates.length) {
+        statusEl.textContent = 'None of the selected photos could be downloaded. Please try again.';
+        applyBtn.disabled = false;
+        return;
+    }
+
+    statusEl.textContent = `Applying ${updates.length} photo(s)...`;
+
+    try {
+        // Shared with the paid flow — applying only needs a code + already
+        // downloaded image, so the same endpoint works for both.
+        const res = await authFetch(`${API_URL}/products/bulk-image-search/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ updates }),
+            timeoutMs: 60000
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            statusEl.textContent = data.message || 'Could not apply the photos.';
+            applyBtn.disabled = false;
+            return;
+        }
+
+        if (data.products) globalProducts = data.products;
+        if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
+        if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
+
+        let summaryHtml = `<p>✅ Applied: <b>${data.appliedCount}</b> photo(s)</p>`;
+        if (downloadFailed.length) summaryHtml += `<p>⚠️ Could not download: <b>${downloadFailed.length}</b> photo(s)</p>`;
+        if (data.failedCount) summaryHtml += `<p>❌ Failed to apply: <b>${data.failedCount}</b> photo(s)</p>`;
+        summaryHtml += `<p style="color:#64748b;font-size:0.85rem;">Tip: double-check a few of the applied photos in the Products list — free image search results aren't always a perfect match.</p>`;
+
+        Swal.fire({
+            title: 'Omni Search Images Complete',
+            html: summaryHtml,
+            icon: (downloadFailed.length || data.failedCount) ? 'warning' : 'success'
+        });
+
+        closeBulkImageSearchModal();
+    } catch (err) {
+        console.error('Omni image apply error:', err);
         statusEl.textContent = 'Connection error while applying the photos. Please try again.';
         applyBtn.disabled = false;
     }
@@ -13325,7 +13676,7 @@ const USER_TAB_PERMISSION_MAP = {
 };
 
 function isUserTabAllowed(tabId) {
-    const activeUser = JSON.parse(localStorage.getItem('posa_user') ||'null');
+    const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     if ((activeUser && (activeUser.role ||'').toLowerCase()) ==='admin') return true;
     const permKey = USER_TAB_PERMISSION_MAP[tabId];
     if (!permKey) return true;
@@ -14022,7 +14373,7 @@ async function handleUserFormSubmit(e) {
                     currentUser.displayName = data.user.displayName || null;
                     currentUser.avatar = data.user.avatar || null;
                     currentUser.role = data.user.role || currentUser.role;
-                    localStorage.setItem('posa_user', JSON.stringify(currentUser));
+                    localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
                     if (typeof renderSidebarUserWidget ==='function') renderSidebarUserWidget();
                     if (typeof renderOverviewGreeting ==='function') renderOverviewGreeting();
                 }
@@ -14114,7 +14465,7 @@ async function saveUserAvatar() {
 
             if (currentUser && currentUser.username.toLowerCase() === pendingAvatarTargetUser.toLowerCase()) {
                 currentUser.avatar = avatar;
-                localStorage.setItem('posa_user', JSON.stringify(currentUser));
+                localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
                 renderSidebarUserWidget();
             }
         } else {
@@ -14553,11 +14904,11 @@ async function executeSystemHardReset() {
                 text: finalResult.message,
                 icon:'success'
             }).then(() => {
-                localStorage.removeItem('posa_user');
-                localStorage.removeItem('posa_token');
-                localStorage.removeItem('posa_unlocked_themes_cache');
-                localStorage.removeItem('posa_darkmode');
-                localStorage.setItem('posa_theme', 'dark');
+                localStorage.removeItem('omnipos_user');
+                localStorage.removeItem('omnipos_token');
+                localStorage.removeItem('omnipos_unlocked_themes_cache');
+                localStorage.removeItem('omnipos_darkmode');
+                localStorage.setItem('omnipos_theme', 'dark');
                 sessionStorage.clear();
                 window.location.reload();
             });
@@ -14572,8 +14923,8 @@ async function executeSystemHardReset() {
         const isNetworkFailure = error instanceof TypeError;
         const isParseFailure = error && error.name === 'SyntaxError';
 
-        localStorage.removeItem('posa_user');
-        localStorage.removeItem('posa_token');
+        localStorage.removeItem('omnipos_user');
+        localStorage.removeItem('omnipos_token');
 
         let title, text;
         if (isRealTimeout) {
@@ -15198,7 +15549,7 @@ const RELAY_SYNC_VIEW_FEATURE_MAP = {
 };
 
 function applyLockdownForRemovedFeatures(removedFeatures) {
-    const currentThemeId = localStorage.getItem('posa_theme') || 'day';
+    const currentThemeId = localStorage.getItem('omnipos_theme') || 'day';
     const currentView = sessionStorage.getItem('currentView') || 'overview';
     let themeWasReverted = false;
 
@@ -17043,7 +17394,7 @@ async function handleLogout(type ='manual') {
     const detailMsg = type ==='auto' ?'Idle timeout' :'User sign-out';
     const oldUser = currentUser ? currentUser.username : null;
 
-    const tokenAtLogout = localStorage.getItem('posa_token');
+    const tokenAtLogout = localStorage.getItem('omnipos_token');
 
     console.log(type ==='manual'
         ?"Manual logout detected. Clearing cart from database (background)..."
@@ -17052,8 +17403,8 @@ async function handleLogout(type ='manual') {
 
     try {
         sessionStorage.removeItem('currentView');
-        localStorage.removeItem('posa_user');
-        localStorage.removeItem('posa_token');
+        localStorage.removeItem('omnipos_user');
+        localStorage.removeItem('omnipos_token');
         currentUser = null;
 
         unlockedFeatureIdsCache = null;
@@ -17138,7 +17489,7 @@ async function showMainSystemInterface() {
             if (data && data.success) {
                 currentUser.avatar = data.avatar || null;
                 currentUser.role = data.role || currentUser.role;
-                localStorage.setItem('posa_user', JSON.stringify(currentUser));
+                localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
                 renderSidebarUserWidget();
             }
         } catch (err) {  }

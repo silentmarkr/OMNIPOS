@@ -694,3 +694,58 @@
 [2026-08-25 02:01:52] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
 [2026-08-25 02:01:55] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 [2026-08-25 02:01:58] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 12:48:48] ⚠️  May natirang lock file mula sa dating session (PID 15832, hindi na tumatakbo) — nililinis.
+[2026-08-25 12:48:49] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 12:48:52] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 12:48:56] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 13:08:49] ⚠️  May natirang lock file mula sa dating session (PID 23271, hindi na tumatakbo) — nililinis.
+[2026-08-25 13:08:50] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 13:08:50] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 13:08:53] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 13:09:33] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+[2026-08-25 13:09:35] ⚠️  Lumabas ang server.js sa error (exit code: 1). 2 crash(es) sa loob ng huling 60s.
+[2026-08-25 13:09:40] ⚠️  Lumabas ang server.js sa error (exit code: 1). 3 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:29:17] ⚠️  May natirang lock file mula sa dating session (PID 29643, hindi na tumatakbo) — nililinis.
+[2026-08-25 19:29:18] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 19:29:19] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 19:29:22] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:42:38] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-25 19:42:41] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 19:42:41] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 19:42:45] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:43:20] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+[2026-08-25 19:43:34] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-25 19:43:36] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 19:43:37] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 19:43:39] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:44:22] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+[2026-08-25 19:45:06] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+[2026-08-25 19:45:08] ⚠️  Lumabas ang server.js sa error (exit code: 1). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:45:13] ⚠️  Lumabas ang server.js sa error (exit code: 1). 2 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:45:19] ⚠️  Lumabas ang server.js sa error (exit code: 1). 3 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:45:25] ⚠️  Lumabas ang server.js sa error (exit code: 1). 4 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:45:30] ⚠️  Lumabas ang server.js sa error (exit code: 1). 5 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:45:30] 🔴 CRASH LOOP DETECTED — 5 crashes sa loob ng 60s. I-check ang logs/supervisor.log at ang .env/database.
+[2026-08-25 19:45:30] ⏸️  Walang backup na maibabalik (hindi ito galing sa self-update) — titigil muna ng 30s bago subukan ulit.
+[2026-08-25 19:46:02] ⚠️  Lumabas ang server.js sa error (exit code: 1). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:46:08] ⚠️  Lumabas ang server.js sa error (exit code: 1). 2 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:46:13] ⚠️  Lumabas ang server.js sa error (exit code: 1). 3 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:46:19] ⚠️  Lumabas ang server.js sa error (exit code: 1). 4 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:46:25] ⚠️  Lumabas ang server.js sa error (exit code: 1). 5 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:46:25] 🔴 CRASH LOOP DETECTED — 5 crashes sa loob ng 60s. I-check ang logs/supervisor.log at ang .env/database.
+[2026-08-25 19:46:25] ⏸️  Walang backup na maibabalik (hindi ito galing sa self-update) — titigil muna ng 30s bago subukan ulit.
+[2026-08-25 19:47:21] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+[2026-08-25 19:47:23] ⚠️  Lumabas ang server.js sa error (exit code: 1). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:47:29] ⚠️  Lumabas ang server.js sa error (exit code: 1). 2 crash(es) sa loob ng huling 60s.
+[2026-08-25 19:52:21] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-25 19:52:24] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 19:52:24] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 19:52:27] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 20:38:27] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-25 20:38:29] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 20:38:29] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 20:38:32] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-25 20:59:36] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-25 20:59:39] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-25 20:59:40] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-25 20:59:42] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.

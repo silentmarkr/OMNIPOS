@@ -162,6 +162,335 @@ unzip -q "$ZIP_PATH" -d "$INSTALL_DIR"
 # instance on first launch.
 rm -f "$INSTALL_DIR/.start.sh.lock"
 
+# Ensure omnipos-search-image.js (the "Omni Search Images" background
+# worker) exists in the install folder. server.js spawns this file directly
+# from $INSTALL_DIR at runtime whenever "Omni Search Images" is used, so it
+# must be present on the client's device even if it wasn't bundled inside
+# the client zip. Always (re)write it here so it's guaranteed to exist and
+# stay in sync with this installer.
+echo "🧩 Installing omnipos-search-image.js (Omni Search worker)..."
+cat > "$INSTALL_DIR/omnipos-search-image.js" << 'OMNIPOS_SEARCH_WORKER_EOF'
+'use strict';
+
+/*
+ * OmniPOS — "Omni Search Images" background worker
+ * ------------------------------------------------------------------------
+ * What this is: a standalone Node.js script, spawned by server.js as a
+ * separate, detached background OS process every time someone clicks the
+ * "Omni Search Images" button (inside Bulk Search Images) in the app.
+ *
+ * Why it's a separate process: so the actual searching truly runs in the
+ * background on the device (e.g. inside Termux) without ever printing
+ * anything to the terminal the user is using, and without blocking the
+ * main OmniPOS server while it works through a batch of products. All
+ * live progress is reported back to the running server over a small
+ * loopback-only HTTP callback, and the app displays that progress visually
+ * — the user never needs to look at Termux at all.
+ *
+ * Dependencies: NONE beyond Node.js core modules (https/http/fs/path).
+ * No extra npm packages and no extra Termux packages need to be installed
+ * for this to work — that's intentional, so there's nothing extra that
+ * can go missing on a fresh Termux setup.
+ *
+ * Self-healing: every provider call is wrapped in try/catch. If a
+ * provider errors, gets blocked, or its page layout changed, this worker
+ * logs it and automatically moves on to the next free provider — it never
+ * lets one bad provider stop the whole batch. If something fatal happens
+ * (e.g. the job file is unreadable), this worker simply exits quietly;
+ * server.js has its own 20-second safety timer that notices when no
+ * progress is coming in and automatically finishes the search in-process
+ * instead, so the feature still works either way.
+ * ------------------------------------------------------------------------
+ */
+
+const https = require('https');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const LOG_DIR = path.join(__dirname, 'logs');
+const LOG_FILE = path.join(LOG_DIR, 'omni-search-worker.log');
+
+// ---------------------------------------------------------------------------
+// Logging (for self-troubleshooting). Never shown to the end user directly —
+// this is purely so an admin can check logs/omni-search-worker.log if a
+// search run behaves oddly. A logging failure must never crash the worker.
+// ---------------------------------------------------------------------------
+function log(message) {
+    const line = `[${new Date().toISOString()}] ${message}\n`;
+    try {
+        fs.appendFileSync(LOG_FILE, line);
+    } catch {
+        try {
+            fs.mkdirSync(LOG_DIR, { recursive: true });
+            fs.appendFileSync(LOG_FILE, line);
+        } catch {
+            // Logging is best-effort only — never let it take down the job.
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tiny core-module-only HTTP client (no fetch/axios dependency, so this
+// keeps working even on older Node builds that may ship with some Termux
+// setups). Follows redirects, forces uncompressed responses to keep parsing
+// simple, and always applies a timeout so one slow site can't hang the job.
+// ---------------------------------------------------------------------------
+function requestText(url, { headers = {}, timeoutMs = 12000, redirectsLeft = 3 } = {}) {
+    return new Promise((resolve, reject) => {
+        let parsed;
+        try { parsed = new URL(url); } catch { return reject(new Error(`Invalid URL: ${url}`)); }
+        const lib = parsed.protocol === 'https:' ? https : http;
+        const req = lib.get(url, {
+            headers: { 'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity', ...headers },
+            timeout: timeoutMs
+        }, (resStream) => {
+            if ([301, 302, 303, 307, 308].includes(resStream.statusCode) && resStream.headers.location && redirectsLeft > 0) {
+                resStream.resume();
+                let nextUrl;
+                try { nextUrl = new URL(resStream.headers.location, url).toString(); }
+                catch { return reject(new Error('Invalid redirect location.')); }
+                return requestText(nextUrl, { headers, timeoutMs, redirectsLeft: redirectsLeft - 1 }).then(resolve, reject);
+            }
+            const chunks = [];
+            resStream.on('data', (c) => chunks.push(c));
+            resStream.on('end', () => resolve({ statusCode: resStream.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+            resStream.on('error', reject);
+        });
+        req.on('timeout', () => req.destroy(new Error(`Timed out fetching ${url}`)));
+        req.on('error', reject);
+    });
+}
+
+async function requestJson(url, options) {
+    const { statusCode, body } = await requestText(url, options);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`HTTP ${statusCode} from ${url}`);
+    try { return JSON.parse(body); }
+    catch (err) { throw new Error(`Could not parse JSON response from ${url}: ${err.message}`); }
+}
+
+// ---------------------------------------------------------------------------
+// Free image search providers — no API key required for any of these.
+// Kept intentionally self-contained (duplicated from server.js) so this
+// worker never needs to require() the (very large) main server module.
+// ---------------------------------------------------------------------------
+
+async function searchDuckDuckGo(query, timeoutMs) {
+    const tokenUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`;
+    const { statusCode, body: html } = await requestText(tokenUrl, { timeoutMs });
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`DuckDuckGo token page returned HTTP ${statusCode}.`);
+    const m = html.match(/vqd=['"]?([\d-]+)['"]?/);
+    if (!m) throw new Error('DuckDuckGo vqd token not found (page layout may have changed).');
+
+    const searchUrl = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${encodeURIComponent(m[1])}&f=,,,&p=1`;
+    const data = await requestJson(searchUrl, { timeoutMs, headers: { Referer: 'https://duckduckgo.com/' } });
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) throw new Error('DuckDuckGo returned no image results.');
+    return results.slice(0, 10)
+        .map((it, i) => ({
+            id: `ddg${i}`, provider: 'DuckDuckGo',
+            title: (it.title || '').slice(0, 140),
+            thumbnailUrl: it.thumbnail || it.image,
+            imageUrl: it.image,
+            width: it.width || null, height: it.height || null
+        }))
+        .filter(r => r.imageUrl && r.thumbnailUrl);
+}
+
+async function searchBingFree(query, timeoutMs) {
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&mkt=en-US`;
+    const { statusCode, body: html } = await requestText(url, { timeoutMs, headers: { 'Accept-Language': 'en-US,en;q=0.9' } });
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Bing (free) returned HTTP ${statusCode} (may be temporarily blocking this network).`);
+
+    const out = [];
+    const attrRegex = /m="({.*?})"/g;
+    let am;
+    while ((am = attrRegex.exec(html)) && out.length < 10) {
+        try {
+            const obj = JSON.parse(am[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+            if (obj.murl) {
+                out.push({
+                    id: `bingfree${out.length}`, provider: 'Bing (free)',
+                    title: (obj.t || '').slice(0, 140),
+                    thumbnailUrl: obj.turl || obj.murl,
+                    imageUrl: obj.murl,
+                    width: obj.mw || null, height: obj.mh || null
+                });
+            }
+        } catch {
+            // One malformed entry shouldn't stop the whole scan — skip it.
+        }
+    }
+    if (!out.length) throw new Error('Bing (free) returned no parsable image results (layout may have changed, or the request was blocked).');
+    return out;
+}
+
+async function searchOpenverse(query, timeoutMs) {
+    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=10`;
+    const data = await requestJson(url, { timeoutMs });
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) throw new Error('Openverse returned no image results.');
+    return results.slice(0, 10)
+        .map((it, i) => ({
+            id: `ov${i}`, provider: 'Openverse',
+            title: (it.title || '').slice(0, 140),
+            thumbnailUrl: it.thumbnail || it.url,
+            imageUrl: it.url,
+            width: it.width || null, height: it.height || null
+        }))
+        .filter(r => r.imageUrl && r.thumbnailUrl);
+}
+
+async function searchWikimediaCommons(query, timeoutMs) {
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent('file:' + query)}&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url%7Csize&iiurlwidth=400&format=json&origin=*`;
+    const data = await requestJson(url, { timeoutMs });
+    const pages = data && data.query && data.query.pages ? Object.values(data.query.pages) : [];
+    const out = [];
+    for (const p of pages) {
+        const info = p.imageinfo && p.imageinfo[0];
+        if (info && info.url) {
+            out.push({
+                id: `wm${out.length}`, provider: 'Wikimedia Commons',
+                title: (p.title || '').replace(/^File:/, '').slice(0, 140),
+                thumbnailUrl: info.thumburl || info.url,
+                imageUrl: info.url,
+                width: info.width || null, height: info.height || null
+            });
+        }
+    }
+    if (!out.length) throw new Error('Wikimedia Commons returned no image results.');
+    return out;
+}
+
+async function searchYandexFree(query, timeoutMs) {
+    const url = `https://yandex.com/images/search?text=${encodeURIComponent(query)}`;
+    const { statusCode, body: html } = await requestText(url, { timeoutMs });
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Yandex returned HTTP ${statusCode}.`);
+    const matches = [...html.matchAll(/"img_href":"(https?:[^"]+)"/g)];
+    if (!matches.length) throw new Error('Yandex returned no parsable image results (likely blocked/CAPTCHA on this network).');
+    return matches.slice(0, 10).map((m, i) => {
+        const imageUrl = m[1].replace(/\\u002F/g, '/').replace(/\\\//g, '/');
+        return { id: `yx${i}`, provider: 'Yandex', title: '', thumbnailUrl: imageUrl, imageUrl, width: null, height: null };
+    });
+}
+
+// Order matters: most reliable / most product-relevant free sources first,
+// Yandex last since it's the most likely to serve a CAPTCHA instead of results.
+const FREE_PROVIDERS = [
+    { name: 'DuckDuckGo', run: searchDuckDuckGo },
+    { name: 'Bing (free)', run: searchBingFree },
+    { name: 'Openverse', run: searchOpenverse },
+    { name: 'Wikimedia Commons', run: searchWikimediaCommons },
+    { name: 'Yandex', run: searchYandexFree }
+];
+
+// Self-healing cascade: tries each free provider in turn. If one throws
+// (blocked, errored, layout changed, no results, etc.) it's logged and the
+// next provider is tried automatically — the caller only ever sees a
+// failure if EVERY provider failed.
+async function cascadeSearch(query, timeoutMs) {
+    const errors = [];
+    for (const provider of FREE_PROVIDERS) {
+        try {
+            const results = await provider.run(query, timeoutMs);
+            if (results && results.length) return { provider: provider.name, results };
+        } catch (err) {
+            errors.push(`${provider.name}: ${err.message}`);
+            log(`Provider "${provider.name}" failed for "${query}" — falling back to the next free provider. Reason: ${err.message}`);
+        }
+    }
+    throw new Error(`All free providers failed for "${query}". (${errors.join(' | ')})`);
+}
+
+// ---------------------------------------------------------------------------
+// Progress callback to the main OmniPOS server (loopback-only, secret-
+// authenticated). Never throws — a failed callback just gets logged, since
+// losing one progress update isn't fatal (server.js's own safety timer will
+// notice and take over if callbacks stop entirely).
+// ---------------------------------------------------------------------------
+function postCallback(host, port, payload) {
+    return new Promise((resolve) => {
+        let data;
+        try { data = JSON.stringify(payload); } catch (err) { log(`Could not serialize progress payload: ${err.message}`); return resolve(); }
+        const req = http.request({
+            host, port, path: '/omni-progress', method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+            timeout: 10000
+        }, (res) => { res.resume(); res.on('end', resolve); res.on('error', () => resolve()); });
+        req.on('timeout', () => { req.destroy(); resolve(); });
+        req.on('error', (err) => { log(`Could not reach OmniPOS server for a progress callback: ${err.message}`); resolve(); });
+        req.write(data);
+        req.end();
+    });
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+async function main() {
+    const jobFile = process.argv[2];
+    if (!jobFile) { log('No job file path was passed to the worker — nothing to do, exiting.'); return; }
+
+    let job;
+    try {
+        job = JSON.parse(fs.readFileSync(jobFile, 'utf8'));
+    } catch (err) {
+        log(`Could not read/parse job file "${jobFile}": ${err.message}`);
+        return;
+    }
+    try { fs.unlinkSync(jobFile); } catch { /* not fatal — a leftover temp file isn't harmful */ }
+
+    const { nonce, secret, host, port, targets } = job || {};
+    if (!nonce || !secret || !host || !port || !Array.isArray(targets) || !targets.length) {
+        log('Job file is missing required fields — nothing to do, exiting.');
+        return;
+    }
+
+    log(`Starting Omni Search Images job ${nonce} — ${targets.length} product(s) to process.`);
+
+    const items = [];
+    for (let i = 0; i < targets.length; i++) {
+        const t = targets[i] || {};
+        let proposal;
+        try {
+            const { provider, results } = await cascadeSearch(`${t.name} product photo`, 10000);
+            const best = results[0];
+            if (best) {
+                items.push({ code: t.code, imageUrl: best.imageUrl, thumbnailUrl: best.thumbnailUrl, title: best.title, provider });
+                proposal = { code: t.code, name: t.name, found: true, thumbnailUrl: best.thumbnailUrl, title: best.title, provider };
+            } else {
+                proposal = { code: t.code, name: t.name, found: false, message: 'No image found.' };
+            }
+        } catch (err) {
+            log(`No usable result for "${t.name}" (${t.code}): ${err.message}`);
+            proposal = { code: t.code, name: t.name, found: false, message: 'Search failed for this product.' };
+        }
+
+        await postCallback(host, port, { type: 'item', nonce, secret, done: i + 1, proposal });
+
+        if (i < targets.length - 1) await sleep(500); // be polite to free public services
+    }
+
+    await postCallback(host, port, { type: 'finished', nonce, secret, items });
+    log(`Finished Omni Search Images job ${nonce} — ${items.length}/${targets.length} image(s) found.`);
+}
+
+main().catch((err) => {
+    log(`Fatal error in Omni Search Images worker: ${(err && err.stack) || err}`);
+    process.exitCode = 1;
+});
+
+// Self-healing: never let an unexpected error crash silently without a
+// trace — log it, then let the process exit naturally. server.js's
+// 20-second no-progress safety timer takes over automatically if this
+// worker dies before reporting anything.
+process.on('uncaughtException', (err) => log(`Uncaught exception: ${(err && err.stack) || err}`));
+process.on('unhandledRejection', (err) => log(`Unhandled rejection: ${(err && err.stack) || err}`));
+OMNIPOS_SEARCH_WORKER_EOF
+
 echo "🗑️  Removing the zip file from Downloads..."
 rm -f "$ZIP_PATH"
 

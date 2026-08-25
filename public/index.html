@@ -6,9 +6,9 @@
     <script>
     (function () {
         try {
-            var t = localStorage.getItem('posa_theme');
+            var t = localStorage.getItem('omnipos_theme');
             if (!t) {
-                t = localStorage.getItem('posa_darkmode') === 'true' ? 'dark' : 'day';
+                t = localStorage.getItem('omnipos_darkmode') === 'true' ? 'dark' : 'day';
             }
             var isStoreThemeDay = (t === 'day');
 
@@ -69,7 +69,7 @@
     <script>
     (function () {
         try {
-            var raw = localStorage.getItem('posa_custom_theme');
+            var raw = localStorage.getItem('omnipos_custom_theme');
             if (!raw) return;
             var s = JSON.parse(raw);
             var root = document.documentElement;
@@ -95,8 +95,8 @@
     <script>
     (function () {
         try {
-            var u = localStorage.getItem('posa_user');
-            var t = localStorage.getItem('posa_token');
+            var u = localStorage.getItem('omnipos_user');
+            var t = localStorage.getItem('omnipos_token');
             if (u && u !== 'undefined' && t) {
                 document.documentElement.classList.add('has-session');
             }
@@ -2867,9 +2867,12 @@
             <div class="modal-body">
                 <p style="color:#64748b;font-size:0.85rem;margin-top:0;">Search for a product photo, then click a result to use it. You'll still need to review it and press <b>Save Product</b> to apply it — nothing is applied automatically.</p>
                 <div class="search-box-container" style="margin-bottom:10px;">
-                    <input type="text" id="p-image-search-query" placeholder="e.g. Fresh Milk 1L" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();performProductImageSearch();}">
+                    <input type="text" id="p-image-search-query" placeholder="e.g. Fresh Milk 1L" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();performOmniProductImageSearch();}">
                 </div>
-                <button type="button" class="btn-action-outline" onclick="performProductImageSearch()" style="margin-bottom:12px;"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                    <button type="button" class="btn-action-outline" onclick="performProductImageSearch()"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
+                    <button type="button" class="btn-action-outline" onclick="performOmniProductImageSearch()" title="Free search across multiple sources (no API key needed), with automatic fallback if one source is blocked."><i class="fa-solid fa-globe"></i> Omni Search</button>
+                </div>
                 <div id="p-image-search-status" style="font-size:0.85rem;color:#64748b;margin-bottom:10px;"></div>
                 <div id="p-image-search-results" class="p-image-search-grid"></div>
             </div>
@@ -2952,6 +2955,39 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn-action-global" id="bulk-imgsearch-apply-btn" style="display:none;" onclick="applyBulkImageSearchSelections()">
+                    <i class="fa-solid fa-upload"></i> Apply Selected Photos
+                </button>
+            </div>
+
+            <div class="modal-body" style="border-top:1px solid #e2e8f0;margin-top:4px;padding-top:16px;">
+                <h4 style="margin:0 0 4px;font-size:14px;">
+                    <i class="fa-solid fa-globe"></i> Omni Search Images <span style="font-weight:normal;color:#16a34a;font-size:12px;">(Free — no API key needed)</span>
+                </h4>
+                <p style="font-size:13px;color:#64748b;margin-top:0;">
+                    Uses several free public image search sources (DuckDuckGo, Bing, Openverse, Wikimedia Commons, Yandex) with automatic fallback — if one source is blocked or errors out, it automatically tries the next one. Runs quietly in the background; you'll only see the live progress here.
+                </p>
+                <button type="button" class="btn-action-outline" id="omni-imgsearch-start-btn" onclick="startOmniImageSearch()">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i> Start Omni Search Images
+                </button>
+
+                <div id="omni-imgsearch-progress-wrap" style="display:none;margin-top:12px;">
+                    <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;">
+                        <div id="omni-imgsearch-progress-bar" style="background:#16a34a;height:100%;width:0%;transition:width 0.3s ease;"></div>
+                    </div>
+                    <div id="omni-imgsearch-progress-text" style="font-size:12px;color:#64748b;margin-top:6px;"></div>
+                </div>
+
+                <div id="omni-imgsearch-status" style="font-size:13px;color:#64748b;margin-top:12px;"></div>
+
+                <div class="prod-photo-upload-actions" id="omni-imgsearch-selectall-row" style="display:none;margin-top:10px;">
+                    <button type="button" class="btn-action-outline" onclick="setAllOmniImageSearchSelections(true)">Select All Found</button>
+                    <button type="button" class="btn-action-outline" onclick="setAllOmniImageSearchSelections(false)">Deselect All</button>
+                </div>
+
+                <div id="omni-imgsearch-preview-list" class="bulk-photo-preview-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-action-global" id="omni-imgsearch-apply-btn" style="display:none;" onclick="applyOmniImageSearchSelections()">
                     <i class="fa-solid fa-upload"></i> Apply Selected Photos
                 </button>
             </div>
