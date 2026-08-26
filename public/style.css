@@ -3840,6 +3840,130 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     text-align: right;
 }
 
+.details-has-specs-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    margin-left: 3px;
+    vertical-align: middle;
+}
+
+#pd-description-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+#pd-description {
+    text-align: left;
+    white-space: pre-wrap;
+    font-weight: 500;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+#pd-specs-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.pd-specs-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pd-specs-list .pd-spec-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.88rem;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.pd-specs-list .pd-spec-line:last-child {
+    border-bottom: none;
+}
+
+.pd-specs-list .pd-spec-key {
+    color: #64748b;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pd-specs-list .pd-spec-val {
+    color: #0f172a;
+    font-weight: 500;
+    text-align: right;
+    word-break: break-word;
+}
+
+.pd-gallery-thumbs {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    overflow-x: auto;
+    max-width: 150px;
+    padding-bottom: 2px;
+}
+
+.pd-gallery-thumbs img {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.pd-gallery-thumbs img.active-thumb {
+    border-color: var(--primary-blue, #2563eb);
+}
+
+.prod-gallery-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.prod-gallery-preview .prod-gallery-thumb-wrap {
+    position: relative;
+    width: 64px;
+    height: 64px;
+}
+
+.prod-gallery-preview img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.prod-gallery-preview .prod-gallery-remove-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #dc2626;
+    color: #fff;
+    border: none;
+    font-size: 0.7rem;
+    line-height: 20px;
+    text-align: center;
+    cursor: pointer;
+    padding: 0;
+}
+
 #pd-code,
 #pd-price,
 #pd-stock,

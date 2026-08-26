@@ -6736,6 +6736,62 @@ function filterTerminalCategory(cat) {
 
 let productDetailsModalCode = null;
 
+let pdGalleryImages = [];
+
+function renderProductDetailsGallery(p) {
+    const thumbsContainer = document.getElementById('pd-gallery-thumbs');
+    const photoBox = document.getElementById('pd-photo-box');
+    if (!photoBox) return;
+
+    const iconClass = getCategoryIconClass(p.category);
+    const mainImage = p.image ||'';
+    const gallery = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
+    pdGalleryImages = mainImage ? [mainImage, ...gallery] : gallery;
+
+    photoBox.innerHTML = pdGalleryImages.length
+        ? `<img src="${pdGalleryImages[0]}" alt="${(p.name ||'Product').replace(/"/g,'&quot;')}">`
+        : `<i class="${iconClass}"></i>`;
+
+    if (!thumbsContainer) return;
+    if (pdGalleryImages.length > 1) {
+        thumbsContainer.style.display ='flex';
+        thumbsContainer.innerHTML = pdGalleryImages.map((src, idx) => `
+            <img src="${src}" class="${idx === 0 ?'active-thumb' :''}" onclick="switchProductDetailsPhoto(${idx})">
+        `).join('');
+    } else {
+        thumbsContainer.style.display ='none';
+        thumbsContainer.innerHTML ='';
+    }
+}
+
+function switchProductDetailsPhoto(idx) {
+    const photoBox = document.getElementById('pd-photo-box');
+    const src = pdGalleryImages[idx];
+    if (photoBox && src) photoBox.innerHTML = `<img src="${src}">`;
+    document.querySelectorAll('#pd-gallery-thumbs img').forEach((img, i) => img.classList.toggle('active-thumb', i === idx));
+}
+
+// Very small, safe formatter: preserves plain paragraphs, and turns lines
+// that start with "-" or "•" into a bullet list. Not full markdown — just
+// enough so specs/descriptions read cleanly without needing a library.
+function formatProductDescriptionHtml(text) {
+    const lines = (text ||'').split(/\r?\n/);
+    let html ='';
+    let inList = false;
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (/^[-•]\s+/.test(trimmed)) {
+            if (!inList) { html +='<ul style="margin:4px 0;padding-left:18px;">'; inList = true; }
+            html += `<li>${escapeHtml(trimmed.replace(/^[-•]\s+/,''))}</li>`;
+        } else {
+            if (inList) { html +='</ul>'; inList = false; }
+            html += trimmed ? `<div>${escapeHtml(trimmed)}</div>` : '<div style="height:6px;"></div>';
+        }
+    });
+    if (inList) html +='</ul>';
+    return html;
+}
+
 function showProductDetails(code, context ='pos') {
     const p = globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code);
     if (!p) return;
@@ -6746,13 +6802,7 @@ function showProductDetails(code, context ='pos') {
     const qtyInCart = cartItem ? cartItem.quantity : 0;
     const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
 
-    const photoBox = document.getElementById('pd-photo-box');
-    if (photoBox) {
-        const iconClass = getCategoryIconClass(p.category);
-        photoBox.innerHTML = p.image
-            ? `<img src="${p.image}" alt="${(p.name ||'Product').replace(/"/g,'&quot;')}">`
-            : `<i class="${iconClass}"></i>`;
-    }
+    renderProductDetailsGallery(p);
 
     document.getElementById('pd-modal-title').innerText = p.name ||'Unnamed Product';
     document.getElementById('pd-code').innerText = p.code;
@@ -6775,6 +6825,29 @@ function showProductDetails(code, context ='pos') {
         expiryRow.style.display ='flex';
     } else {
         expiryRow.style.display ='none';
+    }
+
+    const descriptionRow = document.getElementById('pd-description-row');
+    if (p.description && p.description.trim()) {
+        document.getElementById('pd-description').innerHTML = formatProductDescriptionHtml(p.description);
+        descriptionRow.style.display ='flex';
+    } else {
+        descriptionRow.style.display ='none';
+    }
+
+    const specsRow = document.getElementById('pd-specs-row');
+    const specsList = document.getElementById('pd-specs-list');
+    const specsEntries = Array.isArray(p.specs) ? p.specs.filter(s => s && ((s.key && s.key.trim()) || (s.value && s.value.trim()))) : [];
+    if (specsEntries.length) {
+        specsList.innerHTML = specsEntries.map(s => `
+            <div class="pd-spec-line">
+                <span class="pd-spec-key">${escapeHtml(s.key ||'')}</span>
+                <span class="pd-spec-val">${escapeHtml(s.value ||'')}</span>
+            </div>
+        `).join('');
+        specsRow.style.display ='flex';
+    } else {
+        specsRow.style.display ='none';
     }
 
     const addBtn = document.getElementById('pd-add-to-cart-btn');
@@ -11151,8 +11224,15 @@ function renderTransactionsRows(transactions) {
 
 let cachedInventoryProducts = [];
 
-const columnFilters = { code: new Set(), name: new Set(), category: new Set(), supplier: new Set(), price: new Set(), stock: new Set(), expiryDate: new Set() };
+const columnFilters = { code: new Set(), name: new Set(), category: new Set(), supplier: new Set(), price: new Set(), stock: new Set(), expiryDate: new Set(), hasSpecs: new Set() };
 let activeFilterField = null;
+
+function productHasDetails(p) {
+    const hasDescription = !!(p.description && p.description.trim());
+    const hasSpecsList = Array.isArray(p.specs) && p.specs.some(s => s && ((s.key && s.key.trim()) || (s.value && s.value.trim())));
+    const hasGallery = Array.isArray(p.images) && p.images.filter(Boolean).length > 0;
+    return hasDescription || hasSpecsList || hasGallery;
+}
 
 function getColumnDisplayValue(field, p) {
     switch (field) {
@@ -11163,6 +11243,7 @@ function getColumnDisplayValue(field, p) {
         case'price': return `₱${parseFloat(p.price || 0).toFixed(2)}`;
         case'stock': return String(p.stock ??'');
         case'expiryDate': return p.expiryDate ? p.expiryDate :'(No Expiry)';
+        case'hasSpecs': return productHasDetails(p) ?'Has Specs/Description' :'No Specs/Description';
         default: return'';
     }
 }
@@ -11349,6 +11430,7 @@ function renderInventoryProductsTable() {
 
                 const safeCode = escapeHtml(p.code);
                 const safeCodeAttr = safeCode.replace(/'/g,'&#39;');
+                const hasDetails = productHasDetails(p);
                 row.innerHTML = `
                     <td>${p.image ? `<img class="inv-thumb" src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="View details">` : `<div class="inv-thumb-fallback" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="View details"><i class="${getCategoryIconClass(p.category)}"></i></div>`}</td>
                     <td class="font-bold">${safeCode}</td>
@@ -11358,6 +11440,11 @@ function renderInventoryProductsTable() {
                     <td>₱${parseFloat(p.price).toFixed(2)}</td>
                     <td style="${isLowStock ?'color:#f59e0b;font-weight:600;' :''}">${p.stock}</td>
                     <td>${expiryDisplay}</td>
+                    <td style="text-align:center;">
+                        <button class="btn-clear" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" style="color: var(--primary-blue); padding: 4px 8px; font-size: 0.9rem;">
+                            <i class="fa-solid fa-eye"></i> View${hasDetails ? ' <span class="details-has-specs-dot" title="Has saved Specs/Description"></span>' :''}
+                        </button>
+                    </td>
                     <td>
                         <div class="action-icon-btns-row">
                             <button class="btn-icon-action edit" onclick="openProductModal('UPDATE', '${safeCodeAttr}')"><i class="fa-solid fa-pen-to-square"></i></button>
@@ -11401,6 +11488,10 @@ function openProductModal(mode, code ='') {
         codeInput.removeAttribute('disabled');
         document.getElementById('p-form-image').value ='';
         updateProductPhotoPreview('');
+        document.getElementById('p-form-details').value ='';
+        document.getElementById('p-form-specs').value ='';
+        setProductGalleryImages([]);
+        updateProductSpecsButtonLabel();
 
         if (scanBtn) scanBtn.style.display ='flex';
         if (scanPromptBtn) scanPromptBtn.style.display ='flex';
@@ -11414,6 +11505,10 @@ function openProductModal(mode, code ='') {
         document.getElementById('product-schema-form').reset();
         codeInput.value = code;
         updateProductPhotoPreview('');
+        document.getElementById('p-form-details').value ='';
+        document.getElementById('p-form-specs').value ='';
+        setProductGalleryImages([]);
+        updateProductSpecsButtonLabel();
 
         authFetch(`${API_URL}/products`).then(r => r.json()).then(prods => {
             let match = prods.find(p => p.code === code);
@@ -11429,6 +11524,10 @@ function openProductModal(mode, code ='') {
                 document.getElementById('p-form-threshold').value = (match.lowStockThreshold !== undefined && match.lowStockThreshold !== null) ? match.lowStockThreshold :'';
                 document.getElementById('p-form-image').value = match.image ||'';
                 updateProductPhotoPreview(match.image ||'');
+                document.getElementById('p-form-details').value = match.description ||'';
+                document.getElementById('p-form-specs').value = Array.isArray(match.specs) ? JSON.stringify(match.specs) :'';
+                setProductGalleryImages(Array.isArray(match.images) ? match.images.filter(Boolean) : []);
+                updateProductSpecsButtonLabel();
             } else {
                 document.getElementById('product-modal').style.display = 'none';
                 Swal.fire('Not Found', 'Could not find this product — it may have been deleted on another device/session.', 'error');
@@ -11440,6 +11539,260 @@ function openProductModal(mode, code ='') {
         });
     }
     document.getElementById('product-modal').style.display ='flex';
+}
+
+// ---- Additional Photos (gallery) ----
+
+function getProductGalleryImages() {
+    try {
+        const raw = document.getElementById('p-form-images').value;
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function setProductGalleryImages(images) {
+    document.getElementById('p-form-images').value = images.length ? JSON.stringify(images) :'';
+    renderProductGalleryPreview(images);
+}
+
+function renderProductGalleryPreview(images) {
+    const container = document.getElementById('p-form-gallery-preview');
+    if (!container) return;
+    container.innerHTML = images.map((src, idx) => `
+        <div class="prod-gallery-thumb-wrap">
+            <img src="${src}" alt="Photo ${idx + 1}">
+            <button type="button" class="prod-gallery-remove-btn" onclick="removeProductGalleryImage(${idx})" title="Remove">&times;</button>
+        </div>
+    `).join('');
+}
+
+function removeProductGalleryImage(idx) {
+    const images = getProductGalleryImages();
+    images.splice(idx, 1);
+    setProductGalleryImages(images);
+}
+
+function handleProductGalleryPhotoSelect(event) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    const existing = getProductGalleryImages();
+    const MAX_GALLERY = 6;
+    const remainingSlots = Math.max(0, MAX_GALLERY - existing.length);
+    if (remainingSlots <= 0) {
+        Swal.fire('Limit Reached', `You can add up to ${MAX_GALLERY} additional photos per product.`,'warning');
+        event.target.value ='';
+        return;
+    }
+
+    const toProcess = files.slice(0, remainingSlots);
+    Promise.all(toProcess.map(file => new Promise((resolve) => {
+        if (!file.type.startsWith('image/')) { resolve(null); return; }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            resizeImageDataUrlForProduct(e.target.result).then(resolve).catch(() => resolve(null));
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+    }))).then(results => {
+        const valid = results.filter(Boolean);
+        setProductGalleryImages(existing.concat(valid));
+        event.target.value ='';
+    });
+}
+
+// ---- Specs / Description modal ----
+// Opens a dedicated modal so the Add/Edit Product form itself doesn't get
+// cluttered — this is where any extra product detail (free-text description
+// plus structured key/value specs like sukat, laman, warranty, atbp.) gets
+// typed in full, then stored into the hidden #p-form-details /
+// #p-form-specs fields when the user presses Save here.
+
+function getProductSpecsDraftKey() {
+    const code = (document.getElementById('p-form-code').value ||'').trim();
+    return'omnipos_specs_draft_' + (code ||'NEW');
+}
+
+function autosaveProductSpecsDraft() {
+    try {
+        const draft = {
+            description: document.getElementById('p-form-details-textarea').value ||'',
+            specs: getProductSpecsRowsData()
+        };
+        localStorage.setItem(getProductSpecsDraftKey(), JSON.stringify(draft));
+    } catch (e) {  }
+}
+
+function clearProductSpecsDraft() {
+    try { localStorage.removeItem(getProductSpecsDraftKey()); } catch (e) {  }
+}
+
+function addProductSpecRow(key ='', value ='') {
+    const container = document.getElementById('p-form-specs-rows');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className ='p-spec-row';
+    row.style.cssText ='display:flex;gap:8px;margin-bottom:8px;align-items:center;';
+    row.innerHTML = `
+        <input type="text" class="p-spec-key" placeholder="e.g. Size" value="${key.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
+        <input type="text" class="p-spec-value" placeholder="e.g. 500ml" value="${value.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
+        <button type="button" class="btn-icon-action delete" onclick="this.closest('.p-spec-row').remove(); autosaveProductSpecsDraft();" title="Remove"><i class="fa-solid fa-trash"></i></button>
+    `;
+    container.appendChild(row);
+}
+
+function renderProductSpecsRows(specsArray) {
+    const container = document.getElementById('p-form-specs-rows');
+    if (!container) return;
+    container.innerHTML ='';
+    (Array.isArray(specsArray) ? specsArray : []).forEach(s => {
+        if (s && (s.key || s.value)) addProductSpecRow(s.key ||'', s.value ||'');
+    });
+}
+
+function getProductSpecsRowsData() {
+    const rows = document.querySelectorAll('#p-form-specs-rows .p-spec-row');
+    const result = [];
+    rows.forEach(row => {
+        const key = (row.querySelector('.p-spec-key').value ||'').trim();
+        const value = (row.querySelector('.p-spec-value').value ||'').trim();
+        if (key || value) result.push({ key, value });
+    });
+    return result;
+}
+
+function updateProductSpecsCharCount() {
+    const el = document.getElementById('p-form-details-charcount');
+    const textarea = document.getElementById('p-form-details-textarea');
+    if (!el || !textarea) return;
+    const MAX_CHARS = 3000;
+    const len = textarea.value.length;
+    el.textContent = `${len} / ${MAX_CHARS}`;
+    el.style.color = len > MAX_CHARS ?'#dc2626' :'#94a3b8';
+}
+
+function openProductSpecsModal() {
+    const savedDescription = document.getElementById('p-form-details').value ||'';
+    let savedSpecs = [];
+    try {
+        const raw = document.getElementById('p-form-specs').value;
+        savedSpecs = raw ? JSON.parse(raw) : [];
+    } catch (e) { savedSpecs = []; }
+
+    let draft = null;
+    try {
+        const rawDraft = localStorage.getItem(getProductSpecsDraftKey());
+        draft = rawDraft ? JSON.parse(rawDraft) : null;
+    } catch (e) { draft = null; }
+
+    const draftHasContent = draft && ((draft.description ||'').trim() || (Array.isArray(draft.specs) && draft.specs.length));
+    const savedHasContent = (savedDescription ||'').trim() || savedSpecs.length;
+
+    const applyState = (description, specs) => {
+        document.getElementById('p-form-details-textarea').value = description ||'';
+        updateProductSpecsCharCount();
+        renderProductSpecsRows(specs || []);
+    };
+
+    if (draftHasContent && !savedHasContent) {
+
+        applyState(draft.description, draft.specs);
+        Swal.fire({
+            toast: true, position:'top-end', icon:'info',
+            title:'Restored an unsaved draft from a previous session.',
+            showConfirmButton: false, timer: 2500, timerProgressBar: true
+        });
+    } else {
+        applyState(savedDescription, savedSpecs);
+    }
+
+    document.getElementById('product-specs-modal').style.display ='flex';
+}
+
+function closeProductSpecsModal() {
+
+    closeModal('product-specs-modal');
+}
+
+function saveProductSpecsModal() {
+    const description = document.getElementById('p-form-details-textarea').value.trim();
+    const specs = getProductSpecsRowsData();
+    document.getElementById('p-form-details').value = description;
+    document.getElementById('p-form-specs').value = specs.length ? JSON.stringify(specs) :'';
+    updateProductSpecsButtonLabel();
+    clearProductSpecsDraft();
+    closeModal('product-specs-modal');
+}
+
+function updateProductSpecsButtonLabel() {
+    const btn = document.getElementById('p-form-specs-btn');
+    if (!btn) return;
+    const hasDescription = (document.getElementById('p-form-details').value ||'').trim().length > 0;
+    let hasSpecs = false;
+    try {
+        const raw = document.getElementById('p-form-specs').value;
+        hasSpecs = raw ? (JSON.parse(raw).length > 0) : false;
+    } catch (e) { hasSpecs = false; }
+    btn.innerHTML = (hasDescription || hasSpecs)
+        ? '<i class="fa-solid fa-circle-check"></i> Specs / Description Added (tap to edit)'
+        : '<i class="fa-solid fa-list-ul"></i> Add Specs / Description';
+}
+
+function openCopySpecsFromProductModal() {
+    const currentCode = (document.getElementById('p-form-code').value ||'').trim();
+    const pool = (cachedInventoryProducts && cachedInventoryProducts.length) ? cachedInventoryProducts : (globalProducts || []);
+    const candidates = pool.filter(p => p.code !== currentCode && ((p.description && p.description.trim()) || (Array.isArray(p.specs) && p.specs.length)));
+
+    if (!candidates.length) {
+        Swal.fire('None Available','No other product has Specs/Description saved yet.','info');
+        return;
+    }
+
+    Swal.fire({
+        title:'Copy Specs from Another Product',
+        html: `
+            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Search for a product (code or name)..." autocomplete="off">
+            <div id="copy-specs-list" style="max-height:260px;overflow-y:auto;text-align:left;border:1px solid #e2e8f0;border-radius:8px;margin-top:8px;"></div>
+        `,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText:'Close',
+        didOpen: () => {
+            const renderList = (query) => {
+                const q = (query ||'').trim().toLowerCase();
+                const filtered = candidates.filter(p =>
+                    !q || (p.code ||'').toLowerCase().includes(q) || (p.name ||'').toLowerCase().includes(q)
+                ).slice(0, 50);
+                const listEl = document.getElementById('copy-specs-list');
+                if (!listEl) return;
+                listEl.innerHTML = filtered.length
+                    ? filtered.map(p => `
+                        <div class="copy-specs-item" data-code="${escapeHtml(p.code)}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;">
+                            <b>${escapeHtml(p.code)}</b> — ${escapeHtml(p.name ||'')}
+                        </div>`).join('')
+                    : `<div style="padding:10px;color:#94a3b8;">No matches found.</div>`;
+                listEl.querySelectorAll('.copy-specs-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const code = item.getAttribute('data-code');
+                        const src = candidates.find(p => p.code === code);
+                        if (src) {
+                            document.getElementById('p-form-details-textarea').value = src.description ||'';
+                            updateProductSpecsCharCount();
+                            renderProductSpecsRows(Array.isArray(src.specs) ? src.specs : []);
+                            autosaveProductSpecsDraft();
+                        }
+                        Swal.close();
+                    });
+                });
+            };
+            renderList('');
+            const searchInput = document.getElementById('copy-specs-search');
+            if (searchInput) searchInput.addEventListener('input', (e) => renderList(e.target.value));
+        }
+    });
 }
 
 function handleProductPhotoSelect(event) {
@@ -11688,9 +12041,19 @@ async function handleProductFormSubmit(e) {
     const supplierVal = document.getElementById('p-form-supplier').value.trim();
     const expiryVal = document.getElementById('p-form-expiry').value;
     const thresholdVal = document.getElementById('p-form-threshold').value;
+    const detailsVal = document.getElementById('p-form-details').value.trim();
+    const specsRaw = document.getElementById('p-form-specs').value;
+    const imagesRaw = document.getElementById('p-form-images').value;
     if (supplierVal) payload.supplier = supplierVal;
     if (expiryVal) payload.expiryDate = expiryVal;
     if (thresholdVal !=='') payload.lowStockThreshold = parseInt(thresholdVal);
+    if (detailsVal) payload.description = detailsVal;
+    if (specsRaw) {
+        try { payload.specs = JSON.parse(specsRaw); } catch (e) {  }
+    }
+    if (imagesRaw) {
+        try { payload.images = JSON.parse(imagesRaw); } catch (e) {  }
+    }
 
     const isScanRestock = (mode ==='ADD' && addProductScanSession.lastScannedFormCode === code.trim());
 
@@ -11724,6 +12087,7 @@ async function handleProductFormSubmit(e) {
         if (reply.success) {
             loadInventoryProductsTable();
             loadDashboardMetrics();
+            clearProductSpecsDraft();
 
             if (mode ==='ADD' && addProductScanSession.active) {
 
@@ -11795,6 +12159,137 @@ async function downloadAuthFetch(url, fallbackFilename) {
 
 function downloadProductTemplate() {
     downloadAuthFetch(`${API_URL}/products/template`, `product_template_${Date.now()}.xlsx`);
+}
+
+// ---- Bulk Import Specs/Description (CSV: Code, Description) ----
+// Lightweight, client-side counterpart to the full product Excel
+// import/template — meant specifically for quickly filling in Description
+// for many existing products at once via a simple 2-column CSV.
+
+function openBulkSpecsImportModal() {
+    Swal.fire({
+        title:'Bulk Import Specs',
+        html: `
+            <p style="font-size:0.85rem;color:#64748b;text-align:left;">
+                Upload a CSV file with 2 columns: <b>Code</b> and <b>Description</b>.<br>
+                The first row must be the header. Product Codes not found in the system will be skipped.
+            </p>
+        `,
+        confirmButtonText:'Choose CSV File',
+        showCancelButton: true,
+        cancelButtonText:'Cancel'
+    }).then(result => {
+        if (result.isConfirmed) {
+            const input = document.getElementById('bulk-specs-file-input');
+            if (input) input.click();
+        }
+    });
+}
+
+function parseSimpleCsv(text) {
+    const rows = [];
+    const lines = text.split(/\r?\n/).filter(l => l.trim() !=='');
+    for (const line of lines) {
+        const cells = [];
+        let cur ='';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (inQuotes) {
+                if (ch ==='"') {
+                    if (line[i + 1] ==='"') { cur +='"'; i++; } else { inQuotes = false; }
+                } else {
+                    cur += ch;
+                }
+            } else {
+                if (ch ==='"') inQuotes = true;
+                else if (ch ===',') { cells.push(cur); cur =''; }
+                else cur += ch;
+            }
+        }
+        cells.push(cur);
+        rows.push(cells);
+    }
+    return rows;
+}
+
+async function handleBulkSpecsImportFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    event.target.value ='';
+
+    let text ='';
+    try {
+        text = await file.text();
+    } catch (e) {
+        Swal.fire('Error','Could not read the file.','error');
+        return;
+    }
+
+    const rows = parseSimpleCsv(text);
+    if (rows.length < 2) {
+        Swal.fire('Empty File','No content was found in the CSV file.','warning');
+        return;
+    }
+
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    const codeIdx = header.indexOf('code');
+    const descIdx = header.indexOf('description');
+    if (codeIdx === -1 || descIdx === -1) {
+        Swal.fire('Invalid Format','The CSV file needs a "Code" and a "Description" column.','error');
+        return;
+    }
+
+    const dataRows = rows.slice(1).filter(r => (r[codeIdx] ||'').trim());
+    if (!dataRows.length) {
+        Swal.fire('Empty File','No valid Code was found in the file.','warning');
+        return;
+    }
+
+    const confirmResult = await Swal.fire({
+        title: `Import ${dataRows.length} specs/description entries?`,
+        text:'This will replace the Description of the matching Product Codes.',
+        icon:'question',
+        showCancelButton: true,
+        confirmButtonText:'Yes, import',
+        cancelButtonText:'Cancel'
+    });
+    if (!confirmResult.isConfirmed) return;
+
+    Swal.fire({
+        title:'Importing...',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    let updated = 0, skipped = 0, failed = 0;
+    for (const row of dataRows) {
+        const code = (row[codeIdx] ||'').trim();
+        const description = (row[descIdx] ||'').trim();
+        const exists = cachedInventoryProducts.some(p => p.code === code) || globalProducts.some(p => p.code === code);
+        if (!exists) { skipped++; continue; }
+        try {
+            const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}`, {
+                method:'PUT',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({ updatedData: { description }, userRole: currentUser.role, username: currentUser.username })
+            });
+            const reply = await res.json();
+            if (reply.success) updated++; else failed++;
+        } catch (e) {
+            failed++;
+        }
+    }
+
+    if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
+
+    Swal.fire({
+        title:'Import Complete',
+        html: `<p>✅ Updated: <b>${updated}</b></p><p>⏭️ Skipped (no matching code): <b>${skipped}</b></p>${failed ? `<p>❌ Failed: <b>${failed}</b></p>` :''}`,
+        icon:'success'
+    });
 }
 
 async function exportProductsCsv() {
@@ -11972,7 +12467,7 @@ async function openBulkPhotoModal() {
             }
         }
     } catch (err) {
-        console.warn('Bulk Upload Photos: hindi ma-refresh ang products list, gagamitin na lang ang cached list.', err);
+        console.warn('Bulk Upload Photos: could not refresh the products list, using the cached list instead.', err);
     }
 }
 
@@ -15773,9 +16268,19 @@ async function saveAccumulatedStockIfPending() {
     const supplierVal = document.getElementById('p-form-supplier').value.trim();
     const expiryVal = document.getElementById('p-form-expiry').value;
     const thresholdVal = document.getElementById('p-form-threshold').value;
+    const detailsVal = document.getElementById('p-form-details').value.trim();
+    const specsRaw = document.getElementById('p-form-specs').value;
+    const imagesRaw = document.getElementById('p-form-images').value;
     if (supplierVal) payload.supplier = supplierVal;
     if (expiryVal) payload.expiryDate = expiryVal;
     if (thresholdVal !=='') payload.lowStockThreshold = parseInt(thresholdVal);
+    if (detailsVal) payload.description = detailsVal;
+    if (specsRaw) {
+        try { payload.specs = JSON.parse(specsRaw); } catch (e) {  }
+    }
+    if (imagesRaw) {
+        try { payload.images = JSON.parse(imagesRaw); } catch (e) {  }
+    }
 
     try {
         const res = await authFetch(`${API_URL}/products/${code}`, {
