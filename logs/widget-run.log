@@ -1,27 +1,17 @@
-[2026-08-25 20:59:39] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-25 20:59:40] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
-🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+[2026-08-26 20:36:03] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-26 20:36:03] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-./start.sh: line 138:  7047 Hangup                     node server.js
-[2026-08-25 20:59:42] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
-🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+./start.sh: line 138: 28856 Hangup                     node server.js
+[2026-08-26 20:36:06] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-⚠️  Omni Search Images (job 564060c53dd34def7dc3703e29518be4): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
-Bulk image fetch error for PRDT20260163 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=1348514157428829&get_thumbnail=1): Error: Hindi image ang na-fetch na file.
-    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2122:35)
-    at Object.onceWrapper (node:events:631:12)
-    at ClientRequest.emit (node:events:509:20)
-    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
-    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
-    at TLSSocket.socketOnData (node:_http_client:647:22)
-    at TLSSocket.emit (node:events:509:20)
-    at addChunk (node:internal/streams/readable:568:12)
-    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
-    at Readable.push (node:internal/streams/readable:399:5)
-    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
