@@ -406,6 +406,14 @@ body {
     transition: transform 0.3s ease;
 }
 
+/* Day mode only: the sidebar used the same near-black navy (--bg-sidebar-dark)
+   as dark mode, which read as plain black in daylight. This lightens it a
+   touch — still a dark, neutral tone (not white, not black), and only
+   applies when day mode is active (body without .dark-mode). */
+body:not(.dark-mode) .sidebar {
+    background-color: #22314a;
+}
+
 .sidebar-brand {
     padding: 24px;
     font-size: 1.5rem;

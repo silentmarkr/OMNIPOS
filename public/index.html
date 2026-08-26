@@ -318,7 +318,6 @@
             <nav class="sidebar-menu">
                 <span class="menu-section-label">Main</span>
                 <a href="#" class="menu-item active" id="menu-overview" onclick="switchView('overview')"><i class="fa-solid fa-laptop-house"></i> Overview</a>
-                <a href="#" class="menu-item" id="menu-terminal" onclick="switchView('terminal')"><i class="fa-solid fa-computer"></i> POS Terminal</a>
 
                 <span class="menu-section-label">Inventory</span>
                 <div class="menu-dropdown" id="menu-inventory-group">
@@ -334,6 +333,7 @@
                 <span class="menu-section-label">Management</span>
                 <a href="#" class="menu-item" id="menu-reports" onclick="switchView('reports')"><i class="fa-solid fa-chart-line"></i> Sales Report <span id="menu-reports-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-reports-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-transactions" onclick="switchView('transactions')"><i class="fa-solid fa-receipt"></i> Transaction</a>
+                <a href="#" class="menu-item" id="menu-terminal" onclick="switchView('terminal')"><i class="fa-solid fa-computer"></i> POS Terminal</a>
                 <a href="#" class="menu-item" id="menu-customers" onclick="switchView('customers')"><i class="fa-solid fa-address-book"></i> Customers <span id="menu-customers-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-customers-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-debts" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar"></i> Debtors <span id="menu-debts-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-debts-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
@@ -578,10 +578,10 @@
 
                     <h2 class="section-title ov-anim" id="quick-access-title" style="--ov-delay:7"><i class="fa-solid fa-grip"></i> Quick Access</h2>
                     <div class="quick-access-grid ov-anim" id="quick-access-dock" style="--ov-delay:7">
-                        <div class="qa-card active" onclick="switchView('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
                         <div class="qa-card" onclick="switchView('products')"><i class="fa-solid fa-box-open" style="color:#f59e0b;"></i><p>Inventory</p></div>
                         <div class="qa-card" onclick="switchView('reports')"><i class="fa-solid fa-chart-column" style="color:#10b981;"></i><p>Sales Report</p></div>
                         <div class="qa-card" onclick="switchView('transactions')"><i class="fa-solid fa-credit-card" style="color:#06b6d4;"></i><p>Transactions</p></div>
+                        <div class="qa-card active" onclick="switchView('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
                         <div class="qa-card" onclick="switchView('users')"><i class="fa-solid fa-gear" style="color:#8b5cf6;"></i><p>Settings</p></div>
                         <div class="qa-card" onclick="switchView('logs')"><i class="fa-solid fa-stopwatch" style="color:#64748b;"></i><p>User Logs</p></div>
                         <div class="qa-card text-danger" onclick="handleLogout()"><i class="fa-solid fa-door-open" style="color:#ef4444;"></i><p>Sign Out</p></div>
