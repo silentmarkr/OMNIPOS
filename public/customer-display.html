@@ -124,25 +124,12 @@
     padding: 8px; font-size: 0.85rem;
   }
 
-  #cd-fullscreen-prompt {
-    position: fixed; inset: 0; z-index: 9999;
-    background: rgba(15,23,42,0.97);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 14px; cursor: pointer; text-align: center; padding: 20px;
-  }
-  #cd-fullscreen-prompt i { font-size: 3rem; color: #38bdf8; }
-  #cd-fullscreen-prompt h2 { margin: 0; font-size: 1.4rem; }
-  #cd-fullscreen-prompt p { margin: 0; color: #94a3b8; font-size: 0.9rem; max-width: 380px; }
+  header#cd-header { cursor: pointer; }
 </style>
 </head>
 <body>
-  <div id="cd-fullscreen-prompt">
-    <i class="fa-solid fa-expand">⛶</i>
-    <h2>Tap to Go Fullscreen</h2>
-    <p>I-tap para maging fullscreen ang display na ito. Hindi ito nakakaapekto sa screen ng cashier terminal.</p>
-  </div>
   <div id="offline-banner"><i class="fa-solid fa-triangle-exclamation"></i> Not connected to the POS terminal yet — open this from the same browser as the terminal.</div>
-  <header>
+  <header id="cd-header" title="Double tap to fullscreen">
     <img src="icons/icon-192.png" alt="OmniPOS">
     <div>
       <h1>OmniPOS</h1>
@@ -205,25 +192,69 @@ let prevQtyByKey = {};
 
 function requestCdFullscreen() {
   const el = document.documentElement;
-  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
   if (!req) return Promise.reject(new Error('Fullscreen API not supported'));
   return req.call(el);
 }
+function exitCdFullscreen() {
+  const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+  if (!exit) return Promise.reject(new Error('Fullscreen API not supported'));
+  return exit.call(document);
+}
 function isCdFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
 }
-function updateFullscreenPromptVisibility() {
-  const prompt = document.getElementById('cd-fullscreen-prompt');
-  if (prompt) prompt.style.display = isCdFullscreen() ? 'none' : 'flex';
+async function toggleCdFullscreen() {
+  try {
+    if (isCdFullscreen()) {
+      await exitCdFullscreen();
+    } else {
+      await requestCdFullscreen();
+    }
+  } catch (e) {
+    console.error('Fullscreen toggle failed:', e);
+  }
 }
-requestCdFullscreen().then(updateFullscreenPromptVisibility).catch(updateFullscreenPromptVisibility);
-document.getElementById('cd-fullscreen-prompt').addEventListener('click', () => {
-  requestCdFullscreen().then(updateFullscreenPromptVisibility).catch(() => {});
-});
-['fullscreenchange', 'webkitfullscreenchange', 'MSFullscreenChange'].forEach(evt => {
-  document.addEventListener(evt, updateFullscreenPromptVisibility);
-});
-updateFullscreenPromptVisibility();
+
+// Double-tap/double-click on the header toggles fullscreen — same pattern as
+// the OmniPOS main app header. The display content itself stays visible at
+// all times, fullscreen or not.
+(function initCdHeaderDoubleTapFullscreen() {
+  const header = document.getElementById('cd-header');
+  if (!header) return;
+
+  // Desktop: native double-click
+  header.addEventListener('dblclick', () => {
+    toggleCdFullscreen();
+  });
+
+  // Mobile: manual double-tap detection — hindi laging maaasahang mag-fire
+  // ang native "dblclick" mula sa dalawang magkasunod na tap sa touchscreen.
+  const DOUBLE_TAP_MAX_DELAY = 350;
+  const DOUBLE_TAP_MAX_MOVE = 20;
+  let lastTapTime = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
+
+  header.addEventListener('touchend', (e) => {
+    if (!e.changedTouches || !e.changedTouches.length) return;
+
+    const touch = e.changedTouches[0];
+    const now = Date.now();
+    const movedX = Math.abs(touch.clientX - lastTapX);
+    const movedY = Math.abs(touch.clientY - lastTapY);
+
+    if (lastTapTime && (now - lastTapTime) <= DOUBLE_TAP_MAX_DELAY && movedX <= DOUBLE_TAP_MAX_MOVE && movedY <= DOUBLE_TAP_MAX_MOVE) {
+      lastTapTime = 0;
+      e.preventDefault();
+      toggleCdFullscreen();
+    } else {
+      lastTapTime = now;
+      lastTapX = touch.clientX;
+      lastTapY = touch.clientY;
+    }
+  });
+})();
 
 function formatPeso(n) {
   const v = parseFloat(n) || 0;
