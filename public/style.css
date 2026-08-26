@@ -845,31 +845,29 @@ body {
     -webkit-overflow-scrolling: touch;
 }
 
-@media screen and (max-width: 768px) {
-    #uw-themes-submenu {
-        max-height: min(320px, 60vh);
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
-    }
+#uw-themes-submenu {
+    max-height: min(320px, 60vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
 
-    #uw-themes-submenu::-webkit-scrollbar {
-        width: 6px;
-    }
+#uw-themes-submenu::-webkit-scrollbar {
+    width: 6px;
+}
 
-    #uw-themes-submenu::-webkit-scrollbar-track {
-        background: transparent;
-    }
+#uw-themes-submenu::-webkit-scrollbar-track {
+    background: transparent;
+}
 
-    #uw-themes-submenu::-webkit-scrollbar-thumb {
-        background-color: rgba(255, 255, 255, 0.25);
-        border-radius: 10px;
-    }
+#uw-themes-submenu::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+}
 
-    #uw-themes-submenu::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(255, 255, 255, 0.4);
-    }
+#uw-themes-submenu::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.4);
 }
 
 .uw-theme-option {
@@ -2275,7 +2273,19 @@ body.dark-mode .rank-row .rank-name {
         gap: 10px;
         width: max-content;
         max-width: min(680px, calc(100vw - 300px));
-        padding: 10px 16px;
+        /* Same overall footprint (min-height) as .overview-greeting-row
+           (padding 18px top/bottom + ~44px of title/subtitle text ≈ 80px),
+           so the dock "container" reads as the same size as the greeting
+           banner. Padding is intentionally asymmetric — most of the extra
+           room lives at the TOP (34px) as headroom above the icons, while
+           the icons themselves stay pinned to the bottom via
+           align-items:flex-end (unchanged). That headroom is what keeps
+           the fish-eye hover scale-up (see initQuickAccessFishEye in
+           app.js) from being visually clipped at the top edge of the
+           dock — the card grows upward into empty space instead of
+           against the container's top border. */
+        min-height: 80px;
+        padding: 34px 16px 10px;
         overflow-x: auto;
         overflow-y: visible;
         scrollbar-width: none;
@@ -2321,7 +2331,7 @@ body.dark-mode .rank-row .rank-name {
 
     #quick-access-dock .qa-card {
         flex: 0 0 auto;
-        width: 66px;
+        width: 72px;
         /* !important here on purpose: Custom Theme Studio's Density
            setting (compact/spacious) targets ".qa-card" globally with
            !important (see css/themes/custom-theme.css, loaded AFTER
@@ -2340,11 +2350,19 @@ body.dark-mode .rank-row .rank-name {
     }
 
     #quick-access-dock .qa-card p {
-        font-size: 0.6rem;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        /* Was: single line, nowrap + ellipsis, which cut longer labels
+           short (e.g. "Sales Report" → "Sales Rep…"). Now the label is
+           allowed to wrap onto a second line instead of being truncated,
+           and the extra top padding on the dock (above) gives it the
+           vertical room to do that without overflowing the container. */
+        font-size: 0.62rem;
+        line-height: 1.15;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        word-break: break-word;
         max-width: 100%;
+        text-align: center;
     }
 
     #quick-access-dock .qa-card i {
