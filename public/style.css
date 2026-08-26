@@ -2294,50 +2294,16 @@ body.dark-mode .rank-row .rank-name {
         gap: 10px;
         width: max-content;
         max-width: min(680px, calc(100vw - 300px));
-        /* FIX: top padding was 10px (same as the sides/bottom). Per the
-           CSS Overflow spec, "overflow-x: auto" + "overflow-y: visible"
-           does NOT stay (auto, visible) — the visible axis is forced to
-           compute as "auto" too, since a "visible"/"non-visible" pair
-           isn't allowed. So this box was ALWAYS clipping vertically,
-           just like a plain "overflow: auto" would. That's exactly what
-           made the fish-eye hover magnification (applyFishEye() in
-           app.js scales cards up to 1.5x and lifts them -16px, both
-           growing upward from transform-origin: bottom center) get cut
-           off at the dock's own top edge instead of floating freely
-           above it. Bumping just the top padding to 60px reserves
-           enough transparent clearance above the icons (card growth
-           ~27px from the 1.5x scale + 16px lift, plus buffer) so the
-           enlarged card never actually exceeds this box's padding-box
-           height — nothing overflows, so there's nothing left for the
-           forced "auto" to clip. The visual pill background is moved
-           to ::before below (inset to the original 10px/16px band) so
-           this extra top space stays invisible at rest and the pill's
-           on-screen position/size doesn't change when not hovering. */
-        padding: 60px 16px 10px;
+        padding: 10px 16px;
         overflow-x: auto;
         overflow-y: visible;
         scrollbar-width: none;
-        border-radius: 22px;
-    }
-
-    /* The dock's actual glass-pill look (background/border/shadow/blur)
-       lives here instead of directly on #quick-access-dock, so the
-       60px clearance added above for the fish-eye effect (see comment
-       above) stays completely invisible when nothing is hovered — this
-       pseudo-element is inset to exactly the original 10px/16px band,
-       matching how the pill looked/sat before this fix. */
-    #quick-access-dock::before {
-        content: '';
-        position: absolute;
-        inset: 60px 0 0 0;
         border-radius: 22px;
         background: rgba(255, 255, 255, 0.72);
         border: 1px solid rgba(226, 232, 240, 0.9);
         box-shadow: 0 18px 38px -14px rgba(15, 23, 42, 0.28), 0 3px 10px -2px rgba(15, 23, 42, 0.08);
         -webkit-backdrop-filter: blur(18px) saturate(180%);
         backdrop-filter: blur(18px) saturate(180%);
-        z-index: -1;
-        pointer-events: none;
     }
 
     /* Once JS measures the actual rendered width of the Sales Trend
@@ -2366,7 +2332,7 @@ body.dark-mode .rank-row .rank-name {
        which theme was active. Reusing var(--dm-surface)/var(--dm-border)
        here makes it automatically match whichever theme is active,
        the same way .qa-card and .metric-card already do. */
-    body.dark-mode #quick-access-dock::before {
+    body.dark-mode #quick-access-dock {
         background: color-mix(in srgb, var(--dm-surface) 72%, transparent);
         border-color: var(--dm-border);
         box-shadow: 0 18px 38px -14px rgba(0, 0, 0, 0.55), 0 3px 10px -2px rgba(0, 0, 0, 0.35);
