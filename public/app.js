@@ -6792,6 +6792,22 @@ function formatProductDescriptionHtml(text) {
     return html;
 }
 
+function togglePdDescription() {
+    const descEl = document.getElementById('pd-description');
+    const btn = document.getElementById('pd-description-toggle');
+    if (!descEl || !btn) return;
+    const expanded = btn.dataset.expanded ==='true';
+    if (expanded) {
+        descEl.classList.add('pd-desc-clamped');
+        btn.innerHTML ='Read more &#9662;';
+        btn.dataset.expanded ='false';
+    } else {
+        descEl.classList.remove('pd-desc-clamped');
+        btn.innerHTML ='Show less &#9652;';
+        btn.dataset.expanded ='true';
+    }
+}
+
 function showProductDetails(code, context ='pos') {
     const p = globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code);
     if (!p) return;
@@ -6828,11 +6844,24 @@ function showProductDetails(code, context ='pos') {
     }
 
     const descriptionRow = document.getElementById('pd-description-row');
+    const descToggleBtn = document.getElementById('pd-description-toggle');
     if (p.description && p.description.trim()) {
-        document.getElementById('pd-description').innerHTML = formatProductDescriptionHtml(p.description);
+        const descEl = document.getElementById('pd-description');
+        descEl.innerHTML = formatProductDescriptionHtml(p.description);
         descriptionRow.style.display ='flex';
+
+        if (p.description.trim().length > 150) {
+            descEl.classList.add('pd-desc-clamped');
+            descToggleBtn.style.display ='inline-flex';
+            descToggleBtn.innerHTML ='Read more &#9662;';
+            descToggleBtn.dataset.expanded ='false';
+        } else {
+            descEl.classList.remove('pd-desc-clamped');
+            descToggleBtn.style.display ='none';
+        }
     } else {
         descriptionRow.style.display ='none';
+        descToggleBtn.style.display ='none';
     }
 
     const specsRow = document.getElementById('pd-specs-row');
@@ -11243,7 +11272,7 @@ function getColumnDisplayValue(field, p) {
         case'price': return `₱${parseFloat(p.price || 0).toFixed(2)}`;
         case'stock': return String(p.stock ??'');
         case'expiryDate': return p.expiryDate ? p.expiryDate :'(No Expiry)';
-        case'hasSpecs': return productHasDetails(p) ?'Has Specs/Description' :'No Specs/Description';
+        case'hasSpecs': return productHasDetails(p) ?'May Specs/Description' :'Walang Specs/Description';
         default: return'';
     }
 }
@@ -11442,7 +11471,7 @@ function renderInventoryProductsTable() {
                     <td>${expiryDisplay}</td>
                     <td style="text-align:center;">
                         <button class="btn-clear" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" style="color: var(--primary-blue); padding: 4px 8px; font-size: 0.9rem;">
-                            <i class="fa-solid fa-eye"></i> View${hasDetails ? ' <span class="details-has-specs-dot" title="Has saved Specs/Description"></span>' :''}
+                            <i class="fa-solid fa-eye"></i> View${hasDetails ? ' <span class="details-has-specs-dot" title="May naka-save na Specs/Description"></span>' :''}
                         </button>
                     </td>
                     <td>
@@ -11564,7 +11593,7 @@ function renderProductGalleryPreview(images) {
     container.innerHTML = images.map((src, idx) => `
         <div class="prod-gallery-thumb-wrap">
             <img src="${src}" alt="Photo ${idx + 1}">
-            <button type="button" class="prod-gallery-remove-btn" onclick="removeProductGalleryImage(${idx})" title="Remove">&times;</button>
+            <button type="button" class="prod-gallery-remove-btn" onclick="removeProductGalleryImage(${idx})" title="Alisin">&times;</button>
         </div>
     `).join('');
 }
@@ -11583,7 +11612,7 @@ function handleProductGalleryPhotoSelect(event) {
     const MAX_GALLERY = 6;
     const remainingSlots = Math.max(0, MAX_GALLERY - existing.length);
     if (remainingSlots <= 0) {
-        Swal.fire('Limit Reached', `You can add up to ${MAX_GALLERY} additional photos per product.`,'warning');
+        Swal.fire('Limit Reached', `Pinakamarami hanggang ${MAX_GALLERY} na additional photos lang bawat produkto.`,'warning');
         event.target.value ='';
         return;
     }
@@ -11637,9 +11666,9 @@ function addProductSpecRow(key ='', value ='') {
     row.className ='p-spec-row';
     row.style.cssText ='display:flex;gap:8px;margin-bottom:8px;align-items:center;';
     row.innerHTML = `
-        <input type="text" class="p-spec-key" placeholder="e.g. Size" value="${key.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
-        <input type="text" class="p-spec-value" placeholder="e.g. 500ml" value="${value.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
-        <button type="button" class="btn-icon-action delete" onclick="this.closest('.p-spec-row').remove(); autosaveProductSpecsDraft();" title="Remove"><i class="fa-solid fa-trash"></i></button>
+        <input type="text" class="p-spec-key" placeholder="hal. Sukat" value="${key.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
+        <input type="text" class="p-spec-value" placeholder="hal. 500ml" value="${value.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
+        <button type="button" class="btn-icon-action delete" onclick="this.closest('.p-spec-row').remove(); autosaveProductSpecsDraft();" title="Alisin"><i class="fa-solid fa-trash"></i></button>
     `;
     container.appendChild(row);
 }
@@ -11702,7 +11731,7 @@ function openProductSpecsModal() {
         applyState(draft.description, draft.specs);
         Swal.fire({
             toast: true, position:'top-end', icon:'info',
-            title:'Restored an unsaved draft from a previous session.',
+            title:'May na-restore na draft mula sa hindi na-save na sesyon.',
             showConfirmButton: false, timer: 2500, timerProgressBar: true
         });
     } else {
@@ -11747,19 +11776,19 @@ function openCopySpecsFromProductModal() {
     const candidates = pool.filter(p => p.code !== currentCode && ((p.description && p.description.trim()) || (Array.isArray(p.specs) && p.specs.length)));
 
     if (!candidates.length) {
-        Swal.fire('None Available','No other product has Specs/Description saved yet.','info');
+        Swal.fire('Walang Available','Wala pang ibang produkto na may naka-save na Specs/Description.','info');
         return;
     }
 
     Swal.fire({
-        title:'Copy Specs from Another Product',
+        title:'Copy Specs mula sa Ibang Produkto',
         html: `
-            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Search for a product (code or name)..." autocomplete="off">
+            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Maghanap ng produkto (code o pangalan)..." autocomplete="off">
             <div id="copy-specs-list" style="max-height:260px;overflow-y:auto;text-align:left;border:1px solid #e2e8f0;border-radius:8px;margin-top:8px;"></div>
         `,
         showConfirmButton: false,
         showCancelButton: true,
-        cancelButtonText:'Close',
+        cancelButtonText:'Isara',
         didOpen: () => {
             const renderList = (query) => {
                 const q = (query ||'').trim().toLowerCase();
@@ -11773,7 +11802,7 @@ function openCopySpecsFromProductModal() {
                         <div class="copy-specs-item" data-code="${escapeHtml(p.code)}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;">
                             <b>${escapeHtml(p.code)}</b> — ${escapeHtml(p.name ||'')}
                         </div>`).join('')
-                    : `<div style="padding:10px;color:#94a3b8;">No matches found.</div>`;
+                    : `<div style="padding:10px;color:#94a3b8;">Walang tugma.</div>`;
                 listEl.querySelectorAll('.copy-specs-item').forEach(item => {
                     item.addEventListener('click', () => {
                         const code = item.getAttribute('data-code');
@@ -12171,11 +12200,11 @@ function openBulkSpecsImportModal() {
         title:'Bulk Import Specs',
         html: `
             <p style="font-size:0.85rem;color:#64748b;text-align:left;">
-                Upload a CSV file with 2 columns: <b>Code</b> and <b>Description</b>.<br>
-                The first row must be the header. Product Codes not found in the system will be skipped.
+                Mag-upload ng CSV file na may 2 column: <b>Code</b> at <b>Description</b>.<br>
+                Ang unang row dapat ang header. Ang mga Product Code na wala sa system ay iski-skip.
             </p>
         `,
-        confirmButtonText:'Choose CSV File',
+        confirmButtonText:'Piliin ang CSV File',
         showCancelButton: true,
         cancelButtonText:'Cancel'
     }).then(result => {
@@ -12222,13 +12251,13 @@ async function handleBulkSpecsImportFile(event) {
     try {
         text = await file.text();
     } catch (e) {
-        Swal.fire('Error','Could not read the file.','error');
+        Swal.fire('Error','Hindi ma-basa ang file.','error');
         return;
     }
 
     const rows = parseSimpleCsv(text);
     if (rows.length < 2) {
-        Swal.fire('Empty File','No content was found in the CSV file.','warning');
+        Swal.fire('Walang Laman','Walang mahanap na laman sa CSV file.','warning');
         return;
     }
 
@@ -12236,28 +12265,28 @@ async function handleBulkSpecsImportFile(event) {
     const codeIdx = header.indexOf('code');
     const descIdx = header.indexOf('description');
     if (codeIdx === -1 || descIdx === -1) {
-        Swal.fire('Invalid Format','The CSV file needs a "Code" and a "Description" column.','error');
+        Swal.fire('Maling Format','Kailangan ng "Code" at "Description" column sa CSV file.','error');
         return;
     }
 
     const dataRows = rows.slice(1).filter(r => (r[codeIdx] ||'').trim());
     if (!dataRows.length) {
-        Swal.fire('Empty File','No valid Code was found in the file.','warning');
+        Swal.fire('Walang Laman','Walang valid na Code na nahanap sa file.','warning');
         return;
     }
 
     const confirmResult = await Swal.fire({
-        title: `Import ${dataRows.length} specs/description entries?`,
-        text:'This will replace the Description of the matching Product Codes.',
+        title: `I-import ang ${dataRows.length} specs/description?`,
+        text:'Ipapalit nito ang Description ng mga tumutugmang Product Code.',
         icon:'question',
         showCancelButton: true,
-        confirmButtonText:'Yes, import',
+        confirmButtonText:'Oo, i-import',
         cancelButtonText:'Cancel'
     });
     if (!confirmResult.isConfirmed) return;
 
     Swal.fire({
-        title:'Importing...',
+        title:'Iniimport...',
         allowOutsideClick: false,
         allowEscapeKey: false,
         showConfirmButton: false,
@@ -12287,7 +12316,7 @@ async function handleBulkSpecsImportFile(event) {
 
     Swal.fire({
         title:'Import Complete',
-        html: `<p>✅ Updated: <b>${updated}</b></p><p>⏭️ Skipped (no matching code): <b>${skipped}</b></p>${failed ? `<p>❌ Failed: <b>${failed}</b></p>` :''}`,
+        html: `<p>✅ Na-update: <b>${updated}</b></p><p>⏭️ Na-skip (walang tugmang code): <b>${skipped}</b></p>${failed ? `<p>❌ Nabigo: <b>${failed}</b></p>` :''}`,
         icon:'success'
     });
 }
@@ -12467,7 +12496,7 @@ async function openBulkPhotoModal() {
             }
         }
     } catch (err) {
-        console.warn('Bulk Upload Photos: could not refresh the products list, using the cached list instead.', err);
+        console.warn('Bulk Upload Photos: hindi ma-refresh ang products list, gagamitin na lang ang cached list.', err);
     }
 }
 

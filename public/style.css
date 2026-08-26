@@ -3854,6 +3854,27 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 12px 14px !important;
+    border-bottom: none !important;
+}
+
+#pd-description-row .pd-detail-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #94a3b8;
+}
+
+#pd-description-row .pd-detail-label::before {
+    content: "\f15c";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    color: #94a3b8;
 }
 
 #pd-description {
@@ -3861,20 +3882,85 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     white-space: pre-wrap;
     font-weight: 500;
     font-size: 0.9rem;
-    line-height: 1.4;
+    line-height: 1.5;
+    color: #334155;
+    width: 100%;
+}
+
+#pd-description.pd-desc-clamped {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+}
+
+.pd-desc-toggle-btn {
+    align-self: flex-start;
+    margin-top: 2px;
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--primary-color, #2563eb);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pd-desc-toggle-btn:hover {
+    text-decoration: underline;
+}
+
+/* Mobile: larger font for Specs / Description in the Product Details modal */
+@media screen and (max-width: 640px) {
+    #pd-description {
+        font-size: 1rem;
+        line-height: 1.6;
+    }
+    #pd-description-row .pd-detail-label,
+    #pd-specs-row .pd-detail-label {
+        font-size: 0.82rem;
+    }
+    .pd-specs-list .pd-spec-line {
+        font-size: 0.95rem;
+        padding: 9px 0;
+    }
+    .pd-desc-toggle-btn {
+        font-size: 0.9rem;
+    }
 }
 
 #pd-specs-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 12px 14px !important;
+    border-bottom: none !important;
+}
+
+#pd-specs-row .pd-detail-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #94a3b8;
+}
+
+#pd-specs-row .pd-detail-label::before {
+    content: "\f0cb";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    color: #94a3b8;
 }
 
 .pd-specs-list {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0;
 }
 
 .pd-specs-list .pd-spec-line {
@@ -3882,8 +3968,12 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     justify-content: space-between;
     gap: 10px;
     font-size: 0.88rem;
-    padding: 4px 0;
-    border-bottom: 1px dashed var(--border-color);
+    padding: 7px 0;
+    border-bottom: 1px dashed #e2e8f0;
+}
+
+.pd-specs-list .pd-spec-line:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.5);
 }
 
 .pd-specs-list .pd-spec-line:last-child {
@@ -3901,6 +3991,15 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     font-weight: 500;
     text-align: right;
     word-break: break-word;
+}
+
+body.dark-mode #pd-description-row,
+body.dark-mode #pd-specs-row {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body.dark-mode #pd-description {
+    color: var(--dm-text, #cbd5e1);
 }
 
 .pd-gallery-thumbs {
@@ -9781,15 +9880,36 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):no
 
 .table-container,
 .table-container * {
-    scrollbar-width: none !important;    
-    -ms-overflow-style: none !important; 
+    scrollbar-width: thin !important;
+    scrollbar-color: #cbd5e1 transparent !important;
+    -ms-overflow-style: auto !important;
 }
 
 .table-container::-webkit-scrollbar,
 .table-container *::-webkit-scrollbar {
     width: 0 !important;
-    height: 0 !important;
+    height: 10px !important;
     background: transparent !important;
+}
+
+.table-container::-webkit-scrollbar-thumb,
+.table-container *::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1 !important;
+    border-radius: 6px !important;
+    background-clip: padding-box !important;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover,
+.table-container *::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8 !important;
+}
+
+.table-container::-webkit-scrollbar-track,
+.table-container *::-webkit-scrollbar-track {
+    background: transparent !important;
+    margin-left: 4px !important;
+    margin-right: 4px !important;
+    border-radius: 4px !important;
 }
 
 .header-icon-btn,
