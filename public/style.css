@@ -3818,14 +3818,26 @@ body.dark-mode .search-box-container input::placeholder {
     justify-content: center;
     border-radius: 8px;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
-    
+
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
+
+    /* I-promote agad ang element papuntang sarili nitong GPU layer
+       (bago pa man mag-hover) para 'yung pag-scale sa :hover ay hindi
+       na kailangang gumawa ng bagong layer sa gitna ng transition —
+       'yun ang dating sanhi ng panandaliang pagka-blur/pagka-malabo
+       ng larawan habang naghohover. */
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    will-change: transform;
 }
 
 .t-prod-icon:hover {
-    transform: scale(1.06);
+    /* Bahagyang lang ang lumaki (3%) — sapat na para may feedback
+       pero hindi na sobrang lumalaki na nagiging sanhi ng pagka-malabo. */
+    transform: translateZ(0) scale(1.03);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
@@ -3838,6 +3850,15 @@ body.dark-mode .search-box-container input::placeholder {
     -webkit-user-select: none;
     user-select: none;
     pointer-events: none;
+
+    /* Panatilihing malinaw/hindi naka-compress ang larawan sa lahat ng
+       laki ng browser zoom — gamitin ang default (mataas-kalidad,
+       smooth) na paraan ng pag-scale sa halip na crisp-edges na
+       pang-pixel-art lamang. */
+    image-rendering: auto;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 .t-product-card h4 {
@@ -4828,7 +4849,12 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]
 }
 
 .terminal-theme .terminal-products-grid {
-    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    /* Nadagdagan mula 128px -> 158px: sa 128px, hindi kasya ang
+       "Stock: 12" at presyo sa parehong row kaya naka-clip/naputol
+       ang text (lalo na kapag nagbago ang bilang ng column sa
+       zoom in/out ng browser). Sapat na ang 158px para laging
+       kumpleto at nababasa ang presyo at stock. */
+    grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
     gap: 12px;
 }
 
@@ -9974,7 +10000,15 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
 .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card {
     display: grid;
 
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* Dating "minmax(0,1fr) minmax(0,1fr)" ang dahilan kung bakit
+       naka-clip/naputol ang presyo at stock text: pinapantay-pantay
+       nito ang dalawang column kahit hindi kasya doon ang laman
+       (lalo na sa makikitid na card, o kapag nagbago ang zoom ng
+       browser kaya lumiit ang bawat card). Ngayon, ang unang column
+       (presyo) ay "auto" — kukuha lang ito ng eksaktong space na
+       kailangan ng presyo, at ang natitirang space ay mapupunta sa
+       stock column, kaya hindi na sila magkaka-tabunan/mapuputol. */
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
     grid-template-areas:
         "image image"
         "name  name"
@@ -10003,7 +10037,8 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     object-fit: cover;
     transform: translateZ(0);
     backface-visibility: hidden;
-    image-rendering: -webkit-optimize-contrast;
+    -webkit-backface-visibility: hidden;
+    image-rendering: auto;
 }
 
 .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card h4 {
@@ -10029,6 +10064,11 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     overflow-wrap: normal;
     word-break: normal;
     min-width: 0;
+    /* Kung sakaling talagang wala nang space (super-liit na card),
+       mag-ellipsis (...) na lang sa halip na basta maputol/matago
+       ang mga numero nang walang paalala na may nakatago pa. */
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
     grid-area: stock;
@@ -10040,6 +10080,10 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
 
     background: #2e3038;
     white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
 }
 .terminal-theme.terminal-daymode #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
     background: rgba(100, 116, 139, 0.12);

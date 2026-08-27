@@ -1450,7 +1450,13 @@ function updateCloudBackupLockState() {
     if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
     if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
-    if (unlocked) refreshCloudBackupSubscriptionBadge();
+    if (unlocked) {
+        refreshCloudBackupSubscriptionBadge();
+        refreshCloudBackupUsage();
+    } else {
+        const usageBox = document.getElementById('cloud-backup-usage');
+        if (usageBox) usageBox.style.display = 'none';
+    }
 }
 
 // --------------------------------------------------------------
@@ -1486,6 +1492,77 @@ async function refreshCloudBackupSubscriptionBadge() {
         statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: <strong>${planInfo.name}</strong> (${cycleLabel})${expiryText}`;
     } catch (err) {
         // Silently ignore — this isn't critical, it's display only.
+    }
+}
+
+// --------------------------------------------------------------
+// formatBytesHuman — simple "142 MB" / "1.2 GB" style formatter used
+// by the Cloud Backup storage-usage indicator below.
+// --------------------------------------------------------------
+function formatBytesHuman(bytes) {
+    const n = Number(bytes) || 0;
+    if (n <= 0) return '0 MB';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    let val = n;
+    while (val >= 1024 && i < units.length - 1) {
+        val /= 1024;
+        i++;
+    }
+    return `${val.toFixed(val >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+// --------------------------------------------------------------
+// refreshCloudBackupUsage — kinukuha ang storage-quota usage mula sa
+// RELAY (sa pamamagitan ng /api/cloud-backup/usage sa OMNIPOS server,
+// na basta nag-po-proxy lang papunta sa RELAY) at ipinapakita sa
+// #cloud-backup-usage box: gaano karaming data na ang na-consume
+// (halimbawa "142 MB of 250 MB used") kasama ang progress bar, para
+// makita ng cashier/admin kung malapit na silang maabot ang limitasyon
+// ng kanilang kasalukuyang plan (Basic/Standard/Pro).
+// --------------------------------------------------------------
+async function refreshCloudBackupUsage() {
+    const usageBox = document.getElementById('cloud-backup-usage');
+    if (!usageBox) return;
+    if (!isFeatureUnlockedCached('cloud_backup')) {
+        usageBox.style.display = 'none';
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_URL}/cloud-backup/usage`);
+        const data = await res.json();
+        if (!data || !data.success) {
+            // Hindi pa nakaka-abot sa RELAY, o wala pang backup na
+            // nagawa (walang cloud_backup_meta row) — itago na lang
+            // ang box sa halip na magpakita ng error, dahil hindi
+            // ito kritikal.
+            usageBox.style.display = 'none';
+            return;
+        }
+
+        const usedBytes = data.storageUsedBytes || 0;
+        const limitBytes = data.storageLimitBytes || 0;
+        const usedPercent = typeof data.storageUsedPercent === 'number'
+            ? data.storageUsedPercent
+            : (limitBytes > 0 ? Math.min(100, Math.round((usedBytes / limitBytes) * 1000) / 10) : 0);
+
+        const barColor = usedPercent >= 90 ? '#dc2626' : (usedPercent >= 70 ? '#f59e0b' : '#16a34a');
+
+        usageBox.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; font-size:0.82rem;">
+                <span><i class="fa-solid fa-database"></i> Cloud storage used</span>
+                <span><strong>${formatBytesHuman(usedBytes)}</strong> of ${formatBytesHuman(limitBytes)} (${usedPercent}%)</span>
+            </div>
+            <div style="width:100%; height:8px; border-radius:999px; background:rgba(148,163,184,0.25); overflow:hidden;">
+                <div style="height:100%; width:${Math.min(100, usedPercent)}%; background:${barColor}; border-radius:999px; transition: width 0.3s ease;"></div>
+            </div>
+            ${usedPercent >= 90 ? '<div style="margin-top:6px; font-size:0.78rem; color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> Malapit na o naabot na ang limitasyon ng iyong plan — mag-upgrade o mag-archive ng lumang records.</div>' : ''}
+        `;
+        usageBox.style.display = 'block';
+    } catch (err) {
+        // Hindi kritikal na feature ang usage indicator — itago na lang
+        // kung sakaling mabigo ang tawag (offline, atbp.).
+        usageBox.style.display = 'none';
     }
 }
 
@@ -16067,6 +16144,9 @@ async function runCloudBackupSync() {
             if (statusBox) {
                 statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
             }
+            // I-refresh agad ang "X MB of Y MB used" indicator dahil
+            // tumaas na ang na-consume sa RELAY matapos ang bagong sync.
+            refreshCloudBackupUsage();
             Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
         } else {
             if (statusBox) {
