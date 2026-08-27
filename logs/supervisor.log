@@ -796,3 +796,19 @@
 [2026-08-27 15:56:15] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
 [2026-08-27 15:56:16] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 [2026-08-27 15:56:19] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-28 02:07:12] ⚠️  May natirang lock file mula sa dating session (PID 12091, hindi na tumatakbo) — nililinis.
+[2026-08-28 02:07:13] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-28 02:07:14] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-28 02:07:17] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-28 02:24:21] ⚠️  May natirang lock file mula sa dating session (PID 26828, hindi na tumatakbo) — nililinis.
+[2026-08-28 02:24:22] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-28 02:24:25] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-28 02:24:29] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-28 03:02:32] ❌ May tumatakbo na supervisor loop (PID 26619). Hindi na papatakbuhin ulit.
+[2026-08-28 04:02:52] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-28 04:02:55] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-28 04:02:58] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+[2026-08-28 04:11:34] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-08-28 04:11:37] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-28 04:11:40] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-28 04:11:44] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.

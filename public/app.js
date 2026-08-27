@@ -28,6 +28,250 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOU
     }
 }
 
+// ================================================================
+// MODERN OTP ENTRY MODAL — shared UI for every "Send OTP -> Verify
+// OTP" flow in OmniPOS (theme unlock, feature unlock, bundle unlock,
+// demo mode, admin login 2FA, receipt customization limit, receipt
+// counter reset, admin password reset). This ONLY changes how the
+// code is entered on screen (6 separate boxes, auto-advance, paste
+// support, live status line) — it does NOT change any request/verify
+// network call, endpoint, or the OMNIPOS <-> RELAY unlock logic.
+// Every caller below still sends its own request-otp/unlock call and
+// still POSTs the returned code to its own existing endpoint exactly
+// as before.
+//
+// Usage:
+//   const r = await showModernOtpModal({ subtitle: '...' });
+//   if (!r) return; // cancelled
+//   const otp = r.otp;
+// ================================================================
+function injectOtpModalStyles() {
+    if (document.getElementById('otp-modal-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'otp-modal-styles';
+    style.textContent = `
+        .otp-modal-popup { background:#12141c !important; border-radius:18px !important; }
+        .otp-modal-card { padding: 4px 2px 0; text-align:center; }
+        .otp-modal-eyebrow { font-size:0.68rem; letter-spacing:2.5px; color:#8b93a7; font-weight:700; text-transform:uppercase; margin-bottom:10px; }
+        .otp-modal-title { font-size:1.35rem; font-weight:700; color:#fff; margin: 0 0 8px; }
+        .otp-modal-subtitle { font-size:0.85rem; color:#9aa2b5; margin: 0 0 22px; line-height:1.45; }
+        .otp-box-row { display:flex; align-items:center; justify-content:center; gap:clamp(4px,1.8vw,8px); margin-bottom: 16px; flex-wrap:nowrap; width:100%; }
+        .otp-box-dash { color:#5b6172; font-size:1.3rem; padding: 0 1px; flex:0 0 auto; }
+        .otp-box { width:clamp(30px,9vw,42px); height:clamp(40px,11vw,50px); flex:0 0 auto; border-radius:10px; border:1.5px solid #333849; background:#1b1e29; color:#fff; font-size:clamp(1.05rem,4vw,1.35rem); font-weight:700; text-align:center; outline:none; transition: border-color .15s, box-shadow .15s, background .15s; }
+        .otp-box:focus { border-color:#3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.25); }
+        .otp-box:disabled { opacity:0.6; }
+        .otp-box.otp-box-filled { border-color:#4b5166; }
+        .otp-box.otp-box-success { border-color:#22c55e !important; background: rgba(34,197,94,0.14) !important; color:#4ade80 !important; }
+        .otp-box.otp-box-error { border-color:#ef4444 !important; background: rgba(239,68,68,0.14) !important; color:#f87171 !important; animation: otp-shake .32s; }
+        @keyframes otp-shake { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-4px); } 75% { transform:translateX(4px); } }
+        .otp-modal-status { font-size:0.8rem; color:#9aa2b5; display:flex; align-items:center; justify-content:center; gap:6px; min-height: 18px; margin-bottom: 6px; }
+        .otp-modal-status .otp-status-dot { width:6px; height:6px; border-radius:50%; background:#8b93a7; display:inline-block; flex:none; }
+        .otp-modal-status.status-ok { color:#4ade80; } .otp-modal-status.status-ok .otp-status-dot { background:#22c55e; }
+        .otp-modal-status.status-error { color:#f87171; } .otp-modal-status.status-error .otp-status-dot { background:#ef4444; }
+        .otp-modal-tip { font-size:0.72rem; color:#5b6172; margin-top: 8px; }
+        .otp-modal-pw { width:100%; box-sizing:border-box; margin-top:16px; padding:12px 14px; border-radius:10px; border:1.5px solid #333849; background:#1b1e29; color:#fff; font-size:0.95rem; outline:none; }
+        .otp-modal-pw::placeholder { color:#5b6172; }
+        .otp-modal-pw:focus { border-color:#3b82f6; }
+    `;
+    document.head.appendChild(style);
+}
+
+function buildOtpBoxesHtml() {
+    let boxes = '';
+    for (let i = 0; i < 6; i++) {
+        boxes += `<input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="1" class="otp-box" id="otp-box-${i}" data-idx="${i}">`;
+        if (i === 2) boxes += '<span class="otp-box-dash">—</span>';
+    }
+    return boxes;
+}
+
+// showModernOtpModal — optionally takes a `verifyFn(otp)` callback. When
+// provided, wrong-code attempts are handled INLINE (red boxes + status
+// line, up to `maxAttempts` tries) instead of closing this modal and
+// popping up a separate "Incorrect Code" dialog. This ONLY changes how
+// the result is shown on screen — verifyFn is expected to just wrap the
+// caller's existing request/verify network call unchanged, and a
+// "pending" (relay approval) or "noRetry" (e.g. expired code) result
+// still closes the modal immediately, exactly like before, so the
+// OMNIPOS <-> RELAY unlock/approval logic is untouched.
+async function showModernOtpModal({
+    eyebrow = 'SECURITY CHECK',
+    title = 'Enter your code',
+    subtitle = 'We sent a 6-digit code to verify your request.',
+    confirmButtonText = 'Verify Code',
+    cancelButtonText = 'Cancel',
+    confirmButtonColor = '#2563eb',
+    withPasswordField = false,
+    passwordPlaceholder = 'New Password (min 8 chars)',
+    verifyFn = null,
+    maxAttempts = 3
+} = {}) {
+    injectOtpModalStyles();
+
+    let attemptsLeft = maxAttempts;
+
+    const getBoxes = () => Array.from({ length: 6 }, (_, i) => document.getElementById(`otp-box-${i}`));
+
+    const setStatus = (text, state) => {
+        const statusEl = document.getElementById('otp-modal-status');
+        const statusText = document.getElementById('otp-modal-status-text');
+        if (!statusEl || !statusText) return;
+        statusEl.classList.remove('status-ok', 'status-error');
+        if (state === 'ok') statusEl.classList.add('status-ok');
+        if (state === 'error') statusEl.classList.add('status-error');
+        statusText.textContent = text;
+    };
+
+    const setBoxesState = (state) => {
+        getBoxes().forEach(b => {
+            b.classList.remove('otp-box-error', 'otp-box-success');
+            if (state === 'ok') b.classList.add('otp-box-success');
+            if (state === 'error') b.classList.add('otp-box-error');
+        });
+    };
+
+    const setBoxesDisabled = (disabled) => getBoxes().forEach(b => { b.disabled = disabled; });
+
+    const resetBoxesForRetry = () => {
+        const boxes = getBoxes();
+        boxes.forEach(b => {
+            b.value = '';
+            b.disabled = false;
+            b.classList.remove('otp-box-filled', 'otp-box-error', 'otp-box-success');
+        });
+        if (boxes[0]) boxes[0].focus();
+    };
+
+    const result = await Swal.fire({
+        html: `
+            <div class="otp-modal-card">
+                <div class="otp-modal-eyebrow">${eyebrow}</div>
+                <div class="otp-modal-title">${title}</div>
+                <div class="otp-modal-subtitle">${subtitle}</div>
+                <div class="otp-box-row">${buildOtpBoxesHtml()}</div>
+                <div class="otp-modal-status" id="otp-modal-status"><span class="otp-status-dot"></span><span id="otp-modal-status-text">Enter the 6-digit code</span></div>
+                ${withPasswordField ? `<input type="password" id="otp-modal-password" class="otp-modal-pw" placeholder="${passwordPlaceholder}" autocomplete="new-password">` : ''}
+                <div class="otp-modal-tip">Tip: paste to fill every box at once.</div>
+            </div>
+        `,
+        width: 'min(94vw, 380px)',
+        showCancelButton: true,
+        showConfirmButton: true,
+        confirmButtonText,
+        cancelButtonText,
+        confirmButtonColor,
+        cancelButtonColor: '#3a3f52',
+        background: '#12141c',
+        customClass: { popup: 'otp-modal-popup' },
+        focusConfirm: false,
+        allowOutsideClick: false,
+        showLoaderOnConfirm: !!verifyFn,
+        didOpen: () => {
+            const boxes = getBoxes();
+            boxes[0].focus();
+
+            const clearFeedbackState = () => {
+                setBoxesState(null);
+                setStatus('Enter the 6-digit code', null);
+            };
+
+            boxes.forEach((box, idx) => {
+                box.addEventListener('input', () => {
+                    box.value = box.value.replace(/[^0-9]/g, '').slice(0, 1);
+                    box.classList.toggle('otp-box-filled', !!box.value);
+                    clearFeedbackState();
+                    if (box.value && idx < 5) boxes[idx + 1].focus();
+                });
+                box.addEventListener('keydown', (e) => {
+                    if (e.key === 'Backspace' && !box.value && idx > 0) {
+                        boxes[idx - 1].focus();
+                    }
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        Swal.clickConfirm();
+                    }
+                });
+                box.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const text = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+                    if (!text) return;
+                    clearFeedbackState();
+                    text.split('').forEach((ch, i) => {
+                        if (boxes[i]) { boxes[i].value = ch; boxes[i].classList.add('otp-box-filled'); }
+                    });
+                    const next = boxes[Math.min(text.length, 5)];
+                    if (next) next.focus();
+                });
+            });
+        },
+        preConfirm: async () => {
+            const boxes = getBoxes();
+            const code = boxes.map(b => b.value).join('');
+            if (code.length !== 6) {
+                Swal.showValidationMessage('Please enter the full 6-digit code.');
+                return false;
+            }
+            const out = { otp: code };
+            if (withPasswordField) {
+                const pw = (document.getElementById('otp-modal-password').value || '').trim();
+                if (!pw || pw.length < 8) {
+                    Swal.showValidationMessage('New password must be at least 8 characters.');
+                    return false;
+                }
+                out.newPassword = pw;
+            }
+
+            // Legacy behaviour: no verifyFn given, just hand the raw code back
+            // to the caller (unchanged).
+            if (!verifyFn) return out;
+
+            setBoxesDisabled(true);
+            setStatus('Verifying...', null);
+
+            let verifyData;
+            try {
+                verifyData = await verifyFn(out);
+            } catch (e) {
+                verifyData = { success: false, message: 'Could not reach the server. Please try again.' };
+            }
+
+            // Success, a pending relay approval, a cancelled wait, or an
+            // explicitly non-retryable result (e.g. expired code) all close
+            // this modal and hand control back to the caller exactly like
+            // before — none of the request/verify network calls change.
+            if (verifyData && (verifyData.success || verifyData.pending || verifyData.cancelled || verifyData.noRetry)) {
+                if (verifyData.success) {
+                    setBoxesState('ok');
+                    setStatus('Code verified', 'ok');
+                    await new Promise(r => setTimeout(r, 500));
+                }
+                return { ...out, ...verifyData };
+            }
+
+            // Wrong code — give inline feedback and let the person retry, up
+            // to maxAttempts total, instead of closing with a separate
+            // "Incorrect Code" popup.
+            attemptsLeft -= 1;
+            setBoxesState('error');
+
+            if (attemptsLeft <= 0) {
+                setStatus((verifyData && verifyData.message) || 'Incorrect code.', 'error');
+                await new Promise(r => setTimeout(r, 1100));
+                return { ...out, ...(verifyData || { success: false }) };
+            }
+
+            setStatus(`Incorrect code, try again (${attemptsLeft} ${attemptsLeft === 1 ? 'attempt' : 'attempts'} left)`, 'error');
+            await new Promise(r => setTimeout(r, 750));
+            resetBoxesForRetry();
+            setStatus('Enter the 6-digit code', null);
+            return false;
+        }
+    });
+
+    if (!result.isConfirmed || !result.value) return null;
+    return result.value;
+}
+
 async function authFetch(url, options = {}) {
     const token = localStorage.getItem('omnipos_token');
     const opts = { ...options };
@@ -372,249 +616,6 @@ function attachInstantTapFeedback(el, options) {
     el.addEventListener('pointerup', clearActive, { passive: true });
     el.addEventListener('pointerleave', clearActive, { passive: true });
     el.addEventListener('pointercancel', clearActive, { passive: true });
-}
-
-function attachLongPress(el, callback, durationMs) {
-    if (!el || el.__longPressBound) return;
-    el.__longPressBound = true;
-    durationMs = durationMs || 1000;
-
-    let pressTimer = null;
-    let didFire = false;
-
-    const clearPressTimer = function () {
-        if (pressTimer) {
-            clearTimeout(pressTimer);
-            pressTimer = null;
-        }
-    };
-
-    el.addEventListener('pointerdown', function (e) {
-        didFire = false;
-        clearPressTimer();
-        pressTimer = setTimeout(function () {
-            pressTimer = null;
-            didFire = true;
-            triggerHaptic(20);
-            callback(e);
-        }, durationMs);
-    }, { passive: true });
-
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evtName) {
-        el.addEventListener(evtName, clearPressTimer, { passive: true });
-    });
-
-    el.addEventListener('click', function (e) {
-        if (didFire) {
-
-            e.stopPropagation();
-            didFire = false;
-        }
-
-    });
-
-    el.addEventListener('contextmenu', function (e) {
-        e.preventDefault();
-    });
-}
-
-function attachHoldPreview(el, onShow, onHide, durationMs) {
-    if (!el || el.__holdPreviewBound) return;
-    el.__holdPreviewBound = true;
-    durationMs = durationMs || 380;
-
-    let pressTimer = null;
-    let isShowing = false;
-
-    const clearPressTimer = function () {
-        if (pressTimer) {
-            clearTimeout(pressTimer);
-            pressTimer = null;
-        }
-    };
-
-    const doHide = function () {
-        clearPressTimer();
-        if (isShowing) {
-            isShowing = false;
-            onHide();
-        }
-    };
-
-    el.addEventListener('pointerdown', function (e) {
-        clearPressTimer();
-        pressTimer = setTimeout(function () {
-            pressTimer = null;
-            isShowing = true;
-            triggerHaptic(15);
-            onShow(e);
-        }, durationMs);
-    }, { passive: true });
-
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evtName) {
-        el.addEventListener(evtName, doHide, { passive: true });
-    });
-
-    el.addEventListener('click', function (e) {
-
-        if (isShowing) {
-            e.stopPropagation();
-        }
-    });
-
-    el.addEventListener('contextmenu', function (e) {
-        e.preventDefault();
-    });
-}
-
-// Isang shared na "coordinator" (hindi per-element) para sa hover preview ng
-// buong product grid. Dati, magkakahiwalay na state ang h4/price/stock ng
-// isang product card — kaya sa sobrang liit na galaw ng pointer papunta sa
-// katabing text (h4 -> price -> stock) ng IISANG product, nag-fi-fire ang
-// pointerleave ng luma bago pa man makapasok ang pointerenter ng bago, kaya
-// nawawala-lumalabas (blink) ang peek nang paulit-ulit habang nakatigil lang
-// naman talaga sa iisang product. Dito, iisang groupKey (product code) ang
-// ginagamit para malaman kung "parehong product pa rin" ang hinover — kung
-// oo, hindi na ito nagpapa-restart/hide. May 5-segundong auto-hide (blink
-// off) din habang paulit-ulit na naka-hover sa iisang product, at kapag
-// dumiretso ang pointer sa ibang product, agad na nawawala ang dati (kahit
-// hindi pa naabot ang 5s nito) para makapalit kaagad ang bago.
-const hoverPeekCoordinator = {
-    groupKey: null,
-    showTimer: null,
-    leaveTimer: null,
-    autoHideTimer: null,
-    reshowTimer: null,
-    isVisible: false
-};
-
-function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
-    if (!el || el.__hoverPreviewBound) return;
-    el.__hoverPreviewBound = true;
-    durationMs = durationMs || 1000;
-
-    const AUTO_HIDE_MS = 5000;
-    const SWITCH_DELAY_MS = 150;
-    const LEAVE_GRACE_MS = 180;
-    const RESHOW_GAP_MS = 400;
-
-    const c = hoverPeekCoordinator;
-
-    const clearAllTimers = function () {
-        clearTimeout(c.showTimer); c.showTimer = null;
-        clearTimeout(c.leaveTimer); c.leaveTimer = null;
-        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
-        clearTimeout(c.reshowTimer); c.reshowTimer = null;
-    };
-
-    const doHide = function () {
-        clearAllTimers();
-        if (c.isVisible) {
-            c.isVisible = false;
-            onHide();
-        }
-        c.groupKey = null;
-    };
-
-    const doShow = function (e) {
-        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
-        clearTimeout(c.reshowTimer); c.reshowTimer = null;
-        c.isVisible = true;
-        c.groupKey = groupKey;
-        onShow(e);
-
-        // Awtomatikong itago (blink off) pagkalipas ng 5s ng patuloy na
-        // pagpapakita. Kung nananatili pa rin ang pointer sa parehong
-        // product (hindi pa na-hide ng ibang mekanismo), muling ipapakita
-        // pagkalipas ng maikling pahinga — ito ang paulit-ulit na "blink
-        // every 5 seconds" habang nananatili sa isang product.
-        c.autoHideTimer = setTimeout(function () {
-            c.isVisible = false;
-            onHide();
-            c.reshowTimer = setTimeout(function () {
-                if (c.groupKey === groupKey) doShow(e);
-            }, RESHOW_GAP_MS);
-        }, AUTO_HIDE_MS);
-    };
-
-    el.addEventListener('pointerenter', function (e) {
-        if (e.pointerType && e.pointerType !== 'mouse') return;
-
-        clearTimeout(c.leaveTimer);
-        c.leaveTimer = null;
-
-        if (c.groupKey === groupKey && (c.isVisible || c.showTimer || c.reshowTimer)) {
-
-            return;
-        }
-
-        const switchingProduct = !!(c.groupKey && c.groupKey !== groupKey);
-        clearTimeout(c.showTimer); c.showTimer = null;
-        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
-        clearTimeout(c.reshowTimer); c.reshowTimer = null;
-
-        if (switchingProduct) {
-
-            if (c.isVisible) { c.isVisible = false; onHide(); }
-            c.groupKey = null;
-            c.showTimer = setTimeout(function () {
-                c.showTimer = null;
-                doShow(e);
-            }, SWITCH_DELAY_MS);
-        } else {
-            c.showTimer = setTimeout(function () {
-                c.showTimer = null;
-                doShow(e);
-            }, durationMs);
-        }
-    });
-
-    el.addEventListener('pointerleave', function (e) {
-        if (e.pointerType && e.pointerType !== 'mouse') return;
-
-        clearTimeout(c.leaveTimer);
-        c.leaveTimer = setTimeout(function () {
-            c.leaveTimer = null;
-            if (c.groupKey === groupKey) doHide();
-        }, LEAVE_GRACE_MS);
-    });
-}
-
-let activeProductImagePeekEl = null;
-
-function showProductImagePeek(anchorEl, product) {
-    if (!anchorEl || !product || !product.image) return;
-    hideProductImagePeek();
-
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-
-    const peekSize = Math.max(180, Math.min(window.innerWidth, window.innerHeight) * 0.6);
-
-    const peek = document.createElement('div');
-    peek.className = 'product-image-peek';
-    peek.style.left = `${centerX}px`;
-    peek.style.top = `${centerY}px`;
-    peek.style.width = `${peekSize}px`;
-    peek.style.height = `${peekSize}px`;
-    peek.innerHTML = `
-        <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name || 'Product')}" draggable="false">
-        <div class="product-image-peek-label">${escapeHtml(product.name || 'Product')} — full image</div>
-    `;
-
-    document.body.appendChild(peek);
-
-    requestAnimationFrame(() => peek.classList.add('shown'));
-
-    activeProductImagePeekEl = peek;
-}
-
-function hideProductImagePeek() {
-    if (!activeProductImagePeekEl) return;
-    const el = activeProductImagePeekEl;
-    activeProductImagePeekEl = null;
-    el.classList.remove('shown');
-    setTimeout(() => el.remove(), 160);
 }
 
 const SYSTEM_CONFIG = {
@@ -1302,30 +1303,23 @@ async function promptUnlockTheme(theme) {
         return;
     }
 
-    const otpResult = await Swal.fire({
-        title:'🔒 Verification Required',
-        html:'<p style="font-size:0.85rem;color:#64748b;margin:0 0 4px;">' +
-'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>' + theme.name +'</strong>.</p>',
-        input:'text',
-        inputPlaceholder:'••••••',
-        inputAttributes: { maxlength: 6, inputmode:'numeric', autocapitalize:'off', autocorrect:'off', style:'text-align:center; letter-spacing:4px; font-size:1.1rem;' },
-        showCancelButton: true,
-        confirmButtonText:'Verify Code',
-        cancelButtonText:'Cancel',
-        confirmButtonColor:'#2563eb',
+    const confirmData = await showModernOtpModal({
+        subtitle: `We sent a 6-digit code to verify <strong>${theme.name}</strong>.`,
+        confirmButtonText: 'Verify Code',
+        verifyFn: async ({ otp }) => {
+            const confirmRes = await authFetch('/api/themes/confirm-unlock', {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({ themeId: theme.id, otp, username: requestingUsername })
+            });
+            return confirmRes.json();
+        }
     });
-    if (!otpResult.isConfirmed || !otpResult.value) return;
+    if (!confirmData) return;
 
     try {
-        const confirmRes = await authFetch('/api/themes/confirm-unlock', {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ themeId: theme.id, otp: otpResult.value.trim(), username: requestingUsername })
-        });
-        const confirmData = await confirmRes.json();
-
         if (!confirmData.success) {
-            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
+            // Inline retry feedback already handled this — no extra popup.
             return;
         }
 
@@ -1428,21 +1422,10 @@ const PREMIUM_FEATURE_INFO = {
 // OMNIPOS/server.js CLOUD_BACKUP_PLANS; the server still makes the
 // final call on the ACTUAL price (ground truth), this is for display only.
 const CLOUD_BACKUP_PLANS_UI = {
-    basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 }, storageLimitBytes: 250 * 1024 * 1024, storageLimitLabel:'250 MB' },
-    standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageLimitBytes: 1024 * 1024 * 1024, storageLimitLabel:'1 GB' },
-    pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageLimitBytes: 5 * 1024 * 1024 * 1024, storageLimitLabel:'5 GB' }
+    basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 } },
+    standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 } },
+    pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 } }
 };
-
-// --------------------------------------------------------------
-// formatBytes — human-readable data size (e.g. "142.3 MB", "1.2 GB"),
-// used by the Cloud Backup data-limit/usage displays below.
-// --------------------------------------------------------------
-function formatBytes(bytes) {
-    if (typeof bytes !== 'number' || isNaN(bytes) || bytes < 0) return '—';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
-    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
-}
 
 function guardPremiumFeature(featureId) {
     if (isFeatureUnlockedCached(featureId)) return false;
@@ -1464,10 +1447,7 @@ function updateCloudBackupLockState() {
     if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
     if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
-    if (unlocked) {
-        refreshCloudBackupSubscriptionBadge();
-        refreshCloudBackupUsage();
-    }
+    if (unlocked) refreshCloudBackupSubscriptionBadge();
 }
 
 // --------------------------------------------------------------
@@ -1503,38 +1483,6 @@ async function refreshCloudBackupSubscriptionBadge() {
         statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: <strong>${planInfo.name}</strong> (${cycleLabel})${expiryText}`;
     } catch (err) {
         // Silently ignore — this isn't critical, it's display only.
-    }
-}
-
-// --------------------------------------------------------------
-// refreshCloudBackupUsage — shows how much of the customer's plan
-// data limit allocation (Basic 250MB / Standard 1GB / Pro 5GB) has
-// already been consumed, as a "142.3 MB of 250 MB used" line + a
-// small progress bar under the Cloud Backup status box.
-// --------------------------------------------------------------
-async function refreshCloudBackupUsage() {
-    const usageBox = document.getElementById('cloud-backup-usage');
-    if (!usageBox) return;
-    try {
-        const res = await authFetch(`${API_URL}/cloud-backup/usage`);
-        const data = await res.json();
-        if (!data || !data.success || typeof data.storageUsedBytes !== 'number' || typeof data.storageLimitBytes !== 'number') {
-            usageBox.style.display = 'none';
-            return;
-        }
-        const percent = Math.min(100, Math.max(0, (data.storageUsedBytes / data.storageLimitBytes) * 100));
-        const barColor = percent >= 90 ? '#dc2626' : (percent >= 70 ? '#f59e0b' : '#16a34a');
-        usageBox.style.display = 'block';
-        usageBox.innerHTML =
-            `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#64748b;margin-bottom:4px;">` +
-                `<span><i class="fa-solid fa-database"></i> Data limit used</span>` +
-                `<span>${formatBytes(data.storageUsedBytes)} of ${formatBytes(data.storageLimitBytes)} (${percent.toFixed(1)}%)</span>` +
-            `</div>` +
-            `<div style="width:100%;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden;">` +
-                `<div style="width:${percent}%;height:100%;background:${barColor};"></div>` +
-            `</div>`;
-    } catch (err) {
-        usageBox.style.display = 'none';
     }
 }
 
@@ -1661,37 +1609,29 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
         return false;
     }
 
-    const otpResult = await Swal.fire({
-        title:'🔒 Verification Required',
-        html:'<p style="font-size:0.85rem;color:#64748b;margin:0 0 4px;">' +
-'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>' + displayName +'</strong>.</p>',
-        input:'text',
-        inputPlaceholder:'••••••',
-        inputAttributes: { maxlength: 6, inputmode:'numeric', autocapitalize:'off', autocorrect:'off', style:'text-align:center; letter-spacing:4px; font-size:1.1rem;' },
-        showCancelButton: true,
-        confirmButtonText:'Verify Code',
-        cancelButtonText:'Cancel',
-        confirmButtonColor:'#2563eb',
+    let confirmData = await showModernOtpModal({
+        subtitle: `We sent a 6-digit code to verify <strong>${displayName}</strong>.`,
+        confirmButtonText: 'Verify Code',
+        verifyFn: async ({ otp }) => {
+            const confirmRes = await authFetch(`${API_URL}/features/confirm-unlock`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({ featureId, otp, username: requestingUsername, ...extraRequestBody })
+            });
+            return confirmRes.json();
+        }
     });
-    if (!otpResult.isConfirmed || !otpResult.value) return false;
+    if (!confirmData) return false;
 
     try {
-        const confirmBody = { featureId, otp: otpResult.value.trim(), username: requestingUsername, ...extraRequestBody };
-        let confirmRes = await authFetch(`${API_URL}/features/confirm-unlock`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify(confirmBody)
-        });
-        let confirmData = await confirmRes.json();
-
         if (confirmData.pending) {
-            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, confirmBody);
+            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, { featureId, otp: confirmData.otp, username: requestingUsername, ...extraRequestBody });
         }
 
         if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
-            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
+            // Inline retry feedback already handled this — no extra popup.
             return false;
         }
 
@@ -1726,23 +1666,22 @@ async function promptCloudBackupSubscription() {
         const tierButtons = tierKeys.map(key => {
             const plan = CLOUD_BACKUP_PLANS_UI[key];
             const active = key === selectedTier;
-            return `<button type="button" class="cb-tier-btn" data-tier="${key}" style="flex:1;text-align:left;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
-                `<div style="font-weight:700;font-size:0.9rem;color:#0f172a;">${plan.name}</div>` +
-                `<div style="font-size:0.72rem;color:#64748b;margin-top:2px;">${plan.tagline}</div>` +
-                `<div style="font-size:0.72rem;color:#16a34a;font-weight:600;margin-top:4px;"><i class="fa-solid fa-database"></i> Data limit: ${plan.storageLimitLabel}</div>` +
-                `<div style="font-size:0.95rem;font-weight:700;color:#2563eb;margin-top:6px;">₱${plan.price[selectedCycle]}<span style="font-size:0.68rem;color:#94a3b8;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+            return `<button type="button" class="cb-tier-btn${active ? ' active' : ''}" data-tier="${key}">` +
+                `<div class="cb-tier-name">${plan.name}</div>` +
+                `<div class="cb-tier-tagline">${plan.tagline}</div>` +
+                `<div class="cb-tier-price">₱${plan.price[selectedCycle]}<span class="cb-tier-price-unit"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
                 `</button>`;
         }).join('');
 
         const cycleButtons = ['monthly','yearly'].map(cycle => {
             const active = cycle === selectedCycle;
-            return `<button type="button" class="cb-cycle-btn" data-cycle="${cycle}" style="flex:1;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;color:${active ? '#2563eb' : '#334155'};">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
 
-        return `<div style="text-align:left;">
-            <p style="font-size:0.8rem;color:#64748b;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle. Each plan includes a data limit allocation for how much backed-up data it can hold:</p>
-            <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
-            <div style="display:flex;">${tierButtons}</div>
+        return `<div class="cb-modal-body">
+            <p class="cb-modal-hint">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
+            <div class="cb-cycle-row">${cycleButtons}</div>
+            <div class="cb-tier-row">${tierButtons}</div>
         </div>`;
     };
 
@@ -1807,20 +1746,20 @@ async function showUpgradeTiersModal() {
         const effectivePrice = (typeof t.effectiveBundlePrice ==='number') ? t.effectiveBundlePrice : t.bundlePrice;
         const showOriginalStrike = effectivePrice < t.bundlePrice;
         return (
-        `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}" style="display:block;width:100%;text-align:left;border:2px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:8px;background:#fff;cursor:pointer;">` +
-            `<div style="display:flex;justify-content:space-between;align-items:baseline;">` +
-                `<strong style="font-size:0.95rem;color:#0f172a;">${escapeHtml(t.name)}</strong>` +
+        `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}">` +
+            `<div class="uw-tier-row">` +
+                `<strong class="uw-tier-name">${escapeHtml(t.name)}</strong>` +
                 `<span>` +
-                    (showOriginalStrike ? `<span style="font-size:0.78rem;color:#94a3b8;text-decoration:line-through;margin-right:4px;">₱${t.bundlePrice}</span>` :'') +
-                    `<span style="font-size:0.95rem;font-weight:700;color:#2563eb;">₱${effectivePrice}</span>` +
+                    (showOriginalStrike ? `<span class="uw-tier-price-strike">₱${t.bundlePrice}</span>` :'') +
+                    `<span class="uw-tier-price">₱${effectivePrice}</span>` +
                 `</span>` +
             `</div>` +
-            `<div style="font-size:0.78rem;color:#94a3b8;margin-top:2px;">${escapeHtml(t.description ||'')}</div>` +
+            `<div class="uw-tier-desc">${escapeHtml(t.description ||'')}</div>` +
             (showOriginalStrike
-                ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">Price for the remaining locked features only (you already purchased some separately)</div>`
+                ? `<div class="uw-tier-note">Price for the remaining locked features only (you already purchased some separately)</div>`
                 :'') +
             (t.alaCartePrice > effectivePrice
-                ? `<div style="font-size:0.72rem;color:#16a34a;margin-top:2px;">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
+                ? `<div class="uw-tier-save">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
                 :'') +
         `</button>`
         );
@@ -1841,20 +1780,20 @@ async function showUpgradeTiersModal() {
         .map(cat => {
             const items = featuresByCategory[cat];
             const rowsHtml = items.map(f => (
-                `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:0.85rem;cursor:pointer;">` +
-                    `<input type="checkbox" class="uw-feature-check" data-feature-id="${f.id}" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;">` +
-                    `<span style="flex:1;">` +
-                        `<span style="display:block;color:#0f172a;">${escapeHtml(f.name)}</span>` +
-                        (f.description ? `<span style="display:block;font-size:0.72rem;color:#94a3b8;margin-top:2px;line-height:1.4;">${escapeHtml(f.description)}</span>` :'') +
+                `<label class="uw-feature-row">` +
+                    `<input type="checkbox" class="uw-feature-check" data-feature-id="${f.id}">` +
+                    `<span class="uw-feature-body">` +
+                        `<span class="uw-feature-name">${escapeHtml(f.name)}</span>` +
+                        (f.description ? `<span class="uw-feature-desc">${escapeHtml(f.description)}</span>` :'') +
                     `</span>` +
-                    `<span style="color:#64748b;flex-shrink:0;">₱${f.price}</span>` +
+                    `<span class="uw-feature-price">₱${f.price}</span>` +
                 `</label>`
             )).join('');
             return (
-                `<details class="uw-category-group" style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden;background:#fff;">` +
-                    `<summary style="cursor:pointer;padding:9px 12px;font-weight:600;font-size:0.82rem;color:#334155;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;">` +
+                `<details class="uw-category-group">` +
+                    `<summary class="uw-category-summary">` +
                         `<span>${escapeHtml(ALA_CARTE_CATEGORY_LABELS[cat] || cat)}</span>` +
-                        `<span style="font-size:0.72rem;color:#94a3b8;font-weight:500;">${items.length} item${items.length > 1 ?'s' :''}</span>` +
+                        `<span class="uw-category-count">${items.length} item${items.length > 1 ?'s' :''}</span>` +
                     `</summary>` +
                     `<div>${rowsHtml}</div>` +
                 `</details>`
@@ -1865,17 +1804,17 @@ async function showUpgradeTiersModal() {
         title:'✨ Upgrade Options',
         width: 480,
         html:
-            `<div style="text-align:left;max-height:60vh;overflow-y:auto;">` +
-                `<p style="font-size:0.8rem;color:#94a3b8;margin:0 0 10px;">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
-                `<div style="font-weight:600;font-size:0.82rem;margin-bottom:6px;color:#334155;">Complete Packages</div>` +
+            `<div class="uw-modal-body">` +
+                `<p class="uw-modal-hint">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
+                `<div class="uw-section-label">Complete Packages</div>` +
                 `<div id="uw-tier-list">${tierCardsHtml}</div>` +
-                `<div style="font-weight:600;font-size:0.82rem;margin:14px 0 4px;color:#334155;">Or Select Individual Features</div>` +
-                `<p style="font-size:0.72rem;color:#94a3b8;margin:0 0 8px;line-height:1.4;">Individual selections are billed at full à la carte price. Bundle discounts apply only to the complete packages above, since a custom, feature-by-feature selection is not a package purchase.</p>` +
+                `<div class="uw-section-label uw-section-label-spaced">Or Select Individual Features</div>` +
+                `<p class="uw-alacarte-hint">Individual selections are billed at full à la carte price. Bundle discounts apply only to the complete packages above, since a custom, feature-by-feature selection is not a package purchase.</p>` +
                 `<div id="uw-feature-list">${alaCarteHtml}</div>` +
             `</div>` +
-            `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:1px solid #e2e8f0;">` +
-                `<span style="font-size:0.85rem;color:#334155;">Total:</span>` +
-                `<span id="uw-total-price" style="font-size:1.1rem;font-weight:700;color:#2563eb;">₱0</span>` +
+            `<div class="uw-total-bar">` +
+                `<span class="uw-total-label">Total:</span>` +
+                `<span id="uw-total-price" class="uw-total-price">₱0</span>` +
             `</div>`,
         showCancelButton: true,
         confirmButtonText:'Upgrade Now',
@@ -1920,8 +1859,7 @@ async function showUpgradeTiersModal() {
                     });
 
                     tierButtons.forEach(b => {
-                        b.style.borderColor = (b.getAttribute('data-tier-id') === selectedTierId) ?'#2563eb' :'#e2e8f0';
-                        b.style.background = (b.getAttribute('data-tier-id') === selectedTierId) ?'#eff6ff' :'#fff';
+                        b.classList.toggle('selected', b.getAttribute('data-tier-id') === selectedTierId);
                     });
                     renderTotal();
                 });
@@ -1938,7 +1876,7 @@ async function showUpgradeTiersModal() {
                     }
 
                     selectedTierId = null;
-                    tierButtons.forEach(b => { b.style.borderColor ='#e2e8f0'; b.style.background ='#fff'; });
+                    tierButtons.forEach(b => b.classList.remove('selected'));
                     renderTotal();
                 });
             });
@@ -2032,36 +1970,29 @@ async function requestBulkUnlock(featureIds, tierId) {
         return false;
     }
 
-    const otpResult = await Swal.fire({
-        title:'🔒 Verification Required',
-        html: `<p style="font-size:0.85rem;color:#64748b;margin:0 0 4px;">Enter the 6-digit verification code sent to the developer/store owner to activate <strong>${featureIds.length} feature(s)</strong>.</p>`,
-        input:'text',
-        inputPlaceholder:'••••••',
-        inputAttributes: { maxlength: 6, inputmode:'numeric', autocapitalize:'off', autocorrect:'off', style:'text-align:center; letter-spacing:4px; font-size:1.1rem;' },
-        showCancelButton: true,
-        confirmButtonText:'Verify Code',
-        cancelButtonText:'Cancel',
-        confirmButtonColor:'#2563eb',
+    let confirmData = await showModernOtpModal({
+        subtitle: `We sent a 6-digit code to verify <strong>${featureIds.length} feature(s)</strong>.`,
+        confirmButtonText: 'Verify Code',
+        verifyFn: async ({ otp }) => {
+            const confirmRes = await authFetch(`${API_URL}/features/confirm-unlock-bulk`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({ featureIds, otp, username: requestingUsername })
+            });
+            return confirmRes.json();
+        }
     });
-    if (!otpResult.isConfirmed || !otpResult.value) return false;
+    if (!confirmData) return false;
 
     try {
-        const confirmBody = { featureIds, otp: otpResult.value.trim(), username: requestingUsername };
-        let confirmRes = await authFetch(`${API_URL}/features/confirm-unlock-bulk`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify(confirmBody)
-        });
-        let confirmData = await confirmRes.json();
-
         if (confirmData.pending) {
-            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, confirmBody);
+            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, { featureIds, otp: confirmData.otp, username: requestingUsername });
         }
 
         if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
-            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
+            // Inline retry feedback already handled this — no extra popup.
             return false;
         }
 
@@ -2454,36 +2385,29 @@ async function promptDemoMode() {
         return false;
     }
 
-    const otpResult = await Swal.fire({
-        title:'🔒 Verification Required',
-        html:'<p style="font-size:0.85rem;color:#64748b;margin:0 0 4px;">Enter the 6-digit verification code sent to the developer/store owner to activate <strong>Demo Mode</strong>.</p>',
-        input:'text',
-        inputPlaceholder:'••••••',
-        inputAttributes: { maxlength: 6, inputmode:'numeric', autocapitalize:'off', autocorrect:'off', style:'text-align:center; letter-spacing:4px; font-size:1.1rem;' },
-        showCancelButton: true,
-        confirmButtonText:'Verify Code',
-        cancelButtonText:'Cancel',
-        confirmButtonColor:'#2563eb',
+    let confirmData = await showModernOtpModal({
+        subtitle: 'We sent a 6-digit code to verify <strong>Demo Mode</strong>.',
+        confirmButtonText: 'Verify Code',
+        verifyFn: async ({ otp }) => {
+            const confirmRes = await authFetch(`${API_URL}/features/confirm-demo`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({ otp, username: requestingUsername })
+            });
+            return confirmRes.json();
+        }
     });
-    if (!otpResult.isConfirmed || !otpResult.value) return false;
+    if (!confirmData) return false;
 
     try {
-        const confirmBody = { otp: otpResult.value.trim(), username: requestingUsername };
-        let confirmRes = await authFetch(`${API_URL}/features/confirm-demo`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify(confirmBody)
-        });
-        let confirmData = await confirmRes.json();
-
         if (confirmData.pending) {
-            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, confirmBody);
+            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, { otp: confirmData.otp, username: requestingUsername });
         }
 
         if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
-            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
+            // Inline retry feedback already handled this — no extra popup.
             return false;
         }
 
@@ -4678,51 +4602,41 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 });
 
 async function promptLoginOtp(loginToken, errorBanner) {
-    const { value: otpCode, isDismissed } = await Swal.fire({
-        title: '🔐 Admin Login OTP',
-        html: 'Naipadala ang isang 6-digit na OTP code sa naka-configure na email para sa Two-Factor Authentication. Ilagay ito para makumpleto ang login:',
-        input: 'text',
-        inputPlaceholder: '000000',
-        showCancelButton: true,
+    const verifyData = await showModernOtpModal({
+        title: 'Enter your code',
+        subtitle: 'We sent a 6-digit code to verify your Admin Login.',
         confirmButtonText: 'Verify',
-        confirmButtonColor: '#2563eb',
-        cancelButtonColor: '#64748b',
-        allowOutsideClick: false
+        verifyFn: async ({ otp }) => {
+            const verifyRes = await authFetch(`${API_URL}/auth/login/verify-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ loginToken, otp })
+            });
+            const data = await verifyRes.json();
+            // An expired code can't be fixed by retrying the same code, so
+            // close the modal right away instead of burning an attempt.
+            if (data.code === 'OTP_EXPIRED') data.noRetry = true;
+            return data;
+        }
     });
 
-    if (isDismissed || !otpCode || !otpCode.trim()) return;
+    if (!verifyData) return;
 
     try {
-        const verifyRes = await authFetch(`${API_URL}/auth/login/verify-otp`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ loginToken, otp: otpCode.trim() })
-        });
-        const verifyData = await verifyRes.json();
-
         if (verifyData.success) {
             await completeLoginSuccess(verifyData);
             return;
         }
 
         if (verifyData.code === 'OTP_EXPIRED') {
-            Swal.fire('Expired na ang OTP', verifyData.message || 'Mag-login ulit para makahingi ng bagong OTP.', 'error');
+            Swal.fire('Code Expired', verifyData.message || 'Please log in again to request a new code.', 'error');
             return;
         }
 
-        const retry = await Swal.fire({
-            icon: 'error',
-            title: 'Maling OTP',
-            text: verifyData.message || 'Maling OTP code. Subukan ulit.',
-            showCancelButton: true,
-            confirmButtonText: 'Try Again',
-            cancelButtonText: 'Cancel'
-        });
-        if (retry.isConfirmed) {
-            await promptLoginOtp(loginToken, errorBanner);
-        }
+        // Ran out of attempts — the "Enter your code" dialog has already
+        // closed on its own with the inline error shown; nothing else to do.
     } catch (err) {
-        Swal.fire('Connection Error', 'Unable to reach the server to verify the OTP. Please try again.', 'error');
+        Swal.fire('Connection Error', 'Unable to reach the server to verify the code. Please try again.', 'error');
     }
 }
 
@@ -6793,8 +6707,6 @@ function onTerminalSearchInput() {
 
 function renderTerminalProducts() {
 
-    hideProductImagePeek();
-
     const searchBox = document.getElementById('terminal-search');
     const searchString = searchBox ? searchBox.value.toLowerCase() :'';
     const gridOutput = document.getElementById('terminal-grid-output');
@@ -6839,41 +6751,24 @@ function renderTerminalProducts() {
 
                 card.innerHTML = `
                     ${cartBadgeHtml}
-                    <div class="t-prod-icon" title="Tap to add • Long-press for details">${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}</div>
-                    <h4${p.image ? ' title="Hold or hover to view full image"' : ''}>${escapeHtml(p.name ||'Unnamed Product')}</h4>
-                    <div class="t-prod-price"${p.image ? ' title="Hold or hover to view full image"' : ''}>₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
-                    <div class="t-prod-stock"${p.image ? ' title="Hold or hover to view full image"' : ''}>Stock: ${availableStock}</div>
+                    <div class="t-prod-icon" title="Tap to add">
+                        ${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}
+                        <button type="button" class="t-prod-eye-btn" title="View product details" aria-label="View product details"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
+                    <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
+                    <div class="t-prod-stock">Stock: ${availableStock}</div>
                 `;
                 card.onclick = () => addItemToCart(p);
                 attachInstantTapFeedback(card, { hapticMs: 12 });
-                const prodIconEl = card.querySelector('.t-prod-icon');
-                attachLongPress(prodIconEl, () => showProductDetails(p.code), 800);
 
-                if (p.image) {
-
-                    const previewTargets = [
-                        card.querySelector('h4'),
-                        card.querySelector('.t-prod-price'),
-                        card.querySelector('.t-prod-stock')
-                    ];
-                    previewTargets.forEach(prodInfoEl => {
-                        if (!prodInfoEl) return;
-
-                        attachHoldPreview(
-                            prodInfoEl,
-                            () => showProductImagePeek(prodIconEl, p),
-                            () => hideProductImagePeek(),
-                            1000
-                        );
-
-                        attachHoverPreview(
-                            prodInfoEl,
-                            () => showProductImagePeek(prodIconEl, p),
-                            () => hideProductImagePeek(),
-                            1000,
-                            p.code
-                        );
+                const eyeBtnEl = card.querySelector('.t-prod-eye-btn');
+                if (eyeBtnEl) {
+                    eyeBtnEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        showProductDetails(p.code);
                     });
+                    attachInstantTapFeedback(eyeBtnEl, { hapticMs: 10 });
                 }
 
                 fragment.appendChild(card);
@@ -9934,31 +9829,31 @@ async function saveReceiptCustomization() {
                 return;
             }
 
-            const { value: otpCode } = await Swal.fire({
-                title:'🔒 OTP Required',
-                html:'You have reached the free limit for receipt customization (2/2). An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
-                input:'text',
-                inputPlaceholder:'000000',
-                showCancelButton: true,
-                confirmButtonColor:'#2563eb',
-                cancelButtonColor:'#64748b'
+            data = await showModernOtpModal({
+                subtitle: 'You have reached the free limit for receipt customization (2/2). We sent a 6-digit code to the developer\'s registered email.',
+                confirmButtonText: 'Verify Code',
+                verifyFn: async ({ otp }) => {
+                    payload.otp = otp;
+                    const r = await authFetch(`${API_URL}/receipt-settings`, {
+                        method:'POST',
+                        headers: {'Content-Type':'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    return r.json();
+                }
             });
 
-            if (!otpCode || !otpCode.trim()) return;
-
-            payload.otp = otpCode.trim();
-
-            res = await authFetch(`${API_URL}/receipt-settings`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify(payload)
-            });
-            data = await res.json();
+            if (!data) return;
 
             if (data.pending) {
                 data = await pollUntilApproved(`${API_URL}/receipt-settings`, payload);
             }
             if (data.cancelled) return;
+
+            if (!data.success && !data.pending) {
+                // Inline retry feedback already handled this — no extra popup.
+                return;
+            }
         }
 
         if (data.success && data.pending) {
@@ -10824,27 +10719,22 @@ async function requestReceiptCounterReset() {
             return;
         }
 
-        const { value: otpCode } = await Swal.fire({
-            title:'🔓 Enter Reset OTP',
-            html:'An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
-            input:'text',
-            inputPlaceholder:'000000',
-            showCancelButton: true,
-            confirmButtonColor:'#2563eb',
-            cancelButtonColor:'#64748b'
+        let resetData = await showModernOtpModal({
+            subtitle: 'We sent a 6-digit code to the developer\'s registered email to verify this reset.',
+            confirmButtonText: 'Verify Code',
+            verifyFn: async ({ otp }) => {
+                const r = await authFetch(`${API_URL}/receipt-settings/reset-counter`, {
+                    method:'POST',
+                    headers: {'Content-Type':'application/json' },
+                    body: JSON.stringify({ otp, username })
+                });
+                return r.json();
+            }
         });
-        if (!otpCode || !otpCode.trim()) return;
-
-        const resetBody = { otp: otpCode.trim(), username };
-        const resetRes = await authFetch(`${API_URL}/receipt-settings/reset-counter`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify(resetBody)
-        });
-        let resetData = await resetRes.json();
+        if (!resetData) return;
 
         if (resetData.pending) {
-            resetData = await pollUntilApproved(`${API_URL}/receipt-settings/reset-counter`, resetBody);
+            resetData = await pollUntilApproved(`${API_URL}/receipt-settings/reset-counter`, { otp: resetData.otp, username });
         }
         if (resetData.cancelled) return;
 
@@ -10875,9 +10765,9 @@ async function requestReceiptCounterReset() {
                     }
                 }
             }
-        } else {
-            Swal.fire('Error', resetData.message ||'Failed to reset the counter.','error');
         }
+        // On failure (including running out of retry attempts), the inline
+        // OTP feedback already communicated this — no extra popup needed.
     } catch (err) {
         console.error(err);
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
@@ -16139,15 +16029,6 @@ async function runCloudBackupSync() {
                 statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
             }
             Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
-            refreshCloudBackupUsage();
-        } else if (result.storageQuotaExceeded) {
-            const usedLabel = typeof result.storageUsedBytes === 'number' ? formatBytes(result.storageUsedBytes) : '—';
-            const limitLabel = typeof result.storageLimitBytes === 'number' ? formatBytes(result.storageLimitBytes) : '—';
-            if (statusBox) {
-                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Data limit exceeded (${usedLabel} of ${limitLabel}).`;
-            }
-            Swal.fire('Data Limit Exceeded', result.message || `Your backup data (${usedLabel}) exceeds your plan's data limit (${limitLabel}). Please upgrade to a higher tier, or archive/delete old records first.`, 'warning');
-            refreshCloudBackupUsage();
         } else {
             if (statusBox) {
                 statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Cloud backup failed.'}`;
@@ -19066,10 +18947,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const confirm = await Swal.fire({
             title: 'Reset Admin Password',
-            text: 'Magpapadala ito ng reset request papunta sa developer. Kailangan mo ng OTP mula sa kanila para magpatuloy.',
+            text: 'This will send a reset request to the developer. You will need an OTP from them to continue.',
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonText: 'Magpadala ng Request'
+            confirmButtonText: 'Send Request'
         });
         if (!confirm.isConfirmed) return;
 
@@ -19077,55 +18958,39 @@ document.addEventListener('DOMContentLoaded', function () {
             const reqRes = await fetch('/api/admin/request-password-reset', { method: 'POST' });
             const reqData = await reqRes.json();
             if (!reqData.success) {
-                Swal.fire('Hindi Naipadala', reqData.message || 'Nabigo ang request.', 'error');
+                Swal.fire('Not Sent', reqData.message || 'The request failed.', 'error');
                 return;
             }
         } catch (err) {
-            Swal.fire('Error', `Hindi ma-reach ang server: ${err.message}`, 'error');
+            Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
             return;
         }
 
-        const { value: formValues } = await Swal.fire({
-            title: 'Ilagay ang OTP + Bagong Password',
-            html:
-                '<input id="swal-otp" class="swal2-input" placeholder="6-digit OTP" maxlength="6">' +
-                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="Bagong Password (min 8 chars)">',
-            focusConfirm: false,
-            showCancelButton: true,
-            confirmButtonText: 'I-reset ang Password',
-            preConfirm: () => {
-                const otp = document.getElementById('swal-otp').value.trim();
-
-                const newPassword = document.getElementById('swal-new-pw').value.trim();
-                if (!otp || otp.length !== 6) {
-                    Swal.showValidationMessage('Ilagay ang 6-digit OTP.');
-                    return false;
-                }
-                if (!newPassword || newPassword.length < 8) {
-                    Swal.showValidationMessage('Dapat hindi bababa sa 8 characters ang bagong password.');
-                    return false;
-                }
-                return { otp, newPassword };
+        let confirmData = await showModernOtpModal({
+            subtitle: 'We sent a 6-digit code to verify this password reset. Enter it below along with your new password.',
+            confirmButtonText: 'Reset Password',
+            withPasswordField: true,
+            passwordPlaceholder: 'New Password (min 8 chars)',
+            verifyFn: async ({ otp, newPassword }) => {
+                const r = await authFetch('/api/admin/confirm-password-reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ otp, newPassword })
+                });
+                return r.json();
             }
         });
-        if (!formValues) return;
+        if (!confirmData) return;
 
         try {
-            let confirmRes = await authFetch('/api/admin/confirm-password-reset', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formValues)
-            });
-            let confirmData = await confirmRes.json();
-
             if (confirmData.pending) {
-                confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', formValues);
+                confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', { otp: confirmData.otp, newPassword: confirmData.newPassword });
             }
 
             if (confirmData.cancelled) return;
 
             if (!confirmData.success) {
-                Swal.fire('Hindi Na-reset', confirmData.message || 'Nabigo ang pag-reset.', 'error');
+                // Inline retry feedback already handled this — no extra popup.
                 return;
             }
 
