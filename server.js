@@ -4700,6 +4700,51 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
     }
 });
 
+// --------------------------------------------------------------
+// POST /api/features/cancel-unlock
+// Tinatawag ito ng client (app.js) kapag KINANSELA ng cashier ang
+// isang unlock/demo/theme/bundle request — sa OTP-entry step mismo o
+// habang naghihintay pa ng admin approval. Ang tanging trabaho nito
+// ay sabihan ang RELAY na buburahin na ang pending entry (kasama ang
+// otp-code at countdown/timer nito) sa Admin Panel, para hindi na ito
+// maghintay pang mag-expire nang mag-isa. Isa itong generic endpoint —
+// tinatanggap nito ang featureId (feature/demo/theme, iisa lang) o
+// featureIds (bundle/bulk unlock).
+// --------------------------------------------------------------
+app.post('/api/features/cancel-unlock', rateLimit('feature-unlock-cancel', 30, 10 * 60 * 1000), async (req, res) => {
+    const { featureId, featureIds } = req.body;
+
+    if (!featureId && !(Array.isArray(featureIds) && featureIds.length)) {
+        return res.status(400).json({ success: false, message: 'Kulang ang featureId o featureIds.' });
+    }
+    if (!RELAY_API_KEY) {
+        // Wala namang naka-configure na relay — walang dapat gawin.
+        return res.json({ success: true });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        await relayFetch(`${RELAY_URL}/relay/cancel-unlock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify(
+                Array.isArray(featureIds) && featureIds.length
+                    ? { installationId, featureIds }
+                    : { installationId, featureId }
+            )
+        });
+    } catch (err) {
+        // Hindi kritikal kung mabigo ito (mag-e-expire pa rin naman ang
+        // pending request nang mag-isa) — huwag na lang gawing error sa
+        // client, dahil isa lang itong "housekeeping" na request.
+        console.error('Hindi ma-abot ang Unlock Relay habang kina-cancel ang request:', err);
+    }
+
+    res.json({ success: true });
+});
+
 app.post('/api/admin/request-password-reset',
     rateLimit('admin-reset-request', 3, 15 * 60 * 1000),
     async (req, res) => {

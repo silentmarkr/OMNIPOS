@@ -1315,7 +1315,10 @@ async function promptUnlockTheme(theme) {
             return confirmRes.json();
         }
     });
-    if (!confirmData) return;
+    if (!confirmData) {
+        cancelPendingUnlockOtp({ featureId: theme.id });
+        return;
+    }
 
     try {
         if (!confirmData.success) {
@@ -1510,6 +1513,24 @@ async function captureQuickPhoto() {
     }
 }
 
+// --------------------------------------------------------------
+// cancelPendingUnlockOtp — tinatawag ito tuwing kinansela ng cashier
+// ang isang unlock/demo/theme/bundle request (sa OTP-entry step mismo,
+// o habang naghihintay pa ng admin approval), para agad ma-alis sa
+// RELAY ang pending entry (kasama ang otp-code at countdown/timer
+// nito sa Admin Panel) sa halip na hintayin itong mag-expire nang
+// mag-isa. "Fire and forget" lang ito — hindi na kailangang antayin
+// o pansinin pa ang resulta nito ng caller.
+// --------------------------------------------------------------
+function cancelPendingUnlockOtp({ featureId, featureIds } = {}) {
+    if (!featureId && !(Array.isArray(featureIds) && featureIds.length)) return;
+    authFetch(`${API_URL}/features/cancel-unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(featureIds ? { featureIds } : { featureId })
+    }).catch(() => { /* housekeeping lang ito — hindi kritikal kung mabigo */ });
+}
+
 async function pollUntilApproved(url, body) {
     return new Promise((resolve) => {
         let stopped = false;
@@ -1621,14 +1642,20 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
             return confirmRes.json();
         }
     });
-    if (!confirmData) return false;
+    if (!confirmData) {
+        cancelPendingUnlockOtp({ featureId });
+        return false;
+    }
 
     try {
         if (confirmData.pending) {
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, { featureId, otp: confirmData.otp, username: requestingUsername, ...extraRequestBody });
         }
 
-        if (confirmData.cancelled) return false;
+        if (confirmData.cancelled) {
+            cancelPendingUnlockOtp({ featureId });
+            return false;
+        }
 
         if (!confirmData.success) {
             // Inline retry feedback already handled this — no extra popup.
@@ -1982,14 +2009,20 @@ async function requestBulkUnlock(featureIds, tierId) {
             return confirmRes.json();
         }
     });
-    if (!confirmData) return false;
+    if (!confirmData) {
+        cancelPendingUnlockOtp({ featureIds });
+        return false;
+    }
 
     try {
         if (confirmData.pending) {
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, { featureIds, otp: confirmData.otp, username: requestingUsername });
         }
 
-        if (confirmData.cancelled) return false;
+        if (confirmData.cancelled) {
+            cancelPendingUnlockOtp({ featureIds });
+            return false;
+        }
 
         if (!confirmData.success) {
             // Inline retry feedback already handled this — no extra popup.
@@ -2397,14 +2430,20 @@ async function promptDemoMode() {
             return confirmRes.json();
         }
     });
-    if (!confirmData) return false;
+    if (!confirmData) {
+        cancelPendingUnlockOtp({ featureId: '__demo__' });
+        return false;
+    }
 
     try {
         if (confirmData.pending) {
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, { otp: confirmData.otp, username: requestingUsername });
         }
 
-        if (confirmData.cancelled) return false;
+        if (confirmData.cancelled) {
+            cancelPendingUnlockOtp({ featureId: '__demo__' });
+            return false;
+        }
 
         if (!confirmData.success) {
             // Inline retry feedback already handled this — no extra popup.
