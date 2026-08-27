@@ -1305,372 +1305,6 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     color: var(--dm-text-secondary);
 }
 
-/* ============================================================
-   UPGRADE OPTIONS MODAL (Basic/Standard/Pro tier picker + à la
-   carte feature list) — rendered inside a SweetAlert2 popup.
-   Styled with real classes (instead of inline colors) so it can
-   properly adapt to Dark Mode and every Pro theme via the shared
-   --dm-* variables.
-   ============================================================ */
-.uw-modal-body {
-    text-align: left;
-    max-height: 60vh;
-    overflow-y: auto;
-}
-
-.uw-modal-hint {
-    font-size: 0.8rem;
-    color: #94a3b8;
-    margin: 0 0 10px;
-}
-
-.uw-section-label {
-    font-weight: 600;
-    font-size: 0.82rem;
-    margin-bottom: 6px;
-    color: #334155;
-}
-
-.uw-section-label.uw-section-label-spaced {
-    margin: 14px 0 4px;
-}
-
-.uw-alacarte-hint {
-    font-size: 0.72rem;
-    color: #94a3b8;
-    margin: 0 0 8px;
-    line-height: 1.4;
-}
-
-.uw-tier-card {
-    display: block;
-    width: 100%;
-    text-align: left;
-    border: 2px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 8px;
-    background: #fff;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.uw-tier-card.selected {
-    border-color: #2563eb;
-    background: #eff6ff;
-}
-
-.uw-tier-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-}
-
-.uw-tier-name {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: #1e293b;
-}
-
-.uw-tier-price-strike {
-    font-size: 0.78rem;
-    color: #94a3b8;
-    text-decoration: line-through;
-    margin-right: 4px;
-}
-
-.uw-tier-price {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: #2563eb;
-}
-
-.uw-tier-desc {
-    font-size: 0.78rem;
-    color: #94a3b8;
-    margin-top: 2px;
-}
-
-.uw-tier-note {
-    font-size: 0.72rem;
-    color: #94a3b8;
-    margin-top: 2px;
-}
-
-.uw-tier-save {
-    font-size: 0.72rem;
-    color: #16a34a;
-    margin-top: 2px;
-}
-
-.uw-category-group {
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    margin-bottom: 8px;
-    overflow: hidden;
-    background: #fff;
-}
-
-.uw-category-summary {
-    cursor: pointer;
-    padding: 9px 12px;
-    font-weight: 600;
-    font-size: 0.82rem;
-    color: #334155;
-    background: #f8fafc;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.uw-category-count {
-    font-size: 0.72rem;
-    color: #94a3b8;
-    font-weight: 500;
-}
-
-.uw-feature-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid #f1f5f9;
-    font-size: 0.85rem;
-    cursor: pointer;
-}
-
-.uw-feature-row:last-child {
-    border-bottom: none;
-}
-
-.uw-feature-check {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    margin-top: 2px;
-}
-
-.uw-feature-body {
-    flex: 1;
-}
-
-.uw-feature-name {
-    display: block;
-    color: #1e293b;
-}
-
-.uw-feature-desc {
-    display: block;
-    font-size: 0.72rem;
-    color: #94a3b8;
-    margin-top: 2px;
-    line-height: 1.4;
-}
-
-.uw-feature-price {
-    color: #64748b;
-    flex-shrink: 0;
-}
-
-.uw-total-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 14px;
-    padding-top: 10px;
-    border-top: 1px solid #e2e8f0;
-}
-
-.uw-total-label {
-    font-size: 0.85rem;
-    color: #334155;
-}
-
-.uw-total-price {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #2563eb;
-}
-
-/* Dark Mode / Pro theme adaptation — all driven by the shared --dm-*
-   variables so it automatically follows whichever theme is active. */
-body.dark-mode .uw-modal-hint,
-body.dark-mode .uw-alacarte-hint,
-body.dark-mode .uw-tier-price-strike,
-body.dark-mode .uw-tier-desc,
-body.dark-mode .uw-tier-note,
-body.dark-mode .uw-category-count,
-body.dark-mode .uw-feature-desc {
-    color: var(--dm-text-muted);
-}
-
-body.dark-mode .uw-section-label,
-body.dark-mode .uw-total-label {
-    color: var(--dm-text-secondary);
-}
-
-body.dark-mode .uw-tier-card,
-body.dark-mode .uw-category-group {
-    background: var(--dm-surface);
-    border-color: var(--dm-border);
-}
-
-body.dark-mode .uw-tier-card.selected {
-    background: var(--dm-accent-soft);
-    border-color: var(--dm-accent);
-}
-
-body.dark-mode .uw-tier-name,
-body.dark-mode .uw-feature-name {
-    color: var(--dm-text-primary);
-}
-
-body.dark-mode .uw-tier-price,
-body.dark-mode .uw-total-price {
-    color: var(--dm-accent);
-}
-
-body.dark-mode .uw-tier-save {
-    color: #4ade80;
-}
-
-body.dark-mode .uw-category-summary {
-    background: var(--dm-surface-alt);
-    color: var(--dm-text-primary);
-}
-
-body.dark-mode .uw-feature-row {
-    border-bottom-color: var(--dm-border);
-}
-
-body.dark-mode .uw-feature-price {
-    color: var(--dm-text-secondary);
-}
-
-body.dark-mode .uw-total-bar {
-    border-top-color: var(--dm-border);
-}
-
-/* ============================================================
-   CLOUD BACKUP PLANS MODAL (Basic/Standard/Pro x Monthly/Yearly
-   picker) — same treatment as the Upgrade Options modal above:
-   real classes instead of inline colors so it adapts to Dark
-   Mode and every Pro theme via the shared --dm-* variables.
-   ============================================================ */
-.cb-modal-body {
-    text-align: left;
-}
-
-.cb-modal-hint {
-    font-size: 0.8rem;
-    color: #64748b;
-    margin: 0 0 10px;
-}
-
-.cb-cycle-row {
-    display: flex;
-    margin-bottom: 10px;
-}
-
-.cb-cycle-btn {
-    flex: 1;
-    border: 2px solid #e2e8f0;
-    background: #fff;
-    border-radius: 8px;
-    padding: 6px;
-    cursor: pointer;
-    margin: 0 4px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: #334155;
-    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
-}
-
-.cb-cycle-btn.active {
-    border-color: #2563eb;
-    background: #eff6ff;
-    color: #2563eb;
-}
-
-.cb-tier-row {
-    display: flex;
-}
-
-.cb-tier-btn {
-    flex: 1;
-    text-align: left;
-    border: 2px solid #e2e8f0;
-    background: #fff;
-    border-radius: 10px;
-    padding: 10px 12px;
-    cursor: pointer;
-    margin: 0 4px;
-    transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.cb-tier-btn.active {
-    border-color: #2563eb;
-    background: #eff6ff;
-}
-
-.cb-tier-name {
-    font-weight: 700;
-    font-size: 0.9rem;
-    color: #0f172a;
-}
-
-.cb-tier-tagline {
-    font-size: 0.72rem;
-    color: #64748b;
-    margin-top: 2px;
-}
-
-.cb-tier-price {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: #2563eb;
-    margin-top: 6px;
-}
-
-.cb-tier-price-unit {
-    font-size: 0.68rem;
-    color: #94a3b8;
-    font-weight: 400;
-}
-
-/* Dark Mode / Pro theme adaptation — driven by the shared --dm-*
-   variables so it automatically follows whichever theme is active. */
-body.dark-mode .cb-modal-hint,
-body.dark-mode .cb-tier-tagline,
-body.dark-mode .cb-tier-price-unit {
-    color: var(--dm-text-muted);
-}
-
-body.dark-mode .cb-cycle-btn,
-body.dark-mode .cb-tier-btn {
-    background: var(--dm-surface);
-    border-color: var(--dm-border);
-    color: var(--dm-text-secondary);
-}
-
-body.dark-mode .cb-cycle-btn.active,
-body.dark-mode .cb-tier-btn.active {
-    background: var(--dm-accent-soft);
-    border-color: var(--dm-accent);
-}
-
-body.dark-mode .cb-cycle-btn.active {
-    color: var(--dm-accent);
-}
-
-body.dark-mode .cb-tier-name {
-    color: var(--dm-text-primary);
-}
-
-body.dark-mode .cb-tier-price {
-    color: var(--dm-accent);
-}
-
 .main-content {
     flex: 1;
     margin-left: 0; 
@@ -3309,30 +2943,20 @@ body.cart-pane-resizing-cursor {
 }
 
 .recovery-inner-card {
-    background: #ffffff;
-    border: 1px solid var(--border-color);
+    background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
+    border: 1px solid #2d3748;
     border-radius: 12px;
     padding: 12px 16px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
 }
 
 .recovery-inner-card h3 {
     font-size: 0.92rem;
     margin: 0;
-    color: var(--text-primary);
+    color: #e5e7eb;
     display: flex;
     align-items: center;
     gap: 8px;
-}
-
-body.dark-mode .recovery-inner-card {
-    background: linear-gradient(180deg, var(--dm-surface) 0%, var(--dm-bg) 100%);
-    border-color: var(--dm-border);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
-}
-
-body.dark-mode .recovery-inner-card h3 {
-    color: var(--dm-text-primary);
 }
 
 #recovery-card-toggle-chevron {
@@ -3359,7 +2983,7 @@ body.dark-mode .recovery-inner-card h3 {
 
 .recovery-desc {
     font-size: 0.78rem;
-    color: var(--text-muted);
+    color: #94a3b8;
     margin: 0 0 10px 0;
     line-height: 1.5;
 }
@@ -3370,11 +2994,11 @@ body.dark-mode .recovery-inner-card h3 {
     justify-content: center;
     gap: 8px;
     width: 100%;
-    background-color: #ffffff;
-    border: 1px dashed var(--border-color);
+    background-color: #1f2937;
+    border: 1px dashed #4b5563;
     border-radius: 8px;
     padding: 9px 12px;
-    color: var(--text-primary);
+    color: #cbd5e1;
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
@@ -3384,22 +3008,7 @@ body.dark-mode .recovery-inner-card h3 {
 }
 
 .file-upload-btn:hover {
-    background-color: var(--accent-blue-light);
-    border-color: #3b82f6;
-}
-
-body.dark-mode .recovery-desc {
-    color: var(--dm-text-secondary);
-}
-
-body.dark-mode .file-upload-btn {
-    background-color: var(--dm-surface-alt);
-    border-color: var(--dm-border);
-    color: var(--dm-text-secondary);
-}
-
-body.dark-mode .file-upload-btn:hover {
-    background-color: var(--dm-surface);
+    background-color: #263244;
     border-color: #3b82f6;
 }
 
@@ -3416,30 +3025,16 @@ body.dark-mode .file-upload-btn:hover {
     box-sizing: border-box;
     padding: 9px 12px;
     border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background-color: #ffffff;
-    color: var(--text-primary);
+    border: 1px solid #374151;
+    background-color: #0f172a;
+    color: #f1f5f9;
     font-size: 0.82rem;
     margin-bottom: 8px;
     outline: none;
 }
 
-.backup-id-input::placeholder {
-    color: var(--text-muted);
-}
-
 .backup-id-input:focus {
     border-color: #3b82f6;
-}
-
-body.dark-mode .backup-id-input {
-    background-color: var(--dm-surface);
-    border-color: var(--dm-border);
-    color: var(--dm-text-primary);
-}
-
-body.dark-mode .backup-id-input::placeholder {
-    color: var(--dm-text-muted);
 }
 
 .backup-actions-grid {
@@ -3566,21 +3161,15 @@ body.dark-mode .backup-id-input::placeholder {
         flex-direction: row;
         align-items: center;
         flex-wrap: nowrap;
-        background: #ffffff;
-        border: 1px solid var(--border-color);
+        background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
+        border: 1px solid #2d3748;
         border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.18);
         padding: 10px 16px;
         margin-bottom: 14px;
         gap: 0;
         overflow-x: auto;
         overflow-y: hidden;
-    }
-
-    body.dark-mode .tx-search-card {
-        background: linear-gradient(180deg, var(--dm-surface) 0%, var(--dm-bg) 100%);
-        border-color: var(--dm-border);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.18);
     }
 
     .tx-search-card .recovery-section,
@@ -3646,36 +3235,19 @@ body.dark-mode .backup-id-input::placeholder {
 
 .search-box-container input {
     width: 100%;
-    background-color: #ffffff;
-    border: 1px solid var(--border-color);
+    background-color: #1f2937;
+    border: 1px solid var(--terminal-border);
     border-radius: 8px;
     padding: 9px 16px 9px 34px;
-    color: var(--text-primary);
+    color: white;
     font-size: 0.88rem;
     outline: none;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, color 0.15s ease;
-}
-
-.search-box-container input::placeholder {
-    color: var(--text-muted);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .search-box-container input:focus {
     border-color: var(--primary-blue);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-}
-
-/* Sa dark mode (pero LABAS ng Terminal, na may sarili nang
-   .terminal-theme rules), sundin ang dark palette ng app (--dm-*)
-   sa halip na permanenteng dark box kahit anong theme ang naka-set. */
-body.dark-mode .search-box-container input {
-    background-color: var(--dm-surface-alt);
-    border-color: var(--dm-border);
-    color: var(--dm-text-primary);
-}
-
-body.dark-mode .search-box-container input::placeholder {
-    color: var(--dm-text-muted);
 }
 
 .search-icon-inline {
@@ -3807,7 +3379,6 @@ body.dark-mode .search-box-container input::placeholder {
 }
 
 .t-prod-icon {
-    position: relative;
     font-size: 2.2rem;
     margin-bottom: 12px;
     color: #f87171;
@@ -3818,26 +3389,14 @@ body.dark-mode .search-box-container input::placeholder {
     justify-content: center;
     border-radius: 8px;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
-
+    
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
-
-    /* I-promote agad ang element papuntang sarili nitong GPU layer
-       (bago pa man mag-hover) para 'yung pag-scale sa :hover ay hindi
-       na kailangang gumawa ng bagong layer sa gitna ng transition —
-       'yun ang dating sanhi ng panandaliang pagka-blur/pagka-malabo
-       ng larawan habang naghohover. */
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    will-change: transform;
 }
 
 .t-prod-icon:hover {
-    /* Bahagyang lang ang lumaki (3%) — sapat na para may feedback
-       pero hindi na sobrang lumalaki na nagiging sanhi ng pagka-malabo. */
-    transform: translateZ(0) scale(1.03);
+    transform: scale(1.06);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
@@ -3850,15 +3409,6 @@ body.dark-mode .search-box-container input::placeholder {
     -webkit-user-select: none;
     user-select: none;
     pointer-events: none;
-
-    /* Panatilihing malinaw/hindi naka-compress ang larawan sa lahat ng
-       laki ng browser zoom — gamitin ang default (mataas-kalidad,
-       smooth) na paraan ng pag-scale sa halip na crisp-edges na
-       pang-pixel-art lamang. */
-    image-rendering: auto;
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
 }
 
 .t-product-card h4 {
@@ -3895,38 +3445,50 @@ body.dark-mode .search-box-container input::placeholder {
     pointer-events: none;
 }
 
-.t-prod-eye-btn {
-    position: absolute;
-    top: 5px;
-    left: 5px;
-    z-index: 4;
-    width: 22px;
-    height: 22px;
+.product-image-peek {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%) scale(0.35);
+    z-index: 9999;
+    pointer-events: none;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06);
+    border: 3px solid var(--primary-blue, #3b82f6);
+    background: #0f172a;
+    opacity: 0;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: rgba(15, 23, 42, 0.55);
-    color: #ffffff;
-    font-size: 0.68rem;
-    cursor: pointer;
-    backdrop-filter: blur(2px);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-    transition: transform 0.12s ease, background-color 0.12s ease;
-    -webkit-tap-highlight-color: transparent;
+    flex-direction: column;
 }
 
-.t-prod-eye-btn:hover {
-    background: rgba(37, 99, 235, 0.85);
-    transform: scale(1.08);
+.product-image-peek.shown {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
 }
 
-.t-prod-eye-btn:active,
-.t-prod-eye-btn.tap-active {
-    transform: scale(0.92);
-    background: rgba(37, 99, 235, 0.9);
+.product-image-peek img {
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    
+    object-fit: contain;
+    background: #0f172a;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.product-image-peek-label {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    text-align: center;
+    padding: 6px 8px;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.92);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .t-prod-cart-badge {
@@ -4438,30 +4000,7 @@ body.dark-mode #pd-specs-row {
 }
 
 body.dark-mode #pd-description {
-    color: var(--dm-text-secondary, #cbd5e1);
-}
-
-body.dark-mode #pd-description-row .pd-detail-label,
-body.dark-mode #pd-description-row .pd-detail-label::before,
-body.dark-mode #pd-specs-row .pd-detail-label,
-body.dark-mode #pd-specs-row .pd-detail-label::before {
-    color: var(--dm-text-muted);
-}
-
-body.dark-mode .pd-specs-list .pd-spec-line {
-    border-bottom-color: var(--dm-border);
-}
-
-body.dark-mode .pd-specs-list .pd-spec-line:nth-child(odd) {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-body.dark-mode .pd-specs-list .pd-spec-key {
-    color: var(--dm-text-secondary);
-}
-
-body.dark-mode .pd-specs-list .pd-spec-val {
-    color: var(--dm-text-primary);
+    color: var(--dm-text, #cbd5e1);
 }
 
 .pd-gallery-thumbs {
@@ -4835,39 +4374,10 @@ body.dark-mode .pd-detail-value {
 .terminal-theme .t-product-card {
     background-color: var(--dm-surface);
     border: 1px solid var(--dm-border);
-    border-radius: 16px;
-    padding: 12px 10px 14px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.16);
 }
 
 body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]) .t-product-card {
     background-color: #1c1c24;
-}
-
-.terminal-theme.terminal-daymode .t-product-card {
-    box-shadow: 0 2px 8px rgba(15,23,42,0.06);
-}
-
-.terminal-theme .terminal-products-grid {
-    /* Nadagdagan mula 128px -> 158px: sa 128px, hindi kasya ang
-       "Stock: 12" at presyo sa parehong row kaya naka-clip/naputol
-       ang text (lalo na kapag nagbago ang bilang ng column sa
-       zoom in/out ng browser). Sapat na ang 158px para laging
-       kumpleto at nababasa ang presyo at stock. */
-    grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
-    gap: 12px;
-}
-
-.terminal-theme .t-prod-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-    background: #20283d;
-    margin-bottom: 10px;
-}
-
-.terminal-theme.terminal-daymode .t-prod-icon {
-    background: rgba(37,99,235,0.08);
 }
 
 .terminal-theme .t-product-card:hover {
@@ -4876,15 +4386,6 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]
 
 .terminal-theme .t-product-card h4 {
     color: var(--dm-text-primary);
-    font-size: 0.82rem;
-}
-
-.terminal-theme .t-prod-price {
-    font-size: 0.92rem;
-}
-
-.terminal-theme .t-product-card.out-of-stock {
-    opacity: 0.45;
 }
 
 .terminal-theme .t-prod-stock {
@@ -7199,14 +6700,6 @@ body.dark-mode .bottom-nav-item:active {
         margin-bottom: 8px;
     }
 
-    .t-prod-eye-btn {
-        width: 19px;
-        height: 19px;
-        font-size: 0.6rem;
-        top: 3px;
-        left: 3px;
-    }
-
     .cart-summary-block {
         box-shadow: 0 -4px 10px rgba(0,0,0,0.25);
     }
@@ -7946,31 +7439,6 @@ body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd
     color: #64748b;
 }
 body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-value {
-    color: #0f172a;
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-description-row,
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-specs-row {
-    background: #f8fafc;
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-description-row .pd-detail-label,
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-description-row .pd-detail-label::before,
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-specs-row .pd-detail-label,
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-specs-row .pd-detail-label::before {
-    color: #94a3b8;
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin #pd-description {
-    color: #334155;
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-line {
-    border-bottom-color: #e2e8f0;
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-line:nth-child(odd) {
-    background: rgba(255, 255, 255, 0.5);
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-key {
-    color: #64748b;
-}
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-val {
     color: #0f172a;
 }
 
@@ -9806,6 +9274,39 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
         flex-shrink: 0;
     }
 
+    .terminal-theme .terminal-products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+        gap: 12px;
+    }
+    .terminal-theme .t-product-card {
+        border-radius: 16px;
+        padding: 12px 10px 14px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.16);
+    }
+    .terminal-theme.terminal-daymode .t-product-card {
+        box-shadow: 0 2px 8px rgba(15,23,42,0.06);
+    }
+    
+    .terminal-theme .t-prod-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        background: #20283d;
+        margin-bottom: 10px;
+    }
+    .terminal-theme.terminal-daymode .t-prod-icon {
+        background: rgba(37,99,235,0.08);
+    }
+    .terminal-theme .t-product-card h4 {
+        font-size: 0.82rem;
+    }
+    .terminal-theme .t-prod-price {
+        font-size: 0.92rem;
+    }
+    .terminal-theme .t-product-card.out-of-stock {
+        opacity: 0.45;
+    }
+
     .terminal-theme .terminal-cart-pane {
         border-bottom: none;
         padding: 0 2px;
@@ -9992,105 +9493,84 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     }
 }
 
-/* Ang "grid card" na disenyo ng product card sa ibaba (larawan sa
-   itaas, pangalan sa gitna, presyo/stock sa baba) ay dating para lang
-   sa mobile (max-width:768px) — pinaganap na rin ito ngayon sa DESKTOP
-   view para magkapareho ang laki ng larawan at disenyo ng terminal
-   product grid sa dalawang view. */
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card {
-    display: grid;
+@media screen and (max-width: 768px) {
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card {
+        display: grid;
+        
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas:
+            "image image"
+            "name  name"
+            "price stock";
+        align-items: center;
+        row-gap: 4px;
+        column-gap: 6px;
+        padding: 0 0 10px;
+        text-align: left;
+        overflow: hidden;
+    }
 
-    /* Dating "minmax(0,1fr) minmax(0,1fr)" ang dahilan kung bakit
-       naka-clip/naputol ang presyo at stock text: pinapantay-pantay
-       nito ang dalawang column kahit hindi kasya doon ang laman
-       (lalo na sa makikitid na card, o kapag nagbago ang zoom ng
-       browser kaya lumiit ang bawat card). Ngayon, ang unang column
-       (presyo) ay "auto" — kukuha lang ito ng eksaktong space na
-       kailangan ng presyo, at ang natitirang space ay mapupunta sa
-       stock column, kaya hindi na sila magkaka-tabunan/mapuputol. */
-    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-    grid-template-areas:
-        "image image"
-        "name  name"
-        "price stock";
-    align-items: center;
-    row-gap: 4px;
-    column-gap: 6px;
-    padding: 0 0 10px;
-    text-align: left;
-    overflow: hidden;
-}
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-icon {
+        grid-area: image;
+        width: 100%;
+        height: 100px;
+        margin: 0 0 8px;
+        border-radius: 16px 16px 0 0;
+        font-size: 2.5rem;
+        overflow: hidden;
+    }
+    
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        image-rendering: -webkit-optimize-contrast;
+    }
 
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-icon {
-    grid-area: image;
-    width: 100%;
-    height: 100px;
-    margin: 0 0 8px;
-    border-radius: 16px 16px 0 0;
-    font-size: 2.5rem;
-    overflow: hidden;
-}
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card h4 {
+        grid-area: name;
+        padding: 0 10px;
+        margin-bottom: 2px;
+        font-size: 0.8rem;
+        line-height: 1.25;
+        height: auto;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
 
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-icon img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    image-rendering: auto;
-}
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-price {
+        grid-area: price;
+        padding-left: 10px;
+        margin: 0;
+        font-size: 0.9rem;
+        text-align: left;
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: normal;
+        min-width: 0;
+    }
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
+        grid-area: stock;
+        margin: 0 10px 0 0;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        text-align: right;
+        
+        background: #2e3038;
+        white-space: nowrap;
+    }
+    .terminal-theme.terminal-daymode #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
+        background: rgba(100, 116, 139, 0.12);
+    }
 
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card h4 {
-    grid-area: name;
-    padding: 0 10px;
-    margin-bottom: 2px;
-    font-size: 0.8rem;
-    line-height: 1.25;
-    height: auto;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-price {
-    grid-area: price;
-    padding-left: 10px;
-    margin: 0;
-    font-size: 0.9rem;
-    text-align: left;
-    white-space: nowrap;
-    overflow-wrap: normal;
-    word-break: normal;
-    min-width: 0;
-    /* Kung sakaling talagang wala nang space (super-liit na card),
-       mag-ellipsis (...) na lang sa halip na basta maputol/matago
-       ang mga numero nang walang paalala na may nakatago pa. */
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
-    grid-area: stock;
-    margin: 0 10px 0 0;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 0.68rem;
-    text-align: right;
-
-    background: #2e3038;
-    white-space: nowrap;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    box-sizing: border-box;
-}
-.terminal-theme.terminal-daymode #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
-    background: rgba(100, 116, 139, 0.12);
-}
-
-.terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card.out-of-stock::after {
-    top: 50px;
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card.out-of-stock::after {
+        top: 50px;
+    }
 }
 
 @media screen and (max-width: 768px) {

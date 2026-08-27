@@ -618,6 +618,249 @@ function attachInstantTapFeedback(el, options) {
     el.addEventListener('pointercancel', clearActive, { passive: true });
 }
 
+function attachLongPress(el, callback, durationMs) {
+    if (!el || el.__longPressBound) return;
+    el.__longPressBound = true;
+    durationMs = durationMs || 1000;
+
+    let pressTimer = null;
+    let didFire = false;
+
+    const clearPressTimer = function () {
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+        }
+    };
+
+    el.addEventListener('pointerdown', function (e) {
+        didFire = false;
+        clearPressTimer();
+        pressTimer = setTimeout(function () {
+            pressTimer = null;
+            didFire = true;
+            triggerHaptic(20);
+            callback(e);
+        }, durationMs);
+    }, { passive: true });
+
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evtName) {
+        el.addEventListener(evtName, clearPressTimer, { passive: true });
+    });
+
+    el.addEventListener('click', function (e) {
+        if (didFire) {
+
+            e.stopPropagation();
+            didFire = false;
+        }
+
+    });
+
+    el.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+    });
+}
+
+function attachHoldPreview(el, onShow, onHide, durationMs) {
+    if (!el || el.__holdPreviewBound) return;
+    el.__holdPreviewBound = true;
+    durationMs = durationMs || 380;
+
+    let pressTimer = null;
+    let isShowing = false;
+
+    const clearPressTimer = function () {
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+        }
+    };
+
+    const doHide = function () {
+        clearPressTimer();
+        if (isShowing) {
+            isShowing = false;
+            onHide();
+        }
+    };
+
+    el.addEventListener('pointerdown', function (e) {
+        clearPressTimer();
+        pressTimer = setTimeout(function () {
+            pressTimer = null;
+            isShowing = true;
+            triggerHaptic(15);
+            onShow(e);
+        }, durationMs);
+    }, { passive: true });
+
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evtName) {
+        el.addEventListener(evtName, doHide, { passive: true });
+    });
+
+    el.addEventListener('click', function (e) {
+
+        if (isShowing) {
+            e.stopPropagation();
+        }
+    });
+
+    el.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+    });
+}
+
+// Isang shared na "coordinator" (hindi per-element) para sa hover preview ng
+// buong product grid. Dati, magkakahiwalay na state ang h4/price/stock ng
+// isang product card — kaya sa sobrang liit na galaw ng pointer papunta sa
+// katabing text (h4 -> price -> stock) ng IISANG product, nag-fi-fire ang
+// pointerleave ng luma bago pa man makapasok ang pointerenter ng bago, kaya
+// nawawala-lumalabas (blink) ang peek nang paulit-ulit habang nakatigil lang
+// naman talaga sa iisang product. Dito, iisang groupKey (product code) ang
+// ginagamit para malaman kung "parehong product pa rin" ang hinover — kung
+// oo, hindi na ito nagpapa-restart/hide. May 5-segundong auto-hide (blink
+// off) din habang paulit-ulit na naka-hover sa iisang product, at kapag
+// dumiretso ang pointer sa ibang product, agad na nawawala ang dati (kahit
+// hindi pa naabot ang 5s nito) para makapalit kaagad ang bago.
+const hoverPeekCoordinator = {
+    groupKey: null,
+    showTimer: null,
+    leaveTimer: null,
+    autoHideTimer: null,
+    reshowTimer: null,
+    isVisible: false
+};
+
+function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
+    if (!el || el.__hoverPreviewBound) return;
+    el.__hoverPreviewBound = true;
+    durationMs = durationMs || 1000;
+
+    const AUTO_HIDE_MS = 5000;
+    const SWITCH_DELAY_MS = 150;
+    const LEAVE_GRACE_MS = 180;
+    const RESHOW_GAP_MS = 400;
+
+    const c = hoverPeekCoordinator;
+
+    const clearAllTimers = function () {
+        clearTimeout(c.showTimer); c.showTimer = null;
+        clearTimeout(c.leaveTimer); c.leaveTimer = null;
+        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
+        clearTimeout(c.reshowTimer); c.reshowTimer = null;
+    };
+
+    const doHide = function () {
+        clearAllTimers();
+        if (c.isVisible) {
+            c.isVisible = false;
+            onHide();
+        }
+        c.groupKey = null;
+    };
+
+    const doShow = function (e) {
+        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
+        clearTimeout(c.reshowTimer); c.reshowTimer = null;
+        c.isVisible = true;
+        c.groupKey = groupKey;
+        onShow(e);
+
+        // Awtomatikong itago (blink off) pagkalipas ng 5s ng patuloy na
+        // pagpapakita. Kung nananatili pa rin ang pointer sa parehong
+        // product (hindi pa na-hide ng ibang mekanismo), muling ipapakita
+        // pagkalipas ng maikling pahinga — ito ang paulit-ulit na "blink
+        // every 5 seconds" habang nananatili sa isang product.
+        c.autoHideTimer = setTimeout(function () {
+            c.isVisible = false;
+            onHide();
+            c.reshowTimer = setTimeout(function () {
+                if (c.groupKey === groupKey) doShow(e);
+            }, RESHOW_GAP_MS);
+        }, AUTO_HIDE_MS);
+    };
+
+    el.addEventListener('pointerenter', function (e) {
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+
+        clearTimeout(c.leaveTimer);
+        c.leaveTimer = null;
+
+        if (c.groupKey === groupKey && (c.isVisible || c.showTimer || c.reshowTimer)) {
+
+            return;
+        }
+
+        const switchingProduct = !!(c.groupKey && c.groupKey !== groupKey);
+        clearTimeout(c.showTimer); c.showTimer = null;
+        clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
+        clearTimeout(c.reshowTimer); c.reshowTimer = null;
+
+        if (switchingProduct) {
+
+            if (c.isVisible) { c.isVisible = false; onHide(); }
+            c.groupKey = null;
+            c.showTimer = setTimeout(function () {
+                c.showTimer = null;
+                doShow(e);
+            }, SWITCH_DELAY_MS);
+        } else {
+            c.showTimer = setTimeout(function () {
+                c.showTimer = null;
+                doShow(e);
+            }, durationMs);
+        }
+    });
+
+    el.addEventListener('pointerleave', function (e) {
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+
+        clearTimeout(c.leaveTimer);
+        c.leaveTimer = setTimeout(function () {
+            c.leaveTimer = null;
+            if (c.groupKey === groupKey) doHide();
+        }, LEAVE_GRACE_MS);
+    });
+}
+
+let activeProductImagePeekEl = null;
+
+function showProductImagePeek(anchorEl, product) {
+    if (!anchorEl || !product || !product.image) return;
+    hideProductImagePeek();
+
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+
+    const peekSize = Math.max(180, Math.min(window.innerWidth, window.innerHeight) * 0.6);
+
+    const peek = document.createElement('div');
+    peek.className = 'product-image-peek';
+    peek.style.left = `${centerX}px`;
+    peek.style.top = `${centerY}px`;
+    peek.style.width = `${peekSize}px`;
+    peek.style.height = `${peekSize}px`;
+    peek.innerHTML = `
+        <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name || 'Product')}" draggable="false">
+        <div class="product-image-peek-label">${escapeHtml(product.name || 'Product')} — full image</div>
+    `;
+
+    document.body.appendChild(peek);
+
+    requestAnimationFrame(() => peek.classList.add('shown'));
+
+    activeProductImagePeekEl = peek;
+}
+
+function hideProductImagePeek() {
+    if (!activeProductImagePeekEl) return;
+    const el = activeProductImagePeekEl;
+    activeProductImagePeekEl = null;
+    el.classList.remove('shown');
+    setTimeout(() => el.remove(), 160);
+}
+
 const SYSTEM_CONFIG = {
     appName:"OmniPOS System",
     serverName:"Core API Gateway",
@@ -1315,10 +1558,7 @@ async function promptUnlockTheme(theme) {
             return confirmRes.json();
         }
     });
-    if (!confirmData) {
-        cancelPendingUnlockOtp({ featureId: theme.id });
-        return;
-    }
+    if (!confirmData) return;
 
     try {
         if (!confirmData.success) {
@@ -1450,13 +1690,7 @@ function updateCloudBackupLockState() {
     if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
     if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
-    if (unlocked) {
-        refreshCloudBackupSubscriptionBadge();
-        refreshCloudBackupUsage();
-    } else {
-        const usageBox = document.getElementById('cloud-backup-usage');
-        if (usageBox) usageBox.style.display = 'none';
-    }
+    if (unlocked) refreshCloudBackupSubscriptionBadge();
 }
 
 // --------------------------------------------------------------
@@ -1495,77 +1729,6 @@ async function refreshCloudBackupSubscriptionBadge() {
     }
 }
 
-// --------------------------------------------------------------
-// formatBytesHuman — simple "142 MB" / "1.2 GB" style formatter used
-// by the Cloud Backup storage-usage indicator below.
-// --------------------------------------------------------------
-function formatBytesHuman(bytes) {
-    const n = Number(bytes) || 0;
-    if (n <= 0) return '0 MB';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = 0;
-    let val = n;
-    while (val >= 1024 && i < units.length - 1) {
-        val /= 1024;
-        i++;
-    }
-    return `${val.toFixed(val >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-// --------------------------------------------------------------
-// refreshCloudBackupUsage — kinukuha ang storage-quota usage mula sa
-// RELAY (sa pamamagitan ng /api/cloud-backup/usage sa OMNIPOS server,
-// na basta nag-po-proxy lang papunta sa RELAY) at ipinapakita sa
-// #cloud-backup-usage box: gaano karaming data na ang na-consume
-// (halimbawa "142 MB of 250 MB used") kasama ang progress bar, para
-// makita ng cashier/admin kung malapit na silang maabot ang limitasyon
-// ng kanilang kasalukuyang plan (Basic/Standard/Pro).
-// --------------------------------------------------------------
-async function refreshCloudBackupUsage() {
-    const usageBox = document.getElementById('cloud-backup-usage');
-    if (!usageBox) return;
-    if (!isFeatureUnlockedCached('cloud_backup')) {
-        usageBox.style.display = 'none';
-        return;
-    }
-    try {
-        const res = await authFetch(`${API_URL}/cloud-backup/usage`);
-        const data = await res.json();
-        if (!data || !data.success) {
-            // Hindi pa nakaka-abot sa RELAY, o wala pang backup na
-            // nagawa (walang cloud_backup_meta row) — itago na lang
-            // ang box sa halip na magpakita ng error, dahil hindi
-            // ito kritikal.
-            usageBox.style.display = 'none';
-            return;
-        }
-
-        const usedBytes = data.storageUsedBytes || 0;
-        const limitBytes = data.storageLimitBytes || 0;
-        const usedPercent = typeof data.storageUsedPercent === 'number'
-            ? data.storageUsedPercent
-            : (limitBytes > 0 ? Math.min(100, Math.round((usedBytes / limitBytes) * 1000) / 10) : 0);
-
-        const barColor = usedPercent >= 90 ? '#dc2626' : (usedPercent >= 70 ? '#f59e0b' : '#16a34a');
-
-        usageBox.innerHTML = `
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; font-size:0.82rem;">
-                <span><i class="fa-solid fa-database"></i> Cloud storage used</span>
-                <span><strong>${formatBytesHuman(usedBytes)}</strong> of ${formatBytesHuman(limitBytes)} (${usedPercent}%)</span>
-            </div>
-            <div style="width:100%; height:8px; border-radius:999px; background:rgba(148,163,184,0.25); overflow:hidden;">
-                <div style="height:100%; width:${Math.min(100, usedPercent)}%; background:${barColor}; border-radius:999px; transition: width 0.3s ease;"></div>
-            </div>
-            ${usedPercent >= 90 ? '<div style="margin-top:6px; font-size:0.78rem; color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> Malapit na o naabot na ang limitasyon ng iyong plan — mag-upgrade o mag-archive ng lumang records.</div>' : ''}
-        `;
-        usageBox.style.display = 'block';
-    } catch (err) {
-        // Hindi kritikal na feature ang usage indicator — itago na lang
-        // kung sakaling mabigo ang tawag (offline, atbp.).
-        usageBox.style.display = 'none';
-    }
-}
-
 async function captureQuickPhoto() {
     try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
@@ -1588,24 +1751,6 @@ async function captureQuickPhoto() {
     } catch (err) {
         return null;
     }
-}
-
-// --------------------------------------------------------------
-// cancelPendingUnlockOtp — tinatawag ito tuwing kinansela ng cashier
-// ang isang unlock/demo/theme/bundle request (sa OTP-entry step mismo,
-// o habang naghihintay pa ng admin approval), para agad ma-alis sa
-// RELAY ang pending entry (kasama ang otp-code at countdown/timer
-// nito sa Admin Panel) sa halip na hintayin itong mag-expire nang
-// mag-isa. "Fire and forget" lang ito — hindi na kailangang antayin
-// o pansinin pa ang resulta nito ng caller.
-// --------------------------------------------------------------
-function cancelPendingUnlockOtp({ featureId, featureIds } = {}) {
-    if (!featureId && !(Array.isArray(featureIds) && featureIds.length)) return;
-    authFetch(`${API_URL}/features/cancel-unlock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(featureIds ? { featureIds } : { featureId })
-    }).catch(() => { /* housekeeping lang ito — hindi kritikal kung mabigo */ });
 }
 
 async function pollUntilApproved(url, body) {
@@ -1719,20 +1864,14 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
             return confirmRes.json();
         }
     });
-    if (!confirmData) {
-        cancelPendingUnlockOtp({ featureId });
-        return false;
-    }
+    if (!confirmData) return false;
 
     try {
         if (confirmData.pending) {
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, { featureId, otp: confirmData.otp, username: requestingUsername, ...extraRequestBody });
         }
 
-        if (confirmData.cancelled) {
-            cancelPendingUnlockOtp({ featureId });
-            return false;
-        }
+        if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
             // Inline retry feedback already handled this — no extra popup.
@@ -1770,22 +1909,22 @@ async function promptCloudBackupSubscription() {
         const tierButtons = tierKeys.map(key => {
             const plan = CLOUD_BACKUP_PLANS_UI[key];
             const active = key === selectedTier;
-            return `<button type="button" class="cb-tier-btn${active ? ' active' : ''}" data-tier="${key}">` +
-                `<div class="cb-tier-name">${plan.name}</div>` +
-                `<div class="cb-tier-tagline">${plan.tagline}</div>` +
-                `<div class="cb-tier-price">₱${plan.price[selectedCycle]}<span class="cb-tier-price-unit"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+            return `<button type="button" class="cb-tier-btn" data-tier="${key}" style="flex:1;text-align:left;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
+                `<div style="font-weight:700;font-size:0.9rem;color:#0f172a;">${plan.name}</div>` +
+                `<div style="font-size:0.72rem;color:#64748b;margin-top:2px;">${plan.tagline}</div>` +
+                `<div style="font-size:0.95rem;font-weight:700;color:#2563eb;margin-top:6px;">₱${plan.price[selectedCycle]}<span style="font-size:0.68rem;color:#94a3b8;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
                 `</button>`;
         }).join('');
 
         const cycleButtons = ['monthly','yearly'].map(cycle => {
             const active = cycle === selectedCycle;
-            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+            return `<button type="button" class="cb-cycle-btn" data-cycle="${cycle}" style="flex:1;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;color:${active ? '#2563eb' : '#334155'};">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
 
-        return `<div class="cb-modal-body">
-            <p class="cb-modal-hint">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
-            <div class="cb-cycle-row">${cycleButtons}</div>
-            <div class="cb-tier-row">${tierButtons}</div>
+        return `<div style="text-align:left;">
+            <p style="font-size:0.8rem;color:#64748b;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
+            <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
+            <div style="display:flex;">${tierButtons}</div>
         </div>`;
     };
 
@@ -1850,20 +1989,20 @@ async function showUpgradeTiersModal() {
         const effectivePrice = (typeof t.effectiveBundlePrice ==='number') ? t.effectiveBundlePrice : t.bundlePrice;
         const showOriginalStrike = effectivePrice < t.bundlePrice;
         return (
-        `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}">` +
-            `<div class="uw-tier-row">` +
-                `<strong class="uw-tier-name">${escapeHtml(t.name)}</strong>` +
+        `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}" style="display:block;width:100%;text-align:left;border:2px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:8px;background:#fff;cursor:pointer;">` +
+            `<div style="display:flex;justify-content:space-between;align-items:baseline;">` +
+                `<strong style="font-size:0.95rem;">${escapeHtml(t.name)}</strong>` +
                 `<span>` +
-                    (showOriginalStrike ? `<span class="uw-tier-price-strike">₱${t.bundlePrice}</span>` :'') +
-                    `<span class="uw-tier-price">₱${effectivePrice}</span>` +
+                    (showOriginalStrike ? `<span style="font-size:0.78rem;color:#94a3b8;text-decoration:line-through;margin-right:4px;">₱${t.bundlePrice}</span>` :'') +
+                    `<span style="font-size:0.95rem;font-weight:700;color:#2563eb;">₱${effectivePrice}</span>` +
                 `</span>` +
             `</div>` +
-            `<div class="uw-tier-desc">${escapeHtml(t.description ||'')}</div>` +
+            `<div style="font-size:0.78rem;color:#94a3b8;margin-top:2px;">${escapeHtml(t.description ||'')}</div>` +
             (showOriginalStrike
-                ? `<div class="uw-tier-note">Price for the remaining locked features only (you already purchased some separately)</div>`
+                ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">Price for the remaining locked features only (you already purchased some separately)</div>`
                 :'') +
             (t.alaCartePrice > effectivePrice
-                ? `<div class="uw-tier-save">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
+                ? `<div style="font-size:0.72rem;color:#16a34a;margin-top:2px;">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
                 :'') +
         `</button>`
         );
@@ -1884,20 +2023,20 @@ async function showUpgradeTiersModal() {
         .map(cat => {
             const items = featuresByCategory[cat];
             const rowsHtml = items.map(f => (
-                `<label class="uw-feature-row">` +
-                    `<input type="checkbox" class="uw-feature-check" data-feature-id="${f.id}">` +
-                    `<span class="uw-feature-body">` +
-                        `<span class="uw-feature-name">${escapeHtml(f.name)}</span>` +
-                        (f.description ? `<span class="uw-feature-desc">${escapeHtml(f.description)}</span>` :'') +
+                `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:0.85rem;cursor:pointer;">` +
+                    `<input type="checkbox" class="uw-feature-check" data-feature-id="${f.id}" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;">` +
+                    `<span style="flex:1;">` +
+                        `<span style="display:block;">${escapeHtml(f.name)}</span>` +
+                        (f.description ? `<span style="display:block;font-size:0.72rem;color:#94a3b8;margin-top:2px;line-height:1.4;">${escapeHtml(f.description)}</span>` :'') +
                     `</span>` +
-                    `<span class="uw-feature-price">₱${f.price}</span>` +
+                    `<span style="color:#64748b;flex-shrink:0;">₱${f.price}</span>` +
                 `</label>`
             )).join('');
             return (
-                `<details class="uw-category-group">` +
-                    `<summary class="uw-category-summary">` +
+                `<details class="uw-category-group" style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden;background:#fff;">` +
+                    `<summary style="cursor:pointer;padding:9px 12px;font-weight:600;font-size:0.82rem;color:#334155;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;">` +
                         `<span>${escapeHtml(ALA_CARTE_CATEGORY_LABELS[cat] || cat)}</span>` +
-                        `<span class="uw-category-count">${items.length} item${items.length > 1 ?'s' :''}</span>` +
+                        `<span style="font-size:0.72rem;color:#94a3b8;font-weight:500;">${items.length} item${items.length > 1 ?'s' :''}</span>` +
                     `</summary>` +
                     `<div>${rowsHtml}</div>` +
                 `</details>`
@@ -1908,17 +2047,17 @@ async function showUpgradeTiersModal() {
         title:'✨ Upgrade Options',
         width: 480,
         html:
-            `<div class="uw-modal-body">` +
-                `<p class="uw-modal-hint">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
-                `<div class="uw-section-label">Complete Packages</div>` +
+            `<div style="text-align:left;max-height:60vh;overflow-y:auto;">` +
+                `<p style="font-size:0.8rem;color:#94a3b8;margin:0 0 10px;">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
+                `<div style="font-weight:600;font-size:0.82rem;margin-bottom:6px;color:#334155;">Complete Packages</div>` +
                 `<div id="uw-tier-list">${tierCardsHtml}</div>` +
-                `<div class="uw-section-label uw-section-label-spaced">Or Select Individual Features</div>` +
-                `<p class="uw-alacarte-hint">Individual selections are billed at full à la carte price. Bundle discounts apply only to the complete packages above, since a custom, feature-by-feature selection is not a package purchase.</p>` +
+                `<div style="font-weight:600;font-size:0.82rem;margin:14px 0 4px;color:#334155;">Or Select Individual Features</div>` +
+                `<p style="font-size:0.72rem;color:#94a3b8;margin:0 0 8px;line-height:1.4;">Individual selections are billed at full à la carte price. Bundle discounts apply only to the complete packages above, since a custom, feature-by-feature selection is not a package purchase.</p>` +
                 `<div id="uw-feature-list">${alaCarteHtml}</div>` +
             `</div>` +
-            `<div class="uw-total-bar">` +
-                `<span class="uw-total-label">Total:</span>` +
-                `<span id="uw-total-price" class="uw-total-price">₱0</span>` +
+            `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:1px solid #e2e8f0;">` +
+                `<span style="font-size:0.85rem;color:#334155;">Total:</span>` +
+                `<span id="uw-total-price" style="font-size:1.1rem;font-weight:700;color:#2563eb;">₱0</span>` +
             `</div>`,
         showCancelButton: true,
         confirmButtonText:'Upgrade Now',
@@ -1963,7 +2102,8 @@ async function showUpgradeTiersModal() {
                     });
 
                     tierButtons.forEach(b => {
-                        b.classList.toggle('selected', b.getAttribute('data-tier-id') === selectedTierId);
+                        b.style.borderColor = (b.getAttribute('data-tier-id') === selectedTierId) ?'#2563eb' :'#e2e8f0';
+                        b.style.background = (b.getAttribute('data-tier-id') === selectedTierId) ?'#eff6ff' :'#fff';
                     });
                     renderTotal();
                 });
@@ -1980,7 +2120,7 @@ async function showUpgradeTiersModal() {
                     }
 
                     selectedTierId = null;
-                    tierButtons.forEach(b => b.classList.remove('selected'));
+                    tierButtons.forEach(b => { b.style.borderColor ='#e2e8f0'; b.style.background ='#fff'; });
                     renderTotal();
                 });
             });
@@ -2086,20 +2226,14 @@ async function requestBulkUnlock(featureIds, tierId) {
             return confirmRes.json();
         }
     });
-    if (!confirmData) {
-        cancelPendingUnlockOtp({ featureIds });
-        return false;
-    }
+    if (!confirmData) return false;
 
     try {
         if (confirmData.pending) {
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, { featureIds, otp: confirmData.otp, username: requestingUsername });
         }
 
-        if (confirmData.cancelled) {
-            cancelPendingUnlockOtp({ featureIds });
-            return false;
-        }
+        if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
             // Inline retry feedback already handled this — no extra popup.
@@ -2507,20 +2641,14 @@ async function promptDemoMode() {
             return confirmRes.json();
         }
     });
-    if (!confirmData) {
-        cancelPendingUnlockOtp({ featureId: '__demo__' });
-        return false;
-    }
+    if (!confirmData) return false;
 
     try {
         if (confirmData.pending) {
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, { otp: confirmData.otp, username: requestingUsername });
         }
 
-        if (confirmData.cancelled) {
-            cancelPendingUnlockOtp({ featureId: '__demo__' });
-            return false;
-        }
+        if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
             // Inline retry feedback already handled this — no extra popup.
@@ -6823,6 +6951,8 @@ function onTerminalSearchInput() {
 
 function renderTerminalProducts() {
 
+    hideProductImagePeek();
+
     const searchBox = document.getElementById('terminal-search');
     const searchString = searchBox ? searchBox.value.toLowerCase() :'';
     const gridOutput = document.getElementById('terminal-grid-output');
@@ -6867,24 +6997,41 @@ function renderTerminalProducts() {
 
                 card.innerHTML = `
                     ${cartBadgeHtml}
-                    <div class="t-prod-icon" title="Tap to add">
-                        ${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}
-                        <button type="button" class="t-prod-eye-btn" title="View product details" aria-label="View product details"><i class="fa-solid fa-eye"></i></button>
-                    </div>
-                    <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
-                    <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
-                    <div class="t-prod-stock">Stock: ${availableStock}</div>
+                    <div class="t-prod-icon" title="Tap to add • Long-press for details">${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}</div>
+                    <h4${p.image ? ' title="Hold or hover to view full image"' : ''}>${escapeHtml(p.name ||'Unnamed Product')}</h4>
+                    <div class="t-prod-price"${p.image ? ' title="Hold or hover to view full image"' : ''}>₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
+                    <div class="t-prod-stock"${p.image ? ' title="Hold or hover to view full image"' : ''}>Stock: ${availableStock}</div>
                 `;
                 card.onclick = () => addItemToCart(p);
                 attachInstantTapFeedback(card, { hapticMs: 12 });
+                const prodIconEl = card.querySelector('.t-prod-icon');
+                attachLongPress(prodIconEl, () => showProductDetails(p.code), 800);
 
-                const eyeBtnEl = card.querySelector('.t-prod-eye-btn');
-                if (eyeBtnEl) {
-                    eyeBtnEl.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        showProductDetails(p.code);
+                if (p.image) {
+
+                    const previewTargets = [
+                        card.querySelector('h4'),
+                        card.querySelector('.t-prod-price'),
+                        card.querySelector('.t-prod-stock')
+                    ];
+                    previewTargets.forEach(prodInfoEl => {
+                        if (!prodInfoEl) return;
+
+                        attachHoldPreview(
+                            prodInfoEl,
+                            () => showProductImagePeek(prodIconEl, p),
+                            () => hideProductImagePeek(),
+                            1000
+                        );
+
+                        attachHoverPreview(
+                            prodInfoEl,
+                            () => showProductImagePeek(prodIconEl, p),
+                            () => hideProductImagePeek(),
+                            1000,
+                            p.code
+                        );
                     });
-                    attachInstantTapFeedback(eyeBtnEl, { hapticMs: 10 });
                 }
 
                 fragment.appendChild(card);
@@ -16144,9 +16291,6 @@ async function runCloudBackupSync() {
             if (statusBox) {
                 statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
             }
-            // I-refresh agad ang "X MB of Y MB used" indicator dahil
-            // tumaas na ang na-consume sa RELAY matapos ang bagong sync.
-            refreshCloudBackupUsage();
             Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
         } else {
             if (statusBox) {
