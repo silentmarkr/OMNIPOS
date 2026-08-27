@@ -1,92 +1,14 @@
-[2026-08-27 05:56:16] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-27 05:56:17] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-27 15:56:15] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-27 15:56:16] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-./start.sh: line 138: 28825 Hangup                     node server.js
-[2026-08-27 05:56:20] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+./start.sh: line 138: 12160 Hangup                     node server.js
+[2026-08-27 15:56:19] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-⚠️  Could not reach Relay for auto-restore check: This operation was aborted
-⚠️  Could not reach Relay for auto-restore check: This operation was aborted
-⚠️  Omni Search Images (job f9b68a96f0a8cea5eb7b967436ab0660): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
-Omni Search Images fetch error for CELL036 (https://media.secure-mobiles.com/cpw/Samsung-Galaxy-Z-Flip7/keyvisual-b7-mobile.png): Error: Nagbalik ng HTTP 403 ang image host.
-    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2117:35)
-    at Object.onceWrapper (node:events:631:12)
-    at ClientRequest.emit (node:events:509:20)
-    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
-    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
-    at TLSSocket.socketOnData (node:_http_client:647:22)
-    at TLSSocket.emit (node:events:509:20)
-    at addChunk (node:internal/streams/readable:568:12)
-    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
-    at Readable.push (node:internal/streams/readable:399:5)
-    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
-Omni Search Images fetch error for CELL045 (https://cdn.jiostore.online/v2/jmd-asp/jdprod/wrkr/products/pictures/item/free/original/4nVs9QYvmy-redmi-note-14-5g-494493421-i-1-1200wx1200h.jpeg): Error: Nag-timeout habang kinukuha ang image.
-    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2138:49)
-    at ClientRequest.emit (node:events:509:20)
-    at TLSSocket.emitRequestTimeout (node:_http_client:961:9)
-    at Object.onceWrapper (node:events:630:28)
-    at TLSSocket.emit (node:events:521:24)
-    at Socket._onTimeout (node:net:740:8)
-    at listOnTimeout (node:internal/timers:605:17)
-    at process.processTimers (node:internal/timers:541:7)
-⚠️  Omni Search Images (job 57962d872e47f27e83027bb81831213a): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
-⚠️  Omni Search Images (job acf81f0d173b9ef8da95a6409fb4ca04): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
-Omni Search Images error for CELL028: Error: All free image search providers failed or returned nothing for "Apple iPhone 17 Pro 256GB product photo". (DuckDuckGo: fetch failed | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-Omni Search Images error for CELL029: Error: All free image search providers failed or returned nothing for "Apple iPhone 17 Plus 256GB product photo". (DuckDuckGo: fetch failed | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-Omni Search Images error for CELL033: Error: All free image search providers failed or returned nothing for "Samsung Galaxy S26 Plus 256GB product photo". (DuckDuckGo: This operation was aborted | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-Omni Search Images error for CELL034: Error: All free image search providers failed or returned nothing for "Samsung Galaxy S25 FE 256GB product photo". (DuckDuckGo: fetch failed | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-Omni Search Images error for CELL035: Error: All free image search providers failed or returned nothing for "Samsung Galaxy Z Fold7 512GB product photo". (DuckDuckGo: fetch failed | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-Omni Search Images error for CELL036: Error: All free image search providers failed or returned nothing for "Samsung Galaxy Z Flip7 256GB product photo". (DuckDuckGo: fetch failed | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-Omni Search Images error for CELL037: Error: All free image search providers failed or returned nothing for "Samsung Galaxy A36 5G 128GB product photo". (DuckDuckGo: fetch failed | Bing (free): fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
-    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2367:17)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2539:47) {
-  statusCode: 502
-}
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed

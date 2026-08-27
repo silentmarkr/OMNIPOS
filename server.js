@@ -229,7 +229,7 @@ app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
     }
 } : undefined));
 
-app.use(express.json({ limit:'1gb' }));
+app.use(express.json({ limit:'5gb' }));
 
 // Kapag na-reject ng body-parser yung request (halimbawa: sobrang laki ng
 // backup file na ipinadala, o sira ang JSON), default na plain-text/HTML na
@@ -2155,6 +2155,23 @@ async function imageSearchProviderFetchWithTimeout(url, options = {}, timeoutMs 
     }
 }
 
+// Pinapangunahan ang mga resultang may alam na width x height gamit ang
+// pinakamalaking resolution (area) — mas malaking resolution, mas malinaw
+// karaniwan kaysa sa maliliit/naka-compress na thumbnail o watermark-heavy
+// na resellter banner. Yung mga walang width/height info (di alam ang
+// resolution, hal. Yandex) ay inilalagay sa hulihan, pero sa parehong
+// pagkakasunod-sunod nang huwag masira ang orihinal na resulta ng provider.
+function sortImageResultsByResolution(results) {
+    const withDims = [];
+    const withoutDims = [];
+    (results || []).forEach((r) => {
+        if (Number(r.width) > 0 && Number(r.height) > 0) withDims.push(r);
+        else withoutDims.push(r);
+    });
+    withDims.sort((a, b) => (Number(b.width) * Number(b.height)) - (Number(a.width) * Number(a.height)));
+    return [...withDims, ...withoutDims];
+}
+
 async function searchProductImages(query) {
     const q = (query || '').toString().trim().slice(0, 150);
     if (!q) {
@@ -2357,7 +2374,7 @@ async function omniFreeImageSearch(query, timeoutMs = 10000) {
     for (const provider of OMNI_FREE_IMAGE_PROVIDERS) {
         try {
             const results = await provider.run(q, timeoutMs);
-            if (results && results.length) return { provider: provider.name, results };
+            if (results && results.length) return { provider: provider.name, results: sortImageResultsByResolution(results) };
         } catch (err) {
             // Self-healing fallback: this free provider failed or got blocked —
             // move on to the next one in the cascade automatically.
@@ -2902,6 +2919,94 @@ function isVersionNewer(candidate, current) {
 
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
 
+// ============================================================
+// CLOUD BACKUP — SUBSCRIPTION PLANS (Basic / Standard / Pro)
+// ============================================================
+// This changed from a ONE-TIME payment (₱1,499 lifetime) to a
+// monthly/yearly subscription. Reason: Cloud Backup uses RELAY's
+// shared Postgres instance, which has an ONGOING hosting cost (not
+// one-time) — so revenue needs to be recurring too, so the developer
+// doesn't end up in the red over time as subscribers/data grow.
+//
+// Pricing (PHP) — this isn't a random number: it's based on the
+// REAL cost of a shared managed-Postgres + web-service hosting setup
+// (e.g. Render/Neon: typically ₱750–₱1,450/month TOTAL for ALL
+// clients combined, not per-client — since only one Postgres instance
+// is used for everyone, see RELAY/server.js). In other words, even
+// with just a handful of subscribers, the cost is already covered,
+// and the rest is profit — so this pricing is realistic/won't put you
+// at a loss.
+//
+// NOTE: these PLANS must be MIRRORED exactly in RELAY/server.js
+// (FEATURE_CATALOG_BASE / CLOUD_BACKUP_PLANS there) — RELAY is the
+// GROUND TRUTH for pricing (not just whatever the client claims),
+// since that's where it's ultimately re-verified.
+const CLOUD_BACKUP_PLANS = {
+    basic: {
+        id: 'basic',
+        name: 'Cloud Backup — Basic',
+        tagline: 'Once-a-day automatic backup with a 30-day history — perfect for a single small store.',
+        autoBackupIntervalMs: 24 * 60 * 60 * 1000, // 24 hours
+        retentionDays: 30,
+        // How much backed-up data (JSON payload size) this tier is
+        // allowed to hold in the cloud. This mirror is DISPLAY ONLY —
+        // RELAY/server.js CLOUD_BACKUP_PLANS is what actually enforces
+        // the limit on upload (see /relay/cloud-backup/upload there).
+        storageLimitBytes: 250 * 1024 * 1024, // 250 MB
+        features: [
+            'Automatic cloud backup once every 24 hours',
+            '30-day backup history sa cloud',
+            'Unlimited manual/on-demand backup at restore',
+            'Up to 250 MB of backup data'
+        ],
+        price: { monthly: 129, yearly: 1290 } // yearly ≈ 2 buwan libre kumpara sa monthly
+    },
+    standard: {
+        id: 'standard',
+        name: 'Cloud Backup — Standard',
+        tagline: 'Backs up every 6 hours with a longer 90-day history and priority restore.',
+        autoBackupIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
+        retentionDays: 90,
+        storageLimitBytes: 1024 * 1024 * 1024, // 1 GB
+        features: [
+            'Everything in Basic',
+            'Automatic cloud backup every 6 hours',
+            '90-day backup history sa cloud',
+            'Priority restore queue',
+            'Up to 1 GB of backup data'
+        ],
+        price: { monthly: 249, yearly: 2490 }
+    },
+    pro: {
+        id: 'pro',
+        name: 'Cloud Backup — Pro',
+        tagline: 'Near real-time protection built for busy or multi-branch stores.',
+        autoBackupIntervalMs: 60 * 60 * 1000, // 1 hour ("near real-time")
+        retentionDays: 365,
+        storageLimitBytes: 5 * 1024 * 1024 * 1024, // 5 GB
+        features: [
+            'Everything in Standard',
+            'Automatic cloud backup every 1 hour (near real-time)',
+            '365-day backup history + unlimited version count',
+            'Multi-Branch cloud consolidation included',
+            'Priority support & faster OTP approval turnaround',
+            'Up to 5 GB of backup data'
+        ],
+        price: { monthly: 399, yearly: 3990 }
+    }
+};
+
+const CLOUD_BACKUP_BILLING_CYCLES = {
+    monthly: { label: 'Monthly', days: 30 },
+    yearly: { label: 'Yearly', days: 365 }
+};
+
+function getCloudBackupPlanPrice(tier, billingCycle) {
+    const plan = CLOUD_BACKUP_PLANS[tier];
+    if (!plan || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) return null;
+    return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
+}
+
 const FEATURE_CATALOG = {
 
     ocean: { name:'Ocean Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
@@ -2922,7 +3027,20 @@ const FEATURE_CATALOG = {
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
     multi_branch: { name:'Multi-Branch Dashboard', price: 999, category:'module', description:'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.' },
 
-    [CLOUD_BACKUP_FEATURE_ID]: { name:'Cloud Backup (Postgres)', price: 1499, category:'cloud-service', description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost.' },
+    [CLOUD_BACKUP_FEATURE_ID]: {
+        name:'Cloud Backup (Postgres)',
+        category:'cloud-service',
+        isSubscription: true,
+        // There's no single fixed `price` here anymore — it's a
+        // subscription now (Basic/Standard/Pro, monthly or yearly). The
+        // `price` field below is just a "starting at" value, for generic
+        // displays that still expect a single number (e.g. legacy admin
+        // views).
+        price: CLOUD_BACKUP_PLANS.basic.price.monthly,
+        plans: CLOUD_BACKUP_PLANS,
+        billingCycles: CLOUD_BACKUP_BILLING_CYCLES,
+        description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost. Now offered as a Basic/Standard/Pro subscription (monthly or yearly) instead of a one-time purchase — pick a plan to see full pricing.'
+    },
 };
 
 const DEMO_FEATURE_ID ='__demo__';
@@ -2968,9 +3086,14 @@ const UPGRADE_TIERS = [
     {
         id:'pro',
         name:'Pro Upgrade (Complete)',
-        description:'Every module, every Pro Theme, AND Cloud Backup — nothing left locked. The complete, all-inclusive upgrade.',
+        // NOTE: Cloud Backup is no longer included here — it's a
+        // subscription now (Basic/Standard/Pro monthly/yearly), so it can
+        // no longer be part of a ONE-TIME bundle price. This bundle
+        // contains all OTHER modules/themes (perpetual/one-time). Cloud
+        // Backup is purchased SEPARATELY as its own subscription.
+        description:'Every other module and every Pro Theme — nothing left locked, except Cloud Backup which is billed separately as its own subscription (see the Cloud Backup plans).',
 
-        featureIds: Object.keys(FEATURE_CATALOG),
+        featureIds: Object.keys(FEATURE_CATALOG).filter(id => id !== CLOUD_BACKUP_FEATURE_ID),
 
         bundlePrice: 6499
     }
@@ -2992,7 +3115,17 @@ function readFeatureUnlocks() {
 
         devicePermit: raw.devicePermit || null,
 
-        relayAuthorized: raw.relayAuthorized === true
+        relayAuthorized: raw.relayAuthorized === true,
+
+        // This is metadata only (which tier/billing cycle was chosen) —
+        // the ACTUAL enforcement of access (unlocked or expired) is still
+        // the signed token in `tokens.cloud_backup` (verifyUnlockToken,
+        // with expiresAt). So even if a user directly edits this field on
+        // disk, it has no effect on actual access — it's display/
+        // scheduling purposes only.
+        cloudBackupPlan: (raw.cloudBackupPlan && typeof raw.cloudBackupPlan ==='object')
+            ? { tier: raw.cloudBackupPlan.tier || null, billingCycle: raw.cloudBackupPlan.billingCycle || null, activatedAt: raw.cloudBackupPlan.activatedAt || null }
+            : null
     };
 }
 
@@ -3858,32 +3991,84 @@ const cloudBackupStatus = {
     lastAttemptAt: null,
     lastSuccessAt: null,
     lastError: null,
-    lastTotalRecords: null
+    lastTotalRecords: null,
+    lastTrigger: null // 'manual' | 'automatic'
 };
 
+// --------------------------------------------------------------
+// getCloudBackupSubscriptionInfo — combines (1) the ACTUAL signed
+// token (`tokens.cloud_backup`, with expiresAt — this is what actually
+// governs access) and (2) the tier/billingCycle metadata
+// (`cloudBackupPlan`, display + scheduling only) to figure out WHICH
+// plan the auto-backup scheduler below should use.
+// --------------------------------------------------------------
+function getCloudBackupSubscriptionInfo() {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const token = data.tokens[CLOUD_BACKUP_FEATURE_ID];
+    const active = !!(token && verifyUnlockToken(token, installationId, CLOUD_BACKUP_FEATURE_ID));
+    const expiresAt = (token && typeof token.payload.expiresAt === 'number') ? token.payload.expiresAt : null; // null = permanent legacy one-time buyer
+    const plan = (data.cloudBackupPlan && CLOUD_BACKUP_PLANS[data.cloudBackupPlan.tier]) ? data.cloudBackupPlan : null;
+    return {
+        active,
+        expiresAt,
+        tier: plan ? plan.tier : (active ? 'basic' : null), // legacy one-time buyers (no recoverable tier) -> treat as Basic-frequency as a safe default
+        billingCycle: plan ? plan.billingCycle : null,
+        isLegacyLifetime: active && expiresAt === null && !plan
+    };
+}
+
 app.get('/api/cloud-backup/status', (req, res) => {
-    res.json({ success: true, ...cloudBackupStatus });
+    const subscription = getCloudBackupSubscriptionInfo();
+    res.json({ success: true, ...cloudBackupStatus, subscription });
 });
 
-app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
-
-    const { username, password } = req.body || {};
-    const currentUsersForSync = readData(FILE_USERS, []);
-    const currentAdminForSync = currentUsersForSync.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
-    if (!currentAdminForSync || !bcrypt.compareSync(password || '', currentAdminForSync.password)) {
-        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Maling Admin password. Hindi pinahintulutan ang cloud backup.' });
+// --------------------------------------------------------------
+// GET /api/cloud-backup/usage — proxies RELAY's storage-quota usage
+// check (how much of the customer's Basic/Standard/Pro data limit
+// allocation is already consumed), so the frontend can show a
+// "142 MB of 250 MB used" indicator. RELAY (not this file) is the
+// ground truth for both the tier and the storageLimitBytes.
+// --------------------------------------------------------------
+app.get('/api/cloud-backup/usage', requireFeature('cloud_backup'), async (req, res) => {
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
     }
+    try {
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/usage?installationId=${encodeURIComponent(installationId)}`, {
+            headers: { 'x-relay-key': RELAY_API_KEY }
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        return res.status(relayRes.status).json(relayData);
+    } catch (err) {
+        return res.status(502).json({ success: false, message: 'Could not reach RELAY to check the Cloud Backup data usage.' });
+    }
+});
 
+// --------------------------------------------------------------
+// performCloudBackupUpload — the ONE place where the whole database is
+// actually uploaded to RELAY (Postgres). Used by TWO callers: (1) the
+// /api/cloud-backup/sync route below (MANUAL, triggered by the Admin,
+// with password confirmation), and (2) the automatic scheduler (see
+// maybeRunAutomaticCloudBackup()) which runs on its own based on the
+// frequency included in the Cloud Backup plan (Basic = 24h, Standard =
+// 6h, Pro = 1h) — no password prompt since this is an automatic/local
+// trigger, not something a person typed.
+// --------------------------------------------------------------
+async function performCloudBackupUpload(trigger, actorUsername) {
     if (getConnectivityMode() === 'offline') {
-        return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-tap muna ang Online toggle para makapag-backup sa cloud.' });
+        return { success: false, status: 400, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to back up to the cloud.' };
     }
     cloudBackupStatus.state = 'syncing';
     cloudBackupStatus.lastAttemptAt = Date.now();
+    cloudBackupStatus.lastTrigger = trigger;
 
     if (!RELAY_API_KEY) {
         cloudBackupStatus.state = 'error';
-        cloudBackupStatus.lastError = 'Walang RELAY_API_KEY na naka-configure sa .env.';
-        return res.status(500).json({ success: false, message: cloudBackupStatus.lastError });
+        cloudBackupStatus.lastError = 'No RELAY_API_KEY is configured in .env.';
+        return { success: false, status: 500, message: cloudBackupStatus.lastError };
     }
 
     try {
@@ -3908,8 +4093,8 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
 
         if (relayRes.status === 402 || relayData.featureLocked) {
             cloudBackupStatus.state = 'error';
-            cloudBackupStatus.lastError = relayData.message || 'Naka-lock pa ang Cloud Backup feature.';
-            return res.status(402).json(relayData);
+            cloudBackupStatus.lastError = relayData.message || 'The Cloud Backup subscription is still locked/expired.';
+            return { success: false, status: 402, body: relayData };
         }
 
         // BUG FIX: kapag masyado nang malaki ang datos ng store (lumagpas sa
@@ -3921,14 +4106,35 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
         // sa halip na basta "cloud backup failed."
         if (relayRes.status === 413 || relayData.payloadTooLarge) {
             cloudBackupStatus.state = 'error';
-            cloudBackupStatus.lastError = relayData.message || 'Masyado nang malaki ang datos para ma-backup sa cloud.';
-            return res.status(413).json({ success: false, payloadTooLarge: true, message: cloudBackupStatus.lastError });
+            cloudBackupStatus.lastError = relayData.message || 'The data is too large to back up to the cloud.';
+            return { success: false, status: 413, message: cloudBackupStatus.lastError, payloadTooLarge: true };
+        }
+
+        // BUG FIX: distinct from the RAW payload-too-large case above —
+        // this is RELAY telling us the data is under the raw 1GB limit,
+        // but still OVER the customer's PLAN's data limit allocation
+        // (Basic/Standard/Pro, see CLOUD_BACKUP_PLANS). Surfaced as its
+        // own flag (storageQuotaExceeded) with the actual used/limit
+        // bytes, so the frontend can show a clear "upgrade your plan"
+        // message instead of a generic failure.
+        if (relayData.storageQuotaExceeded) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'This backup exceeds your plan\'s data limit.';
+            return {
+                success: false,
+                status: 413,
+                message: cloudBackupStatus.lastError,
+                storageQuotaExceeded: true,
+                storageUsedBytes: relayData.storageUsedBytes,
+                storageLimitBytes: relayData.storageLimitBytes,
+                tier: relayData.tier
+            };
         }
 
         if (!relayData.success) {
             cloudBackupStatus.state = 'error';
-            cloudBackupStatus.lastError = relayData.message || 'Tinanggihan ng RELAY ang cloud backup upload.';
-            return res.status(502).json({ success: false, message: cloudBackupStatus.lastError });
+            cloudBackupStatus.lastError = relayData.message || 'RELAY rejected the cloud backup upload.';
+            return { success: false, status: 502, message: cloudBackupStatus.lastError };
         }
 
         cloudBackupStatus.state = 'success';
@@ -3936,22 +4142,68 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
         cloudBackupStatus.lastError = null;
         cloudBackupStatus.lastTotalRecords = backupPayload.totalRecords;
 
-        logAction((req.authUser && req.authUser.username) || 'Unknown', `Cloud Backup: synced ${backupPayload.moduleNames.length} modules (${backupPayload.totalRecords} records) to cloud.`);
+        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}): synced ${backupPayload.moduleNames.length} modules (${backupPayload.totalRecords} records) to cloud.`);
 
-        res.json({
+        return {
             success: true,
-            message: 'Matagumpay na na-sync ang database papunta sa cloud (Postgres).',
+            status: 200,
+            message: 'Successfully synced the database to the cloud (Postgres).',
             totalRecords: backupPayload.totalRecords,
             moduleNames: backupPayload.moduleNames,
-            excludedModules: backupPayload.excludedModules
-        });
+            excludedModules: backupPayload.excludedModules,
+            storageUsedBytes: relayData.storageUsedBytes,
+            storageLimitBytes: relayData.storageLimitBytes,
+            tier: relayData.tier
+        };
     } catch (err) {
         cloudBackupStatus.state = 'error';
         cloudBackupStatus.lastError = err.message;
-        console.error('⚠️ CLOUD_BACKUP: hindi na-abot ang relay para sa upload:', err.message);
-        res.status(502).json({ success: false, message: 'Hindi ma-abot ang RELAY para sa cloud backup upload.' });
+        console.error('⚠️ CLOUD_BACKUP: could not reach the relay for upload:', err.message);
+        return { success: false, status: 502, message: 'Could not reach RELAY for the cloud backup upload.' };
     }
+}
+
+app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
+    const { username, password } = req.body || {};
+    const currentUsersForSync = readData(FILE_USERS, []);
+    const currentAdminForSync = currentUsersForSync.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
+    if (!currentAdminForSync || !bcrypt.compareSync(password || '', currentAdminForSync.password)) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Cloud backup was not authorized.' });
+    }
+
+    const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username);
+    if (result.body) return res.status(result.status).json(result.body);
+    return res.status(result.status).json(result);
 });
+
+// --------------------------------------------------------------
+// AUTOMATIC CLOUD BACKUP SCHEDULER — this is the actual "auto backup
+// every X hours" promise of each Cloud Backup plan (Basic 24h,
+// Standard 6h, Pro 1h). Instead of a separate setInterval per tier
+// (which would need to be restarted whenever the user upgrades/
+// downgrades their plan), this is simpler/more robust: it ticks every
+// 15 minutes ("heartbeat") and just checks whether the CURRENT plan's
+// interval has ELAPSED since the last successful backup.
+// --------------------------------------------------------------
+const AUTO_CLOUD_BACKUP_HEARTBEAT_MS = 15 * 60 * 1000;
+
+async function maybeRunAutomaticCloudBackup() {
+    const subscription = getCloudBackupSubscriptionInfo();
+    if (!subscription.active) return; // no active subscription/it has expired — nothing to do
+    if (getConnectivityMode() === 'offline') return;
+    if (!(await isInternetLikelyUp())) return;
+
+    const plan = CLOUD_BACKUP_PLANS[subscription.tier] || CLOUD_BACKUP_PLANS.basic;
+    const dueAt = (cloudBackupStatus.lastSuccessAt || 0) + plan.autoBackupIntervalMs;
+    if (Date.now() < dueAt) return; // not due yet
+
+    await performCloudBackupUpload('automatic', null);
+}
+
+if (!AUTO_BACKUP_DISABLED) {
+    setTimeout(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, 2 * 60 * 1000);
+    setInterval(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, AUTO_CLOUD_BACKUP_HEARTBEAT_MS).unref();
+}
 
 function mergeRestoredUsers(restoredUsers) {
     const currentUsers = readData(FILE_USERS, []);
@@ -4087,18 +4339,24 @@ function requireFeature(featureId) {
         if (unlockedIds.includes(featureId)) return next();
         const feature = FEATURE_CATALOG[featureId];
         const attemptCount = recordLockedAttempt();
+        const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
         return res.status(402).json({
             success: false,
             featureLocked: true,
             featureId,
             featureName: feature ? feature.name : featureId,
-            price: feature ? feature.price : null,
+            price: (feature && !feature.isSubscription) ? feature.price : null,
+            isSubscription: !!(feature && feature.isSubscription),
+            plans: (feature && feature.isSubscription) ? feature.plans : undefined,
+            billingCycles: (feature && feature.isSubscription) ? feature.billingCycles : undefined,
             description: feature ? feature.description : null,
 
-            showUpgradeTiers: featureId === CLOUD_BACKUP_FEATURE_ID
+            showUpgradeTiers: isCloudBackup
                 ? false
                 : (attemptCount > 0 && attemptCount % 2 === 0),
-            message: `"${feature ? feature.name : featureId}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
+            message: isCloudBackup
+                ? `"${feature.name}" is a subscription feature (Basic/Standard/Pro, monthly or yearly) and is currently inactive or expired. Please choose a plan to continue.`
+                : `"${feature ? feature.name : featureId}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
         });
     };
 }
@@ -4312,7 +4570,7 @@ function relayRejectionResponse(res, relayData, fallbackMessage) {
 }
 
 app.post('/api/features/request-unlock', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
-    const { featureId, username, photo } = req.body;
+    const { featureId, username, photo, tier, billingCycle } = req.body;
     const feature = FEATURE_CATALOG[featureId];
 
     if (!feature) {
@@ -4322,10 +4580,29 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
 
+    const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
+    let resolvedPrice = feature.price;
+
+    if (isCloudBackup) {
+        // This is a subscription — a tier + billing cycle must be chosen
+        // before requesting an OTP. RELAY still makes the final call on
+        // the ACTUAL price (ground truth); here, we just validate early so
+        // the user is told right away if their selection is invalid,
+        // instead of waiting for a round-trip.
+        resolvedPrice = getCloudBackupPlanPrice(tier, billingCycle);
+        if (!CLOUD_BACKUP_PLANS[tier] || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle] || resolvedPrice === null) {
+            return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
+        }
+    }
+
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
 
-    if (data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
+    // For cloud_backup, we should NOT shortcut even if the old token is
+    // still "unlocked" — this is a subscription, so it must be possible
+    // to RENEW or UPGRADE/DOWNGRADE the plan even while the current one
+    // is still active (e.g. just before it expires).
+    if (!isCloudBackup && data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
         return res.json({ success: true, alreadyUnlocked: true, message: `Naka-unlock na ang ${feature.name}.` });
     }
 
@@ -4337,8 +4614,10 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
             body: JSON.stringify({
                 installationId,
                 featureId,
-                featureName: feature.name,
-                price: feature.price,
+                featureName: isCloudBackup ? CLOUD_BACKUP_PLANS[tier].name : feature.name,
+                price: resolvedPrice,
+                tier: isCloudBackup ? tier : undefined,
+                billingCycle: isCloudBackup ? billingCycle : undefined,
                 username: username ||'Unknown',
                 storeName: (receiptSettings && receiptSettings.storeName) || null,
                 photo: photo || null
@@ -4350,7 +4629,9 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
             return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
         }
 
-        logAction(username ||'Unknown', `Humiling ng OTP para i-unlock ang ${feature.name}`);
+        logAction(username ||'Unknown', isCloudBackup
+            ? `Requested an OTP to subscribe to Cloud Backup (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
+            : `Requested an OTP to unlock ${feature.name}`);
         res.json({ success: true, message:'The unlock request has been sent. Please wait for the confirmation code from the developer/owner.' });
     } catch (err) {
         console.error('Hindi ma-abot ang Unlock Relay:', err);
@@ -4359,8 +4640,9 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
 });
 
 app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120, 10 * 60 * 1000), async (req, res) => {
-    const { featureId, otp, username } = req.body;
+    const { featureId, otp, username, tier, billingCycle } = req.body;
     const feature = FEATURE_CATALOG[featureId];
+    const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
 
     if (!feature) {
         return res.status(400).json({ success: false, message:'Unknown feature.' });
@@ -4397,8 +4679,19 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
         }
 
         data.tokens[featureId] = relayData.token;
+
+        if (isCloudBackup) {
+            // tier/billingCycle is METADATA only (display + so the
+            // auto-backup scheduler knows how often to auto-backup) — the
+            // RELAY-signed token (with expiresAt) is still what actually
+            // enforces whether the subscription is active.
+            const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : tier;
+            const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
+            data.cloudBackupPlan = { tier: confirmedTier || null, billingCycle: confirmedCycle || null, activatedAt: Date.now() };
+        }
+
         writeData(FILE_FEATURE_UNLOCKS, data);
-        logAction(username ||'Unknown', `Na-unlock ang feature: ${feature.name}`);
+        logAction(username ||'Unknown', isCloudBackup ? `Activated/renewed the Cloud Backup subscription (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle})` : `Unlocked the feature: ${feature.name}`);
 
         res.json({ success: true, message: `${feature.name} has been unlocked!`, unlockedFeatureIds: getUnlockedFeatureIds() });
     } catch (err) {
@@ -6076,7 +6369,7 @@ app.post('/api/products/image-search', rateLimit('product-image-search', 20, 10 
         });
     }
     try {
-        const results = await searchProductImages(req.body && req.body.query);
+        const results = sortImageResultsByResolution(await searchProductImages(req.body && req.body.query));
         const nonce = crypto.randomBytes(16).toString('hex');
         const items = new Map();
         results.forEach(r => items.set(r.id, r.imageUrl));

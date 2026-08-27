@@ -410,7 +410,7 @@ function getFullDatabaseSnapshot() {
 
 module.exports = { db, readData, writeData, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
 
-function checkModuleBlobSizes(warnThresholdBytes = 2 * 1024 * 1024) {
+function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {
 
         

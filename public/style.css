@@ -3790,8 +3790,9 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
 }
 
 .pd-photo-box {
-    width: 150px;
-    height: 150px;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 320px;
     border-radius: 14px;
     background: linear-gradient(145deg, #f8fafc, #eef2f7);
     border: 1px solid var(--border-color);
@@ -3807,7 +3808,7 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
 .pd-photo-box img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
 }
 
 .pd-detail-rows {
@@ -9878,38 +9879,71 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):no
     background: transparent !important;
 }
 
-.table-container,
-.table-container * {
-    scrollbar-width: thin !important;
-    scrollbar-color: #cbd5e1 transparent !important;
-    -ms-overflow-style: auto !important;
+/* DESKTOP (mouse/trackpad): horizontal scrollbar ng lahat ng .table-container
+   (Products, Transactions, Barcode Generator, Customers, Debtors, Shift
+   History, User Logs, at lahat ng tables sa Settings) laging VISIBLE at
+   clickable. Ang vertical scrollbar ay palaging HIDDEN, walang bakas. */
+@media (hover: hover) and (pointer: fine) {
+    .table-container,
+    .table-container * {
+        scrollbar-width: thin !important;   /* Firefox: walang per-axis control, thin bar na lang */
+        scrollbar-color: #cbd5e1 transparent !important;
+        -ms-overflow-style: auto !important;
+    }
+
+    .table-container::-webkit-scrollbar,
+    .table-container *::-webkit-scrollbar {
+        background: transparent !important;
+    }
+
+    .table-container::-webkit-scrollbar:vertical,
+    .table-container *::-webkit-scrollbar:vertical {
+        width: 0 !important;
+        display: none !important;
+    }
+
+    .table-container::-webkit-scrollbar:horizontal,
+    .table-container *::-webkit-scrollbar:horizontal {
+        height: 10px !important;
+    }
+
+    .table-container::-webkit-scrollbar-thumb,
+    .table-container *::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1 !important;
+        border-radius: 6px !important;
+        background-clip: padding-box !important;
+    }
+
+    .table-container::-webkit-scrollbar-thumb:hover,
+    .table-container *::-webkit-scrollbar-thumb:hover {
+        background-color: #94a3b8 !important;
+    }
+
+    .table-container::-webkit-scrollbar-track,
+    .table-container *::-webkit-scrollbar-track {
+        background: transparent !important;
+        margin-left: 4px !important;
+        margin-right: 4px !important;
+        border-radius: 4px !important;
+    }
 }
 
-.table-container::-webkit-scrollbar,
-.table-container *::-webkit-scrollbar {
-    width: 0 !important;
-    height: 10px !important;
-    background: transparent !important;
-}
+/* TOUCH (mobile/tablet): hindi ginagalaw, panatilihin ang dati — pareho
+   itinatago ang scrollbars, at ang touch/swipe na ang bahalang mag-show/hide
+   sa horizontal scrollbar gaya ng dati. */
+@media not all and (hover: hover) and (pointer: fine) {
+    .table-container,
+    .table-container * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+    }
 
-.table-container::-webkit-scrollbar-thumb,
-.table-container *::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1 !important;
-    border-radius: 6px !important;
-    background-clip: padding-box !important;
-}
-
-.table-container::-webkit-scrollbar-thumb:hover,
-.table-container *::-webkit-scrollbar-thumb:hover {
-    background-color: #94a3b8 !important;
-}
-
-.table-container::-webkit-scrollbar-track,
-.table-container *::-webkit-scrollbar-track {
-    background: transparent !important;
-    margin-left: 4px !important;
-    margin-right: 4px !important;
-    border-radius: 4px !important;
+    .table-container::-webkit-scrollbar,
+    .table-container *::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        background: transparent !important;
+    }
 }
 
 .header-icon-btn,

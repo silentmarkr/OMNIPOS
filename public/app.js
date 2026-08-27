@@ -1421,9 +1421,28 @@ const PREMIUM_FEATURE_INFO = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
-
-    cloud_backup: { name:'Cloud Backup (Postgres)', price: 1499, description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost.' },
 };
+
+// Cloud Backup is no longer a simple one-time price — it's a
+// subscription now (Basic/Standard/Pro, Monthly/Yearly). This mirrors
+// OMNIPOS/server.js CLOUD_BACKUP_PLANS; the server still makes the
+// final call on the ACTUAL price (ground truth), this is for display only.
+const CLOUD_BACKUP_PLANS_UI = {
+    basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 }, storageLimitBytes: 250 * 1024 * 1024, storageLimitLabel:'250 MB' },
+    standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageLimitBytes: 1024 * 1024 * 1024, storageLimitLabel:'1 GB' },
+    pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageLimitBytes: 5 * 1024 * 1024 * 1024, storageLimitLabel:'5 GB' }
+};
+
+// --------------------------------------------------------------
+// formatBytes — human-readable data size (e.g. "142.3 MB", "1.2 GB"),
+// used by the Cloud Backup data-limit/usage displays below.
+// --------------------------------------------------------------
+function formatBytes(bytes) {
+    if (typeof bytes !== 'number' || isNaN(bytes) || bytes < 0) return '—';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
 
 function guardPremiumFeature(featureId) {
     if (isFeatureUnlockedCached(featureId)) return false;
@@ -1434,8 +1453,7 @@ function guardPremiumFeature(featureId) {
 
 function getCloudBackupUpgrade() {
     if (isFeatureUnlockedCached('cloud_backup')) return false;
-    const info = PREMIUM_FEATURE_INFO.cloud_backup;
-    return promptUnlockFeature('cloud_backup', info.name, info.price, info.description);
+    return promptCloudBackupSubscription();
 }
 
 function updateCloudBackupLockState() {
@@ -1446,6 +1464,78 @@ function updateCloudBackupLockState() {
     if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
     if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
+    if (unlocked) {
+        refreshCloudBackupSubscriptionBadge();
+        refreshCloudBackupUsage();
+    }
+}
+
+// --------------------------------------------------------------
+// refreshCloudBackupSubscriptionBadge — once Cloud Backup is unlocked,
+// this shows in the status box WHICH plan (Basic/Standard/Pro) and
+// billing cycle is active, and WHEN it will expire (or "Lifetime" for
+// a legacy one-time buyer from before).
+// --------------------------------------------------------------
+async function refreshCloudBackupSubscriptionBadge() {
+    const statusBox = document.getElementById('cloud-backup-status');
+    if (!statusBox) return;
+    try {
+        const res = await authFetch(`${API_URL}/cloud-backup/status`);
+        const data = await res.json();
+        const sub = data && data.subscription;
+        if (!sub || !sub.active) return;
+
+        if (sub.isLegacyLifetime) {
+            statusBox.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: Lifetime (one-time purchase — no renewal needed).';
+            return;
+        }
+
+        const planInfo = CLOUD_BACKUP_PLANS_UI[sub.tier] || CLOUD_BACKUP_PLANS_UI.basic;
+        const cycleLabel = sub.billingCycle === 'yearly' ? 'Yearly' : 'Monthly';
+        let expiryText = '';
+        if (sub.expiresAt) {
+            const daysLeft = Math.ceil((sub.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+            const expiryDate = new Date(sub.expiresAt).toLocaleDateString();
+            expiryText = daysLeft <= 7
+                ? ` — <span style="color:#dc2626;font-weight:600;">renews/expires in ${daysLeft} day(s) (${expiryDate})</span>`
+                : ` — renews/expires on ${expiryDate}`;
+        }
+        statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: <strong>${planInfo.name}</strong> (${cycleLabel})${expiryText}`;
+    } catch (err) {
+        // Silently ignore — this isn't critical, it's display only.
+    }
+}
+
+// --------------------------------------------------------------
+// refreshCloudBackupUsage — shows how much of the customer's plan
+// data limit allocation (Basic 250MB / Standard 1GB / Pro 5GB) has
+// already been consumed, as a "142.3 MB of 250 MB used" line + a
+// small progress bar under the Cloud Backup status box.
+// --------------------------------------------------------------
+async function refreshCloudBackupUsage() {
+    const usageBox = document.getElementById('cloud-backup-usage');
+    if (!usageBox) return;
+    try {
+        const res = await authFetch(`${API_URL}/cloud-backup/usage`);
+        const data = await res.json();
+        if (!data || !data.success || typeof data.storageUsedBytes !== 'number' || typeof data.storageLimitBytes !== 'number') {
+            usageBox.style.display = 'none';
+            return;
+        }
+        const percent = Math.min(100, Math.max(0, (data.storageUsedBytes / data.storageLimitBytes) * 100));
+        const barColor = percent >= 90 ? '#dc2626' : (percent >= 70 ? '#f59e0b' : '#16a34a');
+        usageBox.style.display = 'block';
+        usageBox.innerHTML =
+            `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#64748b;margin-bottom:4px;">` +
+                `<span><i class="fa-solid fa-database"></i> Data limit used</span>` +
+                `<span>${formatBytes(data.storageUsedBytes)} of ${formatBytes(data.storageLimitBytes)} (${percent.toFixed(1)}%)</span>` +
+            `</div>` +
+            `<div style="width:100%;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden;">` +
+                `<div style="width:${percent}%;height:100%;background:${barColor};"></div>` +
+            `</div>`;
+    } catch (err) {
+        usageBox.style.display = 'none';
+    }
 }
 
 async function captureQuickPhoto() {
@@ -1515,7 +1605,6 @@ async function pollUntilApproved(url, body) {
 
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
-    const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
     const displayName = featureName || featureId;
     const priceText = price ? `₱${price}` : null;
 
@@ -1534,13 +1623,25 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
     });
     if (!confirmResult.isConfirmed) return false;
 
+    return runUnlockFlow(featureId, displayName, {});
+}
+
+// --------------------------------------------------------------
+// runUnlockFlow — the ONE shared "photo -> request-unlock -> OTP ->
+// confirm-unlock" flow, used by TWO callers: (1) promptUnlockFeature
+// (regular one-time features, no extra body) and (2)
+// promptCloudBackupSubscription (with extra { tier, billingCycle }
+// included in the request/confirm body).
+// --------------------------------------------------------------
+async function runUnlockFlow(featureId, displayName, extraRequestBody) {
+    const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
     const photo = await captureQuickPhoto();
 
     try {
         const reqRes = await authFetch(`${API_URL}/features/request-unlock`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ featureId, username: requestingUsername, photo })
+            body: JSON.stringify({ featureId, username: requestingUsername, photo, ...extraRequestBody })
         });
         const reqData = await reqRes.json();
 
@@ -1575,7 +1676,7 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
     if (!otpResult.isConfirmed || !otpResult.value) return false;
 
     try {
-        const confirmBody = { featureId, otp: otpResult.value.trim(), username: requestingUsername };
+        const confirmBody = { featureId, otp: otpResult.value.trim(), username: requestingUsername, ...extraRequestBody };
         let confirmRes = await authFetch(`${API_URL}/features/confirm-unlock`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
@@ -1605,6 +1706,71 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
         Swal.fire('Error','Could not reach the server to complete verification.','error');
         return false;
     }
+}
+
+// --------------------------------------------------------------
+// promptCloudBackupSubscription — Basic/Standard/Pro x Monthly/Yearly
+// plan picker for the Cloud Backup subscription (no longer a simple
+// "one-time ₱1,499" button). It still follows the same OTP
+// verification flow (runUnlockFlow) after a plan is chosen.
+// --------------------------------------------------------------
+async function promptCloudBackupSubscription() {
+    if (blockIfOffline('Cloud Backup subscription')) return false;
+
+    let selectedTier = 'standard';
+    let selectedCycle = 'monthly';
+
+    const tierKeys = Object.keys(CLOUD_BACKUP_PLANS_UI);
+
+    const buildHtml = () => {
+        const tierButtons = tierKeys.map(key => {
+            const plan = CLOUD_BACKUP_PLANS_UI[key];
+            const active = key === selectedTier;
+            return `<button type="button" class="cb-tier-btn" data-tier="${key}" style="flex:1;text-align:left;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
+                `<div style="font-weight:700;font-size:0.9rem;color:#0f172a;">${plan.name}</div>` +
+                `<div style="font-size:0.72rem;color:#64748b;margin-top:2px;">${plan.tagline}</div>` +
+                `<div style="font-size:0.72rem;color:#16a34a;font-weight:600;margin-top:4px;"><i class="fa-solid fa-database"></i> Data limit: ${plan.storageLimitLabel}</div>` +
+                `<div style="font-size:0.95rem;font-weight:700;color:#2563eb;margin-top:6px;">₱${plan.price[selectedCycle]}<span style="font-size:0.68rem;color:#94a3b8;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+                `</button>`;
+        }).join('');
+
+        const cycleButtons = ['monthly','yearly'].map(cycle => {
+            const active = cycle === selectedCycle;
+            return `<button type="button" class="cb-cycle-btn" data-cycle="${cycle}" style="flex:1;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;color:${active ? '#2563eb' : '#334155'};">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+        }).join('');
+
+        return `<div style="text-align:left;">
+            <p style="font-size:0.8rem;color:#64748b;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle. Each plan includes a data limit allocation for how much backed-up data it can hold:</p>
+            <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
+            <div style="display:flex;">${tierButtons}</div>
+        </div>`;
+    };
+
+    const result = await Swal.fire({
+        title: 'Cloud Backup Plans',
+        html: buildHtml(),
+        showCancelButton: true,
+        confirmButtonText: 'Send Request',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#2563eb',
+        didOpen: (popup) => {
+            const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
+            const attachHandlers = () => {
+                popup.querySelectorAll('.cb-tier-btn').forEach(btn => {
+                    btn.addEventListener('click', () => { selectedTier = btn.dataset.tier; rerender(); });
+                });
+                popup.querySelectorAll('.cb-cycle-btn').forEach(btn => {
+                    btn.addEventListener('click', () => { selectedCycle = btn.dataset.cycle; rerender(); });
+                });
+            };
+            attachHandlers();
+        }
+    });
+
+    if (!result.isConfirmed) return false;
+
+    const planName = `Cloud Backup — ${CLOUD_BACKUP_PLANS_UI[selectedTier].name} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
+    return runUnlockFlow('cloud_backup', planName, { tier: selectedTier, billingCycle: selectedCycle });
 }
 
 async function showUpgradeTiersModal() {
@@ -1643,7 +1809,7 @@ async function showUpgradeTiersModal() {
         return (
         `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}" style="display:block;width:100%;text-align:left;border:2px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:8px;background:#fff;cursor:pointer;">` +
             `<div style="display:flex;justify-content:space-between;align-items:baseline;">` +
-                `<strong style="font-size:0.95rem;">${escapeHtml(t.name)}</strong>` +
+                `<strong style="font-size:0.95rem;color:#0f172a;">${escapeHtml(t.name)}</strong>` +
                 `<span>` +
                     (showOriginalStrike ? `<span style="font-size:0.78rem;color:#94a3b8;text-decoration:line-through;margin-right:4px;">₱${t.bundlePrice}</span>` :'') +
                     `<span style="font-size:0.95rem;font-weight:700;color:#2563eb;">₱${effectivePrice}</span>` +
@@ -1678,7 +1844,7 @@ async function showUpgradeTiersModal() {
                 `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:0.85rem;cursor:pointer;">` +
                     `<input type="checkbox" class="uw-feature-check" data-feature-id="${f.id}" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;">` +
                     `<span style="flex:1;">` +
-                        `<span style="display:block;">${escapeHtml(f.name)}</span>` +
+                        `<span style="display:block;color:#0f172a;">${escapeHtml(f.name)}</span>` +
                         (f.description ? `<span style="display:block;font-size:0.72rem;color:#94a3b8;margin-top:2px;line-height:1.4;">${escapeHtml(f.description)}</span>` :'') +
                     `</span>` +
                     `<span style="color:#64748b;flex-shrink:0;">₱${f.price}</span>` +
@@ -11851,7 +12017,7 @@ function resizeImageDataUrlForProduct(dataUrl) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
-            const MAX_DIM = 300;
+            const MAX_DIM = 600;
             let { width, height } = img;
             if (width > height && width > MAX_DIM) {
                 height = Math.round(height * (MAX_DIM / width));
@@ -11864,7 +12030,7 @@ function resizeImageDataUrlForProduct(dataUrl) {
             canvas.width = width;
             canvas.height = height;
             canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.75));
+            resolve(canvas.toDataURL('image/jpeg', 0.90));
         };
         img.onerror = () => reject(new Error('Invalid image data.'));
         img.src = dataUrl;
@@ -15973,6 +16139,15 @@ async function runCloudBackupSync() {
                 statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
             }
             Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
+            refreshCloudBackupUsage();
+        } else if (result.storageQuotaExceeded) {
+            const usedLabel = typeof result.storageUsedBytes === 'number' ? formatBytes(result.storageUsedBytes) : '—';
+            const limitLabel = typeof result.storageLimitBytes === 'number' ? formatBytes(result.storageLimitBytes) : '—';
+            if (statusBox) {
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Data limit exceeded (${usedLabel} of ${limitLabel}).`;
+            }
+            Swal.fire('Data Limit Exceeded', result.message || `Your backup data (${usedLabel}) exceeds your plan's data limit (${limitLabel}). Please upgrade to a higher tier, or archive/delete old records first.`, 'warning');
+            refreshCloudBackupUsage();
         } else {
             if (statusBox) {
                 statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Cloud backup failed.'}`;
