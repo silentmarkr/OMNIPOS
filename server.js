@@ -2948,16 +2948,12 @@ const CLOUD_BACKUP_PLANS = {
         tagline: 'Once-a-day automatic backup with a 30-day history — perfect for a single small store.',
         autoBackupIntervalMs: 24 * 60 * 60 * 1000, // 24 hours
         retentionDays: 30,
-        // How much backed-up data (JSON payload size) this tier is
-        // allowed to hold in the cloud. This mirror is DISPLAY ONLY —
-        // RELAY/server.js CLOUD_BACKUP_PLANS is what actually enforces
-        // the limit on upload (see /relay/cloud-backup/upload there).
-        storageLimitBytes: 250 * 1024 * 1024, // 250 MB
+        storageQuotaMB: 250,
         features: [
             'Automatic cloud backup once every 24 hours',
             '30-day backup history sa cloud',
             'Unlimited manual/on-demand backup at restore',
-            'Up to 250 MB of backup data'
+            '250 MB cloud storage allowance'
         ],
         price: { monthly: 129, yearly: 1290 } // yearly ≈ 2 buwan libre kumpara sa monthly
     },
@@ -2967,13 +2963,13 @@ const CLOUD_BACKUP_PLANS = {
         tagline: 'Backs up every 6 hours with a longer 90-day history and priority restore.',
         autoBackupIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
         retentionDays: 90,
-        storageLimitBytes: 1024 * 1024 * 1024, // 1 GB
+        storageQuotaMB: 1024,
         features: [
             'Everything in Basic',
             'Automatic cloud backup every 6 hours',
             '90-day backup history sa cloud',
             'Priority restore queue',
-            'Up to 1 GB of backup data'
+            '1 GB cloud storage allowance'
         ],
         price: { monthly: 249, yearly: 2490 }
     },
@@ -2983,14 +2979,14 @@ const CLOUD_BACKUP_PLANS = {
         tagline: 'Near real-time protection built for busy or multi-branch stores.',
         autoBackupIntervalMs: 60 * 60 * 1000, // 1 hour ("near real-time")
         retentionDays: 365,
-        storageLimitBytes: 5 * 1024 * 1024 * 1024, // 5 GB
+        storageQuotaMB: 5120,
         features: [
             'Everything in Standard',
             'Automatic cloud backup every 1 hour (near real-time)',
             '365-day backup history + unlimited version count',
             'Multi-Branch cloud consolidation included',
             'Priority support & faster OTP approval turnaround',
-            'Up to 5 GB of backup data'
+            '5 GB cloud storage allowance'
         ],
         price: { monthly: 399, yearly: 3990 }
     }
@@ -3992,7 +3988,15 @@ const cloudBackupStatus = {
     lastSuccessAt: null,
     lastError: null,
     lastTotalRecords: null,
-    lastTrigger: null // 'manual' | 'automatic'
+    lastTrigger: null, // 'manual' | 'automatic'
+    // "Na-consume" na storage sa RELAY's Postgres — cache lang ito ng
+    // pinakahuling alam na value (mula sa sync response o sa live
+    // /relay/cloud-backup/usage check sa /api/cloud-backup/status route
+    // sa ibaba), para may makita agad ang UI kahit hindi pa na-refresh.
+    lastSizeBytes: null,
+    lastSizeMB: null,
+    lastQuotaMB: null,
+    lastPercentUsed: null
 };
 
 // --------------------------------------------------------------
@@ -4018,33 +4022,64 @@ function getCloudBackupSubscriptionInfo() {
     };
 }
 
-app.get('/api/cloud-backup/status', (req, res) => {
+// --------------------------------------------------------------
+// GET /api/cloud-backup/status
+// Ipinapakita rito ang cached na cloudBackupStatus (kasama na ang
+// lastSizeBytes/lastSizeMB mula sa huling sync). Karagdagan: sinusubukan
+// din nitong mag-live-check sa RELAY (/relay/cloud-backup/usage) para
+// makuha ang PINAKA-UPDATED na "na-consume na storage" kahit hindi pa
+// nagre-refresh ang cached value dito (hal. bago pa lang na-restart ang
+// OMNIPOS server, o may na-sync na ibang paraan/device). Kung hindi
+// maabot ang RELAY o walang RELAY_API_KEY, babalik lang sa cached value
+// (hindi ito dapat maging dahilan para mabigo ang buong status check).
+// --------------------------------------------------------------
+app.get('/api/cloud-backup/status', async (req, res) => {
     const subscription = getCloudBackupSubscriptionInfo();
-    res.json({ success: true, ...cloudBackupStatus, subscription });
-});
+    let liveUsage = null;
 
-// --------------------------------------------------------------
-// GET /api/cloud-backup/usage — proxies RELAY's storage-quota usage
-// check (how much of the customer's Basic/Standard/Pro data limit
-// allocation is already consumed), so the frontend can show a
-// "142 MB of 250 MB used" indicator. RELAY (not this file) is the
-// ground truth for both the tier and the storageLimitBytes.
-// --------------------------------------------------------------
-app.get('/api/cloud-backup/usage', requireFeature('cloud_backup'), async (req, res) => {
-    if (!RELAY_API_KEY) {
-        return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
+    if (subscription.active && RELAY_API_KEY) {
+        try {
+            const featureData = readFeatureUnlocks();
+            const installationId = getOrCreateInstallationId(featureData);
+            const relayRes = await relayFetch(
+                `${RELAY_URL}/relay/cloud-backup/usage?installationId=${encodeURIComponent(installationId)}`,
+                { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }
+            );
+            const relayData = await parseRelayResponse(relayRes);
+            if (relayData && relayData.success && relayData.hasBackup) {
+                liveUsage = {
+                    sizeBytes: relayData.sizeBytes,
+                    sizeMB: relayData.sizeMB,
+                    sizeGB: relayData.sizeGB,
+                    tier: relayData.tier,
+                    quotaMB: relayData.quotaMB,
+                    percentUsed: relayData.percentUsed,
+                    nearQuota: !!relayData.nearQuota
+                };
+                cloudBackupStatus.lastSizeBytes = relayData.sizeBytes;
+                cloudBackupStatus.lastSizeMB = relayData.sizeMB;
+                cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
+                cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
+            }
+        } catch (err) {
+            // Tahimik lang na balewalain — babalik sa cached na value sa
+            // cloudBackupStatus sa halip na masira ang buong status check.
+        }
     }
-    try {
-        const featureData = readFeatureUnlocks();
-        const installationId = getOrCreateInstallationId(featureData);
-        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/usage?installationId=${encodeURIComponent(installationId)}`, {
-            headers: { 'x-relay-key': RELAY_API_KEY }
-        });
-        const relayData = await parseRelayResponse(relayRes);
-        return res.status(relayRes.status).json(relayData);
-    } catch (err) {
-        return res.status(502).json({ success: false, message: 'Could not reach RELAY to check the Cloud Backup data usage.' });
-    }
+
+    res.json({
+        success: true,
+        ...cloudBackupStatus,
+        storageUsage: liveUsage || (cloudBackupStatus.lastSizeBytes != null
+            ? {
+                sizeBytes: cloudBackupStatus.lastSizeBytes,
+                sizeMB: cloudBackupStatus.lastSizeMB,
+                quotaMB: cloudBackupStatus.lastQuotaMB,
+                percentUsed: cloudBackupStatus.lastPercentUsed
+              }
+            : null),
+        subscription
+    });
 });
 
 // --------------------------------------------------------------
@@ -4110,24 +4145,25 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             return { success: false, status: 413, message: cloudBackupStatus.lastError, payloadTooLarge: true };
         }
 
-        // BUG FIX: distinct from the RAW payload-too-large case above —
-        // this is RELAY telling us the data is under the raw 1GB limit,
-        // but still OVER the customer's PLAN's data limit allocation
-        // (Basic/Standard/Pro, see CLOUD_BACKUP_PLANS). Surfaced as its
-        // own flag (storageQuotaExceeded) with the actual used/limit
-        // bytes, so the frontend can show a clear "upgrade your plan"
-        // message instead of a generic failure.
+        // Hiwalay na 413 case: NALAGPASAN ang storage ALLOWANCE ng
+        // kasalukuyang Cloud Backup plan (Basic/Standard/Pro) — ibang usapin
+        // ito sa payloadTooLarge sa itaas (na tungkol sa raw request body
+        // limit ng RELAY, hindi sa per-plan na quota). Ipinapasa ang
+        // tier/quotaMB/sizeMB para maipakita ng frontend ang eksaktong
+        // dahilan (at maimungkahing mag-upgrade ng plan).
         if (relayData.storageQuotaExceeded) {
             cloudBackupStatus.state = 'error';
-            cloudBackupStatus.lastError = relayData.message || 'This backup exceeds your plan\'s data limit.';
+            cloudBackupStatus.lastError = relayData.message || 'Cloud backup exceeds your plan\'s storage allowance.';
+            cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
             return {
                 success: false,
                 status: 413,
                 message: cloudBackupStatus.lastError,
                 storageQuotaExceeded: true,
-                storageUsedBytes: relayData.storageUsedBytes,
-                storageLimitBytes: relayData.storageLimitBytes,
-                tier: relayData.tier
+                tier: relayData.tier,
+                quotaMB: relayData.quotaMB,
+                sizeMB: relayData.sizeMB,
+                overageMB: relayData.overageMB
             };
         }
 
@@ -4141,8 +4177,14 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupStatus.lastSuccessAt = Date.now();
         cloudBackupStatus.lastError = null;
         cloudBackupStatus.lastTotalRecords = backupPayload.totalRecords;
+        if (typeof relayData.sizeBytes === 'number') {
+            cloudBackupStatus.lastSizeBytes = relayData.sizeBytes;
+            cloudBackupStatus.lastSizeMB = relayData.sizeMB;
+            cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
+            cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
+        }
 
-        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}): synced ${backupPayload.moduleNames.length} modules (${backupPayload.totalRecords} records) to cloud.`);
+        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}): synced ${backupPayload.moduleNames.length} modules (${backupPayload.totalRecords} records, ${relayData.sizeMB ?? '?'} MB) to cloud.`);
 
         return {
             success: true,
@@ -4151,9 +4193,12 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             totalRecords: backupPayload.totalRecords,
             moduleNames: backupPayload.moduleNames,
             excludedModules: backupPayload.excludedModules,
-            storageUsedBytes: relayData.storageUsedBytes,
-            storageLimitBytes: relayData.storageLimitBytes,
-            tier: relayData.tier
+            sizeBytes: relayData.sizeBytes,
+            sizeMB: relayData.sizeMB,
+            tier: relayData.tier,
+            quotaMB: relayData.quotaMB,
+            percentUsed: relayData.percentUsed,
+            nearQuota: !!relayData.nearQuota
         };
     } catch (err) {
         cloudBackupStatus.state = 'error';
@@ -4700,51 +4745,6 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
     }
 });
 
-// --------------------------------------------------------------
-// POST /api/features/cancel-unlock
-// Tinatawag ito ng client (app.js) kapag KINANSELA ng cashier ang
-// isang unlock/demo/theme/bundle request — sa OTP-entry step mismo o
-// habang naghihintay pa ng admin approval. Ang tanging trabaho nito
-// ay sabihan ang RELAY na buburahin na ang pending entry (kasama ang
-// otp-code at countdown/timer nito) sa Admin Panel, para hindi na ito
-// maghintay pang mag-expire nang mag-isa. Isa itong generic endpoint —
-// tinatanggap nito ang featureId (feature/demo/theme, iisa lang) o
-// featureIds (bundle/bulk unlock).
-// --------------------------------------------------------------
-app.post('/api/features/cancel-unlock', rateLimit('feature-unlock-cancel', 30, 10 * 60 * 1000), async (req, res) => {
-    const { featureId, featureIds } = req.body;
-
-    if (!featureId && !(Array.isArray(featureIds) && featureIds.length)) {
-        return res.status(400).json({ success: false, message: 'Kulang ang featureId o featureIds.' });
-    }
-    if (!RELAY_API_KEY) {
-        // Wala namang naka-configure na relay — walang dapat gawin.
-        return res.json({ success: true });
-    }
-
-    const data = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(data);
-
-    try {
-        await relayFetch(`${RELAY_URL}/relay/cancel-unlock`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify(
-                Array.isArray(featureIds) && featureIds.length
-                    ? { installationId, featureIds }
-                    : { installationId, featureId }
-            )
-        });
-    } catch (err) {
-        // Hindi kritikal kung mabigo ito (mag-e-expire pa rin naman ang
-        // pending request nang mag-isa) — huwag na lang gawing error sa
-        // client, dahil isa lang itong "housekeeping" na request.
-        console.error('Hindi ma-abot ang Unlock Relay habang kina-cancel ang request:', err);
-    }
-
-    res.json({ success: true });
-});
-
 app.post('/api/admin/request-password-reset',
     rateLimit('admin-reset-request', 3, 15 * 60 * 1000),
     async (req, res) => {
@@ -5127,6 +5127,51 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
     } catch (err) {
         console.error('Could not reach the Unlock Relay (bulk confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+
+// --------------------------------------------------------------
+// POST /api/features/cancel-otp
+// Shared "cancel-otp" proxy used by the new 6-box verification modal
+// (see showOtpVerificationModal in app.js). Called whenever the modal
+// is closed/cancelled by the person without a correct code, OR the
+// person runs out of verification attempts (wrong code 3 times) — in
+// BOTH cases the still-pending OTP on RELAY should stop being usable
+// right away, even if its normal 10-minute expiry hasn't passed yet.
+// Works for single features, Pro themes, Cloud Backup, bundle/bulk
+// unlocks, and Demo Mode, since they all resolve to the same
+// installationId-based pendingOtps entry on RELAY — just forward
+// whichever identifier the caller has (featureId, featureIds, or
+// demo: true).
+// Body: { featureId?, featureIds?, demo? }
+// --------------------------------------------------------------
+app.post('/api/features/cancel-otp', rateLimit('feature-cancel-otp', 30, 10 * 60 * 1000), async (req, res) => {
+    const { featureId, featureIds, demo } = req.body;
+
+    if (!demo && !featureId && !(Array.isArray(featureIds) && featureIds.length)) {
+        return res.status(400).json({ success: false, message: 'featureId, featureIds, or demo is required.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cancel-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, featureId: featureId || undefined, featureIds: featureIds || undefined, demo: !!demo })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        res.json({ success: !!relayData.success, message: relayData.message || 'OTP cancelled.' });
+    } catch (err) {
+        // Best-effort only — if this fails, the OTP will still fall
+        // off naturally once its normal 10-minute expiry is reached,
+        // so it's fine to not block the person on this call failing.
+        console.error('Could not reach the Unlock Relay (cancel-otp):', err);
+        res.json({ success: false, message: `Could not reach the unlock relay: ${err.message}` });
     }
 });
 

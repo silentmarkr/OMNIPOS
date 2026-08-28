@@ -2363,7 +2363,15 @@
         <div id="cloud-backup-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
             <i class="fa-solid fa-circle-info"></i> No cloud backup has been made in this session yet.
         </div>
-        <div id="cloud-backup-usage" style="display:none; margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border-color);"></div>
+        <div id="cloud-backup-storage-bar-wrap" style="display:none; margin-bottom: 14px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-muted); margin-bottom:4px;">
+                <span id="cloud-backup-storage-label"></span>
+                <span id="cloud-backup-storage-remaining"></span>
+            </div>
+            <div style="background: var(--border-color, #e2e8f0); border-radius: 6px; height: 10px; overflow: hidden;">
+                <div id="cloud-backup-storage-bar-fill" style="height:100%; width:0%; border-radius:6px; background:#2563eb; transition: width 0.3s ease;"></div>
+            </div>
+        </div>
 
         <button id="cloud-backup-get-btn" onclick="getCloudBackupUpgrade()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-lock"></i> Get Cloud Backup — starting at ₱129/mo

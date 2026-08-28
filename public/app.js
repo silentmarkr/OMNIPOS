@@ -28,250 +28,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOU
     }
 }
 
-// ================================================================
-// MODERN OTP ENTRY MODAL — shared UI for every "Send OTP -> Verify
-// OTP" flow in OmniPOS (theme unlock, feature unlock, bundle unlock,
-// demo mode, admin login 2FA, receipt customization limit, receipt
-// counter reset, admin password reset). This ONLY changes how the
-// code is entered on screen (6 separate boxes, auto-advance, paste
-// support, live status line) — it does NOT change any request/verify
-// network call, endpoint, or the OMNIPOS <-> RELAY unlock logic.
-// Every caller below still sends its own request-otp/unlock call and
-// still POSTs the returned code to its own existing endpoint exactly
-// as before.
-//
-// Usage:
-//   const r = await showModernOtpModal({ subtitle: '...' });
-//   if (!r) return; // cancelled
-//   const otp = r.otp;
-// ================================================================
-function injectOtpModalStyles() {
-    if (document.getElementById('otp-modal-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'otp-modal-styles';
-    style.textContent = `
-        .otp-modal-popup { background:#12141c !important; border-radius:18px !important; }
-        .otp-modal-card { padding: 4px 2px 0; text-align:center; }
-        .otp-modal-eyebrow { font-size:0.68rem; letter-spacing:2.5px; color:#8b93a7; font-weight:700; text-transform:uppercase; margin-bottom:10px; }
-        .otp-modal-title { font-size:1.35rem; font-weight:700; color:#fff; margin: 0 0 8px; }
-        .otp-modal-subtitle { font-size:0.85rem; color:#9aa2b5; margin: 0 0 22px; line-height:1.45; }
-        .otp-box-row { display:flex; align-items:center; justify-content:center; gap:clamp(4px,1.8vw,8px); margin-bottom: 16px; flex-wrap:nowrap; width:100%; }
-        .otp-box-dash { color:#5b6172; font-size:1.3rem; padding: 0 1px; flex:0 0 auto; }
-        .otp-box { width:clamp(30px,9vw,42px); height:clamp(40px,11vw,50px); flex:0 0 auto; border-radius:10px; border:1.5px solid #333849; background:#1b1e29; color:#fff; font-size:clamp(1.05rem,4vw,1.35rem); font-weight:700; text-align:center; outline:none; transition: border-color .15s, box-shadow .15s, background .15s; }
-        .otp-box:focus { border-color:#3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.25); }
-        .otp-box:disabled { opacity:0.6; }
-        .otp-box.otp-box-filled { border-color:#4b5166; }
-        .otp-box.otp-box-success { border-color:#22c55e !important; background: rgba(34,197,94,0.14) !important; color:#4ade80 !important; }
-        .otp-box.otp-box-error { border-color:#ef4444 !important; background: rgba(239,68,68,0.14) !important; color:#f87171 !important; animation: otp-shake .32s; }
-        @keyframes otp-shake { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-4px); } 75% { transform:translateX(4px); } }
-        .otp-modal-status { font-size:0.8rem; color:#9aa2b5; display:flex; align-items:center; justify-content:center; gap:6px; min-height: 18px; margin-bottom: 6px; }
-        .otp-modal-status .otp-status-dot { width:6px; height:6px; border-radius:50%; background:#8b93a7; display:inline-block; flex:none; }
-        .otp-modal-status.status-ok { color:#4ade80; } .otp-modal-status.status-ok .otp-status-dot { background:#22c55e; }
-        .otp-modal-status.status-error { color:#f87171; } .otp-modal-status.status-error .otp-status-dot { background:#ef4444; }
-        .otp-modal-tip { font-size:0.72rem; color:#5b6172; margin-top: 8px; }
-        .otp-modal-pw { width:100%; box-sizing:border-box; margin-top:16px; padding:12px 14px; border-radius:10px; border:1.5px solid #333849; background:#1b1e29; color:#fff; font-size:0.95rem; outline:none; }
-        .otp-modal-pw::placeholder { color:#5b6172; }
-        .otp-modal-pw:focus { border-color:#3b82f6; }
-    `;
-    document.head.appendChild(style);
-}
-
-function buildOtpBoxesHtml() {
-    let boxes = '';
-    for (let i = 0; i < 6; i++) {
-        boxes += `<input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="1" class="otp-box" id="otp-box-${i}" data-idx="${i}">`;
-        if (i === 2) boxes += '<span class="otp-box-dash">—</span>';
-    }
-    return boxes;
-}
-
-// showModernOtpModal — optionally takes a `verifyFn(otp)` callback. When
-// provided, wrong-code attempts are handled INLINE (red boxes + status
-// line, up to `maxAttempts` tries) instead of closing this modal and
-// popping up a separate "Incorrect Code" dialog. This ONLY changes how
-// the result is shown on screen — verifyFn is expected to just wrap the
-// caller's existing request/verify network call unchanged, and a
-// "pending" (relay approval) or "noRetry" (e.g. expired code) result
-// still closes the modal immediately, exactly like before, so the
-// OMNIPOS <-> RELAY unlock/approval logic is untouched.
-async function showModernOtpModal({
-    eyebrow = 'SECURITY CHECK',
-    title = 'Enter your code',
-    subtitle = 'We sent a 6-digit code to verify your request.',
-    confirmButtonText = 'Verify Code',
-    cancelButtonText = 'Cancel',
-    confirmButtonColor = '#2563eb',
-    withPasswordField = false,
-    passwordPlaceholder = 'New Password (min 8 chars)',
-    verifyFn = null,
-    maxAttempts = 3
-} = {}) {
-    injectOtpModalStyles();
-
-    let attemptsLeft = maxAttempts;
-
-    const getBoxes = () => Array.from({ length: 6 }, (_, i) => document.getElementById(`otp-box-${i}`));
-
-    const setStatus = (text, state) => {
-        const statusEl = document.getElementById('otp-modal-status');
-        const statusText = document.getElementById('otp-modal-status-text');
-        if (!statusEl || !statusText) return;
-        statusEl.classList.remove('status-ok', 'status-error');
-        if (state === 'ok') statusEl.classList.add('status-ok');
-        if (state === 'error') statusEl.classList.add('status-error');
-        statusText.textContent = text;
-    };
-
-    const setBoxesState = (state) => {
-        getBoxes().forEach(b => {
-            b.classList.remove('otp-box-error', 'otp-box-success');
-            if (state === 'ok') b.classList.add('otp-box-success');
-            if (state === 'error') b.classList.add('otp-box-error');
-        });
-    };
-
-    const setBoxesDisabled = (disabled) => getBoxes().forEach(b => { b.disabled = disabled; });
-
-    const resetBoxesForRetry = () => {
-        const boxes = getBoxes();
-        boxes.forEach(b => {
-            b.value = '';
-            b.disabled = false;
-            b.classList.remove('otp-box-filled', 'otp-box-error', 'otp-box-success');
-        });
-        if (boxes[0]) boxes[0].focus();
-    };
-
-    const result = await Swal.fire({
-        html: `
-            <div class="otp-modal-card">
-                <div class="otp-modal-eyebrow">${eyebrow}</div>
-                <div class="otp-modal-title">${title}</div>
-                <div class="otp-modal-subtitle">${subtitle}</div>
-                <div class="otp-box-row">${buildOtpBoxesHtml()}</div>
-                <div class="otp-modal-status" id="otp-modal-status"><span class="otp-status-dot"></span><span id="otp-modal-status-text">Enter the 6-digit code</span></div>
-                ${withPasswordField ? `<input type="password" id="otp-modal-password" class="otp-modal-pw" placeholder="${passwordPlaceholder}" autocomplete="new-password">` : ''}
-                <div class="otp-modal-tip">Tip: paste to fill every box at once.</div>
-            </div>
-        `,
-        width: 'min(94vw, 380px)',
-        showCancelButton: true,
-        showConfirmButton: true,
-        confirmButtonText,
-        cancelButtonText,
-        confirmButtonColor,
-        cancelButtonColor: '#3a3f52',
-        background: '#12141c',
-        customClass: { popup: 'otp-modal-popup' },
-        focusConfirm: false,
-        allowOutsideClick: false,
-        showLoaderOnConfirm: !!verifyFn,
-        didOpen: () => {
-            const boxes = getBoxes();
-            boxes[0].focus();
-
-            const clearFeedbackState = () => {
-                setBoxesState(null);
-                setStatus('Enter the 6-digit code', null);
-            };
-
-            boxes.forEach((box, idx) => {
-                box.addEventListener('input', () => {
-                    box.value = box.value.replace(/[^0-9]/g, '').slice(0, 1);
-                    box.classList.toggle('otp-box-filled', !!box.value);
-                    clearFeedbackState();
-                    if (box.value && idx < 5) boxes[idx + 1].focus();
-                });
-                box.addEventListener('keydown', (e) => {
-                    if (e.key === 'Backspace' && !box.value && idx > 0) {
-                        boxes[idx - 1].focus();
-                    }
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        Swal.clickConfirm();
-                    }
-                });
-                box.addEventListener('paste', (e) => {
-                    e.preventDefault();
-                    const text = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
-                    if (!text) return;
-                    clearFeedbackState();
-                    text.split('').forEach((ch, i) => {
-                        if (boxes[i]) { boxes[i].value = ch; boxes[i].classList.add('otp-box-filled'); }
-                    });
-                    const next = boxes[Math.min(text.length, 5)];
-                    if (next) next.focus();
-                });
-            });
-        },
-        preConfirm: async () => {
-            const boxes = getBoxes();
-            const code = boxes.map(b => b.value).join('');
-            if (code.length !== 6) {
-                Swal.showValidationMessage('Please enter the full 6-digit code.');
-                return false;
-            }
-            const out = { otp: code };
-            if (withPasswordField) {
-                const pw = (document.getElementById('otp-modal-password').value || '').trim();
-                if (!pw || pw.length < 8) {
-                    Swal.showValidationMessage('New password must be at least 8 characters.');
-                    return false;
-                }
-                out.newPassword = pw;
-            }
-
-            // Legacy behaviour: no verifyFn given, just hand the raw code back
-            // to the caller (unchanged).
-            if (!verifyFn) return out;
-
-            setBoxesDisabled(true);
-            setStatus('Verifying...', null);
-
-            let verifyData;
-            try {
-                verifyData = await verifyFn(out);
-            } catch (e) {
-                verifyData = { success: false, message: 'Could not reach the server. Please try again.' };
-            }
-
-            // Success, a pending relay approval, a cancelled wait, or an
-            // explicitly non-retryable result (e.g. expired code) all close
-            // this modal and hand control back to the caller exactly like
-            // before — none of the request/verify network calls change.
-            if (verifyData && (verifyData.success || verifyData.pending || verifyData.cancelled || verifyData.noRetry)) {
-                if (verifyData.success) {
-                    setBoxesState('ok');
-                    setStatus('Code verified', 'ok');
-                    await new Promise(r => setTimeout(r, 500));
-                }
-                return { ...out, ...verifyData };
-            }
-
-            // Wrong code — give inline feedback and let the person retry, up
-            // to maxAttempts total, instead of closing with a separate
-            // "Incorrect Code" popup.
-            attemptsLeft -= 1;
-            setBoxesState('error');
-
-            if (attemptsLeft <= 0) {
-                setStatus((verifyData && verifyData.message) || 'Incorrect code.', 'error');
-                await new Promise(r => setTimeout(r, 1100));
-                return { ...out, ...(verifyData || { success: false }) };
-            }
-
-            setStatus(`Incorrect code, try again (${attemptsLeft} ${attemptsLeft === 1 ? 'attempt' : 'attempts'} left)`, 'error');
-            await new Promise(r => setTimeout(r, 750));
-            resetBoxesForRetry();
-            setStatus('Enter the 6-digit code', null);
-            return false;
-        }
-    });
-
-    if (!result.isConfirmed || !result.value) return null;
-    return result.value;
-}
-
 async function authFetch(url, options = {}) {
     const token = localStorage.getItem('omnipos_token');
     const opts = { ...options };
@@ -1546,23 +1302,38 @@ async function promptUnlockTheme(theme) {
         return;
     }
 
-    const confirmData = await showModernOtpModal({
-        subtitle: `We sent a 6-digit code to verify <strong>${theme.name}</strong>.`,
-        confirmButtonText: 'Verify Code',
-        verifyFn: async ({ otp }) => {
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verification Required',
+        descriptionHtml: 'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>' + theme.name + '</strong>.',
+        verify: async (otp) => {
             const confirmRes = await authFetch('/api/themes/confirm-unlock', {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ themeId: theme.id, otp, username: requestingUsername })
             });
             return confirmRes.json();
-        }
+        },
+        onExpire: () => cancelPendingOtp({ featureId: theme.id })
     });
-    if (!confirmData) return;
+    if (!otpModalResult) return;
 
     try {
+        let confirmData = otpModalResult;
+
+        // Same "waiting for admin approval" gate as the other 3 RELAY
+        // verification flows (feature/Cloud Backup, bundle, demo) — a
+        // theme's OTP can also come back as `pending: true` (code was
+        // correct, but the owner still needs to press Allow/Run on
+        // their end), so this has to be polled the same way instead of
+        // being treated as a wrong code.
+        if (confirmData.pending) {
+            confirmData = await pollUntilApproved('/api/themes/confirm-unlock', { themeId: theme.id, otp: confirmData._verifiedOtp, username: requestingUsername });
+        }
+
+        if (confirmData.cancelled) return;
+
         if (!confirmData.success) {
-            // Inline retry feedback already handled this — no extra popup.
+            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return;
         }
 
@@ -1708,6 +1479,8 @@ async function refreshCloudBackupSubscriptionBadge() {
         const sub = data && data.subscription;
         if (!sub || !sub.active) return;
 
+        renderCloudBackupStorageBar(data && data.storageUsage);
+
         if (sub.isLegacyLifetime) {
             statusBox.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: Lifetime (one-time purchase — no renewal needed).';
             return;
@@ -1727,6 +1500,43 @@ async function refreshCloudBackupSubscriptionBadge() {
     } catch (err) {
         // Silently ignore — this isn't critical, it's display only.
     }
+}
+
+// --------------------------------------------------------------
+// renderCloudBackupStorageBar — pinapakita ang progress bar sa ilalim
+// ng status box (Cloud Backup card, My Store) na nagpapakita kung ilan
+// (%) na ang na-consume laban sa storage allowance ng KASALUKUYANG
+// piniling plan (Basic/Standard/Pro), pati na kung ilan pa ang
+// natitira. `usage` ay galing sa `storageUsage` field ng
+// /api/cloud-backup/status response (o sa `sync` response direkta —
+// parehong shape naman: sizeMB/quotaMB/percentUsed).
+// --------------------------------------------------------------
+function renderCloudBackupStorageBar(usage) {
+    const wrap = document.getElementById('cloud-backup-storage-bar-wrap');
+    const fill = document.getElementById('cloud-backup-storage-bar-fill');
+    const label = document.getElementById('cloud-backup-storage-label');
+    const remaining = document.getElementById('cloud-backup-storage-remaining');
+    if (!wrap || !fill || !label || !remaining) return;
+
+    if (!usage || typeof usage.sizeMB !== 'number' || typeof usage.quotaMB !== 'number' || usage.quotaMB <= 0) {
+        wrap.style.display = 'none';
+        return;
+    }
+
+    const pct = typeof usage.percentUsed === 'number' ? usage.percentUsed : Math.min(100, Math.round((usage.sizeMB / usage.quotaMB) * 1000) / 10);
+    // Sinasadyang RAW MB lang (walang GB conversion) dito — eksaktong
+    // parehong format ng RELAY admin panel (loadCloudBackupDetail doon),
+    // kaya magkatulad ang itsura kahit saan tingnan (OMNIPOS o RELAY).
+    const remainingMB = Math.max(0, Math.round((usage.quotaMB - usage.sizeMB) * 100) / 100);
+    const tierPrefix = (usage.tier && CLOUD_BACKUP_PLANS_UI[usage.tier])
+        ? `${CLOUD_BACKUP_PLANS_UI[usage.tier].name} plan · `
+        : '';
+
+    wrap.style.display = 'block';
+    fill.style.width = `${Math.min(100, pct)}%`;
+    fill.style.background = pct >= 95 ? '#dc2626' : (pct >= 75 ? '#d97706' : '#2563eb');
+    label.textContent = `${tierPrefix}${usage.sizeMB} MB / ${usage.quotaMB} MB (${pct}%)`;
+    remaining.textContent = `${remainingMB} MB left`;
 }
 
 async function captureQuickPhoto() {
@@ -1818,6 +1628,245 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
 }
 
 // --------------------------------------------------------------
+// cancelPendingOtp — best-effort call to invalidate a still-pending
+// OTP on RELAY early (before its normal 10-minute expiry), used
+// whenever the 6-box verification modal below is closed/cancelled
+// without a correct code, or runs out of attempts. Failures here are
+// swallowed on purpose: worst case, the OTP just expires naturally
+// once its normal TTL passes, so this should never block the UI.
+// payload: { featureId? } | { featureIds? } | { demo: true }
+// --------------------------------------------------------------
+async function cancelPendingOtp(payload) {
+    try {
+        await authFetch(`${API_URL}/features/cancel-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+    } catch (e) {
+        // Best-effort — ignore network errors here.
+    }
+}
+
+// --------------------------------------------------------------
+// showOtpVerificationModal — custom "Security Check" style OTP entry
+// used by every RELAY-backed verification request (Pro theme unlock,
+// feature/Cloud Backup unlock, bundle unlock, and Demo Mode). Six
+// separate digit boxes are always laid out in a single row (never
+// wraps to a second line), support pasting all 6 digits at once, and
+// allow up to `maxAttempts` tries before auto-closing. A correct code
+// plays a green checkmark animation; a wrong one plays a red
+// shake/flash animation.
+//
+// options:
+//   title           - modal title, e.g. "Verification Required"
+//   descriptionHtml - HTML shown above the 6 boxes
+//   maxAttempts     - number of allowed tries (default 3)
+//   verify(otp)     - async function that submits the 6-digit code
+//                     and resolves to a result object shaped like
+//                     { success, pending, message, ... }. Both
+//                     `success: true` and `pending: true` count as a
+//                     CORRECT code (pending just means a human still
+//                     has to approve afterwards).
+//   onExpire()      - called (best-effort) to invalidate the pending
+//                     OTP on RELAY early: fired when the person
+//                     closes/cancels the modal, or when all attempts
+//                     are used up on wrong codes.
+//
+// Resolves to the verify() result object on a correct code, or
+// `null` if the modal was closed/cancelled or ran out of attempts.
+// --------------------------------------------------------------
+async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 3, verify, onExpire }) {
+    return new Promise((resolve) => {
+        let attemptsLeft = maxAttempts;
+        let settled = false;
+        let submitting = false;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'otp-verify-overlay';
+        overlay.innerHTML =
+            '<div class="otp-verify-card" role="dialog" aria-modal="true" aria-label="Verification Required">' +
+                '<button type="button" class="otp-verify-close" aria-label="Close">&times;</button>' +
+                '<div class="otp-verify-icon">🔒</div>' +
+                '<div class="otp-verify-eyebrow">SECURITY CHECK</div>' +
+                '<h3 class="otp-verify-title">' + (title || 'Verification Required') + '</h3>' +
+                '<div class="otp-verify-desc">' + (descriptionHtml || '') + '</div>' +
+                '<div class="otp-verify-boxes">' +
+                    Array.from({ length: 6 }).map((_, i) =>
+                        '<input class="otp-verify-box" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" data-index="' + i + '">'
+                    ).join('') +
+                '</div>' +
+                '<div class="otp-verify-status"></div>' +
+                '<div class="otp-verify-attempts"></div>' +
+                '<div class="otp-verify-actions">' +
+                    '<button type="button" class="otp-verify-cancel-btn">Cancel</button>' +
+                    '<button type="button" class="otp-verify-submit-btn" disabled>Verify Code</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        const boxes = Array.from(overlay.querySelectorAll('.otp-verify-box'));
+        const statusEl = overlay.querySelector('.otp-verify-status');
+        const attemptsEl = overlay.querySelector('.otp-verify-attempts');
+        const submitBtn = overlay.querySelector('.otp-verify-submit-btn');
+        const cancelBtn = overlay.querySelector('.otp-verify-cancel-btn');
+        const closeBtn = overlay.querySelector('.otp-verify-close');
+        const card = overlay.querySelector('.otp-verify-card');
+
+        function currentCode() { return boxes.map(b => b.value).join(''); }
+
+        function updateSubmitState() {
+            submitBtn.disabled = currentCode().length !== 6 || submitting;
+        }
+
+        function clearBoxesState() { boxes.forEach(b => b.classList.remove('is-error', 'is-success')); }
+
+        function focusBox(i) { if (boxes[i]) boxes[i].focus(); }
+
+        function setBoxesValue(digits) { boxes.forEach((b, i) => { b.value = digits[i] || ''; }); }
+
+        function updateAttemptsLabel() {
+            attemptsEl.textContent = attemptsLeft < maxAttempts
+                ? attemptsLeft + ' attempt' + (attemptsLeft === 1 ? '' : 's') + ' remaining'
+                : '';
+        }
+
+        function teardown() {
+            document.removeEventListener('keydown', onKeyDown);
+            overlay.classList.add('is-closing');
+            setTimeout(() => overlay.remove(), 160);
+        }
+
+        function finish(result) {
+            if (settled) return;
+            settled = true;
+            teardown();
+            resolve(result);
+        }
+
+        async function finishWithExpire() {
+            if (settled) return;
+            settled = true;
+            teardown();
+            try { if (onExpire) await onExpire(); } catch (e) { /* best-effort */ }
+            resolve(null);
+        }
+
+        async function doSubmit() {
+            if (submitting || settled) return;
+            const code = currentCode();
+            if (code.length !== 6) return;
+
+            submitting = true;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Verifying...';
+            cancelBtn.disabled = true;
+            closeBtn.disabled = true;
+            statusEl.textContent = '';
+            statusEl.className = 'otp-verify-status';
+
+            let result;
+            let networkError = false;
+            try {
+                result = await verify(code);
+            } catch (e) {
+                networkError = true;
+                result = { success: false, message: 'Could not reach the server. Please check your connection and try again.' };
+            }
+
+            if (settled) return;
+            submitting = false;
+            submitBtn.textContent = 'Verify Code';
+            cancelBtn.disabled = false;
+            closeBtn.disabled = false;
+
+            if (result && (result.success || result.pending)) {
+                boxes.forEach(b => { b.value = '✓'; b.disabled = true; b.classList.add('is-success'); });
+                statusEl.textContent = result.pending ? 'Code verified — waiting for approval' : 'Code verified';
+                statusEl.className = 'otp-verify-status is-success';
+                // Carry the verified 6-digit code along with the server's
+                // response, since callers may need it again for follow-up
+                // polling (e.g. while waiting on admin approval) without
+                // making the person re-type it.
+                setTimeout(() => finish(Object.assign({}, result, { _verifiedOtp: code })), 650);
+                return;
+            }
+
+            // A dropped connection is NOT the same as a wrong code — don't
+            // burn one of the 3 attempts (or shake/flash red) just because
+            // the request couldn't reach the server. Let the person try
+            // submitting the same code again once they're back online.
+            if (networkError) {
+                statusEl.textContent = result.message;
+                statusEl.className = 'otp-verify-status is-error';
+                updateSubmitState();
+                return;
+            }
+
+            attemptsLeft -= 1;
+            boxes.forEach(b => b.classList.add('is-error'));
+            card.classList.add('is-shaking');
+            setTimeout(() => card.classList.remove('is-shaking'), 420);
+            statusEl.textContent = (result && result.message) || 'Incorrect code, try again';
+            statusEl.className = 'otp-verify-status is-error';
+            updateAttemptsLabel();
+
+            if (attemptsLeft <= 0) {
+                statusEl.textContent = 'Too many incorrect attempts';
+                setTimeout(() => finishWithExpire(), 850);
+                return;
+            }
+
+            setBoxesValue('');
+            updateSubmitState();
+            focusBox(0);
+        }
+
+        boxes.forEach((box, i) => {
+            box.addEventListener('input', () => {
+                box.value = box.value.replace(/[^0-9]/g, '').slice(-1);
+                clearBoxesState();
+                statusEl.textContent = '';
+                statusEl.className = 'otp-verify-status';
+                if (box.value && i < 5) focusBox(i + 1);
+                updateSubmitState();
+            });
+            box.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !box.value && i > 0) focusBox(i - 1);
+                if (e.key === 'ArrowLeft' && i > 0) focusBox(i - 1);
+                if (e.key === 'ArrowRight' && i < 5) focusBox(i + 1);
+                if (e.key === 'Enter' && currentCode().length === 6) doSubmit();
+            });
+            box.addEventListener('paste', (e) => {
+                const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+                const digits = text.replace(/[^0-9]/g, '').slice(0, 6);
+                if (digits.length) {
+                    e.preventDefault();
+                    setBoxesValue(digits);
+                    clearBoxesState();
+                    updateSubmitState();
+                    focusBox(Math.min(digits.length, 6) - 1);
+                    if (digits.length === 6) doSubmit();
+                }
+            });
+        });
+
+        function onKeyDown(e) {
+            if (e.key === 'Escape' && !settled && !submitting) finishWithExpire();
+        }
+
+        submitBtn.addEventListener('click', doSubmit);
+        cancelBtn.addEventListener('click', () => { if (!submitting) finishWithExpire(); });
+        closeBtn.addEventListener('click', () => { if (!submitting) finishWithExpire(); });
+        overlay.addEventListener('mousedown', (e) => { if (e.target === overlay && !submitting) finishWithExpire(); });
+        document.addEventListener('keydown', onKeyDown);
+
+        updateAttemptsLabel();
+        focusBox(0);
+    });
+}
+
+// --------------------------------------------------------------
 // runUnlockFlow — the ONE shared "photo -> request-unlock -> OTP ->
 // confirm-unlock" flow, used by TWO callers: (1) promptUnlockFeature
 // (regular one-time features, no extra body) and (2)
@@ -1852,29 +1901,33 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
         return false;
     }
 
-    let confirmData = await showModernOtpModal({
-        subtitle: `We sent a 6-digit code to verify <strong>${displayName}</strong>.`,
-        confirmButtonText: 'Verify Code',
-        verifyFn: async ({ otp }) => {
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verification Required',
+        descriptionHtml: 'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>' + displayName + '</strong>.',
+        verify: async (otp) => {
+            const confirmBody = { featureId, otp, username: requestingUsername, ...extraRequestBody };
             const confirmRes = await authFetch(`${API_URL}/features/confirm-unlock`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify({ featureId, otp, username: requestingUsername, ...extraRequestBody })
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(confirmBody)
             });
             return confirmRes.json();
-        }
+        },
+        onExpire: () => cancelPendingOtp({ featureId })
     });
-    if (!confirmData) return false;
+    if (!otpModalResult) return false;
 
     try {
+        let confirmData = otpModalResult;
         if (confirmData.pending) {
-            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, { featureId, otp: confirmData.otp, username: requestingUsername, ...extraRequestBody });
+            const confirmBody = { featureId, otp: confirmData._verifiedOtp, username: requestingUsername, ...extraRequestBody };
+            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, confirmBody);
         }
 
         if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
-            // Inline retry feedback already handled this — no extra popup.
+            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return false;
         }
 
@@ -1909,20 +1962,20 @@ async function promptCloudBackupSubscription() {
         const tierButtons = tierKeys.map(key => {
             const plan = CLOUD_BACKUP_PLANS_UI[key];
             const active = key === selectedTier;
-            return `<button type="button" class="cb-tier-btn" data-tier="${key}" style="flex:1;text-align:left;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
-                `<div style="font-weight:700;font-size:0.9rem;color:#0f172a;">${plan.name}</div>` +
-                `<div style="font-size:0.72rem;color:#64748b;margin-top:2px;">${plan.tagline}</div>` +
-                `<div style="font-size:0.95rem;font-weight:700;color:#2563eb;margin-top:6px;">₱${plan.price[selectedCycle]}<span style="font-size:0.68rem;color:#94a3b8;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+            return `<button type="button" class="cb-tier-btn${active ? ' active' : ''}" data-tier="${key}" style="flex:1;text-align:left;border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
+                `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${plan.name}</div>` +
+                `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${plan.tagline}</div>` +
+                `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${plan.price[selectedCycle]}<span style="font-size:0.68rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
                 `</button>`;
         }).join('');
 
         const cycleButtons = ['monthly','yearly'].map(cycle => {
             const active = cycle === selectedCycle;
-            return `<button type="button" class="cb-cycle-btn" data-cycle="${cycle}" style="flex:1;border:2px solid ${active ? '#2563eb' : '#e2e8f0'};background:${active ? '#eff6ff' : '#fff'};border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;color:${active ? '#2563eb' : '#334155'};">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
 
         return `<div style="text-align:left;">
-            <p style="font-size:0.8rem;color:#64748b;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
+            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
             <div style="display:flex;">${tierButtons}</div>
         </div>`;
@@ -1989,20 +2042,20 @@ async function showUpgradeTiersModal() {
         const effectivePrice = (typeof t.effectiveBundlePrice ==='number') ? t.effectiveBundlePrice : t.bundlePrice;
         const showOriginalStrike = effectivePrice < t.bundlePrice;
         return (
-        `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}" style="display:block;width:100%;text-align:left;border:2px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:8px;background:#fff;cursor:pointer;">` +
+        `<button type="button" class="uw-tier-card" data-tier-id="${t.id}" data-effective-price="${effectivePrice}" style="display:block;width:100%;text-align:left;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;">` +
             `<div style="display:flex;justify-content:space-between;align-items:baseline;">` +
-                `<strong style="font-size:0.95rem;">${escapeHtml(t.name)}</strong>` +
+                `<strong class="uw-tier-name" style="font-size:0.95rem;">${escapeHtml(t.name)}</strong>` +
                 `<span>` +
-                    (showOriginalStrike ? `<span style="font-size:0.78rem;color:#94a3b8;text-decoration:line-through;margin-right:4px;">₱${t.bundlePrice}</span>` :'') +
-                    `<span style="font-size:0.95rem;font-weight:700;color:#2563eb;">₱${effectivePrice}</span>` +
+                    (showOriginalStrike ? `<span class="uw-tier-strike" style="font-size:0.78rem;text-decoration:line-through;margin-right:4px;">₱${t.bundlePrice}</span>` :'') +
+                    `<span class="uw-tier-price" style="font-size:0.95rem;font-weight:700;">₱${effectivePrice}</span>` +
                 `</span>` +
             `</div>` +
-            `<div style="font-size:0.78rem;color:#94a3b8;margin-top:2px;">${escapeHtml(t.description ||'')}</div>` +
+            `<div class="uw-tier-desc" style="font-size:0.78rem;margin-top:2px;">${escapeHtml(t.description ||'')}</div>` +
             (showOriginalStrike
-                ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">Price for the remaining locked features only (you already purchased some separately)</div>`
+                ? `<div class="uw-tier-note" style="font-size:0.72rem;margin-top:2px;">Price for the remaining locked features only (you already purchased some separately)</div>`
                 :'') +
             (t.alaCartePrice > effectivePrice
-                ? `<div style="font-size:0.72rem;color:#16a34a;margin-top:2px;">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
+                ? `<div class="uw-tier-save" style="font-size:0.72rem;margin-top:2px;">Save ₱${t.alaCartePrice - effectivePrice} vs à la carte</div>`
                 :'') +
         `</button>`
         );
@@ -2023,20 +2076,20 @@ async function showUpgradeTiersModal() {
         .map(cat => {
             const items = featuresByCategory[cat];
             const rowsHtml = items.map(f => (
-                `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:0.85rem;cursor:pointer;">` +
+                `<label class="uw-feature-row" style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer;">` +
                     `<input type="checkbox" class="uw-feature-check" data-feature-id="${f.id}" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;">` +
                     `<span style="flex:1;">` +
-                        `<span style="display:block;">${escapeHtml(f.name)}</span>` +
-                        (f.description ? `<span style="display:block;font-size:0.72rem;color:#94a3b8;margin-top:2px;line-height:1.4;">${escapeHtml(f.description)}</span>` :'') +
+                        `<span class="uw-feature-name" style="display:block;">${escapeHtml(f.name)}</span>` +
+                        (f.description ? `<span class="uw-feature-desc" style="display:block;font-size:0.72rem;margin-top:2px;line-height:1.4;">${escapeHtml(f.description)}</span>` :'') +
                     `</span>` +
-                    `<span style="color:#64748b;flex-shrink:0;">₱${f.price}</span>` +
+                    `<span class="uw-feature-price" style="flex-shrink:0;">₱${f.price}</span>` +
                 `</label>`
             )).join('');
             return (
-                `<details class="uw-category-group" style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden;background:#fff;">` +
-                    `<summary style="cursor:pointer;padding:9px 12px;font-weight:600;font-size:0.82rem;color:#334155;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;">` +
+                `<details class="uw-category-group" style="border-radius:8px;margin-bottom:8px;overflow:hidden;">` +
+                    `<summary style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;font-weight:600;font-size:0.82rem;">` +
                         `<span>${escapeHtml(ALA_CARTE_CATEGORY_LABELS[cat] || cat)}</span>` +
-                        `<span style="font-size:0.72rem;color:#94a3b8;font-weight:500;">${items.length} item${items.length > 1 ?'s' :''}</span>` +
+                        `<span class="uw-category-count" style="font-size:0.72rem;font-weight:500;">${items.length} item${items.length > 1 ?'s' :''}</span>` +
                     `</summary>` +
                     `<div>${rowsHtml}</div>` +
                 `</details>`
@@ -2048,16 +2101,16 @@ async function showUpgradeTiersModal() {
         width: 480,
         html:
             `<div style="text-align:left;max-height:60vh;overflow-y:auto;">` +
-                `<p style="font-size:0.8rem;color:#94a3b8;margin:0 0 10px;">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
-                `<div style="font-weight:600;font-size:0.82rem;margin-bottom:6px;color:#334155;">Complete Packages</div>` +
+                `<p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
+                `<div class="uw-modal-section-title" style="font-weight:600;font-size:0.82rem;margin-bottom:6px;">Complete Packages</div>` +
                 `<div id="uw-tier-list">${tierCardsHtml}</div>` +
-                `<div style="font-weight:600;font-size:0.82rem;margin:14px 0 4px;color:#334155;">Or Select Individual Features</div>` +
-                `<p style="font-size:0.72rem;color:#94a3b8;margin:0 0 8px;line-height:1.4;">Individual selections are billed at full à la carte price. Bundle discounts apply only to the complete packages above, since a custom, feature-by-feature selection is not a package purchase.</p>` +
+                `<div class="uw-modal-section-title" style="font-weight:600;font-size:0.82rem;margin:14px 0 4px;">Or Select Individual Features</div>` +
+                `<p class="uw-modal-note" style="font-size:0.72rem;margin:0 0 8px;line-height:1.4;">Individual selections are billed at full à la carte price. Bundle discounts apply only to the complete packages above, since a custom, feature-by-feature selection is not a package purchase.</p>` +
                 `<div id="uw-feature-list">${alaCarteHtml}</div>` +
             `</div>` +
-            `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:1px solid #e2e8f0;">` +
-                `<span style="font-size:0.85rem;color:#334155;">Total:</span>` +
-                `<span id="uw-total-price" style="font-size:1.1rem;font-weight:700;color:#2563eb;">₱0</span>` +
+            `<div class="uw-modal-footer" style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;">` +
+                `<span class="uw-modal-footer-label" style="font-size:0.85rem;">Total:</span>` +
+                `<span id="uw-total-price" style="font-size:1.1rem;font-weight:700;">₱0</span>` +
             `</div>`,
         showCancelButton: true,
         confirmButtonText:'Upgrade Now',
@@ -2102,8 +2155,7 @@ async function showUpgradeTiersModal() {
                     });
 
                     tierButtons.forEach(b => {
-                        b.style.borderColor = (b.getAttribute('data-tier-id') === selectedTierId) ?'#2563eb' :'#e2e8f0';
-                        b.style.background = (b.getAttribute('data-tier-id') === selectedTierId) ?'#eff6ff' :'#fff';
+                        b.classList.toggle('active', b.getAttribute('data-tier-id') === selectedTierId);
                     });
                     renderTotal();
                 });
@@ -2120,7 +2172,7 @@ async function showUpgradeTiersModal() {
                     }
 
                     selectedTierId = null;
-                    tierButtons.forEach(b => { b.style.borderColor ='#e2e8f0'; b.style.background ='#fff'; });
+                    tierButtons.forEach(b => b.classList.remove('active'));
                     renderTotal();
                 });
             });
@@ -2214,29 +2266,34 @@ async function requestBulkUnlock(featureIds, tierId) {
         return false;
     }
 
-    let confirmData = await showModernOtpModal({
-        subtitle: `We sent a 6-digit code to verify <strong>${featureIds.length} feature(s)</strong>.`,
-        confirmButtonText: 'Verify Code',
-        verifyFn: async ({ otp }) => {
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verification Required',
+        descriptionHtml: `Enter the 6-digit verification code sent to the developer/store owner to activate <strong>${featureIds.length} feature(s)</strong>.`,
+        verify: async (otp) => {
+            const confirmBody = { featureIds, otp, username: requestingUsername };
             const confirmRes = await authFetch(`${API_URL}/features/confirm-unlock-bulk`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify({ featureIds, otp, username: requestingUsername })
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(confirmBody)
             });
             return confirmRes.json();
-        }
+        },
+        onExpire: () => cancelPendingOtp({ featureIds })
     });
-    if (!confirmData) return false;
+    if (!otpModalResult) return false;
 
     try {
+        let confirmData = otpModalResult;
+
         if (confirmData.pending) {
-            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, { featureIds, otp: confirmData.otp, username: requestingUsername });
+            const confirmBody = { featureIds, otp: confirmData._verifiedOtp, username: requestingUsername };
+            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, confirmBody);
         }
 
         if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
-            // Inline retry feedback already handled this — no extra popup.
+            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return false;
         }
 
@@ -2629,29 +2686,34 @@ async function promptDemoMode() {
         return false;
     }
 
-    let confirmData = await showModernOtpModal({
-        subtitle: 'We sent a 6-digit code to verify <strong>Demo Mode</strong>.',
-        confirmButtonText: 'Verify Code',
-        verifyFn: async ({ otp }) => {
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verification Required',
+        descriptionHtml: 'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>Demo Mode</strong>.',
+        verify: async (otp) => {
+            const confirmBody = { otp, username: requestingUsername };
             const confirmRes = await authFetch(`${API_URL}/features/confirm-demo`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify({ otp, username: requestingUsername })
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(confirmBody)
             });
             return confirmRes.json();
-        }
+        },
+        onExpire: () => cancelPendingOtp({ demo: true })
     });
-    if (!confirmData) return false;
+    if (!otpModalResult) return false;
 
     try {
+        let confirmData = otpModalResult;
+
         if (confirmData.pending) {
-            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, { otp: confirmData.otp, username: requestingUsername });
+            const confirmBody = { otp: confirmData._verifiedOtp, username: requestingUsername };
+            confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, confirmBody);
         }
 
         if (confirmData.cancelled) return false;
 
         if (!confirmData.success) {
-            // Inline retry feedback already handled this — no extra popup.
+            Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return false;
         }
 
@@ -3027,6 +3089,13 @@ function toggleRecoveryCard() {
 function applyResponsiveRecoveryCardState() {
     const card = document.querySelector('.recovery-inner-card');
     if (!card) return;
+    // Opening the on-screen keyboard (e.g. tapping the Txn/Log ID field
+    // inside this card) fires a window 'resize' event on mobile browsers.
+    // Without this guard, that resize was mistaken for a real breakpoint
+    // change and force-collapsed the card out from under the user's finger
+    // while they were still typing. Skip the auto-collapse whenever focus
+    // is currently inside the card.
+    if (card.contains(document.activeElement)) return;
     if (isMobileOrTabletScreen()) {
         card.classList.remove('rc-expanded');
     } else {
@@ -4846,41 +4915,51 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 });
 
 async function promptLoginOtp(loginToken, errorBanner) {
-    const verifyData = await showModernOtpModal({
-        title: 'Enter your code',
-        subtitle: 'We sent a 6-digit code to verify your Admin Login.',
+    const { value: otpCode, isDismissed } = await Swal.fire({
+        title: '🔐 Admin Login OTP',
+        html: 'Naipadala ang isang 6-digit na OTP code sa naka-configure na email para sa Two-Factor Authentication. Ilagay ito para makumpleto ang login:',
+        input: 'text',
+        inputPlaceholder: '000000',
+        showCancelButton: true,
         confirmButtonText: 'Verify',
-        verifyFn: async ({ otp }) => {
-            const verifyRes = await authFetch(`${API_URL}/auth/login/verify-otp`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ loginToken, otp })
-            });
-            const data = await verifyRes.json();
-            // An expired code can't be fixed by retrying the same code, so
-            // close the modal right away instead of burning an attempt.
-            if (data.code === 'OTP_EXPIRED') data.noRetry = true;
-            return data;
-        }
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        allowOutsideClick: false
     });
 
-    if (!verifyData) return;
+    if (isDismissed || !otpCode || !otpCode.trim()) return;
 
     try {
+        const verifyRes = await authFetch(`${API_URL}/auth/login/verify-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ loginToken, otp: otpCode.trim() })
+        });
+        const verifyData = await verifyRes.json();
+
         if (verifyData.success) {
             await completeLoginSuccess(verifyData);
             return;
         }
 
         if (verifyData.code === 'OTP_EXPIRED') {
-            Swal.fire('Code Expired', verifyData.message || 'Please log in again to request a new code.', 'error');
+            Swal.fire('Expired na ang OTP', verifyData.message || 'Mag-login ulit para makahingi ng bagong OTP.', 'error');
             return;
         }
 
-        // Ran out of attempts — the "Enter your code" dialog has already
-        // closed on its own with the inline error shown; nothing else to do.
+        const retry = await Swal.fire({
+            icon: 'error',
+            title: 'Maling OTP',
+            text: verifyData.message || 'Maling OTP code. Subukan ulit.',
+            showCancelButton: true,
+            confirmButtonText: 'Try Again',
+            cancelButtonText: 'Cancel'
+        });
+        if (retry.isConfirmed) {
+            await promptLoginOtp(loginToken, errorBanner);
+        }
     } catch (err) {
-        Swal.fire('Connection Error', 'Unable to reach the server to verify the code. Please try again.', 'error');
+        Swal.fire('Connection Error', 'Unable to reach the server to verify the OTP. Please try again.', 'error');
     }
 }
 
@@ -10092,31 +10171,31 @@ async function saveReceiptCustomization() {
                 return;
             }
 
-            data = await showModernOtpModal({
-                subtitle: 'You have reached the free limit for receipt customization (2/2). We sent a 6-digit code to the developer\'s registered email.',
-                confirmButtonText: 'Verify Code',
-                verifyFn: async ({ otp }) => {
-                    payload.otp = otp;
-                    const r = await authFetch(`${API_URL}/receipt-settings`, {
-                        method:'POST',
-                        headers: {'Content-Type':'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    return r.json();
-                }
+            const { value: otpCode } = await Swal.fire({
+                title:'🔒 OTP Required',
+                html:'You have reached the free limit for receipt customization (2/2). An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
+                input:'text',
+                inputPlaceholder:'000000',
+                showCancelButton: true,
+                confirmButtonColor:'#2563eb',
+                cancelButtonColor:'#64748b'
             });
 
-            if (!data) return;
+            if (!otpCode || !otpCode.trim()) return;
+
+            payload.otp = otpCode.trim();
+
+            res = await authFetch(`${API_URL}/receipt-settings`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify(payload)
+            });
+            data = await res.json();
 
             if (data.pending) {
                 data = await pollUntilApproved(`${API_URL}/receipt-settings`, payload);
             }
             if (data.cancelled) return;
-
-            if (!data.success && !data.pending) {
-                // Inline retry feedback already handled this — no extra popup.
-                return;
-            }
         }
 
         if (data.success && data.pending) {
@@ -10982,22 +11061,27 @@ async function requestReceiptCounterReset() {
             return;
         }
 
-        let resetData = await showModernOtpModal({
-            subtitle: 'We sent a 6-digit code to the developer\'s registered email to verify this reset.',
-            confirmButtonText: 'Verify Code',
-            verifyFn: async ({ otp }) => {
-                const r = await authFetch(`${API_URL}/receipt-settings/reset-counter`, {
-                    method:'POST',
-                    headers: {'Content-Type':'application/json' },
-                    body: JSON.stringify({ otp, username })
-                });
-                return r.json();
-            }
+        const { value: otpCode } = await Swal.fire({
+            title:'🔓 Enter Reset OTP',
+            html:'An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
+            input:'text',
+            inputPlaceholder:'000000',
+            showCancelButton: true,
+            confirmButtonColor:'#2563eb',
+            cancelButtonColor:'#64748b'
         });
-        if (!resetData) return;
+        if (!otpCode || !otpCode.trim()) return;
+
+        const resetBody = { otp: otpCode.trim(), username };
+        const resetRes = await authFetch(`${API_URL}/receipt-settings/reset-counter`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify(resetBody)
+        });
+        let resetData = await resetRes.json();
 
         if (resetData.pending) {
-            resetData = await pollUntilApproved(`${API_URL}/receipt-settings/reset-counter`, { otp: resetData.otp, username });
+            resetData = await pollUntilApproved(`${API_URL}/receipt-settings/reset-counter`, resetBody);
         }
         if (resetData.cancelled) return;
 
@@ -11028,9 +11112,9 @@ async function requestReceiptCounterReset() {
                     }
                 }
             }
+        } else {
+            Swal.fire('Error', resetData.message ||'Failed to reset the counter.','error');
         }
-        // On failure (including running out of retry attempts), the inline
-        // OTP feedback already communicated this — no extra popup needed.
     } catch (err) {
         console.error(err);
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
@@ -16288,10 +16372,34 @@ async function runCloudBackupSync() {
         }
 
         if (result.success) {
+            const sizeLabel = typeof result.sizeMB === 'number'
+                ? `, ${result.sizeMB >= 1024 ? (result.sizeMB / 1024).toFixed(2) + ' GB' : result.sizeMB.toFixed(2) + ' MB'} consumed`
+                : '';
             if (statusBox) {
-                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules) — ${new Date().toLocaleString()}`;
+                statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules${sizeLabel}) — ${new Date().toLocaleString()}`;
             }
-            Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
+            renderCloudBackupStorageBar({ sizeMB: result.sizeMB, quotaMB: result.quotaMB, percentUsed: result.percentUsed, tier: result.tier });
+            if (result.nearQuota) {
+                Swal.fire('Cloud Backup — Almost Full', `You're at ${result.percentUsed}% of your ${(CLOUD_BACKUP_PLANS_UI[result.tier] || {}).name || 'plan'}'s storage allowance. Consider upgrading your plan or freeing up space soon, or the next sync may be rejected.`, 'warning');
+            } else {
+                Swal.fire('Cloud Backup', result.message || 'The database was successfully synced to the cloud.', 'success');
+            }
+        } else if (result.storageQuotaExceeded) {
+            const planName = (CLOUD_BACKUP_PLANS_UI[result.tier] || {}).name || 'your current plan';
+            if (statusBox) {
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Storage allowance exceeded (${result.sizeMB} MB / ${result.quotaMB} MB) — upgrade ${planName} or free up space.`;
+            }
+            renderCloudBackupStorageBar({ sizeMB: result.sizeMB, quotaMB: result.quotaMB, percentUsed: 100, tier: result.tier });
+            Swal.fire({
+                title: 'Storage Allowance Exceeded',
+                html: `Your data (${result.sizeMB} MB) is ${result.overageMB} MB over ${planName}'s ${result.quotaMB} MB allowance.<br><br>Upgrade your Cloud Backup plan, or free up space (e.g., trim old transaction/userlog history) before syncing again.`,
+                icon: 'error',
+                confirmButtonText: 'Upgrade Plan',
+                showCancelButton: true,
+                cancelButtonText: 'Not Now'
+            }).then((r) => {
+                if (r.isConfirmed) promptCloudBackupSubscription();
+            });
         } else {
             if (statusBox) {
                 statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${result.message || 'Cloud backup failed.'}`;
@@ -19210,10 +19318,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const confirm = await Swal.fire({
             title: 'Reset Admin Password',
-            text: 'This will send a reset request to the developer. You will need an OTP from them to continue.',
+            text: 'Magpapadala ito ng reset request papunta sa developer. Kailangan mo ng OTP mula sa kanila para magpatuloy.',
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonText: 'Send Request'
+            confirmButtonText: 'Magpadala ng Request'
         });
         if (!confirm.isConfirmed) return;
 
@@ -19221,39 +19329,55 @@ document.addEventListener('DOMContentLoaded', function () {
             const reqRes = await fetch('/api/admin/request-password-reset', { method: 'POST' });
             const reqData = await reqRes.json();
             if (!reqData.success) {
-                Swal.fire('Not Sent', reqData.message || 'The request failed.', 'error');
+                Swal.fire('Hindi Naipadala', reqData.message || 'Nabigo ang request.', 'error');
                 return;
             }
         } catch (err) {
-            Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
+            Swal.fire('Error', `Hindi ma-reach ang server: ${err.message}`, 'error');
             return;
         }
 
-        let confirmData = await showModernOtpModal({
-            subtitle: 'We sent a 6-digit code to verify this password reset. Enter it below along with your new password.',
-            confirmButtonText: 'Reset Password',
-            withPasswordField: true,
-            passwordPlaceholder: 'New Password (min 8 chars)',
-            verifyFn: async ({ otp, newPassword }) => {
-                const r = await authFetch('/api/admin/confirm-password-reset', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ otp, newPassword })
-                });
-                return r.json();
+        const { value: formValues } = await Swal.fire({
+            title: 'Ilagay ang OTP + Bagong Password',
+            html:
+                '<input id="swal-otp" class="swal2-input" placeholder="6-digit OTP" maxlength="6">' +
+                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="Bagong Password (min 8 chars)">',
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'I-reset ang Password',
+            preConfirm: () => {
+                const otp = document.getElementById('swal-otp').value.trim();
+
+                const newPassword = document.getElementById('swal-new-pw').value.trim();
+                if (!otp || otp.length !== 6) {
+                    Swal.showValidationMessage('Ilagay ang 6-digit OTP.');
+                    return false;
+                }
+                if (!newPassword || newPassword.length < 8) {
+                    Swal.showValidationMessage('Dapat hindi bababa sa 8 characters ang bagong password.');
+                    return false;
+                }
+                return { otp, newPassword };
             }
         });
-        if (!confirmData) return;
+        if (!formValues) return;
 
         try {
+            let confirmRes = await authFetch('/api/admin/confirm-password-reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formValues)
+            });
+            let confirmData = await confirmRes.json();
+
             if (confirmData.pending) {
-                confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', { otp: confirmData.otp, newPassword: confirmData.newPassword });
+                confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', formValues);
             }
 
             if (confirmData.cancelled) return;
 
             if (!confirmData.success) {
-                // Inline retry feedback already handled this — no extra popup.
+                Swal.fire('Hindi Na-reset', confirmData.message || 'Nabigo ang pag-reset.', 'error');
                 return;
             }
 

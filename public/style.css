@@ -1989,10 +1989,29 @@ body.dark-mode .rank-row .rank-name {
     color: #94a3b8;
 }
 
+/* appearance:none turns off the native OS/browser widget chrome for these
+   <select> boxes. Without it, some Android browsers render the closed box
+   using the SYSTEM's own light/dark theme instead of this page's CSS, which
+   is why "All Actions" and similar dropdowns could show up black even while
+   the rest of the app was correctly in Day Mode. A custom chevron is drawn
+   via background-image to replace the native arrow that appearance:none
+   removes. */
+.adv-select,
+.logs-filter-select,
+.shift-close-target-select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px 12px;
+}
+
 .adv-select {
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 7px 10px;
+    padding: 7px 26px 7px 10px;
     font-size: 0.8rem;
     font-weight: 600;
     background-color: #ffffff;
@@ -2003,7 +2022,7 @@ body.dark-mode .rank-row .rank-name {
 .logs-filter-select {
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 8px 26px 8px 10px;
     font-size: 0.8rem;
     font-weight: 600;
     background-color: #ffffff;
@@ -2943,20 +2962,30 @@ body.cart-pane-resizing-cursor {
 }
 
 .recovery-inner-card {
-    background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
-    border: 1px solid #2d3748;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 12px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+body.dark-mode .recovery-inner-card {
+    background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
+    border-color: #2d3748;
     box-shadow: 0 4px 12px rgba(0,0,0,0.18);
 }
 
 .recovery-inner-card h3 {
     font-size: 0.92rem;
     margin: 0;
-    color: #e5e7eb;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+body.dark-mode .recovery-inner-card h3 {
+    color: #e5e7eb;
 }
 
 #recovery-card-toggle-chevron {
@@ -2983,9 +3012,13 @@ body.cart-pane-resizing-cursor {
 
 .recovery-desc {
     font-size: 0.78rem;
-    color: #94a3b8;
+    color: var(--text-muted);
     margin: 0 0 10px 0;
     line-height: 1.5;
+}
+
+body.dark-mode .recovery-desc {
+    color: #94a3b8;
 }
 
 .file-upload-btn {
@@ -3025,9 +3058,9 @@ body.cart-pane-resizing-cursor {
     box-sizing: border-box;
     padding: 9px 12px;
     border-radius: 8px;
-    border: 1px solid #374151;
-    background-color: #0f172a;
-    color: #f1f5f9;
+    border: 1px solid var(--border-color);
+    background-color: #ffffff;
+    color: var(--text-primary);
     font-size: 0.82rem;
     margin-bottom: 8px;
     outline: none;
@@ -3035,6 +3068,12 @@ body.cart-pane-resizing-cursor {
 
 .backup-id-input:focus {
     border-color: #3b82f6;
+}
+
+body.dark-mode .backup-id-input {
+    border: 1px solid #374151;
+    background-color: #0f172a;
+    color: #f1f5f9;
 }
 
 .backup-actions-grid {
@@ -3235,19 +3274,37 @@ body.cart-pane-resizing-cursor {
 
 .search-box-container input {
     width: 100%;
-    background-color: #1f2937;
-    border: 1px solid var(--terminal-border);
+    background-color: #ffffff;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 9px 16px 9px 34px;
-    color: white;
+    color: var(--text-primary);
     font-size: 0.88rem;
     outline: none;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.search-box-container input::placeholder {
+    color: #94a3b8;
 }
 
 .search-box-container input:focus {
     border-color: var(--primary-blue);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+/* This box is reused outside the always-dark Terminal (Customers, Products,
+   Transactions, etc.), so it needs to follow the store-wide Day/Dark toggle
+   here. Inside the Terminal, the higher-specificity .terminal-theme rules
+   below still take over and are unaffected by this. */
+body.dark-mode .search-box-container input {
+    background-color: var(--dm-surface);
+    border-color: var(--dm-border);
+    color: var(--dm-text-primary);
+}
+
+body.dark-mode .search-box-container input::placeholder {
+    color: var(--dm-text-muted);
 }
 
 .search-icon-inline {
@@ -5097,7 +5154,7 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td.matri
 
 .shift-close-target-select {
     width: 100%;
-    padding: 10px 12px;
+    padding: 10px 28px 10px 12px;
     border-radius: 8px;
     border: 1px solid var(--border-color);
     background-color: #ffffff;
@@ -5865,6 +5922,8 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
     line-height: 1.2;
     font-weight: 800;
     text-align: right;
+    background-color: #ffffff;
+    color: #0f172a;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     outline: none;
@@ -7114,6 +7173,10 @@ body.dark-mode .logs-filter-select {
     border-color: var(--dm-border);
     color: var(--dm-text-secondary);
 }
+body.dark-mode .adv-select,
+body.dark-mode .logs-filter-select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+}
 body.dark-mode .logs-filter-select option {
     background-color: var(--dm-surface);
     color: var(--dm-text-secondary);
@@ -7170,6 +7233,7 @@ body.dark-mode .shift-close-target-select {
     background-color: var(--dm-bg);
     border-color: var(--dm-border);
     color: var(--dm-text-primary);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
 }
 body.dark-mode .shift-close-target-select option {
     background-color: var(--dm-surface);
@@ -7955,6 +8019,139 @@ body.dark-mode .swal2-footer {
 
 body.dark-mode .swal2-timer-progress-bar {
     background-color: var(--dm-accent) !important;
+}
+
+/* ============================================================
+   Cloud Backup Plan picker (promptCloudBackupSubscription) &
+   Upgrade Options modal (showUpgradeTiersModal) — theme-aware.
+   Kailangan ng sariling classes ito (hindi inline hex colors) para
+   awtomatikong sumusunod sa dark mode AT sa lahat ng Pro themes,
+   dahil lahat sila ay naglalagay ng `body.dark-mode` class kasabay
+   ng `data-theme` (see applyTheme sa app.js) — kaya iisang dark-mode
+   override lang ang kailangan dito, gamit ang --dm-* variables na
+   nagbabago na mismo per-theme (see css/themes/theme-*.css).
+   ============================================================ */
+.cb-cycle-btn,
+.cb-tier-btn,
+.uw-tier-card,
+.uw-category-group {
+    border: 2px solid var(--border-color);
+    background: #ffffff;
+}
+.uw-category-group {
+    border-width: 1px;
+}
+
+.cb-tier-btn.active,
+.cb-cycle-btn.active,
+.uw-tier-card.active {
+    border-color: var(--primary-blue);
+    background: var(--accent-blue-light);
+}
+
+.cb-tier-name,
+.uw-tier-card .uw-tier-name,
+.uw-modal-section-title,
+.uw-modal-footer-label,
+.uw-feature-row .uw-feature-name,
+.uw-category-group summary {
+    color: var(--text-primary);
+}
+
+.cb-tier-tagline,
+.cb-tier-price span,
+.uw-tier-card .uw-tier-desc,
+.uw-tier-card .uw-tier-note,
+.uw-tier-card .uw-tier-strike,
+.uw-category-group .uw-category-count,
+.uw-feature-row .uw-feature-desc,
+.uw-feature-row .uw-feature-price,
+.uw-modal-intro,
+.uw-modal-note,
+.cb-cycle-btn {
+    color: var(--text-muted);
+}
+
+.cb-tier-price,
+.uw-tier-card .uw-tier-price,
+#uw-total-price {
+    color: var(--primary-blue);
+}
+.cb-cycle-btn.active {
+    color: var(--primary-blue);
+}
+.uw-tier-card .uw-tier-save {
+    color: var(--success-green);
+}
+
+.uw-category-group summary {
+    background: var(--pos-neutral-soft, #f8fafc);
+}
+.uw-feature-row {
+    border-bottom: 1px solid var(--border-color);
+}
+.uw-modal-footer {
+    border-top: 1px solid var(--border-color);
+}
+.uw-feature-check,
+.cb-tier-btn,
+.cb-cycle-btn {
+    accent-color: var(--primary-blue);
+}
+
+body.dark-mode .cb-cycle-btn,
+body.dark-mode .cb-tier-btn,
+body.dark-mode .uw-tier-card,
+body.dark-mode .uw-category-group {
+    background: var(--dm-surface-alt);
+    border-color: var(--dm-border);
+}
+body.dark-mode .cb-tier-btn.active,
+body.dark-mode .cb-cycle-btn.active,
+body.dark-mode .uw-tier-card.active {
+    border-color: var(--dm-accent);
+    background: var(--dm-accent-soft);
+}
+body.dark-mode .cb-tier-name,
+body.dark-mode .uw-tier-card .uw-tier-name,
+body.dark-mode .uw-modal-section-title,
+body.dark-mode .uw-modal-footer-label,
+body.dark-mode .uw-feature-row .uw-feature-name,
+body.dark-mode .uw-category-group summary {
+    color: var(--dm-text-primary);
+}
+body.dark-mode .cb-tier-tagline,
+body.dark-mode .cb-tier-price span,
+body.dark-mode .uw-tier-card .uw-tier-desc,
+body.dark-mode .uw-tier-card .uw-tier-note,
+body.dark-mode .uw-tier-card .uw-tier-strike,
+body.dark-mode .uw-category-group .uw-category-count,
+body.dark-mode .uw-feature-row .uw-feature-desc,
+body.dark-mode .uw-feature-row .uw-feature-price,
+body.dark-mode .uw-modal-intro,
+body.dark-mode .uw-modal-note,
+body.dark-mode .cb-cycle-btn {
+    color: var(--dm-text-secondary);
+}
+body.dark-mode .cb-tier-price,
+body.dark-mode .uw-tier-card .uw-tier-price,
+body.dark-mode #uw-total-price,
+body.dark-mode .cb-cycle-btn.active {
+    color: var(--dm-accent);
+}
+body.dark-mode .uw-category-group summary {
+    background: var(--dm-surface);
+}
+body.dark-mode .uw-feature-row {
+    border-bottom-color: var(--dm-border);
+}
+body.dark-mode .uw-modal-footer {
+    border-top-color: var(--dm-border);
+}
+body.dark-mode .uw-feature-check,
+body.dark-mode .cb-tier-btn,
+body.dark-mode .cb-cycle-btn {
+    accent-color: var(--dm-accent);
 }
 
 body.dark-mode.swal2-shown:not(.swal2-toast-shown) .swal2-container.swal2-backdrop-show {
@@ -10717,4 +10914,185 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
 @keyframes scanFastToastOut {
     0%   { transform: translateY(0); opacity: 1; }
     100% { transform: translateY(-10px); opacity: 0; }
+}
+
+/* ============================================================
+   OTP VERIFICATION MODAL — "Security Check" 6-box code entry.
+   Used by every RELAY-backed verification flow (Pro theme unlock,
+   feature/Cloud Backup unlock, bundle unlock, and Demo Mode).
+   Self-contained dark card, always on top of the app regardless of
+   whichever theme is currently active — this is intentional, since
+   it mimics a fixed "security check" reference design rather than
+   following the store's own color theme.
+   ============================================================ */
+.otp-verify-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(4, 8, 16, 0.72);
+    backdrop-filter: blur(3px);
+    animation: otpOverlayFadeIn 0.16s ease-out;
+}
+.otp-verify-overlay.is-closing { animation: otpOverlayFadeOut 0.16s ease-in forwards; }
+@keyframes otpOverlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes otpOverlayFadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+.otp-verify-card {
+    position: relative;
+    width: 100%;
+    max-width: 380px;
+    background: radial-gradient(120% 140% at 50% -10%, #1a2236 0%, #0c1120 60%, #090c16 100%);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 16px;
+    padding: 28px 22px 24px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    color: #e2e8f0;
+    animation: otpCardPopIn 0.18s ease-out;
+}
+@keyframes otpCardPopIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.otp-verify-card.is-shaking { animation: otpCardShake 0.42s ease-in-out; }
+@keyframes otpCardShake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-5px); }
+    40%, 60% { transform: translateX(5px); }
+}
+
+.otp-verify-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px;
+}
+.otp-verify-close:hover { color: #e2e8f0; }
+
+.otp-verify-icon { font-size: 26px; margin-bottom: 6px; }
+.otp-verify-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: #64748b;
+    margin-bottom: 6px;
+}
+.otp-verify-title { margin: 0 0 8px; font-size: 1.2rem; font-weight: 700; color: #f1f5f9; }
+.otp-verify-desc { font-size: 0.83rem; color: #94a3b8; margin: 0 0 20px; line-height: 1.4; }
+.otp-verify-desc strong { color: #cbd5e1; }
+
+.otp-verify-boxes {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+    gap: clamp(6px, 2vw, 10px);
+    margin-bottom: 14px;
+}
+.otp-verify-box {
+    flex: 0 0 auto;
+    width: clamp(36px, 9vw, 46px);
+    height: clamp(42px, 10vw, 52px);
+    border-radius: 10px;
+    border: 1.5px solid rgba(148, 163, 184, 0.28);
+    background: rgba(255, 255, 255, 0.04);
+    color: #f8fafc;
+    font-size: clamp(1rem, 4vw, 1.3rem);
+    font-weight: 700;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.otp-verify-box:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.28);
+    background: rgba(59, 130, 246, 0.08);
+}
+.otp-verify-box.is-error {
+    border-color: #ef4444;
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.1);
+    animation: otpBoxShake 0.42s ease-in-out;
+}
+@keyframes otpBoxShake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
+}
+.otp-verify-box.is-success {
+    border-color: #22c55e;
+    color: #4ade80;
+    background: rgba(34, 197, 94, 0.12);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+    animation: otpBoxSuccessPop 0.28s ease-out;
+}
+@keyframes otpBoxSuccessPop {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.12); }
+    100% { transform: scale(1); }
+}
+
+.otp-verify-status {
+    min-height: 18px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.otp-verify-status.is-error { color: #f87171; }
+.otp-verify-status.is-success { color: #4ade80; }
+
+.otp-verify-attempts {
+    min-height: 16px;
+    font-size: 0.74rem;
+    color: #f59e0b;
+    margin-bottom: 12px;
+}
+
+.otp-verify-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+}
+.otp-verify-cancel-btn,
+.otp-verify-submit-btn {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.otp-verify-cancel-btn {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.24);
+    color: #cbd5e1;
+}
+.otp-verify-cancel-btn:hover { background: rgba(148, 163, 184, 0.2); }
+.otp-verify-cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.otp-verify-close:disabled { opacity: 0.4; cursor: not-allowed; }
+.otp-verify-submit-btn {
+    background: #2563eb;
+    color: #fff;
+}
+.otp-verify-submit-btn:hover:not(:disabled) { background: #1d4ed8; }
+.otp-verify-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+    .otp-verify-card, .otp-verify-card.is-shaking, .otp-verify-box.is-error, .otp-verify-box.is-success {
+        animation: none !important;
+    }
 }
