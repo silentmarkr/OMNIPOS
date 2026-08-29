@@ -12,3 +12,5 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+⚠️  Omni Search Images (job 3eee817fafca9c66fe0df96f72f808ed): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
+⚠️  Omni Search Images (job c4e953fc2da6580eaa3ec578f04ed01d): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
