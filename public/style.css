@@ -463,7 +463,10 @@ body:not(.dark-mode) .sidebar {
     font-weight: 700;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: #475569;
+    /* Pinabrighter mula #475569 — mas "buhay"/mababasa laban sa dark navy
+       sidebar background, habang nananatili pa ring mas mahina kaysa sa
+       mismong menu items para may hierarchy pa rin. */
+    color: #8b9dc3;
     padding: 14px 16px 6px;
 }
 
@@ -475,7 +478,9 @@ body:not(.dark-mode) .sidebar {
     display: flex;
     align-items: center;
     padding: 10px 16px;
-    color: #94a3b8;
+    /* Pinabrighter mula #94a3b8 para mas "buhay"/mas madaling basahin
+       ang sidebar menu text sa day mode. */
+    color: #c7d4ea;
     text-decoration: none;
     font-weight: 500;
     border-radius: 8px;
@@ -515,7 +520,8 @@ body:not(.dark-mode) .sidebar {
     display: flex;
     align-items: center;
     padding: 10px 16px;
-    color: #94a3b8;
+    /* Pinabrighter mula #94a3b8 — kasabay ng .menu-item sa itaas. */
+    color: #c7d4ea;
     font-weight: 500;
     cursor: pointer;
     border-radius: 8px;
@@ -558,7 +564,10 @@ body:not(.dark-mode) .sidebar {
     display: flex;
     align-items: center;
     padding: 10px 16px;
-    color: #64748b;
+    /* Pinabrighter mula #64748b (ito dati ang pinaka-mahina/pinaka-hirap
+       basahing text sa buong sidebar) papuntang mas "buhay" na tono —
+       bahagyang mas mahina pa rin kaysa .menu-item para may hierarchy. */
+    color: #a9b9d9;
     text-decoration: none;
     font-size: 0.95rem;
     font-weight: 500;
@@ -3116,11 +3125,35 @@ body.dark-mode .backup-id-input {
     gap: 10px;
     flex-wrap: wrap;
     margin-bottom: 14px;
-    background: #1e293b;
+    background: #ffffff;
     padding: 8px 10px;
     border-radius: 10px;
-    border: 1px solid var(--terminal-border);
+    border: 1px solid rgba(0, 0, 0, 0.02);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
     flex-shrink: 0;
+}
+
+/* The POS Terminal search/filter bar is the one place that keeps the dark
+   navy "console" look, since the Terminal itself is always dark. This same
+   .terminal-top-controls wrapper is reused purely for layout on every other
+   page (Products, Reorder Alerts, Customers, Debtors, Transactions, Logs),
+   which must instead look like a normal, light part of the page — see the
+   plain white rule above and the body.dark-mode rule below it. The #view-terminal
+   ID selector always outranks those on specificity, so this override is safe
+   regardless of rule order or the store's Day/Dark theme. */
+#view-terminal .terminal-top-controls {
+    background: #1e293b;
+    border: 1px solid var(--terminal-border);
+    box-shadow: none;
+}
+
+/* Same non-Terminal pages, but the store-wide theme is on Dark Mode: follow
+   the rest of the dark UI instead of staying stuck on light or on the old
+   terminal-only navy. */
+body.dark-mode .terminal-top-controls {
+    background: var(--dm-surface);
+    border-color: var(--dm-border);
+    box-shadow: none;
 }
 
 @media screen and (min-width: 769px) {
@@ -3170,6 +3203,27 @@ body.dark-mode .backup-id-input {
     }
     .terminal-top-controls .search-box-container { min-width: 100%; }
     .btn-scan-qr { width: 100%; }
+
+    /* Debtors page toolbar (search + status filter): give both fields a
+       clean, evenly-sized full-width look on mobile instead of the cramped
+       default stacking. */
+    .debts-toolbar {
+        gap: 10px;
+        padding: 12px;
+        border-radius: 12px;
+    }
+    .debts-toolbar .search-box-container input {
+        height: 44px;
+        border-radius: 10px;
+        font-size: 0.92rem;
+    }
+    .debts-toolbar .logs-filter-select {
+        width: 100%;
+        height: 44px;
+        border-radius: 10px;
+        font-size: 0.88rem;
+        padding-left: 14px;
+    }
 }
 
 @media screen and (min-width: 601px) and (max-width: 1024px) {
@@ -3412,12 +3466,6 @@ body.dark-mode .search-box-container input::placeholder {
     min-width: 0;
 }
 
-.t-product-card:hover {
-    border-color: var(--primary-blue);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0,0,0,0.28);
-}
-
 .t-product-card:active {
     transform: translateY(0) scale(0.97);
     box-shadow: 0 2px 6px rgba(0,0,0,0.25);
@@ -3445,16 +3493,41 @@ body.dark-mode .search-box-container input::placeholder {
     align-items: center;
     justify-content: center;
     border-radius: 8px;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
     
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
 }
 
-.t-prod-icon:hover {
-    transform: scale(1.06);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+.t-prod-icon-clickable {
+    cursor: pointer;
+}
+
+.t-prod-preview-btn {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 2;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.6);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.t-prod-preview-btn:active {
+    background: rgba(15, 23, 42, 0.85);
+    transform: scale(0.94);
 }
 
 .t-prod-icon img {
@@ -3636,6 +3709,10 @@ body.dark-mode .search-box-container input::placeholder {
     gap: 8px;
 }
 
+.p-image-search-item {
+    position: relative;
+}
+
 .p-image-search-thumb {
     width: 100%;
     aspect-ratio: 1 / 1;
@@ -3658,6 +3735,142 @@ body.dark-mode .search-box-container input::placeholder {
     height: 100%;
     object-fit: cover;
     display: block;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* Multi-select checkbox for "+ Gallery" — sits as a sibling of the thumb
+   button (not inside it) so it never interferes with the button's
+   click-to-use-as-main-photo or hold-to-zoom handlers. */
+.p-image-search-check-wrap {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 2;
+    display: block;
+    cursor: pointer;
+    line-height: 0;
+}
+
+.p-image-search-check-wrap input[type="checkbox"] {
+    position: absolute;
+    inset: 0;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.p-image-search-check-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 2px solid #cbd5e1;
+    color: transparent;
+    font-size: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.p-image-search-check-wrap input[type="checkbox"]:checked + .p-image-search-check-box {
+    background: var(--primary-blue, #2563eb);
+    border-color: var(--primary-blue, #2563eb);
+    color: #fff;
+}
+
+.p-image-search-check-wrap.is-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.p-image-search-check-wrap input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+}
+
+.p-image-search-check-wrap.is-disabled .p-image-search-check-box {
+    cursor: not-allowed;
+}
+
+#p-image-search-add-gallery-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Hold tap/click to enlarge — full-screen preview overlay.
+   Toggled only via the "is-visible" class (never display:none/flex), so
+   showing/hiding never forces a layout reflow — that's what keeps the
+   enlarge instant and blink-free. It stays open for as long as the
+   pointer/finger is held down anywhere on screen (see attachHoldPreview
+   in app.js, which uses pointer capture instead of pointerleave), and
+   closes only when the hold is released. */
+.img-hold-zoom-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.6);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.08s ease-out;
+}
+
+.img-hold-zoom-overlay.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.img-hold-zoom-overlay img {
+    max-width: min(92vw, 640px);
+    max-height: 86vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    border-radius: 16px;
+    background: #0f172a;
+    box-shadow: 0 24px 60px -15px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(255, 255, 255, 0.08);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* "Loading full quality..." badge — nakikita lang habang naka-hold pa rin
+   at kasalukuyang kinukuha ang full-resolution na bersyon ng result (see
+   attachHoldZoomToProductSearchThumbs sa app.js). Hidden by default;
+   ipinapakita lang sa .img-hold-zoom-overlay.is-loading-fullres para hindi
+   ito magpa-flash/blink kapag mabilis lang naman ang fetch. */
+.img-hold-zoom-loading {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: 8%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.82);
+    color: #f1f5f9;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 999px;
+    box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.img-hold-zoom-overlay.is-loading-fullres .img-hold-zoom-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .inv-thumb {
@@ -3842,11 +4055,13 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
 
 .pd-photo-wrap {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     margin-bottom: 20px;
 }
 
 .pd-photo-box {
+    position: relative;
     width: 100%;
     aspect-ratio: 1 / 1;
     max-height: 320px;
@@ -3860,12 +4075,31 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     color: #f87171;
     overflow: hidden;
     box-shadow: 0 6px 16px -6px rgba(15, 23, 42, 0.15);
+    touch-action: pan-y;
 }
 
 .pd-photo-box img {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+/* Shopee/Lazada-style "2/4" pill on the main photo */
+.pd-gallery-counter {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    background: rgba(15, 23, 42, 0.65);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    line-height: 1.2;
+    pointer-events: none;
 }
 
 .pd-detail-rows {
@@ -4060,27 +4294,73 @@ body.dark-mode #pd-description {
     color: var(--dm-text, #cbd5e1);
 }
 
+body.dark-mode .pd-specs-list .pd-spec-line {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-mode .pd-specs-list .pd-spec-line:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+body.dark-mode .pd-specs-list .pd-spec-key {
+    color: var(--dm-text-secondary, #9a9ba8);
+}
+
+body.dark-mode .pd-specs-list .pd-spec-val {
+    color: var(--dm-text, #cbd5e1);
+}
+
 .pd-gallery-thumbs {
     display: flex;
-    gap: 6px;
-    margin-top: 8px;
+    gap: 8px;
+    margin-top: 10px;
+    width: 100%;
     overflow-x: auto;
-    max-width: 150px;
-    padding-bottom: 2px;
+    overflow-y: hidden;
+    padding: 2px 2px 6px;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    justify-content: flex-start;
 }
 
-.pd-gallery-thumbs img {
-    width: 36px;
-    height: 36px;
-    object-fit: cover;
-    border-radius: 8px;
+.pd-gallery-thumbs::-webkit-scrollbar {
+    height: 4px;
+}
+
+.pd-gallery-thumbs::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 999px;
+}
+
+.pd-gallery-thumb-item {
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    padding: 2px;
     border: 2px solid transparent;
     cursor: pointer;
-    flex-shrink: 0;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+    background: #fff;
 }
 
-.pd-gallery-thumbs img.active-thumb {
+.pd-gallery-thumb-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 7px;
+    display: block;
+}
+
+.pd-gallery-thumb-item:hover {
+    border-color: var(--border-color);
+}
+
+.pd-gallery-thumb-item.active-thumb {
     border-color: var(--primary-blue, #2563eb);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px -2px rgba(37, 99, 235, 0.5);
 }
 
 .prod-gallery-preview {
@@ -4148,6 +4428,14 @@ body.dark-mode #pd-description {
 
 body.dark-mode .pd-photo-box {
     background: linear-gradient(145deg, var(--dm-surface), var(--dm-bg));
+    border-color: var(--dm-border);
+}
+
+body.dark-mode .pd-gallery-thumb-item {
+    background: var(--dm-surface-alt, #1e293b);
+}
+
+body.dark-mode .pd-gallery-thumb-item:hover {
     border-color: var(--dm-border);
 }
 
@@ -4437,10 +4725,6 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]
     background-color: #1c1c24;
 }
 
-.terminal-theme .t-product-card:hover {
-    border-color: var(--dm-accent);
-}
-
 .terminal-theme .t-product-card h4 {
     color: var(--dm-text-primary);
 }
@@ -4569,10 +4853,6 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]
 .terminal-theme.terminal-daymode .t-product-card {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
-}
-
-.terminal-theme.terminal-daymode .t-product-card:hover {
-    border-color: #2563eb;
 }
 
 .terminal-theme.terminal-daymode .t-product-card h4 {
@@ -4760,82 +5040,101 @@ body.dark-mode .btn-action-outline:hover {
     }
 }
 
-/* MOBILE — Products page toolbar (hiling): icon-only na lang ang mga
-   button (Download Template, Import Excel/CSV, Export CSV, Bulk Upload
-   Photos, Bulk Search Images, Promo Codes, Add Product), lahat magkasing-
-   laki, naka-isang row lang (hindi na nagwo-wrap), at naka-center bilang
-   isang grupo — sa halip na ang dating i-stretch nang 1 1 auto bawat
-   button papuno sa buong lapad (na siyang nagdudulot ng 2 per row /
-   ilang hilera). Ginagamit lang dito ang EXISTING theme variables (walang
-   bagong kulay na idinagdag) — kaya awtomatikong tama pa rin ito sa
-   light mode at sa dark mode (var(--dm-*) overrides), dahil pareho pa
-   rin ang .btn-action-outline / body.dark-mode .btn-action-outline na
-   nagbibigay ng kulay/border sa itaas — dito, LAYOUT/SIZE na lang ang
-   binabago, hindi kulay.
-   Ang .btn-action-label span (ang text label sa loob ng bawat button) ay
-   itinatago dito — ang icon (<i>) na lang ang nakikita. flex:1 1 0 na may
-   max-width cap ang ginagamit (sa halip na fixed width) para: (a)
-   magkasing-laki lahat ng button dahil parehong flex-basis 0 lahat, (b)
-   awtomatikong lumiit nang sabay-sabay kung masikip ang screen (walang
-   ma-o-overflow/mawo-wrap), at (c) may natitirang space na sa
-   justify-content:center mismo ang bahalang mag-center sa buong row kapag
-   mas malapad ang screen kaysa sa max-width cap x 7 button. */
+/* MOBILE — Products page toolbar ("floating glass pill" na disenyo,
+   hiling batay sa reference screenshot): ang .header-action-group ay
+   nagiging isang translucent/"glass" pill container na naka-blur ang
+   likod (backdrop-filter), naglalaman ng mga icon-only button na WALANG
+   sariling border/background bawat isa (icon lang ang makikita, magkasing
+   -laki, naka-isang row, hindi nagwo-wrap) — KASAMA na ngayon ang huling
+   button ("Add Product" / "+"). Dati itong naka-highlight gamit ang
+   parisukat na cyan na border para tumayo bilang hiwalay na CTA, pero
+   hiniling na itulad na lang ito sa ibang icon (walang sariling
+   border/background/kulay) para magkatugma/magkapareho silang lahat at
+   sumunod nang maayos sa parehong theme adjustment ng toolbar sa halip
+   na mukhang naiiba/hiwalay. Ang fixed dark-glass na kulay ng KONTENER
+   (pill background) ay SADYANG hindi sumusunod sa light/dark mode ng app
+   — ito mismo ang disenyo ng "floating toolbar" na hiniling (parang
+   lumulutang ito sa ibabaw ng content, kaya pareho ang itsura kahit
+   anong tema ng app); ang mga ICON sa loob nito ang dapat magkatugma. */
 @media screen and (max-width: 640px) {
+    /* KNOB — PILL CONTAINER: ito ang buong "glass" background ng toolbar.
+       Baguhin ang background (opacity ng rgba) para gawing mas malabo o
+       mas manipis, blur para sa lakas ng backdrop blur, at border-radius
+       para sa kurbada ng mga sulok. */
     #view-products .header-action-group {
         flex-wrap: nowrap;
-        justify-content: center;
-        gap: 6px;
+        justify-content: space-between;
+        align-items: center;
+        gap: 4px;
+        background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 8px 10px;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
     }
+
+    /* KNOB — ICON BUTTON: parisukat, walang border/background — icon
+       lang. Kasama na rin dito ang "Add Product" (+) — .btn-product-add-cta
+       ay hindi na dine-declare nang hiwalay sa ibaba, kaya awtomatiko
+       itong magmamana ng eksaktong parehong itsura tulad ng ibang icons.
+       Taasan/ibaba ang width/height para palakihin/paliitin ang bawat
+       pindutan (lahat, kasama ang "+"). */
     #view-products .header-action-group .btn-action-outline {
-        /* KNOB — BUTTON (icon container) SIZE: itaas/ibaba ang min-width
-           at max-width para palakihin/paliitin ang buong parisukat na
-           button (kasama ang icon dito sa loob). Dapat magkapareho ang
-           dalawa kung gusto mong FIXED ang laki (hindi na lumiliit sa
-           masikip na screen); panatilihing mas mababa ang min-width sa
-           max-width kung gusto mong awtomatiko pa ring lumiit nang sabay
-           kapag makitid ang screen (default na behavior dito). */
         position: relative;
-        flex: 1 1 0;
-        min-width: 34px;
-        max-width: 48px;
-        aspect-ratio: 1 / 1;
+        flex: 0 0 auto;
+        width: 32px;
+        height: 32px;
+        min-width: 0;
+        max-width: none;
         padding: 0;
         gap: 0;
         box-sizing: border-box;
-        overflow: hidden;
+        background: transparent;
+        border: none;
+        border-radius: 8px;
+        color: #e2e8f0;
+        overflow: visible;
     }
+    #view-products .header-action-group .btn-action-outline:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+    }
+    body.dark-mode #view-products .header-action-group .btn-action-outline {
+        border: none;
+        color: #e2e8f0;
+    }
+    body.dark-mode #view-products .header-action-group .btn-action-outline:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+    }
+
     #view-products .header-action-group .btn-action-outline .btn-action-label {
         display: none;
     }
-    /* KNOB — ICON SIZE: ito ang direktang kumokontrol sa laki ng fa-solid
-       icon sa loob ng bawat button (hiwalay sa laki ng button mismo sa
-       itaas) — taasan (hal. 1.2rem, 1.4rem) para lumaki ang icon, ibaba
-       (hal. 0.9rem) para lumiit, nang hindi na kailangang galawin ang
-       laki ng button. */
+
+    /* KNOB — ICON SIZE: laki ng fa-solid icon sa loob ng bawat button
+       (kasama ang "+"), lahat magkasing-laki na ngayon. */
     #view-products .header-action-group .btn-action-outline i {
         font-size: 1.05rem;
     }
-    /* Yung "PRO"/lock indicator (dating kasunod lang ng text sa loob ng
-       button) ay ginagawang maliit na badge sa kanang-itaas na sulok ng
-       icon-only button sa halip — kapareho ng existing na "PRO" gradient
-       (amber → pink) na ginagamit na ng .sidebar-pro-badge.is-crown sa
-       ibang parte ng app, para tuloy-tuloy pa rin ang parehong "PRO"
-       visual language kahit icon-only na ang button. */
+
+    /* Yung "PRO"/lock indicator ay ginagawang maliit na badge sa
+       kanang-ibaba na sulok ng icon (katulad ng lock sa "Export CSV"
+       icon sa reference image), sa halip na kanang-itaas. */
     #view-products .header-action-group .btn-action-outline .menu-pro-lock,
     #view-products .header-action-group .btn-action-outline .menu-pro-badge {
-        /* KNOB — BADGE POSITION: baguhin ang top/right (hal. -3px para
-           mas nakadikit sa sulok, -8px para mas malayo/nakalutang) para
-           i-adjust kung saan eksaktong nakapatong ang badge sa button. */
+        /* KNOB — BADGE POSITION */
         position: absolute;
-        top: -1px;
-        right: -1px;
+        top: auto;
+        bottom: -2px;
+        right: -2px;
         margin: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        /* KNOB — BADGE SIZE: itaas/ibaba nang sabay ang min-width, height,
-           at font-size (magkatugma dapat ang tatlo) para palakihin o
-           paliitin ang buong "PRO"/lock badge sa sulok. */
+        /* KNOB — BADGE SIZE */
         min-width: 10px;
         height: 10px;
         padding: 0 3px;
@@ -4847,9 +5146,6 @@ body.dark-mode .btn-action-outline:hover {
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     }
     #view-products .header-action-group .btn-action-outline .menu-pro-lock i {
-        /* Dapat kasing-laki (o bahagyang mas maliit) ito ng font-size ng
-           badge sa itaas — ito yung lock ICON sa loob ng badge mismo
-           (para sa Export CSV / Promo Codes na naka-lock). */
         font-size: 0.55rem;
         color: #ffffff;
     }
@@ -5500,13 +5796,34 @@ body.dark-mode .avatar-photo-box {
 
 .modal-header h3 { font-size: 1.15rem; font-weight: 700; color: #0f172a; }
 
-.close-modal-btn {
+.modal-header-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.close-modal-btn,
+.minimize-modal-btn {
     background: none;
     border: none;
     font-size: 1.5rem;
+    font-weight: 900;
+    line-height: 1;
     cursor: pointer;
     color: var(--text-muted);
 }
+
+/* All X (close) and "-" (minimize) buttons across the whole system now
+   share the exact same design as the barcode Print Preview modal's "x"
+   button: same 1.5rem size AND the same bold weight (font-weight: 900,
+   what its "fa-solid" class was quietly giving it) — previously most
+   other modals' close buttons used the browser's default (lighter)
+   font-weight, which is why they looked smaller/thinner side-by-side
+   with the barcode preview's "x" even though the font-size matched. The
+   10px gap from .modal-header-btn-group (same value used by
+   .barcode-preview-header-actions elsewhere) keeps "-"/"x" pairs like
+   the one in the Bulk Search Images modal from sitting too close or too
+   far apart. */
 
 .modal-card > form {
     display: flex;
@@ -7129,7 +7446,14 @@ body.dark-mode .qa-card.active {
 }
 
 body.dark-mode .menu-section-label {
-    color: var(--dm-text-secondary);
+    /* Blend papunta sa --dm-text-primary (hindi nag-iisa ang
+       --dm-text-secondary lang) para mas "buhay"/mababasa ang label,
+       pero mananatiling bahagyang mas mahina kaysa sa mismong menu items
+       (mas maliit na % ng primary dito) para may hierarchy pa rin.
+       Gumagamit ng color-mix kaya awtomatikong nasasabayan ang palette ng
+       KAHIT ANONG active na Pro theme — walang kailangang idagdag na rule
+       sa bawat theme-*.css file. */
+    color: color-mix(in srgb, var(--dm-text-secondary) 78%, var(--dm-text-primary) 22%);
 }
 
 body.dark-mode .overview-greeting {
@@ -7286,10 +7610,12 @@ body.dark-mode .modal-header {
 body.dark-mode .modal-header h3 {
     color: var(--dm-text-primary);
 }
-body.dark-mode .close-modal-btn {
+body.dark-mode .close-modal-btn,
+body.dark-mode .minimize-modal-btn {
     color: var(--dm-text-secondary);
 }
-body.dark-mode .close-modal-btn:hover {
+body.dark-mode .close-modal-btn:hover,
+body.dark-mode .minimize-modal-btn:hover {
     color: var(--dm-text-primary);
 }
 body.dark-mode .modal-footer {
@@ -7348,161 +7674,365 @@ body.dark-mode .quick-cash-grid-denominations button:hover {
 }
 
 /* The Terminal has its own independent Day/Night toggle (separate from the
-   system/store-wide Dark Mode). The Payment modal lives outside #view-terminal
-   in the DOM, so it was always following body.dark-mode and ignoring the
-   terminal's own Day Mode setting. Restore the light appearance for the
-   Payment modal specifically when the terminal is set to Day Mode, even while
-   the rest of the app stays in Dark Mode. */
-body.dark-mode.terminal-modal-daymode #payment-modal {
+   system/store-wide Dark Mode). These modals live outside #view-terminal in
+   the DOM, so their look must follow the terminal's OWN Day/Night setting —
+   not the store-wide theme. Two blocks handle this, fully decoupled from
+   body.dark-mode in both directions:
+   1) Below: dark styling whenever the terminal itself is in Night/Dark mode
+      (body does NOT have .terminal-modal-daymode), even if the rest of the
+      store is on a light Day theme.
+   2) Further down: light styling whenever the terminal itself is in Day mode
+      (body HAS .terminal-modal-daymode), even if the rest of the store is on
+      a dark Pro theme. */
+body:not(.terminal-modal-daymode) #payment-modal {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+body:not(.terminal-modal-daymode) #payment-modal .modal-card {
+    background-color: var(--dm-surface);
+    color: var(--dm-text-secondary);
+    border: var(--dm-border-width, 1px) solid var(--dm-border);
+    border-radius: var(--dm-radius-lg, 12px);
+}
+body:not(.terminal-modal-daymode) #payment-modal .modal-header {
+    border-bottom-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #payment-modal .modal-header h3 {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .close-modal-btn {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .close-modal-btn:hover {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .modal-footer {
+    background-color: var(--dm-surface-alt);
+    border-top-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #payment-modal .input-field-group label,
+body:not(.terminal-modal-daymode) #payment-modal .input-label-field {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .input-field-group input,
+body:not(.terminal-modal-daymode) #payment-modal .input-field-group select {
+    background-color: var(--dm-bg);
+    border-color: var(--dm-border);
+    color: var(--dm-text-primary);
+    border-radius: var(--dm-radius-sm, 8px);
+}
+body:not(.terminal-modal-daymode) #payment-modal .input-field-group input::placeholder {
+    color: var(--dm-text-muted);
+}
+body:not(.terminal-modal-daymode) #payment-modal .method-btn {
+    background-color: var(--dm-bg);
+    border-color: var(--dm-border);
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .method-btn.active {
+    border-color: var(--dm-accent);
+    background-color: var(--dm-accent-soft);
+    color: #b39cff;
+}
+body:not(.terminal-modal-daymode) #payment-modal .payment-calculation-block {
+    background-color: var(--dm-bg);
+}
+body:not(.terminal-modal-daymode) #payment-modal .large-payment-input {
+    background-color: var(--dm-bg);
+    border-color: var(--dm-border);
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .change-display-row-block {
+    border-top-color: var(--dm-border);
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .quick-cash-grid-denominations button {
+    background-color: var(--dm-surface-alt);
+    border-color: var(--dm-border);
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #payment-modal .quick-cash-grid-denominations button:hover {
+    background-color: var(--dm-accent-soft);
+    border-color: var(--dm-accent);
+}
+
+/* Print Preview (receipt-preview-modal) is only ever opened from inside the
+   Terminal, so it can always follow the terminal's own Day/Night mode. */
+body:not(.terminal-modal-daymode) #receipt-preview-modal {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+body:not(.terminal-modal-daymode) #receipt-preview-modal .modal-card {
+    background-color: var(--dm-surface);
+    color: var(--dm-text-secondary);
+    border: var(--dm-border-width, 1px) solid var(--dm-border);
+    border-radius: var(--dm-radius-lg, 12px);
+}
+body:not(.terminal-modal-daymode) #receipt-preview-modal .modal-header {
+    border-bottom-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #receipt-preview-modal .modal-header h3 {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #receipt-preview-modal .close-modal-btn {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #receipt-preview-modal .close-modal-btn:hover {
+    color: var(--dm-text-primary);
+}
+
+/* The post-payment Receipt modal (receipt-modal) is reused by Transaction History
+   ("View Receipt"), so it must only follow the terminal's Day/Night mode when it
+   was opened from the Terminal checkout flow — marked at runtime with .terminal-origin. */
+body:not(.terminal-modal-daymode) #receipt-modal.terminal-origin {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+body:not(.terminal-modal-daymode) #receipt-modal.terminal-origin .modal-card {
+    background-color: var(--dm-surface);
+    color: var(--dm-text-secondary);
+    border: var(--dm-border-width, 1px) solid var(--dm-border);
+    border-radius: var(--dm-radius-lg, 12px);
+}
+body:not(.terminal-modal-daymode) #receipt-modal.terminal-origin .modal-header {
+    border-bottom-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #receipt-modal.terminal-origin .modal-header h3 {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #receipt-modal.terminal-origin .close-modal-btn {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #receipt-modal.terminal-origin .close-modal-btn:hover {
+    color: var(--dm-text-primary);
+}
+
+/* Product Details modal is reused by the Inventory/Products page, so it must only
+   follow the terminal's Day/Night mode when opened from the Terminal (marked with
+   .terminal-origin). */
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .modal-card {
+    background-color: var(--dm-surface);
+    color: var(--dm-text-secondary);
+    border: var(--dm-border-width, 1px) solid var(--dm-border);
+    border-radius: var(--dm-radius-lg, 12px);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .modal-header {
+    border-bottom-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .modal-header h3 {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .close-modal-btn {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .close-modal-btn:hover {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-photo-box {
+    background: linear-gradient(145deg, var(--dm-surface-alt), var(--dm-bg));
+    border-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-detail-row {
+    border-bottom-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-detail-label {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-detail-value {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin #pd-description-row,
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin #pd-specs-row {
+    background: rgba(255, 255, 255, 0.04);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin #pd-description {
+    color: var(--dm-text-primary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-specs-list .pd-spec-line {
+    border-bottom-color: var(--dm-border);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-specs-list .pd-spec-line:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.03);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-specs-list .pd-spec-key {
+    color: var(--dm-text-secondary);
+}
+body:not(.terminal-modal-daymode) #product-details-modal.terminal-origin .pd-specs-list .pd-spec-val {
+    color: var(--dm-text-primary);
+}
+
+/* Restore the light appearance for these same terminal-origin modals when the
+   terminal is explicitly set to Day Mode, even while the rest of the store
+   stays on a dark Pro theme (body.dark-mode). */
+body.terminal-modal-daymode #payment-modal {
     background-color: rgba(15, 23, 42, 0.6);
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .modal-card {
+body.terminal-modal-daymode #payment-modal .modal-card {
     background-color: #ffffff;
     color: inherit;
     border: none;
     border-radius: 12px;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .modal-header {
+body.terminal-modal-daymode #payment-modal .modal-header {
     border-bottom-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .modal-header h3 {
+body.terminal-modal-daymode #payment-modal .modal-header h3 {
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .close-modal-btn {
+body.terminal-modal-daymode #payment-modal .close-modal-btn {
     color: var(--text-muted);
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .close-modal-btn:hover {
+body.terminal-modal-daymode #payment-modal .close-modal-btn:hover {
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .modal-footer {
+body.terminal-modal-daymode #payment-modal .modal-footer {
     background-color: #f8fafc;
     border-top-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .input-field-group label,
-body.dark-mode.terminal-modal-daymode #payment-modal .input-label-field {
+body.terminal-modal-daymode #payment-modal .input-field-group label,
+body.terminal-modal-daymode #payment-modal .input-label-field {
     color: #475569;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .input-field-group input,
-body.dark-mode.terminal-modal-daymode #payment-modal .input-field-group select {
+body.terminal-modal-daymode #payment-modal .input-field-group input,
+body.terminal-modal-daymode #payment-modal .input-field-group select {
     background-color: #ffffff;
     border-color: #cbd5e1;
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .method-btn {
+body.terminal-modal-daymode #payment-modal .method-btn {
     background-color: #ffffff;
     border-color: var(--border-color);
     color: var(--text-muted);
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .method-btn.active {
+body.terminal-modal-daymode #payment-modal .method-btn.active {
     border-color: var(--primary-blue);
     background-color: #eff6ff;
     color: var(--primary-blue);
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .payment-calculation-block {
+body.terminal-modal-daymode #payment-modal .payment-calculation-block {
     background-color: #f1f5f9;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .large-payment-input {
+body.terminal-modal-daymode #payment-modal .large-payment-input {
     background-color: #ffffff;
     border-color: #cbd5e1;
     color: inherit;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .change-display-row-block {
+body.terminal-modal-daymode #payment-modal .change-display-row-block {
     border-top-color: #cbd5e1;
     color: inherit;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .quick-cash-grid-denominations button {
+body.terminal-modal-daymode #payment-modal .quick-cash-grid-denominations button {
     background-color: #ffffff;
     border-color: #cbd5e1;
     color: inherit;
 }
-body.dark-mode.terminal-modal-daymode #payment-modal .quick-cash-grid-denominations button:hover {
+body.terminal-modal-daymode #payment-modal .quick-cash-grid-denominations button:hover {
     background-color: #f8fafc;
     border-color: #cbd5e1;
 }
 
 /* Same scenario as above: Print Preview (receipt-preview-modal) is only ever opened
    from inside the Terminal, so it can always follow the terminal's Day Mode. */
-body.dark-mode.terminal-modal-daymode #receipt-preview-modal {
+body.terminal-modal-daymode #receipt-preview-modal {
     background-color: rgba(15, 23, 42, 0.6);
 }
-body.dark-mode.terminal-modal-daymode #receipt-preview-modal .modal-card {
+body.terminal-modal-daymode #receipt-preview-modal .modal-card {
     background-color: #ffffff;
     color: inherit;
     border: none;
     border-radius: 12px;
 }
-body.dark-mode.terminal-modal-daymode #receipt-preview-modal .modal-header {
+body.terminal-modal-daymode #receipt-preview-modal .modal-header {
     border-bottom-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #receipt-preview-modal .modal-header h3 {
+body.terminal-modal-daymode #receipt-preview-modal .modal-header h3 {
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #receipt-preview-modal .close-modal-btn {
+body.terminal-modal-daymode #receipt-preview-modal .close-modal-btn {
     color: var(--text-muted);
 }
-body.dark-mode.terminal-modal-daymode #receipt-preview-modal .close-modal-btn:hover {
+body.terminal-modal-daymode #receipt-preview-modal .close-modal-btn:hover {
     color: #0f172a;
 }
 
 /* The post-payment Receipt modal (receipt-modal) is reused by Transaction History
    ("View Receipt"), so it must only be forced light when it was opened from the
    Terminal checkout flow — marked at runtime with the .terminal-origin class. */
-body.dark-mode.terminal-modal-daymode #receipt-modal.terminal-origin {
+body.terminal-modal-daymode #receipt-modal.terminal-origin {
     background-color: rgba(15, 23, 42, 0.6);
 }
-body.dark-mode.terminal-modal-daymode #receipt-modal.terminal-origin .modal-card {
+body.terminal-modal-daymode #receipt-modal.terminal-origin .modal-card {
     background-color: #ffffff;
     color: inherit;
     border: none;
     border-radius: 12px;
 }
-body.dark-mode.terminal-modal-daymode #receipt-modal.terminal-origin .modal-header {
+body.terminal-modal-daymode #receipt-modal.terminal-origin .modal-header {
     border-bottom-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #receipt-modal.terminal-origin .modal-header h3 {
+body.terminal-modal-daymode #receipt-modal.terminal-origin .modal-header h3 {
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #receipt-modal.terminal-origin .close-modal-btn {
+body.terminal-modal-daymode #receipt-modal.terminal-origin .close-modal-btn {
     color: var(--text-muted);
 }
-body.dark-mode.terminal-modal-daymode #receipt-modal.terminal-origin .close-modal-btn:hover {
+body.terminal-modal-daymode #receipt-modal.terminal-origin .close-modal-btn:hover {
     color: #0f172a;
 }
 
 /* Product Details modal is reused by the Inventory/Products page, so it must only be
    forced light when opened from the Terminal (marked with .terminal-origin). */
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin {
+body.terminal-modal-daymode #product-details-modal.terminal-origin {
     background-color: rgba(15, 23, 42, 0.6);
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .modal-card {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .modal-card {
     background-color: #ffffff;
     color: inherit;
     border: none;
     border-radius: 12px;
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .modal-header {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .modal-header {
     border-bottom-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .modal-header h3 {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .modal-header h3 {
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .close-modal-btn {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .close-modal-btn {
     color: var(--text-muted);
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .close-modal-btn:hover {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .close-modal-btn:hover {
     color: #0f172a;
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-photo-box {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-photo-box {
     background: linear-gradient(145deg, #f8fafc, #eef2f7);
     border-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-row {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-row {
     border-bottom-color: var(--border-color);
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-label {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-label {
     color: #64748b;
 }
-body.dark-mode.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-value {
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-detail-value {
+    color: #0f172a;
+}
+body.terminal-modal-daymode #product-details-modal.terminal-origin #pd-description-row,
+body.terminal-modal-daymode #product-details-modal.terminal-origin #pd-specs-row {
+    background: #f8fafc;
+}
+body.terminal-modal-daymode #product-details-modal.terminal-origin #pd-description {
+    color: #334155;
+}
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-line {
+    border-bottom-color: #e2e8f0;
+}
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-line:nth-child(odd) {
+    background: rgba(255, 255, 255, 0.5);
+}
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-key {
+    color: #64748b;
+}
+body.terminal-modal-daymode #product-details-modal.terminal-origin .pd-specs-list .pd-spec-val {
     color: #0f172a;
 }
 
@@ -7534,7 +8064,13 @@ body.dark-mode .sidebar-brand {
 body.dark-mode .sidebar-menu a,
 body.dark-mode .menu-item,
 body.dark-mode .menu-item-header {
-    color: var(--dm-text-secondary); 
+    /* Kagaya ng .menu-section-label sa itaas — pinabrighter papunta sa
+       --dm-text-primary ng active theme (kasama na dito ang
+       .sub-menu-item, dahil "a" ang isa sa mga sub-menu-item elements sa
+       loob ng .sidebar-menu), kaya mas "buhay" ang text sa dark mode at
+       sa lahat ng Pro themes nang sabay-sabay, walang kailangang gawin sa
+       bawat individual na theme file. */
+    color: color-mix(in srgb, var(--dm-text-secondary) 60%, var(--dm-text-primary) 40%);
 }
 
 body.dark-mode .sidebar-menu a:hover,
@@ -8184,16 +8720,11 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 .cart-header,
 .cart-item-row,
 .cart-summary-block,
-.terminal-top-controls,
-.terminal-top-controls .search-box-container,
+#view-terminal .terminal-top-controls,
+#view-terminal .terminal-top-controls .search-box-container,
 .t-product-card,
 #terminal-grid-output .t-product-card {
     box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.12), 0 0 3px rgba(78,35,255,0.492);
-}
-
-.t-product-card:hover {
-    border-color: var(--dm-accent);
-    box-shadow: 0 0 0 1px var(--dm-accent), 0 0 10px rgba(124, 92, 255, 0.35);
 }
 
 .terminal-top-controls {
@@ -10232,6 +10763,43 @@ body.dark-mode .header-icon-btn.btn-lowstock-bell .lowstock-bell-badge,
     border-color: #ffffff;
 }
 
+/* Header icon na lumalabas lang habang naka-minimize ang "Bulk Search
+   Images" modal habang tumatakbo pa/naghihintay ng review ang search
+   nito sa background — mismong .header-icon-btn class na ginagamit din
+   ng notification bell, kaya awtomatiko itong sumusunod sa parehong
+   itsura/tema (light/dark/terminal mode) nang walang extra code. Ang
+   badge (bilang, hal. "12/50") ay gumagamit din ng eksaktong parehong
+   .lowstock-bell-badge class/position gaya ng bell — pinapalitan lang
+   ang laman nito ng progress text sa halip na notification count. */
+.header-icon-btn.btn-bulk-imgsearch-minimized .lowstock-bell-badge {
+    top: -4px;
+    right: -4px;
+    border: 2px solid #ffffff;
+    font-size: 0.58rem;
+    padding: 1px 4px;
+    white-space: nowrap;
+}
+body.dark-mode .header-icon-btn.btn-bulk-imgsearch-minimized .lowstock-bell-badge,
+.top-header.terminal-header-mode .header-icon-btn.btn-bulk-imgsearch-minimized .lowstock-bell-badge {
+    border-color: var(--dm-surface, #1c1c24);
+}
+.top-header.terminal-header-mode.terminal-daymode .header-icon-btn.btn-bulk-imgsearch-minimized .lowstock-bell-badge {
+    border-color: #ffffff;
+}
+/* Mabagal na "pulse" sa icon mismo (hindi sa badge) habang aktibong
+   naghahanap pa (hindi pa "finished") — visual cue lang na tumatakbo
+   pa ito sa background. Kapag "finished" na / naghihintay na lang ng
+   review (wala nang aktibong pag-search), tinatanggal ang class na ito
+   sa JS kaya huminto ang pag-pulse pero nananatili pa ring visible ang
+   icon (dahil may resulta pa ring naghihintay i-review). */
+.header-icon-btn.btn-bulk-imgsearch-minimized.is-searching i {
+    animation: bulkImgSearchPulse 1.4s ease-in-out infinite;
+}
+@keyframes bulkImgSearchPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
 .header-user-avatar-btn {
     position: relative;
     border: none;
@@ -10973,7 +11541,8 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     background: none;
     border: none;
     color: #64748b;
-    font-size: 22px;
+    font-size: 1.5rem;
+    font-weight: 900;
     line-height: 1;
     cursor: pointer;
     padding: 4px;

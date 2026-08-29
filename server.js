@@ -2658,6 +2658,20 @@ async function runOmniImageSearchJob(nonce, targets, username) {
     child.unref();
 }
 
+// --------------------------------------------------------------
+// BUG FIX (removed): this used to hold a custom undici Agent + a
+// `makeProgressReadableBody()` ReadableStream, used to stream the WHOLE
+// backup in one giant request while reporting "progress" as bytes were
+// handed to the local write buffer. That's exactly what caused the
+// progress bar to shoot to 100% almost instantly while the real network
+// transfer was still happening — the OS's TCP send buffer can accept
+// several MB locally long before RELAY has actually received any of it.
+// Cloud backup uploads are now split into small (100 KB) chunks, each its
+// own ordinary HTTP request (see performCloudBackupUpload below) — so
+// there's no more need for a single giant long-lived request/dispatcher
+// here, and no more fake "buffered, not really sent" progress.
+// --------------------------------------------------------------
+
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
     if (!(await isInternetLikelyUp())) {
         const err = new Error('Walang internet connection na na-detect sa device na ito.');
@@ -3989,6 +4003,12 @@ const cloudBackupStatus = {
     lastError: null,
     lastTotalRecords: null,
     lastTrigger: null, // 'manual' | 'automatic'
+    // BUG FIX: distinguishes "the last attempt failed specifically because
+    // RELAY rate-limited us" from any other kind of failure — used by
+    // maybeRunAutomaticCloudBackup() below to decide how long to back off
+    // before trying again automatically. See that function for the full
+    // explanation of the bug this fixes.
+    lastErrorWasRateLimited: false,
     // "Na-consume" na storage sa RELAY's Postgres — cache lang ito ng
     // pinakahuling alam na value (mula sa sync response o sa live
     // /relay/cloud-backup/usage check sa /api/cloud-backup/status route
@@ -3996,7 +4016,17 @@ const cloudBackupStatus = {
     lastSizeBytes: null,
     lastSizeMB: null,
     lastQuotaMB: null,
-    lastPercentUsed: null
+    lastPercentUsed: null,
+    // BUG FIX: mga bagong field para sa LIVE upload progress (habang
+    // isinasagawa pa lang ang pag-upload patungong RELAY, bago pa man
+    // matapos ang buong sync) — ginagamit ng /api/cloud-backup/status
+    // (na sine-spread na ang buong cloudBackupStatus object papunta sa
+    // response nito) at ng frontend polling sa runCloudBackupSync (app.js)
+    // para maipakita bilang isang progress bar (bytes uploaded/total) at
+    // elapsed time.
+    uploadStartedAt: null,
+    uploadedBytes: null,
+    uploadTotalBytes: null
 };
 
 // --------------------------------------------------------------
@@ -4083,6 +4113,60 @@ app.get('/api/cloud-backup/status', async (req, res) => {
 });
 
 // --------------------------------------------------------------
+// NO-INTERRUPT GUARD: only ONE cloud backup upload (manual OR automatic)
+// is ever allowed to run at a time for this installation. Nothing is
+// permitted to start a second one — not the "Sync" button, not the
+// automatic scheduler — while a previous one is still running. This
+// flag is checked as the VERY FIRST thing in performCloudBackupUpload,
+// before cloudBackupStatus is touched, so a rejected second call never
+// clobbers the progress of the one already in flight. The ONLY thing
+// that is allowed to stop an upload before it completes is the plan's
+// storage quota being exceeded (checked by RELAY at /upload/start and
+// again at /upload/finish, below) — every other kind of hiccup (a
+// dropped chunk, a slow connection, etc.) is retried rather than
+// treated as a reason to give up.
+// --------------------------------------------------------------
+let cloudBackupUploadInFlight = false;
+
+// 100 KB per chunk (fallback only — RELAY's own chunkSizeBytes, returned
+// by /upload/start, is what's actually used below; this just matches it
+// so the two stay in sync even if one side is redeployed slightly before
+// the other). Smaller chunks = more frequent, smoother progress updates.
+const CLOUD_BACKUP_CHUNK_SIZE_BYTES = 100 * 1024;
+
+// --------------------------------------------------------------
+// ADAPTIVE CHUNK SIZE — dati, FIXED na laki lang (100 KB) ang bawat
+// chunk kahit gaano pa kabilis ang internet ng device. Ngayon, kusang
+// "nag-fu-fluctuate" ito paakyat/pababa base sa TUNAY na bilis (measured
+// mula sa mismong round-trip ng bawat chunk papunta sa RELAY, hindi
+// basta pinapalagay): mabagal na koneksyon = maliliit na chunks (mas
+// ligtas, mas madalas ang progress update, mas kaunting nasasayang kapag
+// naputol); mabilis na koneksyon = unti-unting lumalaki ang chunks
+// hanggang 5 MB (mas kaunting HTTP round-trips = mas mabilis matapos ang
+// buong upload).
+//
+// Tiers (bytes/sec, base sa AVERAGE ng huling ilang successful chunks,
+// hindi ng isang sample lang, para hindi basta-basta nagpapalit-palit
+// dahil sa pansamantalang spike/dip):
+//   < 150 KB/s   -> 100 KB chunks
+//   < 700 KB/s   -> 500 KB chunks
+//   < 1.5 MB/s   -> 1 MB   chunks
+//   < 4 MB/s     -> 3 MB   chunks
+//   >= 4 MB/s    -> 5 MB   chunks
+// --------------------------------------------------------------
+const CLOUD_BACKUP_CHUNK_TIERS = [
+    { maxBytesPerSec: 150 * 1024,          size: 100 * 1024 },
+    { maxBytesPerSec: 700 * 1024,          size: 500 * 1024 },
+    { maxBytesPerSec: 1.5 * 1024 * 1024,   size: 1 * 1024 * 1024 },
+    { maxBytesPerSec: 4 * 1024 * 1024,     size: 3 * 1024 * 1024 },
+    { maxBytesPerSec: Infinity,            size: 5 * 1024 * 1024 }
+];
+
+function formatMBForLog(bytes) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// --------------------------------------------------------------
 // performCloudBackupUpload — the ONE place where the whole database is
 // actually uploaded to RELAY (Postgres). Used by TWO callers: (1) the
 // /api/cloud-backup/sync route below (MANUAL, triggered by the Admin,
@@ -4091,16 +4175,60 @@ app.get('/api/cloud-backup/status', async (req, res) => {
 // frequency included in the Cloud Backup plan (Basic = 24h, Standard =
 // 6h, Pro = 1h) — no password prompt since this is an automatic/local
 // trigger, not something a person typed.
+//
+// BUG FIX (fake/instant progress bar): the old version sent the WHOLE
+// backup as a single streamed request body, and counted a byte as
+// "uploaded" the moment it was handed to Node's local write buffer.
+// Because the OS's own TCP send buffer can silently swallow several MB
+// before anything has actually reached RELAY, the progress bar would
+// race to 100% almost instantly while the real transfer over the
+// network was still happening in the background — so if the connection
+// then failed, the user had already seen "100%" and the failure looked
+// like data was lost after a successful upload, when really nothing
+// had been saved at all.
+//
+// FIX: the backup is now split into fixed 100 KB CHUNKS, each sent as its
+// own separate HTTP request to RELAY. A chunk only counts toward
+// cloudBackupStatus.uploadedBytes once RELAY has sent back a real,
+// successful response confirming it actually received that chunk —
+// i.e. progress only ever reflects data RELAY has truly acknowledged,
+// never just data sitting in a local buffer. If a chunk fails, it is
+// retried a few times; if it still fails, the upload stops and reports
+// truthfully how much was actually confirmed, instead of silently
+// jumping to 100%.
 // --------------------------------------------------------------
 async function performCloudBackupUpload(trigger, actorUsername) {
     if (getConnectivityMode() === 'offline') {
         return { success: false, status: 400, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to back up to the cloud.' };
     }
+
+    if (cloudBackupUploadInFlight) {
+        return {
+            success: false,
+            status: 409,
+            uploadInProgress: true,
+            message: 'A cloud backup upload is already in progress. Please wait for it to finish before starting another.'
+        };
+    }
+    cloudBackupUploadInFlight = true;
+
     cloudBackupStatus.state = 'syncing';
     cloudBackupStatus.lastAttemptAt = Date.now();
     cloudBackupStatus.lastTrigger = trigger;
+    // Reset the rate-limit flag at the start of every fresh attempt — if
+    // this attempt fails for some OTHER reason, we don't want to keep
+    // applying the (longer) rate-limit cooldown based on a stale flag from
+    // an earlier, unrelated failure.
+    cloudBackupStatus.lastErrorWasRateLimited = false;
+    // I-reset ang LIVE progress fields ng bagong pagsubok na ito (bago pa
+    // man malaman kung ilan ang kabuuang laki) — para hindi makita ng
+    // frontend ang natitirang progress bar mula sa dati/nabigong sync.
+    cloudBackupStatus.uploadStartedAt = null;
+    cloudBackupStatus.uploadedBytes = null;
+    cloudBackupStatus.uploadTotalBytes = null;
 
     if (!RELAY_API_KEY) {
+        cloudBackupUploadInFlight = false;
         cloudBackupStatus.state = 'error';
         cloudBackupStatus.lastError = 'No RELAY_API_KEY is configured in .env.';
         return { success: false, status: 500, message: cloudBackupStatus.lastError };
@@ -4112,45 +4240,224 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const backupPayload = getCloudBackupPayload();
 
-        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({
-                installationId,
-                storeName: (receiptSettings && receiptSettings.storeName) || null,
-                modules: backupPayload.modules,
-                moduleNames: backupPayload.moduleNames,
-                totalRecords: backupPayload.totalRecords,
-                generatedAt: backupPayload.generatedAt
-            })
-        });
-        const relayData = await parseRelayResponse(relayRes);
+        const backupBodyBuffer = Buffer.from(JSON.stringify({
+            installationId,
+            storeName: (receiptSettings && receiptSettings.storeName) || null,
+            modules: backupPayload.modules,
+            moduleNames: backupPayload.moduleNames,
+            totalRecords: backupPayload.totalRecords,
+            generatedAt: backupPayload.generatedAt
+        }), 'utf8');
 
-        if (relayRes.status === 402 || relayData.featureLocked) {
+        cloudBackupStatus.uploadStartedAt = Date.now();
+        cloudBackupStatus.uploadedBytes = 0;
+        cloudBackupStatus.uploadTotalBytes = backupBodyBuffer.length;
+
+        // Small helper: retry a transient (network-level) failure a few
+        // times with backoff, but never retry a definitive/structured
+        // answer from RELAY itself (402 locked, 413 too large/over quota,
+        // 409 already in progress) — those are real answers, not blips.
+        async function withTransientRetry(fn, { attempts = 3, delaysMs = [3000, 8000] } = {}) {
+            let lastErr;
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    return await fn();
+                } catch (err) {
+                    lastErr = err;
+                    if (err.code === 'RATE_LIMITED' || attempt === attempts) break;
+                    await new Promise((r) => setTimeout(r, delaysMs[attempt - 1] || delaysMs[delaysMs.length - 1]));
+                }
+            }
+            throw lastErr;
+        }
+
+        function throwIfRateLimited(res) {
+            if (res.status === 429) {
+                const retryAfterSec = parseInt(res.headers.get('retry-after'), 10);
+                const waitHint = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+                    ? `~${Math.ceil(retryAfterSec / 60)} minute(s)`
+                    : 'a few minutes or longer';
+                const err = new Error(`Too many cloud backup uploads in the last hour. Please wait ${waitHint} before trying again.`);
+                err.code = 'RATE_LIMITED';
+                throw err;
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 1) START — reserve an upload session on RELAY. This is where
+        // RELAY checks (a) the Cloud Backup feature is unlocked and (b)
+        // the declared total size fits the plan's storage quota — the
+        // ONLY condition that is allowed to stop/refuse a backup — and
+        // also where RELAY enforces the "one upload at a time per
+        // installation" lock, so this same guard exists on both ends.
+        // ------------------------------------------------------------
+        const startRes = await withTransientRetry(async () => {
+            const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                body: JSON.stringify({ installationId, totalBytes: backupBodyBuffer.length })
+            }, 30000);
+            throwIfRateLimited(res);
+            return res;
+        });
+        const startData = await parseRelayResponse(startRes);
+
+        if (startRes.status === 402 || startData.featureLocked) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = startData.message || 'The Cloud Backup subscription is still locked/expired.';
+            return { success: false, status: 402, body: startData };
+        }
+        if (startRes.status === 413 || startData.storageQuotaExceeded) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = startData.message || 'Cloud backup exceeds your plan\'s storage allowance.';
+            cloudBackupStatus.lastQuotaMB = startData.quotaMB;
+            return {
+                success: false,
+                status: 413,
+                message: cloudBackupStatus.lastError,
+                storageQuotaExceeded: true,
+                tier: startData.tier,
+                quotaMB: startData.quotaMB,
+                sizeMB: startData.sizeMB,
+                overageMB: startData.overageMB
+            };
+        }
+        if (startRes.status === 409 || startData.uploadInProgress) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = startData.message || 'A cloud backup upload for this installation is already in progress.';
+            return { success: false, status: 409, uploadInProgress: true, message: cloudBackupStatus.lastError };
+        }
+        if (!startData.success || !startData.uploadId) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = startData.message || 'RELAY rejected the cloud backup upload.';
+            return { success: false, status: 502, message: cloudBackupStatus.lastError };
+        }
+
+        const uploadId = startData.uploadId;
+        // RELAY's own chunkSizeBytes (kung binigay) ay itinuturing na
+        // CEILING na lang ngayon — hindi na iisang laki lang habang buo
+        // ang upload — para magamit ang adaptive sizing sa ibaba. Kung
+        // walang sinabi ang RELAY (o mas mataas pa sa pinakamalaking
+        // tier), ang default ceiling ay ang pinakamataas na tier (5 MB).
+        // NOTE: kailangan ding tugma ang RELAY /upload/chunk endpoint
+        // (dapat tinatanggap nito ang VARYING na laki ng bawat chunk
+        // request, hindi lang iisang fixed na laki) para talagang
+        // gumana ang pag-akyat hanggang 5 MB.
+        const chunkCeilingBytes = Math.min(
+            startData.chunkSizeBytes || CLOUD_BACKUP_CHUNK_TIERS[CLOUD_BACKUP_CHUNK_TIERS.length - 1].size,
+            CLOUD_BACKUP_CHUNK_TIERS[CLOUD_BACKUP_CHUNK_TIERS.length - 1].size
+        );
+
+        // ------------------------------------------------------------
+        // 2) CHUNKS — send sequentially, may ADAPTIVE na laki (see
+        // CLOUD_BACKUP_CHUNK_TIERS above). Nagsisimula sa pinaka-maliit/
+        // pinaka-ligtas na tier (100 KB). "Slow start" paakyat: isang
+        // tier lang ang tumataas kada successful chunk, base sa AVERAGE
+        // na measured speed ng huling hanggang 3 chunks — kaya kahit
+        // isang mabilis na sample palang, hindi basta tumatalon agad
+        // sa 5 MB. "Fast backoff" pababa: bumabalik agad sa 100 KB
+        // (kahit ilang tier ang lundag) kapag kinailangan pang i-retry
+        // ang isang chunk — malinaw na senyales iyon ng congestion o
+        // pagkaputol-putol ng koneksyon, kaya mas ligtas munang
+        // magpaliit bago subukan ulit palakihin.
+        //
+        // uploadedBytes ay tumataas pa rin lang kapag ACTUAL na
+        // na-confirm na ng RELAY ang chunk — hindi ito nagbago, panatag
+        // pa rin ang totoong progress bar.
+        // ------------------------------------------------------------
+        let offset = 0;
+        let tierIndex = 0; // simula sa pinaka-maliit/ligtas na 100 KB
+        const recentSpeedSamples = []; // bytes/sec, huling hanggang 3 successful chunks
+
+        while (offset < backupBodyBuffer.length) {
+            const chunkSize = Math.min(CLOUD_BACKUP_CHUNK_TIERS[tierIndex].size, chunkCeilingBytes);
+            const end = Math.min(offset + chunkSize, backupBodyBuffer.length);
+            const chunkBuf = backupBodyBuffer.subarray(offset, end);
+
+            let neededRetry = false;
+            let attemptCount = 0;
+            const chunkStartedAt = Date.now();
+            try {
+                await withTransientRetry(async () => {
+                    attemptCount += 1;
+                    if (attemptCount > 1) neededRetry = true;
+                    const chunkRes = await relayFetch(
+                        `${RELAY_URL}/relay/cloud-backup/upload/chunk?uploadId=${encodeURIComponent(uploadId)}&installationId=${encodeURIComponent(installationId)}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/octet-stream', 'x-relay-key': RELAY_API_KEY },
+                            body: chunkBuf
+                        },
+                        60000
+                    );
+                    throwIfRateLimited(chunkRes);
+                    const chunkData = await parseRelayResponse(chunkRes);
+                    if (!chunkRes.ok || !chunkData.success) {
+                        throw new Error(chunkData.message || `Chunk upload failed (HTTP ${chunkRes.status}).`);
+                    }
+                    return chunkData;
+                });
+            } catch (chunkErr) {
+                cloudBackupStatus.state = 'error';
+                cloudBackupStatus.lastError = `Lost connection while uploading the backup (stopped at ${formatMBForLog(offset)} of ${formatMBForLog(backupBodyBuffer.length)} — ${chunkErr.message}). No partial backup was saved; please try syncing again.`;
+                return { success: false, status: 502, message: cloudBackupStatus.lastError };
+            }
+
+            const elapsedSec = Math.max((Date.now() - chunkStartedAt) / 1000, 0.001);
+            const measuredBytesPerSec = chunkBuf.length / elapsedSec;
+
+            offset = end;
+            // GENUINE progress — only moves forward once RELAY has
+            // actually confirmed this chunk over the network.
+            cloudBackupStatus.uploadedBytes = offset;
+
+            // --- I-adjust ang tier para sa SUSUNOD na chunk ---
+            if (neededRetry) {
+                // Nag-timeout/nag-fail muna bago natuloy ang chunk na ito —
+                // malinaw na senyales ng congestion/mahinang koneksyon.
+                // Bumalik agad sa pinaka-maliit/ligtas na tier sa halip
+                // na unti-unti lang, at kalimutan muna ang lumang
+                // speed samples (baka luma/hindi na representative).
+                tierIndex = 0;
+                recentSpeedSamples.length = 0;
+            } else {
+                recentSpeedSamples.push(measuredBytesPerSec);
+                if (recentSpeedSamples.length > 3) recentSpeedSamples.shift();
+                const avgBytesPerSec = recentSpeedSamples.reduce((a, b) => a + b, 0) / recentSpeedSamples.length;
+                let idealTierIndex = CLOUD_BACKUP_CHUNK_TIERS.length - 1;
+                for (let i = 0; i < CLOUD_BACKUP_CHUNK_TIERS.length; i++) {
+                    if (avgBytesPerSec < CLOUD_BACKUP_CHUNK_TIERS[i].maxBytesPerSec) { idealTierIndex = i; break; }
+                }
+                if (idealTierIndex > tierIndex) {
+                    tierIndex += 1; // "slow start" — isang tier lang kada successful chunk
+                } else if (idealTierIndex < tierIndex) {
+                    tierIndex = idealTierIndex; // pwedeng bumaba agad nang buo papunta sa mas mababa
+                }
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 3) FINISH — RELAY re-validates (feature unlock + quota, using
+        // the ACTUAL assembled size, not just what was declared at
+        // /start) and writes everything to Postgres in one transaction.
+        // ------------------------------------------------------------
+        const finishRes = await withTransientRetry(async () => {
+            const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload/finish`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                body: JSON.stringify({ uploadId, installationId })
+            }, 120000);
+            throwIfRateLimited(res);
+            return res;
+        });
+        const relayData = await parseRelayResponse(finishRes);
+
+        if (finishRes.status === 402 || relayData.featureLocked) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'The Cloud Backup subscription is still locked/expired.';
             return { success: false, status: 402, body: relayData };
         }
 
-        // BUG FIX: kapag masyado nang malaki ang datos ng store (lumagpas sa
-        // limit ng RELAY para sa cloud-backup upload), tinutugunan na ito ng
-        // RELAY ng malinaw na JSON message (payloadTooLarge: true) sa halip
-        // na basta i-reject nang tahimik. Ipinapasa ito rito bilang sarili
-        // niyang 413 (hindi na lang generic 502), para makapag-display ang
-        // frontend ng malinaw na prompt sa user (tingnan ang message sa RELAY)
-        // sa halip na basta "cloud backup failed."
-        if (relayRes.status === 413 || relayData.payloadTooLarge) {
-            cloudBackupStatus.state = 'error';
-            cloudBackupStatus.lastError = relayData.message || 'The data is too large to back up to the cloud.';
-            return { success: false, status: 413, message: cloudBackupStatus.lastError, payloadTooLarge: true };
-        }
-
-        // Hiwalay na 413 case: NALAGPASAN ang storage ALLOWANCE ng
-        // kasalukuyang Cloud Backup plan (Basic/Standard/Pro) — ibang usapin
-        // ito sa payloadTooLarge sa itaas (na tungkol sa raw request body
-        // limit ng RELAY, hindi sa per-plan na quota). Ipinapasa ang
-        // tier/quotaMB/sizeMB para maipakita ng frontend ang eksaktong
-        // dahilan (at maimungkahing mag-upgrade ng plan).
         if (relayData.storageQuotaExceeded) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'Cloud backup exceeds your plan\'s storage allowance.';
@@ -4176,6 +4483,7 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupStatus.state = 'success';
         cloudBackupStatus.lastSuccessAt = Date.now();
         cloudBackupStatus.lastError = null;
+        cloudBackupStatus.lastErrorWasRateLimited = false;
         cloudBackupStatus.lastTotalRecords = backupPayload.totalRecords;
         if (typeof relayData.sizeBytes === 'number') {
             cloudBackupStatus.lastSizeBytes = relayData.sizeBytes;
@@ -4202,9 +4510,17 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         };
     } catch (err) {
         cloudBackupStatus.state = 'error';
-        cloudBackupStatus.lastError = err.message;
-        console.error('⚠️ CLOUD_BACKUP: could not reach the relay for upload:', err.message);
-        return { success: false, status: 502, message: 'Could not reach RELAY for the cloud backup upload.' };
+        const reasonCode = err.code || err.name || 'ERR';
+        cloudBackupStatus.lastErrorWasRateLimited = (reasonCode === 'RATE_LIMITED');
+        cloudBackupStatus.lastError = `${err.message} (${reasonCode})`;
+        console.error('⚠️ CLOUD_BACKUP: could not reach the relay for upload after retries:', reasonCode, '-', err.message);
+        return {
+            success: false,
+            status: 502,
+            message: `Could not reach RELAY for the cloud backup upload (${reasonCode}: ${err.message}).`
+        };
+    } finally {
+        cloudBackupUploadInFlight = false;
     }
 }
 
@@ -4232,6 +4548,28 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
 // --------------------------------------------------------------
 const AUTO_CLOUD_BACKUP_HEARTBEAT_MS = 15 * 60 * 1000;
 
+// BUG FIX: `dueAt` below is based on `lastSuccessAt` — but if an automatic
+// attempt FAILS, `lastSuccessAt` is never updated, so `dueAt` stays stuck in
+// the past and every single 15-minute heartbeat from then on would see the
+// backup as "overdue" and retry immediately, forever, with no backoff at
+// all. In practice this is exactly what produced the "Could not reach RELAY
+// ... RATE_LIMITED: Too many cloud backup uploads in the last hour" error
+// persisting for HOURS even though RELAY's own rate-limit window is only 60
+// minutes: a rejected (429) request doesn't get counted by RELAY, but any
+// OTHER kind of failure (e.g. a genuinely oversized payload, a flaky
+// connection, etc.) DOES still consume one of the 30-per-hour upload slots.
+// So once something started failing, the unthrottled 15-minute retry loop
+// kept re-consuming slots faster than the window could drain, keeping the
+// bucket topped up near/at its limit indefinitely — which is why simply
+// waiting "a few minutes" never actually cleared it.
+//
+// The fix: after a FAILED attempt, don't retry automatically again until a
+// cooldown has passed since that attempt (not just since the last success).
+// A rate-limited failure gets a longer cooldown (just over RELAY's own
+// 60-minute window), since retrying sooner is guaranteed to fail again.
+const AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS = 60 * 60 * 1000; // 1 hour
+const AUTO_RETRY_COOLDOWN_AFTER_RATE_LIMIT_MS = 65 * 60 * 1000; // a bit over RELAY's 60-min rate-limit window
+
 async function maybeRunAutomaticCloudBackup() {
     const subscription = getCloudBackupSubscriptionInfo();
     if (!subscription.active) return; // no active subscription/it has expired — nothing to do
@@ -4241,6 +4579,13 @@ async function maybeRunAutomaticCloudBackup() {
     const plan = CLOUD_BACKUP_PLANS[subscription.tier] || CLOUD_BACKUP_PLANS.basic;
     const dueAt = (cloudBackupStatus.lastSuccessAt || 0) + plan.autoBackupIntervalMs;
     if (Date.now() < dueAt) return; // not due yet
+
+    if (cloudBackupStatus.state === 'error' && cloudBackupStatus.lastAttemptAt) {
+        const cooldownMs = cloudBackupStatus.lastErrorWasRateLimited
+            ? AUTO_RETRY_COOLDOWN_AFTER_RATE_LIMIT_MS
+            : AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS;
+        if (Date.now() - cloudBackupStatus.lastAttemptAt < cooldownMs) return; // still cooling down after the last failure
+    }
 
     await performCloudBackupUpload('automatic', null);
 }
@@ -4280,14 +4625,14 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
     const currentUsers = readData(FILE_USERS, []);
     const currentAdmin = currentUsers.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
     if (!currentAdmin || !bcrypt.compareSync(password || '', currentAdmin.password)) {
-        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Maling Admin password. Hindi pinahintulutan ang pag-restore.' });
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Restore was not authorized.' });
     }
 
     if (getConnectivityMode() === 'offline') {
-        return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-tap muna ang Online toggle para makapag-restore mula sa cloud.' });
+        return res.status(400).json({ success: false, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to restore from the cloud.' });
     }
     if (!RELAY_API_KEY) {
-        return res.status(500).json({ success: false, message: 'Walang RELAY_API_KEY na naka-configure sa .env.' });
+        return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
     }
 
     try {
@@ -4295,18 +4640,79 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
         const installationId = getOrCreateInstallationId(featureData);
         const hardwareFingerprint = computeHardwareFingerprint(featureData);
 
-        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, hardwareFingerprint })
-        });
-        const relayData = await parseRelayResponse(relayRes);
+        // BUG FIX: kagaya ng sa performCloudBackupUpload sa itaas — dating
+        // default (20000ms), pagkatapos ay 180000ms na lang ang timeout
+        // dito, hindi pa rin sapat para sa pag-download/restore ng
+        // hanggang ~1GB na backup (maraming product images). 40 minuto na
+        // ngayon (2,400,000ms), katugma ng buong chain sa itaas.
+        //
+        // BUG FIX: kagaya rin ng sa performCloudBackupUpload — dating isang
+        // subok lang (single attempt) ang restore, kaya kahit alin sa
+        // dalawang anyo ng transient failure ang mangyari — (1) hindi man
+        // lang natapos ang koneksyon (relayFetch() mismo ang nag-throw), o
+        // (2) 502/503/504 mula sa gateway/proxy sa unahan ng RELAY habang
+        // ito ay nagre-restart (parseRelayResponse() ang nag-throw dahil
+        // walang `success` field ang response body — ibig sabihin hindi ito
+        // mula sa RELAY app code mismo) — agad na-mamark bilang "Hindi
+        // ma-abot ang RELAY" kahit maayos na sana kung sinubukan ulit
+        // pagkalipas ng ilang segundo. Inuulit na ngayon hanggang 3 beses
+        // (5s/15s backoff) BAGO ito ituring na tunay na hindi-maabot —
+        // hindi ito ginagawa kapag structured na sagot (402 locked, atbp. —
+        // palaging may `success` field, kaya hindi nagpapa-throw sa
+        // parseRelayResponse) na ang natanggap mula RELAY APP CODE mismo,
+        // dahil doon tama nang ipakita agad ang totoong dahilan.
+        //
+        // BUG FIX: 429 ("Too Many Requests" — narating na ng restore
+        // attempts ang rate limit ng RELAY, 5 bawat 15 minuto — o network-
+        // level rate limit ng hosting sa unahan nito) ay HINDI dapat
+        // i-retry: oras (minuto) ang window nito, kaya walang saysay ang
+        // 5s/15s backoff at maaari pa itong lalong makasira sa budget ng
+        // rate limit. Agad na huminto ang loop kapag ito ang natanggap, at
+        // malinaw na "maghintay muna" ang mensahe sa halip na generic/
+        // nakakalitong "non-JSON response".
+        const CLOUD_BACKUP_RESTORE_MAX_ATTEMPTS = 3;
+        const CLOUD_BACKUP_RESTORE_RETRY_DELAYS_MS = [5000, 15000];
+        let relayRes;
+        let relayData;
+        let lastNetworkErr;
+        for (let attempt = 1; attempt <= CLOUD_BACKUP_RESTORE_MAX_ATTEMPTS; attempt++) {
+            try {
+                relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                    body: JSON.stringify({ installationId, hardwareFingerprint })
+                }, 2400000);
+                if (relayRes.status === 429) {
+                    const retryAfterSec = parseInt(relayRes.headers.get('retry-after'), 10);
+                    const waitHint = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+                        ? `~${Math.ceil(retryAfterSec / 60)} minute(s)`
+                        : 'a few minutes or longer';
+                    const rateLimitErr = new Error(`Too many cloud backup restores in the last 15 minutes. Please wait ${waitHint} before trying again.`);
+                    rateLimitErr.code = 'RATE_LIMITED';
+                    throw rateLimitErr;
+                }
+                relayData = await parseRelayResponse(relayRes);
+                lastNetworkErr = null;
+                break;
+            } catch (networkErr) {
+                lastNetworkErr = networkErr;
+                if (networkErr.code === 'RATE_LIMITED') {
+                    console.error('⚠️ CLOUD_BACKUP: restore rate-limited by RELAY — not retrying.');
+                    break;
+                }
+                const isLastAttempt = attempt === CLOUD_BACKUP_RESTORE_MAX_ATTEMPTS;
+                console.error(`⚠️ CLOUD_BACKUP: restore attempt ${attempt}/${CLOUD_BACKUP_RESTORE_MAX_ATTEMPTS} failed (${networkErr.code || networkErr.name || 'ERR'}: ${networkErr.message})${isLastAttempt ? '' : ' — retrying...'}`);
+                if (isLastAttempt) break;
+                await new Promise(r => setTimeout(r, CLOUD_BACKUP_RESTORE_RETRY_DELAYS_MS[attempt - 1]));
+            }
+        }
+        if (lastNetworkErr) throw lastNetworkErr;
 
         if (relayRes.status === 402 || relayData.featureLocked) {
             return res.status(402).json(relayData);
         }
         if (!relayData.success) {
-            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'Tinanggihan ng RELAY ang cloud backup restore.' });
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the cloud backup restore.' });
         }
 
         const modules = relayData.modules || {};
@@ -4329,14 +4735,19 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
 
         res.json({
             success: true,
-            message: `Matagumpay na na-restore ang ${restoredCount} module(s) mula sa Cloud Backup.`,
+            message: `Successfully restored ${restoredCount} module(s) from Cloud Backup.`,
             restoredCount,
             moduleNames: Object.keys(modules),
             accountsNeedingPasswordReset
         });
     } catch (err) {
-        console.error('⚠️ CLOUD_BACKUP: hindi na-abot ang relay para sa restore:', err.message);
-        res.status(502).json({ success: false, message: 'Hindi ma-abot ang RELAY para sa cloud backup restore.' });
+        // BUG FIX: same as the upload route above — the message here used
+        // to be identical no matter the real cause (no internet,
+        // ECONNREFUSED, timeout). Now includes the actual reason code so
+        // it's immediately clear where to look.
+        const reasonCode = err.code || err.name || 'ERR';
+        console.error('⚠️ CLOUD_BACKUP: could not reach the relay for restore after retries:', reasonCode, '-', err.message);
+        res.status(502).json({ success: false, message: `Could not reach RELAY for the cloud backup restore (${reasonCode}: ${err.message}).` });
     }
 });
 
@@ -7054,8 +7465,33 @@ async function processTransaction(req, res) {
     }
 
     let transactions = readData(FILE_TRANSACTIONS);
+
+    // INTEGRITY FIX (revised): dating plano ay palitan agad ng server ang
+    // ID (auto-generate) — pero na-realize na ang client mismo ang
+    // gumagawa ng ID base sa configurable na "Transaction ID Format"
+    // setting (Receipt Customization > Transaction ID), at agad itong
+    // ipinapakita bilang "Reference Code" sa cashier/customer display
+    // BAGO pa man sumagot ang server. Kung papalitan ito ng server,
+    // masisira ang format na iyon at magkaka-mismatch ang reference code
+    // na nakita ng cashier/customer laban sa aktwal na naka-print sa
+    // resibo. Sa halip, dito na lang VINA-VALIDATE/tinatanggihan ang
+    // duplicate ID (kung existing na sa FILE_TRANSACTIONS) — pinapanatili
+    // ang format ng client pero sinasarhan ang butas ng collision/replay
+    // na dating pwedeng gawin sa findIndex/filter-based void/refund logic.
+    if (!transaction.id || typeof transaction.id !== 'string' || !transaction.id.trim()) {
+        return res.status(400).json({ success: false, message: 'Kailangan ng valid na Transaction ID.' });
+    }
+    if (transactions.some(t => t.id === transaction.id)) {
+        return res.status(409).json({
+            success: false,
+            code: 'DUPLICATE_TRANSACTION_ID',
+            message: 'May existing nang transaction na may ganitong ID — malamang parehong request ang naipadala nang dalawang beses. I-refresh at subukan muli.'
+        });
+    }
+
     let products = readData(FILE_PRODUCTS);
     let customers = readData(FILE_CUSTOMERS, []);
+
 
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
 
@@ -7451,6 +7887,7 @@ async function processTransaction(req, res) {
             phone: String(creditDebtInfo.phone || ''),
             amount: transaction.total,
             amountPaid: 0,
+            paymentHistory: [],
             note: String(creditDebtInfo.note || ''),
             items: debtItems,
             transactionId: transaction.id,
@@ -7714,6 +8151,34 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
     const tx = transactions.find(t => t.id === transactionId) || clientTx;
     if (!tx) {
         return res.status(404).json({ success: false, message:'Hindi mahanap ang transaction record na ito.' });
+    }
+
+    // SECURITY FIX: dati, WALANG role/ownership check dito — kahit anong
+    // logged-in na account (kasama yung mga walang "transactions_view_all"
+    // permission, na dapat "sarili lang na transactions" makikita) ay
+    // pwedeng mag-email ng buong resibo (customer info, item list, presyo,
+    // cashier) ng KAHIT ANONG transaction ID papunta sa KAHIT ANONG email
+    // address — bypass ng access-control na ginagamit na ng GET /api/transactions.
+    // Ngayon, kailangang ang tumatawag ay: (a) admin, (b) may
+    // transactions_view_all permission, o (c) siya mismo ang cashier sa
+    // transaction na iyon — PERO ito ay ipinapatupad LAMANG kung totoong
+    // naka-save ang transaction sa server (may tunay na customer/sale data
+    // na dapat protektahan). Ang "Preview Receipt" sample sa Receipt
+    // Customization settings (id na nagsisimula sa "PREVIEW-") ay
+    // client-fabricated na data lang, walang tunay na cashier/customer
+    // info na malelenda, kaya hindi ito dapat harangin.
+    const isPersistedTransaction = transactions.some(t => t.id === transactionId);
+    if (isPersistedTransaction) {
+        const requester = req.authUser.username;
+        const users = readData(FILE_USERS);
+        const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+        const activeRole = activeUser && activeUser.role;
+        const isAdminRole = (activeRole || '').toLowerCase() === 'admin';
+        const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
+        const isOwnTransaction = (tx.cashier || '').toLowerCase() === requester.toLowerCase();
+        if (!canViewAll && !isOwnTransaction) {
+            return res.status(403).json({ success: false, message: 'Akses Denied: Hindi mo pwedeng i-email ang resibo ng transaksyon na hindi sa iyo.' });
+        }
     }
 
     const rawReceiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
@@ -8760,7 +9225,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             updateResetJob(jobId, {
                 status: 'sending',
                 percent: 10,
-                message: `Sending the backup (${backupSizeMb} MB) via email...`
+                message: `Sending (${backupSizeMb} MB) via email...`
             });
 
             const ASSUMED_SLOW_THROUGHPUT_BYTES_PER_SEC = 60 * 1024;
@@ -8774,8 +9239,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 updateResetJob(jobId, {
                     percent,
                     message: fraction < 0.95
-                        ? `Sending the backup... (~${secondsLeft}s remaining, estimate)`
-                        : 'Sending the backup... (finishing up)'
+                        ? `Sending... (~${secondsLeft}s remaining, estimate)`
+                        : 'Sending... (finishing up)'
                 });
             }, 700);
 
@@ -9272,10 +9737,15 @@ app.get('/api/transactions/:transactionId/refunds', (req, res) => {
 });
 
 app.get('/api/refunds', (req, res) => {
-    const { requester } = req.query;
+    // SECURITY FIX: dating kapag walang "requester" query param, basta na
+    // lang ibinabalik ang LAHAT ng refund records nang walang role check
+    // (IDOR) — kahit sinong may valid login token na tumawag dito nang
+    // walang query string ay nakakakita ng buong refund history ng store.
+    // Ngayon, ang authenticated na session mismo (req.authUser, set na ng
+    // global auth middleware) ang laging pinagbabatayan — hindi na
+    // basta-basta trinusto ang client-supplied query param.
+    const requester = req.authUser.username;
     const allRefunds = readData(FILE_REFUNDS, []);
-
-    if (!requester) return res.json(allRefunds);
 
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
@@ -9806,12 +10276,34 @@ app.post('/api/debts', requirePermission('customers'), requireFeature('customer_
         dueAtIso = parsedDue.toISOString();
     }
     const debts = readData(FILE_DEBTS, []);
+
+    // SECURITY/INTEGRITY FIX: dati, walang uniqueness check ang
+    // transactionId dito — kaya pwedeng gumawa ng MARAMING debt record na
+    // naka-link sa IISANG transaction lang. Bukod sa nakalilitong data,
+    // dahil per-debt lang ang "pointsAwarded" flag (hindi per-transaction),
+    // ang bawat duplicate na debt na na-mark na "paid" ay hiwalay na
+    // nag-aaward ng loyalty points mula sa parehong benta (loyalty
+    // points fraud). Dagdag pa, ginagamit ng void/refund logic ang
+    // findIndex() (unang tugma lang) kapag hinahanap ang "linked debt" —
+    // kaya kung may duplicate, hindi na-uupdate ang extra na debt kapag
+    // na-void/na-refund ang orihinal na transaksyon.
+    if (transactionId && debts.some(d => d.transactionId === String(transactionId))) {
+        return res.status(400).json({
+            success: false,
+            message: 'May existing na debt record na naka-link na sa Transaction ID na ito. Hindi pwedeng mag-link ng dalawang debt sa iisang transaksyon.'
+        });
+    }
+
     const debt = {
         id:'DEBT-' + Date.now() +'-' + crypto.randomBytes(3).toString('hex'),
         customerName: customerName.trim(),
         phone: phone ||'',
         amount: parsedAmount,
         amountPaid: 0,
+        // Breakdown ng bawat partial payment (petsa/oras + halaga) —
+        // ginagamit ng Debt Details modal sa frontend para ipakita ang
+        // history ng mga bayad, hindi lang ang kabuuang "amountPaid".
+        paymentHistory: [],
         note: note ||'',
         items: Array.isArray(items)
             ? items.map(it => ({
@@ -9890,6 +10382,17 @@ app.post('/api/debts/:id/payment', requirePermission('customers'), requireFeatur
         return res.status(400).json({ success: false, message:`The payment (₱${paymentAmount.toFixed(2)}) exceeds the remaining balance (₱${remainingBefore.toFixed(2)}).` });
     }
     debt.amountPaid = Math.min(debt.amount, (debt.amountPaid || 0) + paymentAmount);
+    // Itinatala ang breakdown ng partial payment na ito (petsa/oras +
+    // halaga) — para makita sa Debt Details modal ang history ng bawat
+    // bayad, hindi lang ang kabuuang natitirang "amountPaid". Backward-
+    // compatible sa mga lumang debt record na wala pang paymentHistory
+    // field (na-guard dito sa halip na sa creation lang sa itaas).
+    if (!Array.isArray(debt.paymentHistory)) debt.paymentHistory = [];
+    debt.paymentHistory.push({
+        amount: paymentAmount,
+        date: new Date().toISOString(),
+        recordedBy: req.authUser.username
+    });
     if (debt.amountPaid >= debt.amount) {
         debt.status ='paid';
         debt.paidAt = new Date().toISOString();
@@ -9911,6 +10414,205 @@ app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('cus
     writeData(FILE_DEBTS, debts);
     logAction(req.authUser.username, `Deleted debt record ID: ${req.params.id}`);
     res.json({ success: true });
+});
+
+// Builds the table-based (email-client-safe) HTML body for a debt
+// e-receipt. Mirrors the look of buildReceiptEmailHtml() above but adapted
+// for a debt/credit balance instead of a completed sale: a status banner
+// (Paid / Partially Paid / Unpaid) instead of an always-green "PAYMENT
+// RECEIVED" pill, a remaining-balance callout, the full payment
+// breakdown, and the linked items — i.e. the same complete set of fields
+// shown in the Debt Details modal on the client.
+function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
+    const accent = (settings.advancedSettings && settings.advancedSettings.accentColor) || '#4f46e5';
+    const storeAddress = settings.storeAddress || '';
+    const storeContact = settings.storeContact || '';
+    const footerText = settings.footerText || 'Thank you for your continued trust!';
+
+    const amount = parseFloat(debt.amount) || 0;
+    const paid = parseFloat(debt.amountPaid) || 0;
+    const remaining = Math.max(0, amount - paid);
+    const statusMeta = {
+        paid: { label: 'FULLY PAID', bg: '#ecfdf5', fg: '#059669' },
+        partial: { label: 'PARTIALLY PAID', bg: '#fffbeb', fg: '#b45309' },
+        unpaid: { label: 'UNPAID', bg: '#fef2f2', fg: '#dc2626' }
+    };
+    const meta = statusMeta[debt.status] || statusMeta.unpaid;
+
+    const paymentHistory = (Array.isArray(debt.paymentHistory) ? debt.paymentHistory.slice() : [])
+        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    const paymentRowsHtml = paymentHistory.length
+        ? paymentHistory.map(p => `<tr>
+            <td style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${p.date ? escapeHtml(new Date(p.date).toLocaleString()) : '—'}</td>
+            <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
+        </tr>`).join('')
+        : `<tr><td colspan="2" style="padding:7px 0;color:#94a3b8;font-style:italic;">No payments recorded yet.</td></tr>`;
+
+    const items = Array.isArray(debt.items) ? debt.items : [];
+    const itemsHtml = items.length
+        ? items.map(i => `<tr>
+            <td style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;">${escapeHtml(i.name)}</td>
+            <td align="center" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${escapeHtml(String(parseInt(i.quantity) || 0))}</td>
+            <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${(((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0))).toFixed(2)}</td>
+        </tr>`).join('')
+        : `<tr><td colspan="3" style="padding:7px 0;color:#94a3b8;font-style:italic;">No linked products for this debt.</td></tr>`;
+
+    const noteBlock = debt.note
+        ? `<tr><td style="padding:16px 32px 0;">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note</div>
+            <div style="background-color:#f8fafc;border-radius:10px;padding:12px 14px;font-size:13px;color:#334155;white-space:pre-wrap;">${escapeHtml(debt.note)}</div>
+        </td></tr>`
+        : '';
+
+    const dueBlock = debt.dueAt
+        ? `<tr><td style="padding:4px 0;">Due Date</td><td align="right" style="padding:4px 0;">${escapeHtml(new Date(debt.dueAt).toLocaleString())}</td></tr>`
+        : `<tr><td style="padding:4px 0;">Due Date</td><td align="right" style="padding:4px 0;">No due date set</td></tr>`;
+
+    const txRow = debt.transactionId
+        ? `<tr><td style="padding:4px 0;">Linked Transaction</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.transactionId)}</td></tr>`
+        : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Debt Receipt ${escapeHtml(debt.id)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:28px 12px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(15,23,42,0.08);">
+    <tr><td style="background-color:${accent};padding:30px 32px;text-align:center;">
+        <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.3px;">${escapeHtml(storeName)}</div>
+        ${storeAddress ? `<div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:6px;">${escapeHtml(storeAddress)}</div>` : ''}
+        ${storeContact ? `<div style="color:rgba(255,255,255,0.75);font-size:12px;margin-top:2px;">${escapeHtml(storeContact)}</div>` : ''}
+        <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-top:14px;">Digital Debt Receipt</div>
+    </td></tr>
+    <tr><td style="padding:22px 32px 0;">
+        <span style="display:inline-block;background-color:${meta.bg};color:${meta.fg};font-size:11px;font-weight:700;letter-spacing:0.4px;padding:6px 14px;border-radius:999px;">${meta.label}</span>
+    </td></tr>
+    <tr><td style="padding:18px 32px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;border-radius:12px;">
+            <tr><td style="padding:16px 18px;">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Remaining Balance</div>
+                <div style="font-size:28px;font-weight:800;color:#0f172a;margin-top:2px;">₱${remaining.toFixed(2)}</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;font-size:12px;color:#64748b;">
+                    <tr>
+                        <td>Owed<br><b style="color:#0f172a;font-size:13px;">₱${amount.toFixed(2)}</b></td>
+                        <td>Paid<br><b style="color:#0f172a;font-size:13px;">₱${paid.toFixed(2)}</b></td>
+                    </tr>
+                </table>
+            </td></tr>
+        </table>
+    </td></tr>
+    <tr><td style="padding:18px 32px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#64748b;">
+            <tr><td style="padding:4px 0;">Customer</td><td align="right" style="padding:4px 0;font-weight:600;color:#0f172a;">${escapeHtml(debt.customerName || '')}</td></tr>
+            ${debt.phone ? `<tr><td style="padding:4px 0;">Phone</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.phone)}</td></tr>` : ''}
+            ${dueBlock}
+            ${txRow}
+            <tr><td style="padding:4px 0;">Receipt No.</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.id)}</td></tr>
+        </table>
+    </td></tr>
+    <tr><td style="padding:20px 32px 0;"><div style="border-top:1px solid #e2e8f0;"></div></td></tr>
+    <tr><td style="padding:16px 32px 0;">
+        <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Payment Breakdown</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+            ${paymentRowsHtml}
+        </table>
+    </td></tr>
+    <tr><td style="padding:16px 32px 0;">
+        <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Items Purchased</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+            <tr>
+                <td style="padding:0 0 8px;color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Item</td>
+                <td align="center" style="padding:0 0 8px;color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Qty</td>
+                <td align="right" style="padding:0 0 8px;color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Amount</td>
+            </tr>
+            ${itemsHtml}
+        </table>
+    </td></tr>
+    ${noteBlock}
+    <tr><td style="padding:28px 32px 6px;text-align:center;">
+        <div style="font-size:14px;font-style:italic;color:#334155;">${escapeHtml(footerText)}</div>
+    </td></tr>
+    <tr><td style="padding:6px 32px 28px;text-align:center;">
+        <div style="font-size:11px;color:#94a3b8;">This is an electronic receipt. Please keep this for your records.</div>
+    </td></tr>
+</table>
+<div style="font-size:11px;color:#94a3b8;margin-top:16px;">Sent via ${escapeHtml(storeName)} · Powered by OmniPOS</div>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+app.post('/api/debts/:id/email-receipt', requirePermission('customers'), requireFeature('customer_crm'), rateLimit('debt-email-receipt', 20, 15 * 60 * 1000), async (req, res) => {
+    const { toEmail } = req.body;
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!toEmail || !emailPattern.test(toEmail)) {
+        return res.status(400).json({ success: false, message: 'Invalid email address.' });
+    }
+
+    const debts = readData(FILE_DEBTS, []);
+    const debt = debts.find(d => d.id === req.params.id);
+    if (!debt) {
+        return res.status(404).json({ success: false, message: 'Debt record not found.' });
+    }
+
+    const rawReceiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const settings = getReceiptSettingsPublic(rawReceiptSettings);
+    // Same pattern as /api/transactions/:id/email-receipt above — the RAW
+    // settings (with actual OTP-sender credentials) are needed here, not
+    // the masked "public" copy returned to the client.
+    const mailCreds = getOtpMailCredentials(rawReceiptSettings);
+    if (!mailCreds) {
+        return res.status(400).json({
+            success: false,
+            message: 'No Sender Gmail configured yet. Set this up first under Users > Receipt Customization > OTP Sender Email.'
+        });
+    }
+
+    try {
+        const storeName = settings.storeName || 'OmniPOS';
+        const amount = parseFloat(debt.amount) || 0;
+        const paid = parseFloat(debt.amountPaid) || 0;
+        const remaining = Math.max(0, amount - paid);
+        const statusLabels = { unpaid: 'Unpaid', partial: 'Partially Paid', paid: 'Fully Paid' };
+
+        const paymentHistory = (Array.isArray(debt.paymentHistory) ? debt.paymentHistory.slice() : [])
+            .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        const paymentLines = paymentHistory.length
+            ? paymentHistory.map(p => `  ${p.date ? new Date(p.date).toLocaleString() : '—'} .......... ₱${(parseFloat(p.amount) || 0).toFixed(2)}`).join('\n')
+            : '  No payments recorded yet.';
+
+        const items = Array.isArray(debt.items) ? debt.items : [];
+        const itemLines = items.length
+            ? items.map(i => `  ${i.name} x${parseInt(i.quantity) || 0} .......... ₱${(((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0))).toFixed(2)}`).join('\n')
+            : '  No linked products for this debt.';
+
+        const textBody = `${storeName}\n${settings.storeAddress || ''}\n\nDIGITAL DEBT RECEIPT\nStatus: ${statusLabels[debt.status] || debt.status}\n\nCustomer: ${debt.customerName || ''}\n${debt.phone ? 'Phone: ' + debt.phone + '\n' : ''}Due: ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}\n${debt.transactionId ? 'Linked Transaction: ' + debt.transactionId + '\n' : ''}Receipt No.: ${debt.id}\n\nAmount Owed: ₱${amount.toFixed(2)}\nAmount Paid: ₱${paid.toFixed(2)}\nRemaining Balance: ₱${remaining.toFixed(2)}\n\nPayment Breakdown:\n${paymentLines}\n\nItems Purchased:\n${itemLines}\n${debt.note ? '\nNote:\n  ' + debt.note + '\n' : ''}\n${settings.footerText || 'Thank you for your continued trust!'}`;
+
+        const htmlBody = buildDebtReceiptEmailHtml({ settings, debt, storeName });
+
+        const mailOptions = {
+            from: `"${storeName}" <${mailCreds.user}>`,
+            to: toEmail,
+            subject: `Debt Receipt ${debt.id} - ${storeName}`,
+            text: textBody,
+            html: htmlBody
+        };
+
+        await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
+
+        logAction(req.authUser ? req.authUser.username : 'Unknown', `Naipadala ang debt e-receipt ${debt.id} sa email (${maskEmail(toEmail)})`);
+        res.json({ success: true, message: 'The e-receipt has been sent.' });
+    } catch (err) {
+        console.error('Debt email receipt failed:', err.message);
+        res.status(500).json({ success: false, message: `Could not send the e-receipt: ${err.message}` });
+    }
 });
 
 app.post('/api/customers/:id/loyalty-card', requirePermission('loyalty_card_issue'), requireFeature('customer_crm'), rateLimit('loyalty-card-issue', 20, 10 * 60 * 1000), (req, res) => {

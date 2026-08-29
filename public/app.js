@@ -10,6 +10,10 @@ const API_URL = isLocal
 
 const AUTH_FETCH_TIMEOUT_MS = 6000;
 
+// Shared cap for a product's "Additional Photos" gallery — used by manual
+// upload, and by the "+ Gallery" multi-select in the image search modal.
+const PRODUCT_GALLERY_MAX_PHOTOS = 7;
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
 
@@ -421,10 +425,19 @@ function attachLongPress(el, callback, durationMs) {
 function attachHoldPreview(el, onShow, onHide, durationMs) {
     if (!el || el.__holdPreviewBound) return;
     el.__holdPreviewBound = true;
-    durationMs = durationMs || 380;
+    // Mabilis na response — dating 380ms, ngayon 180ms na lang bago
+    // lumabas ang enlarged preview kapag naka-hold tap/click.
+    durationMs = durationMs || 180;
 
     let pressTimer = null;
     let isShowing = false;
+    // didHold persists past pointerup (unlike isShowing, which is reset by
+    // doHide before the click event fires) — ginagamit ito para malaman ng
+    // click handler kung dapat i-suppress ang normal na click action
+    // (hal. "select this image") pagkatapos ng hold+release, pero hindi
+    // apektado ang susunod na normal/mabilis na tap.
+    let didHold = false;
+    let activePointerId = null;
 
     const clearPressTimer = function () {
         if (pressTimer) {
@@ -433,8 +446,16 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
         }
     };
 
+    const releaseCapture = function () {
+        if (activePointerId !== null) {
+            try { el.releasePointerCapture(activePointerId); } catch (err) { /* no-op */ }
+            activePointerId = null;
+        }
+    };
+
     const doHide = function () {
         clearPressTimer();
+        releaseCapture();
         if (isShowing) {
             isShowing = false;
             onHide();
@@ -442,28 +463,212 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
     };
 
     el.addEventListener('pointerdown', function (e) {
+        if (typeof e.button === 'number' && e.button !== 0) return;
         clearPressTimer();
+        didHold = false;
+        activePointerId = e.pointerId;
+        // Pointer capture: pinipilit na ang LAHAT ng susunod na pointer
+        // events (move/up) para dito mismong element, kahit gumalaw pa ang
+        // cursor/finger sa ibang bahagi ng screen habang naka-hold. Kaya
+        // hindi na kailangan (at hindi na dapat gamitin) ang
+        // "pointerleave" para i-close ang preview — iyon ang dating
+        // sanhi ng biglaang pagkawala/blink ng enlarge kapag kumikilos ang
+        // pointer palabas ng thumbnail habang naka-hold pa rin.
+        if (typeof el.setPointerCapture === 'function') {
+            try { el.setPointerCapture(e.pointerId); } catch (err) { /* no-op */ }
+        }
         pressTimer = setTimeout(function () {
             pressTimer = null;
             isShowing = true;
+            didHold = true;
             triggerHaptic(15);
             onShow(e);
         }, durationMs);
-    }, { passive: true });
-
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evtName) {
-        el.addEventListener(evtName, doHide, { passive: true });
     });
 
-    el.addEventListener('click', function (e) {
+    // Sadyang WALANG 'pointerleave' dito — sa hold-to-preview, dapat lang
+    // mag-close ang enlarge sa aktwal na release (pointerup) o pagka-cancel
+    // ng gesture (pointercancel), hindi sa paggalaw ng pointer sa ibang
+    // bahagi ng screen.
+    el.addEventListener('pointerup', doHide);
+    el.addEventListener('pointercancel', doHide);
 
-        if (isShowing) {
+    // BUG FIX: dati, kapag na-re-render/natanggal sa DOM ang `el` habang
+    // hawak-hawak pa ito (hal. nag-refresh ang search results habang
+    // naka-hold ang user sa isang thumbnail), hindi na kailanman nag-fi-fire
+    // ang 'pointerup'/'pointercancel' dito — implicit na nawawala na lang
+    // ang pointer capture, pero WALANG event na sumasabay dito noon. Kaya
+    // "natitirang naka-stack"/hindi nawawala ang enlarge preview hangga't
+    // walang susunod na tap/hold na mag-re-reset ng state. Ang
+    // 'lostpointercapture' ang tanging event na GINAGARANTIYA ng browser na
+    // fire-in kapag na-release ang capture sa kahit anong dahilan (kasama
+    // na ang pagkatanggal sa DOM) — kaya dito rin natin dapat i-close ang
+    // preview, para talagang TULUYANG nawawala ito kahit walang aktwal na
+    // pointerup/pointercancel na naipadala.
+    el.addEventListener('lostpointercapture', doHide);
+
+    el.addEventListener('click', function (e) {
+        if (didHold) {
+            e.preventDefault();
             e.stopPropagation();
+            didHold = false;
         }
     });
 
     el.addEventListener('contextmenu', function (e) {
         e.preventDefault();
+    });
+}
+
+// Single, reusable full-screen overlay para sa "hold tap/click to enlarge"
+// na preview ng product image thumbnails. Isang instance lang ito sa buong
+// app (ginagawa lazily sa unang paggamit) — mas mabilis at walang blink
+// kompara sa paggawa/pagtanggal ng bagong element sa DOM sa bawat hold.
+let __holdZoomOverlayEl = null;
+function ensureHoldZoomOverlay() {
+    if (__holdZoomOverlayEl && document.body.contains(__holdZoomOverlayEl)) {
+        return __holdZoomOverlayEl;
+    }
+    const el = document.createElement('div');
+    el.id = 'img-hold-zoom-overlay';
+    el.className = 'img-hold-zoom-overlay';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = '<img id="img-hold-zoom-overlay-img" src="" alt="">'
+        + '<span id="img-hold-zoom-overlay-loading" class="img-hold-zoom-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading full quality...</span>';
+    document.body.appendChild(el);
+    __holdZoomOverlayEl = el;
+
+    // FAILSAFE (isang beses lang ito isesetup, dito mismo sa paggawa ng
+    // overlay): kung sakaling mai-stuck pa rin ang preview sa "visible" kahit
+    // may lostpointercapture fix na sa itaas (hal. nag-switch ng app/tab ang
+    // user habang naka-hold sa isang photo, o may ibang sitwasyon na hindi
+    // aktwal na naipadala ang pointerup/pointercancel/lostpointercapture),
+    // sisiguraduhin nitong TULUYANG magsasara ang enlarge sa sandaling
+    // mawala ang focus ng window o magtago ang tab/app — hindi dapat ito
+    // umasa lang sa mismong pointer events ng element na hinawakan.
+    window.addEventListener('blur', hideHoldZoomPreview);
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) hideHoldZoomPreview();
+    });
+
+    return el;
+}
+
+// isLoadingFullRes: kapag true, may lalabas na maliit na "Loading full
+// quality..." badge sa ibaba ng preview — ginagamit habang kinukuha pa ang
+// full-resolution na bersyon ng result (see fetchFullResPreviewForSearchResult
+// below), kaya alam ng user na thumbnail lang muna ang nakikita niya at
+// papalitan pa ito ng mas malinaw kapag natapos ang fetch.
+function showHoldZoomPreview(src, alt, isLoadingFullRes) {
+    if (!src) return;
+    const overlay = ensureHoldZoomOverlay();
+    const img = overlay.querySelector('#img-hold-zoom-overlay-img');
+    img.src = src;
+    img.alt = alt || '';
+    overlay.classList.toggle('is-loading-fullres', !!isLoadingFullRes);
+    // "is-visible" lang ang tine-toggle (hindi display:none/flex) para
+    // hindi na kailangan mag-reflow/repaint ng layout sa tuwing lalabas ito
+    // — ito ang gumagawa sa enlarge na parang instant at walang kurap/blink.
+    overlay.classList.add('is-visible');
+}
+
+function hideHoldZoomPreview() {
+    if (!__holdZoomOverlayEl) return;
+    __holdZoomOverlayEl.classList.remove('is-visible');
+    __holdZoomOverlayEl.classList.remove('is-loading-fullres');
+}
+
+// I-attach ang hold-to-enlarge sa lahat ng .p-image-search-thumb (o kahit
+// anong element) sa loob ng isang container — quick tap/click gumagana pa
+// rin ng normal (hal. pumili ng image), habang hold+release ay nagpapakita
+// lang ng enlarged preview nito na nawawala kapag binitawan.
+function attachHoldZoomToThumbs(container, selector) {
+    if (!container) return;
+    container.querySelectorAll(selector).forEach(function (thumb) {
+        const img = thumb.querySelector('img');
+        if (!img) return;
+        attachHoldPreview(thumb, function () {
+            showHoldZoomPreview(img.currentSrc || img.src, img.alt);
+        }, function () {
+            hideHoldZoomPreview();
+        }, 180);
+    });
+}
+
+// Cache ng mga na-fetch na full-resolution na preview (id -> dataUrl) para
+// sa "Search Image" modal — kapag naka-hold ulit sa parehong result sa
+// loob ng iisang search, hindi na ito kailangang i-download ulit sa
+// backend. Nire-reset ito sa bawat bagong search (see
+// renderProductImageSearchResults).
+const productImageSearchFullResCache = new Map();
+
+// Kinukuha ang FULL-RESOLUTION (hindi thumbnail) na bersyon ng isang
+// search result — gamit ang parehong "/select" endpoint na tinatawag din
+// pagka-tap upang piliin ang larawan (ligtas itong tawagin nang paulit-
+// ulit; hindi ito "committing"/consuming ng session, fetch+return dataUrl
+// lang talaga ang ginagawa nito sa backend). Dahil dito, tumutugma na
+// talaga ang laman ng hold-to-enlarge preview sa ACTUAL na quality na
+// ma-save kapag pinili ang result na ito — hindi na lang basehan ang
+// posibleng maliit/compressed na thumbnail.
+async function fetchFullResPreviewForSearchResult(id) {
+    if (productImageSearchFullResCache.has(id)) {
+        return productImageSearchFullResCache.get(id);
+    }
+    if (!productImageSearchState.nonce) return null;
+    const endpoint = productImageSearchState.source === 'omni'
+        ? '/products/image-search/omni/select'
+        : '/products/image-search/select';
+    try {
+        const res = await authFetch(`${API_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nonce: productImageSearchState.nonce, id })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success || !data.dataUrl) return null;
+        productImageSearchFullResCache.set(id, data.dataUrl);
+        return data.dataUrl;
+    } catch (err) {
+        console.error('Full-res hold preview fetch error:', err);
+        return null;
+    }
+}
+
+// Kagaya ng attachHoldZoomToThumbs, pero sa Search Image modal specifically
+// — instant munang ipinapakita ang thumbnail (para walang pakiramdam na
+// "walang nangyayari"), tapos pagka-kuha ng full-resolution na bersyon,
+// papalitan ang preview OO kung TALAGANG kasalukuyang naka-hold pa rin sa
+// PAREHONG result (may "holdToken" na guard laban sa race condition — hal.
+// mabilis na hold sa result A, saka result B — hindi na dapat ipakita pa
+// ang huling resulta ng fetch ni A pagkatapos nitong ma-cancel/mapalitan).
+function attachHoldZoomToProductSearchThumbs(container) {
+    if (!container) return;
+    let holdToken = 0;
+    container.querySelectorAll('.p-image-search-thumb').forEach(function (thumb) {
+        const img = thumb.querySelector('img');
+        if (!img) return;
+        const resultId = thumb.dataset.resultId || '';
+        attachHoldPreview(thumb, function () {
+            const myToken = ++holdToken;
+            showHoldZoomPreview(img.currentSrc || img.src, img.alt, true);
+            if (!resultId) return;
+            fetchFullResPreviewForSearchResult(resultId).then(function (fullDataUrl) {
+                // Kung nagbago na ang holdToken (ibig sabihin binitawan na
+                // o may bagong hinold sa ibang result), huwag na ito
+                // ipapakita pa — nakasave na lang ito sa cache para sa
+                // susunod na hold sa result na ito.
+                if (myToken !== holdToken) return;
+                if (fullDataUrl) {
+                    showHoldZoomPreview(fullDataUrl, img.alt, false);
+                } else {
+                    // Nabigo ang fetch — panatilihin lang ang thumbnail,
+                    // tanggalin lang ang "loading" badge.
+                    if (__holdZoomOverlayEl) __holdZoomOverlayEl.classList.remove('is-loading-fullres');
+                }
+            });
+        }, function () {
+            hideHoldZoomPreview();
+        }, 180);
     });
 }
 
@@ -1537,6 +1742,52 @@ function renderCloudBackupStorageBar(usage) {
     fill.style.background = pct >= 95 ? '#dc2626' : (pct >= 75 ? '#d97706' : '#2563eb');
     label.textContent = `${tierPrefix}${usage.sizeMB} MB / ${usage.quotaMB} MB (${pct}%)`;
     remaining.textContent = `${remainingMB} MB left`;
+}
+
+// --------------------------------------------------------------
+// renderCloudBackupUploadProgress — LIVE progress bar habang isinasagawa
+// pa lang ang pag-upload patungong RELAY (bago pa man matapos ang buong
+// /api/cloud-backup/sync request). Pinapakain ito ng bagong
+// uploadedBytes/uploadTotalBytes/uploadStartedAt fields na idinagdag sa
+// cloudBackupStatus (server.js), na kinukuha via polling sa
+// /api/cloud-backup/status habang tumatakbo ang runCloudBackupSync().
+// --------------------------------------------------------------
+function formatBytesAuto(bytes) {
+    if (typeof bytes !== 'number' || isNaN(bytes)) return '0 MB';
+    const mb = bytes / (1024 * 1024);
+    return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+}
+
+function formatElapsedShort(ms) {
+    if (typeof ms !== 'number' || ms < 0) return '0s';
+    const totalSec = Math.floor(ms / 1000);
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+}
+
+function renderCloudBackupUploadProgress(status) {
+    const wrap = document.getElementById('cloud-backup-upload-progress-wrap');
+    const fill = document.getElementById('cloud-backup-upload-progress-fill');
+    const label = document.getElementById('cloud-backup-upload-progress-label');
+    const elapsedEl = document.getElementById('cloud-backup-upload-progress-elapsed');
+    if (!wrap || !fill || !label || !elapsedEl) return;
+
+    const uploading = status && status.state === 'syncing' && typeof status.uploadTotalBytes === 'number' && status.uploadTotalBytes > 0;
+    if (!uploading) {
+        wrap.style.display = 'none';
+        return;
+    }
+
+    const uploaded = typeof status.uploadedBytes === 'number' ? status.uploadedBytes : 0;
+    const total = status.uploadTotalBytes;
+    const pct = Math.min(100, Math.round((uploaded / total) * 1000) / 10);
+    const elapsedMs = status.uploadStartedAt ? (Date.now() - status.uploadStartedAt) : 0;
+
+    wrap.style.display = 'block';
+    fill.style.width = `${pct}%`;
+    label.textContent = `Uploading… ${formatBytesAuto(uploaded)} / ${formatBytesAuto(total)} (${pct}%)`;
+    elapsedEl.textContent = formatElapsedShort(elapsedMs);
 }
 
 async function captureQuickPhoto() {
@@ -3415,6 +3666,32 @@ function openDebtDetailsModal(id) {
            </div>`
         : `<p style="color:#94a3b8;font-size:0.85rem;margin-top:6px;">No linked products for this debt.</p>`;
 
+    // Breakdown ng bawat partial payment (petsa/oras + halaga) — kung may
+    // paymentHistory (lumang debt records na wala pang field na ito ay
+    // babagsak sa "no payments yet" message sa halip na mag-error).
+    // Pinaka-bago sa itaas (pinaka-huling binayad, unahan).
+    const paymentHistory = Array.isArray(debt.paymentHistory) ? debt.paymentHistory : [];
+    const paymentHistoryHtml = paymentHistory.length
+        ? `<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+           <table style="width:100%;min-width:280px;border-collapse:collapse;margin-top:6px;font-size:0.85rem;">
+             <thead>
+                 <tr style="border-bottom:1px solid #e2e8f0;">
+                     <th style="text-align:left;padding:4px;white-space:nowrap;">Date &amp; Time</th>
+                     <th style="text-align:right;padding:4px;white-space:nowrap;">Amount Paid</th>
+                 </tr>
+             </thead>
+             <tbody>
+                 ${paymentHistory.slice().reverse().map(p => `
+                     <tr style="border-bottom:1px solid #f1f5f9;">
+                         <td style="text-align:left;padding:4px;white-space:nowrap;">${p.date ? new Date(p.date).toLocaleString() : '—'}</td>
+                         <td style="text-align:right;padding:4px;white-space:nowrap;">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
+                     </tr>
+                 `).join('')}
+             </tbody>
+           </table>
+           </div>`
+        : `<p style="color:#94a3b8;font-size:0.85rem;margin-top:6px;">No payments recorded yet.</p>`;
+
     Swal.fire({
         title: `Debt Details — ${escapeHtml(debt.customerName)}`,
         html: `
@@ -3426,15 +3703,572 @@ function openDebtDetailsModal(id) {
                 <p style="margin:2px 0;"><b>Status:</b> <span class="badge" style="background-color:${statusColors[debt.status] || '#94a3b8'};">${statusLabels[debt.status] || debt.status}</span></p>
                 <p style="margin:2px 0;"><b>Due:</b> ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}</p>
                 ${debt.transactionId ? `<p style="margin:2px 0;"><b>Linked Transaction:</b> ${escapeHtml(debt.transactionId)}</p>` :''}
+                <p style="margin:12px 0 2px;"><b>Payment Breakdown:</b></p>
+                ${paymentHistoryHtml}
                 <p style="margin:12px 0 2px;"><b>Note:</b></p>
                 <p style="margin:2px 0;color:#475569;white-space:pre-wrap;">${escapeHtml(debt.note || 'No note provided.')}</p>
                 <p style="margin:12px 0 2px;"><b>Items Purchased:</b></p>
                 ${itemsHtml}
+                <div style="display:flex;gap:8px;margin-top:16px;padding-top:12px;border-top:1px dashed #e2e8f0;">
+                    <button type="button" class="btn-clear" onclick="printDebtReceipt('${escapeHtml(debt.id)}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 8px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-weight:600;font-size:0.85rem;">
+                        <i class="fa-solid fa-print"></i> Print Receipt
+                    </button>
+                    <button type="button" class="btn-clear" onclick="openDebtEReceiptModal('${escapeHtml(debt.id)}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 8px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#ffffff;font-weight:600;font-size:0.85rem;">
+                        <i class="fa-solid fa-file-invoice"></i> E-Receipt
+                    </button>
+                </div>
             </div>
         `,
         width: 480,
         confirmButtonText:'Close'
     });
+}
+
+// ---------------------------------------------------------------------------
+// Debt receipts: "Print Receipt" (physical printout via the browser print
+// dialog) and "E-Receipt" (a modern, theme-adaptive digital receipt the
+// cashier can preview, download, or share with the debtor). Both pull the
+// same complete set of fields shown in the Debt Details modal above, and
+// both are presented in English since these leave the POS and go straight
+// to the customer.
+// ---------------------------------------------------------------------------
+
+// Builds a plain, normalized snapshot of a debt record used by both the
+// print receipt and the e-receipt, so the two stay perfectly in sync.
+function buildDebtReceiptModel(debt) {
+    const amount = parseFloat(debt.amount) || 0;
+    const paid = parseFloat(debt.amountPaid) || 0;
+    const remaining = Math.max(0, amount - paid);
+    const statusLabels = { unpaid: 'Unpaid', partial: 'Partially Paid', paid: 'Fully Paid' };
+    const statusColors = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#22c55e' };
+    const status = debt.status || 'unpaid';
+    const paymentHistory = (Array.isArray(debt.paymentHistory) ? debt.paymentHistory.slice() : [])
+        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    const items = Array.isArray(debt.items) ? debt.items : [];
+    const s = receiptSettingsCache || {};
+
+    return {
+        id: debt.id || '',
+        customerName: debt.customerName || 'Walk-in Customer',
+        phone: debt.phone || '',
+        amount,
+        paid,
+        remaining,
+        percentPaid: amount > 0 ? Math.min(100, Math.round((paid / amount) * 100)) : 0,
+        status,
+        statusLabel: statusLabels[status] || status,
+        statusColor: statusColors[status] || '#94a3b8',
+        dueAt: debt.dueAt || null,
+        transactionId: debt.transactionId || '',
+        note: debt.note || '',
+        paymentHistory,
+        items,
+        storeName: s.storeName || 'OmniPOS',
+        storeAddress: s.storeAddress || '',
+        footerText: s.footerText || 'Thank you for your continued trust!'
+    };
+}
+
+// --- 1) Print Receipt: opens the standard browser print dialog with a
+// clean, printer-friendly (black-on-white) receipt layout. Works with a
+// regular printer/"Save as PDF" — no dark-mode concerns since it's paper.
+function printDebtReceipt(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+    const m = buildDebtReceiptModel(debt);
+
+    const paymentRows = m.paymentHistory.length
+        ? m.paymentHistory.map(p => `
+            <tr>
+                <td>${p.date ? new Date(p.date).toLocaleString() : '—'}</td>
+                <td style="text-align:right;">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
+            </tr>`).join('')
+        : `<tr><td colspan="2" style="color:#666;">No payments recorded yet.</td></tr>`;
+
+    const itemRows = m.items.length
+        ? m.items.map(it => `
+            <tr>
+                <td>${escapeHtml(it.name)} x${parseInt(it.quantity) || 0}</td>
+                <td style="text-align:right;">₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}</td>
+            </tr>`).join('')
+        : `<tr><td colspan="2" style="color:#666;">No linked products for this debt.</td></tr>`;
+
+    const win = window.open('', '_blank', 'width=420,height=640');
+    if (!win) return;
+    win.document.write(`
+        <html><head><title>Debt Receipt — ${escapeHtml(m.customerName)}</title>
+        <style>
+            body{font-family:'Courier New',monospace;color:#000;background:#fff;max-width:340px;margin:0 auto;padding:16px;font-size:12.5px;}
+            h2,h3{text-align:center;margin:2px 0;}
+            .muted{color:#444;text-align:center;font-size:11px;margin:0 0 8px;}
+            hr{border:none;border-top:1px dashed #000;margin:8px 0;}
+            table{width:100%;border-collapse:collapse;}
+            td{padding:2px 0;vertical-align:top;}
+            .row{display:flex;justify-content:space-between;margin:2px 0;}
+            .status{font-weight:bold;}
+            .section-title{font-weight:bold;margin:10px 0 2px;}
+            .footer{text-align:center;margin-top:14px;font-size:11px;}
+        </style>
+        </head>
+        <body>
+            <h2>${escapeHtml(m.storeName)}</h2>
+            ${m.storeAddress ? `<p class="muted">${escapeHtml(m.storeAddress)}</p>` : ''}
+            <h3>DEBT / CREDIT RECEIPT</h3>
+            <hr>
+            <div class="row"><span>Customer:</span><span>${escapeHtml(m.customerName)}</span></div>
+            ${m.phone ? `<div class="row"><span>Phone:</span><span>${escapeHtml(m.phone)}</span></div>` : ''}
+            <div class="row"><span>Status:</span><span class="status">${m.statusLabel}</span></div>
+            <div class="row"><span>Due:</span><span>${m.dueAt ? new Date(m.dueAt).toLocaleString() : 'No due date'}</span></div>
+            ${m.transactionId ? `<div class="row"><span>Ref. Transaction:</span><span>${escapeHtml(m.transactionId)}</span></div>` : ''}
+            <hr>
+            <div class="row"><span>Amount Owed:</span><span>₱${m.amount.toFixed(2)}</span></div>
+            <div class="row"><span>Amount Paid:</span><span>₱${m.paid.toFixed(2)}</span></div>
+            <div class="row"><span><b>Remaining Balance:</b></span><span><b>₱${m.remaining.toFixed(2)}</b></span></div>
+            <hr>
+            <p class="section-title">Payment Breakdown</p>
+            <table>${paymentRows}</table>
+            <hr>
+            <p class="section-title">Items Purchased</p>
+            <table>${itemRows}</table>
+            ${m.note ? `<hr><p class="section-title">Note</p><p>${escapeHtml(m.note)}</p>` : ''}
+            <hr>
+            <p class="footer">${escapeHtml(m.footerText)}<br>Printed: ${new Date().toLocaleString()}</p>
+            <script>
+                window.onload = function() { setTimeout(function(){ window.print(); }, 300); };
+            <\/script>
+        </body></html>
+    `);
+    win.document.close();
+}
+
+// Renders a CODE128 barcode to a standalone PNG data URL (via an
+// off-screen canvas) so it can be embedded directly as an <img> inside the
+// self-contained debt e-receipt document below. Using a baked-in image
+// instead of running JsBarcode inside the receipt document itself means
+// the barcode still displays correctly wherever that document ends up
+// (in-app preview iframe, a downloaded .html file, or a shared file) —
+// no extra script/library needs to travel along with it.
+function generateDebtReceiptBarcodeDataUrl(value) {
+    if (!value || typeof JsBarcode !== 'function') return '';
+    try {
+        const canvas = document.createElement('canvas');
+        JsBarcode(canvas, value, {
+            format: 'CODE128',
+            width: 2,
+            height: 60,
+            margin: 8,
+            displayValue: true,
+            fontSize: 14,
+            background: '#ffffff',
+            lineColor: '#000000'
+        });
+        return canvas.toDataURL('image/png');
+    } catch (e) {
+        console.warn('Failed to generate debt e-receipt barcode:', e);
+        return '';
+    }
+}
+
+// --- 2) E-Receipt: a modern, card-style digital receipt meant to be handed
+// or sent to the debtor. It is a fully self-contained HTML document (its
+// <style> uses `prefers-color-scheme`), so when it's opened, downloaded, or
+// shared as its own file, it automatically renders in light or dark colors
+// to match whatever theme the *recipient's* phone/browser is set to.
+function buildDebtEReceiptDocument(m) {
+    const paymentRows = m.paymentHistory.length
+        ? m.paymentHistory.map(p => `
+            <tr>
+                <td>${p.date ? new Date(p.date).toLocaleString() : '—'}</td>
+                <td class="num">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
+            </tr>`).join('')
+        : `<tr><td colspan="2" class="empty-row">No payments recorded yet.</td></tr>`;
+
+    const itemRows = m.items.length
+        ? m.items.map(it => `
+            <tr>
+                <td>${escapeHtml(it.name)}<span class="qty">×${parseInt(it.quantity) || 0}</span></td>
+                <td class="num">₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}</td>
+            </tr>`).join('')
+        : `<tr><td colspan="2" class="empty-row">No linked products for this debt.</td></tr>`;
+
+    const statusClass = m.status === 'paid' ? 'ok' : (m.status === 'partial' ? 'warn' : 'danger');
+
+    // Barcode: encodes the linked sale transaction ID when this debt came
+    // from one (same value/format the regular sale receipt barcode uses —
+    // see JsBarcode("#receipt-barcode", tx.id, ...) — so scanning it finds
+    // the sale instantly in Transactions History). Falls back to the
+    // debt's own receipt number when there's no linked transaction.
+    m.barcodeValue = m.transactionId || m.id || '';
+    m.barcodeDataUrl = generateDebtReceiptBarcodeDataUrl(m.barcodeValue);
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E-Receipt — ${escapeHtml(m.customerName)}</title>
+<style>
+    :root{
+        --bg:#eef1f6; --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e6e9ef;
+        --accent:#6366f1; --accent-soft:#eef2ff; --stripe:#f8fafc;
+        --ok:#16a34a; --ok-soft:#dcfce7; --warn:#d97706; --warn-soft:#fef3c7; --danger:#dc2626; --danger-soft:#fee2e2;
+    }
+    @media (prefers-color-scheme: dark){
+        :root{
+            --bg:#0a0e17; --card:#141a29; --text:#e5e9f2; --muted:#93a0b7; --border:#242c40;
+            --accent:#818cf8; --accent-soft:#1d2140; --stripe:#101625;
+            --ok:#4ade80; --ok-soft:#0f2b1a; --warn:#fbbf24; --warn-soft:#332608; --danger:#f87171; --danger-soft:#3a1414;
+        }
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;padding:28px 14px;display:flex;justify-content:center;}
+    .receipt{width:100%;max-width:420px;background:var(--card);border:1px solid var(--border);border-radius:22px;overflow:hidden;box-shadow:0 12px 32px rgba(15,23,42,0.12);}
+    .head{background:linear-gradient(135deg,var(--accent),#a5b4fc);padding:22px 22px 26px;color:#fff;position:relative;}
+    .head .store{font-size:1.05rem;font-weight:700;letter-spacing:0.2px;}
+    .head .addr{font-size:0.75rem;opacity:0.9;margin-top:2px;}
+    .head .title{margin-top:14px;font-size:0.78rem;text-transform:uppercase;letter-spacing:1.5px;opacity:0.9;}
+    .badge{position:absolute;top:20px;right:20px;font-size:0.72rem;font-weight:700;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,0.22);backdrop-filter:blur(4px);}
+    .body{padding:20px 22px 8px;}
+    .cust{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;}
+    .cust h1{font-size:1.15rem;margin:0 0 2px;}
+    .cust .phone{font-size:0.8rem;color:var(--muted);}
+    .balance-card{background:var(--accent-soft);border-radius:16px;padding:16px 18px;margin-bottom:18px;}
+    .balance-card .label{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);}
+    .balance-card .amount{font-size:1.7rem;font-weight:800;margin:2px 0 10px;color:var(--text);}
+    .stat-row{display:flex;gap:10px;}
+    .stat{flex:1;font-size:0.78rem;}
+    .stat b{display:block;font-size:0.92rem;}
+    .bar-track{height:7px;border-radius:99px;background:rgba(100,116,139,0.2);overflow:hidden;margin-top:12px;}
+    .bar-fill{height:100%;border-radius:99px;background:var(--accent);}
+    .status-pill{display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;font-weight:700;padding:4px 11px;border-radius:999px;}
+    .status-pill.ok{background:var(--ok-soft);color:var(--ok);}
+    .status-pill.warn{background:var(--warn-soft);color:var(--warn);}
+    .status-pill.danger{background:var(--danger-soft);color:var(--danger);}
+    .info-list{margin:4px 0 18px;font-size:0.85rem;}
+    .info-list .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);}
+    .info-list .row:last-child{border-bottom:none;}
+    .info-list .row span:first-child{color:var(--muted);}
+    .section-title{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:18px 0 8px;font-weight:700;}
+    table{width:100%;border-collapse:collapse;font-size:0.85rem;}
+    table td{padding:7px 0;border-bottom:1px solid var(--border);}
+    table tr:nth-child(even){background:var(--stripe);}
+    table tr:last-child td{border-bottom:none;}
+    .num{text-align:right;white-space:nowrap;}
+    .qty{color:var(--muted);font-size:0.78rem;margin-left:6px;}
+    .empty-row{color:var(--muted);font-style:italic;text-align:center;}
+    .note-box{background:var(--stripe);border-radius:12px;padding:12px 14px;font-size:0.85rem;color:var(--text);white-space:pre-wrap;margin-top:6px;}
+    .barcode-wrap{text-align:center;margin:20px 0 4px;}
+    .barcode-card{display:inline-block;background:#ffffff;padding:10px 14px 8px;border-radius:12px;}
+    .barcode-card img{display:block;max-width:230px;width:100%;height:auto;}
+    .barcode-label{font-size:0.68rem;color:var(--muted);margin-top:8px;letter-spacing:0.3px;}
+    .foot{padding:18px 22px 24px;text-align:center;}
+    .foot .thanks{font-size:0.85rem;margin-bottom:6px;}
+    .foot .meta{font-size:0.7rem;color:var(--muted);}
+    .foot .brand{font-size:0.68rem;color:var(--muted);margin-top:10px;opacity:0.7;}
+</style>
+</head>
+<body>
+    <div class="receipt">
+        <div class="head">
+            <span class="badge">${escapeHtml(m.statusLabel)}</span>
+            <div class="store">${escapeHtml(m.storeName)}</div>
+            ${m.storeAddress ? `<div class="addr">${escapeHtml(m.storeAddress)}</div>` : ''}
+            <div class="title">Digital Debt Receipt</div>
+        </div>
+        <div class="body">
+            <div class="cust">
+                <div>
+                    <h1>${escapeHtml(m.customerName)}</h1>
+                    ${m.phone ? `<div class="phone">${escapeHtml(m.phone)}</div>` : ''}
+                </div>
+                <span class="status-pill ${statusClass}">${escapeHtml(m.statusLabel)}</span>
+            </div>
+
+            <div class="balance-card">
+                <div class="label">Remaining Balance</div>
+                <div class="amount">₱${m.remaining.toFixed(2)}</div>
+                <div class="stat-row">
+                    <div class="stat">Owed<b>₱${m.amount.toFixed(2)}</b></div>
+                    <div class="stat">Paid<b>₱${m.paid.toFixed(2)}</b></div>
+                    <div class="stat">Progress<b>${m.percentPaid}%</b></div>
+                </div>
+                <div class="bar-track"><div class="bar-fill" style="width:${m.percentPaid}%;"></div></div>
+            </div>
+
+            <div class="info-list">
+                <div class="row"><span>Due Date</span><span>${m.dueAt ? new Date(m.dueAt).toLocaleString() : 'No due date set'}</span></div>
+                ${m.transactionId ? `<div class="row"><span>Linked Transaction</span><span>${escapeHtml(m.transactionId)}</span></div>` : ''}
+                <div class="row"><span>Receipt No.</span><span>${escapeHtml(m.id)}</span></div>
+                <div class="row"><span>Generated</span><span>${new Date().toLocaleString()}</span></div>
+            </div>
+
+            <div class="section-title">Payment Breakdown</div>
+            <table>${paymentRows}</table>
+
+            <div class="section-title">Items Purchased</div>
+            <table>${itemRows}</table>
+
+            ${m.note ? `<div class="section-title">Note</div><div class="note-box">${escapeHtml(m.note)}</div>` : ''}
+
+            ${m.barcodeDataUrl ? `
+            <div class="barcode-wrap">
+                <div class="barcode-card"><img src="${m.barcodeDataUrl}" alt="Barcode ${escapeHtml(m.barcodeValue)}"></div>
+                <div class="barcode-label">${m.transactionId ? 'Scan to find this transaction' : 'Receipt Barcode'}</div>
+            </div>` : ''}
+        </div>
+        <div class="foot">
+            <div class="thanks">${escapeHtml(m.footerText)}</div>
+            <div class="meta">Please keep this receipt for your records.</div>
+            <div class="brand">Generated by OmniPOS</div>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+// Opens an in-app preview of the e-receipt with Download / Share / Print
+// actions. The preview itself is rendered inside an iframe so its colors
+// are isolated from the POS app's own theme.
+function openDebtEReceiptModal(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+    const m = buildDebtReceiptModel(debt);
+    const docHtml = buildDebtEReceiptDocument(m);
+    const iframeId = 'debt-ereceipt-frame-' + Date.now();
+
+    Swal.fire({
+        title: 'E-Receipt Preview',
+        html: `
+            <div style="border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+                <iframe id="${iframeId}" style="width:100%;height:420px;border:none;display:block;"></iframe>
+            </div>
+            <div class="email-receipt-row no-print" style="display:flex;gap:8px;margin:14px 0 0;">
+                <input type="email" id="debt-receipt-email-input" placeholder="customer@email.com" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;" autocomplete="off">
+                <button type="button" id="debt-receipt-email-btn" class="btn-print-receipt" style="background:#16a34a;white-space:nowrap;" onclick="emailDebtReceipt('${escapeHtml(debt.id)}')">
+                    <i class="fa-solid fa-envelope"></i> Email Receipt
+                </button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+                <button type="button" id="debt-receipt-download-btn" class="btn-clear" onclick="downloadDebtEReceipt('${escapeHtml(debt.id)}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 8px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-weight:600;font-size:0.85rem;">
+                    <i class="fa-solid fa-download"></i> Download
+                </button>
+                <button type="button" id="debt-receipt-share-btn" class="btn-clear" onclick="shareDebtEReceipt('${escapeHtml(debt.id)}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 8px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;font-weight:600;font-size:0.85rem;">
+                    <i class="fa-solid fa-share-nodes"></i> Share
+                </button>
+            </div>
+            <p style="font-size:0.72rem;color:#94a3b8;margin-top:10px;">Tip: the preview above automatically switches to light or dark to match your device's theme. Downloading or sharing saves it as an image using whichever colors are showing right now.</p>
+        `,
+        width: 460,
+        confirmButtonText: 'Close',
+        didOpen: () => {
+            const frame = document.getElementById(iframeId);
+            if (frame) frame.srcdoc = docHtml;
+        }
+    });
+}
+
+async function emailDebtReceipt(id) {
+    const emailInput = document.getElementById('debt-receipt-email-input');
+    const toEmail = emailInput ? emailInput.value.trim() : '';
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // NOTE: these use toast-mode Swal.fire calls (not regular modal
+    // Swal.fire calls) because this function is invoked from a button
+    // that lives INSIDE an already-open Swal.fire() modal (the E-Receipt
+    // Preview). SweetAlert2 only supports one regular popup at a time, so
+    // a normal Swal.fire() here would silently replace/close the preview
+    // out from under the user. Toasts render in their own corner
+    // container and don't touch the open modal.
+    if (!toEmail || !emailPattern.test(toEmail)) {
+        Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: 'Enter a valid email address.', showConfirmButton: false, timer: 2200 });
+        return;
+    }
+
+    const btn = document.getElementById('debt-receipt-email-btn');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...'; }
+
+    try {
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}/email-receipt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toEmail })
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: `E-receipt sent to ${toEmail}`, showConfirmButton: false, timer: 2200 });
+            if (emailInput) emailInput.value = '';
+        } else {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: data.message || 'Could not send the e-receipt.', showConfirmButton: false, timer: 2800 });
+        }
+    } catch (e) {
+        console.warn(e);
+        Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Could not connect to the server to send the e-receipt.', showConfirmButton: false, timer: 2800 });
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
+}
+
+// Rasterizes the (already self-contained) debt e-receipt HTML document
+// into a single flattened PNG image, so "Download" and "Share" hand the
+// debtor an image file instead of an .html file. Uses the browser's own
+// SVG <foreignObject> renderer (no external library needed) to draw the
+// exact same markup/CSS shown in the in-app preview into a canvas, so the
+// exported image always matches what the cashier already sees on screen.
+function renderDebtEReceiptToImageDataUrl(docHtml) {
+    return new Promise((resolve, reject) => {
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;left:-99999px;top:0;width:480px;height:600px;border:none;visibility:hidden;';
+        document.body.appendChild(frame);
+
+        const cleanup = () => { if (frame.parentNode) frame.parentNode.removeChild(frame); };
+
+        frame.onload = () => {
+            let svgUrl = null;
+            try {
+                const frameDoc = frame.contentDocument;
+                const styleTag = frameDoc.querySelector('style');
+                const width = 480;
+                const height = Math.max(frameDoc.body.scrollHeight, 200);
+
+                // Clone the live <body> (not just its innerHTML) so the
+                // page's `body{...}` CSS rule — background, padding,
+                // flex-centering — still matches once this is dropped into
+                // the foreignObject below. The <style> tag is moved to be
+                // the clone's first child; a <style> anywhere in the body
+                // is valid HTML5 and browsers apply it normally.
+                const bodyClone = frameDoc.body.cloneNode(true);
+                if (styleTag) bodyClone.insertBefore(styleTag.cloneNode(true), bodyClone.firstChild);
+                bodyClone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+
+                const svgString = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '">' +
+                    '<foreignObject x="0" y="0" width="' + width + '" height="' + height + '">' +
+                    bodyClone.outerHTML +
+                    '</foreignObject></svg>';
+
+                const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+                svgUrl = URL.createObjectURL(svgBlob);
+
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const scale = Math.min(window.devicePixelRatio || 1, 2);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.ceil(width * scale);
+                        canvas.height = Math.ceil(height * scale);
+                        const ctx = canvas.getContext('2d');
+                        ctx.scale(scale, scale);
+                        ctx.drawImage(img, 0, 0, width, height);
+                        const pngDataUrl = canvas.toDataURL('image/png');
+                        URL.revokeObjectURL(svgUrl);
+                        cleanup();
+                        resolve(pngDataUrl);
+                    } catch (err) {
+                        if (svgUrl) URL.revokeObjectURL(svgUrl);
+                        cleanup();
+                        reject(err);
+                    }
+                };
+                img.onerror = () => {
+                    if (svgUrl) URL.revokeObjectURL(svgUrl);
+                    cleanup();
+                    reject(new Error('Failed to rasterize the e-receipt image.'));
+                };
+                img.src = svgUrl;
+            } catch (err) {
+                if (svgUrl) URL.revokeObjectURL(svgUrl);
+                cleanup();
+                reject(err);
+            }
+        };
+        frame.onerror = () => { cleanup(); reject(new Error('Failed to render the e-receipt document.')); };
+        frame.srcdoc = docHtml;
+    });
+}
+
+async function downloadDebtEReceipt(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+    const btn = document.getElementById('debt-receipt-download-btn');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...'; }
+    try {
+        const m = buildDebtReceiptModel(debt);
+        const docHtml = buildDebtEReceiptDocument(m);
+        const pngDataUrl = await renderDebtEReceiptToImageDataUrl(docHtml);
+        const blob = await (await fetch(pngDataUrl)).blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `E-Receipt-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+        console.warn('Failed to generate the debt e-receipt image:', e);
+        // Toast (not a regular modal) — see note in emailDebtReceipt() above:
+        // a normal Swal.fire() here would replace the still-open E-Receipt
+        // Preview modal instead of layering on top of it.
+        Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Could not generate the receipt image.', showConfirmButton: false, timer: 2800 });
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
+}
+
+async function shareDebtEReceipt(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+    const btn = document.getElementById('debt-receipt-share-btn');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...'; }
+    try {
+        const m = buildDebtReceiptModel(debt);
+        const docHtml = buildDebtEReceiptDocument(m);
+        const fileName = `E-Receipt-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
+        const summaryText = `${m.storeName} — Debt Receipt\nCustomer: ${m.customerName}\nStatus: ${m.statusLabel}\nOwed: ₱${m.amount.toFixed(2)} | Paid: ₱${m.paid.toFixed(2)} | Remaining: ₱${m.remaining.toFixed(2)}\n${m.dueAt ? 'Due: ' + new Date(m.dueAt).toLocaleString() : ''}`;
+        const pngDataUrl = await renderDebtEReceiptToImageDataUrl(docHtml);
+        const blob = await (await fetch(pngDataUrl)).blob();
+
+        try {
+            const file = new File([blob], fileName, { type: 'image/png' });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    title: `E-Receipt — ${m.customerName}`,
+                    text: summaryText,
+                    files: [file]
+                });
+                return;
+            }
+            if (navigator.share) {
+                await navigator.share({ title: `E-Receipt — ${m.customerName}`, text: summaryText });
+                return;
+            }
+        } catch (e) {
+            if (e && e.name === 'AbortError') return; // user cancelled the share sheet
+            console.warn('Share failed, falling back to download:', e);
+        }
+
+        // No Web Share support on this device/browser — fall back to a
+        // direct download of the same image.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        // Toast (not a regular modal) — see note in emailDebtReceipt() above:
+        // a normal Swal.fire() here would replace the still-open E-Receipt
+        // Preview modal instead of layering on top of it.
+        Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Sharing isn\'t supported here — downloaded instead.', showConfirmButton: false, timer: 2800 });
+    } catch (e) {
+        console.warn('Failed to generate/share the debt e-receipt image:', e);
+        Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Could not generate the receipt image.', showConfirmButton: false, timer: 2800 });
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
 }
 
 async function openAddDebtForm() {
@@ -7056,6 +7890,8 @@ function renderTerminalProducts() {
 
         const fragment = document.createDocumentFragment();
 
+        const isListView = gridOutput.classList.contains('terminal-list-view');
+
         filtered.forEach(p => {
             try {
 
@@ -7074,43 +7910,40 @@ function renderTerminalProducts() {
                     ? `<div class="t-prod-cart-badge"><i class="fa-solid fa-cart-shopping"></i> x${qtyInCart}</div>`
                     : '';
 
+                const previewBtnHtml = !isListView
+                    ? `<button type="button" class="t-prod-preview-btn" title="Preview details" aria-label="Preview details"><i class="fa-solid fa-eye"></i></button>`
+                    : '';
+
                 card.innerHTML = `
                     ${cartBadgeHtml}
-                    <div class="t-prod-icon" title="Tap to add • Long-press for details">${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}</div>
-                    <h4${p.image ? ' title="Hold or hover to view full image"' : ''}>${escapeHtml(p.name ||'Unnamed Product')}</h4>
-                    <div class="t-prod-price"${p.image ? ' title="Hold or hover to view full image"' : ''}>₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
-                    <div class="t-prod-stock"${p.image ? ' title="Hold or hover to view full image"' : ''}>Stock: ${availableStock}</div>
+                    <div class="t-prod-icon"${isListView ? ' title="Tap image for details"' : ' title="Tap to add"'}>${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}${previewBtnHtml}</div>
+                    <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
+                    <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
+                    <div class="t-prod-stock">Stock: ${availableStock}</div>
                 `;
                 card.onclick = () => addItemToCart(p);
                 attachInstantTapFeedback(card, { hapticMs: 12 });
+
                 const prodIconEl = card.querySelector('.t-prod-icon');
-                attachLongPress(prodIconEl, () => showProductDetails(p.code), 800);
 
-                if (p.image) {
-
-                    const previewTargets = [
-                        card.querySelector('h4'),
-                        card.querySelector('.t-prod-price'),
-                        card.querySelector('.t-prod-stock')
-                    ];
-                    previewTargets.forEach(prodInfoEl => {
-                        if (!prodInfoEl) return;
-
-                        attachHoldPreview(
-                            prodInfoEl,
-                            () => showProductImagePeek(prodIconEl, p),
-                            () => hideProductImagePeek(),
-                            1000
-                        );
-
-                        attachHoverPreview(
-                            prodInfoEl,
-                            () => showProductImagePeek(prodIconEl, p),
-                            () => hideProductImagePeek(),
-                            1000,
-                            p.code
-                        );
-                    });
+                if (isListView) {
+                    // Product list: tapping the image itself opens the details/add-to-cart modal.
+                    if (prodIconEl) {
+                        prodIconEl.classList.add('t-prod-icon-clickable');
+                        prodIconEl.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            showProductDetails(p.code);
+                        });
+                    }
+                } else {
+                    // Product grid: a small eye icon on the image opens the details/add-to-cart modal.
+                    const previewBtn = card.querySelector('.t-prod-preview-btn');
+                    if (previewBtn) {
+                        previewBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            showProductDetails(p.code);
+                        });
+                    }
                 }
 
                 fragment.appendChild(card);
@@ -7140,38 +7973,101 @@ function filterTerminalCategory(cat) {
 let productDetailsModalCode = null;
 
 let pdGalleryImages = [];
+let pdGalleryCurrentIndex = 0;
+let pdGalleryLastAlt = 'Product';
+// Icon class to show when a product has no photos at all — resolved once
+// from the product passed into renderProductDetailsGallery() so the
+// fallback render never needs to re-look-up the product from a cache
+// (renderPdMainPhoto() only ever hits the "no images" branch on that first
+// call — switching photos via thumbnails/swipe is gated behind the gallery
+// already having 2+ images, so this fallback is otherwise unreachable).
+let pdGalleryFallbackIconClass = 'fa-solid fa-box';
 
 function renderProductDetailsGallery(p) {
     const thumbsContainer = document.getElementById('pd-gallery-thumbs');
     const photoBox = document.getElementById('pd-photo-box');
     if (!photoBox) return;
 
-    const iconClass = getCategoryIconClass(p.category);
+    pdGalleryFallbackIconClass = getCategoryIconClass(p.category);
     const mainImage = p.image ||'';
     const gallery = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
     pdGalleryImages = mainImage ? [mainImage, ...gallery] : gallery;
+    pdGalleryCurrentIndex = 0;
+    pdGalleryLastAlt = (p.name ||'Product').replace(/"/g,'&quot;');
 
-    photoBox.innerHTML = pdGalleryImages.length
-        ? `<img src="${pdGalleryImages[0]}" alt="${(p.name ||'Product').replace(/"/g,'&quot;')}">`
-        : `<i class="${iconClass}"></i>`;
+    renderPdMainPhoto();
 
     if (!thumbsContainer) return;
     if (pdGalleryImages.length > 1) {
         thumbsContainer.style.display ='flex';
         thumbsContainer.innerHTML = pdGalleryImages.map((src, idx) => `
-            <img src="${src}" class="${idx === 0 ?'active-thumb' :''}" onclick="switchProductDetailsPhoto(${idx})">
+            <div class="pd-gallery-thumb-item${idx === 0 ?' active-thumb' :''}" onclick="switchProductDetailsPhoto(${idx})">
+                <img src="${src}" alt="${pdGalleryLastAlt} photo ${idx + 1}">
+            </div>
         `).join('');
     } else {
         thumbsContainer.style.display ='none';
         thumbsContainer.innerHTML ='';
     }
+
+    bindPdGallerySwipe();
+}
+
+// Shared renderer for the main (large) photo, used both on initial open and
+// when switching photos, so the counter pill ("2/4") always stays in sync.
+function renderPdMainPhoto() {
+    const photoBox = document.getElementById('pd-photo-box');
+    if (!photoBox) return;
+
+    if (!pdGalleryImages.length) {
+        photoBox.innerHTML = `<i class="${pdGalleryFallbackIconClass}"></i>`;
+        return;
+    }
+
+    const src = pdGalleryImages[pdGalleryCurrentIndex];
+    const counterHtml = pdGalleryImages.length > 1
+        ? `<span class="pd-gallery-counter">${pdGalleryCurrentIndex + 1}/${pdGalleryImages.length}</span>`
+        : '';
+    photoBox.innerHTML = `<img src="${src}" alt="${pdGalleryLastAlt}">${counterHtml}`;
 }
 
 function switchProductDetailsPhoto(idx) {
+    if (idx < 0) idx = pdGalleryImages.length - 1;
+    if (idx >= pdGalleryImages.length) idx = 0;
+    pdGalleryCurrentIndex = idx;
+    renderPdMainPhoto();
+    document.querySelectorAll('#pd-gallery-thumbs .pd-gallery-thumb-item').forEach((el, i) => el.classList.toggle('active-thumb', i === idx));
+    const activeThumb = document.querySelector('#pd-gallery-thumbs .pd-gallery-thumb-item.active-thumb');
+    if (activeThumb) activeThumb.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'nearest' });
+}
+
+// Lazada/Shopee-style swipe: swipe left/right on the main photo to move
+// through the gallery. Bound once per element (guarded by a dataset flag) so
+// re-opening the modal for different products doesn't stack duplicate
+// listeners on the same #pd-photo-box element.
+function bindPdGallerySwipe() {
     const photoBox = document.getElementById('pd-photo-box');
-    const src = pdGalleryImages[idx];
-    if (photoBox && src) photoBox.innerHTML = `<img src="${src}">`;
-    document.querySelectorAll('#pd-gallery-thumbs img').forEach((img, i) => img.classList.toggle('active-thumb', i === idx));
+    if (!photoBox || photoBox.dataset.swipeBound ==='true') return;
+    photoBox.dataset.swipeBound ='true';
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    photoBox.addEventListener('touchstart', (e) => {
+        if (pdGalleryImages.length < 2) return;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    photoBox.addEventListener('touchend', (e) => {
+        if (pdGalleryImages.length < 2) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        // Ignore mostly-vertical drags (scrolling) and small accidental taps.
+        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+        if (dx < 0) switchProductDetailsPhoto(pdGalleryCurrentIndex + 1);
+        else switchProductDetailsPhoto(pdGalleryCurrentIndex - 1);
+    }, { passive: true });
 }
 
 // Very small, safe formatter: preserves plain paragraphs, and turns lines
@@ -7212,7 +8108,19 @@ function togglePdDescription() {
 }
 
 function showProductDetails(code, context ='pos') {
-    const p = globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code);
+    // Look up whichever cache was refreshed most recently for this context.
+    // `cachedInventoryProducts` is re-fetched every time the Inventory/Products
+    // table reloads (including right after Save Product), while `globalProducts`
+    // is the POS Terminal's own catalog copy and is only refreshed on its own
+    // schedule. Previously this always checked `globalProducts` first — so if
+    // the Terminal tab had ever loaded products in this session, viewing a
+    // product's details from Inventory right after editing its photos would
+    // silently show the OLD (pre-edit) data until a hard refresh cleared
+    // `globalProducts` out of memory. Picking the source that matches the
+    // calling context fixes that without needing a page reload.
+    const p = context ==='inventory'
+        ? (cachedInventoryProducts.find(prod => prod.code === code) || globalProducts.find(prod => prod.code === code))
+        : (globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code));
     if (!p) return;
 
     productDetailsModalCode = code;
@@ -12012,10 +12920,9 @@ function handleProductGalleryPhotoSelect(event) {
     if (!files.length) return;
 
     const existing = getProductGalleryImages();
-    const MAX_GALLERY = 6;
-    const remainingSlots = Math.max(0, MAX_GALLERY - existing.length);
+    const remainingSlots = Math.max(0, PRODUCT_GALLERY_MAX_PHOTOS - existing.length);
     if (remainingSlots <= 0) {
-        Swal.fire('Limit Reached', `Pinakamarami hanggang ${MAX_GALLERY} na additional photos lang bawat produkto.`,'warning');
+        Swal.fire('Limit Reached', `You can only have up to ${PRODUCT_GALLERY_MAX_PHOTOS} additional photos per product.`, 'warning');
         event.target.value ='';
         return;
     }
@@ -12250,11 +13157,67 @@ function handleProductPhotoSelect(event) {
     reader.readAsDataURL(file);
 }
 
+// ---- Image Quality preference (Search Image / Omni Search / Bulk Search
+// Images / Omni Search Images) --------------------------------------------
+// Isang shared na setting lang ito (naka-store sa localStorage, kaya
+// instant at hindi na kailangan mag-round trip sa server) na ginagamit ng
+// LAHAT ng image search/import flow sa app — dahil silang lima
+// (manual upload, single "Search Image" modal, Bulk Search Images, at Omni
+// Search Images) ay dumadaan lahat sa resizeImageDataUrlForProduct() sa
+// ibaba, sapat na palitan dito ang MAX_DIM/quality para maapply agad ito
+// sa lahat ng search — hindi na kailangan ng hiwalay na setting kada modal.
+const IMAGE_QUALITY_PRESETS = {
+    // BAGO: 720px na ngayon ang "standard"/pinakamaliit na option (dati
+    // 600px) — bahagyang mas malinaw pero maliit pa rin ang file size.
+    standard: { maxDim: 720, quality: 0.90, label: 'Standard (720px, mas maliit na file)' },
+    hd:       { maxDim: 1280, quality: 0.92, label: 'HD (1280px)' },
+    fullhd:   { maxDim: 1920, quality: 0.95, label: 'Full HD (1920px, pinakamalinaw)' }
+};
+const IMAGE_QUALITY_STORAGE_KEY = 'omnipos_image_quality_pref';
+// Default na ngayon ay "standard" (720px) — ito na ang default sa lahat
+// ng search (Search Image, Omni Search, Bulk/Omni Search Images), sa
+// halip na Full HD. Ang "hd" at "fullhd" presets sa itaas ay hindi
+// ginalaw — pareho pa rin silang laging pinipiliang opsyon, hindi lang
+// sila ang default.
+const IMAGE_QUALITY_DEFAULT = 'standard';
+
+function getImageQualityPref() {
+    try {
+        const v = localStorage.getItem(IMAGE_QUALITY_STORAGE_KEY);
+        if (v && IMAGE_QUALITY_PRESETS[v]) return v;
+    } catch (err) { /* no-op */ }
+    return IMAGE_QUALITY_DEFAULT;
+}
+
+// Sinesave ang piniling quality AT sine-sync ang lahat ng quality
+// dropdown na kasalukuyang nasa DOM (Search Image modal + Bulk/Omni Search
+// Images modal) — kaya kung saan man ito papalitan, agad na "nasabay" ang
+// value sa ibang modal din, at ang susunod na search kahit saan ay
+// gagamit na ng bagong setting.
+function setImageQualityPref(value) {
+    if (!IMAGE_QUALITY_PRESETS[value]) return;
+    try { localStorage.setItem(IMAGE_QUALITY_STORAGE_KEY, value); } catch (err) { /* no-op */ }
+    document.querySelectorAll('.image-quality-pref-select').forEach(sel => {
+        if (sel.value !== value) sel.value = value;
+    });
+}
+
+// Tinatawag sa pagbukas ng bawat modal na may quality dropdown, para
+// laging sync ang nakikita sa lahat ng modal sa kasalukuyang naka-set na
+// preference.
+function syncImageQualityPrefSelects() {
+    const current = getImageQualityPref();
+    document.querySelectorAll('.image-quality-pref-select').forEach(sel => {
+        sel.value = current;
+    });
+}
+
 function resizeImageDataUrlForProduct(dataUrl) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
-            const MAX_DIM = 600;
+            const preset = IMAGE_QUALITY_PRESETS[getImageQualityPref()] || IMAGE_QUALITY_PRESETS[IMAGE_QUALITY_DEFAULT];
+            const MAX_DIM = preset.maxDim;
             let { width, height } = img;
             if (width > height && width > MAX_DIM) {
                 height = Math.round(height * (MAX_DIM / width));
@@ -12267,7 +13230,7 @@ function resizeImageDataUrlForProduct(dataUrl) {
             canvas.width = width;
             canvas.height = height;
             canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.90));
+            resolve(canvas.toDataURL('image/jpeg', preset.quality));
         };
         img.onerror = () => reject(new Error('Invalid image data.'));
         img.src = dataUrl;
@@ -12275,13 +13238,21 @@ function resizeImageDataUrlForProduct(dataUrl) {
 }
 
 let productImageSearchState = { nonce: null, busy: false, source: null };
+// IDs the user has checked via the per-thumbnail checkbox, meant for the
+// "+ Gallery" button (adds them to Additional Photos) — separate from the
+// existing single-click "use as main photo" behavior on the thumb itself.
+let productImageSearchSelectedIds = new Set();
 
 function openProductImageSearchModal() {
     const nameVal = (document.getElementById('p-form-name').value || '').trim();
     productImageSearchState = { nonce: null, busy: false, source: null };
+    productImageSearchSelectedIds.clear();
     document.getElementById('p-image-search-query').value = nameVal;
     document.getElementById('p-image-search-results').innerHTML = '';
     document.getElementById('p-image-search-status').textContent = '';
+    updateProductImageSearchGalleryBtnState();
+    updateProductImageSearchCheckboxAvailability();
+    syncImageQualityPrefSelects();
     document.getElementById('product-image-search-modal').style.display = 'flex';
     if (nameVal) {
         performOmniProductImageSearch();
@@ -12392,13 +13363,138 @@ async function performOmniProductImageSearch() {
 
 function renderProductImageSearchResults(results) {
     const resultsEl = document.getElementById('p-image-search-results');
+    productImageSearchFullResCache.clear();
+    productImageSearchSelectedIds.clear();
     resultsEl.innerHTML = results.map(r => {
         const safeTitle = (r.title || '').replace(/"/g, '&quot;');
         const safeThumb = (r.thumbnailUrl || '').replace(/"/g, '&quot;');
-        return `<button type="button" class="p-image-search-thumb" onclick="selectSearchedProductImage('${r.id}')" title="${safeTitle}">
-            <img src="${safeThumb}" alt="${safeTitle}" loading="lazy">
-        </button>`;
+        const safeId = String(r.id || '').replace(/"/g, '&quot;');
+        return `<div class="p-image-search-item">
+            <button type="button" class="p-image-search-thumb" data-result-id="${safeId}" onclick="selectSearchedProductImage('${r.id}')" title="${safeTitle}">
+                <img src="${safeThumb}" alt="${safeTitle}" loading="lazy">
+            </button>
+            <label class="p-image-search-check-wrap" title="Select for + Gallery">
+                <input type="checkbox" data-result-id="${safeId}" onchange="toggleProductImageSearchSelect('${r.id}', this.checked)">
+                <span class="p-image-search-check-box"><i class="fa-solid fa-check"></i></span>
+            </label>
+        </div>`;
     }).join('');
+    updateProductImageSearchGalleryBtnState();
+    updateProductImageSearchCheckboxAvailability();
+
+    // Hold-press a result to enlarge it (no blink, and it won't disappear
+    // even if the pointer/finger moves around the screen while held) —
+    // shows the thumbnail instantly, then swaps in the full-resolution
+    // version (the one actually saved when picked) as soon as it downloads.
+    // Releasing closes it. A normal/quick tap still works exactly like the
+    // existing "click to use it" behavior.
+    attachHoldZoomToProductSearchThumbs(resultsEl);
+}
+
+// Tracks which results are checked for the "+ Gallery" (multi-select) flow.
+function toggleProductImageSearchSelect(id, checked) {
+    if (checked) productImageSearchSelectedIds.add(id);
+    else productImageSearchSelectedIds.delete(id);
+    updateProductImageSearchGalleryBtnState();
+    updateProductImageSearchCheckboxAvailability();
+}
+
+function updateProductImageSearchGalleryBtnState() {
+    const btn = document.getElementById('p-image-search-add-gallery-btn');
+    if (!btn) return;
+    const count = productImageSearchSelectedIds.size;
+    btn.disabled = count === 0;
+    btn.innerHTML = count > 0
+        ? `<i class="fa-solid fa-images"></i> + Gallery (${count})`
+        : `<i class="fa-solid fa-images"></i> + Gallery`;
+}
+
+// The gallery can only hold PRODUCT_GALLERY_MAX_PHOTOS photos total. Once the
+// number of checked results reaches however many slots are actually free
+// right now, every still-unchecked checkbox gets disabled (and dimmed) so
+// it's impossible to select more than can be added — no need to wait for the
+// "+ Gallery" click to find out. Unchecking one immediately frees up a slot
+// and re-enables the rest.
+function updateProductImageSearchCheckboxAvailability() {
+    const existing = getProductGalleryImages();
+    const remainingSlots = Math.max(0, PRODUCT_GALLERY_MAX_PHOTOS - existing.length);
+    const atLimit = productImageSearchSelectedIds.size >= remainingSlots;
+
+    document.querySelectorAll('#p-image-search-results .p-image-search-check-wrap').forEach(wrap => {
+        const cb = wrap.querySelector('input[type="checkbox"]');
+        if (!cb) return;
+        const shouldDisable = atLimit && !cb.checked;
+        cb.disabled = shouldDisable;
+        wrap.classList.toggle('is-disabled', shouldDisable);
+    });
+
+    const limitNote = document.getElementById('p-image-search-gallery-limit-note');
+    if (limitNote) {
+        limitNote.style.display = remainingSlots <= 0 ? 'block' : 'none';
+        const countEl = document.getElementById('p-image-search-gallery-limit-count');
+        if (countEl) countEl.textContent = PRODUCT_GALLERY_MAX_PHOTOS;
+    }
+}
+
+// Downloads every checked result (full resolution, same nonce/endpoint used
+// by the single-select flow) and appends them straight into Additional
+// Photos — no need to first "use as main photo" one at a time.
+async function addSelectedSearchImagesToGallery() {
+    if (!productImageSearchState.nonce || !productImageSearchSelectedIds.size) return;
+
+    const statusEl = document.getElementById('p-image-search-status');
+    const btn = document.getElementById('p-image-search-add-gallery-btn');
+    const existing = getProductGalleryImages();
+    const remainingSlots = Math.max(0, PRODUCT_GALLERY_MAX_PHOTOS - existing.length);
+
+    if (remainingSlots <= 0) {
+        Swal.fire('Limit Reached', `You can only have up to ${PRODUCT_GALLERY_MAX_PHOTOS} additional photos per product.`, 'warning');
+        return;
+    }
+
+    const allSelected = Array.from(productImageSearchSelectedIds);
+    const ids = allSelected.slice(0, remainingSlots);
+    const overLimitCount = allSelected.length - ids.length;
+
+    if (btn) btn.disabled = true;
+    statusEl.textContent = `Adding ${ids.length} photo(s) to the gallery...`;
+
+    const endpoint = productImageSearchState.source === 'omni'
+        ? '/products/image-search/omni/select'
+        : '/products/image-search/select';
+
+    const results = await Promise.all(ids.map(async (id) => {
+        try {
+            const res = await authFetch(`${API_URL}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nonce: productImageSearchState.nonce, id })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) return null;
+            return await resizeImageDataUrlForProduct(data.dataUrl);
+        } catch (err) {
+            console.error('Gallery multi-select image fetch error:', err);
+            return null;
+        }
+    }));
+
+    const valid = results.filter(Boolean);
+    const failedCount = ids.length - valid.length;
+
+    setProductGalleryImages(existing.concat(valid));
+
+    // Uncheck everything after adding, so the button/count resets cleanly,
+    // and re-evaluate availability against the now-larger gallery.
+    productImageSearchSelectedIds.clear();
+    document.querySelectorAll('#p-image-search-results .p-image-search-check-wrap input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+    updateProductImageSearchGalleryBtnState();
+    updateProductImageSearchCheckboxAvailability();
+
+    let msg = `${valid.length} photo(s) added to Additional Photos.`;
+    if (overLimitCount > 0) msg += ` ${overLimitCount} skipped due to the ${PRODUCT_GALLERY_MAX_PHOTOS}-photo limit.`;
+    if (failedCount > 0) msg += ` ${failedCount} failed to download.`;
+    statusEl.textContent = msg;
 }
 
 async function selectSearchedProductImage(id) {
@@ -12483,8 +13579,15 @@ async function handleProductFormSubmit(e) {
     if (specsRaw) {
         try { payload.specs = JSON.parse(specsRaw); } catch (e) {  }
     }
-    if (imagesRaw) {
-        try { payload.images = JSON.parse(imagesRaw); } catch (e) {  }
+    // Always include `images` (even as an empty array) so that removing every
+    // Additional Photo actually clears it on the server. Previously this was
+    // wrapped in `if (imagesRaw)`, which skipped sending the field entirely
+    // once the gallery was emptied — the backend's { ...old, ...updatedData }
+    // merge then kept the old photos forever since the key was just missing.
+    try {
+        payload.images = imagesRaw ? JSON.parse(imagesRaw) : [];
+    } catch (e) {
+        payload.images = [];
     }
 
     const isScanRestock = (mode ==='ADD' && addProductScanSession.lastScannedFormCode === code.trim());
@@ -13091,7 +14194,7 @@ async function submitBulkPhotoUpload() {
     }
 }
 
-let bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null };
+let bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null, minimized: false, finished: false, lastBadgeText: '' };
 
 function stopBulkImageSearchPolling() {
     if (bulkImageSearchState.pollTimer) {
@@ -13100,23 +14203,89 @@ function stopBulkImageSearchPolling() {
     }
 }
 
+// Minimize/restore icon sa header — .header-icon-btn na rin ang class
+// (kagaya ng notification bell), kaya awtomatiko itong sumusunod sa
+// parehong tema (light/dark/terminal) nang walang extra styling code.
+function hideBulkImageSearchHeaderIcon() {
+    const btn = document.getElementById('bulk-imgsearch-minimized-btn');
+    if (btn) {
+        btn.style.display = 'none';
+        btn.classList.remove('is-searching');
+    }
+}
+
+function showBulkImageSearchHeaderIcon() {
+    const btn = document.getElementById('bulk-imgsearch-minimized-btn');
+    if (btn) btn.style.display = 'flex';
+}
+
+function updateBulkImageSearchHeaderBadge(text, searching) {
+    const btn = document.getElementById('bulk-imgsearch-minimized-btn');
+    const badge = document.getElementById('bulk-imgsearch-minimized-badge');
+    if (!btn || !badge) return;
+    badge.textContent = text || '';
+    badge.style.display = text ? 'inline-block' : 'none';
+    btn.classList.toggle('is-searching', !!searching);
+}
+
 function openBulkImageSearchModal() {
+    // BUG FIX: kung may ACTIBONG search session pa (may nonce, o may
+    // proposals na naghihintay i-review) — hal. na-minimize lang ito
+    // kanina at itinuloy ang paggawa ng ibang bagay — i-RESTORE na lang
+    // ito sa halip na i-reset. Kung hindi, mawawala/mababalewala ang
+    // background search kapag na-click ng user ang "Bulk Search Images"
+    // toolbar button sa halip na ang minimized icon sa header.
+    if (bulkImageSearchState.nonce || bulkImageSearchState.proposals.length) {
+        restoreBulkImageSearchModal();
+        return;
+    }
     stopBulkImageSearchPolling();
-    bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null };
+    bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null, minimized: false, finished: false, lastBadgeText: '' };
     document.getElementById('bulk-imgsearch-status').textContent = '';
     document.getElementById('bulk-imgsearch-preview-list').innerHTML = '';
     document.getElementById('bulk-imgsearch-selectall-row').style.display = 'none';
     document.getElementById('bulk-imgsearch-apply-btn').style.display = 'none';
     document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
     if (typeof resetOmniImageSearchUI === 'function') resetOmniImageSearchUI();
+    syncImageQualityPrefSelects();
+    hideBulkImageSearchHeaderIcon();
     document.getElementById('bulk-image-search-modal').style.display = 'flex';
 }
 
 function closeBulkImageSearchModal() {
     stopBulkImageSearchPolling();
     if (typeof stopOmniImageSearchPolling === 'function') stopOmniImageSearchPolling();
+    // Buong reset (hindi lang UI) — talagang cancel/dismiss ang ibig
+    // sabihin ng "x" (di gaya ng "-" minimize), kaya dapat blangko ulit
+    // ang susunod na openBulkImageSearchModal() sa halip na mag-akalang
+    // may laman pa ring dapat i-restore.
+    bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null, minimized: false, finished: false, lastBadgeText: '' };
+    hideBulkImageSearchHeaderIcon();
     document.getElementById('bulk-image-search-modal').style.display = 'none';
 }
+
+// MINIMIZE — itinatago lang ang modal (display:none), HINDI hinihinto
+// ang polling. Ibig sabihin, patuloy pa ring tumatakbo ang searching sa
+// background (bulkImageSearchState.pollTimer) kahit lumipat ng page
+// (Products, Overview, atbp.) o gumawa ng ibang bagay habang naghihintay
+// — lahat ng element na ginagamit ng pollBulkImageSearchProgress() /
+// updateBulkImageSearchProgressUI() ay permanente sa DOM (global modal,
+// hindi kabilang sa alinmang view/page, kaya hindi ito natatanggal kapag
+// nagpalit ng view) — walang error kahit hindi ito kasalukuyang
+// nakikita.
+function minimizeBulkImageSearchModal() {
+    document.getElementById('bulk-image-search-modal').style.display = 'none';
+    bulkImageSearchState.minimized = true;
+    showBulkImageSearchHeaderIcon();
+    updateBulkImageSearchHeaderBadge(bulkImageSearchState.lastBadgeText, !bulkImageSearchState.finished);
+}
+
+function restoreBulkImageSearchModal() {
+    bulkImageSearchState.minimized = false;
+    hideBulkImageSearchHeaderIcon();
+    document.getElementById('bulk-image-search-modal').style.display = 'flex';
+}
+
 
 // Ginagawang mas madaling basahin ang etaMs (galing sa backend) —
 // hal. "~45s" o "~2m 10s" — sa halip na hilaw na milliseconds.
@@ -13138,6 +14307,14 @@ function updateBulkImageSearchProgressUI(done, total, etaMs) {
     bar.style.width = `${pct}%`;
     const etaText = formatBulkImageSearchEta(etaMs);
     text.textContent = `${done}/${total} searched (${pct}%)${etaText ? ' — ' + etaText : ''}`;
+
+    // I-update din ang badge ng minimized header icon (kahit hindi
+    // kasalukuyang naka-minimize) — para tama agad ang laman nito sa
+    // sandaling i-minimize ng user pagkatapos.
+    bulkImageSearchState.lastBadgeText = `${done}/${total}`;
+    if (bulkImageSearchState.minimized) {
+        updateBulkImageSearchHeaderBadge(bulkImageSearchState.lastBadgeText, true);
+    }
 }
 
 async function startBulkImageSearch() {
@@ -13153,6 +14330,9 @@ async function startBulkImageSearch() {
 
     stopBulkImageSearchPolling();
     startBtn.disabled = true;
+    bulkImageSearchState.finished = false;
+    bulkImageSearchState.lastBadgeText = '';
+    bulkImageSearchState.rateLimitRetries = 0;
     document.getElementById('bulk-imgsearch-selectall-row').style.display = 'none';
     document.getElementById('bulk-imgsearch-apply-btn').style.display = 'none';
     listEl.innerHTML = '';
@@ -13212,10 +14392,42 @@ async function pollBulkImageSearchProgress(startBtn) {
         });
         const data = await res.json();
 
+        if (res.status === 429) {
+            // BUG FIX: dating pareho ng treatment ng ibang di-inaasahang
+            // error ang 429 (per-IP rate limit ng progress-checking
+            // endpoint mismo, ~1200 request/oras) — kaya sa napakahaba/
+            // malaking search (>~18 minuto ng tuloy-tuloy na polling
+            // bawat 900ms), PERMANENTENG humihinto ang polling KAHIT
+            // patuloy pa rin talaga ang totoong search sa server sa
+            // likod. Ngayon, RETRYABLE na ito (kagaya ng transient
+            // network error) — hinihintay muna ang "Retry-After" na
+            // sinasabi ng server (o 5s kung wala, max 60s) bago subukan
+            // ulit, sa halip na basta sumuko agad. May hard cap pa rin
+            // (20 sunud-sunod na 429) para hindi talaga walang-hanggan
+            // ang pag-ulit kung sakaling may tunay na ibang problema.
+            bulkImageSearchState.rateLimitRetries = (bulkImageSearchState.rateLimitRetries || 0) + 1;
+            if (bulkImageSearchState.rateLimitRetries > 20) {
+                statusEl.textContent = 'Still rate-limited after several retries — the search may still be running on the server. Try reopening this later.';
+                document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
+                startBtn.disabled = false;
+                bulkImageSearchState.finished = true;
+                if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('!', false);
+                return;
+            }
+            let retryAfterSec = parseInt(res.headers && res.headers.get ? res.headers.get('Retry-After') : null, 10);
+            if (!Number.isFinite(retryAfterSec) || retryAfterSec <= 0) retryAfterSec = 5;
+            retryAfterSec = Math.min(retryAfterSec, 60);
+            bulkImageSearchState.pollTimer = setTimeout(() => pollBulkImageSearchProgress(startBtn), retryAfterSec * 1000);
+            return;
+        }
+        bulkImageSearchState.rateLimitRetries = 0;
+
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Lost track of the search progress. Please try again.';
             document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
             startBtn.disabled = false;
+            bulkImageSearchState.finished = true;
+            if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('!', false);
             return;
         }
 
@@ -13225,6 +14437,8 @@ async function pollBulkImageSearchProgress(startBtn) {
             statusEl.textContent = data.error;
             document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
             startBtn.disabled = false;
+            bulkImageSearchState.finished = true;
+            if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('!', false);
             return;
         }
 
@@ -13237,10 +14451,12 @@ async function pollBulkImageSearchProgress(startBtn) {
         // ginagawa noong synchronous pa ang endpoint.
         document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
         bulkImageSearchState.proposals = data.proposals || [];
+        bulkImageSearchState.finished = true;
 
         if (!bulkImageSearchState.proposals.length) {
             statusEl.textContent = 'No products found to search for.';
             startBtn.disabled = false;
+            if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('', false);
             return;
         }
 
@@ -13255,6 +14471,12 @@ async function pollBulkImageSearchProgress(startBtn) {
         renderBulkImageSearchPreview();
         document.getElementById('bulk-imgsearch-selectall-row').style.display = foundCount ? 'flex' : 'none';
         startBtn.disabled = false;
+        // Tapos na ang paghahanap pero naghihintay pa ng review/apply —
+        // panatilihing visible ang header icon (kung naka-minimize)
+        // para malaman ng user na may resulta nang dapat balikan, pero
+        // itigil na ang "pulsing" (finished = true na, hindi na
+        // aktibong naghahanap).
+        if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('✓', false);
     } catch (err) {
         console.error('Bulk image search progress poll error:', err);
         // Transient network hiccup lang — subukan ulit sa susunod na
@@ -16322,8 +17544,32 @@ async function syncFeaturesFromRelay() {
     }
 }
 
+// --------------------------------------------------------------
+// NO-INTERRUPT GUARD (frontend): mirrors the lock enforced server-side
+// (server.js performCloudBackupUpload / RELAY's per-installation lock).
+// While a cloud backup is uploading, warn before the tab is closed or
+// reloaded — the actual upload runs on the server regardless of what
+// happens to this page, but closing/reloading could make someone think
+// they can "stop" it or accidentally trigger a duplicate attempt on
+// reload. The ONLY thing that should ever legitimately stop a backup
+// mid-flight is the plan's storage quota being exceeded (handled by the
+// server/RELAY itself) — nothing the person does in the browser should.
+// --------------------------------------------------------------
+window.__cloudBackupSyncInProgress = false;
+window.addEventListener('beforeunload', (e) => {
+    if (window.__cloudBackupSyncInProgress) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+
 async function runCloudBackupSync() {
     if (blockIfOffline('Cloud Backup')) return;
+
+    if (window.__cloudBackupSyncInProgress) {
+        Swal.fire('Already Syncing', 'A cloud backup upload is already in progress. Please wait for it to finish before starting another.', 'info');
+        return;
+    }
 
     const confirmResult = await Swal.fire({
         title: 'Sync to Cloud?',
@@ -16340,6 +17586,7 @@ async function runCloudBackupSync() {
     const adminPassword = confirmResult.value;
     if (!adminPassword) return;
 
+    window.__cloudBackupSyncInProgress = true;
     const loggedInUser = currentUser ? currentUser.username : 'admin';
     const statusBox = document.getElementById('cloud-backup-status');
     const btn = document.getElementById('cloud-backup-sync-btn');
@@ -16349,11 +17596,52 @@ async function runCloudBackupSync() {
         statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing the database to the cloud&hellip;';
     }
 
+    // BUG FIX: dating walang paraan makita ng user kung tumatakbo pa ba
+    // talaga ang isang mahabang cloud backup upload (hanggang 40 minuto,
+    // hanggang ~1GB ang datos) o natigil na lang ito nang tahimik —
+    // isang static na spinner text lang ang nakikita. Dito, habang
+    // hinihintay ang /cloud-backup/sync request (POST), nag-po-poll ito
+    // paminsan-minsan (kada 1s) sa /cloud-backup/status para makuha ang
+    // live na uploadedBytes/uploadTotalBytes/uploadStartedAt (mula sa
+    // cloudBackupStatus sa server.js) at ipakita bilang progress bar +
+    // elapsed time (renderCloudBackupUploadProgress). Tumitigil ang
+    // polling sa `finally` block sa ibaba, tapos man o nabigo ang sync.
+    let progressPollTimer = null;
+    const pollUploadProgress = async () => {
+        try {
+            const res = await authFetch(`${API_URL}/cloud-backup/status`);
+            const data = await res.json();
+            renderCloudBackupUploadProgress(data);
+        } catch (e) {
+            // Tahimik lang na balewalain ang isang naabalang poll — susubukan
+            // na lang ulit sa susunod na tick, hindi ito dapat makaabala sa
+            // pangunahing sync request na tumatakbo pa.
+        }
+    };
+    progressPollTimer = setInterval(pollUploadProgress, 1000);
+    pollUploadProgress();
+
     try {
+        // BUG FIX: dating gamit ang default na AUTH_FETCH_TIMEOUT_MS (6s
+        // lang) — sobrang ikli para sa isang cloud backup upload kapag
+        // malaki na ang datos ng store (lalo na kung maraming naka-attach
+        // na product images bilang base64). Sinusuportahan na ngayon ang
+        // pag-upload ng hanggang ~1GB na backup — kaya 40 minuto na ang
+        // timeout dito (2,400,000ms), sapat na sapat kahit sa medyo mabagal
+        // na upload speed (hal. ~5 Mbps ≈ ~29 min para sa 1GB, may extra
+        // buffer pa). Ito rin ang dapat palaging katugma/mas mababa sa
+        // 1) ang timeoutMs ng relayFetch sa server.js (parehong 40 min) at
+        // 2) ang server.requestTimeout ng RELAY mismo (60 min) — para ang
+        // pinakamaikling timeout sa buong chain ay ito (client-side), kaya
+        // ito palagi ang unang mag-a-abort nang maayos (na may malinaw na
+        // mensahe), sa halip na basta biglang maputol ang koneksyon dahil
+        // may mas maiksing timeout na "nagtatago" sa gitna ng RELAY o ng
+        // OMNIPOS server.
         const response = await authFetch(`${API_URL}/cloud-backup/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: loggedInUser, password: adminPassword })
+            body: JSON.stringify({ username: loggedInUser, password: adminPassword }),
+            timeoutMs: 2400000
         });
         const result = await response.json();
 
@@ -16368,6 +17656,14 @@ async function runCloudBackupSync() {
             if (statusBox) {
                 statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
             }
+            return;
+        }
+
+        if (response.status === 409 || result.uploadInProgress) {
+            if (statusBox) {
+                statusBox.innerHTML = '<i class="fa-solid fa-circle-info"></i> A cloud backup upload is already in progress — please wait for it to finish.';
+            }
+            Swal.fire('Already Syncing', result.message || 'A cloud backup upload is already in progress.', 'info');
             return;
         }
 
@@ -16412,6 +17708,10 @@ async function runCloudBackupSync() {
         }
         Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
     } finally {
+        window.__cloudBackupSyncInProgress = false;
+        if (progressPollTimer) clearInterval(progressPollTimer);
+        const progressWrap = document.getElementById('cloud-backup-upload-progress-wrap');
+        if (progressWrap) progressWrap.style.display = 'none';
         if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
     }
 }
@@ -16444,10 +17744,20 @@ async function runCloudBackupRestore() {
     }
 
     try {
+        // BUG FIX: kagaya ng sa runCloudBackupSync — dating 6s lang
+        // (default) ang timeout dito, sobrang ikli kapag malaki na ang
+        // ida-download/i-restore na backup (lalo na kung maraming naka-
+        // attach na product images), kaya laging naka-"Network Error" kahit
+        // tumatakbo pa naman ang restore sa backend. 40 minuto na ngayon,
+        // katugma ng runCloudBackupSync at ng bagong mas mataas na
+        // timeoutMs/requestTimeout sa server.js/RELAY (see notes doon) —
+        // para suportado ang hanggang ~1GB na backup nang hindi
+        // aabutan ng timeout kahit sa mabagal na koneksyon.
         const response = await authFetch(`${API_URL}/cloud-backup/restore`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: loggedInUser, password: adminPassword })
+            body: JSON.stringify({ username: loggedInUser, password: adminPassword }),
+            timeoutMs: 2400000
         });
         const result = await response.json();
 
@@ -16734,8 +18044,13 @@ async function saveAccumulatedStockIfPending() {
     if (specsRaw) {
         try { payload.specs = JSON.parse(specsRaw); } catch (e) {  }
     }
-    if (imagesRaw) {
-        try { payload.images = JSON.parse(imagesRaw); } catch (e) {  }
+    // Same fix as handleProductFormSubmit: always send `images` (even empty)
+    // so a fully-cleared gallery actually gets persisted instead of being
+    // silently kept as-is by the server's shallow merge.
+    try {
+        payload.images = imagesRaw ? JSON.parse(imagesRaw) : [];
+    } catch (e) {
+        payload.images = [];
     }
 
     try {
@@ -17979,6 +19294,10 @@ function toggleTerminalView() {
         toggleBtn.innerHTML ='<i class="fa-solid fa-list"></i>';
     }
 
+    if (typeof renderTerminalProducts === 'function') {
+        renderTerminalProducts();
+    }
+
     if (typeof reclampCartPaneWidthToCurrentView === 'function') {
         reclampCartPaneWidthToCurrentView();
     }
@@ -18332,6 +19651,16 @@ function triggerIdleWarning() {
 }
 
 async function handleLogout(type ='manual') {
+
+    // NO-INTERRUPT GUARD: don't let a manual logout walk away mid cloud
+    // backup upload. (Auto/idle-timeout logout is left alone — it's a
+    // security control, and the upload itself keeps running server-side
+    // regardless, but a manual logout attempt is a clear moment to just
+    // ask the person to wait.)
+    if (type === 'manual' && window.__cloudBackupSyncInProgress) {
+        Swal.fire('Cloud Backup In Progress', 'Please wait for the current Cloud Backup upload to finish before logging out.', 'warning');
+        return;
+    }
 
     try { closeUserWidgetMenu(); } catch (e) {}
     try { if (typeof Swal !=='undefined' && Swal.isVisible && Swal.isVisible()) Swal.close(); } catch (e) {}

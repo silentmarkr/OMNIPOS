@@ -364,6 +364,10 @@
                         <i class="fa-solid fa-bell"></i>
                         <span id="lowstock-bell-badge" class="lowstock-bell-badge" style="display:none;">0</span>
                     </button>
+                    <button class="header-icon-btn btn-bulk-imgsearch-minimized" id="bulk-imgsearch-minimized-btn" style="display:none;" onclick="restoreBulkImageSearchModal()" title="Bulk Search Images is still running — tap to reopen">
+                        <i class="fa-solid fa-magnifying-glass-plus"></i>
+                        <span id="bulk-imgsearch-minimized-badge" class="lowstock-bell-badge"></span>
+                    </button>
                     
                     <div class="header-user-menu-wrap" id="header-user-menu-wrap">
                         <button class="header-user-avatar-btn" id="header-user-avatar-btn" onclick="toggleHeaderUserMenu(event)" title="Account" aria-label="Account">
@@ -706,7 +710,7 @@
                             <button class="btn-action-outline" onclick="openPromoCodesManager()" title="Mamahala ng discount promo codes">
                                 <i class="fa-solid fa-tags"></i><span class="btn-action-label"> Promo Codes</span> <span id="promo-codes-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="promo-codes-pro" class="menu-pro-badge" style="display:none;">PRO</span>
                             </button>
-                            <button class="btn-action-outline" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i><span class="btn-action-label"> Add Product</span></button>
+                            <button class="btn-action-outline btn-product-add-cta" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i><span class="btn-action-label"> Add Product</span></button>
                         </div>
                     </div>
                     <div class="terminal-top-controls">
@@ -787,12 +791,12 @@
                         <div class="search-box-container">
                             <input type="text" id="reorder-search-input" placeholder="Search product or supplier..." oninput="renderReorderTable()" autocomplete="off">
                         </div>
-                        <select id="reorder-filter-status" class="reorder-toolbar-select" onchange="renderReorderTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                        <select id="reorder-filter-status" class="reorder-toolbar-select logs-filter-select" onchange="renderReorderTable()">
                             <option value="ALL">All Statuses</option>
                             <option value="OUT_OF_STOCK">Out of Stock only</option>
                             <option value="LOW_STOCK">Low Stock only</option>
                         </select>
-                        <select id="reorder-sort-by" class="reorder-toolbar-select" onchange="renderReorderTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                        <select id="reorder-sort-by" class="reorder-toolbar-select logs-filter-select" onchange="renderReorderTable()">
                             <option value="stock_asc">Sort by: Lowest Stock</option>
                             <option value="days_desc">Sort by: Longest Time Low</option>
                             <option value="name_asc">Sort by: Name (A-Z)</option>
@@ -841,13 +845,13 @@
                         <div class="search-box-container">
                             <input type="text" id="reorder-po-search-input" placeholder="Search PO #, supplier, or item..." oninput="renderPurchaseOrdersTable()" autocomplete="off">
                         </div>
-                        <select id="reorder-po-filter-status" class="reorder-toolbar-select" onchange="renderPurchaseOrdersTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                        <select id="reorder-po-filter-status" class="reorder-toolbar-select logs-filter-select" onchange="renderPurchaseOrdersTable()">
                             <option value="ALL">All Statuses</option>
                             <option value="ordered">Ordered only</option>
                             <option value="received">Received only</option>
                             <option value="cancelled">Cancelled only</option>
                         </select>
-                        <select id="reorder-po-sort-by" class="reorder-toolbar-select" onchange="renderPurchaseOrdersTable()" style="padding:8px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                        <select id="reorder-po-sort-by" class="reorder-toolbar-select logs-filter-select" onchange="renderPurchaseOrdersTable()">
                             <option value="newest">Sort by: Newest First</option>
                             <option value="oldest">Sort by: Oldest First</option>
                             <option value="supplier_asc">Sort by: Supplier</option>
@@ -1038,12 +1042,12 @@
                         <h2 id="page-title-debts">Debtors / Debts</h2>
                         <button class="btn-action-global" onclick="openAddDebtForm()"><i class="fa-solid fa-plus"></i> Add Debt</button>
                     </div>
-                    <div class="terminal-top-controls">
+                    <div class="terminal-top-controls debts-toolbar">
                         <div class="search-box-container">
                             <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
                             <input type="text" id="debt-search-input" placeholder="Search name or phone..." oninput="renderDebtsTable()" autocomplete="off">
                         </div>
-                        <select id="debt-status-filter" class="logs-filter-select" onchange="renderDebtsTable()" style="margin-left:10px;">
+                        <select id="debt-status-filter" class="logs-filter-select" onchange="renderDebtsTable()">
                             <option value="all">All Statuses</option>
                             <option value="unpaid">Unpaid</option>
                             <option value="partial">Partial</option>
@@ -2363,6 +2367,15 @@
         <div id="cloud-backup-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
             <i class="fa-solid fa-circle-info"></i> No cloud backup has been made in this session yet.
         </div>
+        <div id="cloud-backup-upload-progress-wrap" style="display:none; margin-bottom: 14px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-muted); margin-bottom:4px;">
+                <span id="cloud-backup-upload-progress-label">Uploading&hellip;</span>
+                <span id="cloud-backup-upload-progress-elapsed"></span>
+            </div>
+            <div style="background: var(--border-color, #e2e8f0); border-radius: 6px; height: 10px; overflow: hidden;">
+                <div id="cloud-backup-upload-progress-fill" style="height:100%; width:0%; border-radius:6px; background:#16a34a; transition: width 0.4s ease;"></div>
+            </div>
+        </div>
         <div id="cloud-backup-storage-bar-wrap" style="display:none; margin-bottom: 14px;">
             <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-muted); margin-bottom:4px;">
                 <span id="cloud-backup-storage-label"></span>
@@ -2936,13 +2949,24 @@
             </div>
             <div class="modal-body">
                 <p style="color:#64748b;font-size:0.85rem;margin-top:0;">Search for a product photo, then click a result to use it. You'll still need to review it and press <b>Save Product</b> to apply it — nothing is applied automatically.</p>
+                <div class="input-field-group" style="margin-bottom:10px;">
+                    <label style="font-size:0.8rem;">Image Quality <span style="font-weight:normal;color:#94a3b8;">(applies to Search and Omni Search, and to Bulk/Omni Search Images too)</span></label>
+                    <select class="image-quality-pref-select" onchange="setImageQualityPref(this.value)">
+                        <option value="standard">Standard (720px, mas maliit na file)</option>
+                        <option value="hd">HD (1280px)</option>
+                        <option value="fullhd">Full HD (1920px, pinakamalinaw)</option>
+                    </select>
+                </div>
                 <div class="search-box-container" style="margin-bottom:10px;">
                     <input type="text" id="p-image-search-query" placeholder="e.g. Fresh Milk 1L" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();performOmniProductImageSearch();}">
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
                     <button type="button" class="btn-action-outline" onclick="performProductImageSearch()"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
                     <button type="button" class="btn-action-outline" onclick="performOmniProductImageSearch()" title="Free search across multiple sources (no API key needed), with automatic fallback if one source is blocked."><i class="fa-solid fa-globe"></i> Omni Search</button>
+                    <button type="button" class="btn-action-outline" id="p-image-search-add-gallery-btn" onclick="addSelectedSearchImagesToGallery()" disabled title="Check photos below first, then click this to add them to Additional Photos."><i class="fa-solid fa-images"></i> + Gallery</button>
                 </div>
+                <p style="color:#94a3b8;font-size:0.78rem;margin:-6px 0 6px;">Tip: check the checkbox on a photo's corner to select several, then click <b>+ Gallery</b> to add them straight to Additional Photos. Tapping the photo itself (not the checkbox) still sets it as the main product photo.</p>
+                <div id="p-image-search-gallery-limit-note" style="display:none;font-size:0.78rem;color:#dc2626;margin:-4px 0 10px;">Additional Photos is full (max <span id="p-image-search-gallery-limit-count"></span>) — remove a photo from the gallery before selecting more.</div>
                 <div id="p-image-search-status" style="font-size:0.85rem;color:#64748b;margin-bottom:10px;"></div>
                 <div id="p-image-search-results" class="p-image-search-grid"></div>
             </div>
@@ -2989,12 +3013,23 @@
         <div class="modal-card" style="max-width:760px;">
             <div class="modal-header">
                 <h3>Bulk Search Images</h3>
-                <button class="close-modal-btn" onclick="closeBulkImageSearchModal()">&times;</button>
+                <div class="modal-header-btn-group">
+                    <button class="minimize-modal-btn" onclick="minimizeBulkImageSearchModal()" title="Minimize — keeps searching in the background">&minus;</button>
+                    <button class="close-modal-btn" onclick="closeBulkImageSearchModal()">&times;</button>
+                </div>
             </div>
             <div class="modal-body">
                 <p style="font-size:13px;color:#64748b;margin-top:0;">
                     Automatically searches an image for each product and proposes the top match — nothing is saved yet. Review the proposals below, uncheck any that look wrong, then apply.
                 </p>
+                <div class="input-field-group" style="margin-bottom:14px;">
+                    <label style="font-size:0.8rem;">Image Quality <span style="font-weight:normal;color:#94a3b8;">(applies to Bulk Search Images and Omni Search Images below — same setting as the single product Search Image modal)</span></label>
+                    <select class="image-quality-pref-select" onchange="setImageQualityPref(this.value)">
+                        <option value="standard">Standard (720px, mas maliit na file)</option>
+                        <option value="hd">HD (1280px)</option>
+                        <option value="fullhd">Full HD (1920px, pinakamalinaw)</option>
+                    </select>
+                </div>
                 <div class="input-field-group" style="display:flex;align-items:center;gap:8px;">
                     <input type="checkbox" id="bulk-imgsearch-only-missing" checked style="width:auto;">
                     <label for="bulk-imgsearch-only-missing" style="margin:0;font-weight:normal;">Only products that don't have a photo yet</label>
