@@ -7830,7 +7830,13 @@ async function loadBranchesWidget() {
             const unlockBtn = document.getElementById('branches-widget-unlock-btn');
             if (unlockBtn) {
                 unlockBtn.addEventListener('click', async () => {
-                    const ok = await promptUnlockFeature(locked.featureId, locked.featureName, locked.price, locked.description);
+                    // Multi-Branch Dashboard ay subscription na (Monthly/Yearly), hindi na
+                    // one-time purchase — kailangan ng billing-cycle picker
+                    // (promptModuleSubscription), hindi na yung lumang
+                    // promptUnlockFeature() na walang paraan para pumili ng cycle.
+                    // Kapag ito ginamit, ire-reject ito ng server ("Please choose a
+                    // valid billing cycle...") dahil walang na-send na billingCycle.
+                    const ok = await promptModuleSubscription(locked.featureId);
                     if (ok) loadBranchesWidget();
                 });
             }

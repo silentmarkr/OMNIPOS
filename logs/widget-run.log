@@ -1,42 +1,16 @@
-[2026-08-31 03:51:12] ⚠️  May natirang lock file mula sa dating session (PID 28997, hindi na tumatakbo) — nililinis.
-[2026-08-31 03:51:12] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-31 03:51:15] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-31 06:45:12] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-31 06:45:15] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
-💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T13:25:44.998Z).
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T22:44:58.415Z).
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-./start.sh: line 138: 32046 Hangup                     node server.js
-[2026-08-31 03:51:19] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+./start.sh: line 138: 20849 Hangup                     node server.js
+[2026-08-31 06:45:18] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
-💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T19:51:17.674Z).
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T22:45:17.656Z).
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-⚠️  Omni Search Images (job 8604292bd8a56fbc4e9e2d78aded493d): background worker exited early (code 1) — automatically switching to the in-process fallback so the search still completes.
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed
-⚠️  Could not reach Relay for auto-restore check: fetch failed
-⚠️  Could not reach Relay for the feature status check: fetch failed

@@ -6962,7 +6962,10 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     #view-barcode.app-view:not(.terminal-theme),
     #view-transactions.app-view:not(.terminal-theme),
     #view-products.app-view:not(.terminal-theme),
-    #view-customers.app-view:not(.terminal-theme) {
+    #view-customers.app-view:not(.terminal-theme),
+    #view-debts.app-view:not(.terminal-theme),
+    #view-shiftreport.app-view:not(.terminal-theme),
+    #view-reorder.app-view:not(.terminal-theme) {
         display: flex;
         flex-direction: column !important;
         height: calc(100vh - 69px - 70px) !important;
@@ -6972,11 +6975,47 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     #view-barcode.app-view:not(.terminal-theme) .table-container,
     #view-transactions.app-view:not(.terminal-theme) .table-container,
     #view-products.app-view:not(.terminal-theme) .table-container,
-    #view-customers.app-view:not(.terminal-theme) .table-container {
+    #view-customers.app-view:not(.terminal-theme) .table-container,
+    #view-debts.app-view:not(.terminal-theme) .table-container,
+    #view-reorder.app-view:not(.terminal-theme) .table-container {
         flex: 1 !important;
         min-height: 0 !important;
         max-height: none !important;
         margin-bottom: 18px !important;
+    }
+
+    /* Shift History table sa loob ng #view-shiftreport — HINDI ito
+       basta pwedeng isama sa listahan sa itaas dahil iba ang istruktura
+       nito: maraming ibang section (metrics grid, payment breakdown,
+       close-shift form) ang nasa ITAAS ng Shift History table sa
+       parehong view, lahat sila naka-stack bilang normal (non-flex)
+       na .report-container blocks. Kung ganap na ipapalit ang buong
+       #view-shiftreport sa "fixed height" tulad ng ginawa sa mga simpleng
+       one-table view, mag-uunahan lang ang mga block na ito sa laki at
+       hindi mag-a-adjust nang tama ang Shift History table sa natitirang
+       espasyo. Kaya dito, ang buong view ay fixed-height (tulad ng iba),
+       pero ang mga section BAGO ang Shift History ay pinananatiling
+       natural ang laki (flex: none), at ang huling
+       #shift-history-report-container LANG ang bumubuo ng natitirang
+       espasyo (flex: 1) — saka pa lang lumalabas ang parehong
+       "naka-pin sa ilalim" na scrollbar ng table-container sa loob nito,
+       tulad ng Transactions. */
+    #view-shiftreport.app-view:not(.terminal-theme) > .metrics-grid,
+    #view-shiftreport.app-view:not(.terminal-theme) > .report-container {
+        flex: none;
+    }
+    #view-shiftreport.app-view:not(.terminal-theme) > #shift-history-report-container {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+    }
+    #view-shiftreport.app-view:not(.terminal-theme) > #shift-history-report-container .table-container {
+        flex: 1 !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin-bottom: 0 !important;
     }
 
 }
