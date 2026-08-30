@@ -4092,6 +4092,11 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     margin-bottom: 20px;
 }
 
+.pd-photo-stage {
+    position: relative;
+    width: 100%;
+}
+
 .pd-photo-box {
     position: relative;
     width: 100%;
@@ -4132,6 +4137,57 @@ body.dark-mode .bulk-imgsearch-item.is-notfound {
     border-radius: 999px;
     line-height: 1.2;
     pointer-events: none;
+}
+
+/* Desktop-only prev/next arrows on the sides of the main photo — hidden by
+   default and revealed (with a soft shadow) on hover of the photo stage.
+   Only shown at all when the gallery has 2+ photos (see renderPdMainPhoto
+   in app.js, which toggles display:none/flex on these two buttons). */
+.pd-photo-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 3;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: none;
+    background: rgba(15, 23, 42, 0.55);
+    color: #fff;
+    font-size: 0.95rem;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    transition: opacity 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.pd-photo-nav-prev {
+    left: 10px;
+}
+
+.pd-photo-nav-next {
+    right: 10px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .pd-photo-stage:hover .pd-photo-nav-btn {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
+.pd-photo-nav-btn:hover {
+    background: rgba(37, 99, 235, 0.85);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
+    transform: translateY(-50%) scale(1.08);
+}
+
+.pd-photo-nav-btn:active {
+    transform: translateY(-50%) scale(0.95);
 }
 
 .pd-detail-rows {

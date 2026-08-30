@@ -8296,7 +8296,13 @@ function renderProductDetailsGallery(p) {
 // when switching photos, so the counter pill ("2/4") always stays in sync.
 function renderPdMainPhoto() {
     const photoBox = document.getElementById('pd-photo-box');
+    const prevBtn = document.getElementById('pd-photo-prev-btn');
+    const nextBtn = document.getElementById('pd-photo-next-btn');
     if (!photoBox) return;
+
+    const hasMultiple = pdGalleryImages.length > 1;
+    if (prevBtn) prevBtn.style.display = hasMultiple ? 'flex' : 'none';
+    if (nextBtn) nextBtn.style.display = hasMultiple ? 'flex' : 'none';
 
     if (!pdGalleryImages.length) {
         photoBox.innerHTML = `<i class="${pdGalleryFallbackIconClass}"></i>`;

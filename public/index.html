@@ -2584,8 +2584,16 @@
             </div>
             <div class="modal-body">
                 <div class="pd-photo-wrap">
-                    <div id="pd-photo-box" class="pd-photo-box">
-                        <i class="fa-solid fa-box"></i>
+                    <div class="pd-photo-stage">
+                        <div id="pd-photo-box" class="pd-photo-box">
+                            <i class="fa-solid fa-box"></i>
+                        </div>
+                        <button type="button" id="pd-photo-prev-btn" class="pd-photo-nav-btn pd-photo-nav-prev" style="display:none;" onclick="switchProductDetailsPhoto(pdGalleryCurrentIndex - 1)" title="Previous photo" aria-label="Previous photo">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <button type="button" id="pd-photo-next-btn" class="pd-photo-nav-btn pd-photo-nav-next" style="display:none;" onclick="switchProductDetailsPhoto(pdGalleryCurrentIndex + 1)" title="Next photo" aria-label="Next photo">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
                     </div>
                     <div id="pd-gallery-thumbs" class="pd-gallery-thumbs" style="display:none;"></div>
                 </div>
