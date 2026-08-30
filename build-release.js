@@ -51,6 +51,12 @@ const EXCLUDE = new Set([
   "obfuscate-worker.js",
   "start.sh.bak",
   "vacuum-now.js",
+  // SYNC FIX: itinugma sa INTEGRITY_SCAN_EXCLUDE_NAMES ng server.js —
+  // runtime cache lang ito na ginagawa ng fetchCloudBackupPricing()
+  // (huling nakuhang Cloud Backup pricing mula RELAY), hindi dapat
+  // isama sa release package kahit ito lang nangyaring naiwan sa
+  // working copy bago mag-build.
+  "cloud-backup-pricing-cache.json",
 ]);
 
 const EXCLUDE_EXTENSIONS = new Set([".patch", ".log"]);

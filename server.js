@@ -2951,11 +2951,17 @@ const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
 // and the rest is profit — so this pricing is realistic/won't put you
 // at a loss.
 //
-// NOTE: these PLANS must be MIRRORED exactly in RELAY/server.js
-// (FEATURE_CATALOG_BASE / CLOUD_BACKUP_PLANS there) — RELAY is the
-// GROUND TRUTH for pricing (not just whatever the client claims),
-// since that's where it's ultimately re-verified.
-const CLOUD_BACKUP_PLANS = {
+// UPDATE: presyo/quota are NO LONGER hardcoded here as the source of
+// truth. RELAY is the ONLY place pricing is configured now (via its
+// admin pricing page, /relay/admin/pricing.html) — this object below
+// is kept purely as a FALLBACK (tagline/features copy, plus a
+// last-resort default price/quota in case this device has NEVER
+// successfully reached RELAY, e.g. first run while offline). Once
+// connectivity to RELAY is established, fetchCloudBackupPricing()
+// (below) overwrites price/storageQuotaMB/name on top of this with
+// whatever RELAY currently says, and caches that to disk so it
+// survives restarts even if RELAY later becomes unreachable.
+const CLOUD_BACKUP_PLANS_FALLBACK = {
     basic: {
         id: 'basic',
         name: 'Cloud Backup — Basic',
@@ -3011,43 +3017,249 @@ const CLOUD_BACKUP_BILLING_CYCLES = {
     yearly: { label: 'Yearly', days: 365 }
 };
 
+// CLOUD_BACKUP_PLANS = ang AKTWAL na ginagamit ng buong file (fallback
+// copy sa taas, na-overlay ng live na presyo/quota galing RELAY kapag
+// available). Simula sa fallback bago pa man magawa ang unang fetch,
+// para may sensible na default habang naghihintay ng koneksyon.
+let CLOUD_BACKUP_PLANS = JSON.parse(JSON.stringify(CLOUD_BACKUP_PLANS_FALLBACK));
+
 function getCloudBackupPlanPrice(tier, billingCycle) {
     const plan = CLOUD_BACKUP_PLANS[tier];
     if (!plan || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) return null;
     return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
 }
 
+// --------------------------------------------------------------
+// CLOUD BACKUP PRICING — dynamic fetch from RELAY
+// --------------------------------------------------------------
+// RELAY (/relay/pricing) ang TANGING pinagmumulan ng presyo/quota.
+// Dito lang natin ino-overlay ang mga field na `price` at
+// `storageQuotaMB` (at `name`, kung binago) sa ibabaw ng
+// CLOUD_BACKUP_PLANS_FALLBACK — hindi natin ginagalaw ang
+// tagline/features/autoBackupIntervalMs/retentionDays dahil display
+// copy lang iyon, hindi presyo.
+//
+// May local disk cache (CLOUD_BACKUP_PRICING_CACHE_PATH) para kapag
+// nag-restart ang OMNIPOS habang OFFLINE o hindi maabot ang RELAY,
+// gagamitin muna ang HULING successfully-fetched na presyo sa halip
+// na bumalik agad sa FALLBACK (na maaaring luma na).
+const CLOUD_BACKUP_PRICING_CACHE_PATH = path.join(__dirname, 'cloud-backup-pricing-cache.json');
+const CLOUD_BACKUP_PRICING_REFRESH_MS = 30 * 60 * 1000; // 30 minutes — hindi ito kailangang real-time
+
+function applyCloudBackupPricingOverlay(remotePlans) {
+    if (!remotePlans || typeof remotePlans !== 'object') return;
+    const merged = {};
+    for (const tier of Object.keys(CLOUD_BACKUP_PLANS_FALLBACK)) {
+        const fallback = CLOUD_BACKUP_PLANS_FALLBACK[tier];
+        const remote = remotePlans[tier];
+        if (!remote) {
+            merged[tier] = CLOUD_BACKUP_PLANS[tier] || fallback;
+            continue;
+        }
+        merged[tier] = {
+            ...fallback,
+            name: typeof remote.name === 'string' && remote.name ? remote.name : fallback.name,
+            storageQuotaMB: typeof remote.storageQuotaMB === 'number' ? remote.storageQuotaMB : fallback.storageQuotaMB,
+            price: {
+                monthly: (remote.price && typeof remote.price.monthly === 'number') ? remote.price.monthly : fallback.price.monthly,
+                yearly: (remote.price && typeof remote.price.yearly === 'number') ? remote.price.yearly : fallback.price.yearly
+            }
+        };
+        // Kung mas mataas ang quota na sinasabi ng RELAY kaysa sa
+        // 'features' bullet list (na naka-hardcode na text), hindi na
+        // natin babaguhin ang text na iyon dito — ito ay display copy
+        // lang, banggit lang ito sa comment para malinaw sa susunod na
+        // bumasa nito na sadyang HINDI na-auto-update ang mismong
+        // features[] array kapag nagbago ang quota sa RELAY (manual
+        // pa rin ang pag-e-edit noon dahil marketing text ito).
+    }
+    CLOUD_BACKUP_PLANS = merged;
+}
+
+// --------------------------------------------------------------
+// BUG FIX: dati, si Cloud Backup lang ang totoong "naka-sync" sa
+// pagitan ng RELAY at OMNIPOS (via ang overlay function sa itaas) —
+// ang mga IBANG feature (Pro Themes/Modules) ay hardcoded pa rin sa
+// FEATURE_CATALOG sa ibaba (flat `price:` numbers), kaya kahit i-edit
+// ang presyo ng mga ito sa RELAY (hal. sa bagong Feature Pricing
+// editor doon), walang mangyayari dito hangga't hindi ito ma-re-deploy
+// nang manual sa OMNIPOS mismo.
+//
+// featureCatalogPricingOverlay = ang live na price/name na galing sa
+// `featureCatalog` field ng GET /relay/pricing response (kasama na
+// ngayon iyon doon, tingnan ang RELAY/server.js) — id -> {name, price}.
+// Ginagamit ito ng mga getter sa loob ng FEATURE_CATALOG sa ibaba
+// (catalogEntry() helper) — kaya kapag nag-refresh ang overlay na ito
+// (parehong fetch/cache cycle na ginagamit na ng Cloud Backup pricing
+// sa itaas — IISANG request lang sa /relay/pricing ang dinadala ng
+// dalawa), agad ding nag-uupdate ang presyong nakikita ng buong
+// OMNIPOS server, walang redeploy kailangan — kagaya na ngayon ng
+// Cloud Backup.
+let featureCatalogPricingOverlay = {};
+
+function applyFeatureCatalogPricingOverlay(remoteFeatureCatalog) {
+    if (!remoteFeatureCatalog || typeof remoteFeatureCatalog !== 'object') return;
+    featureCatalogPricingOverlay = remoteFeatureCatalog;
+}
+
+function loadCloudBackupPricingCache() {
+    try {
+        const cached = JSON.parse(fs.readFileSync(CLOUD_BACKUP_PRICING_CACHE_PATH, 'utf8'));
+        if (cached && cached.cloudBackupPlans) {
+            applyCloudBackupPricingOverlay(cached.cloudBackupPlans);
+            console.log(`💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: ${cached.fetchedAt || 'hindi alam'}).`);
+        }
+        // Parehong cache file/blob ang ginagamit para sa Feature Catalog
+        // (themes/modules) pricing overlay — tingnan ang comment sa
+        // applyFeatureCatalogPricingOverlay() sa itaas kung bakit iisa
+        // lang ang cache/fetch cycle na ito para sa dalawa.
+        if (cached && cached.featureCatalog) {
+            applyFeatureCatalogPricingOverlay(cached.featureCatalog);
+        }
+    } catch (err) {
+        // Walang cache pa (unang beses na patakbo, o bagong device) — okay lang, gagamitin ang fallback.
+    }
+}
+
+function saveCloudBackupPricingCache(remoteData) {
+    try {
+        fs.writeFileSync(CLOUD_BACKUP_PRICING_CACHE_PATH, JSON.stringify(remoteData, null, 2));
+    } catch (err) {
+        console.error('Hindi ma-save ang cloud-backup-pricing-cache.json:', err);
+    }
+}
+
+// lastCloudBackupPricingFetchAt / CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS
+// — throttle guard so an ON-DEMAND refresh (see refreshCloudBackupPricingIfStale()
+// below, called from /api/features/upgrade-catalog) never hits RELAY more than
+// once per this window, even if many cashiers/devices open the Cloud Backup
+// dialog back-to-back. Kept short (not 30 minutes) precisely so that a price
+// change made in RELAY's admin panel shows up on OMNIPOS the NEXT time anyone
+// actually looks at pricing, instead of waiting for the slow background
+// interval below.
+let lastCloudBackupPricingFetchAt = 0;
+const CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS = 60 * 1000; // 1 minute
+
+async function fetchCloudBackupPricing() {
+    if (!RELAY_API_KEY) return; // walang RELAY configured — mananatili sa cache/fallback
+    lastCloudBackupPricingFetchAt = Date.now();
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/pricing`, {
+            headers: { 'x-relay-key': RELAY_API_KEY }
+        }, 15000);
+        if (!relayRes.ok) {
+            console.warn(`⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (HTTP ${relayRes.status}) — gagamitin ang huling cache/fallback.`);
+            return;
+        }
+        const data = await relayRes.json();
+        if (data && data.success && data.cloudBackupPlans) {
+            applyCloudBackupPricingOverlay(data.cloudBackupPlans);
+            saveCloudBackupPricingCache(data);
+        }
+        // Kasama na ngayon sa parehong response ang `featureCatalog`
+        // (themes/modules pricing) — i-apply din ito, at MAKASAMA na sa
+        // saveCloudBackupPricingCache(data) sa itaas dahil buong `data`
+        // blob naman ang na-se-save doon.
+        if (data && data.success && data.featureCatalog) {
+            applyFeatureCatalogPricingOverlay(data.featureCatalog);
+        }
+    } catch (err) {
+        console.warn('⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback:', err.message);
+    }
+}
+
+// refreshCloudBackupPricingIfStale — called right before answering any
+// request that actually shows Cloud Backup pricing to a human (currently:
+// GET /api/features/upgrade-catalog). If the last live fetch was more than
+// CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS ago, kicks off a fresh one
+// and waits — but only up to ON_DEMAND_REFRESH_DEADLINE_MS, NOT the full
+// 15-second relayFetch timeout inside fetchCloudBackupPricing(). Without
+// this cap, the very first person to open the Cloud Backup dialog after
+// the 1-minute window elapses would be stuck waiting however long RELAY
+// takes to respond (or the full 15s on a timeout/outage) before the
+// dialog could even open. With the cap, that person still gets the
+// freshest price if RELAY answers quickly (normally milliseconds, since
+// this hits the developer's own service) — but never waits more than
+// ON_DEMAND_REFRESH_DEADLINE_MS regardless. The fetch itself is never
+// cancelled: even if the deadline wins the race, fetchCloudBackupPricing()
+// keeps running in the background and will still update CLOUD_BACKUP_PLANS
+// whenever RELAY does eventually answer, so the NEXT request benefits.
+const CLOUD_BACKUP_ON_DEMAND_REFRESH_DEADLINE_MS = 4000;
+
+async function refreshCloudBackupPricingIfStale() {
+    if (Date.now() - lastCloudBackupPricingFetchAt < CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS) return;
+    await Promise.race([
+        fetchCloudBackupPricing(),
+        new Promise(resolve => setTimeout(resolve, CLOUD_BACKUP_ON_DEMAND_REFRESH_DEADLINE_MS))
+    ]);
+}
+
+// I-load muna ang disk cache (kung meron) para agad tama ang presyo
+// kahit bago pa matapos ang unang live fetch, tapos subukan ang live
+// fetch, tapos mag-refresh paminsan-minsan habang tumatakbo (safety net
+// sa background sakaling walang humiling ng pricing sa loob ng matagal).
+loadCloudBackupPricingCache();
+fetchCloudBackupPricing();
+setInterval(fetchCloudBackupPricing, CLOUD_BACKUP_PRICING_REFRESH_MS).unref?.();
+
+// catalogEntry() — helper na gumagawa ng isang FEATURE_CATALOG entry na
+// may `name`/`price` GETTERS (hindi plain fields) na nagbabasa mula sa
+// featureCatalogPricingOverlay kapag meron (fresh mula sa RELAY),
+// bumabalik sa fallbackName/fallbackPrice kung wala pang na-fetch o
+// kung hindi kasama ang featureId na ito sa overlay. Parehong dahilan
+// ito ng `get price()`/`get plans()` na ginagamit na ng
+// [CLOUD_BACKUP_FEATURE_ID] sa ibaba — isang plain field lang dito ay
+// mag-i-freeze sa fallback value magpakailanman, kahit pa may
+// dumating na fresh na presyo mula sa RELAY Feature Pricing editor.
+function catalogEntry(featureId, fallbackName, fallbackPrice, category, description) {
+    return {
+        category,
+        description,
+        get name() {
+            const overlay = featureCatalogPricingOverlay[featureId];
+            return (overlay && typeof overlay.name === 'string' && overlay.name) ? overlay.name : fallbackName;
+        },
+        get price() {
+            const overlay = featureCatalogPricingOverlay[featureId];
+            return (overlay && typeof overlay.price === 'number') ? overlay.price : fallbackPrice;
+        }
+    };
+}
+
 const FEATURE_CATALOG = {
 
-    ocean: { name:'Ocean Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    emerald: { name:'Emerald Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    sunset: { name:'Sunset Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    rosegold: { name:'Rose Gold Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    cyber: { name:'Cyber Neon Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    noir: { name:'Coffee Noir Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    mintfrost: { name:'Mint Frost Pro', price: 149, category:'theme', description:'A new color theme for the entire dashboard.' },
-    liquidglass: { name:'Liquid Glass Pro', price: 149, category:'theme', description:'A translucent, layered "liquid glass" theme with frosted-glass panels and fluid animations for the entire dashboard.' },
-    galaxyambient: { name:'Galaxy Ambient Pro', price: 149, category:'theme', description:'An ambient, frosted dark theme with wide rounded corners and a floating sidebar, inspired by Samsung One UI, for the entire dashboard.' },
+    ocean: catalogEntry('ocean', 'Ocean Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    emerald: catalogEntry('emerald', 'Emerald Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    sunset: catalogEntry('sunset', 'Sunset Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    rosegold: catalogEntry('rosegold', 'Rose Gold Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    cyber: catalogEntry('cyber', 'Cyber Neon Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    noir: catalogEntry('noir', 'Coffee Noir Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    mintfrost: catalogEntry('mintfrost', 'Mint Frost Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
+    liquidglass: catalogEntry('liquidglass', 'Liquid Glass Pro', 149, 'theme', 'A translucent, layered "liquid glass" theme with frosted-glass panels and fluid animations for the entire dashboard.'),
+    galaxyambient: catalogEntry('galaxyambient', 'Galaxy Ambient Pro', 149, 'theme', 'An ambient, frosted dark theme with wide rounded corners and a floating sidebar, inspired by Samsung One UI, for the entire dashboard.'),
 
-    promo_codes: { name:'Promo Codes Module', price: 499, category:'module', description:'Create discount/promo codes that can be used at checkout.' },
-    advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, category:'module', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
-    purchase_orders: { name:'Purchase Orders Module', price: 999, category:'module', description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
-    customer_crm: { name:'Customer Profiles, Loyalty & Debtors', price: 799, category:'module', description:'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.' },
-    shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, category:'module', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
-    rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, category:'module', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
-    multi_branch: { name:'Multi-Branch Dashboard', price: 999, category:'module', description:'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.' },
+    promo_codes: catalogEntry('promo_codes', 'Promo Codes Module', 499, 'module', 'Create discount/promo codes that can be used at checkout.'),
+    advanced_reports: catalogEntry('advanced_reports', 'Sales Analytics & Advanced Reports', 799, 'module', 'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.'),
+    purchase_orders: catalogEntry('purchase_orders', 'Purchase Orders Module', 999, 'module', 'Create and track Purchase Orders to suppliers, including reorder suggestions.'),
+    customer_crm: catalogEntry('customer_crm', 'Customer Profiles, Loyalty & Debtors', 799, 'module', 'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.'),
+    shift_management: catalogEntry('shift_management', 'Multi-Cashier Shift Oversight & Z-Reading Reports', 699, 'module', 'Multi-cashier shift tracking and Z-Reading (cash count) reports.'),
+    rbac_management: catalogEntry('rbac_management', 'Roles & Permissions (RBAC) Management', 999, 'module', 'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).'),
+    multi_branch: catalogEntry('multi_branch', 'Multi-Branch Dashboard', 999, 'module', 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.'),
 
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
         category:'cloud-service',
         isSubscription: true,
-        // There's no single fixed `price` here anymore — it's a
-        // subscription now (Basic/Standard/Pro, monthly or yearly). The
-        // `price` field below is just a "starting at" value, for generic
-        // displays that still expect a single number (e.g. legacy admin
-        // views).
-        price: CLOUD_BACKUP_PLANS.basic.price.monthly,
-        plans: CLOUD_BACKUP_PLANS,
+        // `price`/`plans` are GETTERS (not plain fields) on purpose:
+        // CLOUD_BACKUP_PLANS is reassigned in-place whenever fresh
+        // pricing arrives from RELAY (see fetchCloudBackupPricing()
+        // above). A plain field here would freeze whatever the price
+        // was at the moment this FEATURE_CATALOG object was first
+        // built (i.e. the fallback, before any RELAY fetch even had a
+        // chance to complete) — a getter instead re-reads the live
+        // CLOUD_BACKUP_PLANS every time something asks for it.
+        get price() { return CLOUD_BACKUP_PLANS.basic.price.monthly; },
+        get plans() { return CLOUD_BACKUP_PLANS; },
         billingCycles: CLOUD_BACKUP_BILLING_CYCLES,
         description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost. Now offered as a Basic/Standard/Pro subscription (monthly or yearly) instead of a one-time purchase — pick a plan to see full pricing.'
     },
@@ -3587,7 +3799,15 @@ const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
     // binagong file — false positive kada check-in.
     '.env', '.env.key', 'database', 'node_modules', 'uploads_tmp',
     '.git', 'release', 'cf.log', 'server.log', '.start.sh.lock',
-    '.self-update-backup', 'package-lock.json', 'certs'
+    '.self-update-backup', 'package-lock.json', 'certs',
+    // BUG FIX: idinagdag ang cache file na ginagawa ng
+    // fetchCloudBackupPricing() (tingnan sa itaas) sa RUNTIME, hindi
+    // bahagi ng release package/baseline dahil hindi pa ito umiiral
+    // noong nabuo ang baseline. Kung hindi ito ilagay dito, palaging
+    // lalabas itong "New file (not part of the release)" sa integrity
+    // check kahit walang aktwal na tampering — parehong klase ng
+    // false positive gaya ng '.start.sh.lock' sa itaas.
+    'cloud-backup-pricing-cache.json'
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
 
@@ -5402,7 +5622,15 @@ app.post('/api/features/end-demo', async (req, res) => {
     });
 });
 
-app.get('/api/features/upgrade-catalog', (req, res) => {
+app.get('/api/features/upgrade-catalog', async (req, res) => {
+    // Cloud Backup pricing must reflect whatever RELAY currently says, even
+    // if it was changed in the last few minutes (see
+    // refreshCloudBackupPricingIfStale() above) — this is what a
+    // human actually sees when they open the plan picker, so it's the
+    // one spot that's worth an on-demand refresh instead of waiting for
+    // the slow 30-minute background interval.
+    await refreshCloudBackupPricingIfStale();
+
     const alreadyPurchased = getPurchasedFeatureIds();
 
     const features = Object.keys(FEATURE_CATALOG)

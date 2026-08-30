@@ -1637,14 +1637,74 @@ const PREMIUM_FEATURE_INFO = {
 };
 
 // Cloud Backup is no longer a simple one-time price — it's a
-// subscription now (Basic/Standard/Pro, Monthly/Yearly). This mirrors
-// OMNIPOS/server.js CLOUD_BACKUP_PLANS; the server still makes the
-// final call on the ACTUAL price (ground truth), this is for display only.
+// subscription now (Basic/Standard/Pro, Monthly/Yearly).
+//
+// IMPORTANT: this object is LAST-RESORT FALLBACK/COPY ONLY (tagline
+// text + a sane default price/quota to render instantly, before the
+// live fetch below finishes, or if this device is ever offline). It
+// is NOT the source of truth — RELAY is (via its admin pricing page),
+// and OMNIPOS/server.js already fetches RELAY's current pricing at
+// runtime. The actual numbers shown to the cashier/owner come from
+// getCloudBackupPlansMerged() below, which overlays the LIVE
+// price/storageQuotaMB (fetched from THIS device's own
+// /api/features/upgrade-catalog, which itself mirrors RELAY) on top
+// of the tagline copy here. Never read price/storageQuotaMB directly
+// off CLOUD_BACKUP_PLANS_UI in new code — use getCloudBackupPlansMerged().
 const CLOUD_BACKUP_PLANS_UI = {
-    basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 } },
-    standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 } },
-    pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 } }
+    basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
+    standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageQuotaMB: 1024 },
+    pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageQuotaMB: 5120 }
 };
+
+// cloudBackupPlansLiveCache — last successfully-fetched `plans` object
+// from THIS server's /api/features/upgrade-catalog (cloud_backup.plans,
+// which is a live getter over server.js's CLOUD_BACKUP_PLANS — itself
+// kept in sync with RELAY via fetchCloudBackupPricing()/30-min refresh).
+// null until the first successful fetch; stays at its last good value
+// if a later refresh fails (e.g. temporarily offline), same "keep last
+// known good" behavior as the server-side disk cache.
+let cloudBackupPlansLiveCache = null;
+
+async function refreshCloudBackupPlansLive() {
+    try {
+        const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
+        const data = await res.json();
+        const cbFeature = data && data.success && Array.isArray(data.features)
+            ? data.features.find(f => f.id === 'cloud_backup')
+            : null;
+        if (cbFeature && cbFeature.plans) {
+            cloudBackupPlansLiveCache = cbFeature.plans;
+        }
+    } catch (e) {
+        // Offline/unreachable — keep whatever was cached before (falls
+        // through to the static CLOUD_BACKUP_PLANS_UI figures if this
+        // never succeeds even once, e.g. very first load while offline).
+    }
+    return cloudBackupPlansLiveCache;
+}
+
+// getCloudBackupPlansMerged — what every UI spot (plan picker dialog,
+// active-subscription badge, storage bar) should actually read from.
+// Tagline/name label come from the static copy above (marketing text,
+// not something RELAY's admin panel changes); price and storageQuotaMB
+// come from the live cache when available, so anytime the price is
+// changed in RELAY's admin panel it shows up here the next time this
+// device refreshes (either its own periodic RELAY fetch, or the next
+// time this function's cache is refreshed).
+function getCloudBackupPlansMerged() {
+    const merged = {};
+    for (const tier of Object.keys(CLOUD_BACKUP_PLANS_UI)) {
+        const staticInfo = CLOUD_BACKUP_PLANS_UI[tier];
+        const live = cloudBackupPlansLiveCache && cloudBackupPlansLiveCache[tier];
+        merged[tier] = {
+            name: staticInfo.name,
+            tagline: staticInfo.tagline,
+            price: (live && live.price) ? live.price : staticInfo.price,
+            storageQuotaMB: (live && typeof live.storageQuotaMB === 'number') ? live.storageQuotaMB : staticInfo.storageQuotaMB
+        };
+    }
+    return merged;
+}
 
 function guardPremiumFeature(featureId) {
     if (isFeatureUnlockedCached(featureId)) return false;
@@ -1666,7 +1726,23 @@ function updateCloudBackupLockState() {
     if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
     if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
-    if (unlocked) refreshCloudBackupSubscriptionBadge();
+    if (unlocked) {
+        refreshCloudBackupSubscriptionBadge();
+    } else if (getBtn) {
+        updateCloudBackupGetButtonPrice(getBtn);
+    }
+}
+
+// updateCloudBackupGetButtonPrice — the "Get Cloud Backup — starting at
+// ₱X/mo" button used to have that price hardcoded in index.html, so it
+// never changed even after RELAY's admin pricing page was updated. This
+// fills it in from the live Basic-tier monthly price instead (Basic is
+// always the cheapest tier, hence "starting at").
+async function updateCloudBackupGetButtonPrice(getBtn) {
+    await refreshCloudBackupPlansLive();
+    const cloudBackupPlans = getCloudBackupPlansMerged();
+    const startingPrice = cloudBackupPlans.basic.price.monthly;
+    getBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Get Cloud Backup — starting at ₱${startingPrice}/mo`;
 }
 
 // --------------------------------------------------------------
@@ -1679,7 +1755,10 @@ async function refreshCloudBackupSubscriptionBadge() {
     const statusBox = document.getElementById('cloud-backup-status');
     if (!statusBox) return;
     try {
-        const res = await authFetch(`${API_URL}/cloud-backup/status`);
+        const [res] = await Promise.all([
+            authFetch(`${API_URL}/cloud-backup/status`),
+            refreshCloudBackupPlansLive()
+        ]);
         const data = await res.json();
         const sub = data && data.subscription;
         if (!sub || !sub.active) return;
@@ -1691,7 +1770,8 @@ async function refreshCloudBackupSubscriptionBadge() {
             return;
         }
 
-        const planInfo = CLOUD_BACKUP_PLANS_UI[sub.tier] || CLOUD_BACKUP_PLANS_UI.basic;
+        const cloudBackupPlans = getCloudBackupPlansMerged();
+        const planInfo = cloudBackupPlans[sub.tier] || cloudBackupPlans.basic;
         const cycleLabel = sub.billingCycle === 'yearly' ? 'Yearly' : 'Monthly';
         let expiryText = '';
         if (sub.expiresAt) {
@@ -1733,8 +1813,9 @@ function renderCloudBackupStorageBar(usage) {
     // parehong format ng RELAY admin panel (loadCloudBackupDetail doon),
     // kaya magkatulad ang itsura kahit saan tingnan (OMNIPOS o RELAY).
     const remainingMB = Math.max(0, Math.round((usage.quotaMB - usage.sizeMB) * 100) / 100);
-    const tierPrefix = (usage.tier && CLOUD_BACKUP_PLANS_UI[usage.tier])
-        ? `${CLOUD_BACKUP_PLANS_UI[usage.tier].name} plan · `
+    const cloudBackupPlans = getCloudBackupPlansMerged();
+    const tierPrefix = (usage.tier && cloudBackupPlans[usage.tier])
+        ? `${cloudBackupPlans[usage.tier].name} plan · `
         : '';
 
     wrap.style.display = 'block';
@@ -2204,14 +2285,21 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
 async function promptCloudBackupSubscription() {
     if (blockIfOffline('Cloud Backup subscription')) return false;
 
+    // Always fetch the LIVE plans (mirrors RELAY's current pricing) right
+    // before showing the dialog, so a price/quota change made in RELAY's
+    // admin panel is reflected the next time someone opens this — instead
+    // of the stale, hardcoded figures that used to be shown here.
+    await refreshCloudBackupPlansLive();
+    const cloudBackupPlans = getCloudBackupPlansMerged();
+
     let selectedTier = 'standard';
     let selectedCycle = 'monthly';
 
-    const tierKeys = Object.keys(CLOUD_BACKUP_PLANS_UI);
+    const tierKeys = Object.keys(cloudBackupPlans);
 
     const buildHtml = () => {
         const tierButtons = tierKeys.map(key => {
-            const plan = CLOUD_BACKUP_PLANS_UI[key];
+            const plan = cloudBackupPlans[key];
             const active = key === selectedTier;
             return `<button type="button" class="cb-tier-btn${active ? ' active' : ''}" data-tier="${key}" style="flex:1;text-align:left;border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
                 `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${plan.name}</div>` +
@@ -2255,7 +2343,7 @@ async function promptCloudBackupSubscription() {
 
     if (!result.isConfirmed) return false;
 
-    const planName = `Cloud Backup — ${CLOUD_BACKUP_PLANS_UI[selectedTier].name} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
+    const planName = `Cloud Backup — ${cloudBackupPlans[selectedTier].name} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
     return runUnlockFlow('cloud_backup', planName, { tier: selectedTier, billingCycle: selectedCycle });
 }
 
@@ -2988,6 +3076,11 @@ document.addEventListener("DOMContentLoaded", () => {
     initDynamicThemeColor();
     initCustomTheme();
     refreshUnlockedThemesFromServer();
+    // refreshUnlockedFeaturesFromServer() already triggers a live Cloud
+    // Backup pricing fetch on its own (via updateSidebarFeatureLocks() ->
+    // updateCloudBackupLockState(), whether the feature ends up locked or
+    // already unlocked) — no need for a separate refreshCloudBackupPlansLive()
+    // call here too, that would just be a redundant duplicate request.
     refreshUnlockedFeaturesFromServer();
     renderTerminalThemeMenu();
     updateTerminalThemesMenuVisibility();

@@ -8,3 +8,4 @@ server.log
 cf.log
 *.patch
 certs/
+cloud-backup-pricing-cache.json
