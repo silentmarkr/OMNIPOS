@@ -8104,6 +8104,7 @@ function renderTerminalProducts() {
                 const card = document.createElement('div');
 
                 card.className = `t-product-card ${availableStock <= 0 ?'out-of-stock' :''}`;
+                card.dataset.code = p.code || '';
 
                 let iconClass = getCategoryIconClass(p.category);
 
@@ -8120,7 +8121,7 @@ function renderTerminalProducts() {
                     <div class="t-prod-icon"${isListView ? ' title="Tap image for details"' : ' title="Tap to add"'}>${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}${previewBtnHtml}</div>
                     <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
                     <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
-                    <div class="t-prod-stock">Stock: ${availableStock}</div>
+                    <div class="t-prod-stock" title="Stock: ${availableStock}" aria-label="Stock: ${availableStock}"><i class="fa-solid fa-box" aria-hidden="true"></i> ${availableStock}</div>
                 `;
                 card.onclick = () => addItemToCart(p);
                 attachInstantTapFeedback(card, { hapticMs: 12 });
@@ -8159,6 +8160,54 @@ function renderTerminalProducts() {
 
     } catch (renderError) {
         console.error("Failed to render Terminal product list:", renderError);
+    }
+}
+
+// Lightweight update for a single product card (stock number + cart badge only),
+// used after single-item cart actions (tap to add, +/-, remove) so we don't have
+// to tear down and rebuild the entire visible product grid on every tap.
+// Returns true if it successfully patched the card in place; false means the
+// caller should fall back to the full renderTerminalProducts() render.
+function updateProductCardInPlace(code) {
+    try {
+        const gridOutput = document.getElementById('terminal-grid-output');
+        if (!gridOutput || !code) return false;
+
+        const card = gridOutput.querySelector(`.t-product-card[data-code="${CSS.escape(code)}"]`);
+        if (!card) return false;
+
+        const p = Array.isArray(globalProducts) ? globalProducts.find(prod => prod && prod.code === code) : null;
+        if (!p) return false;
+
+        const cartItem = shoppingCart.find(item => item.code === code);
+        const qtyInCart = cartItem ? cartItem.quantity : 0;
+        const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
+
+        card.classList.toggle('out-of-stock', availableStock <= 0);
+
+        const stockEl = card.querySelector('.t-prod-stock');
+        if (stockEl) {
+            stockEl.title = `Stock: ${availableStock}`;
+            stockEl.setAttribute('aria-label', `Stock: ${availableStock}`);
+            stockEl.innerHTML = `<i class="fa-solid fa-box" aria-hidden="true"></i> ${availableStock}`;
+        }
+
+        let badge = card.querySelector('.t-prod-cart-badge');
+        if (qtyInCart > 0) {
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.className = 't-prod-cart-badge';
+                card.insertBefore(badge, card.firstChild);
+            }
+            badge.innerHTML = `<i class="fa-solid fa-cart-shopping"></i> x${qtyInCart}`;
+        } else if (badge) {
+            badge.remove();
+        }
+
+        return true;
+    } catch (patchError) {
+        console.error("updateProductCardInPlace failed, falling back to full grid render:", patchError);
+        return false;
     }
 }
 
@@ -8442,7 +8491,7 @@ function addItemToCart(product) {
     } else {
         shoppingCart.push({ ...product, quantity: 1 });
     }
-    renderCartRows();
+    renderCartRows(product.code);
     return true;
 }
 
@@ -8531,7 +8580,7 @@ async function adjustCartQty(code, adjustment) {
         }
 
         shoppingCart = shoppingCart.filter(i => i.code !== code);
-        renderCartRows();
+        renderCartRows(code);
         Swal.fire('Success', `Item asset [ ${item.name} ] extracted from memory array lines successfully.`,'success');
         return;
     }
@@ -8544,7 +8593,7 @@ async function adjustCartQty(code, adjustment) {
         item.quantity = newQuantity;
     }
 
-    renderCartRows();
+    renderCartRows(code);
 }
 
 async function setCartQty(code, rawValue) {
@@ -8554,13 +8603,13 @@ async function setCartQty(code, rawValue) {
     const newQuantity = parseInt(rawValue, 10);
 
     if (isNaN(newQuantity) || newQuantity < 0) {
-        renderCartRows();
+        renderCartRows(code);
         return;
     }
 
     const adjustment = newQuantity - item.quantity;
     if (adjustment === 0) {
-        renderCartRows();
+        renderCartRows(code);
         return;
     }
 
@@ -8649,7 +8698,7 @@ async function removeCartItem(code) {
     }
 
     shoppingCart = shoppingCart.filter(i => i.code !== code);
-    renderCartRows();
+    renderCartRows(code);
     Swal.fire('Voided', `Item asset identifier profile [ ${targetItem.name} ] voided and extracted successfully.`,'success');
 }
 
@@ -8731,7 +8780,7 @@ function clearCart() {
     renderCartRows();
 }
 
-function renderCartRows() {
+function renderCartRows(changedProductCode) {
 
     try {
         const container = document.getElementById('cart-items-container');
@@ -8804,7 +8853,16 @@ function renderCartRows() {
         console.error("Failed to render cart rows:", cartRenderError);
     } finally {
 
-        if (typeof renderTerminalProducts ==='function') {
+        // Single-item cart action (add/adjust/remove one product): patch just
+        // that product's card instead of rebuilding the whole visible grid.
+        // Falls back to a full re-render if the card can't be found/patched,
+        // or if the caller didn't specify a single changed product (bulk
+        // actions like clear cart, checkout, or loading a saved cart).
+        const patched = changedProductCode && typeof updateProductCardInPlace ==='function'
+            ? updateProductCardInPlace(changedProductCode)
+            : false;
+
+        if (!patched && typeof renderTerminalProducts ==='function') {
             renderTerminalProducts();
         }
     }
@@ -17055,21 +17113,33 @@ function renderSystemAuditLogsTable() {
     });
 }
 
-async function saveCartToDatabase() {
+let __saveCartDebounceId = null;
+const SAVE_CART_DEBOUNCE_MS = 600;
+
+// Debounced: this used to fire a network POST on every single cart change
+// (every tap-to-add, every +/- press), which added a request-per-tap on top
+// of the DOM work and made rapid taps feel laggy. Now it waits for a short
+// pause in activity before actually sending, but still always ends up
+// persisting the final cart state.
+function saveCartToDatabase() {
     if (!currentUser || !currentUser.username) return;
 
-    try {
-        await authFetch(`${API_URL}/cart`, {
-            method:'POST',
-            headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({
-                username: currentUser.username,
-                cart: shoppingCart
-            })
-        });
-    } catch (error) {
-        console.error("Error saving cart to database:", error);
-    }
+    if (__saveCartDebounceId) clearTimeout(__saveCartDebounceId);
+    __saveCartDebounceId = setTimeout(async () => {
+        __saveCartDebounceId = null;
+        try {
+            await authFetch(`${API_URL}/cart`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    cart: shoppingCart
+                })
+            });
+        } catch (error) {
+            console.error("Error saving cart to database:", error);
+        }
+    }, SAVE_CART_DEBOUNCE_MS);
 }
 
 async function loadCartFromDatabase() {

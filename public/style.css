@@ -3568,6 +3568,14 @@ body.dark-mode .search-box-container input::placeholder {
     font-variant-numeric: tabular-nums;
     font-size: 0.75rem;
     color: #9ca3af;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.t-prod-stock i {
+    font-size: inherit;
+    line-height: 1;
 }
 
 .t-product-card.out-of-stock {
@@ -3623,7 +3631,7 @@ body.dark-mode .search-box-container input::placeholder {
 
 .t-prod-cart-badge {
     position: absolute;
-    top: 6px;
+    bottom: 6px;
     right: 8px;
     z-index: 3;
     display: flex;
@@ -10225,11 +10233,12 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card {
         display: grid;
         
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
-            "image image"
-            "name  name"
-            "price stock";
+            "image"
+            "name"
+            "price"
+            "stock";
         align-items: center;
         row-gap: 4px;
         column-gap: 6px;
@@ -10276,14 +10285,17 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
         margin: 0;
         font-size: 0.9rem;
         text-align: left;
-        white-space: nowrap;
-        overflow-wrap: normal;
-        word-break: normal;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
         min-width: 0;
     }
     .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
         grid-area: stock;
-        margin: 0 10px 0 0;
+        justify-self: start;
+        width: fit-content;
+        max-width: calc(100% - 20px);
+        margin: 0 0 0 10px;
         padding: 2px 8px;
         border-radius: 999px;
         font-size: 0.68rem;
@@ -10323,7 +10335,7 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
     
     #terminal-grid-output.terminal-list-view .t-product-card .t-prod-price {
         grid-area: price;
-        text-align: right;
+        text-align: left;
         overflow-wrap: break-word;
         word-break: break-word;
     }

@@ -1,16 +1,17 @@
-[2026-08-30 10:25:24] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-30 10:25:27] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-30 11:31:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-30 11:31:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
-💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T02:25:19.291Z).
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T03:21:11.202Z).
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-./start.sh: line 138:  5768 Hangup                     node server.js
-[2026-08-30 10:25:29] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+./start.sh: line 138: 10916 Hangup                     node server.js
+[2026-08-30 11:31:34] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
-💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T02:25:28.312Z).
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-30T03:31:33.092Z).
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+⚠️ [DB SIZE WATCH] Ang module "products" ay lumagpas na sa 20.0 MB (kasalukuyan: 40.95 MB). Isaalang-alang ang pag-archive/normalize nito bago ito mag-cause ng nakikitang pagbagal sa bawat pagsulat.
