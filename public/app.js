@@ -77,7 +77,11 @@ async function authFetch(url, options = {}) {
                 window.__featurePromptOpen = true;
                 const opener = data.showUpgradeTiers
                     ? () => showUpgradeTiersModal()
-                    : () => promptUnlockFeature(data.featureId, data.featureName, data.price, data.description);
+                    : (data.featureId === 'cloud_backup')
+                        ? () => promptCloudBackupSubscription()
+                        : MODULE_SUBSCRIPTION_FEATURE_IDS_UI.includes(data.featureId)
+                            ? () => promptModuleSubscription(data.featureId)
+                            : () => promptUnlockFeature(data.featureId, data.featureName, data.price, data.description);
                 opener().finally(() => { window.__featurePromptOpen = false; });
             }
         } catch (e) {
@@ -1658,6 +1662,35 @@ let purchasedFeatureIdsCache = null;
 
 let fullyPurchasedCache = false;
 
+// subscriptionGraceWarningsCache / notifiedGraceFeatureIds — RBAC
+// Management / Multi-Branch Dashboard subscriptions that have expired
+// but are still inside their grace period (see MODULE_SUBSCRIPTION_
+// GRACE_PERIOD_DAYS server-side) stay fully working, but the person
+// needs a nudge to renew before it actually locks. notifiedGraceFeatureIds
+// tracks which featureIds have already shown a toast THIS SESSION, so
+// the nudge fires once (not on every periodic status refresh).
+let subscriptionGraceWarningsCache = [];
+const notifiedGraceFeatureIds = new Set();
+
+function showSubscriptionGraceWarningsToast(warnings) {
+    if (!Array.isArray(warnings) || typeof Swal === 'undefined') return;
+    warnings.forEach((w) => {
+        if (!w || !w.featureId || notifiedGraceFeatureIds.has(w.featureId)) return;
+        notifiedGraceFeatureIds.add(w.featureId);
+        const graceEndsDate = w.graceEndsAt ? new Date(w.graceEndsAt).toLocaleDateString() : null;
+        Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'warning',
+            title: `${w.featureName || w.featureId} subscription expired`,
+            text: graceEndsDate ? `Still working for now — please renew by ${graceEndsDate} to avoid losing access.` : 'Still working for now — please renew soon to avoid losing access.',
+            showConfirmButton: false,
+            timer: 8000,
+            timerProgressBar: true
+        });
+    });
+}
+
 async function refreshUnlockedFeaturesFromServer() {
     try {
         const res = await authFetch(`${API_URL}/features/status`);
@@ -1670,6 +1703,10 @@ async function refreshUnlockedFeaturesFromServer() {
         }
         if (data && data.success) {
             fullyPurchasedCache = !!data.fullyPurchased;
+        }
+        if (data && data.success && Array.isArray(data.subscriptionGraceWarnings)) {
+            subscriptionGraceWarningsCache = data.subscriptionGraceWarnings;
+            showSubscriptionGraceWarningsToast(subscriptionGraceWarningsCache);
         }
     } catch (e) {
         console.warn('Could not fetch feature unlock status from the server.', e);
@@ -1820,6 +1857,15 @@ function getCloudBackupPlansMerged() {
 
 function guardPremiumFeature(featureId) {
     if (isFeatureUnlockedCached(featureId)) return false;
+    // RBAC Management / Multi-Branch Dashboard are subscriptions now
+    // (monthly/yearly, no one-time price) — they need the billing-cycle
+    // picker below, NOT the generic one-time promptUnlockFeature() flow
+    // (which has no way to collect a billingCycle, and the server will
+    // reject a request-unlock for these two without one).
+    if (MODULE_SUBSCRIPTION_FEATURE_IDS_UI.includes(featureId)) {
+        promptModuleSubscription(featureId);
+        return true;
+    }
     const fallback = PREMIUM_FEATURE_FALLBACK[featureId] || {};
     // No price passed here on purpose — this is a synchronous, purely
     // client-side pre-check that fires before the server is even asked,
@@ -1828,6 +1874,79 @@ function guardPremiumFeature(featureId) {
     // name/price/description from RELAY itself before showing anything.
     promptUnlockFeature(featureId, fallback.name, undefined, fallback.description);
     return true;
+}
+
+// --------------------------------------------------------------
+// MODULE SUBSCRIPTIONS — Roles & Permissions (RBAC) Management, and
+// Multi-Branch Dashboard. Converted from a one-time purchase to a
+// monthly/yearly subscription. This is the module-subscription
+// counterpart of promptCloudBackupSubscription() below — same idea
+// (billing-cycle picker, live pricing from RELAY, same OTP flow via
+// runUnlockFlow), but simpler: there's only ONE flat plan per module, no
+// Basic/Standard/Pro tier choice.
+// --------------------------------------------------------------
+const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch'];
+
+// Last-resort fallback copy only (tagline text), same spirit as
+// CLOUD_BACKUP_PLANS_UI above — actual price always comes from the live
+// fetch (getFeatureLiveInfo) when available.
+const MODULE_SUBSCRIPTION_PLANS_UI = {
+    rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
+    multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } }
+};
+
+async function promptModuleSubscription(featureId) {
+    if (blockIfOffline('Feature subscription')) return false;
+
+    // Always fetch the LIVE price right before showing the dialog, same
+    // "on-demand refresh" pattern as promptCloudBackupSubscription()
+    // below, so a price change made in RELAY's admin panel is reflected
+    // the next time anyone opens this.
+    await refreshFeatureCatalogLive();
+    const live = getFeatureLiveInfo(featureId);
+    const staticInfo = MODULE_SUBSCRIPTION_PLANS_UI[featureId] || {};
+    const displayName = (live && live.name) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].name) || featureId;
+    const description = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || '';
+    const price = (live && live.subscriptionPrice) ? live.subscriptionPrice : staticInfo.price;
+
+    let selectedCycle = 'monthly';
+
+    const buildHtml = () => {
+        const cycleButtons = ['monthly', 'yearly'].map(cycle => {
+            const active = cycle === selectedCycle;
+            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+        }).join('');
+
+        return `<div style="text-align:left;">
+            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 8px;">${description}</p>
+            <p style="font-size:0.8rem;margin:0 0 10px;">This is a subscription. Pick a billing cycle:</p>
+            <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
+            <div style="text-align:center;font-size:1.1rem;font-weight:700;">₱${price[selectedCycle]}<span style="font-size:0.72rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>
+        </div>`;
+    };
+
+    const result = await Swal.fire({
+        title: displayName,
+        html: buildHtml(),
+        showCancelButton: true,
+        confirmButtonText: 'Send Request',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#2563eb',
+        didOpen: (popup) => {
+            const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
+            const attachHandlers = () => {
+                popup.querySelectorAll('.cb-cycle-btn').forEach(btn => {
+                    btn.addEventListener('click', () => { selectedCycle = btn.dataset.cycle; rerender(); });
+                });
+            };
+            attachHandlers();
+        }
+    });
+
+    if (!result.isConfirmed) return false;
+
+    const planName = `${displayName} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
+    return runUnlockFlow(featureId, planName, { billingCycle: selectedCycle });
 }
 
 function getCloudBackupUpgrade() {

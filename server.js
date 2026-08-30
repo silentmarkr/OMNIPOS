@@ -2934,6 +2934,129 @@ function isVersionNewer(candidate, current) {
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
 
 // ============================================================
+// MODULE SUBSCRIPTIONS — Roles & Permissions (RBAC) Management, and
+// Multi-Branch Dashboard
+// ============================================================
+// Converted from a ONE-TIME purchase (₱999 each) to a monthly/yearly
+// subscription — same overall "RELAY is ground truth, synced via GET
+// /relay/pricing" architecture as Cloud Backup below, but kept as a
+// fully SEPARATE code path so none of the already-working Cloud Backup
+// logic is touched or risked by this change. Unlike Cloud Backup, these
+// two are flat (not tiered) — a single monthly/yearly price each, no
+// Basic/Standard/Pro storage-quota style split.
+const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch'];
+
+function isModuleSubscriptionFeature(featureId) {
+    return MODULE_SUBSCRIPTION_FEATURE_IDS.includes(featureId);
+}
+
+// A feature that is ALWAYS purchased/subscribed to separately, never
+// bundled into a one-time Upgrade Tier bundle price.
+function isSubscriptionOnlyFeature(featureId) {
+    return featureId === CLOUD_BACKUP_FEATURE_ID || isModuleSubscriptionFeature(featureId);
+}
+
+const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
+    rbac_management: {
+        id: 'rbac_management',
+        name: 'Roles & Permissions (RBAC) Management',
+        description: 'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).',
+        price: { monthly: 149, yearly: 1490 }
+    },
+    multi_branch: {
+        id: 'multi_branch',
+        name: 'Multi-Branch Dashboard',
+        description: 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.',
+        price: { monthly: 199, yearly: 1990 }
+    }
+};
+
+const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
+
+// Grace period: unlike Cloud Backup (hard lock the instant it expires),
+// these two are day-to-day OPERATIONAL features — losing access to role
+// permissions or the multi-branch dashboard mid-shift can disrupt actual
+// store operations. So there's a short buffer after expiry where access
+// still works (with a renewal warning), before it finally locks. Keep
+// this constant scoped to these two features only — do not reuse it for
+// Cloud Backup or any other feature.
+const MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS = 7;
+const MODULE_SUBSCRIPTION_GRACE_PERIOD_MS = MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+
+// MODULE_SUBSCRIPTION_PLANS = the actual plans used throughout this file
+// (fallback copy above, overlaid with live pricing from RELAY when
+// available — same pattern as CLOUD_BACKUP_PLANS below).
+let MODULE_SUBSCRIPTION_PLANS = JSON.parse(JSON.stringify(MODULE_SUBSCRIPTION_PLANS_FALLBACK));
+
+function getModuleSubscriptionPrice(featureId, billingCycle) {
+    const plan = MODULE_SUBSCRIPTION_PLANS[featureId];
+    if (!plan || !MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle]) return null;
+    return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
+}
+
+function applyModuleSubscriptionPricingOverlay(remotePlans) {
+    if (!remotePlans || typeof remotePlans !== 'object') return;
+    const merged = {};
+    for (const featureId of MODULE_SUBSCRIPTION_FEATURE_IDS) {
+        const fallback = MODULE_SUBSCRIPTION_PLANS_FALLBACK[featureId];
+        const remote = remotePlans[featureId];
+        if (!remote) {
+            merged[featureId] = MODULE_SUBSCRIPTION_PLANS[featureId] || fallback;
+            continue;
+        }
+        merged[featureId] = {
+            ...fallback,
+            name: typeof remote.name === 'string' && remote.name ? remote.name : fallback.name,
+            price: {
+                monthly: (remote.price && typeof remote.price.monthly === 'number') ? remote.price.monthly : fallback.price.monthly,
+                yearly: (remote.price && typeof remote.price.yearly === 'number') ? remote.price.yearly : fallback.price.yearly
+            }
+        };
+    }
+    MODULE_SUBSCRIPTION_PLANS = merged;
+}
+
+// Grace-period-aware verification for a module-subscription token —
+// SEPARATE from verifyUnlockToken() below on purpose, so the grace
+// period NEVER accidentally applies to any other feature (including
+// Cloud Backup, which stays hard-cutoff). Signature/binding checks are
+// identical to verifyUnlockToken(); the only difference is the extra
+// grace window applied AFTER expiresAt before finally denying access.
+// Returns { active, inGracePeriod, expiresAt }:
+//   - active: true while genuinely unexpired AND while inside the grace
+//     window (i.e. access is NOT cut off yet).
+//   - inGracePeriod: true only in the second case, for UI/banner use.
+//   - A token with NO expiresAt at all (legacy/perpetual one-time
+//     purchase, i.e. a GRANDFATHERED customer from before this
+//     subscription conversion) is always active, never in a grace period.
+function verifyModuleSubscriptionToken(token, expectedInstallationId, expectedFeatureId) {
+    if (!token || !token.payload || !token.signature) return { active: false, inGracePeriod: false, expiresAt: null };
+    const { installationId, featureId, issuedAt, expiresAt } = token.payload;
+    if (installationId !== expectedInstallationId) return { active: false, inGracePeriod: false, expiresAt: null };
+    if (featureId !== expectedFeatureId) return { active: false, inGracePeriod: false, expiresAt: null };
+    if (typeof issuedAt !== 'number') return { active: false, inGracePeriod: false, expiresAt: null };
+
+    const payloadString = typeof expiresAt === 'number'
+        ? JSON.stringify({ installationId, featureId, issuedAt, expiresAt })
+        : JSON.stringify({ installationId, featureId, issuedAt });
+
+    let signatureValid = false;
+    try {
+        signatureValid = crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(token.signature, 'base64'));
+    } catch (err) {
+        signatureValid = false;
+    }
+    if (!signatureValid) return { active: false, inGracePeriod: false, expiresAt: null };
+
+    if (typeof expiresAt !== 'number') return { active: true, inGracePeriod: false, expiresAt: null }; // grandfathered/perpetual
+
+    const now = Date.now();
+    if (now <= expiresAt) return { active: true, inGracePeriod: false, expiresAt };
+    if (now <= expiresAt + MODULE_SUBSCRIPTION_GRACE_PERIOD_MS) return { active: true, inGracePeriod: true, expiresAt };
+    return { active: false, inGracePeriod: false, expiresAt };
+}
+
+// ============================================================
 // CLOUD BACKUP — SUBSCRIPTION PLANS (Basic / Standard / Pro)
 // ============================================================
 // This changed from a ONE-TIME payment (₱1,499 lifetime) to a
@@ -3135,6 +3258,11 @@ function loadCloudBackupPricingCache() {
         if (cached && cached.upgradeTiers) {
             applyUpgradeTierPricingOverlay(cached.upgradeTiers);
         }
+        // Module subscriptions (RBAC Management / Multi-Branch Dashboard)
+        // — same shared cache blob/cycle as everything else above.
+        if (cached && cached.moduleSubscriptions) {
+            applyModuleSubscriptionPricingOverlay(cached.moduleSubscriptions);
+        }
     } catch (err) {
         // Walang cache pa (unang beses na patakbo, o bagong device) — okay lang, gagamitin ang fallback.
     }
@@ -3186,6 +3314,11 @@ async function fetchCloudBackupPricing() {
         // ng basic/standard/pro) — parehong blob, parehong cache.
         if (data && data.success && data.upgradeTiers) {
             applyUpgradeTierPricingOverlay(data.upgradeTiers);
+        }
+        // Module subscriptions (RBAC Management / Multi-Branch Dashboard)
+        // — same request/response, same cache blob.
+        if (data && data.success && data.moduleSubscriptions) {
+            applyModuleSubscriptionPricingOverlay(data.moduleSubscriptions);
         }
     } catch (err) {
         console.warn('⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback:', err.message);
@@ -3266,6 +3399,27 @@ function tierName(tierId, fallbackName) {
     return (overlay && typeof overlay.name === 'string' && overlay.name) ? overlay.name : fallbackName;
 }
 
+// tierFeatureIds() — kapareho ng tierBundlePrice()/tierName() sa itaas,
+// pero para sa featureIds SELECTION mismo ng isang UPGRADE_TIERS entry
+// (basic/standard/pro) — alin bang mga theme/module ang kasama sa bundle
+// na ito. Dati, hardcoded array lang ito; ngayon, admin-editable na ito
+// sa RELAY (POST /relay/admin/api/pricing/tiers, bagong `featureIds`
+// field), kaya kailangan din itong maging GETTER (hindi plain array) na
+// laging bumabasa mula sa live na upgradeTierPricingOverlay.
+function tierFeatureIds(tierId, fallbackFeatureIds) {
+    const overlay = upgradeTierPricingOverlay[tierId];
+    if (overlay && Array.isArray(overlay.featureIds) && overlay.featureIds.length) {
+        // Defensive filter: only keep featureIds that actually still
+        // exist in FEATURE_CATALOG and are not a subscription-only
+        // feature (cloud_backup/rbac_management/multi_branch), in case
+        // RELAY and OMNIPOS momentarily disagree on the catalog (e.g.
+        // right after a feature is removed) — never silently include an
+        // unknown or subscription-only id in a one-time bundle.
+        return overlay.featureIds.filter(id => FEATURE_CATALOG[id] && !isSubscriptionOnlyFeature(id));
+    }
+    return fallbackFeatureIds;
+}
+
 const FEATURE_CATALOG = {
 
     ocean: catalogEntry('ocean', 'Ocean Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
@@ -3283,8 +3437,28 @@ const FEATURE_CATALOG = {
     purchase_orders: catalogEntry('purchase_orders', 'Purchase Orders Module', 999, 'module', 'Create and track Purchase Orders to suppliers, including reorder suggestions.'),
     customer_crm: catalogEntry('customer_crm', 'Customer Profiles, Loyalty & Debtors', 799, 'module', 'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.'),
     shift_management: catalogEntry('shift_management', 'Multi-Cashier Shift Oversight & Z-Reading Reports', 699, 'module', 'Multi-cashier shift tracking and Z-Reading (cash count) reports.'),
-    rbac_management: catalogEntry('rbac_management', 'Roles & Permissions (RBAC) Management', 999, 'module', 'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).'),
-    multi_branch: catalogEntry('multi_branch', 'Multi-Branch Dashboard', 999, 'module', 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.'),
+    rbac_management: {
+        name: 'Roles & Permissions (RBAC) Management',
+        category: 'module',
+        isSubscription: true,
+        // Getters (not plain fields) for the same reason as cloud_backup
+        // below — MODULE_SUBSCRIPTION_PLANS is reassigned in-place
+        // whenever fresh pricing arrives from RELAY, so a plain field
+        // here would freeze at the fallback price forever.
+        get price() { return MODULE_SUBSCRIPTION_PLANS.rbac_management.price.monthly; },
+        get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.rbac_management.price; },
+        billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
+        description: 'Create custom roles and configure which menus each role can access (Roles & Permissions matrix). Now offered as a monthly or yearly subscription instead of a one-time purchase.'
+    },
+    multi_branch: {
+        name: 'Multi-Branch Dashboard',
+        category: 'module',
+        isSubscription: true,
+        get price() { return MODULE_SUBSCRIPTION_PLANS.multi_branch.price.monthly; },
+        get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.multi_branch.price; },
+        billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
+        description: 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay. Now offered as a monthly or yearly subscription instead of a one-time purchase.'
+    },
 
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
@@ -3334,27 +3508,28 @@ const UPGRADE_TIERS = [
     {
         id:'basic',
         description:'For those who want to get started with reporting and promos.',
-        featureIds: ['advanced_reports','promo_codes'],
+        get featureIds() { return tierFeatureIds('basic', ['advanced_reports', 'promo_codes']); },
         get name() { return tierName('basic', 'Basic Upgrade'); },
         get bundlePrice() { return tierBundlePrice('basic', 999); }
     },
     {
         id:'standard',
         description:'Everything in Basic, plus customer loyalty and shift oversight.',
-        featureIds: ['advanced_reports','promo_codes','customer_crm','shift_management'],
+        get featureIds() { return tierFeatureIds('standard', ['advanced_reports', 'promo_codes', 'customer_crm', 'shift_management']); },
         get name() { return tierName('standard', 'Standard Upgrade'); },
         get bundlePrice() { return tierBundlePrice('standard', 1999); }
     },
     {
         id:'pro',
-        // NOTE: Cloud Backup is no longer included here — it's a
-        // subscription now (Basic/Standard/Pro monthly/yearly), so it can
-        // no longer be part of a ONE-TIME bundle price. This bundle
-        // contains all OTHER modules/themes (perpetual/one-time). Cloud
-        // Backup is purchased SEPARATELY as its own subscription.
-        description:'Every other module and every Pro Theme — nothing left locked, except Cloud Backup which is billed separately as its own subscription (see the Cloud Backup plans).',
+        // NOTE: Cloud Backup, RBAC Management, and Multi-Branch Dashboard
+        // are no longer included here — they are subscriptions now
+        // (billed monthly/yearly), so they can no longer be part of a
+        // ONE-TIME bundle price. This bundle contains all OTHER
+        // modules/themes (perpetual/one-time). Those three are purchased
+        // SEPARATELY, each as its own subscription.
+        description:'Every other module and every Pro Theme — nothing left locked, except Cloud Backup, Roles & Permissions (RBAC) Management, and Multi-Branch Dashboard, which are billed separately as their own subscriptions.',
 
-        featureIds: Object.keys(FEATURE_CATALOG).filter(id => id !== CLOUD_BACKUP_FEATURE_ID),
+        get featureIds() { return tierFeatureIds('pro', Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id))); },
 
         get name() { return tierName('pro', 'Pro Upgrade (Complete)'); },
         // Fallback bumped from 6499 to 4999: at 6499 this bundle's discount
@@ -3394,7 +3569,23 @@ function readFeatureUnlocks() {
         // scheduling purposes only.
         cloudBackupPlan: (raw.cloudBackupPlan && typeof raw.cloudBackupPlan ==='object')
             ? { tier: raw.cloudBackupPlan.tier || null, billingCycle: raw.cloudBackupPlan.billingCycle || null, activatedAt: raw.cloudBackupPlan.activatedAt || null }
-            : null
+            : null,
+
+        // Same idea as cloudBackupPlan above, but for the RBAC Management
+        // / Multi-Branch Dashboard module subscriptions — metadata only
+        // (display purposes), keyed by featureId. Actual access is still
+        // enforced by the signed token in `tokens.<featureId>` (via
+        // verifyModuleSubscriptionToken, with its grace period).
+        moduleSubscriptions: (raw.moduleSubscriptions && typeof raw.moduleSubscriptions === 'object')
+            ? Object.fromEntries(
+                Object.entries(raw.moduleSubscriptions)
+                    .filter(([featureId]) => isModuleSubscriptionFeature(featureId))
+                    .map(([featureId, plan]) => [featureId, {
+                        billingCycle: (plan && plan.billingCycle) || null,
+                        activatedAt: (plan && plan.activatedAt) || null
+                    }])
+              )
+            : {}
     };
 }
 
@@ -5038,7 +5229,43 @@ function getPurchasedFeatureIds() {
     const installationId = getOrCreateInstallationId(data);
     return Object.keys(data.tokens)
         .filter(featureId => featureId !== DEMO_FEATURE_ID)
-        .filter(featureId => verifyUnlockToken(data.tokens[featureId], installationId, featureId));
+        .filter(featureId => {
+            // RBAC Management / Multi-Branch Dashboard use grace-period-
+            // aware verification (still counted as "unlocked" for a few
+            // days after expiry, with a renewal warning shown elsewhere)
+            // — every other feature (including Cloud Backup) keeps the
+            // existing hard-cutoff verifyUnlockToken() behavior.
+            if (isModuleSubscriptionFeature(featureId)) {
+                return verifyModuleSubscriptionToken(data.tokens[featureId], installationId, featureId).active;
+            }
+            return verifyUnlockToken(data.tokens[featureId], installationId, featureId);
+        });
+}
+
+// getModuleSubscriptionGraceWarnings() — for each RBAC Management /
+// Multi-Branch Dashboard subscription that is CURRENTLY inside its grace
+// period (expired, but still working thanks to the buffer above), return
+// enough detail for the UI to show a renewal warning banner. Used by GET
+// /api/features/status below.
+function getModuleSubscriptionGraceWarnings() {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const warnings = [];
+    for (const featureId of MODULE_SUBSCRIPTION_FEATURE_IDS) {
+        const token = data.tokens[featureId];
+        if (!token) continue;
+        const status = verifyModuleSubscriptionToken(token, installationId, featureId);
+        if (status.active && status.inGracePeriod) {
+            const feature = FEATURE_CATALOG[featureId];
+            warnings.push({
+                featureId,
+                featureName: feature ? feature.name : featureId,
+                expiresAt: status.expiresAt,
+                graceEndsAt: status.expiresAt + MODULE_SUBSCRIPTION_GRACE_PERIOD_MS
+            });
+        }
+    }
+    return warnings;
 }
 
 function getUnlockedFeatureIds() {
@@ -5052,7 +5279,7 @@ function getUnlockedFeatureIds() {
 
 function isFullyProUnlocked() {
     const purchased = getPurchasedFeatureIds();
-    const allIds = Object.keys(FEATURE_CATALOG).filter(id => id !== CLOUD_BACKUP_FEATURE_ID);
+    const allIds = Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id));
     return allIds.length > 0 && allIds.every(id => purchased.includes(id));
 }
 
@@ -5063,6 +5290,7 @@ function requireFeature(featureId) {
         const feature = FEATURE_CATALOG[featureId];
         const attemptCount = recordLockedAttempt();
         const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
+        const isModuleSubscription = isModuleSubscriptionFeature(featureId);
         return res.status(402).json({
             success: false,
             featureLocked: true,
@@ -5070,16 +5298,23 @@ function requireFeature(featureId) {
             featureName: feature ? feature.name : featureId,
             price: (feature && !feature.isSubscription) ? feature.price : null,
             isSubscription: !!(feature && feature.isSubscription),
-            plans: (feature && feature.isSubscription) ? feature.plans : undefined,
+            // Cloud Backup is tiered (Basic/Standard/Pro) — `plans` is the
+            // per-tier object. RBAC Management / Multi-Branch Dashboard
+            // are flat (no tiers) — `subscriptionPrice` is just
+            // {monthly, yearly} for the one plan.
+            plans: isCloudBackup ? feature.plans : undefined,
+            subscriptionPrice: isModuleSubscription ? feature.subscriptionPrice : undefined,
             billingCycles: (feature && feature.isSubscription) ? feature.billingCycles : undefined,
             description: feature ? feature.description : null,
 
-            showUpgradeTiers: isCloudBackup
+            showUpgradeTiers: (isCloudBackup || isModuleSubscription)
                 ? false
                 : (attemptCount > 0 && attemptCount % 2 === 0),
             message: isCloudBackup
                 ? `"${feature.name}" is a subscription feature (Basic/Standard/Pro, monthly or yearly) and is currently inactive or expired. Please choose a plan to continue.`
-                : `"${feature ? feature.name : featureId}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
+                : isModuleSubscription
+                    ? `"${feature.name}" is a subscription feature (monthly or yearly) and is currently inactive or expired (including its ${MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS}-day grace period). Please renew to continue.`
+                    : `"${feature ? feature.name : featureId}" is a premium feature and is currently locked. Please unlock it (additional purchase required) to continue.`
         });
     };
 }
@@ -5259,7 +5494,12 @@ app.get('/api/features/status', (req, res) => {
         unlockedFeatureIds: getUnlockedFeatureIds(),
 
         purchasedFeatureIds: getPurchasedFeatureIds(),
-        fullyPurchased: isFullyProUnlocked()
+        fullyPurchased: isFullyProUnlocked(),
+        // Module subscriptions (RBAC Management / Multi-Branch Dashboard)
+        // currently inside their post-expiry grace period — still
+        // unlocked/working, but the client should show a renewal warning
+        // banner for each of these until renewed.
+        subscriptionGraceWarnings: getModuleSubscriptionGraceWarnings()
     });
 });
 
@@ -5304,6 +5544,7 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
     }
 
     const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
+    const isModuleSubscription = isModuleSubscriptionFeature(featureId);
     let resolvedPrice = feature.price;
 
     if (isCloudBackup) {
@@ -5316,16 +5557,24 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
         if (!CLOUD_BACKUP_PLANS[tier] || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle] || resolvedPrice === null) {
             return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
         }
+    } else if (isModuleSubscription) {
+        // Flat monthly/yearly subscription — only a billing cycle is
+        // needed (no tier). Same early-validation idea as Cloud Backup.
+        resolvedPrice = getModuleSubscriptionPrice(featureId, billingCycle);
+        if (!MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle] || resolvedPrice === null) {
+            return res.status(400).json({ success: false, message: `Please choose a valid billing cycle (Monthly/Yearly) for ${feature.name}.` });
+        }
     }
 
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
 
-    // For cloud_backup, we should NOT shortcut even if the old token is
-    // still "unlocked" — this is a subscription, so it must be possible
-    // to RENEW or UPGRADE/DOWNGRADE the plan even while the current one
-    // is still active (e.g. just before it expires).
-    if (!isCloudBackup && data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
+    // For subscription features, we should NOT shortcut even if the old
+    // token is still "unlocked" — it must be possible to RENEW while the
+    // current one is still active (e.g. just before it expires, or while
+    // inside its grace period).
+    const isAnySubscription = isCloudBackup || isModuleSubscription;
+    if (!isAnySubscription && data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
         return res.json({ success: true, alreadyUnlocked: true, message: `Naka-unlock na ang ${feature.name}.` });
     }
 
@@ -5340,7 +5589,7 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
                 featureName: isCloudBackup ? CLOUD_BACKUP_PLANS[tier].name : feature.name,
                 price: resolvedPrice,
                 tier: isCloudBackup ? tier : undefined,
-                billingCycle: isCloudBackup ? billingCycle : undefined,
+                billingCycle: isAnySubscription ? billingCycle : undefined,
                 username: username ||'Unknown',
                 storeName: (receiptSettings && receiptSettings.storeName) || null,
                 photo: photo || null
@@ -5354,7 +5603,9 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
 
         logAction(username ||'Unknown', isCloudBackup
             ? `Requested an OTP to subscribe to Cloud Backup (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
-            : `Requested an OTP to unlock ${feature.name}`);
+            : isModuleSubscription
+                ? `Requested an OTP to subscribe to ${feature.name} (${MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
+                : `Requested an OTP to unlock ${feature.name}`);
         res.json({ success: true, message:'The unlock request has been sent. Please wait for the confirmation code from the developer/owner.' });
     } catch (err) {
         console.error('Hindi ma-abot ang Unlock Relay:', err);
@@ -5366,6 +5617,7 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
     const { featureId, otp, username, tier, billingCycle } = req.body;
     const feature = FEATURE_CATALOG[featureId];
     const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
+    const isModuleSubscription = isModuleSubscriptionFeature(featureId);
 
     if (!feature) {
         return res.status(400).json({ success: false, message:'Unknown feature.' });
@@ -5411,10 +5663,20 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
             const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : tier;
             const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
             data.cloudBackupPlan = { tier: confirmedTier || null, billingCycle: confirmedCycle || null, activatedAt: Date.now() };
+        } else if (isModuleSubscription) {
+            // Same idea as Cloud Backup above — metadata only (display
+            // purposes), for RBAC Management / Multi-Branch Dashboard.
+            const confirmedCycle = (relayData.billingCycle && MODULE_SUBSCRIPTION_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
+            data.moduleSubscriptions = data.moduleSubscriptions || {};
+            data.moduleSubscriptions[featureId] = { billingCycle: confirmedCycle || null, activatedAt: Date.now() };
         }
 
         writeData(FILE_FEATURE_UNLOCKS, data);
-        logAction(username ||'Unknown', isCloudBackup ? `Activated/renewed the Cloud Backup subscription (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle})` : `Unlocked the feature: ${feature.name}`);
+        logAction(username ||'Unknown', isCloudBackup
+            ? `Activated/renewed the Cloud Backup subscription (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle})`
+            : isModuleSubscription
+                ? `Activated/renewed the ${feature.name} subscription (${data.moduleSubscriptions[featureId].billingCycle})`
+                : `Unlocked the feature: ${feature.name}`);
 
         res.json({ success: true, message: `${feature.name} has been unlocked!`, unlockedFeatureIds: getUnlockedFeatureIds() });
     } catch (err) {
@@ -5708,6 +5970,14 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
     const unknown = featureIds.filter(id => !FEATURE_CATALOG[id]);
     if (unknown.length) {
         return res.status(400).json({ success: false, message: `Unknown feature(s): ${unknown.join(', ')}` });
+    }
+    // This bulk/bundle path is for ONE-TIME (perpetual) purchases only —
+    // subscription features (Cloud Backup, RBAC Management, Multi-Branch
+    // Dashboard) must go through the dedicated subscribe/renew flow
+    // (/api/features/request-unlock with a billingCycle) instead.
+    const subscriptionIdsInBulk = featureIds.filter(id => isSubscriptionOnlyFeature(id));
+    if (subscriptionIdsInBulk.length) {
+        return res.status(400).json({ success: false, message: `These are subscription features and cannot be bundled into a one-time unlock: ${subscriptionIdsInBulk.map(id => (FEATURE_CATALOG[id] && FEATURE_CATALOG[id].name) || id).join(', ')}. Please subscribe to each of them separately.` });
     }
 
     if (!RELAY_API_KEY) {
