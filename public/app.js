@@ -910,19 +910,79 @@ let addProductScanSession = { active: false, lastScannedFormCode: null };
 let productFormScanLastCode ='';
 let productFormScanLastTime = 0;
 
+// THEME_CATALOG — IMPORTANT: this is icon/label copy ONLY. There is
+// intentionally NO hardcoded `price` field here anymore (it used to say
+// '₱149' for almost everything, and a stale '₱250' for Liquid Glass, which
+// drifted out of sync the moment an admin changed a theme's price in
+// RELAY's Feature Pricing editor — the unlock dialog kept showing the old
+// number even though the actual amount charged, resolved server-side off
+// FEATURE_CATALOG in OMNIPOS/server.js, was already correct). The one and
+// only source of truth for theme prices is RELAY (via GET /relay/pricing
+// -> OMNIPOS/server.js's FEATURE_CATALOG getters -> this device's own
+// GET /api/features/upgrade-catalog). See getThemeLivePrice()/
+// refreshFeatureCatalogLive() below, which is what promptUnlockTheme() now
+// actually reads from before it ever shows a price to the user.
 const THEME_CATALOG = [
     { id:'day',      name:'Day Mode',      icon:'fa-sun',      pro: false },
     { id:'dark',     name:'Dark Mode',     icon:'fa-moon',     pro: false },
-    { id:'ocean',    name:'Ocean Pro',     icon:'fa-water',    pro: true, price:'₱149' },
-    { id:'emerald',  name:'Emerald Pro',   icon:'fa-gem',      pro: true, price:'₱149' },
-    { id:'sunset',   name:'Sunset Pro',    icon:'fa-fire',     pro: true, price:'₱149' },
-    { id:'rosegold', name:'Rose Gold Pro', icon:'fa-crown',    pro: true, price:'₱149' },
-    { id:'cyber',    name:'Cyber Neon Pro',   icon:'fa-bolt',      pro: true, price:'₱149' },
-    { id:'noir',     name:'Coffee Noir Pro',  icon:'fa-mug-saucer', pro: true, price:'₱149' },
-    { id:'mintfrost',name:'Mint Frost Pro',   icon:'fa-snowflake', pro: true, price:'₱149' },
-    { id:'liquidglass', name:'Liquid Glass Pro', icon:'fa-droplet', pro: true, price:'₱250' },
-    { id:'galaxyambient', name:'Galaxy Ambient Pro', icon:'fa-circle-half-stroke', pro: true, price:'₱149' },
+    { id:'ocean',    name:'Ocean Pro',     icon:'fa-water',    pro: true },
+    { id:'emerald',  name:'Emerald Pro',   icon:'fa-gem',      pro: true },
+    { id:'sunset',   name:'Sunset Pro',    icon:'fa-fire',     pro: true },
+    { id:'rosegold', name:'Rose Gold Pro', icon:'fa-crown',    pro: true },
+    { id:'cyber',    name:'Cyber Neon Pro',   icon:'fa-bolt',      pro: true },
+    { id:'noir',     name:'Coffee Noir Pro',  icon:'fa-mug-saucer', pro: true },
+    { id:'mintfrost',name:'Mint Frost Pro',   icon:'fa-snowflake', pro: true },
+    { id:'liquidglass', name:'Liquid Glass Pro', icon:'fa-droplet', pro: true },
+    { id:'galaxyambient', name:'Galaxy Ambient Pro', icon:'fa-circle-half-stroke', pro: true },
 ];
+
+// featureCatalogLiveCache — last successfully-fetched catalog entries (id ->
+// {name, price, category, description, ...}) from THIS server's own
+// /api/features/upgrade-catalog, which itself mirrors RELAY (same
+// fetch/cache cycle already used by Cloud Backup pricing in
+// OMNIPOS/server.js — see fetchCloudBackupPricing()/featureCatalogPricingOverlay
+// there). Covers EVERY feature — Pro themes AND premium modules
+// (purchase_orders, customer_crm, promo_codes, advanced_reports,
+// shift_management, rbac_management, multi_branch), since RELAY's Feature
+// Pricing editor (feature-pricing.html) edits both categories from the
+// same screen. null until the first successful fetch; keeps its last good
+// value if a later refresh fails (e.g. temporarily offline), same "keep
+// last known good" behavior as getCloudBackupPlansMerged()/cloudBackupPlansLiveCache.
+let featureCatalogLiveCache = null;
+
+async function refreshFeatureCatalogLive() {
+    try {
+        const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.features)) {
+            const map = {};
+            data.features.forEach((f) => { map[f.id] = f; });
+            featureCatalogLiveCache = map;
+        }
+    } catch (e) {
+        // Offline/unreachable — keep whatever was cached before (falls
+        // through to "no price shown" if this never succeeds even once,
+        // e.g. very first load while offline, same as Cloud Backup).
+    }
+    return featureCatalogLiveCache;
+}
+
+// getFeatureLiveInfo — what every UI spot that shows a theme's or a
+// module's name/price/description should read from. Returns the live
+// {name, price, category, description} entry from RELAY, or null if no
+// live copy is known yet for this id. Never falls back to a locally
+// hardcoded number/description — if RELAY hasn't been reached yet, we
+// simply don't show a price rather than risk showing a wrong one.
+function getFeatureLiveInfo(featureId) {
+    return (featureCatalogLiveCache && featureCatalogLiveCache[featureId]) || null;
+}
+
+// getThemeLivePrice — thin convenience wrapper over getFeatureLiveInfo()
+// used by the theme unlock dialog.
+function getThemeLivePrice(themeId) {
+    const live = getFeatureLiveInfo(themeId);
+    return (live && typeof live.price ==='number') ? live.price : null;
+}
 
 function getUnlockedThemeIds() {
     try {
@@ -1469,10 +1529,19 @@ async function promptUnlockTheme(theme) {
     if (blockIfOffline('Theme unlock requests')) return;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
 
+    // Always ask the server for the CURRENT price right before showing it —
+    // mirrors updateCloudBackupGetButtonPrice()'s on-demand refresh pattern,
+    // so an admin changing this theme's price in RELAY's Feature Pricing
+    // editor shows up here the very next time anyone tries to unlock it,
+    // instead of whatever was cached (or worse, a stale hardcoded number).
+    await refreshFeatureCatalogLive();
+    const livePrice = getThemeLivePrice(theme.id);
+    const priceLabel = (typeof livePrice ==='number') ?'₱' + livePrice : null;
+
     const confirmResult = await Swal.fire({
         title:'Unlock ' + theme.name,
         html:
-'<p style="margin:0 0 8px;">This is a premium theme' + (theme.price ?' — <strong>' + theme.price +'</strong>' :'') +'.</p>' +
+'<p style="margin:0 0 8px;">This is a premium theme' + (priceLabel ?' — <strong>' + priceLabel +'</strong>' :'') +'.</p>' +
 '<p style="font-size:0.82rem;color:#94a3b8;margin:0;">An unlock request will be sent to the developer/store owner. ' +
 'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>',
         icon:'info',
@@ -1627,13 +1696,27 @@ function isBadgeAllowedForFeature(featureId) {
     return isFeatureUnlockedCached(featureId);
 }
 
-const PREMIUM_FEATURE_INFO = {
-    purchase_orders: { name:'Purchase Orders Module', price: 999, description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
-    customer_crm: { name:'Customer Profiles & Loyalty', price: 799, description:'Customer profiles, loyalty points, and purchase history for each customer.' },
-    promo_codes: { name:'Promo Codes Module', price: 499, description:'Create discount/promo codes that can be used at checkout.' },
-    advanced_reports: { name:'Sales Analytics & Advanced Reports', price: 799, description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
-    shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', price: 699, description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
-    rbac_management: { name:'Roles & Permissions (RBAC) Management', price: 999, description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
+// PREMIUM_FEATURE_FALLBACK — LABEL-ONLY fallback copy, used solely so the
+// unlock dialog has a readable title/description instead of a raw
+// featureId in the rare case the live feature catalog hasn't been fetched
+// yet AND this fetch also fails (e.g. flaky connection while nominally
+// "online"). IMPORTANT: intentionally has NO `price` field — there used to
+// be a hardcoded price here too (purchase_orders 999, customer_crm 799,
+// etc.), which drifted out of sync the moment an admin changed a module's
+// price OR name in RELAY's Feature Pricing editor (e.g. customer_crm's
+// name here used to say "Customer Profiles & Loyalty" while RELAY/the
+// server had already renamed it to "Customer Profiles, Loyalty & Debtors").
+// guardPremiumFeature() below always tries the LIVE name/price/description
+// first (via promptUnlockFeature()'s own on-demand refresh) and only falls
+// back to this map's name/description when that live fetch hasn't
+// succeeded yet — price is never taken from here.
+const PREMIUM_FEATURE_FALLBACK = {
+    purchase_orders: { name:'Purchase Orders Module', description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
+    customer_crm: { name:'Customer Profiles, Loyalty & Debtors', description:'Customer profiles, loyalty points, purchase history, and the Debtors ledger for each customer.' },
+    promo_codes: { name:'Promo Codes Module', description:'Create discount/promo codes that can be used at checkout.' },
+    advanced_reports: { name:'Sales Analytics & Advanced Reports', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
+    shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
+    rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
 };
 
 // Cloud Backup is no longer a simple one-time price — it's a
@@ -1708,8 +1791,13 @@ function getCloudBackupPlansMerged() {
 
 function guardPremiumFeature(featureId) {
     if (isFeatureUnlockedCached(featureId)) return false;
-    const info = PREMIUM_FEATURE_INFO[featureId] || {};
-    promptUnlockFeature(featureId, info.name, info.price, info.description);
+    const fallback = PREMIUM_FEATURE_FALLBACK[featureId] || {};
+    // No price passed here on purpose — this is a synchronous, purely
+    // client-side pre-check that fires before the server is even asked,
+    // so there is no live price to hand over yet. promptUnlockFeature()
+    // treats a missing price as a signal to fetch the CURRENT
+    // name/price/description from RELAY itself before showing anything.
+    promptUnlockFeature(featureId, fallback.name, undefined, fallback.description);
     return true;
 }
 
@@ -1938,8 +2026,28 @@ async function pollUntilApproved(url, body) {
 
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
+
+    // If the caller didn't already hand us a live price (e.g.
+    // guardPremiumFeature()'s client-side pre-check, which fires before
+    // the server is ever asked), fetch the CURRENT name/price/description
+    // from RELAY now — same on-demand refresh pattern as
+    // promptUnlockTheme()/updateCloudBackupGetButtonPrice(), so a change
+    // made in RELAY's Feature Pricing editor shows up the very next time
+    // anyone tries to unlock this module. Callers that already passed a
+    // live value (a 402 response body, or the Multi-Branch widget) keep
+    // using that value as-is and skip the extra round trip.
+    if (typeof price !== 'number') {
+        await refreshFeatureCatalogLive();
+        const live = getFeatureLiveInfo(featureId);
+        if (live) {
+            featureName = live.name || featureName;
+            description = live.description || description;
+            if (typeof live.price === 'number') price = live.price;
+        }
+    }
+
     const displayName = featureName || featureId;
-    const priceText = price ? `₱${price}` : null;
+    const priceText = (typeof price === 'number' && price > 0) ? `₱${price}` : null;
 
     const confirmResult = await Swal.fire({
         title:'Locked: ' + displayName,
