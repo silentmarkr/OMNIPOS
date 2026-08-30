@@ -3795,6 +3795,21 @@ body.dark-mode .search-box-container input::placeholder {
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
+.p-image-search-check-box i {
+    transition: color 0.15s ease, filter 0.15s ease;
+}
+
+/* Hover preview: a soft, blurred checkmark hints that clicking the box
+   will select this photo — without committing to the checked state. */
+.p-image-search-check-wrap:hover:not(.is-disabled) .p-image-search-check-box {
+    border-color: var(--primary-blue, #2563eb);
+}
+
+.p-image-search-check-wrap:hover:not(.is-disabled) input[type="checkbox"]:not(:checked) + .p-image-search-check-box i {
+    color: rgba(37, 99, 235, 0.45);
+    filter: blur(0.5px);
+}
+
 .p-image-search-check-wrap input[type="checkbox"]:checked + .p-image-search-check-box {
     background: var(--primary-blue, #2563eb);
     border-color: var(--primary-blue, #2563eb);

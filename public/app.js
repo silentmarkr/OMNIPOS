@@ -511,6 +511,7 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
         if (didHold) {
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
             didHold = false;
         }
     });
@@ -669,6 +670,34 @@ function attachHoldZoomToProductSearchThumbs(container) {
         }, function () {
             hideHoldZoomPreview();
         }, 180);
+
+        // Sinasadyang idinagdag ito PAGKATAPOS ng attachHoldPreview sa itaas
+        // (hindi bilang inline onclick="" sa HTML) — ang pagkakasunod-sunod
+        // ng pagbind ng click listeners sa IISANG element ang siyang
+        // basehan ng browser kung sino ang unang tatakbo, hindi capture vs
+        // bubble. Dati, naka-inline ang onclick="selectSearchedProductImage(...)"
+        // sa mismong HTML string, kaya ito na ang UNANG click listener na
+        // naitatakda sa button (nangyayari agad pagka-parse ng innerHTML) —
+        // bago pa man tumakbo ang attachHoldPreview() dito (na tumatakbo na
+        // lang PAGKATAPOS ma-set ang innerHTML). Kaya kahit gumagana ang
+        // e.stopPropagation()/preventDefault() sa loob ng attachHoldPreview,
+        // huli na ito — nauna nang natawag ang pag-select bago pa man
+        // "mapigilan" ito. Ang resulta: pag bumitaw ka pagkatapos mag-hold
+        // (view full-size lang dapat), naseselect at nase-save pa rin bilang
+        // main product photo ang result — hindi dapat mangyari 'yon.
+        //
+        // Ngayon, binibind ito dito gamit ang addEventListener PAGKATAPOS ng
+        // attachHoldPreview, kaya ang guard na 'yon ang UNANG tatakbo sa
+        // click event. Kapag hold+release (didHold === true), tinatawag ng
+        // guard ang e.stopImmediatePropagation() — pinipigilan nito ang
+        // pagtakbo ng listener na ito (dahil huli itong nakabind sa
+        // parehong element), kaya hindi na maseselect ang larawan. Sa
+        // normal/mabilisang tap lang (walang hold), tuluyan itong tatakbo
+        // gaya ng dati.
+        thumb.addEventListener('click', function () {
+            if (!resultId) return;
+            selectSearchedProductImage(resultId);
+        });
     });
 }
 
@@ -13629,7 +13658,7 @@ function renderProductImageSearchResults(results) {
         const safeThumb = (r.thumbnailUrl || '').replace(/"/g, '&quot;');
         const safeId = String(r.id || '').replace(/"/g, '&quot;');
         return `<div class="p-image-search-item">
-            <button type="button" class="p-image-search-thumb" data-result-id="${safeId}" onclick="selectSearchedProductImage('${r.id}')" title="${safeTitle}">
+            <button type="button" class="p-image-search-thumb" data-result-id="${safeId}" title="${safeTitle}">
                 <img src="${safeThumb}" alt="${safeTitle}" loading="lazy">
             </button>
             <label class="p-image-search-check-wrap" title="Select for + Gallery">
