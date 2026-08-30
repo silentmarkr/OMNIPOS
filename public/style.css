@@ -5305,6 +5305,54 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
     .table-container { max-height: 70vh; }
 }
 
+/* DESKTOP — pareho sa ginawang fix sa MOBILE (@media max-width:1024px sa
+   ibaba, tingnan ang "flex:1 / max-height:none" na treatment doon), pero
+   ngayon para sa desktop. Dati, walang height cap ang buong view (hal.
+   #view-products) sa desktop kaya kung masyadong marami ang toolbar
+   buttons sa itaas ng table (Products may 8 buttons na puwedeng mag-wrap
+   sa 2-3 linya), lumalagpas sa isang screen ang KABUUANG laki ng buong
+   pahina, at dahil doon lumalabas ang NATIVE (di-na-istilo) na vertical
+   scrollbar sa KANANG gilid ng buong browser window — ibang bagay ito
+   sa horizontal scrollbar ng .table-container mismo na tama na dati.
+   Sa pag-cap ng buong view sa natitirang taas ng viewport (pagkatapos
+   ng 69px header at 60px na padding ng .content-body) at pag-flex sa
+   table-container para bumuo ng natitirang espasyo (flex:1, max-height:
+   none), hindi na kailangang mag-scroll pa ang buong pahina — ang
+   .table-container na lang mismo (na may hidden vertical / visible
+   horizontal scrollbar) ang mag-a-adjust, tulad na ng nangyayari sa
+   Transactions (na hindi naman naaabot ang sobrang taas dahil maikli
+   lang ang toolbar nito). #view-shiftreport at #view-users ay SADYANG
+   HINDI kasama dito dahil mas komplikado ang istruktura nila (maraming
+   stacked section / maraming tabs na hindi lahat ay table) — kailangan
+   ng hiwalay, mas maingat na fix ang mga iyon para hindi masira ang
+   ibang laman nila, tulad ng ginawa na para sa Users sa mobile. */
+@media screen and (min-width: 1025px) {
+    #view-logs.app-view:not(.terminal-theme),
+    #view-barcode.app-view:not(.terminal-theme),
+    #view-transactions.app-view:not(.terminal-theme),
+    #view-products.app-view:not(.terminal-theme),
+    #view-customers.app-view:not(.terminal-theme),
+    #view-debts.app-view:not(.terminal-theme),
+    #view-reorder.app-view:not(.terminal-theme) {
+        display: flex;
+        flex-direction: column !important;
+        height: calc(100vh - 69px - 60px) !important;
+        min-height: 0 !important;
+    }
+    #view-logs.app-view:not(.terminal-theme) .table-container,
+    #view-barcode.app-view:not(.terminal-theme) .table-container,
+    #view-transactions.app-view:not(.terminal-theme) .table-container,
+    #view-products.app-view:not(.terminal-theme) .table-container,
+    #view-customers.app-view:not(.terminal-theme) .table-container,
+    #view-debts.app-view:not(.terminal-theme) .table-container,
+    #view-reorder.app-view:not(.terminal-theme) .table-container {
+        flex: 1 !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin-bottom: 0 !important;
+    }
+}
+
 @media screen and (min-width: 1025px) {
     #view-products .table-container { overflow-x: hidden; }
     #view-products .data-table { table-layout: fixed; }
@@ -7019,52 +7067,33 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     }
 
     /* Users tables (Users Management, Pending Requests, Roles & Permissions
-       matrix) sa loob ng #view-users — gawing pareho ang behavior ng
-       scrollbar ng mga table dito sa Transactions: naka-pin sa ilalim ng
-       screen ang table-container (flex:1, max-height:none) sa halip na
-       fixed vh na max-height lang. Hindi tulad ng ibang simpleng
-       one-table view, iba-iba ang laman ng bawat tab-content-panel dito
-       (may .view-header-row, <p>, .roles-permissions-matrix-wrap), kaya
-       ang buong #view-users ang ginawang fixed-height flex column, ang
-       .tabs-container ay flex:none, at bawat .tab-content-panel (isa lang
-       ang naka-display:flex sa isang pagkakataon, JS-controlled) ang
-       bumubuo ng natitirang espasyo (flex:1) — sa loob nito, natural na
-       laki lang ang header/paragraph (flex:none) at ang .table-container
-       (pati na rin ang matrix-wrap na naka-wrap dito) ang flex:1. */
-    #view-users.app-view:not(.terminal-theme) {
-        display: flex;
-        flex-direction: column !important;
-        height: calc(100vh - 69px - 70px) !important;
-        min-height: 0 !important;
+       matrix) sa loob ng #view-users — gawing pareho ang scrollbar
+       behavior ng mga table dito sa Transactions (naka-pin sa ilalim,
+       flex:1, max-height:none) NANG HINDI ginagalaw ang laki/height ng
+       buong #view-users mismo. Sadyang HINDI kasama ang #view-users sa
+       listahan sa itaas (tulad ng ginawa sa view-shiftreport) dahil
+       ang #view-users ay may 9 tabs, at 3 lang dito ang may table — ang
+       anim pang tab (Receipt Customization, Store & Sales, Appearance,
+       Advanced, Fraud Alerts, System) ay mahahabang settings form, hindi
+       table. Kapag ginawang fixed-height ang buong #view-users, sila
+       ang maaapektuhan (posibleng malabas sila sa itinakdang laki sa
+       halip na sumunod sa normal na buong-pahinang scroll gaya ng dati).
+       Kaya dito, ang #view-users mismo ay HINDI ginagalaw (nananatiling
+       min-height/flexible, buong pahina pa rin ang nag-a-scroll para sa
+       ibang 6 tabs, tulad ng dati) — ang 3 table-tabs LANG ang binibigyan
+       ng sarili nilang mas malaking calc()-based na taas para lumapit sa
+       parehong laki/proporsyon ng Transactions sa mobile. */
+    #manage-users-tab .table-container,
+    #pending-requests-tab .table-container,
+    #roles-permissions-tab .table-container {
+        max-height: calc(100vh - 69px - 70px - 220px) !important;
     }
-    #view-users.app-view:not(.terminal-theme) > .tabs-container {
-        flex: none;
-    }
-    #view-users.app-view:not(.terminal-theme) > .tab-content-panel {
-        flex: 1 !important;
-        min-height: 0 !important;
-    }
-    #view-users.app-view:not(.terminal-theme) > .tab-content-panel > .view-header-row,
-    #view-users.app-view:not(.terminal-theme) > .tab-content-panel > p {
-        flex: none;
-    }
-    #view-users.app-view:not(.terminal-theme) > .tab-content-panel > .table-container {
-        flex: 1 !important;
-        min-height: 0 !important;
-        max-height: none !important;
-        margin-bottom: 18px !important;
-    }
-    #view-users.app-view:not(.terminal-theme) > .tab-content-panel > .roles-permissions-matrix-wrap {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-    }
-    #view-users.app-view:not(.terminal-theme) > .tab-content-panel > .roles-permissions-matrix-wrap > .table-container {
-        flex: 1 !important;
-        min-height: 0 !important;
-        max-height: none !important;
-        margin-bottom: 0 !important;
+    @media screen and (max-width: 480px) {
+        #manage-users-tab .table-container,
+        #pending-requests-tab .table-container,
+        #roles-permissions-tab .table-container {
+            max-height: calc(100vh - 69px - 70px - 190px) !important;
+        }
     }
 
 }
