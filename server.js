@@ -3102,6 +3102,19 @@ function applyFeatureCatalogPricingOverlay(remoteFeatureCatalog) {
     featureCatalogPricingOverlay = remoteFeatureCatalog;
 }
 
+// upgradeTierPricingOverlay — kapareho ng featureCatalogPricingOverlay
+// sa itaas, pero para sa bundlePrice/name ng UPGRADE_TIERS (basic/
+// standard/pro) mismo, hindi sa individual na theme/module presyo.
+// id -> {name, bundlePrice}, mula sa `upgradeTiers` field ng GET
+// /relay/pricing response. Ginagamit ito ng tierBundlePrice() helper
+// sa ibaba (tingnan ang UPGRADE_TIERS pagkatapos ng FEATURE_CATALOG).
+let upgradeTierPricingOverlay = {};
+
+function applyUpgradeTierPricingOverlay(remoteUpgradeTiers) {
+    if (!remoteUpgradeTiers || typeof remoteUpgradeTiers !== 'object') return;
+    upgradeTierPricingOverlay = remoteUpgradeTiers;
+}
+
 function loadCloudBackupPricingCache() {
     try {
         const cached = JSON.parse(fs.readFileSync(CLOUD_BACKUP_PRICING_CACHE_PATH, 'utf8'));
@@ -3115,6 +3128,12 @@ function loadCloudBackupPricingCache() {
         // lang ang cache/fetch cycle na ito para sa dalawa.
         if (cached && cached.featureCatalog) {
             applyFeatureCatalogPricingOverlay(cached.featureCatalog);
+        }
+        // Gayundin, ang bundlePrice ng Upgrade Tiers (basic/standard/pro)
+        // — parehong cache/fetch cycle din ito, tingnan ang comment sa
+        // applyUpgradeTierPricingOverlay() sa itaas.
+        if (cached && cached.upgradeTiers) {
+            applyUpgradeTierPricingOverlay(cached.upgradeTiers);
         }
     } catch (err) {
         // Walang cache pa (unang beses na patakbo, o bagong device) — okay lang, gagamitin ang fallback.
@@ -3162,6 +3181,11 @@ async function fetchCloudBackupPricing() {
         // blob naman ang na-se-save doon.
         if (data && data.success && data.featureCatalog) {
             applyFeatureCatalogPricingOverlay(data.featureCatalog);
+        }
+        // Gayundin, kasama na rin ngayon ang `upgradeTiers` (bundlePrice
+        // ng basic/standard/pro) — parehong blob, parehong cache.
+        if (data && data.success && data.upgradeTiers) {
+            applyUpgradeTierPricingOverlay(data.upgradeTiers);
         }
     } catch (err) {
         console.warn('⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback:', err.message);
@@ -3224,6 +3248,22 @@ function catalogEntry(featureId, fallbackName, fallbackPrice, category, descript
             return (overlay && typeof overlay.price === 'number') ? overlay.price : fallbackPrice;
         }
     };
+}
+
+// tierBundlePrice() — kapareho ng catalogEntry() sa itaas, pero para sa
+// bundlePrice ng isang UPGRADE_TIERS entry (basic/standard/pro). Ginagamit
+// ito bilang GETTER (hindi plain field) sa loob ng UPGRADE_TIERS sa ibaba,
+// para live na re-reresolve laban sa upgradeTierPricingOverlay sa tuwing
+// tinatanong (kagaya ng ginagawa na ng catalogEntry() para sa individual
+// na feature price/name).
+function tierBundlePrice(tierId, fallbackPrice) {
+    const overlay = upgradeTierPricingOverlay[tierId];
+    return (overlay && typeof overlay.bundlePrice === 'number') ? overlay.bundlePrice : fallbackPrice;
+}
+
+function tierName(tierId, fallbackName) {
+    const overlay = upgradeTierPricingOverlay[tierId];
+    return (overlay && typeof overlay.name === 'string' && overlay.name) ? overlay.name : fallbackName;
 }
 
 const FEATURE_CATALOG = {
@@ -3293,21 +3333,20 @@ function getTierPricing(tier, alreadyPurchased) {
 const UPGRADE_TIERS = [
     {
         id:'basic',
-        name:'Basic Upgrade',
         description:'For those who want to get started with reporting and promos.',
         featureIds: ['advanced_reports','promo_codes'],
-        bundlePrice: 999
+        get name() { return tierName('basic', 'Basic Upgrade'); },
+        get bundlePrice() { return tierBundlePrice('basic', 999); }
     },
     {
         id:'standard',
-        name:'Standard Upgrade',
         description:'Everything in Basic, plus customer loyalty and shift oversight.',
         featureIds: ['advanced_reports','promo_codes','customer_crm','shift_management'],
-        bundlePrice: 1999
+        get name() { return tierName('standard', 'Standard Upgrade'); },
+        get bundlePrice() { return tierBundlePrice('standard', 1999); }
     },
     {
         id:'pro',
-        name:'Pro Upgrade (Complete)',
         // NOTE: Cloud Backup is no longer included here — it's a
         // subscription now (Basic/Standard/Pro monthly/yearly), so it can
         // no longer be part of a ONE-TIME bundle price. This bundle
@@ -3317,7 +3356,15 @@ const UPGRADE_TIERS = [
 
         featureIds: Object.keys(FEATURE_CATALOG).filter(id => id !== CLOUD_BACKUP_FEATURE_ID),
 
-        bundlePrice: 6499
+        get name() { return tierName('pro', 'Pro Upgrade (Complete)'); },
+        // Fallback bumped from 6499 to 4999: at 6499 this bundle's discount
+        // vs its own à-la-carte total worked out to only ~9% off — smaller
+        // than Basic (~23%) or Standard (~28.5%), which is backwards for
+        // the "buy everything" tier. 4999 puts Pro at ~30% off, back in
+        // line with (and now the deepest of) the three. Editable anytime
+        // from the RELAY Feature Pricing admin page without a redeploy —
+        // see tierBundlePrice() above.
+        get bundlePrice() { return tierBundlePrice('pro', 4999); }
     }
 ];
 

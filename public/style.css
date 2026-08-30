@@ -3418,8 +3418,8 @@ body.dark-mode .search-box-container input::placeholder {
 
 .terminal-products-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 15px;
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    gap: 12px;
     flex: 1;
     overflow-y: auto;
     min-height: 0;
@@ -3446,8 +3446,8 @@ body.dark-mode .search-box-container input::placeholder {
 .t-product-card {
     background-color: var(--terminal-card-bg, #1c1c24);
     border: 1px solid var(--terminal-border);
-    border-radius: 10px;
-    padding: 15px;
+    border-radius: 16px;
+    padding: 12px 10px 14px;
     text-align: center;
     cursor: pointer;
     
@@ -3456,7 +3456,7 @@ body.dark-mode .search-box-container input::placeholder {
     flex-direction: column;
     align-items: center;
     position: relative;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.16);
     -webkit-tap-highlight-color: transparent;
     
     touch-action: manipulation;
@@ -3464,6 +3464,10 @@ body.dark-mode .search-box-container input::placeholder {
     -webkit-user-select: none;
     
     min-width: 0;
+}
+
+.terminal-theme.terminal-daymode .t-product-card {
+    box-shadow: 0 2px 8px rgba(15,23,42,0.06);
 }
 
 .t-product-card:active {
@@ -3484,20 +3488,25 @@ body.dark-mode .search-box-container input::placeholder {
 }
 
 .t-prod-icon {
-    font-size: 2.2rem;
-    margin-bottom: 12px;
+    font-size: 1.7rem;
+    margin-bottom: 10px;
     color: #f87171;
-    width: 56px;
-    height: 56px;
+    width: 48px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: 14px;
+    background: #20283d;
     position: relative;
     
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
+}
+
+.terminal-theme.terminal-daymode .t-prod-icon {
+    background: rgba(37,99,235,0.08);
 }
 
 .t-prod-icon-clickable {
@@ -3542,7 +3551,7 @@ body.dark-mode .search-box-container input::placeholder {
 }
 
 .t-product-card h4 {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
     margin-bottom: 6px;
     line-height: 1.3;
@@ -3555,7 +3564,7 @@ body.dark-mode .search-box-container input::placeholder {
     font-variant-numeric: tabular-nums;
     color: var(--success-green);
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     margin-bottom: 4px;
     
     max-width: 100%;
@@ -3579,7 +3588,7 @@ body.dark-mode .search-box-container input::placeholder {
 }
 
 .t-product-card.out-of-stock {
-    opacity: 0.5;
+    opacity: 0.45;
     pointer-events: none;
 }
 
@@ -7068,20 +7077,7 @@ body.dark-mode .bottom-nav-item:active {
     }
 
     .terminal-products-grid {
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 10px;
         overflow-y: visible;
-    }
-
-    .t-product-card {
-        padding: 10px;
-    }
-
-    .t-prod-icon {
-        width: 44px;
-        height: 44px;
-        font-size: 1.7rem;
-        margin-bottom: 8px;
     }
 
     .cart-summary-block {
@@ -10008,39 +10004,6 @@ body.dark-mode .cloud-backup-container #cloud-backup-sync-btn:hover {
         width: 38px;
         height: 38px;
         flex-shrink: 0;
-    }
-
-    .terminal-theme .terminal-products-grid {
-        grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-        gap: 12px;
-    }
-    .terminal-theme .t-product-card {
-        border-radius: 16px;
-        padding: 12px 10px 14px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.16);
-    }
-    .terminal-theme.terminal-daymode .t-product-card {
-        box-shadow: 0 2px 8px rgba(15,23,42,0.06);
-    }
-    
-    .terminal-theme .t-prod-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        background: #20283d;
-        margin-bottom: 10px;
-    }
-    .terminal-theme.terminal-daymode .t-prod-icon {
-        background: rgba(37,99,235,0.08);
-    }
-    .terminal-theme .t-product-card h4 {
-        font-size: 0.82rem;
-    }
-    .terminal-theme .t-prod-price {
-        font-size: 0.92rem;
-    }
-    .terminal-theme .t-product-card.out-of-stock {
-        opacity: 0.45;
     }
 
     .terminal-theme .terminal-cart-pane {
