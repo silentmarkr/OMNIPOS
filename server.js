@@ -3351,6 +3351,44 @@ async function refreshCloudBackupPricingIfStale() {
     ]);
 }
 
+// --------------------------------------------------------------
+// MULTI-TERMINAL / MULTI-BRANCH DISCOUNT (new, Aug 2026) — reward for
+// businesses running multiple OMNIPOS terminals under the same
+// Business Group Code (the same grouping already used by the
+// Multi-Branch Dashboard's branch-checkin/branch-summary), applied as
+// an extra % off on top of whatever Basic/Standard/Pro Upgrade Tier
+// discount + already-purchased credit this device already qualifies
+// for (see getTierPricing() below).
+//
+// Unlike Cloud Backup pricing (shared across ALL devices, so worth a
+// persistent disk-cached overlay), this discount is PER-DEVICE (depends
+// on which group THIS installationId belongs to) — so there's no
+// cross-device cache to maintain here. It's fetched fresh, with a short
+// timeout, right before the upgrade/bundle catalog is shown to a human
+// (GET /api/features/upgrade-catalog below). If RELAY is unreachable,
+// this simply resolves to 0% — never blocks or breaks the catalog
+// screen, worst case the customer just doesn't see a discount they may
+// be entitled to until the next successful fetch.
+// --------------------------------------------------------------
+async function fetchGroupDiscount(installationId) {
+    if (!RELAY_API_KEY || !installationId) return { deviceCount: 1, discountPercent: 0 };
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/pricing/group-discount?installationId=${encodeURIComponent(installationId)}`, {
+            headers: { 'x-relay-key': RELAY_API_KEY }
+        }, 4000);
+        if (!relayRes.ok) return { deviceCount: 1, discountPercent: 0 };
+        const data = await relayRes.json();
+        if (data && data.success) {
+            return { deviceCount: data.deviceCount || 1, discountPercent: data.discountPercent || 0 };
+        }
+    } catch (err) {
+        // Offline/unreachable/timeout — treat as "no discount known yet",
+        // same fail-open-to-zero behavior as any other optional pricing
+        // hint. Never throws up to the caller.
+    }
+    return { deviceCount: 1, discountPercent: 0 };
+}
+
 // I-load muna ang disk cache (kung meron) para agad tama ang presyo
 // kahit bago pa matapos ang unang live fetch, tapos subukan ang live
 // fetch, tapos mag-refresh paminsan-minsan habang tumatakbo (safety net
@@ -3485,7 +3523,7 @@ function sumFeaturePrices(featureIds) {
     return featureIds.reduce((sum, id) => sum + ((FEATURE_CATALOG[id] && FEATURE_CATALOG[id].price) || 0), 0);
 }
 
-function getTierPricing(tier, alreadyPurchased) {
+function getTierPricing(tier, alreadyPurchased, multiTerminalDiscountPercent = 0) {
     const fullAlaCarteValue = sumFeaturePrices(tier.featureIds);
     const remainingFeatureIds = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
     const remainingAlaCarteValue = sumFeaturePrices(remainingFeatureIds);
@@ -3496,10 +3534,21 @@ function getTierPricing(tier, alreadyPurchased) {
 
     const bundleRate = tier.bundlePrice / fullAlaCarteValue;
 
-    const effectivePrice = Math.min(
+    let effectivePrice = Math.min(
         tier.bundlePrice,
         Math.max(1, Math.ceil(remainingAlaCarteValue * bundleRate))
     );
+
+    // Apply the multi-terminal/multi-branch discount (if any) ON TOP of
+    // the already-purchased-credit price above — same order every time
+    // (credit first, then %-off), so the two stack predictably instead
+    // of interacting in a way that's hard to explain to a customer.
+    // Floor at ₱1 so a feature is never "free" outright from stacking
+    // discounts (a ₱0 bundle would be indistinguishable from a bug).
+    if (multiTerminalDiscountPercent > 0) {
+        effectivePrice = Math.max(1, Math.round(effectivePrice * (1 - multiTerminalDiscountPercent / 100)));
+    }
+
     const discount = Math.max(0, remainingAlaCarteValue - effectivePrice);
     return { discount, effectivePrice };
 }
@@ -3532,14 +3581,23 @@ const UPGRADE_TIERS = [
         get featureIds() { return tierFeatureIds('pro', Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id))); },
 
         get name() { return tierName('pro', 'Pro Upgrade (Complete)'); },
-        // Fallback bumped from 6499 to 4999: at 6499 this bundle's discount
-        // vs its own à-la-carte total worked out to only ~9% off — smaller
-        // than Basic (~23%) or Standard (~28.5%), which is backwards for
-        // the "buy everything" tier. 4999 puts Pro at ~30% off, back in
-        // line with (and now the deepest of) the three. Editable anytime
-        // from the RELAY Feature Pricing admin page without a redeploy —
-        // see tierBundlePrice() above.
-        get bundlePrice() { return tierBundlePrice('pro', 4999); }
+        // Fallback history: 6499 -> 4999 -> 3599. At 6499 this bundle's
+        // discount vs its own à-la-carte total worked out to only ~9%
+        // off; the follow-up fix to 4999 was ALSO wrong (computed against
+        // stale catalog prices — by the time purchase_orders/customer_crm
+        // prices had risen, 4999 had quietly drifted to only ~2.7% off,
+        // worse than Basic (~23%) or Standard (~28.5%), which is backwards
+        // for the "buy everything" tier, and worse than just buying
+        // Standard + purchase_orders + all themes separately). 3599 puts
+        // Pro back at ~30% off (the deepest of the three, as it should
+        // be) against the CURRENT catalog total of ₱5,136. This is only
+        // a fallback used before the first successful RELAY sync — the
+        // live source of truth is RELAY's Feature Pricing admin page,
+        // which now also shows an "à la carte total / suggested price"
+        // preview so this kind of drift gets caught early next time.
+        // Editable anytime from there without a redeploy — see
+        // tierBundlePrice() above.
+        get bundlePrice() { return tierBundlePrice('pro', 3599); }
     }
 ];
 
@@ -4205,20 +4263,48 @@ const relayBranchStatus = {
     state: 'orange',
     lastAttemptAt: null,
     lastSuccessAt: null,
-    lastError: null
+    lastError: null,
+    // Purely informational — separate from `state` (which reflects
+    // whether the check-in ITSELF is succeeding) so that a store which
+    // hasn't purchased Multi-Branch Dashboard yet can still show
+    // state:'green' (check-in working fine, contributing to Multi-
+    // Terminal Discount grouping) while this flag notes that the
+    // COMBINED VIEW is still locked until they subscribe.
+    multiBranchFeatureLocked: true
 };
 
 async function runRelayBranchCheckin() {
 
-    if (!getUnlockedFeatureIds().includes('multi_branch')) {
-        relayBranchStatus.state = 'orange';
-        relayBranchStatus.lastError = 'Naka-lock pa ang Multi-Branch Dashboard feature.';
-        return;
-    }
-
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
     if (!groupKeyHash) return;
+
+    // BUG FIX (Aug 2026): dati, agad na-re-return ang function na ito
+    // (WALANG tinatawagang RELAY) maliban kung naka-unlock na ang
+    // multi_branch subscription — kahit may naka-configure na ang
+    // merchant na Business Group Code. Resulta: kailanman ay HINDI
+    // nakaka-checkin sa RELAY ang isang device maliban kung nagbayad na
+    // ito para sa Multi-Branch Dashboard mismo — pero ang parehong
+    // grouping data na ito (branchSummaries sa RELAY) ang siya ring
+    // pinagbabatayan ng bagong Multi-Terminal Discount feature (tingnan
+    // ang getGroupDeviceCount() sa RELAY/server.js), kaya sa lumang
+    // gawi, HINDI kailanman makakatanggap ng discount ang isang
+    // negosyong may maraming terminal maliban kung binili na rin nila
+    // ang Multi-Branch Dashboard — circular at halos walang epekto ang
+    // discount para sa karamihan ng maliliit na negosyo.
+    //
+    // Ang pagtingin sa COMBINED dashboard mismo ay HIWALAY nang naka-
+    // gate ng requireFeature('multi_branch') sa /api/branches/summary
+    // (tingnan sa ibaba) — kaya ligtas na payagan ang checkin na ito
+    // (isang beses lang bawat 5 minuto, sariling datos lang ng tindahan
+    // ang ipinapadala) anuman ang subscription status; ang pagbabayad
+    // pa rin ang kailangan para MAKITA ang combined view ng lahat ng
+    // branch, hindi para lang mailista bilang isang device sa group.
+    const isMultiBranchUnlocked = getUnlockedFeatureIds().includes('multi_branch');
+    relayBranchStatus.multiBranchFeatureLocked = !isMultiBranchUnlocked;
+    // NOTE: intentionally NOT returning here even when locked — the
+    // check-in call below still proceeds regardless of subscription
+    // status (see comment above this function).
 
     if (getConnectivityMode() === 'offline') {
         relayBranchStatus.state = 'orange';
@@ -5941,11 +6027,13 @@ app.get('/api/features/upgrade-catalog', async (req, res) => {
     await refreshCloudBackupPricingIfStale();
 
     const alreadyPurchased = getPurchasedFeatureIds();
+    const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+    const { deviceCount, discountPercent: multiTerminalDiscountPercent } = await fetchGroupDiscount(installationId);
 
     const features = Object.keys(FEATURE_CATALOG)
         .map(id => ({ id, ...FEATURE_CATALOG[id] }));
     const tiers = UPGRADE_TIERS.map(tier => {
-        const { discount, effectivePrice } = getTierPricing(tier, alreadyPurchased);
+        const { discount, effectivePrice } = getTierPricing(tier, alreadyPurchased, multiTerminalDiscountPercent);
         const remainingFeatureIds = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
         return {
             id: tier.id,
@@ -5958,7 +6046,7 @@ app.get('/api/features/upgrade-catalog', async (req, res) => {
             effectiveBundlePrice: effectivePrice
         };
     });
-    res.json({ success: true, features, tiers });
+    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount });
 });
 
 app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-bulk-request', 3, 10 * 60 * 1000), async (req, res) => {
@@ -5993,6 +6081,14 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
         return res.json({ success: true, alreadyUnlocked: true, message:'All selected items are already unlocked.' });
     }
 
+    // Same multi-terminal/multi-branch discount used by the catalog
+    // preview (GET /api/features/upgrade-catalog) — fetched again here
+    // rather than trusted from the client, so the actual amount sent to
+    // RELAY always matches what the discount rules say NOW, even if it
+    // changed (e.g. a sibling device joined/left the group) between the
+    // moment the customer opened the dialog and the moment they confirm.
+    const { discountPercent: multiTerminalDiscountPercent } = await fetchGroupDiscount(installationId);
+
     let totalPrice = sumFeaturePrices(stillLocked);
     if (tierId) {
         const tier = UPGRADE_TIERS.find(t => t.id === tierId);
@@ -6001,7 +6097,7 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
             const sameSet = tierStillLocked.length === stillLocked.length &&
                 tierStillLocked.every(id => stillLocked.includes(id));
             if (sameSet) {
-                totalPrice = getTierPricing(tier, alreadyPurchased).effectivePrice;
+                totalPrice = getTierPricing(tier, alreadyPurchased, multiTerminalDiscountPercent).effectivePrice;
             }
         }
     }

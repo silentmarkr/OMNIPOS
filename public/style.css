@@ -8824,6 +8824,16 @@ body.dark-mode .swal2-timer-progress-bar {
     color: var(--success-green);
 }
 
+.uw-multiterminal-banner {
+    background: var(--pos-neutral-soft, #f8fafc);
+    border: 1px solid var(--border-color);
+    color: var(--success-green);
+}
+body.dark-mode .uw-multiterminal-banner {
+    background: var(--dm-surface-alt);
+    border-color: var(--dm-border);
+}
+
 .uw-category-group summary {
     background: var(--pos-neutral-soft, #f8fafc);
 }

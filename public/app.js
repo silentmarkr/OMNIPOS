@@ -2697,6 +2697,9 @@ async function showUpgradeTiersModal() {
         html:
             `<div style="text-align:left;max-height:60vh;overflow-y:auto;">` +
                 `<p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Select a complete package below, or build a custom selection à la carte. Click "Upgrade Now" once you're ready — it applies automatically to whichever option you choose.</p>` +
+                (catalog.multiTerminalDiscountPercent > 0
+                    ? `<div class="uw-multiterminal-banner" style="font-size:0.78rem;padding:8px 12px;border-radius:8px;margin-bottom:10px;">🏬 Multi-terminal discount active: extra <strong>${catalog.multiTerminalDiscountPercent}% off</strong> package prices below (${catalog.deviceCount} devices sharing this store's Business Group Code). Already applied to the prices shown.</div>`
+                    : '') +
                 `<div class="uw-modal-section-title" style="font-weight:600;font-size:0.82rem;margin-bottom:6px;">Complete Packages</div>` +
                 `<div id="uw-tier-list">${tierCardsHtml}</div>` +
                 `<div class="uw-modal-section-title" style="font-weight:600;font-size:0.82rem;margin:14px 0 4px;">Or Select Individual Features</div>` +
