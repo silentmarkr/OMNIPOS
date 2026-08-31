@@ -3,35 +3,25 @@ const isLocal = window.location.hostname ==='localhost' ||
                 window.location.hostname.startsWith('192.168.') ||
                 window.location.hostname.startsWith('10.') ||
 /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(window.location.hostname);
-
 const API_URL = isLocal
     ? `${window.location.protocol}//${window.location.hostname}:3000/api`
     : `${window.location.protocol}//${window.location.hostname}/api`;
-
 const AUTH_FETCH_TIMEOUT_MS = 6000;
-
-// Shared cap for a product's "Additional Photos" gallery — used by manual
-// upload, and by the "+ Gallery" multi-select in the image search modal.
 const PRODUCT_GALLERY_MAX_PHOTOS = 7;
-
 async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
-
     const externalSignal = options.signal;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-
     if (externalSignal) {
         if (externalSignal.aborted) controller.abort();
         else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
     }
-
     try {
         return await window.fetch(url, { ...options, signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
 }
-
 async function authFetch(url, options = {}) {
     const token = localStorage.getItem('omnipos_token');
     const opts = { ...options };
@@ -39,24 +29,18 @@ async function authFetch(url, options = {}) {
         ...(options.headers || {}),
         ...(token ? {'Authorization': `Bearer ${token}` } : {})
     };
-
     const timeoutMs = options.timeoutMs || AUTH_FETCH_TIMEOUT_MS;
-
     let res;
     try {
         res = await fetchWithTimeout(url, opts, timeoutMs);
     } catch (err) {
-
         if (window.__triggerNetworkRecheck) window.__triggerNetworkRecheck();
         throw err;
     }
-
     if (res.status === 401 && !url.includes('/auth/login')) {
-
         if (!token) {
             return res;
         }
-
         if (!window.__sessionExpiredShown && !window.__logoutInProgress) {
             window.__sessionExpiredShown = true;
             localStorage.removeItem('omnipos_user');
@@ -69,7 +53,6 @@ async function authFetch(url, options = {}) {
             }
         }
     }
-
     if (res.status === 402) {
         try {
             const data = await res.clone().json();
@@ -85,18 +68,14 @@ async function authFetch(url, options = {}) {
                 opener().finally(() => { window.__featurePromptOpen = false; });
             }
         } catch (e) {
-
         }
     }
-
     return res;
 }
-
 function isOfflineModeActive() {
     const btn = document.getElementById('connectivity-mode-btn');
     return !!(btn && btn.dataset.mode === 'offline');
 }
-
 function blockIfOffline(featureLabel) {
     if (!isOfflineModeActive()) return false;
     if (typeof Swal !== 'undefined') {
@@ -110,7 +89,6 @@ function blockIfOffline(featureLabel) {
     }
     return true;
 }
-
 function showUnlockRequestError(reqData, fallbackMessage) {
     if (reqData && reqData.pendingAuthorization) {
         Swal.fire({
@@ -126,7 +104,6 @@ function showUnlockRequestError(reqData, fallbackMessage) {
     }
     Swal.fire('Request Not Sent', (reqData && reqData.message) || fallbackMessage,'error');
 }
-
 function escapeHtml(value) {
     if (value === null || value === undefined) return'';
     return String(value)
@@ -136,7 +113,6 @@ function escapeHtml(value) {
         .replace(/"/g,'&quot;')
         .replace(/'/g,'&#39;');
 }
-
 function b64urlToBuf(b64url) {
     let b64 = String(b64url).replace(/-/g,'+').replace(/_/g,'/');
     while (b64.length % 4) b64 += '=';
@@ -145,14 +121,12 @@ function b64urlToBuf(b64url) {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return bytes.buffer;
 }
-
 function bufToB64url(buf) {
     const bytes = new Uint8Array(buf);
     let bin ='';
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
-
 async function isBiometricLoginAvailable() {
     const isMobileDeviceUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     if (!isMobileDeviceUA) return false;
@@ -164,20 +138,15 @@ async function isBiometricLoginAvailable() {
         return false;
     }
 }
-
 (async function initBiometricLoginButton() {
     const btn = document.getElementById('biometric-login-btn');
     if (!btn) return;
     const available = await isBiometricLoginAvailable();
-
     btn.style.display = available ?'flex' :'none';
 })();
-
 async function loginWithBiometric() {
     const errorBanner = document.getElementById('login-error');
-
     try {
-
         const optRes = await fetchWithTimeout(`${API_URL}/auth/webauthn/login-options`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
@@ -189,17 +158,14 @@ async function loginWithBiometric() {
             errorBanner.style.display ='block';
             return;
         }
-
         const assertion = await navigator.credentials.get({
             publicKey: {
                 challenge: b64urlToBuf(optData.challenge),
                 rpId: optData.rpId,
                 timeout: optData.timeout,
                 userVerification: optData.userVerification
-
             }
         });
-
         const verifyRes = await fetchWithTimeout(`${API_URL}/auth/webauthn/login-verify`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
@@ -212,7 +178,6 @@ async function loginWithBiometric() {
             })
         });
         const data = await verifyRes.json();
-
         if (data.success) {
             currentUser = data.user;
             localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
@@ -222,11 +187,9 @@ async function loginWithBiometric() {
             localStorage.setItem('omnipos_permissions', JSON.stringify(currentPermissions));
             localStorage.setItem('omnipos_menu_registry', JSON.stringify(menuRegistry));
             if (data.token) localStorage.setItem('omnipos_token', data.token);
-
             window.__logoutInProgress = false;
             window.__sessionExpiredShown = false;
             errorBanner.style.display ='none';
-
             showMainSystemInterface().catch(err => {
                 console.error('Unexpected error during biometric login:', err);
             });
@@ -235,14 +198,12 @@ async function loginWithBiometric() {
             errorBanner.style.display ='block';
         }
     } catch (err) {
-
         if (err && (err.name ==='NotAllowedError' || err.name ==='AbortError')) return;
         console.error(err);
         errorBanner.innerText ='Fingerprint Login failed. Please try again or use your password.';
         errorBanner.style.display ='block';
     }
 }
-
 async function refreshBiometricSection() {
     const section = document.getElementById('biometric-section');
     if (!section) return;
@@ -250,7 +211,6 @@ async function refreshBiometricSection() {
     section.style.display = available ?'block' :'none';
     if (available) loadBiometricDevicesList();
 }
-
 async function loadBiometricDevicesList() {
     const listEl = document.getElementById('biometric-devices-list');
     if (!listEl) return;
@@ -277,7 +237,6 @@ async function loadBiometricDevicesList() {
         listEl.innerHTML ='<p style="color:#64748b; font-size:0.85rem;">Unable to load the list of fingerprint devices.</p>';
     }
 }
-
 async function registerBiometricCredential() {
     try {
         const optRes = await authFetch(`${API_URL}/auth/webauthn/register-options`, { method:'POST' });
@@ -287,7 +246,6 @@ async function registerBiometricCredential() {
             return;
         }
         const o = optData.options;
-
         const credential = await navigator.credentials.create({
             publicKey: {
                 challenge: b64urlToBuf(o.challenge),
@@ -300,7 +258,6 @@ async function registerBiometricCredential() {
                 excludeCredentials: (o.excludeCredentials || []).map(c => ({ id: b64urlToBuf(c.id), type: c.type }))
             }
         });
-
         const deviceLabel = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform ||'Mobile device';
         const verifyRes = await authFetch(`${API_URL}/auth/webauthn/register-verify`, {
             method:'POST',
@@ -326,7 +283,6 @@ async function registerBiometricCredential() {
         Swal.fire('Error','Unable to enable Fingerprint Login on this device.','error');
     }
 }
-
 async function removeBiometricCredential(encodedId) {
     const confirmResult = await Swal.fire({
         title:'Remove Fingerprint?',
@@ -337,7 +293,6 @@ async function removeBiometricCredential(encodedId) {
         cancelButtonText:'Cancel'
     });
     if (!confirmResult.isConfirmed) return;
-
     try {
         const res = await authFetch(`${API_URL}/auth/webauthn/credentials/${encodedId}`, { method:'DELETE' });
         const data = await res.json();
@@ -351,52 +306,41 @@ async function removeBiometricCredential(encodedId) {
         Swal.fire('Error','Unable to remove the fingerprint.','error');
     }
 }
-
 function triggerHaptic(durationMs = 12) {
     try {
         if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
             navigator.vibrate(durationMs);
         }
     } catch (e) {
-
     }
 }
-
 function attachInstantTapFeedback(el, options) {
     options = options || {};
     var activeClass = options.activeClass || 'tap-active';
     var hapticMs = options.hapticMs || 12;
-
     if (!el || el.__instantTapBound) return;
     el.__instantTapBound = true;
-
     var clearActive = function () { el.classList.remove(activeClass); };
-
     el.addEventListener('pointerdown', function () {
         el.classList.add(activeClass);
         triggerHaptic(hapticMs);
     }, { passive: true });
-
     el.addEventListener('pointerup', clearActive, { passive: true });
     el.addEventListener('pointerleave', clearActive, { passive: true });
     el.addEventListener('pointercancel', clearActive, { passive: true });
 }
-
 function attachLongPress(el, callback, durationMs) {
     if (!el || el.__longPressBound) return;
     el.__longPressBound = true;
     durationMs = durationMs || 1000;
-
     let pressTimer = null;
     let didFire = false;
-
     const clearPressTimer = function () {
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
         }
     };
-
     el.addEventListener('pointerdown', function (e) {
         didFire = false;
         clearPressTimer();
@@ -407,56 +351,39 @@ function attachLongPress(el, callback, durationMs) {
             callback(e);
         }, durationMs);
     }, { passive: true });
-
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evtName) {
         el.addEventListener(evtName, clearPressTimer, { passive: true });
     });
-
     el.addEventListener('click', function (e) {
         if (didFire) {
-
             e.stopPropagation();
             didFire = false;
         }
-
     });
-
     el.addEventListener('contextmenu', function (e) {
         e.preventDefault();
     });
 }
-
 function attachHoldPreview(el, onShow, onHide, durationMs) {
     if (!el || el.__holdPreviewBound) return;
     el.__holdPreviewBound = true;
-    // Mabilis na response — dating 380ms, ngayon 180ms na lang bago
-    // lumabas ang enlarged preview kapag naka-hold tap/click.
     durationMs = durationMs || 180;
-
     let pressTimer = null;
     let isShowing = false;
-    // didHold persists past pointerup (unlike isShowing, which is reset by
-    // doHide before the click event fires) — ginagamit ito para malaman ng
-    // click handler kung dapat i-suppress ang normal na click action
-    // (hal. "select this image") pagkatapos ng hold+release, pero hindi
-    // apektado ang susunod na normal/mabilis na tap.
     let didHold = false;
     let activePointerId = null;
-
     const clearPressTimer = function () {
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
         }
     };
-
     const releaseCapture = function () {
         if (activePointerId !== null) {
-            try { el.releasePointerCapture(activePointerId); } catch (err) { /* no-op */ }
+            try { el.releasePointerCapture(activePointerId); } catch (err) {   }
             activePointerId = null;
         }
     };
-
     const doHide = function () {
         clearPressTimer();
         releaseCapture();
@@ -465,21 +392,13 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
             onHide();
         }
     };
-
     el.addEventListener('pointerdown', function (e) {
         if (typeof e.button === 'number' && e.button !== 0) return;
         clearPressTimer();
         didHold = false;
         activePointerId = e.pointerId;
-        // Pointer capture: pinipilit na ang LAHAT ng susunod na pointer
-        // events (move/up) para dito mismong element, kahit gumalaw pa ang
-        // cursor/finger sa ibang bahagi ng screen habang naka-hold. Kaya
-        // hindi na kailangan (at hindi na dapat gamitin) ang
-        // "pointerleave" para i-close ang preview — iyon ang dating
-        // sanhi ng biglaang pagkawala/blink ng enlarge kapag kumikilos ang
-        // pointer palabas ng thumbnail habang naka-hold pa rin.
         if (typeof el.setPointerCapture === 'function') {
-            try { el.setPointerCapture(e.pointerId); } catch (err) { /* no-op */ }
+            try { el.setPointerCapture(e.pointerId); } catch (err) {   }
         }
         pressTimer = setTimeout(function () {
             pressTimer = null;
@@ -489,28 +408,9 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
             onShow(e);
         }, durationMs);
     });
-
-    // Sadyang WALANG 'pointerleave' dito — sa hold-to-preview, dapat lang
-    // mag-close ang enlarge sa aktwal na release (pointerup) o pagka-cancel
-    // ng gesture (pointercancel), hindi sa paggalaw ng pointer sa ibang
-    // bahagi ng screen.
     el.addEventListener('pointerup', doHide);
     el.addEventListener('pointercancel', doHide);
-
-    // BUG FIX: dati, kapag na-re-render/natanggal sa DOM ang `el` habang
-    // hawak-hawak pa ito (hal. nag-refresh ang search results habang
-    // naka-hold ang user sa isang thumbnail), hindi na kailanman nag-fi-fire
-    // ang 'pointerup'/'pointercancel' dito — implicit na nawawala na lang
-    // ang pointer capture, pero WALANG event na sumasabay dito noon. Kaya
-    // "natitirang naka-stack"/hindi nawawala ang enlarge preview hangga't
-    // walang susunod na tap/hold na mag-re-reset ng state. Ang
-    // 'lostpointercapture' ang tanging event na GINAGARANTIYA ng browser na
-    // fire-in kapag na-release ang capture sa kahit anong dahilan (kasama
-    // na ang pagkatanggal sa DOM) — kaya dito rin natin dapat i-close ang
-    // preview, para talagang TULUYANG nawawala ito kahit walang aktwal na
-    // pointerup/pointercancel na naipadala.
     el.addEventListener('lostpointercapture', doHide);
-
     el.addEventListener('click', function (e) {
         if (didHold) {
             e.preventDefault();
@@ -519,16 +419,10 @@ function attachHoldPreview(el, onShow, onHide, durationMs) {
             didHold = false;
         }
     });
-
     el.addEventListener('contextmenu', function (e) {
         e.preventDefault();
     });
 }
-
-// Single, reusable full-screen overlay para sa "hold tap/click to enlarge"
-// na preview ng product image thumbnails. Isang instance lang ito sa buong
-// app (ginagawa lazily sa unang paggamit) — mas mabilis at walang blink
-// kompara sa paggawa/pagtanggal ng bagong element sa DOM sa bawat hold.
 let __holdZoomOverlayEl = null;
 function ensureHoldZoomOverlay() {
     if (__holdZoomOverlayEl && document.body.contains(__holdZoomOverlayEl)) {
@@ -542,28 +436,12 @@ function ensureHoldZoomOverlay() {
         + '<span id="img-hold-zoom-overlay-loading" class="img-hold-zoom-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading full quality...</span>';
     document.body.appendChild(el);
     __holdZoomOverlayEl = el;
-
-    // FAILSAFE (isang beses lang ito isesetup, dito mismo sa paggawa ng
-    // overlay): kung sakaling mai-stuck pa rin ang preview sa "visible" kahit
-    // may lostpointercapture fix na sa itaas (hal. nag-switch ng app/tab ang
-    // user habang naka-hold sa isang photo, o may ibang sitwasyon na hindi
-    // aktwal na naipadala ang pointerup/pointercancel/lostpointercapture),
-    // sisiguraduhin nitong TULUYANG magsasara ang enlarge sa sandaling
-    // mawala ang focus ng window o magtago ang tab/app — hindi dapat ito
-    // umasa lang sa mismong pointer events ng element na hinawakan.
     window.addEventListener('blur', hideHoldZoomPreview);
     document.addEventListener('visibilitychange', function () {
         if (document.hidden) hideHoldZoomPreview();
     });
-
     return el;
 }
-
-// isLoadingFullRes: kapag true, may lalabas na maliit na "Loading full
-// quality..." badge sa ibaba ng preview — ginagamit habang kinukuha pa ang
-// full-resolution na bersyon ng result (see fetchFullResPreviewForSearchResult
-// below), kaya alam ng user na thumbnail lang muna ang nakikita niya at
-// papalitan pa ito ng mas malinaw kapag natapos ang fetch.
 function showHoldZoomPreview(src, alt, isLoadingFullRes) {
     if (!src) return;
     const overlay = ensureHoldZoomOverlay();
@@ -571,22 +449,13 @@ function showHoldZoomPreview(src, alt, isLoadingFullRes) {
     img.src = src;
     img.alt = alt || '';
     overlay.classList.toggle('is-loading-fullres', !!isLoadingFullRes);
-    // "is-visible" lang ang tine-toggle (hindi display:none/flex) para
-    // hindi na kailangan mag-reflow/repaint ng layout sa tuwing lalabas ito
-    // — ito ang gumagawa sa enlarge na parang instant at walang kurap/blink.
     overlay.classList.add('is-visible');
 }
-
 function hideHoldZoomPreview() {
     if (!__holdZoomOverlayEl) return;
     __holdZoomOverlayEl.classList.remove('is-visible');
     __holdZoomOverlayEl.classList.remove('is-loading-fullres');
 }
-
-// I-attach ang hold-to-enlarge sa lahat ng .p-image-search-thumb (o kahit
-// anong element) sa loob ng isang container — quick tap/click gumagana pa
-// rin ng normal (hal. pumili ng image), habang hold+release ay nagpapakita
-// lang ng enlarged preview nito na nawawala kapag binitawan.
 function attachHoldZoomToThumbs(container, selector) {
     if (!container) return;
     container.querySelectorAll(selector).forEach(function (thumb) {
@@ -599,22 +468,7 @@ function attachHoldZoomToThumbs(container, selector) {
         }, 180);
     });
 }
-
-// Cache ng mga na-fetch na full-resolution na preview (id -> dataUrl) para
-// sa "Search Image" modal — kapag naka-hold ulit sa parehong result sa
-// loob ng iisang search, hindi na ito kailangang i-download ulit sa
-// backend. Nire-reset ito sa bawat bagong search (see
-// renderProductImageSearchResults).
 const productImageSearchFullResCache = new Map();
-
-// Kinukuha ang FULL-RESOLUTION (hindi thumbnail) na bersyon ng isang
-// search result — gamit ang parehong "/select" endpoint na tinatawag din
-// pagka-tap upang piliin ang larawan (ligtas itong tawagin nang paulit-
-// ulit; hindi ito "committing"/consuming ng session, fetch+return dataUrl
-// lang talaga ang ginagawa nito sa backend). Dahil dito, tumutugma na
-// talaga ang laman ng hold-to-enlarge preview sa ACTUAL na quality na
-// ma-save kapag pinili ang result na ito — hindi na lang basehan ang
-// posibleng maliit/compressed na thumbnail.
 async function fetchFullResPreviewForSearchResult(id) {
     if (productImageSearchFullResCache.has(id)) {
         return productImageSearchFullResCache.get(id);
@@ -638,14 +492,6 @@ async function fetchFullResPreviewForSearchResult(id) {
         return null;
     }
 }
-
-// Kagaya ng attachHoldZoomToThumbs, pero sa Search Image modal specifically
-// — instant munang ipinapakita ang thumbnail (para walang pakiramdam na
-// "walang nangyayari"), tapos pagka-kuha ng full-resolution na bersyon,
-// papalitan ang preview OO kung TALAGANG kasalukuyang naka-hold pa rin sa
-// PAREHONG result (may "holdToken" na guard laban sa race condition — hal.
-// mabilis na hold sa result A, saka result B — hindi na dapat ipakita pa
-// ang huling resulta ng fetch ni A pagkatapos nitong ma-cancel/mapalitan).
 function attachHoldZoomToProductSearchThumbs(container) {
     if (!container) return;
     let holdToken = 0;
@@ -658,65 +504,22 @@ function attachHoldZoomToProductSearchThumbs(container) {
             showHoldZoomPreview(img.currentSrc || img.src, img.alt, true);
             if (!resultId) return;
             fetchFullResPreviewForSearchResult(resultId).then(function (fullDataUrl) {
-                // Kung nagbago na ang holdToken (ibig sabihin binitawan na
-                // o may bagong hinold sa ibang result), huwag na ito
-                // ipapakita pa — nakasave na lang ito sa cache para sa
-                // susunod na hold sa result na ito.
                 if (myToken !== holdToken) return;
                 if (fullDataUrl) {
                     showHoldZoomPreview(fullDataUrl, img.alt, false);
                 } else {
-                    // Nabigo ang fetch — panatilihin lang ang thumbnail,
-                    // tanggalin lang ang "loading" badge.
                     if (__holdZoomOverlayEl) __holdZoomOverlayEl.classList.remove('is-loading-fullres');
                 }
             });
         }, function () {
             hideHoldZoomPreview();
         }, 180);
-
-        // Sinasadyang idinagdag ito PAGKATAPOS ng attachHoldPreview sa itaas
-        // (hindi bilang inline onclick="" sa HTML) — ang pagkakasunod-sunod
-        // ng pagbind ng click listeners sa IISANG element ang siyang
-        // basehan ng browser kung sino ang unang tatakbo, hindi capture vs
-        // bubble. Dati, naka-inline ang onclick="selectSearchedProductImage(...)"
-        // sa mismong HTML string, kaya ito na ang UNANG click listener na
-        // naitatakda sa button (nangyayari agad pagka-parse ng innerHTML) —
-        // bago pa man tumakbo ang attachHoldPreview() dito (na tumatakbo na
-        // lang PAGKATAPOS ma-set ang innerHTML). Kaya kahit gumagana ang
-        // e.stopPropagation()/preventDefault() sa loob ng attachHoldPreview,
-        // huli na ito — nauna nang natawag ang pag-select bago pa man
-        // "mapigilan" ito. Ang resulta: pag bumitaw ka pagkatapos mag-hold
-        // (view full-size lang dapat), naseselect at nase-save pa rin bilang
-        // main product photo ang result — hindi dapat mangyari 'yon.
-        //
-        // Ngayon, binibind ito dito gamit ang addEventListener PAGKATAPOS ng
-        // attachHoldPreview, kaya ang guard na 'yon ang UNANG tatakbo sa
-        // click event. Kapag hold+release (didHold === true), tinatawag ng
-        // guard ang e.stopImmediatePropagation() — pinipigilan nito ang
-        // pagtakbo ng listener na ito (dahil huli itong nakabind sa
-        // parehong element), kaya hindi na maseselect ang larawan. Sa
-        // normal/mabilisang tap lang (walang hold), tuluyan itong tatakbo
-        // gaya ng dati.
         thumb.addEventListener('click', function () {
             if (!resultId) return;
             selectSearchedProductImage(resultId);
         });
     });
 }
-
-// Isang shared na "coordinator" (hindi per-element) para sa hover preview ng
-// buong product grid. Dati, magkakahiwalay na state ang h4/price/stock ng
-// isang product card — kaya sa sobrang liit na galaw ng pointer papunta sa
-// katabing text (h4 -> price -> stock) ng IISANG product, nag-fi-fire ang
-// pointerleave ng luma bago pa man makapasok ang pointerenter ng bago, kaya
-// nawawala-lumalabas (blink) ang peek nang paulit-ulit habang nakatigil lang
-// naman talaga sa iisang product. Dito, iisang groupKey (product code) ang
-// ginagamit para malaman kung "parehong product pa rin" ang hinover — kung
-// oo, hindi na ito nagpapa-restart/hide. May 5-segundong auto-hide (blink
-// off) din habang paulit-ulit na naka-hover sa iisang product, at kapag
-// dumiretso ang pointer sa ibang product, agad na nawawala ang dati (kahit
-// hindi pa naabot ang 5s nito) para makapalit kaagad ang bago.
 const hoverPeekCoordinator = {
     groupKey: null,
     showTimer: null,
@@ -725,26 +528,21 @@ const hoverPeekCoordinator = {
     reshowTimer: null,
     isVisible: false
 };
-
 function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
     if (!el || el.__hoverPreviewBound) return;
     el.__hoverPreviewBound = true;
     durationMs = durationMs || 1000;
-
     const AUTO_HIDE_MS = 5000;
     const SWITCH_DELAY_MS = 150;
     const LEAVE_GRACE_MS = 180;
     const RESHOW_GAP_MS = 400;
-
     const c = hoverPeekCoordinator;
-
     const clearAllTimers = function () {
         clearTimeout(c.showTimer); c.showTimer = null;
         clearTimeout(c.leaveTimer); c.leaveTimer = null;
         clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
         clearTimeout(c.reshowTimer); c.reshowTimer = null;
     };
-
     const doHide = function () {
         clearAllTimers();
         if (c.isVisible) {
@@ -753,19 +551,12 @@ function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
         }
         c.groupKey = null;
     };
-
     const doShow = function (e) {
         clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
         clearTimeout(c.reshowTimer); c.reshowTimer = null;
         c.isVisible = true;
         c.groupKey = groupKey;
         onShow(e);
-
-        // Awtomatikong itago (blink off) pagkalipas ng 5s ng patuloy na
-        // pagpapakita. Kung nananatili pa rin ang pointer sa parehong
-        // product (hindi pa na-hide ng ibang mekanismo), muling ipapakita
-        // pagkalipas ng maikling pahinga — ito ang paulit-ulit na "blink
-        // every 5 seconds" habang nananatili sa isang product.
         c.autoHideTimer = setTimeout(function () {
             c.isVisible = false;
             onHide();
@@ -774,25 +565,18 @@ function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
             }, RESHOW_GAP_MS);
         }, AUTO_HIDE_MS);
     };
-
     el.addEventListener('pointerenter', function (e) {
         if (e.pointerType && e.pointerType !== 'mouse') return;
-
         clearTimeout(c.leaveTimer);
         c.leaveTimer = null;
-
         if (c.groupKey === groupKey && (c.isVisible || c.showTimer || c.reshowTimer)) {
-
             return;
         }
-
         const switchingProduct = !!(c.groupKey && c.groupKey !== groupKey);
         clearTimeout(c.showTimer); c.showTimer = null;
         clearTimeout(c.autoHideTimer); c.autoHideTimer = null;
         clearTimeout(c.reshowTimer); c.reshowTimer = null;
-
         if (switchingProduct) {
-
             if (c.isVisible) { c.isVisible = false; onHide(); }
             c.groupKey = null;
             c.showTimer = setTimeout(function () {
@@ -806,10 +590,8 @@ function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
             }, durationMs);
         }
     });
-
     el.addEventListener('pointerleave', function (e) {
         if (e.pointerType && e.pointerType !== 'mouse') return;
-
         clearTimeout(c.leaveTimer);
         c.leaveTimer = setTimeout(function () {
             c.leaveTimer = null;
@@ -817,18 +599,13 @@ function attachHoverPreview(el, onShow, onHide, durationMs, groupKey) {
         }, LEAVE_GRACE_MS);
     });
 }
-
 let activeProductImagePeekEl = null;
-
 function showProductImagePeek(anchorEl, product) {
     if (!anchorEl || !product || !product.image) return;
     hideProductImagePeek();
-
     const centerX = window.innerWidth / 2;
     const centerY = window.innerHeight / 2;
-
     const peekSize = Math.max(180, Math.min(window.innerWidth, window.innerHeight) * 0.6);
-
     const peek = document.createElement('div');
     peek.className = 'product-image-peek';
     peek.style.left = `${centerX}px`;
@@ -839,14 +616,10 @@ function showProductImagePeek(anchorEl, product) {
         <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name || 'Product')}" draggable="false">
         <div class="product-image-peek-label">${escapeHtml(product.name || 'Product')} — full image</div>
     `;
-
     document.body.appendChild(peek);
-
     requestAnimationFrame(() => peek.classList.add('shown'));
-
     activeProductImagePeekEl = peek;
 }
-
 function hideProductImagePeek() {
     if (!activeProductImagePeekEl) return;
     const el = activeProductImagePeekEl;
@@ -854,14 +627,12 @@ function hideProductImagePeek() {
     el.classList.remove('shown');
     setTimeout(() => el.remove(), 160);
 }
-
 const SYSTEM_CONFIG = {
     appName:"OmniPOS System",
     serverName:"Core API Gateway",
     getErrorMessage: (msg) => `[${SYSTEM_CONFIG.serverName}] Error: ${msg}`,
     getSuccessMessage: (msg) => `[${SYSTEM_CONFIG.appName}] Success: ${msg}`
 };
-
 let currentUser = null;
 try {
     const storedUser = localStorage.getItem('omnipos_user');
@@ -873,7 +644,6 @@ try {
     localStorage.removeItem('omnipos_user');
     localStorage.removeItem('omnipos_token');
 }
-
 let currentPermissions = {};
 let menuRegistry = [];
 try {
@@ -885,7 +655,6 @@ try {
     currentPermissions = {};
     menuRegistry = [];
 }
-
 async function refreshPermissions() {
     if (!currentUser) return;
     try {
@@ -893,18 +662,15 @@ async function refreshPermissions() {
         if (!res.ok) return;
         const data = await res.json();
         if (!data.success) return;
-
         menuRegistry = data.menuRegistry || [];
         const myRole = (data.roles || []).find(r => r.name.toLowerCase() === (currentUser.role ||'').toLowerCase());
         if (myRole) {
             currentPermissions = myRole.permissions || {};
         } else if ((currentUser.role ||'').toLowerCase() ==='admin') {
-
             currentPermissions = menuRegistry.reduce((acc, m) => { acc[m.key] = true; return acc; }, {});
         } else {
             currentPermissions = {};
         }
-
         localStorage.setItem('omnipos_permissions', JSON.stringify(currentPermissions));
         localStorage.setItem('omnipos_menu_registry', JSON.stringify(menuRegistry));
         applyRoleBasedAccessControls(currentUser.role);
@@ -913,48 +679,26 @@ async function refreshPermissions() {
         console.warn('[OmniPOS] Unable to refresh permission matrix:', err);
     }
 }
-
 let localTransactionsList = [];
 let globalProducts = [];
 let customCategories = [];
 let shoppingCart = [];
 let activeTerminalCategory ='All';
 let selectedPaymentMethod ='CASH';
-// Draft info collected via the "Add Debt" form when C-Credit is chosen as the
-// payment method at checkout. Holds { customerName, phone, note, dueAt } and is
-// sent along with the sale so the server can create the linked debt record.
 let pendingCreditDebtDraft = null;
-
 let splitPaymentMode = false;
 let splitPaymentLines = [];
 let scannerTarget ='PRODUCT';
-
 let cartDiscountType ='NONE';
 let cartPromoCode ='';
-
 let cartActivePromo = null;
 let cartSeniorPwdId ='';
 let cartLoyaltyPointsRedeemed = 0;
-
 let cartLoyaltyCardToken ='';
 let selectedCartCustomer = null;
-
 let addProductScanSession = { active: false, lastScannedFormCode: null };
 let productFormScanLastCode ='';
 let productFormScanLastTime = 0;
-
-// THEME_CATALOG — IMPORTANT: this is icon/label copy ONLY. There is
-// intentionally NO hardcoded `price` field here anymore (it used to say
-// '₱149' for almost everything, and a stale '₱250' for Liquid Glass, which
-// drifted out of sync the moment an admin changed a theme's price in
-// RELAY's Feature Pricing editor — the unlock dialog kept showing the old
-// number even though the actual amount charged, resolved server-side off
-// FEATURE_CATALOG in OMNIPOS/server.js, was already correct). The one and
-// only source of truth for theme prices is RELAY (via GET /relay/pricing
-// -> OMNIPOS/server.js's FEATURE_CATALOG getters -> this device's own
-// GET /api/features/upgrade-catalog). See getThemeLivePrice()/
-// refreshFeatureCatalogLive() below, which is what promptUnlockTheme() now
-// actually reads from before it ever shows a price to the user.
 const THEME_CATALOG = [
     { id:'day',      name:'Day Mode',      icon:'fa-sun',      pro: false },
     { id:'dark',     name:'Dark Mode',     icon:'fa-moon',     pro: false },
@@ -968,21 +712,7 @@ const THEME_CATALOG = [
     { id:'liquidglass', name:'Liquid Glass Pro', icon:'fa-droplet', pro: true },
     { id:'galaxyambient', name:'Galaxy Ambient Pro', icon:'fa-circle-half-stroke', pro: true },
 ];
-
-// featureCatalogLiveCache — last successfully-fetched catalog entries (id ->
-// {name, price, category, description, ...}) from THIS server's own
-// /api/features/upgrade-catalog, which itself mirrors RELAY (same
-// fetch/cache cycle already used by Cloud Backup pricing in
-// OMNIPOS/server.js — see fetchCloudBackupPricing()/featureCatalogPricingOverlay
-// there). Covers EVERY feature — Pro themes AND premium modules
-// (purchase_orders, customer_crm, promo_codes, advanced_reports,
-// shift_management, rbac_management, multi_branch), since RELAY's Feature
-// Pricing editor (feature-pricing.html) edits both categories from the
-// same screen. null until the first successful fetch; keeps its last good
-// value if a later refresh fails (e.g. temporarily offline), same "keep
-// last known good" behavior as getCloudBackupPlansMerged()/cloudBackupPlansLiveCache.
 let featureCatalogLiveCache = null;
-
 async function refreshFeatureCatalogLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
@@ -993,30 +723,16 @@ async function refreshFeatureCatalogLive() {
             featureCatalogLiveCache = map;
         }
     } catch (e) {
-        // Offline/unreachable — keep whatever was cached before (falls
-        // through to "no price shown" if this never succeeds even once,
-        // e.g. very first load while offline, same as Cloud Backup).
     }
     return featureCatalogLiveCache;
 }
-
-// getFeatureLiveInfo — what every UI spot that shows a theme's or a
-// module's name/price/description should read from. Returns the live
-// {name, price, category, description} entry from RELAY, or null if no
-// live copy is known yet for this id. Never falls back to a locally
-// hardcoded number/description — if RELAY hasn't been reached yet, we
-// simply don't show a price rather than risk showing a wrong one.
 function getFeatureLiveInfo(featureId) {
     return (featureCatalogLiveCache && featureCatalogLiveCache[featureId]) || null;
 }
-
-// getThemeLivePrice — thin convenience wrapper over getFeatureLiveInfo()
-// used by the theme unlock dialog.
 function getThemeLivePrice(themeId) {
     const live = getFeatureLiveInfo(themeId);
     return (live && typeof live.price ==='number') ? live.price : null;
 }
-
 function getUnlockedThemeIds() {
     try {
         return JSON.parse(localStorage.getItem('omnipos_unlocked_themes_cache') ||'[]');
@@ -1024,11 +740,9 @@ function getUnlockedThemeIds() {
         return [];
     }
 }
-
 function isThemeUnlocked(theme) {
     return !theme.pro || getUnlockedThemeIds().includes(theme.id);
 }
-
 async function refreshUnlockedThemesFromServer() {
     try {
         const res = await authFetch('/api/themes/status');
@@ -1037,10 +751,6 @@ async function refreshUnlockedThemesFromServer() {
             localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(data.unlockedThemeIds));
             renderThemeMenu();
             if (typeof renderTerminalThemeMenu ==='function') renderTerminalThemeMenu();
-            // Ngayon lang — pagkatapos ng totoong sagot ng server — dapat isipin
-            // kung i-downgrade ang naka-save na Terminal Pro theme. Bago nito
-            // (bago pa dumating ang sagot na 'to), palaging kino-keep na muna
-            // ang naka-save na pinili ng user sa applySavedTerminalExtraTheme().
             if (sessionStorage.getItem('currentView') ==='terminal' && typeof revalidateTerminalThemeAfterUnlockSync ==='function') {
                 revalidateTerminalThemeAfterUnlockSync();
             }
@@ -1049,49 +759,37 @@ async function refreshUnlockedThemesFromServer() {
         console.warn('Could not fetch theme unlock status from the server, using cache instead.', e);
     }
 }
-
 function updateMetaThemeColor() {
     const header = document.getElementById('app-top-header');
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (!header || !metaThemeColor) return;
-
     const bg = getComputedStyle(header).backgroundColor;
     if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
         metaThemeColor.setAttribute('content', bg);
     }
 }
-
 function initDynamicThemeColor() {
     updateMetaThemeColor();
-
     const observerOptions = { attributes: true, attributeFilter: ['class', 'data-theme', 'data-terminal-theme', 'data-ct-header', 'style'] };
-
     new MutationObserver(updateMetaThemeColor).observe(document.documentElement, observerOptions);
     new MutationObserver(updateMetaThemeColor).observe(document.body, observerOptions);
-
     const header = document.getElementById('app-top-header');
     if (header) {
         new MutationObserver(updateMetaThemeColor).observe(header, { attributes: true, attributeFilter: ['class', 'data-terminal-theme'] });
     }
-
-    // Failsafe kung sakaling may async na theme change na di na-catch ng mga observer sa itaas.
     window.addEventListener('load', updateMetaThemeColor);
 }
-
 function initDarkMode() {
-
     let savedThemeId = localStorage.getItem('omnipos_theme');
     if (!savedThemeId) {
         savedThemeId = localStorage.getItem('omnipos_darkmode') ==='true' ?'dark' :'day';
     }
     const theme = THEME_CATALOG.find(t => t.id === savedThemeId) || THEME_CATALOG[0];
-
     const themeToApply = isThemeUnlocked(theme) ? theme : THEME_CATALOG[1];
     applyTheme(themeToApply.id, { persist: false });
     renderThemeMenu();
     if (typeof updateHeaderDayDarkModeUI ==='function') updateHeaderDayDarkModeUI();
 }
-
 function isStoreThemeDay() {
     var savedThemeId = localStorage.getItem('omnipos_theme');
     if (!savedThemeId) {
@@ -1099,12 +797,10 @@ function isStoreThemeDay() {
     }
     return savedThemeId ==='day';
 }
-
 function syncColorSchemeDeclaration() {
     var isTerminalView = sessionStorage.getItem('currentView') ==='terminal';
     var isLight;
     if (isTerminalView) {
-
         isLight = localStorage.getItem('terminal_daymode') ==='true';
     } else {
         isLight = isStoreThemeDay();
@@ -1114,7 +810,6 @@ function syncColorSchemeDeclaration() {
     var metaColorScheme = document.getElementById('meta-color-scheme');
     if (metaColorScheme) metaColorScheme.setAttribute('content', isLight ?'light' :'dark');
 }
-
 function applyTheme(themeId, opts) {
     opts = opts || {};
     const theme = THEME_CATALOG.find(t => t.id === themeId) || THEME_CATALOG[0];
@@ -1125,7 +820,6 @@ function applyTheme(themeId, opts) {
     } else {
         document.body.setAttribute('data-theme', theme.id);
     }
-
     const root = document.documentElement;
     root.classList.remove('theme-preload');
     root.removeAttribute('data-theme-preload');
@@ -1136,7 +830,6 @@ function applyTheme(themeId, opts) {
         localStorage.setItem('omnipos_darkmode', String(!isDay));
     }
     updateThemeSelectionUI(theme.id);
-
     const overviewSection = document.getElementById('view-overview');
     if (overviewSection && overviewSection.offsetParent !== null && typeof replayOverviewEntranceAnimation ==='function') {
         requestAnimationFrame(() => {
@@ -1144,7 +837,6 @@ function applyTheme(themeId, opts) {
         });
     }
 }
-
 function setTheme(themeId) {
     const theme = THEME_CATALOG.find(t => t.id === themeId);
     if (!theme) return;
@@ -1155,19 +847,16 @@ function setTheme(themeId) {
     applyTheme(theme.id);
     renderThemeMenu();
 }
-
 function updateThemeSelectionUI(activeId) {
     document.querySelectorAll('.uw-theme-option').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.themeId === activeId);
     });
 }
-
 function renderThemeMenu() {
     const container = document.getElementById('uw-themes-submenu');
     if (!container) return;
     const unlockedIds = getUnlockedThemeIds();
     const currentThemeId = localStorage.getItem('omnipos_theme') ||'day';
-
     container.innerHTML = THEME_CATALOG.map((theme) => {
         const locked = theme.pro && !unlockedIds.includes(theme.id);
         const isActive = theme.id === currentThemeId;
@@ -1187,40 +876,16 @@ function renderThemeMenu() {
         );
     }).join('');
 }
-
-// ============================================================================
-// TERMINAL-ONLY THEMES
-// ----------------------------------------------------------------------------
-// A separate, self-contained theme picker that lives inside the sidebar's
-// user-profile dropdown but only ever affects the POS Terminal screen
-// (#view-terminal). It is intentionally decoupled from the store-wide
-// `omnipos_theme` selection (setTheme/applyTheme above):
-//   - It has its own storage key (TERMINAL_THEME_STORAGE_KEY) so switching it
-//     never touches or is touched by the rest of OmniPOS's look.
-//   - The dropdown entry itself is only ever visible while the cashier is
-//     inside the Terminal view; it disappears everywhere else.
-//   - Only themes already unlocked (same unlock pool as the store themes)
-//     show up here, and selecting one actually re-skins the terminal (which
-//     previously ignored the store's data-theme entirely).
-//   - When switched back to "Default", the Terminal simply falls back to its
-//     own independent Day/Night toggle (terminal_daymode), which itself
-//     always defaults to dark mode.
-// ============================================================================
-
 const TERMINAL_THEME_STORAGE_KEY ='terminal_extra_theme';
-
 function getUnlockedTerminalThemes() {
     const unlockedIds = getUnlockedThemeIds();
     return THEME_CATALOG.filter(t => t.pro && unlockedIds.includes(t.id));
 }
-
 function getActiveTerminalThemeId() {
     return localStorage.getItem(TERMINAL_THEME_STORAGE_KEY) ||'';
 }
-
 function updateTerminalThemesMenuVisibility() {
     const isTerminalView = sessionStorage.getItem('currentView') ==='terminal';
-
     const sidebarToggleRow = document.getElementById('uw-terminalthemes-toggle');
     if (sidebarToggleRow) {
         sidebarToggleRow.style.display = isTerminalView ?'' :'none';
@@ -1229,18 +894,15 @@ function updateTerminalThemesMenuVisibility() {
             document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
         }
     }
-
     const headerToggleRow = document.getElementById('hu-terminalthemes-toggle');
     if (headerToggleRow) {
         headerToggleRow.style.display = isTerminalView ?'' :'none';
         if (!isTerminalView) closeHeaderTerminalThemesSubmenu();
     }
 }
-
 function buildTerminalThemeOptionsHtml(optionClass, labelClass, badgeSlotClass) {
     const unlockedThemes = getUnlockedTerminalThemes();
     const activeId = getActiveTerminalThemeId();
-
     let html =
 '<button type="button" class="' + optionClass + (activeId ?'' :' active') +'" ' +
 'data-theme-id="" onclick="setTerminalTheme(\'\')">' +
@@ -1248,7 +910,6 @@ function buildTerminalThemeOptionsHtml(optionClass, labelClass, badgeSlotClass) 
 '<span class="' + labelClass +'">Default (Terminal Dark)</span>' +
 '<span class="' + badgeSlotClass +'"></span>' +
 '</button>';
-
     if (unlockedThemes.length === 0) {
         html +='<div class="uw-au-empty">No unlocked Pro themes yet.</div>';
     } else {
@@ -1266,7 +927,6 @@ function buildTerminalThemeOptionsHtml(optionClass, labelClass, badgeSlotClass) 
     }
     return html;
 }
-
 function renderTerminalThemeMenu() {
     const sidebarContainer = document.getElementById('uw-terminalthemes-submenu');
     if (sidebarContainer) {
@@ -1277,35 +937,20 @@ function renderTerminalThemeMenu() {
         headerContainer.innerHTML = buildTerminalThemeOptionsHtml('hu-theme-option','hu-theme-option-label','hu-theme-badge-slot');
     }
 }
-
 function updateTerminalThemeSelectionUI(activeId) {
     document.querySelectorAll('#uw-terminalthemes-submenu .uw-theme-option, #hu-terminalthemes-submenu .hu-theme-option').forEach((btn) => {
         btn.classList.toggle('active', (btn.dataset.themeId ||'') === activeId);
     });
 }
-
-// Applies (or clears, when themeId is falsy) the terminal-only theme onto the
-// live DOM. `persist:false` is used when merely re-applying an already-saved
-// choice (e.g. on view switch) so we don't re-write localStorage needlessly.
 function applyTerminalExtraTheme(themeId, opts) {
     opts = opts || {};
     const terminalSection = document.getElementById('view-terminal');
     const headerEl = document.getElementById('app-top-header');
     if (!terminalSection) return;
-
     if (themeId) {
         terminalSection.setAttribute('data-terminal-theme', themeId);
         document.body.setAttribute('data-terminal-theme', themeId);
-        // Also tag the header itself (not just #view-terminal) so the
-        // account dropdown — which lives in the header, outside
-        // #view-terminal — can pick up the same palette via CSS while the
-        // cashier is inside the Terminal. Everywhere else in OmniPOS the
-        // dropdown stays on its own fixed look, untouched by this or by
-        // the store-wide Pro theme (see .header-user-dropdown in style.css).
         if (headerEl) headerEl.setAttribute('data-terminal-theme', themeId);
-        // A Pro terminal theme takes over completely while active; the
-        // terminal's own Day/Night toggle is paused (not lost — just parked)
-        // until this is switched back to Default.
         terminalSection.classList.remove('terminal-daymode');
         if (headerEl) headerEl.classList.remove('terminal-daymode');
         document.body.classList.remove('terminal-modal-daymode');
@@ -1313,54 +958,30 @@ function applyTerminalExtraTheme(themeId, opts) {
         terminalSection.removeAttribute('data-terminal-theme');
         document.body.removeAttribute('data-terminal-theme');
         if (headerEl) headerEl.removeAttribute('data-terminal-theme');
-        // Back to Default: hand control back to the terminal's own
-        // Day/Night toggle, which defaults to dark mode.
         if (typeof applySavedTerminalDayMode ==='function') applySavedTerminalDayMode();
     }
-
     if (opts.persist !== false) {
         if (themeId) localStorage.setItem(TERMINAL_THEME_STORAGE_KEY, themeId);
         else localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
     }
-
     updateTerminalThemeSelectionUI(themeId ||'');
     syncColorSchemeDeclaration();
 }
-
 function setTerminalTheme(themeId) {
     if (themeId) {
         const theme = THEME_CATALOG.find(t => t.id === themeId);
         if (!theme || !isThemeUnlocked(theme)) {
-            // Safety net only — the submenu already filters to unlocked
-            // themes, so this should not normally happen.
             return;
         }
     }
     applyTerminalExtraTheme(themeId);
 }
-
-// Re-applies whatever terminal-only theme (if any) was previously saved.
-// Called whenever the Terminal view is (re)loaded.
-//
-// IMPORTANT: hindi ito dapat mag-check ng isThemeUnlocked() dito, dahil sa
-// unang segundo ng pag-reload, ang lokal na "omnipos_unlocked_themes_cache" ay
-// maaaring hindi pa updated (kasabay pa lang natatawag ang
-// refreshUnlockedThemesFromServer() na async at hindi hinihintay). Kung
-// gagate natin dito, may posibilidad na basta na lang ma-delete yung naka-
-// save na napiling theme ng user kahit totoo namang naka-unlock ito — kaya
-// nawawala ito tuwing nag-re-refresh. Sa halip, i-restore muna agad ang
-// huling naka-save na pinili (dahil kumpirmado na 'to noong una itong napili),
-// at ang totoong pag-verify/downgrade (kung talaga namang na-revoke na ang
-// unlock) ay ginagawa na lang sa revalidateTerminalThemeAfterUnlockSync(),
-// pagkatapos ma-kumpirma ng totoong sagot ng server.
 function applySavedTerminalExtraTheme() {
     const savedId = getActiveTerminalThemeId();
     const theme = savedId ? THEME_CATALOG.find(t => t.id === savedId) : null;
-
     if (theme) {
         applyTerminalExtraTheme(savedId, { persist: false });
     } else if (savedId) {
-        // Hindi na kilalang theme id (halimbawa: tinanggal na sa catalog) — safe i-clear.
         localStorage.removeItem(TERMINAL_THEME_STORAGE_KEY);
         applyTerminalExtraTheme('', { persist: false });
     } else {
@@ -1368,11 +989,6 @@ function applySavedTerminalExtraTheme() {
     }
     renderTerminalThemeMenu();
 }
-
-// Tinatawag lang PAGKATAPOS ng totoong (awaited) sagot ng server tungkol sa
-// unlocked themes. Dito lang dapat mangyari ang pag-downgrade/pag-clear ng
-// naka-save na Terminal theme — at kapag kumpirmado na talagang hindi na ito
-// unlocked, hindi dahil sa boot-time na race/stale cache.
 function revalidateTerminalThemeAfterUnlockSync() {
     const savedId = getActiveTerminalThemeId();
     if (!savedId) return;
@@ -1383,7 +999,6 @@ function revalidateTerminalThemeAfterUnlockSync() {
         renderTerminalThemeMenu();
     }
 }
-
 function toggleTerminalThemesSubmenu(event) {
     if (event) event.stopPropagation();
     const submenu = document.getElementById('uw-terminalthemes-submenu');
@@ -1391,28 +1006,23 @@ function toggleTerminalThemesSubmenu(event) {
     if (!submenu) return;
     const isOpen = submenu.classList.toggle('open');
     if (caret) caret.classList.toggle('rotated', isOpen);
-
     document.getElementById('uw-themes-submenu')?.classList.remove('open');
     document.getElementById('uw-themes-caret')?.classList.remove('rotated');
     closeActiveUsersSubmenu();
-
     if (isOpen) {
         refreshUnlockedThemesFromServer().then(() => renderTerminalThemeMenu());
         renderTerminalThemeMenu();
     }
 }
-
 const CT_DEFAULTS = {
     fontScale: 1, accent: null, accentHover: null, accentSoft: null,
     card:'elevated', radius:'rounded', border:'thin', header:'solid',
     density:'comfortable', motion:'normal', contrast:'normal',
     rowHeight:'auto', rowPadding: 14
 };
-
 const CT_ROW_PAD_BASE = 14;
 const CT_ROW_PAD_PRESET = { compact: 8, comfortable: 14, spacious: 22 };
 const CT_STORAGE_KEY ='omnipos_custom_theme';
-
 function ctShade(hex, percent) {
     try {
         const num = parseInt(hex.replace('#',''), 16);
@@ -1432,7 +1042,6 @@ function ctRgba(hex, alpha) {
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     } catch (e) { return hex; }
 }
-
 function loadCustomThemeSettings() {
     try {
         const raw = localStorage.getItem(CT_STORAGE_KEY);
@@ -1440,13 +1049,10 @@ function loadCustomThemeSettings() {
         return { ...CT_DEFAULTS, ...JSON.parse(raw) };
     } catch (e) { return { ...CT_DEFAULTS }; }
 }
-
 function applyCustomTheme(settings) {
     const s = { ...CT_DEFAULTS, ...settings };
     const root = document.documentElement;
-
     root.style.fontSize = s.fontScale !== 1 ? (16 * s.fontScale) +'px' :'';
-
     if (s.accent) {
         root.style.setProperty('--dm-accent', s.accent);
         root.style.setProperty('--dm-accent-hover', s.accentHover || ctShade(s.accent, -0.12));
@@ -1456,7 +1062,6 @@ function applyCustomTheme(settings) {
         root.style.removeProperty('--dm-accent-hover');
         root.style.removeProperty('--dm-accent-soft');
     }
-
     const setAttr = (name, val, defaultVal) => {
         if (val && val !== defaultVal) root.setAttribute(name, val);
         else root.removeAttribute(name);
@@ -1468,7 +1073,6 @@ function applyCustomTheme(settings) {
     setAttr('data-ct-density', s.density, CT_DEFAULTS.density);
     setAttr('data-ct-motion', s.motion ==='reduced' ?'reduced' : null, null);
     setAttr('data-ct-contrast', s.contrast ==='high' ?'high' : null, null);
-
     let rowPadY;
     if (s.rowHeight ==='custom') {
         rowPadY = (typeof s.rowPadding ==='number' && !isNaN(s.rowPadding)) ? s.rowPadding : CT_ROW_PAD_BASE;
@@ -1480,15 +1084,12 @@ function applyCustomTheme(settings) {
     root.style.setProperty('--ct-row-pad-y', rowPadY +'px');
     setAttr('data-ct-row-height', s.rowHeight, CT_DEFAULTS.rowHeight);
 }
-
 function saveCustomThemeSettings(settings) {
     try { localStorage.setItem(CT_STORAGE_KEY, JSON.stringify(settings)); } catch (e) {  }
 }
-
 function initCustomTheme() {
     const s = loadCustomThemeSettings();
     applyCustomTheme(s);
-
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     setVal('ct-font-scale', Math.round((s.fontScale || 1) * 100));
@@ -1510,20 +1111,16 @@ function initCustomTheme() {
     setChecked('ct-reduced-motion', s.motion ==='reduced');
     setChecked('ct-high-contrast', s.contrast ==='high');
 }
-
 function onCustomThemeChange() {
     const fontScaleEl = document.getElementById('ct-font-scale');
     const fontScale = fontScaleEl ? (parseInt(fontScaleEl.value, 10) || 100) / 100 : 1;
     const scaleLabel = document.getElementById('ct-font-scale-label');
     if (scaleLabel) scaleLabel.textContent = Math.round(fontScale * 100) +'%';
-
     const useThemeAccent = document.getElementById('ct-accent-use-theme');
     const accentInput = document.getElementById('ct-accent-color');
     const accent = (useThemeAccent && useThemeAccent.checked) ? null : (accentInput ? accentInput.value : null);
-
     const getVal = (id, fallback) => { const el = document.getElementById(id); return el ? el.value : fallback; };
     const getChecked = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
-
     const settings = {
         fontScale,
         accent,
@@ -1539,16 +1136,13 @@ function onCustomThemeChange() {
         motion: getChecked('ct-reduced-motion') ?'reduced' :'normal',
         contrast: getChecked('ct-high-contrast') ?'high' :'normal'
     };
-
     const rowPadLabel = document.getElementById('ct-row-padding-label');
     if (rowPadLabel) rowPadLabel.textContent = settings.rowPadding +'px';
     const rowPadGroup = document.getElementById('ct-row-padding-group');
     if (rowPadGroup) rowPadGroup.style.display = (settings.rowHeight ==='custom') ?'' :'none';
-
     applyCustomTheme(settings);
     saveCustomThemeSettings(settings);
 }
-
 function resetCustomTheme() {
     try { localStorage.removeItem(CT_STORAGE_KEY); } catch (e) {  }
     applyCustomTheme(CT_DEFAULTS);
@@ -1557,20 +1151,12 @@ function resetCustomTheme() {
         Swal.fire({ title:'Reset na', text:'Bumalik sa default appearance ang device na ito.', icon:'success', timer: 1800, showConfirmButton: false });
     }
 }
-
 async function promptUnlockTheme(theme) {
     if (blockIfOffline('Theme unlock requests')) return;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
-
-    // Always ask the server for the CURRENT price right before showing it —
-    // mirrors updateCloudBackupGetButtonPrice()'s on-demand refresh pattern,
-    // so an admin changing this theme's price in RELAY's Feature Pricing
-    // editor shows up here the very next time anyone tries to unlock it,
-    // instead of whatever was cached (or worse, a stale hardcoded number).
     await refreshFeatureCatalogLive();
     const livePrice = getThemeLivePrice(theme.id);
     const priceLabel = (typeof livePrice ==='number') ?'₱' + livePrice : null;
-
     const confirmResult = await Swal.fire({
         title:'Unlock ' + theme.name,
         html:
@@ -1584,7 +1170,6 @@ async function promptUnlockTheme(theme) {
         confirmButtonColor:'#2563eb',
     });
     if (!confirmResult.isConfirmed) return;
-
     try {
         const reqRes = await authFetch('/api/themes/request-unlock', {
             method:'POST',
@@ -1592,7 +1177,6 @@ async function promptUnlockTheme(theme) {
             body: JSON.stringify({ themeId: theme.id, username: requestingUsername })
         });
         const reqData = await reqRes.json();
-
         if (!reqData.success) {
             showUnlockRequestError(reqData,'The unlock request failed.');
             return;
@@ -1608,7 +1192,6 @@ async function promptUnlockTheme(theme) {
         Swal.fire('Error','Could not reach the server to send the unlock request.','error');
         return;
     }
-
     const otpModalResult = await showOtpVerificationModal({
         title: 'Verification Required',
         descriptionHtml: 'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>' + theme.name + '</strong>.',
@@ -1623,27 +1206,16 @@ async function promptUnlockTheme(theme) {
         onExpire: () => cancelPendingOtp({ featureId: theme.id })
     });
     if (!otpModalResult) return;
-
     try {
         let confirmData = otpModalResult;
-
-        // Same "waiting for admin approval" gate as the other 3 RELAY
-        // verification flows (feature/Cloud Backup, bundle, demo) — a
-        // theme's OTP can also come back as `pending: true` (code was
-        // correct, but the owner still needs to press Allow/Run on
-        // their end), so this has to be polled the same way instead of
-        // being treated as a wrong code.
         if (confirmData.pending) {
             confirmData = await pollUntilApproved('/api/themes/confirm-unlock', { themeId: theme.id, otp: confirmData._verifiedOtp, username: requestingUsername });
         }
-
         if (confirmData.cancelled) return;
-
         if (!confirmData.success) {
             Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return;
         }
-
         if (Array.isArray(confirmData.unlockedThemeIds)) {
             localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(confirmData.unlockedThemeIds));
         }
@@ -1655,23 +1227,11 @@ async function promptUnlockTheme(theme) {
         Swal.fire('Error','Could not reach the server to complete verification.','error');
     }
 }
-
 let unlockedFeatureIdsCache = null;
-
 let purchasedFeatureIdsCache = null;
-
 let fullyPurchasedCache = false;
-
-// subscriptionGraceWarningsCache / notifiedGraceFeatureIds — RBAC
-// Management / Multi-Branch Dashboard subscriptions that have expired
-// but are still inside their grace period (see MODULE_SUBSCRIPTION_
-// GRACE_PERIOD_DAYS server-side) stay fully working, but the person
-// needs a nudge to renew before it actually locks. notifiedGraceFeatureIds
-// tracks which featureIds have already shown a toast THIS SESSION, so
-// the nudge fires once (not on every periodic status refresh).
 let subscriptionGraceWarningsCache = [];
 const notifiedGraceFeatureIds = new Set();
-
 function showSubscriptionGraceWarningsToast(warnings) {
     if (!Array.isArray(warnings) || typeof Swal === 'undefined') return;
     warnings.forEach((w) => {
@@ -1690,7 +1250,6 @@ function showSubscriptionGraceWarningsToast(warnings) {
         });
     });
 }
-
 async function refreshUnlockedFeaturesFromServer() {
     try {
         const res = await authFetch(`${API_URL}/features/status`);
@@ -1714,11 +1273,9 @@ async function refreshUnlockedFeaturesFromServer() {
     updateSidebarFeatureLocks();
     return unlockedFeatureIdsCache || [];
 }
-
 function isFeatureUnlockedCached(featureId) {
     return Array.isArray(unlockedFeatureIdsCache) && unlockedFeatureIdsCache.includes(featureId);
 }
-
 const SIDEBAR_FEATURE_LOCK_MAP = {
 'menu-customers-lock':'customer_crm',
 'menu-debts-lock':'customer_crm',
@@ -1728,10 +1285,8 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'promo-codes-lock':'promo_codes',
 'create-po-lock':'purchase_orders',
 'reorder-export-csv-lock':'purchase_orders',
-
 'menu-reorder-lock':'purchase_orders'
 };
-
 function updateRolesPermissionsLockState() {
     const wrap = document.getElementById('roles-permissions-matrix-wrap');
     const overlay = document.getElementById('roles-permissions-lock-overlay');
@@ -1740,14 +1295,12 @@ function updateRolesPermissionsLockState() {
     wrap.classList.toggle('is-locked', locked);
     overlay.style.display = locked ?'flex' :'none';
 }
-
 function updateSidebarFeatureLocks() {
     Object.keys(SIDEBAR_FEATURE_LOCK_MAP).forEach((elementId) => {
         const el = document.getElementById(elementId);
         if (!el) return;
         const featureId = SIDEBAR_FEATURE_LOCK_MAP[elementId];
         const unlocked = isFeatureUnlockedCached(featureId);
-
         el.style.display = unlocked ?'none' :'inline-flex';
         const proBadge = document.getElementById(elementId.replace(/-lock$/,'-pro'));
         if (proBadge) {
@@ -1757,25 +1310,9 @@ function updateSidebarFeatureLocks() {
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
 }
-
 function isBadgeAllowedForFeature(featureId) {
     return isFeatureUnlockedCached(featureId);
 }
-
-// PREMIUM_FEATURE_FALLBACK — LABEL-ONLY fallback copy, used solely so the
-// unlock dialog has a readable title/description instead of a raw
-// featureId in the rare case the live feature catalog hasn't been fetched
-// yet AND this fetch also fails (e.g. flaky connection while nominally
-// "online"). IMPORTANT: intentionally has NO `price` field — there used to
-// be a hardcoded price here too (purchase_orders 999, customer_crm 799,
-// etc.), which drifted out of sync the moment an admin changed a module's
-// price OR name in RELAY's Feature Pricing editor (e.g. customer_crm's
-// name here used to say "Customer Profiles & Loyalty" while RELAY/the
-// server had already renamed it to "Customer Profiles, Loyalty & Debtors").
-// guardPremiumFeature() below always tries the LIVE name/price/description
-// first (via promptUnlockFeature()'s own on-demand refresh) and only falls
-// back to this map's name/description when that live fetch hasn't
-// succeeded yet — price is never taken from here.
 const PREMIUM_FEATURE_FALLBACK = {
     purchase_orders: { name:'Purchase Orders Module', description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
     customer_crm: { name:'Customer Profiles, Loyalty & Debtors', description:'Customer profiles, loyalty points, purchase history, and the Debtors ledger for each customer.' },
@@ -1784,36 +1321,12 @@ const PREMIUM_FEATURE_FALLBACK = {
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
 };
-
-// Cloud Backup is no longer a simple one-time price — it's a
-// subscription now (Basic/Standard/Pro, Monthly/Yearly).
-//
-// IMPORTANT: this object is LAST-RESORT FALLBACK/COPY ONLY (tagline
-// text + a sane default price/quota to render instantly, before the
-// live fetch below finishes, or if this device is ever offline). It
-// is NOT the source of truth — RELAY is (via its admin pricing page),
-// and OMNIPOS/server.js already fetches RELAY's current pricing at
-// runtime. The actual numbers shown to the cashier/owner come from
-// getCloudBackupPlansMerged() below, which overlays the LIVE
-// price/storageQuotaMB (fetched from THIS device's own
-// /api/features/upgrade-catalog, which itself mirrors RELAY) on top
-// of the tagline copy here. Never read price/storageQuotaMB directly
-// off CLOUD_BACKUP_PLANS_UI in new code — use getCloudBackupPlansMerged().
 const CLOUD_BACKUP_PLANS_UI = {
     basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
     standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageQuotaMB: 1024 },
     pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageQuotaMB: 5120 }
 };
-
-// cloudBackupPlansLiveCache — last successfully-fetched `plans` object
-// from THIS server's /api/features/upgrade-catalog (cloud_backup.plans,
-// which is a live getter over server.js's CLOUD_BACKUP_PLANS — itself
-// kept in sync with RELAY via fetchCloudBackupPricing()/30-min refresh).
-// null until the first successful fetch; stays at its last good value
-// if a later refresh fails (e.g. temporarily offline), same "keep last
-// known good" behavior as the server-side disk cache.
 let cloudBackupPlansLiveCache = null;
-
 async function refreshCloudBackupPlansLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
@@ -1825,21 +1338,9 @@ async function refreshCloudBackupPlansLive() {
             cloudBackupPlansLiveCache = cbFeature.plans;
         }
     } catch (e) {
-        // Offline/unreachable — keep whatever was cached before (falls
-        // through to the static CLOUD_BACKUP_PLANS_UI figures if this
-        // never succeeds even once, e.g. very first load while offline).
     }
     return cloudBackupPlansLiveCache;
 }
-
-// getCloudBackupPlansMerged — what every UI spot (plan picker dialog,
-// active-subscription badge, storage bar) should actually read from.
-// Tagline/name label come from the static copy above (marketing text,
-// not something RELAY's admin panel changes); price and storageQuotaMB
-// come from the live cache when available, so anytime the price is
-// changed in RELAY's admin panel it shows up here the next time this
-// device refreshes (either its own periodic RELAY fetch, or the next
-// time this function's cache is refreshed).
 function getCloudBackupPlansMerged() {
     const merged = {};
     for (const tier of Object.keys(CLOUD_BACKUP_PLANS_UI)) {
@@ -1854,69 +1355,35 @@ function getCloudBackupPlansMerged() {
     }
     return merged;
 }
-
 function guardPremiumFeature(featureId) {
     if (isFeatureUnlockedCached(featureId)) return false;
-    // RBAC Management / Multi-Branch Dashboard are subscriptions now
-    // (monthly/yearly, no one-time price) — they need the billing-cycle
-    // picker below, NOT the generic one-time promptUnlockFeature() flow
-    // (which has no way to collect a billingCycle, and the server will
-    // reject a request-unlock for these two without one).
     if (MODULE_SUBSCRIPTION_FEATURE_IDS_UI.includes(featureId)) {
         promptModuleSubscription(featureId);
         return true;
     }
     const fallback = PREMIUM_FEATURE_FALLBACK[featureId] || {};
-    // No price passed here on purpose — this is a synchronous, purely
-    // client-side pre-check that fires before the server is even asked,
-    // so there is no live price to hand over yet. promptUnlockFeature()
-    // treats a missing price as a signal to fetch the CURRENT
-    // name/price/description from RELAY itself before showing anything.
     promptUnlockFeature(featureId, fallback.name, undefined, fallback.description);
     return true;
 }
-
-// --------------------------------------------------------------
-// MODULE SUBSCRIPTIONS — Roles & Permissions (RBAC) Management, and
-// Multi-Branch Dashboard. Converted from a one-time purchase to a
-// monthly/yearly subscription. This is the module-subscription
-// counterpart of promptCloudBackupSubscription() below — same idea
-// (billing-cycle picker, live pricing from RELAY, same OTP flow via
-// runUnlockFlow), but simpler: there's only ONE flat plan per module, no
-// Basic/Standard/Pro tier choice.
-// --------------------------------------------------------------
 const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch'];
-
-// Last-resort fallback copy only (tagline text), same spirit as
-// CLOUD_BACKUP_PLANS_UI above — actual price always comes from the live
-// fetch (getFeatureLiveInfo) when available.
 const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } }
 };
-
 async function promptModuleSubscription(featureId) {
     if (blockIfOffline('Feature subscription')) return false;
-
-    // Always fetch the LIVE price right before showing the dialog, same
-    // "on-demand refresh" pattern as promptCloudBackupSubscription()
-    // below, so a price change made in RELAY's admin panel is reflected
-    // the next time anyone opens this.
     await refreshFeatureCatalogLive();
     const live = getFeatureLiveInfo(featureId);
     const staticInfo = MODULE_SUBSCRIPTION_PLANS_UI[featureId] || {};
     const displayName = (live && live.name) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].name) || featureId;
     const description = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || '';
     const price = (live && live.subscriptionPrice) ? live.subscriptionPrice : staticInfo.price;
-
     let selectedCycle = 'monthly';
-
     const buildHtml = () => {
         const cycleButtons = ['monthly', 'yearly'].map(cycle => {
             const active = cycle === selectedCycle;
             return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
-
         return `<div style="text-align:left;">
             <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 8px;">${description}</p>
             <p style="font-size:0.8rem;margin:0 0 10px;">This is a subscription. Pick a billing cycle:</p>
@@ -1924,7 +1391,6 @@ async function promptModuleSubscription(featureId) {
             <div style="text-align:center;font-size:1.1rem;font-weight:700;">₱${price[selectedCycle]}<span style="font-size:0.72rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>
         </div>`;
     };
-
     const result = await Swal.fire({
         title: displayName,
         html: buildHtml(),
@@ -1942,18 +1408,14 @@ async function promptModuleSubscription(featureId) {
             attachHandlers();
         }
     });
-
     if (!result.isConfirmed) return false;
-
     const planName = `${displayName} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
     return runUnlockFlow(featureId, planName, { billingCycle: selectedCycle });
 }
-
 function getCloudBackupUpgrade() {
     if (isFeatureUnlockedCached('cloud_backup')) return false;
     return promptCloudBackupSubscription();
 }
-
 function updateCloudBackupLockState() {
     const unlocked = isFeatureUnlockedCached('cloud_backup');
     const getBtn = document.getElementById('cloud-backup-get-btn');
@@ -1968,25 +1430,12 @@ function updateCloudBackupLockState() {
         updateCloudBackupGetButtonPrice(getBtn);
     }
 }
-
-// updateCloudBackupGetButtonPrice — the "Get Cloud Backup — starting at
-// ₱X/mo" button used to have that price hardcoded in index.html, so it
-// never changed even after RELAY's admin pricing page was updated. This
-// fills it in from the live Basic-tier monthly price instead (Basic is
-// always the cheapest tier, hence "starting at").
 async function updateCloudBackupGetButtonPrice(getBtn) {
     await refreshCloudBackupPlansLive();
     const cloudBackupPlans = getCloudBackupPlansMerged();
     const startingPrice = cloudBackupPlans.basic.price.monthly;
     getBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Get Cloud Backup — starting at ₱${startingPrice}/mo`;
 }
-
-// --------------------------------------------------------------
-// refreshCloudBackupSubscriptionBadge — once Cloud Backup is unlocked,
-// this shows in the status box WHICH plan (Basic/Standard/Pro) and
-// billing cycle is active, and WHEN it will expire (or "Lifetime" for
-// a legacy one-time buyer from before).
-// --------------------------------------------------------------
 async function refreshCloudBackupSubscriptionBadge() {
     const statusBox = document.getElementById('cloud-backup-status');
     if (!statusBox) return;
@@ -1998,14 +1447,11 @@ async function refreshCloudBackupSubscriptionBadge() {
         const data = await res.json();
         const sub = data && data.subscription;
         if (!sub || !sub.active) return;
-
         renderCloudBackupStorageBar(data && data.storageUsage);
-
         if (sub.isLegacyLifetime) {
             statusBox.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: Lifetime (one-time purchase — no renewal needed).';
             return;
         }
-
         const cloudBackupPlans = getCloudBackupPlansMerged();
         const planInfo = cloudBackupPlans[sub.tier] || cloudBackupPlans.basic;
         const cycleLabel = sub.billingCycle === 'yearly' ? 'Yearly' : 'Monthly';
@@ -2019,62 +1465,35 @@ async function refreshCloudBackupSubscriptionBadge() {
         }
         statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: <strong>${planInfo.name}</strong> (${cycleLabel})${expiryText}`;
     } catch (err) {
-        // Silently ignore — this isn't critical, it's display only.
     }
 }
-
-// --------------------------------------------------------------
-// renderCloudBackupStorageBar — pinapakita ang progress bar sa ilalim
-// ng status box (Cloud Backup card, My Store) na nagpapakita kung ilan
-// (%) na ang na-consume laban sa storage allowance ng KASALUKUYANG
-// piniling plan (Basic/Standard/Pro), pati na kung ilan pa ang
-// natitira. `usage` ay galing sa `storageUsage` field ng
-// /api/cloud-backup/status response (o sa `sync` response direkta —
-// parehong shape naman: sizeMB/quotaMB/percentUsed).
-// --------------------------------------------------------------
 function renderCloudBackupStorageBar(usage) {
     const wrap = document.getElementById('cloud-backup-storage-bar-wrap');
     const fill = document.getElementById('cloud-backup-storage-bar-fill');
     const label = document.getElementById('cloud-backup-storage-label');
     const remaining = document.getElementById('cloud-backup-storage-remaining');
     if (!wrap || !fill || !label || !remaining) return;
-
     if (!usage || typeof usage.sizeMB !== 'number' || typeof usage.quotaMB !== 'number' || usage.quotaMB <= 0) {
         wrap.style.display = 'none';
         return;
     }
-
     const pct = typeof usage.percentUsed === 'number' ? usage.percentUsed : Math.min(100, Math.round((usage.sizeMB / usage.quotaMB) * 1000) / 10);
-    // Sinasadyang RAW MB lang (walang GB conversion) dito — eksaktong
-    // parehong format ng RELAY admin panel (loadCloudBackupDetail doon),
-    // kaya magkatulad ang itsura kahit saan tingnan (OMNIPOS o RELAY).
     const remainingMB = Math.max(0, Math.round((usage.quotaMB - usage.sizeMB) * 100) / 100);
     const cloudBackupPlans = getCloudBackupPlansMerged();
     const tierPrefix = (usage.tier && cloudBackupPlans[usage.tier])
         ? `${cloudBackupPlans[usage.tier].name} plan · `
         : '';
-
     wrap.style.display = 'block';
     fill.style.width = `${Math.min(100, pct)}%`;
     fill.style.background = pct >= 95 ? '#dc2626' : (pct >= 75 ? '#d97706' : '#2563eb');
     label.textContent = `${tierPrefix}${usage.sizeMB} MB / ${usage.quotaMB} MB (${pct}%)`;
     remaining.textContent = `${remainingMB} MB left`;
 }
-
-// --------------------------------------------------------------
-// renderCloudBackupUploadProgress — LIVE progress bar habang isinasagawa
-// pa lang ang pag-upload patungong RELAY (bago pa man matapos ang buong
-// /api/cloud-backup/sync request). Pinapakain ito ng bagong
-// uploadedBytes/uploadTotalBytes/uploadStartedAt fields na idinagdag sa
-// cloudBackupStatus (server.js), na kinukuha via polling sa
-// /api/cloud-backup/status habang tumatakbo ang runCloudBackupSync().
-// --------------------------------------------------------------
 function formatBytesAuto(bytes) {
     if (typeof bytes !== 'number' || isNaN(bytes)) return '0 MB';
     const mb = bytes / (1024 * 1024);
     return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
 }
-
 function formatElapsedShort(ms) {
     if (typeof ms !== 'number' || ms < 0) return '0s';
     const totalSec = Math.floor(ms / 1000);
@@ -2082,35 +1501,29 @@ function formatElapsedShort(ms) {
     const sec = totalSec % 60;
     return min > 0 ? `${min}m ${sec}s` : `${sec}s`;
 }
-
 function renderCloudBackupUploadProgress(status) {
     const wrap = document.getElementById('cloud-backup-upload-progress-wrap');
     const fill = document.getElementById('cloud-backup-upload-progress-fill');
     const label = document.getElementById('cloud-backup-upload-progress-label');
     const elapsedEl = document.getElementById('cloud-backup-upload-progress-elapsed');
     if (!wrap || !fill || !label || !elapsedEl) return;
-
     const uploading = status && status.state === 'syncing' && typeof status.uploadTotalBytes === 'number' && status.uploadTotalBytes > 0;
     if (!uploading) {
         wrap.style.display = 'none';
         return;
     }
-
     const uploaded = typeof status.uploadedBytes === 'number' ? status.uploadedBytes : 0;
     const total = status.uploadTotalBytes;
     const pct = Math.min(100, Math.round((uploaded / total) * 1000) / 10);
     const elapsedMs = status.uploadStartedAt ? (Date.now() - status.uploadStartedAt) : 0;
-
     wrap.style.display = 'block';
     fill.style.width = `${pct}%`;
     label.textContent = `Uploading… ${formatBytesAuto(uploaded)} / ${formatBytesAuto(total)} (${pct}%)`;
     elapsedEl.textContent = formatElapsedShort(elapsedMs);
 }
-
 async function captureQuickPhoto() {
     try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
-
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { width: 320, height: 240, facingMode: { ideal: 'user' } },
             audio: false
@@ -2130,7 +1543,6 @@ async function captureQuickPhoto() {
         return null;
     }
 }
-
 async function pollUntilApproved(url, body) {
     return new Promise((resolve) => {
         let stopped = false;
@@ -2159,7 +1571,6 @@ async function pollUntilApproved(url, body) {
                         resolve(data);
                         return;
                     } catch (e) {
-
                     }
                 }
             },
@@ -2171,19 +1582,8 @@ async function pollUntilApproved(url, body) {
         });
     });
 }
-
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
-
-    // If the caller didn't already hand us a live price (e.g.
-    // guardPremiumFeature()'s client-side pre-check, which fires before
-    // the server is ever asked), fetch the CURRENT name/price/description
-    // from RELAY now — same on-demand refresh pattern as
-    // promptUnlockTheme()/updateCloudBackupGetButtonPrice(), so a change
-    // made in RELAY's Feature Pricing editor shows up the very next time
-    // anyone tries to unlock this module. Callers that already passed a
-    // live value (a 402 response body, or the Multi-Branch widget) keep
-    // using that value as-is and skip the extra round trip.
     if (typeof price !== 'number') {
         await refreshFeatureCatalogLive();
         const live = getFeatureLiveInfo(featureId);
@@ -2193,10 +1593,8 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
             if (typeof live.price === 'number') price = live.price;
         }
     }
-
     const displayName = featureName || featureId;
     const priceText = (typeof price === 'number' && price > 0) ? `₱${price}` : null;
-
     const confirmResult = await Swal.fire({
         title:'Locked: ' + displayName,
         html:
@@ -2211,19 +1609,8 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
         confirmButtonColor:'#2563eb',
     });
     if (!confirmResult.isConfirmed) return false;
-
     return runUnlockFlow(featureId, displayName, {});
 }
-
-// --------------------------------------------------------------
-// cancelPendingOtp — best-effort call to invalidate a still-pending
-// OTP on RELAY early (before its normal 10-minute expiry), used
-// whenever the 6-box verification modal below is closed/cancelled
-// without a correct code, or runs out of attempts. Failures here are
-// swallowed on purpose: worst case, the OTP just expires naturally
-// once its normal TTL passes, so this should never block the UI.
-// payload: { featureId? } | { featureIds? } | { demo: true }
-// --------------------------------------------------------------
 async function cancelPendingOtp(payload) {
     try {
         await authFetch(`${API_URL}/features/cancel-otp`, {
@@ -2232,44 +1619,13 @@ async function cancelPendingOtp(payload) {
             body: JSON.stringify(payload)
         });
     } catch (e) {
-        // Best-effort — ignore network errors here.
     }
 }
-
-// --------------------------------------------------------------
-// showOtpVerificationModal — custom "Security Check" style OTP entry
-// used by every RELAY-backed verification request (Pro theme unlock,
-// feature/Cloud Backup unlock, bundle unlock, and Demo Mode). Six
-// separate digit boxes are always laid out in a single row (never
-// wraps to a second line), support pasting all 6 digits at once, and
-// allow up to `maxAttempts` tries before auto-closing. A correct code
-// plays a green checkmark animation; a wrong one plays a red
-// shake/flash animation.
-//
-// options:
-//   title           - modal title, e.g. "Verification Required"
-//   descriptionHtml - HTML shown above the 6 boxes
-//   maxAttempts     - number of allowed tries (default 3)
-//   verify(otp)     - async function that submits the 6-digit code
-//                     and resolves to a result object shaped like
-//                     { success, pending, message, ... }. Both
-//                     `success: true` and `pending: true` count as a
-//                     CORRECT code (pending just means a human still
-//                     has to approve afterwards).
-//   onExpire()      - called (best-effort) to invalidate the pending
-//                     OTP on RELAY early: fired when the person
-//                     closes/cancels the modal, or when all attempts
-//                     are used up on wrong codes.
-//
-// Resolves to the verify() result object on a correct code, or
-// `null` if the modal was closed/cancelled or ran out of attempts.
-// --------------------------------------------------------------
 async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 3, verify, onExpire }) {
     return new Promise((resolve) => {
         let attemptsLeft = maxAttempts;
         let settled = false;
         let submitting = false;
-
         const overlay = document.createElement('div');
         overlay.className = 'otp-verify-overlay';
         overlay.innerHTML =
@@ -2292,7 +1648,6 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 '</div>' +
             '</div>';
         document.body.appendChild(overlay);
-
         const boxes = Array.from(overlay.querySelectorAll('.otp-verify-box'));
         const statusEl = overlay.querySelector('.otp-verify-status');
         const attemptsEl = overlay.querySelector('.otp-verify-attempts');
@@ -2300,51 +1655,40 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
         const cancelBtn = overlay.querySelector('.otp-verify-cancel-btn');
         const closeBtn = overlay.querySelector('.otp-verify-close');
         const card = overlay.querySelector('.otp-verify-card');
-
         function currentCode() { return boxes.map(b => b.value).join(''); }
-
         function updateSubmitState() {
             submitBtn.disabled = currentCode().length !== 6 || submitting;
         }
-
         function clearBoxesState() { boxes.forEach(b => b.classList.remove('is-error', 'is-success')); }
-
         function focusBox(i) { if (boxes[i]) boxes[i].focus(); }
-
         function setBoxesValue(digits) { boxes.forEach((b, i) => { b.value = digits[i] || ''; }); }
-
         function updateAttemptsLabel() {
             attemptsEl.textContent = attemptsLeft < maxAttempts
                 ? attemptsLeft + ' attempt' + (attemptsLeft === 1 ? '' : 's') + ' remaining'
                 : '';
         }
-
         function teardown() {
             document.removeEventListener('keydown', onKeyDown);
             overlay.classList.add('is-closing');
             setTimeout(() => overlay.remove(), 160);
         }
-
         function finish(result) {
             if (settled) return;
             settled = true;
             teardown();
             resolve(result);
         }
-
         async function finishWithExpire() {
             if (settled) return;
             settled = true;
             teardown();
-            try { if (onExpire) await onExpire(); } catch (e) { /* best-effort */ }
+            try { if (onExpire) await onExpire(); } catch (e) {   }
             resolve(null);
         }
-
         async function doSubmit() {
             if (submitting || settled) return;
             const code = currentCode();
             if (code.length !== 6) return;
-
             submitting = true;
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying...';
@@ -2352,7 +1696,6 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             closeBtn.disabled = true;
             statusEl.textContent = '';
             statusEl.className = 'otp-verify-status';
-
             let result;
             let networkError = false;
             try {
@@ -2361,36 +1704,24 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 networkError = true;
                 result = { success: false, message: 'Could not reach the server. Please check your connection and try again.' };
             }
-
             if (settled) return;
             submitting = false;
             submitBtn.textContent = 'Verify Code';
             cancelBtn.disabled = false;
             closeBtn.disabled = false;
-
             if (result && (result.success || result.pending)) {
                 boxes.forEach(b => { b.value = '✓'; b.disabled = true; b.classList.add('is-success'); });
                 statusEl.textContent = result.pending ? 'Code verified — waiting for approval' : 'Code verified';
                 statusEl.className = 'otp-verify-status is-success';
-                // Carry the verified 6-digit code along with the server's
-                // response, since callers may need it again for follow-up
-                // polling (e.g. while waiting on admin approval) without
-                // making the person re-type it.
                 setTimeout(() => finish(Object.assign({}, result, { _verifiedOtp: code })), 650);
                 return;
             }
-
-            // A dropped connection is NOT the same as a wrong code — don't
-            // burn one of the 3 attempts (or shake/flash red) just because
-            // the request couldn't reach the server. Let the person try
-            // submitting the same code again once they're back online.
             if (networkError) {
                 statusEl.textContent = result.message;
                 statusEl.className = 'otp-verify-status is-error';
                 updateSubmitState();
                 return;
             }
-
             attemptsLeft -= 1;
             boxes.forEach(b => b.classList.add('is-error'));
             card.classList.add('is-shaking');
@@ -2398,18 +1729,15 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             statusEl.textContent = (result && result.message) || 'Incorrect code, try again';
             statusEl.className = 'otp-verify-status is-error';
             updateAttemptsLabel();
-
             if (attemptsLeft <= 0) {
                 statusEl.textContent = 'Too many incorrect attempts';
                 setTimeout(() => finishWithExpire(), 850);
                 return;
             }
-
             setBoxesValue('');
             updateSubmitState();
             focusBox(0);
         }
-
         boxes.forEach((box, i) => {
             box.addEventListener('input', () => {
                 box.value = box.value.replace(/[^0-9]/g, '').slice(-1);
@@ -2438,33 +1766,21 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 }
             });
         });
-
         function onKeyDown(e) {
             if (e.key === 'Escape' && !settled && !submitting) finishWithExpire();
         }
-
         submitBtn.addEventListener('click', doSubmit);
         cancelBtn.addEventListener('click', () => { if (!submitting) finishWithExpire(); });
         closeBtn.addEventListener('click', () => { if (!submitting) finishWithExpire(); });
         overlay.addEventListener('mousedown', (e) => { if (e.target === overlay && !submitting) finishWithExpire(); });
         document.addEventListener('keydown', onKeyDown);
-
         updateAttemptsLabel();
         focusBox(0);
     });
 }
-
-// --------------------------------------------------------------
-// runUnlockFlow — the ONE shared "photo -> request-unlock -> OTP ->
-// confirm-unlock" flow, used by TWO callers: (1) promptUnlockFeature
-// (regular one-time features, no extra body) and (2)
-// promptCloudBackupSubscription (with extra { tier, billingCycle }
-// included in the request/confirm body).
-// --------------------------------------------------------------
 async function runUnlockFlow(featureId, displayName, extraRequestBody) {
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
     const photo = await captureQuickPhoto();
-
     try {
         const reqRes = await authFetch(`${API_URL}/features/request-unlock`, {
             method:'POST',
@@ -2472,7 +1788,6 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
             body: JSON.stringify({ featureId, username: requestingUsername, photo, ...extraRequestBody })
         });
         const reqData = await reqRes.json();
-
         if (!reqData.success) {
             showUnlockRequestError(reqData,'The unlock request failed.');
             return false;
@@ -2488,7 +1803,6 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
         Swal.fire('Error','Could not reach the server to send the unlock request.','error');
         return false;
     }
-
     const otpModalResult = await showOtpVerificationModal({
         title: 'Verification Required',
         descriptionHtml: 'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>' + displayName + '</strong>.',
@@ -2504,21 +1818,17 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
         onExpire: () => cancelPendingOtp({ featureId })
     });
     if (!otpModalResult) return false;
-
     try {
         let confirmData = otpModalResult;
         if (confirmData.pending) {
             const confirmBody = { featureId, otp: confirmData._verifiedOtp, username: requestingUsername, ...extraRequestBody };
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock`, confirmBody);
         }
-
         if (confirmData.cancelled) return false;
-
         if (!confirmData.success) {
             Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return false;
         }
-
         if (Array.isArray(confirmData.unlockedFeatureIds)) {
             unlockedFeatureIdsCache = confirmData.unlockedFeatureIds;
         }
@@ -2531,28 +1841,13 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
         return false;
     }
 }
-
-// --------------------------------------------------------------
-// promptCloudBackupSubscription — Basic/Standard/Pro x Monthly/Yearly
-// plan picker for the Cloud Backup subscription (no longer a simple
-// "one-time ₱1,499" button). It still follows the same OTP
-// verification flow (runUnlockFlow) after a plan is chosen.
-// --------------------------------------------------------------
 async function promptCloudBackupSubscription() {
     if (blockIfOffline('Cloud Backup subscription')) return false;
-
-    // Always fetch the LIVE plans (mirrors RELAY's current pricing) right
-    // before showing the dialog, so a price/quota change made in RELAY's
-    // admin panel is reflected the next time someone opens this — instead
-    // of the stale, hardcoded figures that used to be shown here.
     await refreshCloudBackupPlansLive();
     const cloudBackupPlans = getCloudBackupPlansMerged();
-
     let selectedTier = 'standard';
     let selectedCycle = 'monthly';
-
     const tierKeys = Object.keys(cloudBackupPlans);
-
     const buildHtml = () => {
         const tierButtons = tierKeys.map(key => {
             const plan = cloudBackupPlans[key];
@@ -2563,19 +1858,16 @@ async function promptCloudBackupSubscription() {
                 `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${plan.price[selectedCycle]}<span style="font-size:0.68rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
                 `</button>`;
         }).join('');
-
         const cycleButtons = ['monthly','yearly'].map(cycle => {
             const active = cycle === selectedCycle;
             return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
-
         return `<div style="text-align:left;">
             <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
             <div style="display:flex;">${tierButtons}</div>
         </div>`;
     };
-
     const result = await Swal.fire({
         title: 'Cloud Backup Plans',
         html: buildHtml(),
@@ -2596,13 +1888,10 @@ async function promptCloudBackupSubscription() {
             attachHandlers();
         }
     });
-
     if (!result.isConfirmed) return false;
-
     const planName = `Cloud Backup — ${cloudBackupPlans[selectedTier].name} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
     return runUnlockFlow('cloud_backup', planName, { tier: selectedTier, billingCycle: selectedCycle });
 }
-
 async function showUpgradeTiersModal() {
     let catalog;
     try {
@@ -2616,23 +1905,18 @@ async function showUpgradeTiersModal() {
         Swal.fire('Error','Could not load the upgrade options.','error');
         return false;
     }
-
     await refreshUnlockedFeaturesFromServer();
-
     const purchased = Array.isArray(purchasedFeatureIdsCache) ? purchasedFeatureIdsCache : [];
     const features = catalog.features.filter(f => !purchased.includes(f.id));
     const tiers = catalog.tiers
         .map(t => ({ ...t, featureIds: t.featureIds.filter(id => !purchased.includes(id)) }))
         .filter(t => t.featureIds.length > 0);
-
     if (features.length === 0) {
         Swal.fire('Unlocked!','All available features are now unlocked on this installation.','success');
         return true;
     }
-
     let selectedTierId = null;
     let selectedFeatureIds = new Set();
-
     const tierCardsHtml = tiers.map(t => {
         const effectivePrice = (typeof t.effectiveBundlePrice ==='number') ? t.effectiveBundlePrice : t.bundlePrice;
         const showOriginalStrike = effectivePrice < t.bundlePrice;
@@ -2655,17 +1939,14 @@ async function showUpgradeTiersModal() {
         `</button>`
         );
     }).join('');
-
     const ALA_CARTE_CATEGORY_LABELS = { module:'Modules', 'cloud-service':'Cloud Service', theme:'Pro Themes' };
     const ALA_CARTE_CATEGORY_ORDER = ['module','cloud-service','theme'];
-
     const featuresByCategory = {};
     features.forEach(f => {
         const cat = f.category ||'module';
         if (!featuresByCategory[cat]) featuresByCategory[cat] = [];
         featuresByCategory[cat].push(f);
     });
-
     const alaCarteHtml = ALA_CARTE_CATEGORY_ORDER
         .filter(cat => featuresByCategory[cat] && featuresByCategory[cat].length)
         .map(cat => {
@@ -2690,7 +1971,6 @@ async function showUpgradeTiersModal() {
                 `</details>`
             );
         }).join('');
-
     const result = await Swal.fire({
         title:'✨ Upgrade Options',
         width: 480,
@@ -2718,7 +1998,6 @@ async function showUpgradeTiersModal() {
             const totalEl = document.getElementById('uw-total-price');
             const tierButtons = Array.from(document.querySelectorAll('.uw-tier-card'));
             const featureChecks = Array.from(document.querySelectorAll('.uw-feature-check'));
-
             function renderTotal() {
                 if (selectedTierId) {
                     const t = tiers.find(x => x.id === selectedTierId);
@@ -2731,34 +2010,28 @@ async function showUpgradeTiersModal() {
                     totalEl.textContent ='₱' + total;
                 }
             }
-
             tierButtons.forEach(btn => {
                 btn.addEventListener('click', () => {
                     const id = btn.getAttribute('data-tier-id');
                     selectedTierId = (selectedTierId === id) ? null : id;
                     selectedFeatureIds = new Set();
-
                     const activeTier = tiers.find(t => t.id === selectedTierId);
                     featureChecks.forEach(c => {
                         const featureId = c.getAttribute('data-feature-id');
                         if (activeTier) {
-
                             c.checked = activeTier.featureIds.includes(featureId);
                             c.disabled = true;
                         } else {
-
                             c.checked = false;
                             c.disabled = false;
                         }
                     });
-
                     tierButtons.forEach(b => {
                         b.classList.toggle('active', b.getAttribute('data-tier-id') === selectedTierId);
                     });
                     renderTotal();
                 });
             });
-
             featureChecks.forEach(chk => {
                 chk.addEventListener('change', () => {
                     if (chk.disabled) return;
@@ -2768,13 +2041,11 @@ async function showUpgradeTiersModal() {
                     } else {
                         selectedFeatureIds.delete(id);
                     }
-
                     selectedTierId = null;
                     tierButtons.forEach(b => b.classList.remove('active'));
                     renderTotal();
                 });
             });
-
             renderTotal();
         },
         preConfirm: () => {
@@ -2788,19 +2059,15 @@ async function showUpgradeTiersModal() {
             return { featureIds, tierId: selectedTierId };
         }
     });
-
     if (!result.isConfirmed || !result.value || !result.value.featureIds || result.value.featureIds.length === 0) return false;
-
     let demoWasActive = false;
     try {
         const demoStatusRes = await authFetch(`${API_URL}/features/demo-status`);
         const demoStatusData = await demoStatusRes.json();
         demoWasActive = !!(demoStatusData && demoStatusData.demoActive);
     } catch (e) {
-
         demoWasActive = false;
     }
-
     if (demoWasActive) {
         const endDemoConfirm = await Swal.fire({
             title:'End Demo & Purchase?',
@@ -2811,9 +2078,7 @@ async function showUpgradeTiersModal() {
             cancelButtonText:'No',
             confirmButtonColor:'#2563eb',
         });
-
         if (!endDemoConfirm.isConfirmed) return false;
-
         try {
             const endRes = await authFetch(`${API_URL}/features/end-demo`, { method:'POST' });
             const endData = await endRes.json();
@@ -2823,17 +2088,13 @@ async function showUpgradeTiersModal() {
             updateSidebarFeatureLocks();
             await initDemoModeUI();
         } catch (e) {
-
         }
     }
-
     return requestBulkUnlock(result.value.featureIds, result.value.tierId);
 }
-
 async function requestBulkUnlock(featureIds, tierId) {
     if (blockIfOffline('Bundle unlock requests')) return;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
-
     try {
         const reqRes = await authFetch(`${API_URL}/features/request-unlock-bulk`, {
             method:'POST',
@@ -2841,7 +2102,6 @@ async function requestBulkUnlock(featureIds, tierId) {
             body: JSON.stringify({ featureIds, tierId: tierId || null, username: requestingUsername })
         });
         const reqData = await reqRes.json();
-
         if (!reqData.success) {
             showUnlockRequestError(reqData,'The bundle unlock request failed.');
             return false;
@@ -2863,7 +2123,6 @@ async function requestBulkUnlock(featureIds, tierId) {
         Swal.fire('Error','Could not reach the server to send the unlock request.','error');
         return false;
     }
-
     const otpModalResult = await showOtpVerificationModal({
         title: 'Verification Required',
         descriptionHtml: `Enter the 6-digit verification code sent to the developer/store owner to activate <strong>${featureIds.length} feature(s)</strong>.`,
@@ -2879,22 +2138,17 @@ async function requestBulkUnlock(featureIds, tierId) {
         onExpire: () => cancelPendingOtp({ featureIds })
     });
     if (!otpModalResult) return false;
-
     try {
         let confirmData = otpModalResult;
-
         if (confirmData.pending) {
             const confirmBody = { featureIds, otp: confirmData._verifiedOtp, username: requestingUsername };
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, confirmBody);
         }
-
         if (confirmData.cancelled) return false;
-
         if (!confirmData.success) {
             Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return false;
         }
-
         if (Array.isArray(confirmData.unlockedFeatureIds)) {
             unlockedFeatureIdsCache = confirmData.unlockedFeatureIds;
         }
@@ -2907,10 +2161,8 @@ async function requestBulkUnlock(featureIds, tierId) {
         return false;
     }
 }
-
 let demoCountdownInterval = null;
 const DEMO_FLOAT_POSITION_KEY ='omnipos_demo_float_pos';
-
 function injectDemoFloatStyles() {
     if (document.getElementById('demo-float-styles')) return;
     const style = document.createElement('style');
@@ -2971,14 +2223,12 @@ function injectDemoFloatStyles() {
     `;
     document.head.appendChild(style);
 }
-
 function saveDemoFloatPosition(el) {
     try {
         const rect = el.getBoundingClientRect();
         localStorage.setItem(DEMO_FLOAT_POSITION_KEY, JSON.stringify({ x: rect.left, y: rect.top }));
     } catch (e) {  }
 }
-
 function restoreDemoFloatPosition(el) {
     try {
         const raw = localStorage.getItem(DEMO_FLOAT_POSITION_KEY);
@@ -2994,15 +2244,12 @@ function restoreDemoFloatPosition(el) {
         }
     } catch (e) {  }
 }
-
 function makeDemoFloatDraggable(el) {
     if (el.dataset.dragBound) return;
     el.dataset.dragBound ='1';
-
     let dragging = false;
     let moved = false;
     let startX = 0, startY = 0, origX = 0, origY = 0;
-
     el.addEventListener('pointerdown', (e) => {
         dragging = true;
         moved = false;
@@ -3014,7 +2261,6 @@ function makeDemoFloatDraggable(el) {
         try { el.setPointerCapture(e.pointerId); } catch (err) {  }
         el.classList.add('demo-float-dragging');
     });
-
     el.addEventListener('pointermove', (e) => {
         if (!dragging) return;
         const dx = e.clientX - startX;
@@ -3030,14 +2276,12 @@ function makeDemoFloatDraggable(el) {
         el.style.right ='auto';
         el.style.bottom ='auto';
     });
-
     const endDrag = () => {
         if (!dragging) return;
         dragging = false;
         el.classList.remove('demo-float-dragging');
         if (moved) {
             saveDemoFloatPosition(el);
-
             el.dataset.suppressClick ='1';
             setTimeout(() => { delete el.dataset.suppressClick; }, 50);
         }
@@ -3045,7 +2289,6 @@ function makeDemoFloatDraggable(el) {
     el.addEventListener('pointerup', endDrag);
     el.addEventListener('pointercancel', endDrag);
 }
-
 function ensureDemoModeContainer() {
     injectDemoFloatStyles();
     let el = document.getElementById('demo-mode-banner-container');
@@ -3061,10 +2304,8 @@ function ensureDemoModeContainer() {
         document.body.appendChild(el);
         restoreDemoFloatPosition(el);
         makeDemoFloatDraggable(el);
-
         const endBtn = document.getElementById('demo-float-end-btn');
         if (endBtn) {
-
             endBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
             endBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -3074,7 +2315,6 @@ function ensureDemoModeContainer() {
     }
     return el;
 }
-
 function formatDemoRemaining(ms) {
     if (ms <= 0) return'0h 0m 0s';
     const totalSeconds = Math.floor(ms / 1000);
@@ -3085,7 +2325,6 @@ function formatDemoRemaining(ms) {
     if (minutes > 0) return `${minutes}m ${seconds}s`;
     return `${seconds}s`;
 }
-
 function ensureSidebarProBadge() {
     let el = document.getElementById('sidebar-pro-badge');
     if (!el) {
@@ -3102,7 +2341,6 @@ function ensureSidebarProBadge() {
     }
     return el;
 }
-
 function renderSidebarProBadge(fullyPurchased, demoActive) {
     const el = ensureSidebarProBadge();
     if (!el) return;
@@ -3122,26 +2360,20 @@ function renderSidebarProBadge(fullyPurchased, demoActive) {
         el.onclick = () => promptDemoMode();
     }
 }
-
 function renderDemoFloatWidget(status, fullyPurchased, demoActive) {
     if (demoCountdownInterval) { clearInterval(demoCountdownInterval); demoCountdownInterval = null; }
-
     if (fullyPurchased || !demoActive) {
         const existing = document.getElementById('demo-mode-banner-container');
         if (existing) existing.style.display ='none';
         return;
     }
-
     const container = ensureDemoModeContainer();
     container.style.display ='inline-flex';
     const labelEl = document.getElementById('demo-float-label');
     const endBtn = document.getElementById('demo-float-end-btn');
-
     const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const isAdminRole = ((activeUser && activeUser.role) ||'').toLowerCase() ==='admin';
-
     if (endBtn) endBtn.classList.toggle('demo-float-end-enabled', isAdminRole);
-
     const renderCountdown = () => {
         const remaining = status.demoExpiresAt - Date.now();
         if (remaining <= 0) {
@@ -3155,11 +2387,9 @@ function renderDemoFloatWidget(status, fullyPurchased, demoActive) {
     renderCountdown();
     demoCountdownInterval = setInterval(renderCountdown, 1000);
 }
-
 function handleDemoExpired() {
     const existing = document.getElementById('demo-mode-banner-container');
     if (existing) existing.style.display ='none';
-
     if (window.Swal && typeof Swal.fire ==='function') {
         Swal.fire({
             toast: true,
@@ -3172,19 +2402,16 @@ function handleDemoExpired() {
             timerProgressBar: true,
         });
     }
-
     setTimeout(() => {
         window.location.reload();
     }, 1500);
 }
-
 function renderDemoModeUI(status) {
     const fullyPurchased = !!(status && status.fullyPurchased);
     const demoActive = !!(status && status.demoActive && status.demoExpiresAt);
     renderSidebarProBadge(fullyPurchased, demoActive);
     renderDemoFloatWidget(status, fullyPurchased, demoActive);
 }
-
 async function initDemoModeUI() {
     try {
         const res = await authFetch(`${API_URL}/features/demo-status`);
@@ -3194,7 +2421,6 @@ async function initDemoModeUI() {
         console.warn('Could not fetch demo status.', e);
     }
 }
-
 async function endDemoModeManually() {
     const confirmResult = await Swal.fire({
         title:'End Demo Mode?',
@@ -3205,13 +2431,11 @@ async function endDemoModeManually() {
         cancelButtonText:'Upgrade',
         confirmButtonColor:'#dc2626',
     });
-
     if (confirmResult.dismiss === Swal.DismissReason.cancel) {
         await showUpgradeTiersModal();
         return;
     }
     if (!confirmResult.isConfirmed) return;
-
     try {
         const res = await authFetch(`${API_URL}/features/end-demo`, { method:'POST' });
         const data = await res.json();
@@ -3229,11 +2453,9 @@ async function endDemoModeManually() {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function promptDemoMode() {
     if (blockIfOffline('Demo Mode activation requests')) return false;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
-
     const confirmResult = await Swal.fire({
         title:'✨ Try Full Demo Mode',
         html:
@@ -3253,7 +2475,6 @@ async function promptDemoMode() {
         return false;
     }
     if (!confirmResult.isConfirmed) return false;
-
     try {
         const reqRes = await authFetch(`${API_URL}/features/request-demo`, {
             method:'POST',
@@ -3261,7 +2482,6 @@ async function promptDemoMode() {
             body: JSON.stringify({ username: requestingUsername })
         });
         const reqData = await reqRes.json();
-
         if (!reqData.success) {
             showUnlockRequestError(reqData,'The demo request failed.');
             return false;
@@ -3283,7 +2503,6 @@ async function promptDemoMode() {
         Swal.fire('Error','Could not reach the server to send the demo request.','error');
         return false;
     }
-
     const otpModalResult = await showOtpVerificationModal({
         title: 'Verification Required',
         descriptionHtml: 'Enter the 6-digit verification code sent to the developer/store owner to activate <strong>Demo Mode</strong>.',
@@ -3299,22 +2518,17 @@ async function promptDemoMode() {
         onExpire: () => cancelPendingOtp({ demo: true })
     });
     if (!otpModalResult) return false;
-
     try {
         let confirmData = otpModalResult;
-
         if (confirmData.pending) {
             const confirmBody = { otp: confirmData._verifiedOtp, username: requestingUsername };
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-demo`, confirmBody);
         }
-
         if (confirmData.cancelled) return false;
-
         if (!confirmData.success) {
             Swal.fire('Incorrect Code', confirmData.message ||'Failed to verify the code.','error');
             return false;
         }
-
         if (Array.isArray(confirmData.unlockedFeatureIds)) {
             unlockedFeatureIdsCache = confirmData.unlockedFeatureIds;
         }
@@ -3327,19 +2541,12 @@ async function promptDemoMode() {
         return false;
     }
 }
-
 document.addEventListener("DOMContentLoaded", () => {
-
     setupDropdownHandlers();
     initDarkMode();
     initDynamicThemeColor();
     initCustomTheme();
     refreshUnlockedThemesFromServer();
-    // refreshUnlockedFeaturesFromServer() already triggers a live Cloud
-    // Backup pricing fetch on its own (via updateSidebarFeatureLocks() ->
-    // updateCloudBackupLockState(), whether the feature ends up locked or
-    // already unlocked) — no need for a separate refreshCloudBackupPlansLive()
-    // call here too, that would just be a redundant duplicate request.
     refreshUnlockedFeaturesFromServer();
     renderTerminalThemeMenu();
     updateTerminalThemesMenuVisibility();
@@ -3360,22 +2567,17 @@ document.addEventListener("DOMContentLoaded", () => {
     initAuthDeviceScaling();
     initFullscreenToggleButton();
     initHeaderDoubleTapFullscreen();
-
     const sidebar = document.querySelector('.sidebar');
     if (sidebar) {
         sidebar.addEventListener('click', (event) => {
-
             const isClickableItem = event.target.closest('a') || event.target.closest('button');
-
             if (isClickableItem) {
                 closeSidebarMenu();
             }
         });
     }
-
     const prodForm = document.getElementById('product-schema-form');
     if(prodForm) prodForm.addEventListener('submit', handleProductFormSubmit);
-
 const categorySelect = document.getElementById('p-form-category');
 if (categorySelect) {
     categorySelect.addEventListener('change', async function() {
@@ -3388,10 +2590,8 @@ if (categorySelect) {
                 confirmButtonColor:'#2563eb',
                 cancelButtonColor:'#64748b'
             });
-
             if (newCategory && newCategory.trim() !=="") {
                 const cleanCategory = newCategory.trim();
-
                 try {
                     const response = await authFetch(`${API_URL}/categories`, {
                         method:'POST',
@@ -3399,7 +2599,6 @@ if (categorySelect) {
                         body: JSON.stringify({ category: cleanCategory })
                     });
                     const data = await response.json();
-
                     if (data.success) {
                         customCategories = data.categories;
                         updateDropdownCategoriesDynamic();
@@ -3417,10 +2616,8 @@ if (categorySelect) {
         }
     });
 }
-
     const userForm = document.getElementById('user-schema-form');
     if(userForm) userForm.addEventListener('submit', handleUserFormSubmit);
-
     if (currentUser) {
         showMainSystemInterface().catch(err => {
             console.error('Unexpected error while restoring session after reload (showMainSystemInterface):', err);
@@ -3428,11 +2625,8 @@ if (categorySelect) {
     } else {
         showAuthenticationInterface();
     }
-
 });
-
 async function guardShiftReportAccess(isAdminOrSupervisor) {
-
     const token = localStorage.getItem('omnipos_token');
     try {
         const res = await window.fetch(`${API_URL}/shift/current`, {
@@ -3440,54 +2634,37 @@ async function guardShiftReportAccess(isAdminOrSupervisor) {
         });
         const data = await res.json();
         if (data && data.success) {
-
             switchView('shiftreport', { skipFeatureGate: true });
             return;
         }
     } catch (e) {  }
-
     if (isAdminOrSupervisor) {
-
         switchView('shiftreport', { skipFeatureGate: true });
         return;
     }
-
     guardPremiumFeature('shift_management');
 }
-
 function switchView(viewKey, opts) {
     opts = opts || {};
-
     document.documentElement.removeAttribute('data-preload-view');
-
     if (viewKey !=='users' && typeof closeGoogleAppVerificationFloatingBox ==='function') {
         closeGoogleAppVerificationFloatingBox();
     }
-
     if (typeof closeHeaderUserMenu ==='function') closeHeaderUserMenu();
-
     if (typeof closeUserWidgetMenu ==='function') closeUserWidgetMenu();
     if (typeof closeAllSidebarMenuDropdowns ==='function') closeAllSidebarMenuDropdowns();
     if (typeof closeAllResetRestoreCards ==='function') closeAllResetRestoreCards();
-
     const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const userRole = (activeUser && activeUser.role ||'').toLowerCase();
     const isAdmin = userRole ==='admin';
     if (!isAdmin && Object.prototype.hasOwnProperty.call(currentPermissions || {}, viewKey) && !currentPermissions[viewKey]) {
         console.warn(`[OmniPOS] Access denied to view "${viewKey}" for role "${userRole ||'unknown'}"`);
-        // Dynamic fallback: don't blindly send the user to "overview" — that
-        // view is itself permission-gated (see MENU_REGISTRY 'overview' key).
-        // Prefer Terminal (the one screen every selling role needs), then
-        // Overview, then just leave the requested view up to render an
-        // empty/blocked state rather than looping back to something also
-        // denied (e.g. a Cashier locked to Terminal only).
         if (currentPermissions && currentPermissions.terminal) {
             viewKey ='terminal';
         } else if (currentPermissions && currentPermissions.overview) {
             viewKey ='overview';
         }
     }
-
     const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
@@ -3497,11 +2674,9 @@ function switchView(viewKey, opts) {
         guardPremiumFeature(VIEW_FEATURE_MAP[viewKey]);
         return;
     }
-
     document.querySelectorAll('.app-view').forEach(view => view.style.display ='none');
     document.querySelectorAll('.menu-item, .sub-menu-item').forEach(item => item.classList.remove('active'));
     document.querySelectorAll('.bottom-nav-item').forEach(item => item.classList.remove('active'));
-
     if (viewKey !=='terminal') {
         const terminalViewEl = document.getElementById('view-terminal');
         if (terminalViewEl) terminalViewEl.classList.remove('cart-drawer-expanded');
@@ -3509,33 +2684,25 @@ function switchView(viewKey, opts) {
         const drawerBtn = document.getElementById('btn-cart-drawer-toggle');
         if (drawerBtn) drawerBtn.classList.remove('active');
     }
-
     const targetView = document.getElementById(`view-${viewKey}`);
-
     if (targetView) targetView.style.removeProperty('display');
-
     const targetMenu = document.getElementById(`menu-${viewKey}`);
     if (targetMenu) targetMenu.classList.add('active');
-
     const bottomNavMap = { dashboard:'products', barcode:'products', reorder:'products' };
     const bottomNavKey = bottomNavMap[viewKey] || viewKey;
     const targetBottomNav = document.getElementById(`bn-${bottomNavKey}`);
     if (targetBottomNav) targetBottomNav.classList.add('active');
-
     if (window.innerWidth <= 1024) {
         document.getElementById('app-sidebar').classList.remove('open');
     }
-
     const topHeaderEl = document.getElementById('app-top-header');
     if (topHeaderEl) {
         topHeaderEl.classList.toggle('terminal-header-mode', viewKey ==='terminal');
     }
-
     const bottomNavEl = document.getElementById('app-bottom-nav');
     if (bottomNavEl) {
         bottomNavEl.classList.toggle('bottom-nav-hidden', viewKey ==='terminal');
     }
-
     if (viewKey ==='overview') {
         console.log("Dashboard menu clicked! Forcing data refresh from server/database...");
         renderOverviewGreeting();
@@ -3546,13 +2713,9 @@ function switchView(viewKey, opts) {
             loadDashboardMetrics();
         }
     }  if (viewKey ==='terminal') { loadTerminalCatalog(); checkShiftOpeningCashGate(); startTerminalStockPolling(); } else { stopTerminalStockPolling(); }
-
     if (viewKey ==='products') { startInventoryStockPolling(); } else { stopInventoryStockPolling(); }
-
     if (viewKey ==='reorder') { startReorderPolling(); } else { stopReorderPolling(); }
-
     if (viewKey ==='users' && typeof centerActiveUserTab ==='function') { centerActiveUserTab(); }
-
     if (viewKey ==='terminal') {
         applySavedTerminalDayMode();
         if (typeof applySavedTerminalExtraTheme ==='function') applySavedTerminalExtraTheme();
@@ -3568,7 +2731,6 @@ function switchView(viewKey, opts) {
         loadSalesAnalyticsReport();
         checkAdminResetVisibility();
     }
-
     if (viewKey ==='transactions') {
         loadTransactionsHistory();
         applyResponsiveRecoveryCardState();
@@ -3581,16 +2743,12 @@ function switchView(viewKey, opts) {
     if (viewKey ==='reorder') loadReorderView();
     sessionStorage.setItem('currentView', viewKey);
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
-
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
-
     if (!history.state || history.state.view !== viewKey) {
         history.pushState({ view: viewKey },'','');
     }
-
     updateResponsivePageTitle();
 }
-
 const MOBILE_HEADER_TITLE_MAP = {
     dashboard:    { text:'Dashboard',           hideIds: ['dashboard-title-row'] },
     products:     { text:'Products',            hideIds: ['page-title-products'] },
@@ -3604,26 +2762,21 @@ const MOBILE_HEADER_TITLE_MAP = {
     logs:         { text:'System Audit Logs',   hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 hideIds: ['page-title-faq'] }
 };
-
 function isMobileOrTabletScreen() {
     return window.innerWidth <= 1024;
 }
-
 function updateResponsivePageTitle() {
     const headerTitleEl = document.getElementById('header-page-title');
     if (!headerTitleEl) return;
-
     const viewKey = sessionStorage.getItem('currentView') ||'overview';
     const config = MOBILE_HEADER_TITLE_MAP[viewKey];
     const shouldUseHeaderTitle = isMobileOrTabletScreen() && !!config;
-
     Object.values(MOBILE_HEADER_TITLE_MAP).forEach(cfg => {
         cfg.hideIds.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display ='';
         });
     });
-
     if (shouldUseHeaderTitle) {
         headerTitleEl.textContent = config.text;
         headerTitleEl.classList.add('active-title');
@@ -3631,7 +2784,6 @@ function updateResponsivePageTitle() {
             const el = document.getElementById(id);
             if (el) el.style.display ='none';
         });
-
         const w = window.innerWidth;
         let fontSize;
         if (w <= 380) fontSize ='1.45rem';
@@ -3645,59 +2797,43 @@ function updateResponsivePageTitle() {
         headerTitleEl.style.fontSize ='';
     }
 }
-
 let _responsiveTitleResizeTimer = null;
 window.addEventListener('resize', () => {
     clearTimeout(_responsiveTitleResizeTimer);
     _responsiveTitleResizeTimer = setTimeout(updateResponsivePageTitle, 120);
 });
-
 let _rrOpenCardOrder = [];
-
 function toggleResetRestoreCard(headerEl) {
     const card = headerEl.closest('.rr-card');
     if (!card) return;
     const cardId = card.getAttribute('data-rr-card');
-
     if (card.classList.contains('rr-open')) {
-
         card.classList.remove('rr-open');
         _rrOpenCardOrder = _rrOpenCardOrder.filter(id => id !== cardId);
         return;
     }
-
     card.classList.add('rr-open');
     _rrOpenCardOrder.push(cardId);
-
     if (_rrOpenCardOrder.length > 2) {
         const oldestId = _rrOpenCardOrder.shift();
         const oldestCard = document.querySelector(`.rr-card[data-rr-card="${oldestId}"]`);
         if (oldestCard) oldestCard.classList.remove('rr-open');
     }
 }
-
 function closeAllResetRestoreCards() {
     document.querySelectorAll('#reset-restore-panel .rr-card.rr-open').forEach(card => {
         card.classList.remove('rr-open');
     });
     _rrOpenCardOrder = [];
 }
-
 function toggleRecoveryCard() {
     const card = document.querySelector('.recovery-inner-card');
     if (!card) return;
     card.classList.toggle('rc-expanded');
 }
-
 function applyResponsiveRecoveryCardState() {
     const card = document.querySelector('.recovery-inner-card');
     if (!card) return;
-    // Opening the on-screen keyboard (e.g. tapping the Txn/Log ID field
-    // inside this card) fires a window 'resize' event on mobile browsers.
-    // Without this guard, that resize was mistaken for a real breakpoint
-    // change and force-collapsed the card out from under the user's finger
-    // while they were still typing. Skip the auto-collapse whenever focus
-    // is currently inside the card.
     if (card.contains(document.activeElement)) return;
     if (isMobileOrTabletScreen()) {
         card.classList.remove('rc-expanded');
@@ -3705,15 +2841,12 @@ function applyResponsiveRecoveryCardState() {
         card.classList.add('rc-expanded');
     }
 }
-
 window.addEventListener('resize', () => {
     clearTimeout(_responsiveRecoveryCardResizeTimer);
     _responsiveRecoveryCardResizeTimer = setTimeout(applyResponsiveRecoveryCardState, 120);
 });
 let _responsiveRecoveryCardResizeTimer = null;
-
 let globalCustomers = [];
-
 async function loadCustomersView() {
     try {
         const res = await authFetch(`${API_URL}/customers`);
@@ -3724,22 +2857,18 @@ async function loadCustomersView() {
     }
     renderCustomersTable();
 }
-
 function renderCustomersTable() {
     const tbody = document.getElementById('customers-table-body');
     if (!tbody) return;
     const searchEl = document.getElementById('customer-search-input');
     const q = (searchEl ? searchEl.value :'').trim().toLowerCase();
-
     const filtered = globalCustomers.filter(c =>
         !q || (c.name ||'').toLowerCase().includes(q) || (c.phone ||'').includes(q) || (c.email ||'').toLowerCase().includes(q)
     );
-
     if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#94a3b8;">No customers found.</td></tr>`;
         return;
     }
-
     tbody.innerHTML = filtered.map(c => `
         <tr>
             <td>${escapeHtml(c.name)}</td>
@@ -3758,7 +2887,6 @@ function renderCustomersTable() {
         </tr>
     `).join('');
 }
-
 async function openAddCustomerForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Customer',
@@ -3784,7 +2912,6 @@ async function openAddCustomerForm() {
         }
     });
     if (!formValues) return;
-
     try {
         const res = await authFetch(`${API_URL}/customers`, {
             method:'POST',
@@ -3802,11 +2929,9 @@ async function openAddCustomerForm() {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function openEditCustomerForm(id) {
     const cust = globalCustomers.find(c => c.id === id);
     if (!cust) return;
-
     const { value: formValues } = await Swal.fire({
         title:'Edit Customer',
         html: `
@@ -3824,7 +2949,6 @@ async function openEditCustomerForm(id) {
         })
     });
     if (!formValues) return;
-
     try {
         const res = await authFetch(`${API_URL}/customers/${encodeURIComponent(id)}`, {
             method:'PUT',
@@ -3842,7 +2966,6 @@ async function openEditCustomerForm(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function deleteCustomerConfirm(id) {
     const cust = globalCustomers.find(c => c.id === id);
     const result = await Swal.fire({
@@ -3853,7 +2976,6 @@ async function deleteCustomerConfirm(id) {
         confirmButtonText:'Yes, delete'
     });
     if (!result.isConfirmed) return;
-
     try {
         const res = await authFetch(`${API_URL}/customers/${encodeURIComponent(id)}`, { method:'DELETE' });
         const data = await res.json();
@@ -3866,11 +2988,8 @@ async function deleteCustomerConfirm(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
-// ================== DEBTS / DEBTORS TRACKING ==================
 let globalDebts = [];
 let debtsCountdownTimer = null;
-
 async function loadDebtsView() {
     try {
         const res = await authFetch(`${API_URL}/debts`);
@@ -3881,11 +3000,6 @@ async function loadDebtsView() {
     }
     renderDebtsTable();
 }
-
-// Live-computes the "time remaining" from dueAt (not stored on the
-// server) — so it stays accurate no matter how long the app has been
-// open. Called repeatedly by startDebtsCountdownRefresh while the
-// Debts page is open.
 function formatDebtDueCountdown(dueAtIso) {
     if (!dueAtIso) return { text:'No due date', overdue: false, hasDue: false };
     const dueMs = new Date(dueAtIso).getTime();
@@ -3895,20 +3009,17 @@ function formatDebtDueCountdown(dueAtIso) {
     const days = Math.floor(absMs / (24 * 60 * 60 * 1000));
     const hours = Math.floor((absMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
     const minutes = Math.floor((absMs % (60 * 60 * 1000)) / (60 * 1000));
-
     let parts = [];
     if (days > 0) parts.push(`${days}d`);
     if (hours > 0 || days > 0) parts.push(`${hours}h`);
     parts.push(`${minutes}m`);
     const durationText = parts.join(' ');
-
     return {
         text: overdue ? `Overdue by ${durationText}` : `${durationText} remaining`,
         overdue,
         hasDue: true
     };
 }
-
 function startDebtsCountdownRefresh() {
     stopDebtsCountdownRefresh();
     debtsCountdownTimer = setInterval(() => {
@@ -3916,14 +3027,12 @@ function startDebtsCountdownRefresh() {
         if (view && view.style.display !=='none') renderDebtsTable();
     }, 30000);
 }
-
 function stopDebtsCountdownRefresh() {
     if (debtsCountdownTimer) {
         clearInterval(debtsCountdownTimer);
         debtsCountdownTimer = null;
     }
 }
-
 function renderDebtsTable() {
     const tbody = document.getElementById('debts-table-body');
     if (!tbody) return;
@@ -3931,7 +3040,6 @@ function renderDebtsTable() {
     const q = (searchEl ? searchEl.value :'').trim().toLowerCase();
     const filterEl = document.getElementById('debt-status-filter');
     const statusFilter = filterEl ? filterEl.value :'all';
-
     let filtered = globalDebts.filter(d =>
         !q || (d.customerName ||'').toLowerCase().includes(q) || (d.phone ||'').includes(q)
     );
@@ -3942,12 +3050,10 @@ function renderDebtsTable() {
         }
         return d.status === statusFilter;
     });
-
     if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:#94a3b8;">No debt records found.</td></tr>`;
         return;
     }
-
     tbody.innerHTML = filtered.map(d => {
         const remaining = Math.max(0, (d.amount || 0) - (d.amountPaid || 0));
         const due = formatDebtDueCountdown(d.dueAt);
@@ -3980,19 +3086,12 @@ function renderDebtsTable() {
         </tr>`;
     }).join('');
 }
-
-// Compact "View" modal for a debt row — shows the Note and the linked
-// products/items (from a C-Credit sale) without bloating the table row
-// height. Mirrors the look of the Transactions "View Receipt" action, but
-// includes a Note section since debts (unlike receipts) carry one.
 function openDebtDetailsModal(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
-
     const remaining = Math.max(0, (debt.amount || 0) - (debt.amountPaid || 0));
     const statusLabels = { unpaid:'Unpaid', partial:'Partial', paid:'Paid' };
     const statusColors = { unpaid:'#ef4444', partial:'#f59e0b', paid:'#22c55e' };
-
     const itemsHtml = (Array.isArray(debt.items) && debt.items.length)
         ? `<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;">
            <table style="width:100%;min-width:360px;border-collapse:collapse;margin-top:6px;font-size:0.85rem;">
@@ -4017,11 +3116,6 @@ function openDebtDetailsModal(id) {
            </table>
            </div>`
         : `<p style="color:#94a3b8;font-size:0.85rem;margin-top:6px;">No linked products for this debt.</p>`;
-
-    // Breakdown ng bawat partial payment (petsa/oras + halaga) — kung may
-    // paymentHistory (lumang debt records na wala pang field na ito ay
-    // babagsak sa "no payments yet" message sa halip na mag-error).
-    // Pinaka-bago sa itaas (pinaka-huling binayad, unahan).
     const paymentHistory = Array.isArray(debt.paymentHistory) ? debt.paymentHistory : [];
     const paymentHistoryHtml = paymentHistory.length
         ? `<div style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;">
@@ -4043,7 +3137,6 @@ function openDebtDetailsModal(id) {
            </table>
            </div>`
         : `<p style="color:#94a3b8;font-size:0.85rem;margin-top:6px;">No payments recorded yet.</p>`;
-
     Swal.fire({
         title: `Debt Details — ${escapeHtml(debt.customerName)}`,
         html: `
@@ -4075,18 +3168,6 @@ function openDebtDetailsModal(id) {
         confirmButtonText:'Close'
     });
 }
-
-// ---------------------------------------------------------------------------
-// Debt receipts: "Print Receipt" (physical printout via the browser print
-// dialog) and "E-Receipt" (a modern, theme-adaptive digital receipt the
-// cashier can preview, download, or share with the debtor). Both pull the
-// same complete set of fields shown in the Debt Details modal above, and
-// both are presented in English since these leave the POS and go straight
-// to the customer.
-// ---------------------------------------------------------------------------
-
-// Builds a plain, normalized snapshot of a debt record used by both the
-// print receipt and the e-receipt, so the two stay perfectly in sync.
 function buildDebtReceiptModel(debt) {
     const amount = parseFloat(debt.amount) || 0;
     const paid = parseFloat(debt.amountPaid) || 0;
@@ -4098,7 +3179,6 @@ function buildDebtReceiptModel(debt) {
         .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     const items = Array.isArray(debt.items) ? debt.items : [];
     const s = receiptSettingsCache || {};
-
     return {
         id: debt.id || '',
         customerName: debt.customerName || 'Walk-in Customer',
@@ -4120,15 +3200,10 @@ function buildDebtReceiptModel(debt) {
         footerText: s.footerText || 'Thank you for your continued trust!'
     };
 }
-
-// --- 1) Print Receipt: opens the standard browser print dialog with a
-// clean, printer-friendly (black-on-white) receipt layout. Works with a
-// regular printer/"Save as PDF" — no dark-mode concerns since it's paper.
 function printDebtReceipt(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
     const m = buildDebtReceiptModel(debt);
-
     const paymentRows = m.paymentHistory.length
         ? m.paymentHistory.map(p => `
             <tr>
@@ -4136,7 +3211,6 @@ function printDebtReceipt(id) {
                 <td style="text-align:right;">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" style="color:#666;">No payments recorded yet.</td></tr>`;
-
     const itemRows = m.items.length
         ? m.items.map(it => `
             <tr>
@@ -4144,7 +3218,6 @@ function printDebtReceipt(id) {
                 <td style="text-align:right;">₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" style="color:#666;">No linked products for this debt.</td></tr>`;
-
     const win = window.open('', '_blank', 'width=420,height=640');
     if (!win) return;
     win.document.write(`
@@ -4192,14 +3265,6 @@ function printDebtReceipt(id) {
     `);
     win.document.close();
 }
-
-// Renders a CODE128 barcode to a standalone PNG data URL (via an
-// off-screen canvas) so it can be embedded directly as an <img> inside the
-// self-contained debt e-receipt document below. Using a baked-in image
-// instead of running JsBarcode inside the receipt document itself means
-// the barcode still displays correctly wherever that document ends up
-// (in-app preview iframe, a downloaded .html file, or a shared file) —
-// no extra script/library needs to travel along with it.
 function generateDebtReceiptBarcodeDataUrl(value) {
     if (!value || typeof JsBarcode !== 'function') return '';
     try {
@@ -4220,12 +3285,6 @@ function generateDebtReceiptBarcodeDataUrl(value) {
         return '';
     }
 }
-
-// --- 2) E-Receipt: a modern, card-style digital receipt meant to be handed
-// or sent to the debtor. It is a fully self-contained HTML document (its
-// <style> uses `prefers-color-scheme`), so when it's opened, downloaded, or
-// shared as its own file, it automatically renders in light or dark colors
-// to match whatever theme the *recipient's* phone/browser is set to.
 function buildDebtEReceiptDocument(m) {
     const paymentRows = m.paymentHistory.length
         ? m.paymentHistory.map(p => `
@@ -4234,7 +3293,6 @@ function buildDebtEReceiptDocument(m) {
                 <td class="num">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" class="empty-row">No payments recorded yet.</td></tr>`;
-
     const itemRows = m.items.length
         ? m.items.map(it => `
             <tr>
@@ -4242,17 +3300,9 @@ function buildDebtEReceiptDocument(m) {
                 <td class="num">₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" class="empty-row">No linked products for this debt.</td></tr>`;
-
     const statusClass = m.status === 'paid' ? 'ok' : (m.status === 'partial' ? 'warn' : 'danger');
-
-    // Barcode: encodes the linked sale transaction ID when this debt came
-    // from one (same value/format the regular sale receipt barcode uses —
-    // see JsBarcode("#receipt-barcode", tx.id, ...) — so scanning it finds
-    // the sale instantly in Transactions History). Falls back to the
-    // debt's own receipt number when there's no linked transaction.
     m.barcodeValue = m.transactionId || m.id || '';
     m.barcodeDataUrl = generateDebtReceiptBarcodeDataUrl(m.barcodeValue);
-
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4377,17 +3427,12 @@ function buildDebtEReceiptDocument(m) {
 </body>
 </html>`;
 }
-
-// Opens an in-app preview of the e-receipt with Download / Share / Print
-// actions. The preview itself is rendered inside an iframe so its colors
-// are isolated from the POS app's own theme.
 function openDebtEReceiptModal(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
     const m = buildDebtReceiptModel(debt);
     const docHtml = buildDebtEReceiptDocument(m);
     const iframeId = 'debt-ereceipt-frame-' + Date.now();
-
     Swal.fire({
         title: 'E-Receipt Preview',
         html: `
@@ -4418,28 +3463,17 @@ function openDebtEReceiptModal(id) {
         }
     });
 }
-
 async function emailDebtReceipt(id) {
     const emailInput = document.getElementById('debt-receipt-email-input');
     const toEmail = emailInput ? emailInput.value.trim() : '';
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    // NOTE: these use toast-mode Swal.fire calls (not regular modal
-    // Swal.fire calls) because this function is invoked from a button
-    // that lives INSIDE an already-open Swal.fire() modal (the E-Receipt
-    // Preview). SweetAlert2 only supports one regular popup at a time, so
-    // a normal Swal.fire() here would silently replace/close the preview
-    // out from under the user. Toasts render in their own corner
-    // container and don't touch the open modal.
     if (!toEmail || !emailPattern.test(toEmail)) {
         Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: 'Enter a valid email address.', showConfirmButton: false, timer: 2200 });
         return;
     }
-
     const btn = document.getElementById('debt-receipt-email-btn');
     const originalHtml = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...'; }
-
     try {
         const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}/email-receipt`, {
             method: 'POST',
@@ -4460,21 +3494,12 @@ async function emailDebtReceipt(id) {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
-
-// Rasterizes the (already self-contained) debt e-receipt HTML document
-// into a single flattened PNG image, so "Download" and "Share" hand the
-// debtor an image file instead of an .html file. Uses the browser's own
-// SVG <foreignObject> renderer (no external library needed) to draw the
-// exact same markup/CSS shown in the in-app preview into a canvas, so the
-// exported image always matches what the cashier already sees on screen.
 function renderDebtEReceiptToImageDataUrl(docHtml) {
     return new Promise((resolve, reject) => {
         const frame = document.createElement('iframe');
         frame.style.cssText = 'position:fixed;left:-99999px;top:0;width:480px;height:600px;border:none;visibility:hidden;';
         document.body.appendChild(frame);
-
         const cleanup = () => { if (frame.parentNode) frame.parentNode.removeChild(frame); };
-
         frame.onload = () => {
             let svgUrl = null;
             try {
@@ -4482,25 +3507,15 @@ function renderDebtEReceiptToImageDataUrl(docHtml) {
                 const styleTag = frameDoc.querySelector('style');
                 const width = 480;
                 const height = Math.max(frameDoc.body.scrollHeight, 200);
-
-                // Clone the live <body> (not just its innerHTML) so the
-                // page's `body{...}` CSS rule — background, padding,
-                // flex-centering — still matches once this is dropped into
-                // the foreignObject below. The <style> tag is moved to be
-                // the clone's first child; a <style> anywhere in the body
-                // is valid HTML5 and browsers apply it normally.
                 const bodyClone = frameDoc.body.cloneNode(true);
                 if (styleTag) bodyClone.insertBefore(styleTag.cloneNode(true), bodyClone.firstChild);
                 bodyClone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-
                 const svgString = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '">' +
                     '<foreignObject x="0" y="0" width="' + width + '" height="' + height + '">' +
                     bodyClone.outerHTML +
                     '</foreignObject></svg>';
-
                 const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
                 svgUrl = URL.createObjectURL(svgBlob);
-
                 const img = new Image();
                 img.onload = () => {
                     try {
@@ -4537,7 +3552,6 @@ function renderDebtEReceiptToImageDataUrl(docHtml) {
         frame.srcdoc = docHtml;
     });
 }
-
 async function downloadDebtEReceipt(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
@@ -4559,15 +3573,11 @@ async function downloadDebtEReceipt(id) {
         setTimeout(() => URL.revokeObjectURL(url), 4000);
     } catch (e) {
         console.warn('Failed to generate the debt e-receipt image:', e);
-        // Toast (not a regular modal) — see note in emailDebtReceipt() above:
-        // a normal Swal.fire() here would replace the still-open E-Receipt
-        // Preview modal instead of layering on top of it.
         Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Could not generate the receipt image.', showConfirmButton: false, timer: 2800 });
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
-
 async function shareDebtEReceipt(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
@@ -4581,7 +3591,6 @@ async function shareDebtEReceipt(id) {
         const summaryText = `${m.storeName} — Debt Receipt\nCustomer: ${m.customerName}\nStatus: ${m.statusLabel}\nOwed: ₱${m.amount.toFixed(2)} | Paid: ₱${m.paid.toFixed(2)} | Remaining: ₱${m.remaining.toFixed(2)}\n${m.dueAt ? 'Due: ' + new Date(m.dueAt).toLocaleString() : ''}`;
         const pngDataUrl = await renderDebtEReceiptToImageDataUrl(docHtml);
         const blob = await (await fetch(pngDataUrl)).blob();
-
         try {
             const file = new File([blob], fileName, { type: 'image/png' });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -4597,12 +3606,9 @@ async function shareDebtEReceipt(id) {
                 return;
             }
         } catch (e) {
-            if (e && e.name === 'AbortError') return; // user cancelled the share sheet
+            if (e && e.name === 'AbortError') return; 
             console.warn('Share failed, falling back to download:', e);
         }
-
-        // No Web Share support on this device/browser — fall back to a
-        // direct download of the same image.
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -4611,9 +3617,6 @@ async function shareDebtEReceipt(id) {
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 4000);
-        // Toast (not a regular modal) — see note in emailDebtReceipt() above:
-        // a normal Swal.fire() here would replace the still-open E-Receipt
-        // Preview modal instead of layering on top of it.
         Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Sharing isn\'t supported here — downloaded instead.', showConfirmButton: false, timer: 2800 });
     } catch (e) {
         console.warn('Failed to generate/share the debt e-receipt image:', e);
@@ -4622,7 +3625,6 @@ async function shareDebtEReceipt(id) {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
-
 async function openAddDebtForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Debt',
@@ -4658,7 +3660,6 @@ async function openAddDebtForm() {
         }
     });
     if (!formValues) return;
-
     try {
         const res = await authFetch(`${API_URL}/debts`, {
             method:'POST',
@@ -4676,15 +3677,12 @@ async function openAddDebtForm() {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function openEditDebtForm(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
-
     const dueLocalValue = debt.dueAt
         ? new Date(new Date(debt.dueAt).getTime() - new Date(debt.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16)
         :'';
-
     const { value: formValues } = await Swal.fire({
         title:'Edit Debt',
         html: `
@@ -4714,7 +3712,6 @@ async function openEditDebtForm(id) {
         }
     });
     if (!formValues) return;
-
     try {
         const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}`, {
             method:'PUT',
@@ -4732,12 +3729,10 @@ async function openEditDebtForm(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function openRecordDebtPaymentForm(id) {
     const debt = globalDebts.find(d => d.id === id);
     if (!debt) return;
     const remaining = Math.max(0, (debt.amount || 0) - (debt.amountPaid || 0));
-
     const { value: paymentAmount } = await Swal.fire({
         title: `Payment — ${escapeHtml(debt.customerName)}`,
         html: `<p style="color:#94a3b8;margin-bottom:8px;">Remaining balance: <b>₱${remaining.toFixed(2)}</b></p>
@@ -4755,7 +3750,6 @@ async function openRecordDebtPaymentForm(id) {
         }
     });
     if (!paymentAmount) return;
-
     try {
         const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}/payment`, {
             method:'POST',
@@ -4773,7 +3767,6 @@ async function openRecordDebtPaymentForm(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function deleteDebtConfirm(id) {
     const debt = globalDebts.find(d => d.id === id);
     const result = await Swal.fire({
@@ -4784,7 +3777,6 @@ async function deleteDebtConfirm(id) {
         confirmButtonText:'Yes, delete'
     });
     if (!result.isConfirmed) return;
-
     try {
         const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}`, { method:'DELETE' });
         const data = await res.json();
@@ -4797,7 +3789,6 @@ async function deleteDebtConfirm(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 function openLoyaltyCardManageModal(customerId) {
     const cust = globalCustomers.find(c => c.id === customerId);
     if (!cust) return;
@@ -4810,7 +3801,6 @@ function openLoyaltyCardManageModal(customerId) {
              Status: <b style="color:${card.revoked ?'#ef4444':'#22c55e'};">${card.revoked ?'Revoked':'Active'}</b><br>
              Issued: ${new Date(card.issuedAt).toLocaleString()} by ${escapeHtml(card.issuedBy ||'—')}</p>`
         :`<p style="color:#94a3b8;">Wala pang naka-issue na Loyalty Card/QR ang customer na ito.</p>`;
-
     if (!canManage) {
         Swal.fire({
             title: `Loyalty Card — ${escapeHtml(cust.name)}`,
@@ -4819,7 +3809,6 @@ function openLoyaltyCardManageModal(customerId) {
         });
         return;
     }
-
     Swal.fire({
         title: `Loyalty Card — ${escapeHtml(cust.name)}`,
         html: statusHtml + `
@@ -4846,9 +3835,7 @@ function openLoyaltyCardManageModal(customerId) {
         }
     });
 }
-
 let loyaltyCardIssueInFlight = false;
-
 async function issueOrRegenerateLoyaltyCard(cust, mode) {
     if (loyaltyCardIssueInFlight) return;
     loyaltyCardIssueInFlight = true;
@@ -4871,7 +3858,6 @@ async function issueOrRegenerateLoyaltyCard(cust, mode) {
         loyaltyCardIssueInFlight = false;
     }
 }
-
 async function revokeLoyaltyCard(cust) {
     const confirmResult = await Swal.fire({
         title:'Revoke Loyalty Card/QR?',
@@ -4895,7 +3881,6 @@ async function revokeLoyaltyCard(cust) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 function showLoyaltyCardQrDisplay(token, customerName, mode, note, hidePrintButton) {
     const containerId ='loyalty-qr-render-' + Date.now();
     Swal.fire({
@@ -4907,7 +3892,6 @@ function showLoyaltyCardQrDisplay(token, customerName, mode, note, hidePrintButt
             </div>
             <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">${escapeHtml(note ||'')}</p>
         `,
-
         confirmButtonText: hidePrintButton ?'OK' :'Print',
         showCancelButton: !hidePrintButton,
         cancelButtonText:'Close',
@@ -4930,7 +3914,6 @@ function showLoyaltyCardQrDisplay(token, customerName, mode, note, hidePrintButt
         }
     });
 }
-
 function printLoyaltyCardQr(token, customerName) {
     const win = window.open('','_blank','width=420,height=520');
     if (!win) return;
@@ -4949,11 +3932,8 @@ function printLoyaltyCardQr(token, customerName) {
     `);
     win.document.close();
 }
-
 let myShiftLockedState = null;
-
 async function checkShiftOpeningCashGate() {
-
     if (!isFeatureUnlockedCached('shift_management')) return;
     try {
         const res = await authFetch(`${API_URL}/shift/current`);
@@ -4963,7 +3943,6 @@ async function checkShiftOpeningCashGate() {
             myShiftLockedState = true;
             return;
         }
-
         const { value: amount, isConfirmed } = await Swal.fire({
             title:'Beginning Cash Float',
             html:'Enter the amount of cash in the drawer before starting the shift. This will be locked once submitted.',
@@ -4980,14 +3959,11 @@ async function checkShiftOpeningCashGate() {
                 }
             }
         });
-
         if (!isConfirmed) {
             switchView('overview');
             return;
         }
-
         if (amount === undefined) return;
-
         const res2 = await authFetch(`${API_URL}/shift/open-cash`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
@@ -4995,7 +3971,6 @@ async function checkShiftOpeningCashGate() {
         });
         const data2 = await res2.json();
         if (!data2.success) {
-
             Swal.fire('Unable to Set', data2.message ||'There was a problem setting the Beginning Cash.','warning');
         }
         myShiftLockedState = true;
@@ -5004,19 +3979,12 @@ async function checkShiftOpeningCashGate() {
         console.warn('Could not check beginning cash gate:', e);
     }
 }
-
 let shiftControlSelectedCashier ='';
-
-// SUGGESTION: state para sa paginated Shift History (dating buong listahan
-// laging kinukuha/inirerender kada bisita sa page — mabagal at malaki sa
-// mobile data kung matagal nang gamit ang tindahan). SHIFT_HISTORY_PAGE_SIZE
-// shifts lang ang kinukuha kada request, may "Load More" pag may natitira pa.
 const SHIFT_HISTORY_PAGE_SIZE = 25;
-let shiftHistoryLoaded = [];   // mga shift record na na-load na sa memory (para sa "View" detail modal)
+let shiftHistoryLoaded = [];   
 let shiftHistoryOffset = 0;
 let shiftHistoryHasMore = false;
 let shiftHistoryLoadingMore = false;
-
 async function loadShiftOpenListPicker() {
     const selectEl = document.getElementById('shift-close-target-cashier');
     if (!selectEl) return;
@@ -5024,18 +3992,15 @@ async function loadShiftOpenListPicker() {
         const res = await authFetch(`${API_URL}/shift/open-list`);
         const data = await res.json();
         if (!data.success) return;
-
         const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
         const myUsername = (activeUser && activeUser.username) ||'';
         const previousSelection = shiftControlSelectedCashier;
-
         const options = ['<option value="">— Sariling Shift Ko —</option>'].concat(
             (data.openShifts || [])
                 .filter(o => o.username.toLowerCase() !== myUsername.toLowerCase())
                 .map(o => `<option value="${escapeHtml(o.username)}">${escapeHtml(o.username)} (Beginning Cash: ₱${(parseFloat(o.beginningCash) || 0).toFixed(2)})</option>`)
         );
         selectEl.innerHTML = options.join('');
-
         const stillExists = Array.from(selectEl.options).some(o => o.value === previousSelection);
         selectEl.value = stillExists ? previousSelection :'';
         shiftControlSelectedCashier = selectEl.value;
@@ -5043,15 +4008,12 @@ async function loadShiftOpenListPicker() {
         console.warn('Could not fetch list of open shifts:', e);
     }
 }
-
 function onShiftCloseTargetCashierChange() {
     const selectEl = document.getElementById('shift-close-target-cashier');
     shiftControlSelectedCashier = selectEl ? selectEl.value :'';
     loadShiftReportView();
 }
-
 async function loadShiftReportView() {
-
     const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const isAdmin = ((activeUser && activeUser.role) ||'').toLowerCase() ==='admin';
     const canViewAmounts = isAdmin || !!(currentPermissions && currentPermissions.shiftreport_view_amounts);
@@ -5062,7 +4024,6 @@ async function loadShiftReportView() {
     });
     const breakdownContainer = document.getElementById('shift-payment-breakdown-container');
     if (breakdownContainer) breakdownContainer.style.display = canViewAmounts ?'' :'none';
-
     const controlPanel = document.getElementById('shift-close-control-panel');
     if (controlPanel) controlPanel.style.display = canControlOtherShifts ?'' :'none';
     if (canControlOtherShifts) {
@@ -5070,10 +4031,8 @@ async function loadShiftReportView() {
     } else {
         shiftControlSelectedCashier ='';
     }
-
     const targetQuery = shiftControlSelectedCashier ? `?cashier=${encodeURIComponent(shiftControlSelectedCashier)}` :'';
     const closeNoticeEl = document.getElementById('shift-close-target-notice');
-
     try {
         const res = await authFetch(`${API_URL}/shift/current${targetQuery}`);
         const data = await res.json();
@@ -5085,13 +4044,11 @@ async function loadShiftReportView() {
                 document.getElementById('shift-discount').innerText = `₱${s.totalDiscount.toFixed(2)}`;
                 document.getElementById('shift-net').innerText = `₱${s.netSales.toFixed(2)}`;
             }
-
             if (closeNoticeEl) {
                 closeNoticeEl.innerHTML = data.viewingOtherCashier
                     ? `<i class="fa-solid fa-user-shield"></i> You're viewing/closing the shift of <b>${escapeHtml(data.cashier)}</b> (Admin/Supervisor Control).`
                     :'';
             }
-
             const beginInput = document.getElementById('shift-beginning-cash');
             if (beginInput) {
                 beginInput.value = (data.beginningCash !== null && data.beginningCash !== undefined)
@@ -5099,7 +4056,6 @@ async function loadShiftReportView() {
                     :'';
                 beginInput.readOnly = true;
             }
-
             const listEl = document.getElementById('shift-payment-breakdown-list');
             if (listEl) {
                 if (!canViewAmounts) {
@@ -5115,16 +4071,11 @@ async function loadShiftReportView() {
     } catch (e) {
         console.warn('Could not fetch current shift summary:', e);
     }
-
     shiftHistoryOffset = 0;
     shiftHistoryLoaded = [];
     shiftHistoryHasMore = false;
     await fetchShiftHistoryPage({ reset: true });
 }
-
-// SUGGESTION: hiwalay na function para sa pagkuha ng isang "page" ng Shift
-// History (25 kada kuha, may Load More) — ginagamit ito ng loadShiftReportView
-// (unang load) at ng loadMoreShiftHistory (kapag pinindot ang Load More).
 async function fetchShiftHistoryPage({ reset } = {}) {
     const tbody = document.getElementById('shift-history-table-body');
     const loadMoreBtn = document.getElementById('shift-history-load-more-btn');
@@ -5134,10 +4085,8 @@ async function fetchShiftHistoryPage({ reset } = {}) {
             const data = await resHist.json();
             const page = Array.isArray(data) ? data : (data.shifts || []);
             shiftHistoryHasMore = Array.isArray(data) ? false : !!data.hasMore;
-
             shiftHistoryLoaded = reset ? page : shiftHistoryLoaded.concat(page);
             shiftHistoryOffset = shiftHistoryLoaded.length;
-
             if (tbody) {
                 tbody.innerHTML = shiftHistoryLoaded.length
                     ? shiftHistoryLoaded.map(h => renderShiftHistoryRow(h)).join('')
@@ -5149,7 +4098,6 @@ async function fetchShiftHistoryPage({ reset } = {}) {
         console.warn('Could not fetch shift history:', e);
     }
 }
-
 function renderShiftHistoryRow(h) {
     let varianceCell ='<span style="color:#94a3b8;">—</span>';
     if (h.cashVariance !== null && h.cashVariance !== undefined) {
@@ -5173,7 +4121,6 @@ function renderShiftHistoryRow(h) {
         <td><button type="button" class="btn-action-outline" style="padding:6px 12px; font-size:0.78rem;" onclick="viewShiftDetail('${escapeHtml(h.id)}')"><i class="fa-solid fa-eye"></i> View</button></td>
     </tr>`;
 }
-
 async function loadMoreShiftHistory() {
     if (shiftHistoryLoadingMore || !shiftHistoryHasMore) return;
     shiftHistoryLoadingMore = true;
@@ -5187,21 +4134,12 @@ async function loadMoreShiftHistory() {
         if (loadMoreBtn && shiftHistoryHasMore) loadMoreBtn.innerHTML = originalLabel;
     }
 }
-
-// SUGGESTION: bago — dating summary lang (ID, Closed By, Period, Tx Count,
-// Net Sales, Cash Short/Over) ang makikita sa Shift History; ang buong
-// detalye ng bawat naka-close na Z-Reading (gross, discount, payment
-// breakdown, void, beginning/ending cash, notes) ay TINATABUNAN na sa
-// server response pero HINDI dating naipapakita kahit saan sa UI. Ngayon,
-// may "View" button kada row na nagpapakita ng buong Z-Reading detail.
 function viewShiftDetail(shiftId) {
     const h = shiftHistoryLoaded.find(s => String(s.id) === String(shiftId));
     if (!h) return;
-
     const beginVal = (parseFloat(h.beginningCash) || 0).toFixed(2);
     const endVal = h.endingCashCounted !== null && h.endingCashCounted !== undefined ? parseFloat(h.endingCashCounted).toFixed(2) :'—';
     const expectedVal = (parseFloat(h.expectedCash) || 0).toFixed(2);
-
     let varianceLine ='<span style="color:#94a3b8;">—</span>';
     if (h.cashVariance !== null && h.cashVariance !== undefined) {
         const v = parseFloat(h.cashVariance) || 0;
@@ -5209,12 +4147,10 @@ function viewShiftDetail(shiftId) {
         else if (v > 0) varianceLine = `<b style="color:#16a34a;">Over ₱${v.toFixed(2)}</b>`;
         else varianceLine = `<b style="color:#16a34a;">Exact</b>`;
     }
-
     const methods = Object.keys(h.paymentBreakdown || {});
     const breakdownHtml = methods.length
         ? `<ul style="margin:6px 0 0; padding-left:18px; line-height:1.9;">${methods.map(m => `<li>${escapeHtml(m)}: ${h.paymentBreakdown[m].count} tx — ₱${(parseFloat(h.paymentBreakdown[m].total) || 0).toFixed(2)}</li>`).join('')}</ul>`
         :'<p style="color:#94a3b8; margin:6px 0 0;">No transactions on this shift.</p>';
-
     Swal.fire({
         title: `Z-Reading: ${escapeHtml(h.id)}`,
         html: `
@@ -5243,14 +4179,10 @@ function viewShiftDetail(shiftId) {
         confirmButtonText:'Close'
     });
 }
-
 async function closeCurrentShift() {
-
     const endingCashCounted = document.getElementById('shift-ending-cash').value;
     const notes = document.getElementById('shift-close-notes').value;
-
     const targetCashier = shiftControlSelectedCashier ||'';
-
     const confirmResult = await Swal.fire({
         title:'Close Shift?',
         text: targetCashier
@@ -5261,7 +4193,6 @@ async function closeCurrentShift() {
         confirmButtonText:'Yes, close shift'
     });
     if (!confirmResult.isConfirmed) return;
-
     const { value: adminPassword } = await Swal.fire({
         title:'🔒 Admin/Supervisor Password Required',
         html: targetCashier
@@ -5273,12 +4204,10 @@ async function closeCurrentShift() {
         confirmButtonColor:'#2563eb',
         cancelButtonColor:'#ef4444'
     });
-
     if (!adminPassword || adminPassword.trim() ==="") {
         Swal.fire('Cancelled','Shift close was not authorized — no password entered.','info');
         return;
     }
-
     try {
         const res = await authFetch(`${API_URL}/shift/close`, {
             method:'POST',
@@ -5308,7 +4237,6 @@ async function closeCurrentShift() {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function openPromoCodesManager() {
     if (guardPremiumFeature('promo_codes')) return;
     let promos = [];
@@ -5321,7 +4249,6 @@ async function openPromoCodesManager() {
     }
     renderPromoCodesModal(promos);
 }
-
 function renderPromoCodesModal(promos) {
     const rowsHtml = promos.length ? promos.map(p => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid #eee;text-align:left;">
@@ -5334,7 +4261,6 @@ function renderPromoCodesModal(promos) {
             </div>
         </div>
     `).join('') :'<p style="padding:14px;color:#94a3b8;">No promo codes yet.</p>';
-
     Swal.fire({
         title:'Discounts & Promo Codes',
         html: `
@@ -5347,7 +4273,6 @@ function renderPromoCodesModal(promos) {
         width: 460
     });
 }
-
 async function openAddPromoCodeForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Promo Code',
@@ -5383,7 +4308,6 @@ async function openAddPromoCodeForm() {
         }
     });
     if (!formValues) return;
-
     try {
         const res = await authFetch(`${API_URL}/promocodes`, {
             method:'POST',
@@ -5401,7 +4325,6 @@ async function openAddPromoCodeForm() {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function deletePromoCodeConfirm(code) {
     const result = await Swal.fire({
         title: `Delete promo code "${code}"?`,
@@ -5422,7 +4345,6 @@ async function deletePromoCodeConfirm(code) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 function applySavedTerminalDayMode() {
     const terminalSection = document.getElementById('view-terminal');
     const headerEl = document.getElementById('app-top-header');
@@ -5430,16 +4352,10 @@ function applySavedTerminalDayMode() {
     const isDayMode = localStorage.getItem('terminal_daymode') ==='true';
     terminalSection.classList.toggle('terminal-daymode', isDayMode);
     if (headerEl) headerEl.classList.toggle('terminal-daymode', isDayMode);
-    // Modals like the Payment modal live outside #view-terminal in the DOM, so the
-    // .terminal-theme.terminal-daymode scoping above never reaches them. Mirror the
-    // terminal's own day/night setting onto <body> so those modals can follow it too,
-    // independently of the system/store-wide Dark Mode.
     document.body.classList.toggle('terminal-modal-daymode', isDayMode);
-
     if (typeof updateHeaderDayDarkModeUI ==='function') updateHeaderDayDarkModeUI();
     syncColorSchemeDeclaration();
 }
-
 function toggleTerminalDayMode() {
     const terminalSection = document.getElementById('view-terminal');
     const headerEl = document.getElementById('app-top-header');
@@ -5452,7 +4368,6 @@ function toggleTerminalDayMode() {
     if (typeof updateHeaderDayDarkModeUI ==='function') updateHeaderDayDarkModeUI();
     syncColorSchemeDeclaration();
 }
-
 function toggleHeaderUserMenu(event) {
     if (event) event.stopPropagation();
     const wrap = document.getElementById('header-user-menu-wrap');
@@ -5466,14 +4381,12 @@ function toggleHeaderUserMenu(event) {
         document.removeEventListener('click', closeHeaderUserMenuOnOutsideClick);
     }
 }
-
 function closeHeaderUserMenuOnOutsideClick(evt) {
     const wrap = document.getElementById('header-user-menu-wrap');
     if (!wrap) return;
     if (wrap.contains(evt.target)) return;
     closeHeaderUserMenu();
 }
-
 function closeHeaderUserMenu() {
     const wrap = document.getElementById('header-user-menu-wrap');
     if (wrap) wrap.classList.remove('open');
@@ -5481,7 +4394,6 @@ function closeHeaderUserMenu() {
     closeHeaderTerminalThemesSubmenu();
     document.removeEventListener('click', closeHeaderUserMenuOnOutsideClick);
 }
-
 function toggleHeaderSettingsSubmenu(event) {
     if (event) event.stopPropagation();
     const submenu = document.getElementById('hu-settings-submenu');
@@ -5491,12 +4403,10 @@ function toggleHeaderSettingsSubmenu(event) {
     if (caret) caret.classList.toggle('rotated', isOpen);
     if (isOpen) { updateHeaderDayDarkModeUI(); closeHeaderTerminalThemesSubmenu(); }
 }
-
 function closeHeaderSettingsSubmenu() {
     document.getElementById('hu-settings-submenu')?.classList.remove('open');
     document.getElementById('hu-settings-caret')?.classList.remove('rotated');
 }
-
 function toggleHeaderTerminalThemesSubmenu(event) {
     if (event) event.stopPropagation();
     const submenu = document.getElementById('hu-terminalthemes-submenu');
@@ -5510,12 +4420,10 @@ function toggleHeaderTerminalThemesSubmenu(event) {
         renderTerminalThemeMenu();
     }
 }
-
 function closeHeaderTerminalThemesSubmenu() {
     document.getElementById('hu-terminalthemes-submenu')?.classList.remove('open');
     document.getElementById('hu-terminalthemes-caret')?.classList.remove('rotated');
 }
-
 function headerToggleDayDarkMode() {
     const isTerminalView = sessionStorage.getItem('currentView') ==='terminal';
     if (isTerminalView) {
@@ -5526,14 +4434,12 @@ function headerToggleDayDarkMode() {
         updateHeaderDayDarkModeUI();
     }
 }
-
 function updateHeaderDayDarkModeUI() {
     const icon = document.getElementById('header-daydark-icon');
     const label = document.getElementById('header-daydark-label');
     const btn = document.getElementById('header-daydark-toggle');
     if (!icon || !label || !btn) return;
     const isTerminalView = sessionStorage.getItem('currentView') ==='terminal';
-
     const isDark = isTerminalView
         ? localStorage.getItem('terminal_daymode') !=='true'
         : !isStoreThemeDay();
@@ -5543,7 +4449,6 @@ function updateHeaderDayDarkModeUI() {
     btn.title = title;
     btn.setAttribute('aria-label', title);
 }
-
 function toggleCustomerPane() {
     const cartPane = document.getElementById('terminal-cart-pane');
     const btn = document.getElementById('btn-customer-pane-toggle');
@@ -5552,64 +4457,47 @@ function toggleCustomerPane() {
     cartPane.classList.toggle('customer-pane-expanded', isNowExpanded);
     if (btn) btn.setAttribute('aria-expanded', isNowExpanded ?'true' :'false');
 }
-
-// Sa mobile view ng Terminal: kapag naka-show ang product grid/list (hindi
-// naka-drawer-expand ang cart), inililipat ang search box papunta sa loob ng
-// cart-checkout-sticky (sa itaas ng TOTAL row) — dahil dun palaging
-// nakikita/naka-freeze ito. Kapag naka-expand ang cart drawer (Cart pane ang
-// nakikita), o desktop naman ang lapad ng screen, ibinabalik ito sa orihinal
-// nitong pwesto sa loob ng Product pane — walang binabago doon.
 function relocateTerminalSearchForMobile() {
     const topControls = document.getElementById('terminal-top-controls');
     const slot = document.getElementById('mobile-terminal-search-slot');
     const productPane = document.getElementById('terminal-product-pane');
     const terminalSection = document.getElementById('view-terminal');
     if (!topControls || !slot || !productPane || !terminalSection) return;
-
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
     const isDrawerExpanded = terminalSection.classList.contains('cart-drawer-expanded');
     const shouldBeInSlot = isMobile && !isDrawerExpanded;
-
     if (shouldBeInSlot) {
         if (topControls.parentElement !== slot) slot.appendChild(topControls);
     } else if (topControls.parentElement !== productPane) {
         productPane.insertBefore(topControls, productPane.firstChild);
     }
 }
-
 function toggleCartDrawer() {
     const terminalSection = document.getElementById('view-terminal');
     const btn = document.getElementById('btn-cart-drawer-toggle');
     if (!terminalSection) return;
     const isNowExpanded = !terminalSection.classList.contains('cart-drawer-expanded');
-
     if (isNowExpanded) {
-
         window.scrollTo(0, 0);
         document.documentElement.scrollTop = 0;
         document.body.scrollTop = 0;
     }
-
     terminalSection.classList.toggle('cart-drawer-expanded', isNowExpanded);
     document.body.classList.toggle('cart-drawer-scroll-lock', isNowExpanded);
     if (btn) {
         btn.classList.toggle('active', isNowExpanded);
-
         btn.innerHTML = isNowExpanded
             ?'<i class="fa-solid fa-bars"></i>'
             :'<i class="fa-solid fa-cart-shopping"></i>';
     }
-
     const isMobileDrawerView = window.matchMedia('(max-width: 768px)').matches;
     const searchInput = document.getElementById('terminal-search');
     if (searchInput) {
         searchInput.disabled = isNowExpanded && isMobileDrawerView;
         if (searchInput.disabled) searchInput.blur();
     }
-
     relocateTerminalSearchForMobile();
 }
-
 function setupDropdownHandlers() {
     const dropdownHeaders = document.querySelectorAll('.menu-item-header');
     dropdownHeaders.forEach(header => {
@@ -5617,7 +4505,6 @@ function setupDropdownHandlers() {
             const container = this.nextElementSibling;
             const icon = this.querySelector('.drop-icon');
             if (container.style.display ==='none' || container.style.display ==='') {
-
                 closeAllSidebarMenuDropdowns();
                 closeUserWidgetMenu();
                 container.style.display ='flex';
@@ -5629,7 +4516,6 @@ function setupDropdownHandlers() {
         });
     });
 }
-
 function closeAllSidebarMenuDropdowns() {
     document.querySelectorAll('.menu-dropdown .dropdown-container').forEach(container => {
         container.style.display ='none';
@@ -5638,7 +4524,6 @@ function closeAllSidebarMenuDropdowns() {
         if (icon) icon.style.transform ='rotate(0deg)';
     });
 }
-
 function closeUserWidgetMenu() {
     document.getElementById('sidebar-user-widget')?.classList.remove('open');
     document.getElementById('user-widget-dropdown')?.classList.remove('open');
@@ -5648,7 +4533,6 @@ function closeUserWidgetMenu() {
     document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
     closeActiveUsersSubmenu();
 }
-
 function toggleUserWidgetMenu(event) {
     if (event) event.stopPropagation();
     const dropdown = document.getElementById('user-widget-dropdown');
@@ -5657,12 +4541,9 @@ function toggleUserWidgetMenu(event) {
     const isOpen = dropdown.classList.toggle('open');
     widget.classList.toggle('open', isOpen);
     if (isOpen) {
-
         closeAllSidebarMenuDropdowns();
-
         updateActiveUsersBadge();
     } else {
-
         document.getElementById('uw-themes-submenu')?.classList.remove('open');
         document.getElementById('uw-themes-caret')?.classList.remove('rotated');
         document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
@@ -5670,9 +4551,7 @@ function toggleUserWidgetMenu(event) {
         closeActiveUsersSubmenu();
     }
 }
-
 let lastKnownServerNetworkAddress = null;
-
 async function loadSidebarNetworkInfo() {
     const valueEl = document.getElementById('uw-networkinfo-value');
     if (!valueEl) return;
@@ -5691,7 +4570,6 @@ async function loadSidebarNetworkInfo() {
         valueEl.innerText ='Not available';
     }
 }
-
 function copySidebarNetworkInfo(event) {
     if (event) event.stopPropagation();
     if (!lastKnownServerNetworkAddress) return;
@@ -5703,7 +4581,6 @@ function copySidebarNetworkInfo(event) {
         }).catch(() => {});
     }
 }
-
 function showServerIpQrModal(event) {
     if (event) event.stopPropagation();
     if (!lastKnownServerNetworkAddress) {
@@ -5738,7 +4615,6 @@ function showServerIpQrModal(event) {
         }
     });
 }
-
 function toggleThemesSubmenu(event) {
     if (event) event.stopPropagation();
     const submenu = document.getElementById('uw-themes-submenu');
@@ -5746,7 +4622,6 @@ function toggleThemesSubmenu(event) {
     if (!submenu) return;
     const isOpen = submenu.classList.toggle('open');
     if (caret) caret.classList.toggle('rotated', isOpen);
-
     if (isOpen) {
         closeActiveUsersSubmenu();
         document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
@@ -5754,14 +4629,12 @@ function toggleThemesSubmenu(event) {
         refreshUnlockedThemesFromServer();
     }
 }
-
 document.addEventListener('click', (e) => {
     const widget = document.getElementById('sidebar-user-widget');
     if (widget && widget.classList.contains('open') && !widget.contains(e.target)) {
         closeUserWidgetMenu();
     }
 });
-
 (function setupUserWidgetScrollAutoClose() {
     const scrollTargets = ['.sidebar-menu','.content-body'];
     scrollTargets.forEach(selector => {
@@ -5774,7 +4647,6 @@ document.addEventListener('click', (e) => {
             }
         }, { passive: true });
     });
-
     window.addEventListener('scroll', () => {
         const widget = document.getElementById('sidebar-user-widget');
         if (widget && widget.classList.contains('open')) {
@@ -5782,7 +4654,6 @@ document.addEventListener('click', (e) => {
         }
     }, { passive: true });
 })();
-
 function renderSidebarUserWidget() {
     if (!currentUser) return;
     const nameEl = document.getElementById('session-username');
@@ -5796,7 +4667,6 @@ function renderSidebarUserWidget() {
             : `<i class="fa-solid fa-user"></i>`)
             + `<span class="user-widget-caret"><i class="fa-solid fa-chevron-down"></i></span>`;
     }
-
     const headerAvatarEl = document.getElementById('header-user-avatar');
     if (headerAvatarEl) {
         headerAvatarEl.innerHTML = currentUser.avatar
@@ -5806,11 +4676,6 @@ function renderSidebarUserWidget() {
     renderHeaderUserDropdownInfo();
     updateActiveUsersBadge();
 }
-
-// Name/role block shown at the top of the header's account dropdown
-// (#header-user-dropdown), mirroring the sidebar widget: shows the
-// editable display name when the user has set one, falling back to the
-// login username otherwise.
 function renderHeaderUserDropdownInfo() {
     if (!currentUser) return;
     const nameEl = document.getElementById('hu-user-info-name');
@@ -5818,9 +4683,7 @@ function renderHeaderUserDropdownInfo() {
     if (nameEl) nameEl.innerText = currentUser.displayName || currentUser.username;
     if (roleEl) roleEl.innerText = currentUser.role ||'';
 }
-
 let activeUsersRefreshTimer = null;
-
 function toggleActiveUsersSubmenu(event) {
     if (event) event.stopPropagation();
     const submenu = document.getElementById('uw-activeusers-submenu');
@@ -5829,15 +4692,12 @@ function toggleActiveUsersSubmenu(event) {
     const isOpen = submenu.classList.toggle('open');
     if (caret) caret.classList.toggle('rotated', isOpen);
     if (isOpen) {
-
         document.getElementById('uw-themes-submenu')?.classList.remove('open');
         document.getElementById('uw-themes-caret')?.classList.remove('rotated');
         document.getElementById('uw-terminalthemes-submenu')?.classList.remove('open');
         document.getElementById('uw-terminalthemes-caret')?.classList.remove('rotated');
         loadActiveUsers();
-
         loadSidebarNetworkInfo();
-
         if (activeUsersRefreshTimer) clearInterval(activeUsersRefreshTimer);
         activeUsersRefreshTimer = setInterval(loadActiveUsers, 30000);
     } else {
@@ -5847,7 +4707,6 @@ function toggleActiveUsersSubmenu(event) {
         }
     }
 }
-
 function closeActiveUsersSubmenu() {
     document.getElementById('uw-activeusers-submenu')?.classList.remove('open');
     document.getElementById('uw-activeusers-caret')?.classList.remove('rotated');
@@ -5856,12 +4715,10 @@ function closeActiveUsersSubmenu() {
         activeUsersRefreshTimer = null;
     }
 }
-
 function setActiveUsersBadgeCount(count) {
     const badge = document.getElementById('active-users-count-badge');
     if (badge) badge.textContent = `( ${count} )`;
 }
-
 async function updateActiveUsersBadge() {
     try {
         const res = await authFetch('/api/auth/active-sessions');
@@ -5869,10 +4726,8 @@ async function updateActiveUsersBadge() {
         const count = (data.success && Array.isArray(data.activeUsers)) ? data.activeUsers.length : 0;
         setActiveUsersBadgeCount(count);
     } catch (err) {
-
     }
 }
-
 async function loadActiveUsers() {
     const list = document.getElementById('active-users-list');
     if (!list) return;
@@ -5889,7 +4744,6 @@ async function loadActiveUsers() {
             const loginTime = u.loginAt ? new Date(u.loginAt).toLocaleString() :'—';
             const mins = (u.minutesActive === null || u.minutesActive === undefined) ?'—' : (u.minutesActive < 1 ?'kababa lang' : `${u.minutesActive} min`);
             const youTag = u.isCurrentSession ?' <span class="uw-au-you">(you)</span>' :'';
-
             const deviceType = (u.device && u.device.deviceType) ||'Desktop';
             const deviceIcon = deviceType ==='Mobile' ?'fa-mobile-screen-button' : (deviceType ==='Tablet' ?'fa-tablet-screen-button' :'fa-desktop');
             const deviceLabel = (u.device && u.device.label) ? u.device.label :'Desktop · Unknown OS · Unknown Browser';
@@ -5900,11 +4754,9 @@ async function loadActiveUsers() {
             const wifiBadge = u.sameWifi
                 ? '<span class="uw-au-wifi-badge uw-au-wifi-same"><i class="fa-solid fa-wifi"></i></span>'
                 : (rawIp ==='unknown' ?'' :'<span class="uw-au-wifi-badge uw-au-wifi-diff"><i class="fa-solid fa-globe"></i></span>');
-
             const avatarInner = u.avatar
                 ? `<img src="${escapeHtml(u.avatar)}" alt="">`
                 : `<i class="fa-solid fa-user"></i>`;
-
             return `<div class="uw-au-row">
                 <span class="uw-au-avatar">${avatarInner}</span>
                 <div class="uw-au-body">
@@ -5922,7 +4774,6 @@ async function loadActiveUsers() {
         list.innerHTML ='<div class="uw-au-empty" style="color:#ef4444;">Could not load active users.</div>';
     }
 }
-
 function openEditProfileModal() {
     if (!currentUser) return;
     document.getElementById('user-widget-dropdown')?.classList.remove('open');
@@ -5933,7 +4784,6 @@ function openEditProfileModal() {
     const isAdmin = (currentUser.role ||'').toLowerCase() ==='admin';
     document.getElementById('ep-avatar').value = currentUser.avatar ||'';
     updateAvatarPreview('ep-photo-preview', currentUser.avatar ||'');
-
     const note = document.getElementById('ep-approval-note');
     if (note) {
         const canApplyDirectly = isAdmin || !!currentPermissions.edit_user_profile;
@@ -5944,7 +4794,6 @@ function openEditProfileModal() {
     document.getElementById('edit-profile-modal').style.display ='flex';
     refreshBiometricSection();
 }
-
 async function handleEditProfileSubmit(e) {
     e.preventDefault();
     const newUsername = document.getElementById('ep-username').value.trim();
@@ -5953,7 +4802,6 @@ async function handleEditProfileSubmit(e) {
     const currentPassword = document.getElementById('ep-current-password').value.trim();
     const newPassword = document.getElementById('ep-new-password').value.trim();
     const confirmPassword = document.getElementById('ep-confirm-password').value.trim();
-
     const wantsPasswordChange = !!(currentPassword || newPassword || confirmPassword);
     if (wantsPasswordChange) {
         if (!currentPassword || !newPassword || !confirmPassword) {
@@ -5969,14 +4817,11 @@ async function handleEditProfileSubmit(e) {
         Swal.fire('Missing Values','Username cannot be blank.','warning');
         return;
     }
-
     const avatarChanged = avatar !== (currentUser.avatar || null);
     const usernameChanged = newUsername.toLowerCase() !== currentUser.username.toLowerCase();
     const displayNameChanged = newDisplayName !== (currentUser.displayName ||'');
     let profileWentPending = false;
-
     try {
-
         if (avatarChanged || usernameChanged || displayNameChanged) {
             const res = await authFetch(`${API_URL}/users/self/profile`, {
                 method:'PUT',
@@ -6002,10 +4847,8 @@ async function handleEditProfileSubmit(e) {
             }
             localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
             renderSidebarUserWidget();
-
             if (typeof renderOverviewGreeting === 'function') renderOverviewGreeting();
         }
-
         if (wantsPasswordChange) {
             const pwRes = await authFetch(`${API_URL}/users/self/change-password`, {
                 method:'POST',
@@ -6018,7 +4861,6 @@ async function handleEditProfileSubmit(e) {
                 return;
             }
         }
-
         closeModal('edit-profile-modal');
         e.target.reset();
         if (profileWentPending) {
@@ -6032,23 +4874,18 @@ async function handleEditProfileSubmit(e) {
     }
 }
 document.getElementById('edit-profile-form')?.addEventListener('submit', handleEditProfileSubmit);
-
 function checkAdminResetVisibility() {
     const currentUser = JSON.parse(localStorage.getItem('omnipos_user'));
     const resetSection = document.getElementById('admin-reset-section');
-
     if (resetSection) {
         if (currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin') {
             resetSection.style.setProperty('display','block','important');
-
             const heading = resetSection.querySelector('h2');
             if (heading) {
-
                 heading.style.display ='flex';
                 heading.style.alignItems ='center';
                 heading.style.justifyContent ='space-between';
                 heading.style.width ='100%';
-
                 if (!document.getElementById('reset-faq-btn')) {
                     heading.innerHTML += `
                         <button type="button" id="reset-faq-btn" onclick="showGoogleAppVerificationFAQ()" 
@@ -6063,30 +4900,25 @@ function checkAdminResetVisibility() {
         }
     }
 }
-
 const US_QWERTY_LAYOUT_MAP = {
     KeyQ:'q', KeyW:'w', KeyE:'e', KeyR:'r', KeyT:'t', KeyY:'y', KeyU:'u', KeyI:'i', KeyO:'o', KeyP:'p',
     KeyA:'a', KeyS:'s', KeyD:'d', KeyF:'f', KeyG:'g', KeyH:'h', KeyJ:'j', KeyK:'k', KeyL:'l',
     KeyZ:'z', KeyX:'x', KeyC:'c', KeyV:'v', KeyB:'b', KeyN:'n', KeyM:'m'
 };
-
 function attachKeyboardStateWarning(inputId, warningId) {
     const input = document.getElementById(inputId);
     const warningEl = document.getElementById(warningId);
     if (!input || !warningEl) return;
-
     const updateWarning = (e) => {
         let capsLockOn = false;
         if (typeof e.getModifierState ==='function') {
             capsLockOn = e.getModifierState('CapsLock');
         }
-
         let wrongLayout = false;
         const expectedChar = US_QWERTY_LAYOUT_MAP[e.code];
         if (expectedChar && e.key && e.key.length === 1 && e.key.toLowerCase() !== expectedChar) {
             wrongLayout = true;
         }
-
         if (capsLockOn && wrongLayout) {
             warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Caps Lock is ON and your keyboard layout may not be English';
             warningEl.style.display ='flex';
@@ -6100,36 +4932,28 @@ function attachKeyboardStateWarning(inputId, warningId) {
             warningEl.style.display ='none';
         }
     };
-
     input.addEventListener('keydown', updateWarning);
     input.addEventListener('keyup', updateWarning);
     input.addEventListener('blur', () => { warningEl.style.display ='none'; });
 }
-
 attachKeyboardStateWarning('login-username','username-keyboard-warning');
 attachKeyboardStateWarning('login-password','password-keyboard-warning');
-
 (function setupAuthMobileKeyboardHandling() {
     const authContainer = document.getElementById('auth-view');
     const authInputs = document.querySelectorAll('#login-username, #login-password');
     if (!authContainer || !authInputs.length) return;
-
     let hideCardTimeout;
     let isTyping = false;
-
     function updateKeyboardOffset() {
         if (!isTyping || !window.visualViewport) return;
         const vv = window.visualViewport;
-
         const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
         authContainer.style.setProperty('--kb-offset', `${overlap}px`);
     }
-
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', updateKeyboardOffset);
         window.visualViewport.addEventListener('scroll', updateKeyboardOffset);
     }
-
     authInputs.forEach((input) => {
         input.addEventListener('focus', () => {
             clearTimeout(hideCardTimeout);
@@ -6137,13 +4961,10 @@ attachKeyboardStateWarning('login-password','password-keyboard-warning');
             if (window.innerWidth <= 768) {
                 authContainer.classList.add('kb-open');
             }
-
             setTimeout(updateKeyboardOffset, 250);
             setTimeout(updateKeyboardOffset, 500);
         });
-
         input.addEventListener('blur', () => {
-
             hideCardTimeout = setTimeout(() => {
                 isTyping = false;
                 authContainer.classList.remove('kb-open');
@@ -6152,10 +4973,8 @@ attachKeyboardStateWarning('login-password','password-keyboard-warning');
         });
     });
 })();
-
 document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-
     const termsCheckbox = document.getElementById('login-terms-agree');
     if (termsCheckbox && !termsCheckbox.checked) {
         Swal.fire({
@@ -6166,11 +4985,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         }).then(() => showTermsAndConditions());
         return;
     }
-
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value.trim();
     const errorBanner = document.getElementById('login-error');
-
     try {
         const response = await authFetch(`${API_URL}/auth/login`, {
             method:'POST',
@@ -6178,14 +4995,11 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
             body: JSON.stringify({ username, password })
         });
         const data = await response.json();
-
         if (data.success && data.requiresOtp) {
-
             errorBanner.style.display = 'none';
             await promptLoginOtp(data.loginToken, errorBanner);
             return;
         }
-
         if (data.success) {
             await completeLoginSuccess(data);
         } else {
@@ -6199,7 +5013,6 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         errorBanner.style.display ='block';
     }
 });
-
 async function promptLoginOtp(loginToken, errorBanner) {
     const { value: otpCode, isDismissed } = await Swal.fire({
         title: '🔐 Admin Login OTP',
@@ -6212,9 +5025,7 @@ async function promptLoginOtp(loginToken, errorBanner) {
         cancelButtonColor: '#64748b',
         allowOutsideClick: false
     });
-
     if (isDismissed || !otpCode || !otpCode.trim()) return;
-
     try {
         const verifyRes = await authFetch(`${API_URL}/auth/login/verify-otp`, {
             method: 'POST',
@@ -6222,17 +5033,14 @@ async function promptLoginOtp(loginToken, errorBanner) {
             body: JSON.stringify({ loginToken, otp: otpCode.trim() })
         });
         const verifyData = await verifyRes.json();
-
         if (verifyData.success) {
             await completeLoginSuccess(verifyData);
             return;
         }
-
         if (verifyData.code === 'OTP_EXPIRED') {
             Swal.fire('Expired na ang OTP', verifyData.message || 'Mag-login ulit para makahingi ng bagong OTP.', 'error');
             return;
         }
-
         const retry = await Swal.fire({
             icon: 'error',
             title: 'Maling OTP',
@@ -6248,35 +5056,27 @@ async function promptLoginOtp(loginToken, errorBanner) {
         Swal.fire('Connection Error', 'Unable to reach the server to verify the OTP. Please try again.', 'error');
     }
 }
-
 async function completeLoginSuccess(data) {
     currentUser = data.user;
     localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
     localStorage.setItem('omnipos_last_username', currentUser.username);
-
     currentPermissions = data.permissions || {};
     menuRegistry = data.menuRegistry || [];
     localStorage.setItem('omnipos_permissions', JSON.stringify(currentPermissions));
     localStorage.setItem('omnipos_menu_registry', JSON.stringify(menuRegistry));
-
     if (data.token) {
         localStorage.setItem('omnipos_token', data.token);
     }
-
     window.__logoutInProgress = false;
     window.__sessionExpiredShown = false;
-
     const errorBanner = document.getElementById('login-error');
     if (errorBanner) errorBanner.style.display = 'none';
-
     showMainSystemInterface().catch(err => {
         console.error('Unexpected error during login (showMainSystemInterface):', err);
     });
-
     const loginCountKey = `omnipos_login_count_${(currentUser.username || currentUser.name ||'').toLowerCase()}`;
     const loginCount = (parseInt(localStorage.getItem(loginCountKey), 10) || 0) + 1;
     localStorage.setItem(loginCountKey, String(loginCount));
-
     const shouldShowUpgradeModal = loginCount === 1 || loginCount % 3 === 0;
     if (shouldShowUpgradeModal) {
         await refreshUnlockedFeaturesFromServer();
@@ -6285,48 +5085,34 @@ async function completeLoginSuccess(data) {
         }
     }
 }
-
 function showAuthenticationInterface() {
-
     document.documentElement.classList.remove('has-session');
     document.documentElement.removeAttribute('data-preload-view');
-
     document.getElementById('auth-view').style.display ='flex';
     document.getElementById('main-view').style.display ='none';
 }
-
 const MENU_ID_OVERRIDES = { dashboard:'menu-inventory-dashboard' };
-
 function applyRoleBasedAccessControls(role) {
     const normalizedRole = (role ||'').toLowerCase();
     const isAdmin = normalizedRole ==='admin';
-
     const resetElements = document.querySelectorAll('.system-reset-container, .recovery-section, #reset-faq-btn');
     resetElements.forEach(el => {
         el.style.setProperty('display', isAdmin ?'' :'none','important');
     });
-
     (menuRegistry || []).forEach(m => {
         const elId = MENU_ID_OVERRIDES[m.key] || `menu-${m.key}`;
         const el = document.getElementById(elId);
         if (el) el.style.display = (isAdmin || currentPermissions[m.key]) ?'' :'none';
-
-        // Also hide the matching bottom-nav (mobile) shortcut, if any, so a
-        // restricted role (e.g. Cashier locked to Terminal only) can't see
-        // or tap into a screen the sidebar already hides.
         const bottomNavEl = document.getElementById(`bn-${m.key}`);
         if (bottomNavEl) bottomNavEl.style.display = (isAdmin || currentPermissions[m.key]) ?'' :'none';
     });
-
     const inventoryGroup = document.getElementById('menu-inventory-group');
     if (inventoryGroup) {
         const anyInventoryVisible = isAdmin || currentPermissions.dashboard || currentPermissions.products || currentPermissions.barcode;
         inventoryGroup.style.display = anyInventoryVisible ?'' :'none';
     }
-
     console.log(`[OmniPOS] Applied dynamic Permission Matrix for role: ${role ||'unknown'}`);
 }
-
 async function refreshLowStockBadge() {
     const badge = document.getElementById('lowstock-bell-badge');
     if (!badge) return;
@@ -6334,7 +5120,6 @@ async function refreshLowStockBadge() {
         const res = await authFetch(`${API_URL}/products/low-stock`);
         const data = await res.json();
         const count = data && data.count ? data.count : 0;
-
         const badgeAllowed = isBadgeAllowedForFeature('purchase_orders');
         if (count > 0 && badgeAllowed) {
             badge.innerText = count > 99 ?'99+' : count;
@@ -6346,27 +5131,20 @@ async function refreshLowStockBadge() {
         console.warn('Could not refresh low stock badge:', e);
     }
 }
-
 let reorderItemsCache = [];
 let reorderPOCache = [];
 const reorderSelectedCodes = new Set();
-
 const reorderCollapsedGroups = new Set();
 const reorderGroupsInitialized = new Set();
-
 let reorderViewMode = 'list';
-
 let reorderPOViewMode = 'list';
-
 function switchReorderTab(tabId, element) {
     document.querySelectorAll('.reorder-tab-panel').forEach(p => p.style.display = 'none');
     document.querySelectorAll('.reorder-tab-btn').forEach(b => b.classList.remove('active'));
-
     const panel = document.getElementById(tabId);
     if (panel) panel.style.display = 'flex';
     if (element) element.classList.add('active');
 }
-
 function setReorderViewMode(mode) {
     if (mode !== 'list' && mode !== 'grid') return;
     reorderViewMode = mode;
@@ -6380,7 +5158,6 @@ function setReorderViewMode(mode) {
     if (gridContainer) gridContainer.style.display = mode === 'grid' ? 'grid' : 'none';
     renderReorderTable();
 }
-
 function setReorderPOViewMode(mode) {
     if (mode !== 'list' && mode !== 'grid') return;
     reorderPOViewMode = mode;
@@ -6394,11 +5171,9 @@ function setReorderPOViewMode(mode) {
     if (gridContainer) gridContainer.style.display = mode === 'grid' ? 'grid' : 'none';
     renderPurchaseOrdersTable();
 }
-
 async function loadReorderView() {
     const tbody = document.getElementById('reorder-table-body');
     if (tbody) tbody.innerHTML = `<tr class="reorder-empty-row"><td colspan="9" style="text-align:center;padding:20px;color:#94a3b8;">Loading...</td></tr>`;
-
     if (tbody && !tbody.dataset.reorderToggleBound) {
         tbody.dataset.reorderToggleBound ='1';
         tbody.addEventListener('click', (e) => {
@@ -6435,7 +5210,6 @@ async function loadReorderView() {
         if (tbody) tbody.innerHTML = `<tr class="reorder-empty-row"><td colspan="9" style="text-align:center;padding:20px;color:#ef4444;">Connection error — could not load reorder data.</td></tr>`;
     }
 }
-
 function renderReorderStats() {
     const bar = document.getElementById('reorder-stats-bar');
     if (!bar) return;
@@ -6444,12 +5218,10 @@ function renderReorderStats() {
     const lowStock = items.length - outOfStock;
     const suppliers = new Set(items.map(p => p.supplier || 'Unspecified Supplier')).size;
     const suggestedTotal = items.reduce((sum, p) => sum + (Number(p.suggestedReorderQty) || 0), 0);
-
     if (items.length === 0) {
         bar.innerHTML = '';
         return;
     }
-
     const cards = [
         { label: 'Needs Reorder', value: items.length, icon: 'fa-triangle-exclamation', cls: 'total' },
         { label: 'Out of Stock', value: outOfStock, icon: 'fa-circle-xmark', cls: 'danger' },
@@ -6457,7 +5229,6 @@ function renderReorderStats() {
         { label: 'Suppliers Affected', value: suppliers, icon: 'fa-truck-fast', cls: 'neutral' },
         { label: 'Suggested Units', value: suggestedTotal, icon: 'fa-boxes-stacked', cls: 'accent' }
     ];
-
     bar.innerHTML = cards.map(c => `
         <div class="reorder-stat-card reorder-stat-${c.cls}">
             <div class="reorder-stat-icon"><i class="fa-solid ${c.icon}"></i></div>
@@ -6467,25 +5238,21 @@ function renderReorderStats() {
             </div>
         </div>`).join('');
 }
-
 function reorderStatusBadge(p) {
     const isOut = p.status ==='OUT_OF_STOCK';
     const bg = isOut ?'#fee2e2' :'#fef3c7';
     const fg = isOut ?'#b91c1c' :'#a16207';
     return `<span style="background:${bg};color:${fg};font-weight:700;font-size:0.72rem;padding:3px 8px;border-radius:999px;white-space:nowrap;">${isOut ?'OUT OF STOCK' :'LOW STOCK'}</span>`;
 }
-
 function getFilteredSortedReorderItems() {
     const search = (document.getElementById('reorder-search-input')?.value ||'').toLowerCase().trim();
     const statusFilter = document.getElementById('reorder-filter-status')?.value ||'ALL';
     const sortBy = document.getElementById('reorder-sort-by')?.value ||'stock_asc';
-
     let list = reorderItemsCache.filter(p => {
         if (statusFilter !=='ALL' && p.status !== statusFilter) return false;
         if (search && !(`${p.name} ${p.supplier} ${p.code}`.toLowerCase().includes(search))) return false;
         return true;
     });
-
     list = [...list].sort((a, b) => {
         if (sortBy ==='days_desc') return (b.daysLow || 0) - (a.daysLow || 0);
         if (sortBy ==='name_asc') return (a.name ||'').localeCompare(b.name ||'');
@@ -6494,7 +5261,6 @@ function getFilteredSortedReorderItems() {
     });
     return list;
 }
-
 function reorderRowHtml(p) {
     const checked = reorderSelectedCodes.has(p.code) ?'checked' :'';
     const orderedNote = p.openOrderedQty > 0
@@ -6515,7 +5281,6 @@ function reorderRowHtml(p) {
             </td>
         </tr>`;
 }
-
 function reorderCardHtml(p) {
     const checked = reorderSelectedCodes.has(p.code) ?'checked' :'';
     const orderedNote = p.openOrderedQty > 0
@@ -6543,23 +5308,19 @@ function reorderCardHtml(p) {
             </div>
         </div>`;
 }
-
 function renderReorderEmptyState() {
     const tbody = document.getElementById('reorder-table-body');
     const gridContainer = document.getElementById('reorder-grid-container');
     if (tbody) tbody.innerHTML = `<tr class="reorder-empty-row"><td colspan="9" style="text-align:center;padding:24px;color:#94a3b8;">🎉 No matching low stock items.</td></tr>`;
     if (gridContainer) gridContainer.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:24px;color:#94a3b8;">🎉 No matching low stock items.</div>`;
 }
-
 function renderReorderTable() {
     const list = getFilteredSortedReorderItems();
-
     if (list.length === 0) {
         renderReorderEmptyState();
         updateReorderSelectedCount();
         return;
     }
-
     if (reorderViewMode ==='grid') {
         renderReorderGridView(list);
     } else {
@@ -6567,7 +5328,6 @@ function renderReorderTable() {
     }
     updateReorderSelectedCount();
 }
-
 function sortedReorderSupplierGroups(list) {
     const groups = {};
     list.forEach(p => {
@@ -6584,18 +5344,15 @@ function sortedReorderSupplierGroups(list) {
     });
     return { groups, supplierKeys };
 }
-
 function renderReorderListView(list) {
     const tbody = document.getElementById('reorder-table-body');
     if (!tbody) return;
     const groupBySupplier = document.getElementById('reorder-group-by-supplier')?.checked;
     const searchActive = !!(document.getElementById('reorder-search-input')?.value ||'').trim();
-
     if (!groupBySupplier) {
         tbody.innerHTML = list.map(reorderRowHtml).join('');
         return;
     }
-
     const { groups, supplierKeys } = sortedReorderSupplierGroups(list);
     let html ='';
     supplierKeys.forEach(supplier => {
@@ -6605,12 +5362,10 @@ function renderReorderListView(list) {
         const urgencyBadge = outCount > 0
             ? `<span class="reorder-group-urgency out"><i class="fa-solid fa-triangle-exclamation"></i> ${outCount} out of stock</span>`
             :`<span class="reorder-group-urgency low">low stock</span>`;
-
         if (!reorderGroupsInitialized.has(supplier)) {
             reorderGroupsInitialized.add(supplier);
             reorderCollapsedGroups.add(supplier);
         }
-
         const isCollapsed = searchActive ? false : reorderCollapsedGroups.has(supplier);
         html += `<tr class="reorder-group-header"><td colspan="9">
                     <div class="reorder-group-header-inner">
@@ -6627,18 +5382,15 @@ function renderReorderListView(list) {
     });
     tbody.innerHTML = html;
 }
-
 function renderReorderGridView(list) {
     const container = document.getElementById('reorder-grid-container');
     if (!container) return;
     const groupBySupplier = document.getElementById('reorder-group-by-supplier')?.checked;
     const searchActive = !!(document.getElementById('reorder-search-input')?.value ||'').trim();
-
     if (!groupBySupplier) {
         container.innerHTML = list.map(reorderCardHtml).join('');
         return;
     }
-
     const { groups, supplierKeys } = sortedReorderSupplierGroups(list);
     let html ='';
     supplierKeys.forEach(supplier => {
@@ -6666,18 +5418,14 @@ function renderReorderGridView(list) {
     });
     container.innerHTML = html;
 }
-
 function toggleReorderGroup(supplier) {
     if (reorderCollapsedGroups.has(supplier)) reorderCollapsedGroups.delete(supplier);
     else reorderCollapsedGroups.add(supplier);
     renderReorderTable();
 }
-
 function setAllReorderGroupsCollapsed(collapsed) {
-
     const groupByCheckbox = document.getElementById('reorder-group-by-supplier');
     if (groupByCheckbox && !groupByCheckbox.checked) groupByCheckbox.checked = true;
-
     const list = getFilteredSortedReorderItems();
     const suppliers = new Set(list.map(p => p.supplier ||'Unspecified Supplier'));
     suppliers.forEach(s => {
@@ -6686,26 +5434,22 @@ function setAllReorderGroupsCollapsed(collapsed) {
     });
     renderReorderTable();
 }
-
 function toggleReorderSelect(code, checked) {
     if (checked) reorderSelectedCodes.add(code); else reorderSelectedCodes.delete(code);
     updateReorderSelectedCount();
 }
-
 function toggleSelectAllReorder(checkbox) {
     const list = getFilteredSortedReorderItems();
     if (checkbox.checked) list.forEach(p => reorderSelectedCodes.add(p.code));
     else list.forEach(p => reorderSelectedCodes.delete(p.code));
     renderReorderTable();
 }
-
 function updateReorderSelectedCount() {
     const countEl = document.getElementById('reorder-selected-count');
     const btn = document.getElementById('reorder-create-po-btn');
     if (countEl) countEl.innerText = reorderSelectedCodes.size;
     if (btn) btn.disabled = reorderSelectedCodes.size === 0;
 }
-
 async function quickRestock(code, name) {
     const { value: qty } = await Swal.fire({
         title: `Quick Restock: ${name}`,
@@ -6738,14 +5482,12 @@ async function quickRestock(code, name) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 function openCreatePOModal(codesOverride) {
     if (guardPremiumFeature('purchase_orders')) return;
     const codes = codesOverride && codesOverride.length ? codesOverride : Array.from(reorderSelectedCodes);
     if (!codes.length) return;
     const items = reorderItemsCache.filter(p => codes.includes(p.code));
     if (!items.length) return;
-
     const UNASSIGNED ='__unassigned__';
     const groups = {};
     items.forEach(p => {
@@ -6754,7 +5496,6 @@ function openCreatePOModal(codesOverride) {
         groups[key].push(p);
     });
     const groupKeys = Object.keys(groups);
-
     const groupSectionHtml = groupKeys.map((key, gIdx) => {
         const groupItems = groups[key];
         const isUnassigned = key === UNASSIGNED;
@@ -6773,11 +5514,9 @@ function openCreatePOModal(codesOverride) {
                 <div style="max-height:200px;overflow-y:auto;">${rowsHtml}</div>
             </div>`;
     }).join('');
-
     const multiSupplierNote = groupKeys.length > 1
         ? `<p style="font-size:0.78rem;color:#64748b;margin:0 0 10px;"><i class="fa-solid fa-circle-info"></i> The selected items have different suppliers — this will automatically be split into <strong>${groupKeys.length} separate Purchase Orders</strong>, one per supplier.</p>`
         :'';
-
     Swal.fire({
         title: `<i class="fa-solid fa-cart-plus"></i> Create Purchase Order`,
         width: 520,
@@ -6857,7 +5596,6 @@ function openCreatePOModal(codesOverride) {
         loadReorderView();
     });
 }
-
 function poStatusBadge(status) {
     const map = {
         ordered: ['#dbeafe','#1d4ed8','ORDERED'],
@@ -6867,12 +5605,10 @@ function poStatusBadge(status) {
     const [bg, fg, label] = map[status] || map.ordered;
     return `<span style="background:${bg};color:${fg};font-weight:700;font-size:0.72rem;padding:3px 8px;border-radius:999px;">${label}</span>`;
 }
-
 function getFilteredSortedPOList() {
     const search = (document.getElementById('reorder-po-search-input')?.value ||'').toLowerCase().trim();
     const statusFilter = document.getElementById('reorder-po-filter-status')?.value ||'ALL';
     const sortBy = document.getElementById('reorder-po-sort-by')?.value ||'newest';
-
     let list = reorderPOCache.filter(po => {
         if (statusFilter !=='ALL' && po.status !== statusFilter) return false;
         if (search) {
@@ -6882,7 +5618,6 @@ function getFilteredSortedPOList() {
         }
         return true;
     });
-
     list = [...list].sort((a, b) => {
         if (sortBy ==='supplier_asc') return (a.supplier ||'').localeCompare(b.supplier ||'');
         const aTime = new Date(a.createdAt || 0).getTime();
@@ -6891,7 +5626,6 @@ function getFilteredSortedPOList() {
     });
     return list;
 }
-
 function poDisplayFields(po) {
     const itemsSummary = po.items.map(it => `${escapeHtml(it.name)} (×${it.qty})`).join(', ');
     const when = po.status ==='received' ? po.receivedAt : (po.status ==='cancelled' ? po.cancelledAt : po.createdAt);
@@ -6902,7 +5636,6 @@ function poDisplayFields(po) {
         :'<span style="color:#94a3b8;">—</span>';
     return { itemsSummary, whenText, actions };
 }
-
 function poRowHtml(po) {
     const { itemsSummary, whenText, actions } = poDisplayFields(po);
     const whoWhen = `${escapeHtml(po.createdBy)}<br><small style="color:#94a3b8;">${whenText}</small>`;
@@ -6915,7 +5648,6 @@ function poRowHtml(po) {
         <td data-label="Actions" style="white-space:nowrap;">${actions}</td>
     </tr>`;
 }
-
 function poCardHtml(po) {
     const { itemsSummary, whenText, actions } = poDisplayFields(po);
     return `
@@ -6936,14 +5668,12 @@ function poCardHtml(po) {
             <div class="reorder-card-actions">${actions}</div>
         </div>`;
 }
-
 function renderPOEmptyState(message) {
     const tbody = document.getElementById('reorder-po-table-body');
     const gridContainer = document.getElementById('reorder-po-grid-container');
     if (tbody) tbody.innerHTML = `<tr class="reorder-empty-row"><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8;">${message}</td></tr>`;
     if (gridContainer) gridContainer.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:20px;color:#94a3b8;">${message}</div>`;
 }
-
 function renderPurchaseOrdersTable() {
     const tbody = document.getElementById('reorder-po-table-body');
     if (!tbody) return;
@@ -6963,7 +5693,6 @@ function renderPurchaseOrdersTable() {
         tbody.innerHTML = list.map(poRowHtml).join('');
     }
 }
-
 async function receivePO(id) {
     const confirm = await Swal.fire({
         title:'Mark as Received?',
@@ -6978,7 +5707,6 @@ async function receivePO(id) {
         if (data.success) {
             Swal.fire({ icon:'success', title:'Received!', text:'Stock has been updated.', timer: 2000, showConfirmButton: false });
             loadReorderView();
-
             refreshLowStockBadge();
         } else {
             Swal.fire('Error', data.message,'error');
@@ -6987,7 +5715,6 @@ async function receivePO(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function cancelPO(id) {
     const confirm = await Swal.fire({
         title:'Cancel this Purchase Order?',
@@ -7008,11 +5735,8 @@ async function cancelPO(id) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-
 async function exportReorderCSV() {
-
     if (guardPremiumFeature('purchase_orders')) return;
-
     const confirmResult = await Swal.fire({
         title:'Download Export?',
         html:'This will download the <strong>Reorder Alerts CSV</strong>. Do you want to continue?',
@@ -7023,10 +5747,8 @@ async function exportReorderCSV() {
         confirmButtonColor:'#7c5cff',
     });
     if (!confirmResult.isConfirmed) return;
-
     downloadAuthFetch(`${API_URL}/products/low-stock/export`, `reorder_alerts_${Date.now()}.csv`);
 }
-
 function printReorderList() {
     const list = getFilteredSortedReorderItems();
     const rows = list.map(p => `
@@ -7059,63 +5781,45 @@ function printReorderList() {
     win.focus();
     setTimeout(() => win.print(), 300);
 }
-
 async function loadDashboardMetrics() {
     try {
-
         const resTx = await authFetch(`${API_URL}/transactions`);
         const resProd = await authFetch(`${API_URL}/products`);
-
         const currentUsername = currentUser?.username ||'admin';
         const resUsers = await authFetch(`${API_URL}/users?requester=${currentUsername}`);
-
         let serverTxs = resTx.ok ? await resTx.json() : [];
         let productsList = resProd.ok ? await resProd.json() : [];
         const usersList = resUsers.ok ? await resUsers.json() : [];
-
         if (resTx.ok) {
-
             localStorage.setItem('cached_transactions', JSON.stringify(serverTxs));
         } else {
-
             serverTxs = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
         }
-
         if (resProd.ok) {
-
             localStorage.setItem('cached_products', JSON.stringify(productsList));
         } else {
-
             productsList = JSON.parse(localStorage.getItem('cached_products') ||'[]');
         }
-
         const rawOffline = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
         const offlineTxs = rawOffline.map(item => item.transaction || item);
-
         const allTxs = [...offlineTxs, ...serverTxs];
-
         const uniqueMap = new Map();
         allTxs.forEach(tx => { if (tx && tx.id) uniqueMap.set(tx.id, tx); });
         const uniqueTxs = Array.from(uniqueMap.values());
-
         const today = new Date();
         const currentYear = today.getFullYear();
         const currentMonth = today.getMonth();
         const currentDate = today.getDate();
-
         const todaysTxs = uniqueTxs.filter(tx => {
             const timestamp = tx.timestamp || tx.date;
             if (!timestamp) return false;
-
             let txDate = tx.isoDate ? new Date(tx.isoDate) : new Date(timestamp);
-
             if (isNaN(txDate.getTime())) {
                 const numbers = timestamp.match(/\d+/g);
                 if (numbers && numbers.length >= 3) {
                     const year = parseInt(numbers[2]);
                     const val1 = parseInt(numbers[0]);
                     const val2 = parseInt(numbers[1]);
-
                     if (year === currentYear) {
                         if ((val1 === currentMonth + 1 && val2 === currentDate) ||
                             (val2 === currentMonth + 1 && val1 === currentDate)) {
@@ -7125,23 +5829,18 @@ async function loadDashboardMetrics() {
                 }
                 return false;
             }
-
             return txDate.getFullYear() === currentYear &&
                    txDate.getMonth() === currentMonth &&
                    txDate.getDate() === currentDate;
         });
-
         const revenue = todaysTxs.reduce((acc, current) => acc + (parseFloat(current.total) || 0), 0);
         const totalProductsCount = productsList.length;
-
         const lowStockItemsCount = productsList.filter(p => {
             const stock = parseInt(p.stock) || 0;
             const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
             return stock > 0 && stock <= threshold;
         }).length;
-
         const noStockItemsCount = productsList.filter(p => (parseInt(p.stock) || 0) <= 0).length;
-
         const expiringSoonCount = productsList.filter(p => {
             if (!p.expiryDate) return false;
             const expiryDate = new Date(p.expiryDate);
@@ -7149,7 +5848,6 @@ async function loadDashboardMetrics() {
             const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
             return daysLeft >= 0 && daysLeft <= 7;
         }).length;
-
         const expiredCount = productsList.filter(p => {
             if (!p.expiryDate) return false;
             const expiryDate = new Date(p.expiryDate);
@@ -7157,9 +5855,7 @@ async function loadDashboardMetrics() {
             const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
             return daysLeft < 0;
         }).length;
-
         const totalUsersCount = usersList.length;
-
         const todayProductRanking = {};
         todaysTxs.forEach(tx => {
             (tx.items || []).forEach(i => {
@@ -7172,30 +5868,24 @@ async function loadDashboardMetrics() {
             .map(([name, qty]) => ({ name, qty }))
             .sort((a, b) => b.qty - a.qty)
             .slice(0, 5);
-
         renderDashboardDOM(revenue, todaysTxs.length, totalProductsCount, lowStockItemsCount, noStockItemsCount, totalUsersCount, expiringSoonCount, expiredCount, topProductsToday);
         renderWeeklyTrend(uniqueTxs);
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(uniqueTxs);
-
         if (productsList.length > 0) globalProducts = productsList;
         refreshLowStockBadge();
         checkBackupHealthBanner();
         loadBranchesWidget();
-
     } catch (e) {
         console.warn('Dashboard Analytics Pipeline Fallback Invoked:', e);
-
         const cachedTxs = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
         const cachedProds = JSON.parse(localStorage.getItem('cached_products') ||'[]');
-
         const today = new Date();
         const cy = today.getFullYear(), cm = today.getMonth(), cd = today.getDate();
         const cachedTodayTxs = cachedTxs.filter(tx => {
             let d = new Date(tx.isoDate || tx.timestamp || tx.date);
             return !isNaN(d.getTime()) && d.getFullYear() === cy && d.getMonth() === cm && d.getDate() === cd;
         });
-
         const cachedRevenue = cachedTodayTxs.reduce((acc, curr) => acc + (parseFloat(curr.total) || 0), 0);
         const lowStockCount = cachedProds.filter(p => {
             const s = parseInt(p.stock) || 0;
@@ -7217,32 +5907,26 @@ async function loadDashboardMetrics() {
             const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
             return daysLeft < 0;
         }).length;
-
         renderDashboardDOM(cachedRevenue, cachedTodayTxs.length, cachedProds.length, lowStockCount, noStockCount, 0, cachedExpiringSoonCount, cachedExpiredCount);
         renderWeeklyTrend(cachedTxs);
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(cachedTxs);
     }
 }
-
 let backupHealthWarningShown = false;
-
 async function checkBackupHealthBanner() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
     if (!isAdmin || backupHealthWarningShown) return;
-
     try {
         const res = await authFetch(`${API_URL}/system/backup-status`);
         if (!res.ok) return;
         const data = await res.json();
         const status = data && data.status;
         if (!status || (status.consecutiveFailures || 0) < 2) return;
-
         backupHealthWarningShown = true;
         const lastOk = status.lastSuccessAt
             ? new Date(status.lastSuccessAt).toLocaleString('en-PH')
             :'no successful backup yet';
-
         Swal.fire({
             icon:'warning',
             title:'Auto-Backup Failing',
@@ -7253,10 +5937,8 @@ async function checkBackupHealthBanner() {
             confirmButtonText:'Understood'
         });
     } catch (e) {
-
     }
 }
-
 function formatCashierLabel(tx) {
     const username = (tx && tx.cashier) ||'';
     const displayName = (tx && tx.cashierDisplayName) ||'';
@@ -7265,23 +5947,19 @@ function formatCashierLabel(tx) {
     }
     return username ? `@${username}` : '';
 }
-
 function renderOverviewGreeting() {
     const greetEl = document.getElementById('overview-greeting');
     const subEl = document.getElementById('overview-subdate');
     const roleEl = document.getElementById('overview-role-badge');
     if (!greetEl) return;
-
     const now = new Date();
     const hour = now.getHours();
     let timeGreeting ='Magandang araw';
     if (hour < 12) timeGreeting ='Magandang umaga';
     else if (hour < 18) timeGreeting ='Magandang hapon';
     else timeGreeting ='Magandang gabi';
-
     const activeUser = currentUser || JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const displayName = (activeUser && (activeUser.displayName || activeUser.username || activeUser.name)) ||'Admin';
-
     greetEl.innerText = `${timeGreeting}, ${displayName}!`;
     if (subEl) {
         subEl.innerText = now.toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
@@ -7290,21 +5968,17 @@ function renderOverviewGreeting() {
         roleEl.innerText = (activeUser && activeUser.role) ? activeUser.role :'Admin';
     }
 }
-
 function animateOverviewCountUp(el, targetValue, duration = 650) {
     if (!el) return;
     const target = Number(targetValue) || 0;
     const startValue = Number(el.getAttribute('data-count')) || 0;
-
     if (startValue === target) {
         el.innerText = target;
         el.setAttribute('data-count', target);
         return;
     }
-
     const startTime = performance.now();
     const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
-
     function tick(now) {
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
@@ -7320,21 +5994,17 @@ function animateOverviewCountUp(el, targetValue, duration = 650) {
     }
     requestAnimationFrame(tick);
 }
-
 function replayOverviewEntranceAnimation() {
     const overviewSection = document.getElementById('view-overview');
     if (!overviewSection) return;
     const animatedEls = overviewSection.querySelectorAll('.ov-anim');
     animatedEls.forEach(el => el.classList.remove('ov-anim'));
-
     void overviewSection.offsetWidth;
     animatedEls.forEach(el => el.classList.add('ov-anim'));
 }
-
 function renderWeeklyTrend(txList) {
     const container = document.getElementById('overview-trend-bars');
     if (!container) return;
-
     const list = Array.isArray(txList) ? txList : [];
     const days = [];
     for (let i = 6; i >= 0; i--) {
@@ -7342,7 +6012,6 @@ function renderWeeklyTrend(txList) {
         d.setDate(d.getDate() - i);
         days.push(d);
     }
-
     const totals = days.map(day => {
         return list.reduce((sum, tx) => {
             const timestamp = tx && (tx.isoDate || tx.timestamp || tx.date);
@@ -7355,11 +6024,9 @@ function renderWeeklyTrend(txList) {
             return sameDay ? sum + (parseFloat(tx.total) || 0) : sum;
         }, 0);
     });
-
     const maxVal = Math.max(...totals, 1);
     const dayLabels = days.map(d => d.toLocaleDateString('en-PH', { weekday:'short' }));
     const isToday = (idx) => idx === totals.length - 1;
-
     container.innerHTML = totals.map((val, idx) => {
         const heightPct = val > 0 ? Math.max((val / maxVal) * 100, 6) : 2;
         return `
@@ -7368,7 +6035,6 @@ function renderWeeklyTrend(txList) {
                 <span class="trend-bar-label">${dayLabels[idx]}</span>
             </div>`;
     }).join('');
-
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             container.querySelectorAll('.trend-bar[data-target-height]').forEach(bar => {
@@ -7377,7 +6043,6 @@ function renderWeeklyTrend(txList) {
         });
     });
 }
-
 const overviewChartState = {
     granularity: 'day',
     rangePreset: '30d',
@@ -7387,28 +6052,23 @@ const overviewChartState = {
     compare: false,
     lastTxs: []
 };
-
 const OV_SHIFT_DEFS = [
     { key: 1, label: 'Shift 1 (6AM–2PM)', startHour: 6, endHour: 14 },
     { key: 2, label: 'Shift 2 (2PM–10PM)', startHour: 14, endHour: 22 },
     { key: 3, label: 'Shift 3 (10PM–6AM)', startHour: 22, endHour: 30 }
 ];
-
 function ovGetTxDate(tx) {
     const raw = tx && (tx.isoDate || tx.timestamp || tx.date);
     if (!raw) return null;
     const d = new Date(raw);
     return isNaN(d.getTime()) ? null : d;
 }
-
 function ovGetShiftForHour(hour) {
     if (hour >= 6 && hour < 14) return OV_SHIFT_DEFS[0];
     if (hour >= 14 && hour < 22) return OV_SHIFT_DEFS[1];
     return OV_SHIFT_DEFS[2];
 }
-
 function ovISOWeekKey(d) {
-
     const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     const dayNum = (date.getUTCDay() + 6) % 7;
     date.setUTCDate(date.getUTCDate() - dayNum + 3);
@@ -7416,7 +6076,6 @@ function ovISOWeekKey(d) {
     const week = 1 + Math.round(((date - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
     return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
-
 function ovStartOfWeek(d) {
     const date = new Date(d);
     const day = (date.getDay() + 6) % 7;
@@ -7424,19 +6083,16 @@ function ovStartOfWeek(d) {
     date.setHours(0, 0, 0, 0);
     return date;
 }
-
 function ovResolveDateRange() {
     const now = new Date();
     let to = overviewChartState.toDate ? new Date(overviewChartState.toDate) : new Date(now);
     to.setHours(23, 59, 59, 999);
     let from;
-
     if (overviewChartState.fromDate && overviewChartState.toDate) {
         from = new Date(overviewChartState.fromDate);
         from.setHours(0, 0, 0, 0);
         return { from, to };
     }
-
     switch (overviewChartState.rangePreset) {
         case 'today':
             from = new Date(now); from.setHours(0, 0, 0, 0); break;
@@ -7454,27 +6110,22 @@ function ovResolveDateRange() {
     }
     return { from, to };
 }
-
 function ovComputeBuckets(txs, granularity, from, to) {
     const inRange = (txs || []).filter(tx => {
         const d = ovGetTxDate(tx);
         return d && d >= from && d <= to;
     });
-
     const bucketMap = new Map();
-
     function touchBucket(key, label, sortKey) {
         if (!bucketMap.has(key)) {
             bucketMap.set(key, { key, label, sortKey, total: 0, high: -Infinity, low: Infinity, count: 0 });
         }
         return bucketMap.get(key);
     }
-
     inRange.forEach(tx => {
         const d = ovGetTxDate(tx);
         if (!d) return;
         const amt = parseFloat(tx.total) || 0;
-
         let key, label, sortKey;
         if (granularity === 'hour') {
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
@@ -7483,7 +6134,6 @@ function ovComputeBuckets(txs, granularity, from, to) {
         } else if (granularity === 'shift') {
             const shiftHour = d.getHours();
             const shiftDef = ovGetShiftForHour(shiftHour);
-
             const bucketDate = new Date(d);
             if (shiftDef.key === 3 && shiftHour < 6) bucketDate.setDate(bucketDate.getDate() - 1);
             key = `${bucketDate.getFullYear()}-${bucketDate.getMonth()}-${bucketDate.getDate()}-S${shiftDef.key}`;
@@ -7507,14 +6157,12 @@ function ovComputeBuckets(txs, granularity, from, to) {
             label = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
             sortKey = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
         }
-
         const bucket = touchBucket(key, label, sortKey);
         bucket.total += amt;
         bucket.count += 1;
         if (amt > bucket.high) bucket.high = amt;
         if (amt < bucket.low) bucket.low = amt;
     });
-
     const buckets = Array.from(bucketMap.values()).sort((a, b) => a.sortKey - b.sortKey);
     buckets.forEach(b => {
         b.total = Math.round(b.total * 100) / 100;
@@ -7523,18 +6171,15 @@ function ovComputeBuckets(txs, granularity, from, to) {
     });
     return buckets;
 }
-
 function ovGetComparisonRange(from, to) {
     const durationMs = to.getTime() - from.getTime();
     const prevTo = new Date(from.getTime() - 1);
     const prevFrom = new Date(prevTo.getTime() - durationMs);
     return { from: prevFrom, to: prevTo };
 }
-
 function ovFormatPeso(val) {
     return '₱' + (Number(val) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
 function ovGetThemeColors() {
     const isDark = document.body.classList.contains('dark-mode');
     const cs = getComputedStyle(document.body);
@@ -7569,44 +6214,34 @@ function ovGetThemeColors() {
         tooltipText: '#f8fafc'
     };
 }
-
 function renderAdvancedOverviewChart(txList) {
     const wrap = document.getElementById('ov-chart-svg-wrap');
     if (!wrap) return;
-
     if (Array.isArray(txList)) overviewChartState.lastTxs = txList;
     const txs = overviewChartState.lastTxs;
-
     const { from, to } = ovResolveDateRange();
     const buckets = ovComputeBuckets(txs, overviewChartState.granularity, from, to);
-
     let compareBuckets = null;
     if (overviewChartState.compare) {
         const prevRange = ovGetComparisonRange(from, to);
         compareBuckets = ovComputeBuckets(txs, overviewChartState.granularity, prevRange.from, prevRange.to);
-
     }
-
     const rangeLabelEl = document.getElementById('ov-chart-range-label');
     if (rangeLabelEl) {
         const fmt = (d) => d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
         rangeLabelEl.textContent = `(${fmt(from)} – ${fmt(to)})`;
     }
-
     const emptyEl = document.getElementById('ov-chart-empty');
     const hasData = buckets.some(b => b.count > 0);
     if (emptyEl) emptyEl.style.display = hasData ? 'none' : 'flex';
-
     ovDrawChart(wrap, buckets, compareBuckets);
     ovRenderLegend(buckets.length > 0, !!compareBuckets);
     ovRenderSummary(buckets, compareBuckets);
     ovRenderSummaryBar();
 }
-
 const OV_GRAN_LABELS = { hour: 'Hourly', shift: 'Shift', day: 'Day', week: 'Week', month: 'Month', year: 'Year' };
 const OV_RANGE_LABELS = { today: 'Today', '7d': 'Last 7 Days', '30d': 'Last 30 Days', '90d': 'Last 90 Days', year: 'Last 1 Year', all: 'All Time', custom: 'Custom Range' };
 const OV_METRIC_LABELS = { total: 'Total', high: 'High', low: 'Low', both: 'High & Low' };
-
 function ovRenderSummaryBar() {
     const bar = document.getElementById('ov-chart-summary-bar');
     if (!bar) return;
@@ -7618,7 +6253,6 @@ function ovRenderSummaryBar() {
     if (overviewChartState.compare) pills.push('Comparing');
     bar.innerHTML = pills.map(p => `<span class="sb-pill">${escapeHtml(p)}</span>`).join('');
 }
-
 function ovRenderLegend(hasData, hasCompare) {
     const legendEl = document.getElementById('ov-chart-legend');
     if (!legendEl) return;
@@ -7629,24 +6263,20 @@ function ovRenderLegend(hasData, hasCompare) {
     if (metric === 'high' || metric === 'both') items.push({ color: colors.high, label: 'High' });
     if (metric === 'low' || metric === 'both') items.push({ color: colors.low, label: 'Low' });
     if (hasCompare) items.push({ color: colors.compare, label: 'Previous Period', dashed: true });
-
     legendEl.innerHTML = items.map(it => `
         <span class="legend-item" style="color:${it.color}">
             <span class="legend-swatch${it.dashed ? ' dashed' : ''}" style="background-color:${it.dashed ? 'transparent' : it.color}; color:${it.color};"></span>
             ${it.label}
         </span>`).join('');
 }
-
 function ovRenderSummary(buckets, compareBuckets) {
     const el = document.getElementById('ov-chart-summary');
     if (!el) return;
-
     const totalSum = buckets.reduce((s, b) => s + b.total, 0);
     const highest = buckets.reduce((max, b) => (b.total > max.total ? b : max), { total: -Infinity, label: '—' });
     const lowestActive = buckets.filter(b => b.count > 0);
     const lowest = lowestActive.reduce((min, b) => (b.total < min.total ? b : min), { total: Infinity, label: '—' });
     const avg = buckets.length ? totalSum / buckets.length : 0;
-
     let compareHtml = '';
     if (compareBuckets) {
         const compareSum = compareBuckets.reduce((s, b) => s + b.total, 0);
@@ -7658,7 +6288,6 @@ function ovRenderSummary(buckets, compareBuckets) {
                 <h4 class="stat-value ${isUp ? 'up' : 'down'}"><i class="fa-solid fa-arrow-${isUp ? 'up' : 'down'}"></i> ${Math.abs(pctChange).toFixed(1)}%</h4>
             </div>`;
     }
-
     el.innerHTML = `
         <div class="adv-summary-stat">
             <p class="stat-label">Total Sales</p>
@@ -7679,31 +6308,26 @@ function ovRenderSummary(buckets, compareBuckets) {
         ${compareHtml}
     `;
 }
-
 function ovDrawChart(wrapEl, buckets, compareBuckets) {
     const width = Math.max(wrapEl.clientWidth || 600, 300);
     const height = wrapEl.clientHeight || 260;
     const padL = 52, padR = 16, padT = 16, padB = 34;
     const plotW = Math.max(width - padL - padR, 10);
     const plotH = Math.max(height - padT - padB, 10);
-
     const colors = ovGetThemeColors();
     const metric = overviewChartState.metric;
     const seriesToPlot = [];
     if (metric === 'total') seriesToPlot.push({ key: 'total', color: colors.total, fill: true });
     if (metric === 'high' || metric === 'both') seriesToPlot.push({ key: 'high', color: colors.high, fill: metric === 'high' });
     if (metric === 'low' || metric === 'both') seriesToPlot.push({ key: 'low', color: colors.low, fill: metric === 'low' });
-
     const allVals = [0];
     buckets.forEach(b => seriesToPlot.forEach(s => allVals.push(b[s.key] || 0)));
     if (compareBuckets) compareBuckets.forEach(b => allVals.push(b.total || 0));
     const maxVal = Math.max(...allVals, 1);
-
     const n = Math.max(buckets.length, 1);
     const xStep = n > 1 ? plotW / (n - 1) : plotW;
     const xAt = (i) => padL + (n > 1 ? i * xStep : plotW / 2);
     const yAt = (v) => padT + plotH - (Math.max(v, 0) / maxVal) * plotH;
-
     const gridCount = 4;
     let gridSvg = '';
     for (let g = 0; g <= gridCount; g++) {
@@ -7712,7 +6336,6 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
         gridSvg += `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${colors.grid}" stroke-width="1" stroke-dasharray="3,4"/>`;
         gridSvg += `<text x="${padL - 8}" y="${y + 4}" font-size="10" fill="${colors.axisText}" text-anchor="end">${ovFormatShortPeso(val)}</text>`;
     }
-
     const maxLabels = Math.max(Math.floor(plotW / 60), 3);
     const labelEvery = Math.max(1, Math.ceil(n / maxLabels));
     let xLabelsSvg = '';
@@ -7720,7 +6343,6 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
         if (i % labelEvery !== 0 && i !== n - 1) return;
         xLabelsSvg += `<text x="${xAt(i)}" y="${height - 10}" font-size="10" fill="${colors.axisText}" text-anchor="middle">${escapeHtml(b.label)}</text>`;
     });
-
     function buildLinePath(getVal, srcBuckets) {
         return srcBuckets.map((b, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i).toFixed(1)} ${yAt(getVal(b)).toFixed(1)}`).join(' ');
     }
@@ -7728,7 +6350,6 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
         const line = srcBuckets.map((b, i) => `${xAt(i).toFixed(1)},${yAt(getVal(b)).toFixed(1)}`).join(' L ');
         return `M ${xAt(0).toFixed(1)},${(padT + plotH).toFixed(1)} L ${line} L ${xAt(srcBuckets.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
     }
-
     let seriesSvg = '';
     seriesToPlot.forEach((s, idx) => {
         const getVal = (b) => b[s.key] || 0;
@@ -7743,25 +6364,21 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
             seriesSvg += `<circle class="adv-chart-pt" data-idx="${i}" data-series="${s.key}" cx="${xAt(i).toFixed(1)}" cy="${yAt(getVal(b)).toFixed(1)}" r="3.5" fill="${s.color}" stroke="${colors.pointStroke}" stroke-width="1.5"/>`;
         });
     });
-
     let compareSvg = '';
     if (compareBuckets && compareBuckets.length > 1) {
         compareSvg = `<path d="${buildLinePath(b => b.total || 0, compareBuckets)}" fill="none" stroke="${colors.compare}" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
     }
-
     let hoverSvg = '';
     buckets.forEach((b, i) => {
         const colX = padL + (i * xStep) - xStep / 2;
         const colW = n > 1 ? xStep : plotW;
         hoverSvg += `<rect class="adv-chart-hover-col" data-idx="${i}" x="${Math.max(colX, padL).toFixed(1)}" y="${padT}" width="${colW.toFixed(1)}" height="${plotH}" fill="transparent"/>`;
     });
-
     const gradientsSvg = seriesToPlot.map((s, idx) => `
         <linearGradient id="ovGrad${idx}" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="${s.color}" stop-opacity="0.28"/>
             <stop offset="100%" stop-color="${s.color}" stop-opacity="0.02"/>
         </linearGradient>`).join('');
-
     wrapEl.querySelectorAll('svg.adv-chart-svg').forEach(el => el.remove());
     const svgHtml = `
         <svg class="adv-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
@@ -7774,7 +6391,6 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
             ${hoverSvg}
         </svg>`;
     wrapEl.insertAdjacentHTML('afterbegin', svgHtml);
-
     const tooltip = document.getElementById('ov-chart-tooltip');
     const svgEl = wrapEl.querySelector('svg.adv-chart-svg');
     if (svgEl && tooltip) {
@@ -7801,18 +6417,15 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
         });
     }
 }
-
 function ovFormatShortPeso(val) {
     if (val >= 1000000) return '₱' + (val / 1000000).toFixed(1) + 'M';
     if (val >= 1000) return '₱' + (val / 1000).toFixed(1) + 'K';
     return '₱' + Math.round(val);
 }
-
 function initOverviewAdvancedChartToolbar() {
     const card = document.getElementById('ov-adv-chart-card');
     if (!card || card.getAttribute('data-ov-bound') === '1') return;
     card.setAttribute('data-ov-bound', '1');
-
     const filtersToggleBtn = document.getElementById('ov-chart-filters-toggle');
     const toolbarEl = document.getElementById('ov-chart-toolbar');
     if (filtersToggleBtn && toolbarEl) {
@@ -7823,7 +6436,6 @@ function initOverviewAdvancedChartToolbar() {
             filtersToggleBtn.setAttribute('aria-expanded', String(!isOpen));
         });
     }
-
     const granSelect = document.getElementById('ov-chart-granularity-select');
     if (granSelect) {
         granSelect.value = overviewChartState.granularity;
@@ -7832,7 +6444,6 @@ function initOverviewAdvancedChartToolbar() {
             renderAdvancedOverviewChart();
         });
     }
-
     const customRangeRow = document.getElementById('ov-chart-custom-range-row');
     const rangeSelect = document.getElementById('ov-chart-range-select');
     if (rangeSelect) {
@@ -7853,7 +6464,6 @@ function initOverviewAdvancedChartToolbar() {
             renderAdvancedOverviewChart();
         });
     }
-
     const applyBtn = document.getElementById('ov-chart-apply-range');
     if (applyBtn) {
         applyBtn.addEventListener('click', () => {
@@ -7869,7 +6479,6 @@ function initOverviewAdvancedChartToolbar() {
             renderAdvancedOverviewChart();
         });
     }
-
     card.querySelectorAll('#ov-chart-metric .adv-seg-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             card.querySelectorAll('#ov-chart-metric .adv-seg-btn').forEach(b => b.classList.remove('active'));
@@ -7878,7 +6487,6 @@ function initOverviewAdvancedChartToolbar() {
             renderAdvancedOverviewChart();
         });
     });
-
     const compareToggle = document.getElementById('ov-chart-compare-toggle');
     if (compareToggle) {
         compareToggle.addEventListener('change', () => {
@@ -7886,40 +6494,32 @@ function initOverviewAdvancedChartToolbar() {
             renderAdvancedOverviewChart();
         });
     }
-
     const refreshBtn = document.getElementById('ov-chart-refresh-btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
             if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         });
     }
-
     let ovResizeTimer = null;
     window.addEventListener('resize', () => {
         clearTimeout(ovResizeTimer);
         ovResizeTimer = setTimeout(() => renderAdvancedOverviewChart(), 200);
     });
-
     const themeObserver = new MutationObserver(() => renderAdvancedOverviewChart());
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 }
-
 async function loadBranchesWidget() {
     const card = document.getElementById('branches-widget-card');
     const body = document.getElementById('branches-widget-body');
     if (!card || !body) return;
-
     try {
-
         const token = localStorage.getItem('omnipos_token');
         const res = await fetch(`${API_URL}/branches/summary`, {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
-
         if (res.status === 402) {
             const locked = await res.json();
             card.style.display = '';
-
             body.innerHTML = `
                 <div style="text-align:center; padding:10px 4px;">
                     <p style="font-size:0.85rem;color:#64748b;margin:6px 0 10px;line-height:1.5;">
@@ -7933,27 +6533,18 @@ async function loadBranchesWidget() {
             const unlockBtn = document.getElementById('branches-widget-unlock-btn');
             if (unlockBtn) {
                 unlockBtn.addEventListener('click', async () => {
-                    // Multi-Branch Dashboard ay subscription na (Monthly/Yearly), hindi na
-                    // one-time purchase — kailangan ng billing-cycle picker
-                    // (promptModuleSubscription), hindi na yung lumang
-                    // promptUnlockFeature() na walang paraan para pumili ng cycle.
-                    // Kapag ito ginamit, ire-reject ito ng server ("Please choose a
-                    // valid billing cycle...") dahil walang na-send na billingCycle.
                     const ok = await promptModuleSubscription(locked.featureId);
                     if (ok) loadBranchesWidget();
                 });
             }
             return;
         }
-
         if (!res.ok) {
-
             card.style.display = 'none';
             return;
         }
         const data = await res.json();
         card.style.display = '';
-
         if (!data.configured) {
             body.innerHTML = `
                 <p style="color:#94a3b8;font-size:0.85rem;margin:8px 0 0;line-height:1.5;">
@@ -7967,16 +6558,13 @@ async function loadBranchesWidget() {
             body.innerHTML = `<p style="color:#ef4444;font-size:0.85rem;margin:8px 0 0;">${data.message || 'Hindi makuha ang branch summary.'}</p>`;
             return;
         }
-
         const branches = data.branches || [];
         const combined = data.combined || {};
         const currency = (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
-
         if (branches.length === 0) {
             body.innerHTML = `<p style="color:#94a3b8;font-size:0.85rem;margin:8px 0 0;">Naka-configure na ang Business Group Code, pero wala pang ibang branch na nag-check-in gamit ang parehong code. Siguraduhing pareho ang code sa lahat ng branch device (kailangan din ng internet connection sa bawat isa).</p>`;
             return;
         }
-
         const rows = branches.map(b => {
             const ago = timeAgoLabel(b.updatedAt);
             const staleWarning = (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000);
@@ -7992,7 +6580,6 @@ async function loadBranchesWidget() {
                     </div>
                 </div>`;
         }).join('');
-
         body.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:baseline; margin:8px 0 6px;">
                 <span style="font-size:0.8rem;color:#64748b;">${branches.length} branch(es) combined</span>
@@ -8002,11 +6589,9 @@ async function loadBranchesWidget() {
         `;
     } catch (err) {
         console.warn('loadBranchesWidget failed:', err);
-
         card.style.display = 'none';
     }
 }
-
 function timeAgoLabel(ts) {
     if (!ts) return 'never';
     const diffMs = Date.now() - ts;
@@ -8019,7 +6604,6 @@ function timeAgoLabel(ts) {
     const days = Math.floor(hrs / 24);
     return `${days}d ago`;
 }
-
 function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users, expiringSoon = 0, expired = 0, topProductsToday = []) {
     const revenueElem = document.getElementById('metric-revenue');
     const ordersElem = document.getElementById('metric-orders');
@@ -8029,7 +6613,6 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
     const usersElem = document.getElementById('metric-users-count');
     const expiringSoonElem = document.getElementById('metric-expiring-soon');
     const expiredElem = document.getElementById('metric-expired');
-
     if (revenueElem) revenueElem.innerText = `₱${revenue.toFixed(2)}`;
     if (ordersElem) ordersElem.innerText = orders;
     if (productsElem) productsElem.innerText = products;
@@ -8038,7 +6621,6 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
     if (usersElem) usersElem.innerText = users;
     if (expiringSoonElem) expiringSoonElem.innerText = expiringSoon;
     if (expiredElem) expiredElem.innerText = expired;
-
     const ovTopSellerElem = document.getElementById('metric-ov-top-seller');
     const ovOrdersElem = document.getElementById('metric-ov-orders');
     const ovLowStockElem = document.getElementById('metric-ov-lowstock');
@@ -8049,7 +6631,6 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
     }
     if (ovOrdersElem) animateOverviewCountUp(ovOrdersElem, orders);
     if (ovLowStockElem) animateOverviewCountUp(ovLowStockElem, lowStock);
-
     const ovTopProductsListEl = document.getElementById('overview-top-products-list');
     if (ovTopProductsListEl) {
         if (!topProductsToday || topProductsToday.length === 0) {
@@ -8061,17 +6642,13 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
         }
     }
 }
-
 async function loadTerminalCatalog() {
     try {
         const response = await authFetch(`${API_URL}/products`);
-
         if (!response.ok) throw new Error(`Products fetch failed: HTTP ${response.status}`);
         const data = await response.json();
         if (!Array.isArray(data)) throw new Error('Products fetch returned a non-array payload');
-
         globalProducts = data;
-
         try {
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
         } catch (cacheErr) {
@@ -8090,7 +6667,6 @@ async function loadTerminalCatalog() {
         broadcastIdleShowcase();
     }
 }
-
 function broadcastIdleShowcase() {
     if (!Array.isArray(globalProducts) || globalProducts.length === 0) return;
     const withImages = globalProducts.filter(p => p && p.image);
@@ -8098,15 +6674,12 @@ function broadcastIdleShowcase() {
     const showcase = pool.map(p => ({ name: p.name, price: p.price, image: p.image || null }));
     broadcastCustomerDisplay('idle-content', { showcase });
 }
-
 let lastKnownActiveTerminalCount = 1;
-
 function getAdaptiveStockPollDelayMs() {
     const manyTerminalsActive = lastKnownActiveTerminalCount > 1;
     const cartIsSmall = shoppingCart.length <= 10;
     return (manyTerminalsActive && cartIsSmall) ? 1000 : 5000;
 }
-
 function updateActiveTerminalCountFromResponse(response) {
     const header = response && response.headers && response.headers.get('X-Active-Terminals');
     const parsed = parseInt(header, 10);
@@ -8114,16 +6687,13 @@ function updateActiveTerminalCountFromResponse(response) {
         lastKnownActiveTerminalCount = parsed;
     }
 }
-
 let terminalStockPollTimer = null;
 let terminalStockPollActive = false;
-
 function startTerminalStockPolling() {
     stopTerminalStockPolling();
     terminalStockPollActive = true;
     scheduleTerminalStockPoll();
 }
-
 function scheduleTerminalStockPoll() {
     if (!terminalStockPollActive) return;
     terminalStockPollTimer = setTimeout(async () => {
@@ -8131,7 +6701,6 @@ function scheduleTerminalStockPoll() {
         scheduleTerminalStockPoll();
     }, getAdaptiveStockPollDelayMs());
 }
-
 function stopTerminalStockPolling() {
     terminalStockPollActive = false;
     if (terminalStockPollTimer) {
@@ -8139,14 +6708,10 @@ function stopTerminalStockPolling() {
         terminalStockPollTimer = null;
     }
 }
-
 async function silentRefreshTerminalStock() {
-
     const paymentModalEl = document.getElementById('payment-modal');
     if (paymentModalEl && paymentModalEl.style.display ==='flex') return;
-
     if (document.querySelector('.swal2-container')) return;
-
     try {
         const response = await authFetch(`${API_URL}/products`);
         if (!response.ok) return;
@@ -8154,7 +6719,6 @@ async function silentRefreshTerminalStock() {
         const freshProducts = await response.json();
         if (!Array.isArray(freshProducts)) return;
         globalProducts = freshProducts;
-
         try {
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
         } catch (cacheErr) {
@@ -8162,19 +6726,15 @@ async function silentRefreshTerminalStock() {
         }
         renderTerminalProducts();
     } catch (e) {
-
     }
 }
-
 let inventoryStockPollTimer = null;
 let inventoryStockPollActive = false;
-
 function startInventoryStockPolling() {
     stopInventoryStockPolling();
     inventoryStockPollActive = true;
     scheduleInventoryStockPoll();
 }
-
 function scheduleInventoryStockPoll() {
     if (!inventoryStockPollActive) return;
     inventoryStockPollTimer = setTimeout(async () => {
@@ -8182,7 +6742,6 @@ function scheduleInventoryStockPoll() {
         scheduleInventoryStockPoll();
     }, getAdaptiveStockPollDelayMs());
 }
-
 function stopInventoryStockPolling() {
     inventoryStockPollActive = false;
     if (inventoryStockPollTimer) {
@@ -8190,12 +6749,9 @@ function stopInventoryStockPolling() {
         inventoryStockPollTimer = null;
     }
 }
-
 async function silentRefreshInventoryStock() {
-
     const productModalEl = document.getElementById('product-modal');
     if (productModalEl && productModalEl.style.display ==='flex') return;
-
     try {
         const res = await authFetch(`${API_URL}/products`);
         if (!res.ok) return;
@@ -8205,19 +6761,15 @@ async function silentRefreshInventoryStock() {
         cachedInventoryProducts = freshProducts;
         renderInventoryProductsTable();
     } catch (e) {
-
     }
 }
-
 let reorderPollTimer = null;
 let reorderPollActive = false;
-
 function startReorderPolling() {
     stopReorderPolling();
     reorderPollActive = true;
     scheduleReorderPoll();
 }
-
 function scheduleReorderPoll() {
     if (!reorderPollActive) return;
     reorderPollTimer = setTimeout(async () => {
@@ -8225,7 +6777,6 @@ function scheduleReorderPoll() {
         scheduleReorderPoll();
     }, getAdaptiveStockPollDelayMs());
 }
-
 function stopReorderPolling() {
     reorderPollActive = false;
     if (reorderPollTimer) {
@@ -8233,11 +6784,8 @@ function stopReorderPolling() {
         reorderPollTimer = null;
     }
 }
-
 async function silentRefreshReorderView() {
-
     if (typeof Swal !=='undefined' && Swal.isVisible && Swal.isVisible()) return;
-
     try {
         const [lowStockRes, poRes] = await Promise.all([
             authFetch(`${API_URL}/products/low-stock`),
@@ -8252,10 +6800,8 @@ async function silentRefreshReorderView() {
         renderReorderTable();
         renderPurchaseOrdersTable();
     } catch (e) {
-
     }
 }
-
 function getCategoryIconClass(category) {
     const iconDictionary = {
 'Beverages':'fa-solid fa-wine-glass',
@@ -8266,78 +6812,53 @@ function getCategoryIconClass(category) {
     };
     return iconDictionary[category] ||'fa-solid fa-box';
 }
-
-// ---- Terminal search: distinguish external barcode scanner input from manual typing ----
-// Hardware scanners "type" each character extremely fast (usually <15ms apart) since
-// they're a keyboard-wedge device blasting the full code in one burst, then Enter.
-// A human typing on a keyboard is almost always slower than that between keystrokes.
-// We use this timing gap to detect a scan in progress and skip live filtering entirely
-// while it happens, so the product pane never flickers/filters mid-scan. Manual typing
-// (slower, natural pauses) still filters normally and instantly.
 let __termSearchLastKeyTime = 0;
 let __termSearchIsScan = false;
 let __termSearchResetId = null;
 let __termSearchDebounceId = null;
-const TERM_SEARCH_SCAN_GAP_MS = 45; // max ms between keystrokes to be considered "scanner speed"
-const TERM_SEARCH_FILTER_DELAY_MS = 40; // tiny grace delay so a scan's 1st char never flickers the grid
-
+const TERM_SEARCH_SCAN_GAP_MS = 45; 
+const TERM_SEARCH_FILTER_DELAY_MS = 40; 
 function onTerminalSearchKeydown(e) {
     const now = Date.now();
     const delta = now - __termSearchLastKeyTime;
     __termSearchLastKeyTime = now;
-
     if (e.key === 'Enter') {
-        // Enter is handled by the hardware-scanner listener (adds to cart / clears search).
-        // Reset scan-tracking state right away so the next input starts clean.
         __termSearchIsScan = false;
         if (__termSearchDebounceId) { clearTimeout(__termSearchDebounceId); __termSearchDebounceId = null; }
         return;
     }
-
     if (e.key.length === 1) {
         if (delta <= TERM_SEARCH_SCAN_GAP_MS) {
             __termSearchIsScan = true;
-            // A scan is confirmed in progress — cancel any pending manual-search filter render.
             if (__termSearchDebounceId) { clearTimeout(__termSearchDebounceId); __termSearchDebounceId = null; }
         } else {
             __termSearchIsScan = false;
         }
     }
-
     if (__termSearchResetId) clearTimeout(__termSearchResetId);
     __termSearchResetId = setTimeout(() => { __termSearchIsScan = false; }, 300);
 }
-
 function onTerminalSearchInput() {
     if (__termSearchIsScan) {
-        // Likely mid-scan: don't touch the product grid at all until we know otherwise.
         return;
     }
     if (__termSearchDebounceId) clearTimeout(__termSearchDebounceId);
     __termSearchDebounceId = setTimeout(() => {
-        // Re-check right before rendering in case the next keystroke just revealed a scan.
         if (!__termSearchIsScan) renderTerminalProducts();
     }, TERM_SEARCH_FILTER_DELAY_MS);
 }
-
 function renderTerminalProducts() {
-
     hideProductImagePeek();
-
     const searchBox = document.getElementById('terminal-search');
     const searchString = searchBox ? searchBox.value.toLowerCase() :'';
     const gridOutput = document.getElementById('terminal-grid-output');
     if (!gridOutput) return;
-
     if (!Array.isArray(globalProducts)) {
         console.warn('renderTerminalProducts: globalProducts is not an array, keeping last rendered list.', globalProducts);
         return;
     }
-
     try {
-
         const sanitizedProducts = globalProducts.filter(p => p && typeof p ==='object');
-
         const filtered = sanitizedProducts.filter(p => {
             const matchesCategory = (activeTerminalCategory ==='All' || p.category === activeTerminalCategory);
             const pName = (p.name ||'').toLowerCase();
@@ -8345,34 +6866,23 @@ function renderTerminalProducts() {
             const matchesQuery = (pName.includes(searchString) || pCode.includes(searchString));
             return matchesCategory && matchesQuery;
         });
-
         const fragment = document.createDocumentFragment();
-
         const isListView = gridOutput.classList.contains('terminal-list-view');
-
         filtered.forEach(p => {
             try {
-
                 const cartItem = shoppingCart.find(item => item.code === p.code);
                 const qtyInCart = cartItem ? cartItem.quantity : 0;
-
                 const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
-
                 const card = document.createElement('div');
-
                 card.className = `t-product-card ${availableStock <= 0 ?'out-of-stock' :''}`;
                 card.dataset.code = p.code || '';
-
                 let iconClass = getCategoryIconClass(p.category);
-
                 const cartBadgeHtml = qtyInCart > 0
                     ? `<div class="t-prod-cart-badge"><i class="fa-solid fa-cart-shopping"></i> x${qtyInCart}</div>`
                     : '';
-
                 const previewBtnHtml = !isListView
                     ? `<button type="button" class="t-prod-preview-btn" title="Preview details" aria-label="Preview details"><i class="fa-solid fa-eye"></i></button>`
                     : '';
-
                 card.innerHTML = `
                     ${cartBadgeHtml}
                     <div class="t-prod-icon"${isListView ? ' title="Tap image for details"' : ' title="Tap to add"'}>${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}${previewBtnHtml}</div>
@@ -8382,11 +6892,8 @@ function renderTerminalProducts() {
                 `;
                 card.onclick = () => addItemToCart(p);
                 attachInstantTapFeedback(card, { hapticMs: 12 });
-
                 const prodIconEl = card.querySelector('.t-prod-icon');
-
                 if (isListView) {
-                    // Product list: tapping the image itself opens the details/add-to-cart modal.
                     if (prodIconEl) {
                         prodIconEl.classList.add('t-prod-icon-clickable');
                         prodIconEl.addEventListener('click', (e) => {
@@ -8395,7 +6902,6 @@ function renderTerminalProducts() {
                         });
                     }
                 } else {
-                    // Product grid: a small eye icon on the image opens the details/add-to-cart modal.
                     const previewBtn = card.querySelector('.t-prod-preview-btn');
                     if (previewBtn) {
                         previewBtn.addEventListener('click', (e) => {
@@ -8404,51 +6910,35 @@ function renderTerminalProducts() {
                         });
                     }
                 }
-
                 fragment.appendChild(card);
             } catch (cardError) {
-
                 console.error("Skipped a product due to a card render error:", p, cardError);
             }
         });
-
         gridOutput.innerHTML ='';
         gridOutput.appendChild(fragment);
-
     } catch (renderError) {
         console.error("Failed to render Terminal product list:", renderError);
     }
 }
-
-// Lightweight update for a single product card (stock number + cart badge only),
-// used after single-item cart actions (tap to add, +/-, remove) so we don't have
-// to tear down and rebuild the entire visible product grid on every tap.
-// Returns true if it successfully patched the card in place; false means the
-// caller should fall back to the full renderTerminalProducts() render.
 function updateProductCardInPlace(code) {
     try {
         const gridOutput = document.getElementById('terminal-grid-output');
         if (!gridOutput || !code) return false;
-
         const card = gridOutput.querySelector(`.t-product-card[data-code="${CSS.escape(code)}"]`);
         if (!card) return false;
-
         const p = Array.isArray(globalProducts) ? globalProducts.find(prod => prod && prod.code === code) : null;
         if (!p) return false;
-
         const cartItem = shoppingCart.find(item => item.code === code);
         const qtyInCart = cartItem ? cartItem.quantity : 0;
         const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
-
         card.classList.toggle('out-of-stock', availableStock <= 0);
-
         const stockEl = card.querySelector('.t-prod-stock');
         if (stockEl) {
             stockEl.title = `Stock: ${availableStock}`;
             stockEl.setAttribute('aria-label', `Stock: ${availableStock}`);
             stockEl.innerHTML = `<i class="fa-solid fa-box" aria-hidden="true"></i> ${availableStock}`;
         }
-
         let badge = card.querySelector('.t-prod-cart-badge');
         if (qtyInCart > 0) {
             if (!badge) {
@@ -8460,14 +6950,12 @@ function updateProductCardInPlace(code) {
         } else if (badge) {
             badge.remove();
         }
-
         return true;
     } catch (patchError) {
         console.error("updateProductCardInPlace failed, falling back to full grid render:", patchError);
         return false;
     }
 }
-
 function filterTerminalCategory(cat) {
     activeTerminalCategory = cat;
     document.querySelectorAll('#category-chips .chip').forEach(c => {
@@ -8476,34 +6964,22 @@ function filterTerminalCategory(cat) {
     });
     renderTerminalProducts();
 }
-
 let productDetailsModalCode = null;
-
 let pdGalleryImages = [];
 let pdGalleryCurrentIndex = 0;
 let pdGalleryLastAlt = 'Product';
-// Icon class to show when a product has no photos at all — resolved once
-// from the product passed into renderProductDetailsGallery() so the
-// fallback render never needs to re-look-up the product from a cache
-// (renderPdMainPhoto() only ever hits the "no images" branch on that first
-// call — switching photos via thumbnails/swipe is gated behind the gallery
-// already having 2+ images, so this fallback is otherwise unreachable).
 let pdGalleryFallbackIconClass = 'fa-solid fa-box';
-
 function renderProductDetailsGallery(p) {
     const thumbsContainer = document.getElementById('pd-gallery-thumbs');
     const photoBox = document.getElementById('pd-photo-box');
     if (!photoBox) return;
-
     pdGalleryFallbackIconClass = getCategoryIconClass(p.category);
     const mainImage = p.image ||'';
     const gallery = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
     pdGalleryImages = mainImage ? [mainImage, ...gallery] : gallery;
     pdGalleryCurrentIndex = 0;
     pdGalleryLastAlt = (p.name ||'Product').replace(/"/g,'&quot;');
-
     renderPdMainPhoto();
-
     if (!thumbsContainer) return;
     if (pdGalleryImages.length > 1) {
         thumbsContainer.style.display ='flex';
@@ -8516,34 +6992,26 @@ function renderProductDetailsGallery(p) {
         thumbsContainer.style.display ='none';
         thumbsContainer.innerHTML ='';
     }
-
     bindPdGallerySwipe();
 }
-
-// Shared renderer for the main (large) photo, used both on initial open and
-// when switching photos, so the counter pill ("2/4") always stays in sync.
 function renderPdMainPhoto() {
     const photoBox = document.getElementById('pd-photo-box');
     const prevBtn = document.getElementById('pd-photo-prev-btn');
     const nextBtn = document.getElementById('pd-photo-next-btn');
     if (!photoBox) return;
-
     const hasMultiple = pdGalleryImages.length > 1;
     if (prevBtn) prevBtn.style.display = hasMultiple ? 'flex' : 'none';
     if (nextBtn) nextBtn.style.display = hasMultiple ? 'flex' : 'none';
-
     if (!pdGalleryImages.length) {
         photoBox.innerHTML = `<i class="${pdGalleryFallbackIconClass}"></i>`;
         return;
     }
-
     const src = pdGalleryImages[pdGalleryCurrentIndex];
     const counterHtml = pdGalleryImages.length > 1
         ? `<span class="pd-gallery-counter">${pdGalleryCurrentIndex + 1}/${pdGalleryImages.length}</span>`
         : '';
     photoBox.innerHTML = `<img src="${src}" alt="${pdGalleryLastAlt}">${counterHtml}`;
 }
-
 function switchProductDetailsPhoto(idx) {
     if (idx < 0) idx = pdGalleryImages.length - 1;
     if (idx >= pdGalleryImages.length) idx = 0;
@@ -8553,39 +7021,26 @@ function switchProductDetailsPhoto(idx) {
     const activeThumb = document.querySelector('#pd-gallery-thumbs .pd-gallery-thumb-item.active-thumb');
     if (activeThumb) activeThumb.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'nearest' });
 }
-
-// Lazada/Shopee-style swipe: swipe left/right on the main photo to move
-// through the gallery. Bound once per element (guarded by a dataset flag) so
-// re-opening the modal for different products doesn't stack duplicate
-// listeners on the same #pd-photo-box element.
 function bindPdGallerySwipe() {
     const photoBox = document.getElementById('pd-photo-box');
     if (!photoBox || photoBox.dataset.swipeBound ==='true') return;
     photoBox.dataset.swipeBound ='true';
-
     let touchStartX = 0;
     let touchStartY = 0;
-
     photoBox.addEventListener('touchstart', (e) => {
         if (pdGalleryImages.length < 2) return;
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
     }, { passive: true });
-
     photoBox.addEventListener('touchend', (e) => {
         if (pdGalleryImages.length < 2) return;
         const dx = e.changedTouches[0].clientX - touchStartX;
         const dy = e.changedTouches[0].clientY - touchStartY;
-        // Ignore mostly-vertical drags (scrolling) and small accidental taps.
         if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
         if (dx < 0) switchProductDetailsPhoto(pdGalleryCurrentIndex + 1);
         else switchProductDetailsPhoto(pdGalleryCurrentIndex - 1);
     }, { passive: true });
 }
-
-// Very small, safe formatter: preserves plain paragraphs, and turns lines
-// that start with "-" or "•" into a bullet list. Not full markdown — just
-// enough so specs/descriptions read cleanly without needing a library.
 function formatProductDescriptionHtml(text) {
     const lines = (text ||'').split(/\r?\n/);
     let html ='';
@@ -8603,7 +7058,6 @@ function formatProductDescriptionHtml(text) {
     if (inList) html +='</ul>';
     return html;
 }
-
 function togglePdDescription() {
     const descEl = document.getElementById('pd-description');
     const btn = document.getElementById('pd-description-toggle');
@@ -8619,38 +7073,22 @@ function togglePdDescription() {
         btn.dataset.expanded ='true';
     }
 }
-
 function showProductDetails(code, context ='pos') {
-    // Look up whichever cache was refreshed most recently for this context.
-    // `cachedInventoryProducts` is re-fetched every time the Inventory/Products
-    // table reloads (including right after Save Product), while `globalProducts`
-    // is the POS Terminal's own catalog copy and is only refreshed on its own
-    // schedule. Previously this always checked `globalProducts` first — so if
-    // the Terminal tab had ever loaded products in this session, viewing a
-    // product's details from Inventory right after editing its photos would
-    // silently show the OLD (pre-edit) data until a hard refresh cleared
-    // `globalProducts` out of memory. Picking the source that matches the
-    // calling context fixes that without needing a page reload.
     const p = context ==='inventory'
         ? (cachedInventoryProducts.find(prod => prod.code === code) || globalProducts.find(prod => prod.code === code))
         : (globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code));
     if (!p) return;
-
     productDetailsModalCode = code;
-
     const cartItem = shoppingCart.find(item => item.code === p.code);
     const qtyInCart = cartItem ? cartItem.quantity : 0;
     const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
-
     renderProductDetailsGallery(p);
-
     document.getElementById('pd-modal-title').innerText = p.name ||'Unnamed Product';
     document.getElementById('pd-code').innerText = p.code;
     document.getElementById('pd-category').innerText = p.category ||'—';
     document.getElementById('pd-price').innerText = `₱${(parseFloat(p.price) || 0).toFixed(2)}`;
     document.getElementById('pd-stock-label').innerText = (context ==='inventory') ?'Current Stock' :'Available Stock';
     document.getElementById('pd-stock').innerText = (context ==='inventory') ? (parseFloat(p.stock) || 0) : availableStock;
-
     const supplierRow = document.getElementById('pd-supplier-row');
     if (p.supplier) {
         document.getElementById('pd-supplier').innerText = p.supplier;
@@ -8658,7 +7096,6 @@ function showProductDetails(code, context ='pos') {
     } else {
         supplierRow.style.display ='none';
     }
-
     const expiryRow = document.getElementById('pd-expiry-row');
     if (p.expiryDate) {
         document.getElementById('pd-expiry').innerText = p.expiryDate;
@@ -8666,14 +7103,12 @@ function showProductDetails(code, context ='pos') {
     } else {
         expiryRow.style.display ='none';
     }
-
     const descriptionRow = document.getElementById('pd-description-row');
     const descToggleBtn = document.getElementById('pd-description-toggle');
     if (p.description && p.description.trim()) {
         const descEl = document.getElementById('pd-description');
         descEl.innerHTML = formatProductDescriptionHtml(p.description);
         descriptionRow.style.display ='flex';
-
         if (p.description.trim().length > 150) {
             descEl.classList.add('pd-desc-clamped');
             descToggleBtn.style.display ='inline-flex';
@@ -8687,7 +7122,6 @@ function showProductDetails(code, context ='pos') {
         descriptionRow.style.display ='none';
         descToggleBtn.style.display ='none';
     }
-
     const specsRow = document.getElementById('pd-specs-row');
     const specsList = document.getElementById('pd-specs-list');
     const specsEntries = Array.isArray(p.specs) ? p.specs.filter(s => s && ((s.key && s.key.trim()) || (s.value && s.value.trim()))) : [];
@@ -8702,7 +7136,6 @@ function showProductDetails(code, context ='pos') {
     } else {
         specsRow.style.display ='none';
     }
-
     const addBtn = document.getElementById('pd-add-to-cart-btn');
     if (addBtn) {
         if (context ==='inventory') {
@@ -8719,11 +7152,9 @@ function showProductDetails(code, context ='pos') {
             addBtn.onclick = addProductFromDetailsModal;
         }
     }
-
     document.getElementById('product-details-modal').classList.toggle('terminal-origin', context ==='pos');
     document.getElementById('product-details-modal').style.display ='flex';
 }
-
 function addProductFromDetailsModal() {
     if (!productDetailsModalCode) return;
     const p = globalProducts.find(prod => prod.code === productDetailsModalCode);
@@ -8732,17 +7163,14 @@ function addProductFromDetailsModal() {
         closeModal('product-details-modal');
     }
 }
-
 function editProductFromDetailsModal() {
     if (!productDetailsModalCode) return;
     const code = productDetailsModalCode;
     closeModal('product-details-modal');
     openProductModal('UPDATE', code);
 }
-
 function addItemToCart(product) {
     if(product.stock <= 0) return false;
-
     const existing = shoppingCart.find(item => item.code === product.code);
     if(existing) {
         if(existing.quantity < product.stock) {
@@ -8757,17 +7185,13 @@ function addItemToCart(product) {
     renderCartRows(product.code);
     return true;
 }
-
 async function adjustCartQty(code, adjustment) {
     const item = shoppingCart.find(i => i.code === code);
     if (!item) return;
-
     const newQuantity = item.quantity + adjustment;
-
     if (newQuantity <= 0) {
         const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
         let authMethod ="";
-
         if (!isAdmin) {
             const { value: adminPassword } = await Swal.fire({
                 title:'🔒 Supervisor Override Requested',
@@ -8778,33 +7202,27 @@ async function adjustCartQty(code, adjustment) {
                 confirmButtonColor:'#2563eb',
                 cancelButtonColor:'#ef4444'
             });
-
             if (!adminPassword || adminPassword.trim() ==="") {
                 Swal.fire('Cancelled','Operation Cancelled: Item quantity reduction aborted.','info');
                 return;
             }
-
             try {
                 const response = await authFetch(`${API_URL}/auth/verify-void`, {
                     method:'POST',
                     headers: {'Content-Type':'application/json' },
                     body: JSON.stringify({ adminPassword: adminPassword, purpose:'void' })
                 });
-
                 const data = await response.json();
-
                 if (!data.success) {
                     Swal.fire('Authorization Rejected', data.message,'error');
                     return;
                 }
-
                 authMethod ="PASSWORD_VERIFIED";
             } catch (error) {
                 console.error(error);
                 Swal.fire('Pipeline Connection Error','Failed to complete secure supervisor authorization procedures.','error');
                 return;
             }
-
         } else {
             const result = await Swal.fire({
                 title:'⚠️ Administrative Deletion',
@@ -8818,7 +7236,6 @@ async function adjustCartQty(code, adjustment) {
             if (!result.isConfirmed) return;
             authMethod ="ADMIN_BYPASS";
         }
-
         try {
             await authFetch(`${API_URL}/logs`, {
                 method:'POST',
@@ -8841,13 +7258,11 @@ async function adjustCartQty(code, adjustment) {
         } catch (logError) {
             console.error(logError);
         }
-
         shoppingCart = shoppingCart.filter(i => i.code !== code);
         renderCartRows(code);
         Swal.fire('Success', `Item asset [ ${item.name} ] extracted from memory array lines successfully.`,'success');
         return;
     }
-
     const origin = globalProducts.find(p => p.code === code);
     if (origin && newQuantity > origin.stock) {
         Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
@@ -8855,37 +7270,28 @@ async function adjustCartQty(code, adjustment) {
     } else {
         item.quantity = newQuantity;
     }
-
     renderCartRows(code);
 }
-
 async function setCartQty(code, rawValue) {
     const item = shoppingCart.find(i => i.code === code);
     if (!item) return;
-
     const newQuantity = parseInt(rawValue, 10);
-
     if (isNaN(newQuantity) || newQuantity < 0) {
         renderCartRows(code);
         return;
     }
-
     const adjustment = newQuantity - item.quantity;
     if (adjustment === 0) {
         renderCartRows(code);
         return;
     }
-
     await adjustCartQty(code, adjustment);
 }
-
 async function removeCartItem(code) {
     const targetItem = shoppingCart.find(i => i.code === code);
     if (!targetItem) return;
-
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
     let authMethod ="";
-
     if (!isAdmin) {
         const { value: adminPassword } = await Swal.fire({
             title:'🔒 Supervisor Override Requested',
@@ -8896,33 +7302,27 @@ async function removeCartItem(code) {
             confirmButtonColor:'#2563eb',
             cancelButtonColor:'#ef4444'
         });
-
         if (!adminPassword || adminPassword.trim() ==="") {
             Swal.fire('Cancelled','Operation Cancelled: Line item void procedures aborted.','info');
             return;
         }
-
         try {
             const response = await authFetch(`${API_URL}/auth/verify-void`, {
                 method:'POST',
                 headers: {'Content-Type':'application/json' },
                 body: JSON.stringify({ adminPassword: adminPassword, purpose:'void' })
             });
-
             const data = await response.json();
-
             if (!data.success) {
                 Swal.fire('Authorization Rejected', data.message,'error');
                 return;
             }
-
             authMethod ="PASSWORD_VERIFIED";
         } catch (error) {
             console.error(error);
             Swal.fire('Pipeline Error','Failed to complete secure supervisor authorization tracking procedures.','error');
             return;
         }
-
     } else {
         const result = await Swal.fire({
             title:'⚠️ Administrative Deletion',
@@ -8936,7 +7336,6 @@ async function removeCartItem(code) {
         if (!result.isConfirmed) return;
         authMethod ="ADMIN_BYPASS";
     }
-
     try {
         await authFetch(`${API_URL}/logs`, {
             method:'POST',
@@ -8959,22 +7358,18 @@ async function removeCartItem(code) {
     } catch (logError) {
         console.error(logError);
     }
-
     shoppingCart = shoppingCart.filter(i => i.code !== code);
     renderCartRows(code);
     Swal.fire('Voided', `Item asset identifier profile [ ${targetItem.name} ] voided and extracted successfully.`,'success');
 }
-
 async function handleClearCart() {
     if (shoppingCart.length === 0) {
         Swal.fire('Empty Cart','Operation Aborted: The shopping cart is completely empty.','warning');
         return;
     }
-
     const itemsCount = shoppingCart.length;
     const totalAmount = shoppingCart.reduce((total, item) => total + ((item.price || 0) * (item.quantity || 1)), 0);
     const username = currentUser ? (currentUser.username || currentUser.name) :"Unknown User";
-
     const sendVoidLog = async (authMethod) => {
         try {
             await authFetch(`${API_URL}/logs`, {
@@ -8991,7 +7386,6 @@ async function handleClearCart() {
             console.error(logError);
         }
     };
-
     if (currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin') {
         await sendVoidLog("ADMIN_BYPASS");
         shoppingCart = [];
@@ -8999,7 +7393,6 @@ async function handleClearCart() {
         Swal.fire('Cleared','Administrative Clearance: Transaction basket architecture cleared and recorded successfully.','success');
         return;
     }
-
     const { value: adminPassword } = await Swal.fire({
         title:'⚠️ Transaction Void Command Request',
         html:'Admin or authorized Supervisor/Manager password is required for this:',
@@ -9009,21 +7402,17 @@ async function handleClearCart() {
         confirmButtonColor:'#2563eb',
         cancelButtonColor:'#ef4444'
     });
-
     if (!adminPassword || adminPassword.trim() ==="") {
         Swal.fire('Aborted','Request Aborted: Master basket void process canceled. Missing credentials.','info');
         return;
     }
-
     try {
         const response = await authFetch(`${API_URL}/auth/verify-void`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ adminPassword: adminPassword, purpose:'void' })
         });
-
         const data = await response.json();
-
         if (response.ok && data.success) {
             await sendVoidLog("PASSWORD_VERIFIED");
             shoppingCart = [];
@@ -9037,22 +7426,17 @@ async function handleClearCart() {
         Swal.fire('Pipeline Error','Unable to contact remote host engine. Administrative token validation cannot proceed.','error');
     }
 }
-
 function clearCart() {
     shoppingCart = [];
     renderCartRows();
 }
-
 function renderCartRows(changedProductCode) {
-
     try {
         const container = document.getElementById('cart-items-container');
         if (!container) return;
         if (shoppingCart.length === 0) resetCartDiscountAndCustomerState();
         container.innerHTML ='';
-
         saveCartToDatabase();
-
         let totalItems = 0;
         shoppingCart.forEach(item => {
             try {
@@ -9100,37 +7484,26 @@ function renderCartRows(changedProductCode) {
                 `;
                 container.appendChild(row);
             } catch (rowError) {
-
                 console.error("Skipped a cart row due to an error:", item, rowError);
             }
         });
-
         if (shoppingCart.length === 0) {
             container.innerHTML = '<div class="cart-empty-state"><i class="fa-solid fa-cart-shopping"></i><span>Cart is Empty</span></div>';
         }
-
         const cartBadge = document.getElementById('cart-badge');
         if (cartBadge) cartBadge.innerText = totalItems;
         updateCartTotals();
     } catch (cartRenderError) {
         console.error("Failed to render cart rows:", cartRenderError);
     } finally {
-
-        // Single-item cart action (add/adjust/remove one product): patch just
-        // that product's card instead of rebuilding the whole visible grid.
-        // Falls back to a full re-render if the card can't be found/patched,
-        // or if the caller didn't specify a single changed product (bulk
-        // actions like clear cart, checkout, or loading a saved cart).
         const patched = changedProductCode && typeof updateProductCardInPlace ==='function'
             ? updateProductCardInPlace(changedProductCode)
             : false;
-
         if (!patched && typeof renderTerminalProducts ==='function') {
             renderTerminalProducts();
         }
     }
 }
-
 function setCartItemDiscount(code, rawValue) {
     const item = shoppingCart.find(i => i.code === code);
     if (!item) return;
@@ -9141,22 +7514,18 @@ function setCartItemDiscount(code, rawValue) {
     item.itemDiscount = val;
     updateCartTotals();
 }
-
 function getCartNetSubtotal() {
     return shoppingCart.reduce((sum, item) => {
         const lineDiscount = Math.max(0, parseFloat(item.itemDiscount) || 0);
         return sum + Math.max(0, (item.price * item.quantity) - lineDiscount);
     }, 0);
 }
-
 function recalculateActiveDiscount() {
     const discountInput = document.getElementById('cart-discount-input');
     if (!discountInput) return;
-
     if (cartDiscountType === 'SENIOR_PWD') {
         const subtotal = getCartNetSubtotal();
         if (subtotal <= 0) {
-
             const checkbox = document.getElementById('cart-senior-pwd-toggle');
             if (checkbox) checkbox.checked = false;
             cartDiscountType = 'NONE';
@@ -9168,11 +7537,9 @@ function recalculateActiveDiscount() {
         const seniorPwdRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate))
             ? storeSettingsCache.seniorPwdDiscountRate : 20;
         discountInput.value = (subtotal * (seniorPwdRatePct / 100)).toFixed(2);
-
     } else if (cartDiscountType === 'PROMO' && cartActivePromo) {
         const subtotal = getCartNetSubtotal();
         if (cartActivePromo.minSpend && subtotal < cartActivePromo.minSpend) {
-
             const minSpendForMessage = cartActivePromo.minSpend;
             cartDiscountType = 'NONE';
             cartPromoCode = '';
@@ -9196,24 +7563,17 @@ function recalculateActiveDiscount() {
         discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
         discountInput.value = discountAmount.toFixed(2);
     }
-
 }
-
 function updateCartTotals() {
-
     recalculateActiveDiscount();
-
     const discountInput = document.getElementById('cart-discount-input');
     const subtotalEl = document.getElementById('summary-subtotal');
     const totalEl = document.getElementById('summary-total');
-
     let subtotal = getCartNetSubtotal();
     let discount = parseFloat(discountInput ? discountInput.value : 0) || 0;
     let total = Math.max(0, subtotal - discount);
-
     if (subtotalEl) subtotalEl.innerText = `₱${subtotal.toFixed(2)}`;
     if (totalEl) totalEl.innerText = `₱${total.toFixed(2)}`;
-
     broadcastCustomerDisplay('cart', {
         items: shoppingCart.map(i => ({ code: i.code, name: i.name, quantity: i.quantity, price: i.price, itemDiscount: i.itemDiscount || 0 })),
         subtotal,
@@ -9221,7 +7581,6 @@ function updateCartTotals() {
         total
     });
 }
-
 let customerDisplayChannel = null;
 function broadcastCustomerDisplay(type, payload) {
     if (!advancedSettingsCache || !advancedSettingsCache.customerDisplayEnabled) return;
@@ -9239,9 +7598,7 @@ function broadcastCustomerDisplay(type, payload) {
         });
     } catch (e) {  }
 }
-
 async function openCustomerDisplay() {
-
     try {
         if (typeof window.getScreenDetails === 'function') {
             const details = await window.getScreenDetails();
@@ -9256,11 +7613,9 @@ async function openCustomerDisplay() {
             }
         }
     } catch (e) {
-
     }
     window.open('customer-display.html', 'omniposCustomerDisplay');
 }
-
 function handleManualDiscountInput() {
     cartDiscountType ='MANUAL';
     cartPromoCode ='';
@@ -9273,16 +7628,13 @@ function handleManualDiscountInput() {
     if (loyaltyInput) loyaltyInput.value ='';
     updateCartTotals();
 }
-
 function toggleSeniorPwdDiscount() {
     const checkbox = document.getElementById('cart-senior-pwd-toggle');
     const discountInput = document.getElementById('cart-discount-input');
     if (!checkbox || !discountInput) return;
-
     const seniorPwdEnabled = !storeSettingsCache || storeSettingsCache.seniorPwdDiscountEnabled !== false;
     const seniorPwdRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate))
         ? storeSettingsCache.seniorPwdDiscountRate : 20;
-
     if (checkbox.checked) {
         if (!seniorPwdEnabled) {
             Swal.fire('Disabled', 'Senior/PWD Discount is disabled in Store & Sales Settings.', 'warning');
@@ -9328,14 +7680,12 @@ function toggleSeniorPwdDiscount() {
         updateCartTotals();
     }
 }
-
 async function applyPromoCodeToCart() {
     if (guardPremiumFeature('promo_codes')) return;
     const codeInput = document.getElementById('cart-promo-input');
     const discountInput = document.getElementById('cart-discount-input');
     const code = (codeInput ? codeInput.value :'').trim().toUpperCase();
     if (!code) return;
-
     let subtotal = getCartNetSubtotal();
     if (subtotal <= 0) {
         Swal.fire('Empty Cart','Add an item to the cart first before applying a promo code.','warning');
@@ -9366,7 +7716,6 @@ async function applyPromoCodeToCart() {
         Swal.fire('Connection Error','Could not connect to the server to validate the promo code.','error');
     }
 }
-
 async function openCustomerPickerForCart() {
     if (guardPremiumFeature('customer_crm')) return;
     let customers = [];
@@ -9384,13 +7733,11 @@ async function openCustomerPickerForCart() {
         return;
     }
     window.__swalCustomers = customers;
-
     const buildRowsHtml = (list) => (list.map(c =>
         `<div class="cust-pick-row" data-id="${escapeHtml(c.id)}" style="padding:10px;border-bottom:1px solid #eee;cursor:pointer;text-align:left;">
             <strong>${escapeHtml(c.name)}</strong><br><small>${escapeHtml(c.phone ||'no phone')} · ${c.points || 0} pts</small>
         </div>`
     ).join('')) ||'<p style="padding:10px;color:#94a3b8;">No customers yet. Add one first on the Customers page.</p>';
-
     const attachRowClicks = (list) => {
         document.querySelectorAll('.cust-pick-row').forEach(row => {
             row.addEventListener('click', () => {
@@ -9404,7 +7751,6 @@ async function openCustomerPickerForCart() {
             });
         });
     };
-
     window.__filterSwalCustomerList = (q) => {
         q = (q ||'').toLowerCase();
         const list = (window.__swalCustomers || []).filter(c => (c.name ||'').toLowerCase().includes(q) || (c.phone ||'').includes(q));
@@ -9412,7 +7758,6 @@ async function openCustomerPickerForCart() {
         if (container) container.innerHTML = buildRowsHtml(list);
         attachRowClicks(list);
     };
-
     const pickerResult = await Swal.fire({
         title:'Select Customer',
         html: `
@@ -9424,13 +7769,11 @@ async function openCustomerPickerForCart() {
         cancelButtonText:'Walk-in (No Customer)',
         didOpen: () => attachRowClicks(customers)
     });
-
     if (pickerResult.dismiss === Swal.DismissReason.cancel) {
         selectedCartCustomer = null;
         const btn = document.getElementById('cart-customer-btn');
         if (btn) btn.innerHTML ='Walk-in <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i>';
     }
-
     if (cartDiscountType ==='LOYALTY') {
         cartDiscountType ='NONE';
         cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
@@ -9439,10 +7782,8 @@ async function openCustomerPickerForCart() {
         updateCartTotals();
     }
     updateLoyaltyRowForCustomer();
-
     if (!selectedCartCustomer) return;
 }
-
 function updateLoyaltyRowForCustomer() {
     const row = document.getElementById('cart-loyalty-row');
     const avail = document.getElementById('cart-loyalty-available');
@@ -9459,21 +7800,18 @@ function updateLoyaltyRowForCustomer() {
     if (input) input.value ='';
     if (badge) badge.style.display = cartLoyaltyCardToken ?'' :'none';
 }
-
 function openLoyaltyCardScanner() {
     if (guardPremiumFeature('customer_crm')) return;
     scannerTarget ='LOYALTY_CARD';
     document.getElementById('qr-scanner-modal').style.display ='flex';
     updateScannerUIControls();
     startLiveScanner();
-
     window.onQRScanSuccess = function (scannedCode) {
         closeQRScanner();
         window.onQRScanSuccess = null;
         handleLoyaltyCardScanResult(scannedCode.trim());
     };
 }
-
 async function handleLoyaltyCardScanResult(token) {
     if (!token || !token.startsWith('LC1.')) {
         Swal.fire('Not a Loyalty Card/QR', 'The scanned code is not a valid customer Loyalty Card/QR.', 'warning');
@@ -9491,13 +7829,11 @@ async function handleLoyaltyCardScanResult(token) {
             return;
         }
         if (typeof playScanBeep ==='function') playScanBeep();
-
         selectedCartCustomer = data.customer;
         cartLoyaltyCardToken = token;
         const btn = document.getElementById('cart-customer-btn');
         if (btn) btn.innerHTML = `${escapeHtml(data.customer.name)} <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i>`;
         updateLoyaltyRowForCustomer();
-
         const subtotal = getCartNetSubtotal();
         const available = data.customer.points || 0;
         if (available > 0 && subtotal > 0) {
@@ -9511,7 +7847,6 @@ async function handleLoyaltyCardScanResult(token) {
         Swal.fire('Connection Error','Unable to verify the Loyalty Card/QR right now.','error');
     }
 }
-
 function applyLoyaltyPointsFromScan() {
     const preservedToken = cartLoyaltyCardToken;
     applyLoyaltyPointsToCart();
@@ -9519,7 +7854,6 @@ function applyLoyaltyPointsFromScan() {
     const badge = document.getElementById('cart-loyalty-card-badge');
     if (badge) badge.style.display = cartLoyaltyCardToken ?'' :'none';
 }
-
 function applyLoyaltyPointsToCart() {
     if (guardPremiumFeature('customer_crm')) return;
     if (!selectedCartCustomer) {
@@ -9530,51 +7864,41 @@ function applyLoyaltyPointsToCart() {
     const discountInput = document.getElementById('cart-discount-input');
     let pts = parseInt(input ? input.value : 0) || 0;
     const available = selectedCartCustomer.points || 0;
-
     if (pts <= 0) {
         Swal.fire('Invalid Amount','Maglagay ng bilang ng points na gagamitin.','warning');
         return;
     }
     if (pts > available) pts = available;
-
     const subtotal = getCartNetSubtotal();
     if (subtotal <= 0) {
         Swal.fire('Empty Cart','Add an item to the cart first.','warning');
         return;
     }
-
     const pointValue = (storeSettingsCache && Number.isFinite(storeSettingsCache.loyaltyPointValue))
         ? storeSettingsCache.loyaltyPointValue : 1;
     let discountAmount = Math.min(pts * pointValue, subtotal);
-
     pts = pointValue > 0 ? Math.floor(discountAmount / pointValue) : 0;
     discountAmount = Math.round(pts * pointValue * 100) / 100;
-
     if (pts <= 0) {
         Swal.fire('Invalid Amount', 'Not enough points to apply a discount.', 'warning');
         return;
     }
-
     const checkbox = document.getElementById('cart-senior-pwd-toggle');
     if (checkbox) checkbox.checked = false;
     const promoInput = document.getElementById('cart-promo-input');
     if (promoInput) promoInput.value ='';
-
     cartDiscountType ='LOYALTY';
     cartLoyaltyPointsRedeemed = pts;
-
     cartLoyaltyCardToken ='';
     cartPromoCode ='';
     cartActivePromo = null;
     cartSeniorPwdId ='';
-
     discountInput.value = discountAmount.toFixed(2);
     discountInput.setAttribute('readonly', true);
     if (input) input.value = pts;
     updateCartTotals();
     Swal.fire({ icon:'success', title:'Points Redeemed!', text: `${pts} pts: -₱${discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
 }
-
 function resetCartDiscountAndCustomerState() {
     cartDiscountType ='NONE';
     cartPromoCode ='';
@@ -9583,7 +7907,6 @@ function resetCartDiscountAndCustomerState() {
     cartLoyaltyPointsRedeemed = 0;
     cartLoyaltyCardToken ='';
     selectedCartCustomer = null;
-
     const discountInput = document.getElementById('cart-discount-input');
     if (discountInput) { discountInput.value = 0; discountInput.removeAttribute('readonly'); }
     const promoInput = document.getElementById('cart-promo-input');
@@ -9599,69 +7922,52 @@ function resetCartDiscountAndCustomerState() {
     const loyaltyBadge = document.getElementById('cart-loyalty-card-badge');
     if (loyaltyBadge) loyaltyBadge.style.display ='none';
 }
-
 function closeModal(modalId) {
     document.getElementById(modalId).style.display ='none';
-
     if (modalId ==='receipt-modal') document.body.classList.remove('print-target-receipt');
     if (modalId ==='barcode-preview-modal') document.body.classList.remove('print-target-barcode');
 }
-
 function cancelPaymentModal() {
     closeModal('payment-modal');
     pendingCreditDebtDraft = null;
     if (typeof updateCartTotals ==='function') updateCartTotals();
 }
-
 function selectPaymentMethod(method) {
     selectedPaymentMethod = method;
     const allMethodBtns = { CASH:'pay-method-cash', GCASH:'pay-method-gcash', MAYA:'pay-method-maya', CARD:'pay-method-card', CCREDIT:'pay-method-ccredit' };
     const cashInput = document.getElementById('pay-modal-received-input');
-
     Object.entries(allMethodBtns).forEach(([key, elId]) => {
         const btn = document.getElementById(elId);
         if (!btn) return;
         btn.classList.toggle('active', key === method);
     });
-
     if (method ==='CASH') {
         cashInput.removeAttribute('disabled');
         cashInput.value ='';
         document.getElementById('pay-modal-change-output').innerText ='₱0.00';
     } else {
-
         let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱',''));
         cashInput.value = dueAmount;
         cashInput.setAttribute('disabled', true);
         calculatePaymentChange();
     }
-
     updateEwalletQrBlockVisibility(method);
-
     if (method ==='CCREDIT') {
         promptCreditDebtDraft();
     } else {
         pendingCreditDebtDraft = null;
     }
 }
-
-// Called when the cashier selects "C-Credit" (Customer Credit / utang) as the
-// payment method. Opens the same-style "Add Debt" form used on the Debtors
-// page — pre-filled from the customer already selected in the Customer pane
-// (if any), leaving only Note and Due Date for the cashier to fill in. If a
-// walk-in (no customer selected), the Name/Phone fields are left blank/editable.
 async function promptCreditDebtDraft() {
     if (guardPremiumFeature('customer_crm')) {
         selectPaymentMethod('CASH');
         return;
     }
-
     let dueAmount = parseFloat((document.getElementById('pay-modal-amount-due') || {}).innerText?.replace('₱','')) || 0;
     const cust = selectedCartCustomer;
     const nameVal = cust ? (cust.name ||'') :'';
     const phoneVal = cust ? (cust.phone ||'') :'';
     const nameLocked = !!(cust && cust.name);
-
     const { value: formValues } = await Swal.fire({
         title:'Add Debt (Customer Credit)',
         html: `
@@ -9692,40 +7998,29 @@ async function promptCreditDebtDraft() {
             };
         }
     });
-
     if (!formValues) {
-        // Cashier backed out of providing debt info — fall back to Cash so the
-        // payment modal isn't left in a half-configured C-Credit state.
         selectPaymentMethod('CASH');
         return;
     }
-
     pendingCreditDebtDraft = formValues;
 }
-
 function updateEwalletQrBlockVisibility(method) {
     const block = document.getElementById('pay-ewallet-qr-block');
     if (!block) return;
-
     const isEwallet = method ==='GCASH' || method ==='MAYA';
     block.style.display = isEwallet ?'block' :'none';
     if (!isEwallet) {
-
         if (typeof updateCartTotals ==='function') updateCartTotals();
         return;
     }
-
     const imgWrap = document.getElementById('pay-ewallet-qr-img-wrap');
     const missingEl = document.getElementById('pay-ewallet-qr-missing');
     const imgEl = document.getElementById('pay-ewallet-qr-img');
     const labelEl = document.getElementById('pay-ewallet-qr-label');
-
     const qrImage = method ==='GCASH'
         ? (storeSettingsCache && storeSettingsCache.gcashQrImage)
         : (storeSettingsCache && storeSettingsCache.mayaQrImage);
-
     if (labelEl) labelEl.innerText = method ==='GCASH' ?'GCash' :'Maya';
-
     if (qrImage) {
         if (imgEl) imgEl.src = qrImage;
         if (imgWrap) imgWrap.style.display ='block';
@@ -9734,19 +8029,15 @@ function updateEwalletQrBlockVisibility(method) {
         if (imgWrap) imgWrap.style.display ='none';
         if (missingEl) missingEl.style.display ='block';
     }
-
     let dueAmount = parseFloat((document.getElementById('pay-modal-amount-due') || {}).innerText?.replace('₱','')) || 0;
     broadcastCustomerDisplay('ewallet', { method, qrImage: qrImage || null, amount: dueAmount });
 }
-
 function calculatePaymentChange() {
     let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱',''));
     let received = parseFloat(document.getElementById('pay-modal-received-input').value) || 0;
     let change = Math.max(0, received - dueAmount);
-
     document.getElementById('pay-modal-change-output').innerText = `₱${change.toFixed(2)}`;
 }
-
 function appendQuickCashDenomination(val) {
     if(selectedPaymentMethod !=='CASH') return;
     let inputField = document.getElementById('pay-modal-received-input');
@@ -9754,58 +8045,48 @@ function appendQuickCashDenomination(val) {
     inputField.value = current + val;
     calculatePaymentChange();
 }
-
 function toggleSplitPaymentMode() {
     const checkbox = document.getElementById('pay-split-toggle');
     splitPaymentMode = !!(checkbox && checkbox.checked);
-
     const singleBlock = document.getElementById('single-payment-mode-block');
     const splitBlock = document.getElementById('split-payment-lines-container');
     if (singleBlock) singleBlock.style.display = splitPaymentMode ?'none' :'';
     if (splitBlock) splitBlock.style.display = splitPaymentMode ?'' :'none';
-
     if (splitPaymentMode && splitPaymentLines.length === 0) {
         addSplitPaymentLine();
     }
     renderSplitPaymentLines();
-
     if (splitPaymentMode) {
         syncSplitPaymentEwalletDisplay();
     } else if (typeof updateEwalletQrBlockVisibility ==='function') {
         updateEwalletQrBlockVisibility(selectedPaymentMethod);
     }
 }
-
 function addSplitPaymentLine() {
     splitPaymentLines.push({ method:'CASH', amount: 0, reference:'' });
     renderSplitPaymentLines();
 }
-
 function removeSplitPaymentLine(idx) {
     splitPaymentLines.splice(idx, 1);
     renderSplitPaymentLines();
     syncSplitPaymentEwalletDisplay();
 }
-
 function setSplitPaymentLineMethod(idx, method) {
     if (!splitPaymentLines[idx]) return;
     splitPaymentLines[idx].method = method;
     renderSplitPaymentLines();
     syncSplitPaymentEwalletDisplay();
 }
-
 function setSplitPaymentLineReference(idx, rawValue) {
     if (!splitPaymentLines[idx]) return;
     splitPaymentLines[idx].reference = rawValue;
 }
-
 function setSplitPaymentLineAmount(idx, rawValue) {
     if (!splitPaymentLines[idx]) return;
     splitPaymentLines[idx].amount = Math.max(0, parseFloat(rawValue) || 0);
     recalcSplitPaymentTotals();
     syncSplitPaymentEwalletDisplay();
 }
-
 function syncSplitPaymentEwalletDisplay() {
     if (!splitPaymentMode) return;
     const ewalletLine = [...splitPaymentLines].reverse().find(l => l.method ==='GCASH' || l.method ==='MAYA');
@@ -9822,13 +8103,11 @@ function syncSplitPaymentEwalletDisplay() {
         amount: parseFloat(ewalletLine.amount) || 0
     });
 }
-
 function renderSplitPaymentLines() {
     const listEl = document.getElementById('split-payment-lines-list');
     if (!listEl) return;
     listEl.innerHTML = splitPaymentLines.map((line, idx) => {
         const isEwallet = line.method ==='GCASH' || line.method ==='MAYA';
-
         const refRow = isEwallet ? `
             <input type="text" value="${escapeHtml(line.reference ||'')}" placeholder="Reference/transaction number"
                    style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:6px;"
@@ -9854,13 +8133,11 @@ function renderSplitPaymentLines() {
     `; }).join('');
     recalcSplitPaymentTotals();
 }
-
 function recalcSplitPaymentTotals() {
     let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱','')) || 0;
     let allocated = splitPaymentLines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
     allocated = Math.round(allocated * 100) / 100;
     let remaining = Math.round((dueAmount - allocated) * 100) / 100;
-
     const allocatedEl = document.getElementById('split-payment-allocated');
     const remainingEl = document.getElementById('split-payment-remaining');
     const remainingLabel = document.getElementById('split-payment-remaining-label');
@@ -9871,7 +8148,6 @@ function recalcSplitPaymentTotals() {
     }
     if (remainingLabel) remainingLabel.innerText = remaining < 0 ?'Change' :'Remaining';
 }
-
 function openPaymentModal() {
     if(shoppingCart.length === 0) {
         Swal.fire('Checkout Error','Cart checkout is completely empty.','warning');
@@ -9883,9 +8159,7 @@ function openPaymentModal() {
     document.getElementById('pay-modal-change-output').innerText ='₱0.00';
     const ewalletRefInput = document.getElementById('pay-ewallet-reference-input');
     if (ewalletRefInput) ewalletRefInput.value ='';
-
     selectPaymentMethod('CASH');
-
     splitPaymentMode = false;
     splitPaymentLines = [];
     const splitToggle = document.getElementById('pay-split-toggle');
@@ -9894,16 +8168,12 @@ function openPaymentModal() {
     const splitBlock = document.getElementById('split-payment-lines-container');
     if (singleBlock) singleBlock.style.display ='';
     if (splitBlock) splitBlock.style.display ='none';
-
     document.getElementById('payment-modal').style.display ='flex';
-
     paymentSubmissionInProgress = false;
     const confirmBtnReset = document.getElementById('pay-modal-confirm-btn');
     if (confirmBtnReset) confirmBtnReset.disabled = false;
 }
-
 let paymentSubmissionInProgress = false;
-
 async function submitFinalPaymentTransaction() {
     if (paymentSubmissionInProgress) return;
     paymentSubmissionInProgress = true;
@@ -9916,18 +8186,14 @@ async function submitFinalPaymentTransaction() {
         if (confirmBtn) confirmBtn.disabled = false;
     }
 }
-
 async function submitFinalPaymentTransactionInner() {
     let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱',''));
     let received, change, paymentMethodLabel, payments = null;
-
     if (!splitPaymentMode && selectedPaymentMethod ==='CCREDIT' && !pendingCreditDebtDraft) {
         Swal.fire('Kailangan ng Debt Info','Punan muna ang detalye ng utang bago magpatuloy.','warning');
         return;
     }
-
     if (splitPaymentMode) {
-
         const activeLines = splitPaymentLines.filter(l => (parseFloat(l.amount) || 0) > 0);
         if (activeLines.length < 1) {
             Swal.fire('Validation Error','Enter an amount for at least one payment method.','error');
@@ -9938,13 +8204,11 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Validation Error', `Payment validation exception: Still short by ₱${(dueAmount - allocated).toFixed(2)} in the split payment allocation.`,'error');
             return;
         }
-
         const lineMissingRef = activeLines.find(l => (l.method ==='GCASH' || l.method ==='MAYA') && !String(l.reference ||'').trim());
         if (lineMissingRef) {
             Swal.fire('Validation Error', `Enter the reference/transaction number for the ${lineMissingRef.method} payment.`, 'error');
             return;
         }
-
         payments = activeLines.map(l => ({
             method: l.method,
             amount: Math.round((parseFloat(l.amount) || 0) * 100) / 100,
@@ -9959,7 +8223,6 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Validation Error','Payment validation exception: Tender value below transaction charge subtotal.','error');
             return;
         }
-
         let ewalletReference ='';
         if (selectedPaymentMethod ==='GCASH' || selectedPaymentMethod ==='MAYA') {
             const refInput = document.getElementById('pay-ewallet-reference-input');
@@ -9969,19 +8232,14 @@ async function submitFinalPaymentTransactionInner() {
                 return;
             }
         }
-
         change = received - dueAmount;
         paymentMethodLabel = selectedPaymentMethod;
-
         payments = [{ method: selectedPaymentMethod, amount: received, reference: ewalletReference || undefined }];
     }
-
     let discount = parseFloat(document.getElementById('cart-discount-input').value) || 0;
-
     const itemDiscountSum = shoppingCart.reduce((s, i) => s + Math.max(0, parseFloat(i.itemDiscount) || 0), 0);
     const manualDiscountTotal = Math.round((itemDiscountSum + (cartDiscountType ==='MANUAL' ? discount : 0)) * 100) / 100;
     let discountAuthPassword = null;
-
     if (manualDiscountTotal > 0) {
         const { value: pw } = await Swal.fire({
             title:'🔒 Manual Discount Authorization',
@@ -9992,12 +8250,10 @@ async function submitFinalPaymentTransactionInner() {
             confirmButtonColor:'#2563eb',
             cancelButtonColor:'#ef4444'
         });
-
         if (!pw || pw.trim() ==='') {
             Swal.fire('Cancelled','Authorization is required to proceed with a sale that has a manual discount.','info');
             return;
         }
-
         try {
             const verifyRes = await authFetch(`${API_URL}/auth/verify-void`, {
                 method:'POST',
@@ -10014,10 +8270,8 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
             return;
         }
-
         discountAuthPassword = pw;
     }
-
     let loyaltyAuthPassword = null;
     if (cartDiscountType ==='LOYALTY' && cartLoyaltyPointsRedeemed > 0 && !cartLoyaltyCardToken) {
         const { value: lpw } = await Swal.fire({
@@ -10029,12 +8283,10 @@ async function submitFinalPaymentTransactionInner() {
             confirmButtonColor:'#2563eb',
             cancelButtonColor:'#ef4444'
         });
-
         if (!lpw || lpw.trim() ==='') {
             Swal.fire('Cancelled', "Scan the customer's Loyalty Card/QR, or obtain an authorization password to continue.", 'info');
             return;
         }
-
         try {
             const lVerifyRes = await authFetch(`${API_URL}/auth/verify-void`, {
                 method:'POST',
@@ -10051,15 +8303,12 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
             return;
         }
-
         loyaltyAuthPassword = lpw;
     }
-
     const txId = generateTransactionId(
         (receiptSettingsCache && receiptSettingsCache.transactionIdSettings && receiptSettingsCache.transactionIdSettings.format)
             || DEFAULT_TRANSACTION_ID_SETTINGS.format
     );
-
     const transactionPayload = {
         id: txId,
         cashier: currentUser.username,
@@ -10070,7 +8319,6 @@ async function submitFinalPaymentTransactionInner() {
             price: i.price,
             quantity: i.quantity,
             itemDiscount: Math.max(0, parseFloat(i.itemDiscount) || 0),
-
             cost: parseFloat(i.cost) || 0
         })),
         total: dueAmount,
@@ -10087,9 +8335,7 @@ async function submitFinalPaymentTransactionInner() {
         amount_paid: received,
         received: received,
         change: change,
-
         payments: payments,
-
         paymentReference: (payments && payments.length === 1 && payments[0].reference) ? payments[0].reference : '',
         customerId: selectedCartCustomer ? selectedCartCustomer.id : null,
         customerName: selectedCartCustomer ? selectedCartCustomer.name :'',
@@ -10097,7 +8343,6 @@ async function submitFinalPaymentTransactionInner() {
         timestamp: new Date().toLocaleString(),
         isoDate: new Date().toISOString()
     };
-
     try {
         const res = await authFetch(`${API_URL}/transactions`, {
             method:'POST',
@@ -10109,11 +8354,9 @@ async function submitFinalPaymentTransactionInner() {
             })
         });
         const output = await res.json();
-
         if(output.success) {
             Swal.fire('Transaction Saved!', `Reference Code: ${txId}`,'success');
             {
-
                 const savedTx = output.currentTransaction || transactionPayload;
                 broadcastCustomerDisplay('paid', {
                     total: transactionPayload.total,
@@ -10123,39 +8366,31 @@ async function submitFinalPaymentTransactionInner() {
                     loyaltyPointsBalance: Number.isFinite(savedTx.loyaltyPointsBalance) ? savedTx.loyaltyPointsBalance : null
                 });
             }
-
             transactionPayload.items.forEach(item => {
                 let localProd = globalProducts.find(p => p.code === item.code);
                 if (localProd) {
                     localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
                 }
             });
-
             shoppingCart = [];
             renderCartRows();
             closeModal('payment-modal');
-
             currentReceiptLoyaltyQr = output.newLoyaltyCardToken
                 ? { token: output.newLoyaltyCardToken, note: `New Loyalty QR ni ${selectedCartCustomer ? selectedCartCustomer.name :'customer'} — ito na ang gagamitin sa susunod na redemption.` }
                 :null;
-
             await renderInvoiceReceipt(output.currentTransaction || transactionPayload);
             triggerAutoPrintIfEnabled();
             triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
-
             if (output.newLoyaltyCardToken && typeof showLoyaltyCardQrDisplay ==='function') {
                 showLoyaltyCardQrDisplay(output.newLoyaltyCardToken, selectedCartCustomer ? selectedCartCustomer.name :'', 'rotating',
                     'Naka-print na rin ang QR na ito sa resibo — ibigay/ipakita na lang ang resibo sa customer para sa susunod na redemption.',
                     true );
             }
             cartLoyaltyCardToken ='';
-
             localTransactionsList.unshift(output.currentTransaction || transactionPayload);
             localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
-
             if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
             if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
-
             if (output.debt) {
                 pendingCreditDebtDraft = null;
                 const debtsView = document.getElementById('view-debts');
@@ -10164,13 +8399,11 @@ async function submitFinalPaymentTransactionInner() {
                 }
             }
         } else if (output.outOfStock) {
-
             Swal.fire('Out of Stock', output.message,'warning');
             if (typeof loadTerminalCatalog ==='function') loadTerminalCatalog();
         } else if (output.code ==='LOYALTY_AUTH_REQUIRED' || output.code ==='LOYALTY_CARD_INVALID') {
             Swal.fire('Loyalty Redemption Not Authorized', output.message,'warning');
         } else if (output.featureLocked) {
-            // authFetch() already shows the premium-unlock prompt for 402 responses.
         } else {
             Swal.fire('Server Error', `API Server Exception Error: ${output.message}`,'error');
         }
@@ -10182,33 +8415,24 @@ async function submitFinalPaymentTransactionInner() {
                 localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
             }
         });
-
         localStorage.setItem('cached_products', JSON.stringify(globalProducts));
-
         let offlineTx = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
         offlineTx.push({ transaction: transactionPayload, username: currentUser.username });
         localStorage.setItem('offline_transactions', JSON.stringify(offlineTx));
-
         localTransactionsList.unshift(transactionPayload);
         localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
-
         shoppingCart = [];
         renderCartRows();
         closeModal('payment-modal');
         await renderInvoiceReceipt(transactionPayload);
         triggerAutoPrintIfEnabled();
         triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
-
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-
         Swal.fire('Offline Stored','⚠️ Gateway Conn. Timeout: Central processing hub unreachable. The active transaction record is temporarily committed to local hardware.','warning');
     }
 }
-
 let currentReceiptLoyaltyQr = null;
-
 let receiptSettingsCache = null;
-
 const DEFAULT_TRANSACTION_ID_SETTINGS = { format: 'xs' };
 const TRANSACTION_ID_FORMAT_INFO = {
     xs:       { label: 'Pinakaikli (Shortest)', chars: 4,  sample: null },
@@ -10217,7 +8441,6 @@ const TRANSACTION_ID_FORMAT_INFO = {
     lg:       { label: 'Mahaba (Long)',         chars: 12, sample: null },
     original: { label: 'Orihinal (Longest — dating default)', chars: null, sample: null }
 };
-
 function generateShortAlphaNumId(len) {
     const timePart = Date.now().toString(36).toUpperCase();
     const randPart = Math.random().toString(36).slice(2).toUpperCase()
@@ -10225,19 +8448,16 @@ function generateShortAlphaNumId(len) {
     const combined = (timePart + randPart).replace(/[^A-Z0-9]/g, '');
     return combined.slice(-len).padStart(len, '0');
 }
-
 function generateTransactionId(format) {
     switch (format) {
         case 'sm': return generateShortAlphaNumId(6);
         case 'md': return 'TX' + generateShortAlphaNumId(6);
         case 'lg': return 'TX-' + generateShortAlphaNumId(9);
-
         case 'original': return 'TX-' + Date.now();
         case 'xs':
         default: return generateShortAlphaNumId(4);
     }
 }
-
 function saveAutoPrintPreference() {
     const toggle = document.getElementById('rc-auto-print-toggle');
     localStorage.setItem('omnipos_auto_print_receipt', toggle && toggle.checked ?'true' :'false');
@@ -10245,7 +8465,6 @@ function saveAutoPrintPreference() {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-print enabled' :'Auto-print disabled', showConfirmButton:false, timer:1500 });
     }
 }
-
 function saveAutoCutPreference() {
     const toggle = document.getElementById('rc-auto-cut-toggle');
     localStorage.setItem('omnipos_bt_autocut', toggle && toggle.checked ?'true' :'false');
@@ -10253,7 +8472,6 @@ function saveAutoCutPreference() {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-cut enabled' :'Auto-cut disabled', showConfirmButton:false, timer:1500 });
     }
 }
-
 function saveAutoOpenDrawerPreference() {
     const toggle = document.getElementById('rc-auto-cash-drawer-toggle');
     localStorage.setItem('omnipos_auto_open_drawer', toggle && toggle.checked ?'true' :'false');
@@ -10261,28 +8479,14 @@ function saveAutoOpenDrawerPreference() {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-open cash drawer enabled' :'Auto-open cash drawer disabled', showConfirmButton:false, timer:1500 });
     }
 }
-
 function isAutoOpenDrawerEnabled() {
     return localStorage.getItem('omnipos_auto_open_drawer') !=='false';
 }
-
-// A cash drawer is almost never wired directly to the computer/tablet — it's cabled
-// (RJ11/RJ12) into the back of the receipt printer instead. Opening it automatically
-// means sending a tiny "kick" command (industry-standard ESC/POS: 1B 70 00 19 FA) to
-// that connected printer, which then pulses power down the cable to trip the drawer's
-// solenoid latch. Since OmniPOS's only direct hardware channel today is the paired
-// Bluetooth thermal printer (see bt-printer.js), that's the path used here — the
-// regular browser Print dialog (window.print) has no way to reach real printer
-// hardware directly, so a drawer wired to a printer used only via that dialog can't
-// be triggered from here. Only fires for Cash (or a Cash portion of a Split payment),
-// mirroring how real POS terminals only pop the drawer when actual cash changes hands.
 function triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments) {
     if (!isAutoOpenDrawerEnabled()) return;
-
     const hasCashPortion = paymentMethodLabel ==='CASH' ||
         (Array.isArray(payments) && payments.some(p => p && p.method ==='CASH'));
     if (!hasCashPortion) return;
-
     setTimeout(() => {
         try {
             if (typeof openCashDrawerViaBluetooth ==='function') {
@@ -10291,10 +8495,8 @@ function triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments) {
         } catch (e) { console.warn('Auto-open cash drawer failed:', e); }
     }, 150);
 }
-
 function triggerAutoPrintIfEnabled() {
     if (localStorage.getItem('omnipos_auto_print_receipt') !=='true') return;
-
     setTimeout(() => {
         try {
             if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
@@ -10306,13 +8508,10 @@ function triggerAutoPrintIfEnabled() {
         } catch (e) { console.error('Auto-print failed:', e); }
     }, 150);
 }
-
 function printCurrentReceipt() {
     setTimeout(() => window.print(), 120);
 }
-
 let receiptSettingsPromise = null;
-
 async function fetchReceiptSettings() {
     try {
         const res = await authFetch(`${API_URL}/receipt-settings`);
@@ -10323,11 +8522,9 @@ async function fetchReceiptSettings() {
     }
     applyReceiptBranding();
 }
-
 function applyReceiptBranding() {
     const s = receiptSettingsCache;
     if (!s) return;
-
     const setTextIfExists = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.innerText = val;
@@ -10343,105 +8540,81 @@ function applyReceiptBranding() {
             el.style.display ='none';
         }
     };
-
     const applyHeaderMode = (titleId, imageId) => {
         const titleEl = document.getElementById(titleId);
         const imgEl = document.getElementById(imageId);
         const useImage = s.headerType ==='image' && !!s.headerImage;
-
         if (useImage && imgEl) {
             applyReceiptHeaderImageStyle(imgEl, s.headerImage, s.headerImageStyle);
             if (titleEl) titleEl.style.display ='none';
         } else {
             if (imgEl) { imgEl.style.display ='none'; imgEl.removeAttribute('src'); }
             if (titleEl) titleEl.style.display ='';
-
             document.documentElement.style.setProperty('--receipt-paper-padding-top','10px');
         }
     };
-
     const storeNameDisplay = (s.advancedSettings && s.advancedSettings.uppercaseStoreName)
         ? (s.storeName ||'').toUpperCase()
         : s.storeName;
-
     setTextIfExists('r-store-title', storeNameDisplay);
     setTextIfExists('r-store-address', s.storeAddress);
     setTextIfExists('r-store-contact', s.storeContact);
     setOptionalLine('r-header-text', s.headerText);
     setTextIfExists('r-footer-msg', s.footerText);
     applyHeaderMode('r-store-title', 'r-header-image');
-
     setTextIfExists('rp-store-title', storeNameDisplay);
     setTextIfExists('rp-store-address', s.storeAddress);
     setTextIfExists('rp-store-contact', s.storeContact);
     setOptionalLine('rp-header-text', s.headerText);
     setTextIfExists('rp-footer-msg', s.footerText);
     applyHeaderMode('rp-store-title', 'rp-header-image');
-
     const barcodeContainer = document.querySelector('#printable-receipt-area .receipt-barcode-container');
     if (barcodeContainer) {
         const showBarcode = !s.barcodeSettings || s.barcodeSettings.show !== false;
         barcodeContainer.style.display = showBarcode ?'' :'none';
     }
-
     applyReceiptAdvancedStyleToElement(document.getElementById('printable-receipt-area'), s.advancedSettings);
     const previewPaper = document.querySelector('#receipt-preview-modal .receipt-paper-layout');
     if (previewPaper) applyReceiptAdvancedStyleToElement(previewPaper, s.advancedSettings);
-
     applyTaiwanTemplateWidthToElement(document.getElementById('printable-receipt-area'), s.taiwanTemplateSettings);
 }
-
 const DEFAULT_ADVANCED_RECEIPT_SETTINGS = {
     fontSize:'normal', divider:'dashed', accentColor:'#000000',
     boldTotal: true, uppercaseStoreName: false,
-
     itemDetailGapPx: 0,
-
     itemCounterGapTopPx: 6,
     itemCounterGapBottomPx: 6,
     metaRowGapPx: 4,
     itemsRowGapPx: 6,
     totalsRowGapPx: 4
 };
-
 function applyReceiptAdvancedStyleToElement(paperEl, settings) {
     if (!paperEl) return;
     const st = Object.assign({}, DEFAULT_ADVANCED_RECEIPT_SETTINGS, settings || {});
-
     paperEl.classList.remove('receipt-fontsize-small','receipt-fontsize-normal','receipt-fontsize-large');
     paperEl.classList.add(`receipt-fontsize-${['small','normal','large'].includes(st.fontSize) ? st.fontSize :'normal'}`);
-
     paperEl.classList.remove('receipt-divider-dashed','receipt-divider-solid','receipt-divider-dotted','receipt-divider-none');
     paperEl.classList.add(`receipt-divider-${['dashed','solid','dotted','none'].includes(st.divider) ? st.divider :'dashed'}`);
-
     paperEl.classList.toggle('receipt-total-emphasis', !!st.boldTotal);
     paperEl.style.setProperty('--receipt-accent-color', /^#[0-9a-fA-F]{6}$/.test(st.accentColor) ? st.accentColor :'#000000');
-
     paperEl.style.setProperty('--receipt-item-detail-gap', `${Math.max(0, Math.min(40, Number(st.itemDetailGapPx) || 0))}px`);
-
     paperEl.style.setProperty('--receipt-item-counter-gap-top', `${Math.max(0, Math.min(40, Number(st.itemCounterGapTopPx) ?? 6))}px`);
     paperEl.style.setProperty('--receipt-item-counter-gap-bottom', `${Math.max(0, Math.min(40, Number(st.itemCounterGapBottomPx) ?? 6))}px`);
     paperEl.style.setProperty('--receipt-meta-row-gap', `${Math.max(0, Math.min(20, Number(st.metaRowGapPx) ?? 4))}px`);
     paperEl.style.setProperty('--receipt-items-row-gap', `${Math.max(0, Math.min(20, Number(st.itemsRowGapPx) ?? 6))}px`);
     paperEl.style.setProperty('--receipt-totals-row-gap', `${Math.max(0, Math.min(20, Number(st.totalsRowGapPx) ?? 4))}px`);
 }
-
 const DEFAULT_HEADER_IMAGE_STYLE = {
     widthPct: 55, align:'center', maxHeightPx: 90, opacityPct: 100,
     grayscale: false, cornerRadiusPx: 0, marginTopPx: 10, marginBottomPx: 8,
-
     lineSpacingPx: 2
 };
-
 function applyReceiptHeaderImageStyle(imgEl, src, style) {
     if (!imgEl) return;
     const st = Object.assign({}, DEFAULT_HEADER_IMAGE_STYLE, style || {});
-
     const marginTopPx = Math.max(0, Number(st.marginTopPx) || 0);
     document.documentElement.style.setProperty('--receipt-paper-padding-top', `${marginTopPx}px`);
-
     document.documentElement.style.setProperty('--receipt-subline-gap', `${Math.max(0, Number(st.lineSpacingPx) || 0)}px`);
-
     imgEl.src = src ||'';
     imgEl.style.display = src ?'block' :'none';
     imgEl.style.width = `${st.widthPct}%`;
@@ -10451,7 +8624,6 @@ function applyReceiptHeaderImageStyle(imgEl, src, style) {
     imgEl.style.borderRadius = `${st.cornerRadiusPx}px`;
     imgEl.style.marginTop ='0';
     imgEl.style.marginBottom = `${st.marginBottomPx}px`;
-
     if (st.align ==='left') {
         imgEl.style.marginLeft ='0';
         imgEl.style.marginRight ='auto';
@@ -10463,50 +8635,37 @@ function applyReceiptHeaderImageStyle(imgEl, src, style) {
         imgEl.style.marginRight ='auto';
     }
 }
-
 function applyActivePrintPageSize() {
-
     let styleTag = document.getElementById('dynamic-print-style');
     if (!styleTag) {
         styleTag = document.createElement('style');
         styleTag.id ='dynamic-print-style';
         document.head.appendChild(styleTag);
     }
-
     const receiptModal = document.getElementById('receipt-modal');
     const isPrintingReceipt = receiptModal && receiptModal.style.display !=='none';
-
     const barcodeModal = document.getElementById('barcode-preview-modal');
     const isPrintingBarcode = barcodeModal && barcodeModal.style.display !=='none';
-
     document.body.classList.toggle('print-target-receipt', !!isPrintingReceipt);
     document.body.classList.toggle('print-target-barcode', !!isPrintingBarcode);
-
     if (isPrintingReceipt) {
-
         styleTag.innerHTML = `@page { size: auto; margin: 0; }`;
     } else if (isPrintingBarcode) {
-
         styleTag.innerHTML = `@page { size: auto; margin: 8mm; }`;
     } else {
-
         styleTag.innerHTML ='';
     }
 }
-
 window.addEventListener('beforeprint', applyActivePrintPageSize);
 window.addEventListener('afterprint', () => {
     const styleTag = document.getElementById('dynamic-print-style');
     if (styleTag) styleTag.innerHTML ='';
-
     document.body.classList.remove('print-target-receipt','print-target-barcode');
 });
-
 async function loadReceiptCustomizationPanel() {
     await fetchReceiptSettings();
     const s = receiptSettingsCache;
     if (!s) return;
-
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ||''; };
     setVal('rc-form-storename', s.storeName);
     setVal('rc-form-address', s.storeAddress);
@@ -10514,11 +8673,9 @@ async function loadReceiptCustomizationPanel() {
     setVal('rc-form-header', s.headerText);
     setVal('rc-form-footer', s.footerText);
     setVal('rc-form-papersize', s.paperSize);
-
     const hiStyle = Object.assign({}, DEFAULT_HEADER_IMAGE_STYLE, s.headerImageStyle || {});
     const imgValueField = document.getElementById('rc-form-header-image-value');
     if (imgValueField) imgValueField.value = s.headerType ==='image' ? (s.headerImage ||'') :'';
-
     const setRange = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     setRange('rc-hi-width', hiStyle.widthPct);
     setVal('rc-hi-align', hiStyle.align);
@@ -10530,9 +8687,7 @@ async function loadReceiptCustomizationPanel() {
     setRange('rc-hi-linespacing', hiStyle.lineSpacingPx);
     const grayscaleBox = document.getElementById('rc-hi-grayscale');
     if (grayscaleBox) grayscaleBox.checked = !!hiStyle.grayscale;
-
     switchReceiptHeaderType(s.headerType ==='image' ?'image' :'text',  true);
-
     const previewWrap = document.getElementById('rc-header-image-preview-wrap');
     const settingsBox = document.getElementById('rc-header-image-settings');
     if (s.headerType ==='image' && s.headerImage) {
@@ -10543,7 +8698,6 @@ async function loadReceiptCustomizationPanel() {
         if (previewWrap) previewWrap.style.display ='none';
         if (settingsBox) settingsBox.style.display ='none';
     }
-
     const bset = Object.assign({}, DEFAULT_RECEIPT_BARCODE_SETTINGS, s.barcodeSettings || {});
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     setChecked('bset-r-show', bset.show);
@@ -10553,7 +8707,6 @@ async function loadReceiptCustomizationPanel() {
     setChecked('bset-r-displayvalue', bset.displayValue);
     setRange('bset-r-fontsize', bset.fontSize);
     updateReceiptBarcodeSettingsPreview();
-
     const aset = Object.assign({}, DEFAULT_ADVANCED_RECEIPT_SETTINGS, s.advancedSettings || {});
     setVal('aset-fontsize', aset.fontSize);
     setVal('aset-divider', aset.divider);
@@ -10561,14 +8714,12 @@ async function loadReceiptCustomizationPanel() {
     setChecked('aset-bold-total', aset.boldTotal);
     setChecked('aset-uppercase-store', aset.uppercaseStoreName);
     setRange('aset-item-detail-gap', aset.itemDetailGapPx);
-
     setRange('aset-item-counter-gap-top', aset.itemCounterGapTopPx);
     setRange('aset-item-counter-gap-bottom', aset.itemCounterGapBottomPx);
     setRange('aset-meta-row-gap', aset.metaRowGapPx);
     setRange('aset-items-row-gap', aset.itemsRowGapPx);
     setRange('aset-totals-row-gap', aset.totalsRowGapPx);
     previewReceiptAdvancedSettings();
-
     const qset = Object.assign({}, DEFAULT_LOYALTY_QR_SETTINGS, s.loyaltyQrSettings || {});
     setChecked('qset-enabled', qset.enabled);
     setRange('qset-sizepx', qset.sizePx);
@@ -10583,41 +8734,32 @@ async function loadReceiptCustomizationPanel() {
     setLoyaltyQrPosition(qset.position,  true);
     setLoyaltyQrPrinterTarget(qset.printOn,  true);
     updateLoyaltyQrSettingsPreview();
-
     const twset = Object.assign({}, DEFAULT_TAIWAN_TEMPLATE_SETTINGS, s.taiwanTemplateSettings || {});
     setChecked('twset-enabled', twset.enabled);
     setRange('twset-widthmm', twset.widthMm);
     updateTaiwanTemplateSettingsPreview();
-
     const tidset = Object.assign({}, DEFAULT_TRANSACTION_ID_SETTINGS, s.transactionIdSettings || {});
     setVal('rc-form-txnid-format', tidset.format);
     updateTransactionIdFormatPreview();
-
     const autoPrintToggle = document.getElementById('rc-auto-print-toggle');
     if (autoPrintToggle) autoPrintToggle.checked = localStorage.getItem('omnipos_auto_print_receipt') ==='true';
     const autoCutToggle = document.getElementById('rc-auto-cut-toggle');
     if (autoCutToggle) autoCutToggle.checked = localStorage.getItem('omnipos_bt_autocut') !=='false';
     const autoDrawerToggle = document.getElementById('rc-auto-cash-drawer-toggle');
     if (autoDrawerToggle) autoDrawerToggle.checked = localStorage.getItem('omnipos_auto_open_drawer') !=='false';
-
     const statusEl = document.getElementById('receipt-custom-status');
     const resetBtn = document.getElementById('rc-reset-counter-btn');
     const otpSenderBox = document.getElementById('rc-otp-sender-config');
     const otpSenderCurrent = document.getElementById('rc-otp-sender-current');
     const otpSenderClearBtn = document.getElementById('rc-otp-sender-clear-btn');
-
     if (otpSenderClearBtn) otpSenderClearBtn.style.display = s.otpSenderConfigured ?'inline-flex' :'none';
-
     const otpSenderHeadingText = document.getElementById('rc-otp-sender-heading-text');
     const otpSenderHeadingIcon = document.getElementById('rc-otp-sender-heading-icon');
     const otpSenderChevron = document.getElementById('rc-otp-sender-toggle-chevron');
     const otpSenderBody = document.getElementById('rc-otp-sender-body');
     const otpSenderFormFields = document.getElementById('rc-otp-sender-form-fields');
-
     if (otpSenderBox) otpSenderBox.style.display ='block';
-
     if (s.otpSenderConfigured) {
-
         if (otpSenderHeadingText) otpSenderHeadingText.textContent ='Google App Verified';
         if (otpSenderHeadingIcon) { otpSenderHeadingIcon.style.color ='#16a34a'; }
         if (otpSenderChevron) otpSenderChevron.style.display ='inline-block';
@@ -10628,7 +8770,6 @@ async function loadReceiptCustomizationPanel() {
             otpSenderCurrent.innerHTML = `<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(s.otpSenderEmailMasked ||'')}</span>`;
         }
     } else {
-
         if (otpSenderHeadingText) otpSenderHeadingText.textContent ='Google App Verification';
         if (otpSenderHeadingIcon) { otpSenderHeadingIcon.style.color ='#eab308'; }
         if (otpSenderChevron) otpSenderChevron.style.display ='none';
@@ -10639,7 +8780,6 @@ async function loadReceiptCustomizationPanel() {
             otpSenderCurrent.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation"></i> Need to verified first the Google App</span>`;
         }
     }
-
     if (s.otpRequired) {
         if (statusEl) statusEl.innerHTML ='';
         if (resetBtn) {
@@ -10658,26 +8798,22 @@ async function loadReceiptCustomizationPanel() {
         }
     }
 }
-
 function closeGoogleAppVerificationFloatingBox() {
     const otpSenderBox = document.getElementById('rc-otp-sender-config');
     if (!otpSenderBox || otpSenderBox.style.display ==='none') return;
     otpSenderBox.style.display ='none';
-
     const chevron = document.getElementById('rc-otp-sender-toggle-chevron');
     if (chevron) {
         chevron.classList.remove('fa-chevron-up');
         chevron.classList.add('fa-chevron-down');
     }
 }
-
 async function loadSystemResetPanel() {
     await fetchReceiptSettings();
     const s = receiptSettingsCache;
     const statusBox = document.getElementById('reset-google-app-status');
     const executeBtn = document.getElementById('reset-execute-btn');
     if (!statusBox) return;
-
     if (s && s.otpSenderConfigured) {
         statusBox.style.borderColor ='#16a34a';
         statusBox.style.background ='rgba(22, 163, 74, 0.06)';
@@ -10698,7 +8834,6 @@ async function loadSystemResetPanel() {
         }
     }
 }
-
 function toggleOtpSenderBox() {
     const body = document.getElementById('rc-otp-sender-body');
     const chevron = document.getElementById('rc-otp-sender-toggle-chevron');
@@ -10710,10 +8845,8 @@ function toggleOtpSenderBox() {
         chevron.classList.toggle('fa-chevron-up', isHidden);
     }
 }
-
 async function performClearOtpSenderConfig() {
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/otp-sender/clear`, {
             method:'POST',
@@ -10721,7 +8854,6 @@ async function performClearOtpSenderConfig() {
             body: JSON.stringify({ username })
         });
         const data = await res.json();
-
         if (data.success) {
             receiptSettingsCache = data.settings || receiptSettingsCache;
             const emailField = document.getElementById('rc-otp-sender-email');
@@ -10736,7 +8868,6 @@ async function performClearOtpSenderConfig() {
         return { success: false, message:'Unable to reach the server. Please try again.' };
     }
 }
-
 async function clearOtpSenderConfig() {
     const confirmResult = await Swal.fire({
         title:'Clear Sender Gmail?',
@@ -10748,7 +8879,6 @@ async function clearOtpSenderConfig() {
         confirmButtonColor:'#dc2626'
     });
     if (!confirmResult.isConfirmed) return;
-
     const data = await performClearOtpSenderConfig();
     if (data.success) {
         Swal.fire('Cleared!', data.message,'success');
@@ -10756,19 +8886,15 @@ async function clearOtpSenderConfig() {
         Swal.fire('Not Cleared', data.message ||'Failed to clear the Sender Gmail configuration.','error');
     }
 }
-
 async function saveOtpSenderConfig() {
     const otpSenderEmail = (document.getElementById('rc-otp-sender-email').value ||'').trim();
     const otpSenderAppPassword = (document.getElementById('rc-otp-sender-password').value ||'').trim();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     if (!otpSenderEmail || !otpSenderAppPassword) {
         Swal.fire('Missing Details','Both Gmail address and App Password are required.','warning');
         return;
     }
-
     Swal.fire({ title:'Verifying...', text:'Connecting to Gmail to check the credentials.', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/otp-sender`, {
             method:'POST',
@@ -10776,7 +8902,6 @@ async function saveOtpSenderConfig() {
             body: JSON.stringify({ otpSenderEmail, otpSenderAppPassword, username })
         });
         const data = await res.json();
-
         if (data.success) {
             receiptSettingsCache = data.settings || receiptSettingsCache;
             document.getElementById('rc-otp-sender-password').value ='';
@@ -10790,11 +8915,9 @@ async function saveOtpSenderConfig() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 async function saveReceiptPaperSize() {
     const paperSize = document.getElementById('rc-form-papersize').value;
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/paper-size`, {
             method:'POST',
@@ -10802,7 +8925,6 @@ async function saveReceiptPaperSize() {
             body: JSON.stringify({ paperSize, username })
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The paper size request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -10817,11 +8939,9 @@ async function saveReceiptPaperSize() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 const DEFAULT_RECEIPT_BARCODE_SETTINGS = {
     show: true, width: 1.5, height: 40, margin: 0, displayValue: true, fontSize: 11
 };
-
 function collectReceiptBarcodeSettingsFromForm() {
     const getRange = (id, fallback) => {
         const el = document.getElementById(id);
@@ -10838,16 +8958,12 @@ function collectReceiptBarcodeSettingsFromForm() {
         fontSize: getRange('bset-r-fontsize', DEFAULT_RECEIPT_BARCODE_SETTINGS.fontSize)
     };
 }
-
 function updateReceiptBarcodeSettingsPreview() {
     const settings = collectReceiptBarcodeSettingsFromForm();
-
     const fieldsWrap = document.getElementById('bset-r-fields-wrap');
     if (fieldsWrap) fieldsWrap.style.opacity = settings.show ?'1' :'0.4';
-
     const fontSizeWrap = document.getElementById('bset-r-fontsize-wrap');
     if (fontSizeWrap) fontSizeWrap.style.display = settings.displayValue ?'block' :'none';
-
     const setLabel = (id, val, suffix) => {
         const el = document.getElementById(id);
         if (el) el.textContent = `(${val}${suffix})`;
@@ -10856,7 +8972,6 @@ function updateReceiptBarcodeSettingsPreview() {
     setLabel('bset-r-height-val', settings.height,'px');
     setLabel('bset-r-margin-val', settings.margin,'px');
     setLabel('bset-r-fontsize-val', settings.fontSize,'px');
-
     if (typeof JsBarcode ==='function') {
         try {
             JsBarcode('#bset-r-preview-svg','RCP-20260426-2641', {
@@ -10870,11 +8985,9 @@ function updateReceiptBarcodeSettingsPreview() {
         } catch (err) {  }
     }
 }
-
 async function saveReceiptBarcodeSettings() {
     const barcodeSettings = collectReceiptBarcodeSettingsFromForm();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/barcode`, {
             method:'POST',
@@ -10882,7 +8995,6 @@ async function saveReceiptBarcodeSettings() {
             body: JSON.stringify({ barcodeSettings, username })
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The barcode settings request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -10897,7 +9009,6 @@ async function saveReceiptBarcodeSettings() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 function collectReceiptAdvancedSettingsFromForm() {
     const val = (id, fallback) => { const el = document.getElementById(id); return el ? el.value : fallback; };
     const checked = (id, fallback) => { const el = document.getElementById(id); return el ? !!el.checked : fallback; };
@@ -10909,7 +9020,6 @@ function collectReceiptAdvancedSettingsFromForm() {
         boldTotal: checked('aset-bold-total', DEFAULT_ADVANCED_RECEIPT_SETTINGS.boldTotal),
         uppercaseStoreName: checked('aset-uppercase-store', DEFAULT_ADVANCED_RECEIPT_SETTINGS.uppercaseStoreName),
         itemDetailGapPx: numVal('aset-item-detail-gap', DEFAULT_ADVANCED_RECEIPT_SETTINGS.itemDetailGapPx),
-
         itemCounterGapTopPx: numVal('aset-item-counter-gap-top', DEFAULT_ADVANCED_RECEIPT_SETTINGS.itemCounterGapTopPx),
         itemCounterGapBottomPx: numVal('aset-item-counter-gap-bottom', DEFAULT_ADVANCED_RECEIPT_SETTINGS.itemCounterGapBottomPx),
         metaRowGapPx: numVal('aset-meta-row-gap', DEFAULT_ADVANCED_RECEIPT_SETTINGS.metaRowGapPx),
@@ -10917,28 +9027,23 @@ function collectReceiptAdvancedSettingsFromForm() {
         totalsRowGapPx: numVal('aset-totals-row-gap', DEFAULT_ADVANCED_RECEIPT_SETTINGS.totalsRowGapPx)
     };
 }
-
 function previewReceiptAdvancedSettings() {
     const settings = collectReceiptAdvancedSettingsFromForm();
     const previewPaper = document.querySelector('#receipt-preview-modal .receipt-paper-layout');
     if (previewPaper) applyReceiptAdvancedStyleToElement(previewPaper, settings);
     const mainPaper = document.getElementById('printable-receipt-area');
     if (mainPaper) applyReceiptAdvancedStyleToElement(mainPaper, settings);
-
     const setLabel = (id, value) => { const el = document.getElementById(id); if (el) el.innerText = `(${value}px)`; };
     setLabel('aset-item-detail-gap-val', settings.itemDetailGapPx);
-
     setLabel('aset-item-counter-gap-top-val', settings.itemCounterGapTopPx);
     setLabel('aset-item-counter-gap-bottom-val', settings.itemCounterGapBottomPx);
     setLabel('aset-meta-row-gap-val', settings.metaRowGapPx);
     setLabel('aset-items-row-gap-val', settings.itemsRowGapPx);
     setLabel('aset-totals-row-gap-val', settings.totalsRowGapPx);
 }
-
 async function saveReceiptAdvancedSettings() {
     const advancedSettings = collectReceiptAdvancedSettingsFromForm();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/advanced`, {
             method:'POST',
@@ -10946,7 +9051,6 @@ async function saveReceiptAdvancedSettings() {
             body: JSON.stringify({ advancedSettings, username })
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The advanced style request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -10961,25 +9065,16 @@ async function saveReceiptAdvancedSettings() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 const DEFAULT_LOYALTY_QR_SETTINGS = {
     enabled: true, sizePx: 160, moduleSize: 6, position:'below_barcode', showNote: true,
-
     printOn:'all',
-
     correctLevel:'M',
-
     gapPx: 15,
-
     noteText: '',
-
     showDivider: true,
-
     doubleCopy: false,
-
     copyGapPx: 15
 };
-
 function applyLoyaltyQrPreset(preset) {
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     const setRange = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
@@ -10999,9 +9094,7 @@ function applyLoyaltyQrPreset(preset) {
         Swal.fire({ toast:true, position:'top-end', icon:'info', title:'Preset applied — you still need to Save for it to take effect.', showConfirmButton:false, timer:2200 });
     }
 }
-
 function resetLoyaltyQrSettingsToDefault() { applyLoyaltyQrPreset(DEFAULT_LOYALTY_QR_SETTINGS); }
-
 function setLoyaltyQrPosition(value, skipPreview) {
     const hiddenInput = document.getElementById('qset-position');
     if (hiddenInput) hiddenInput.value = value;
@@ -11010,7 +9103,6 @@ function setLoyaltyQrPosition(value, skipPreview) {
     });
     if (!skipPreview) updateLoyaltyQrSettingsPreview();
 }
-
 function setLoyaltyQrPrinterTarget(value, skipPreview) {
     const hiddenInput = document.getElementById('qset-printeron');
     if (hiddenInput) hiddenInput.value = value;
@@ -11019,7 +9111,6 @@ function setLoyaltyQrPrinterTarget(value, skipPreview) {
     });
     if (!skipPreview) updateLoyaltyQrSettingsPreview();
 }
-
 function collectLoyaltyQrSettingsFromForm() {
     const getRange = (id, fallback) => { const el = document.getElementById(id); return el ? Number(el.value) : fallback; };
     const checked = (id, fallback) => { const el = document.getElementById(id); return el ? !!el.checked : fallback; };
@@ -11042,19 +9133,15 @@ function collectLoyaltyQrSettingsFromForm() {
         copyGapPx: getRange('qset-copygap', DEFAULT_LOYALTY_QR_SETTINGS.copyGapPx)
     };
 }
-
 function resolveQrCorrectLevel(letter) {
     if (typeof QRCode ==='undefined') return undefined;
     const map = { L: QRCode.CorrectLevel.L, M: QRCode.CorrectLevel.M, Q: QRCode.CorrectLevel.Q, H: QRCode.CorrectLevel.H };
     return map[letter] !== undefined ? map[letter] : QRCode.CorrectLevel.M;
 }
-
 function updateLoyaltyQrSettingsPreview() {
     const settings = collectLoyaltyQrSettingsFromForm();
-
     const fieldsWrap = document.getElementById('qset-fields-wrap');
     if (fieldsWrap) fieldsWrap.style.opacity = settings.enabled ?'1' :'0.4';
-
     const setLabel = (id, val, suffix) => {
         const el = document.getElementById(id);
         if (el) el.textContent = `(${val}${suffix})`;
@@ -11063,13 +9150,10 @@ function updateLoyaltyQrSettingsPreview() {
     setLabel('qset-modulesize-val', settings.moduleSize,'');
     setLabel('qset-qrgap-val', settings.gapPx,'px');
     setLabel('qset-copygap-val', settings.copyGapPx,'px');
-
     const copyGapWrap = document.getElementById('qset-copygap-wrap');
     if (copyGapWrap) copyGapWrap.style.opacity = settings.doubleCopy ?'1' :'0.4';
-
     const noteTextWrap = document.getElementById('qset-notetext-wrap');
     if (noteTextWrap) noteTextWrap.style.opacity = settings.showNote ?'1' :'0.4';
-
     const noteEl = document.getElementById('qset-preview-note');
     if (noteEl) {
         noteEl.style.display = settings.showNote ?'block' :'none';
@@ -11077,7 +9161,6 @@ function updateLoyaltyQrSettingsPreview() {
             ? settings.noteText.trim()
             :'New Loyalty QR ni Sample Customer — ito na ang gagamitin sa susunod na redemption.';
     }
-
     const previewEl = document.getElementById('qset-preview-qr');
     if (previewEl) {
         previewEl.innerHTML ='';
@@ -11092,25 +9175,19 @@ function updateLoyaltyQrSettingsPreview() {
         }
     }
 }
-
 let currentReceiptLoyaltyQrPrintData = null;
-
 function applyLoyaltyQrSettingsToDom(pendingQr) {
     const container = document.getElementById('r-loyalty-qr-container');
     if (!container) return;
-
     const settings = Object.assign({}, DEFAULT_LOYALTY_QR_SETTINGS, (receiptSettingsCache && receiptSettingsCache.loyaltyQrSettings) || {});
-
     if (!settings.enabled || !pendingQr || !pendingQr.token) {
         container.style.display ='none';
         currentReceiptLoyaltyQrPrintData = null;
         return;
     }
-
     const showOnScreenAndRegularPrint = settings.printOn !=='bluetooth';
     container.style.display = showOnScreenAndRegularPrint ?'' :'none';
     if (!showOnScreenAndRegularPrint) {
-
         const noteElHidden = document.getElementById('r-loyalty-qr-note');
         if (noteElHidden) noteElHidden.style.display ='none';
         const renderElHidden = document.getElementById('r-loyalty-qr-render');
@@ -11122,7 +9199,6 @@ function applyLoyaltyQrSettingsToDom(pendingQr) {
             : null;
         return;
     }
-
     const barcodeOuter = document.getElementById('r-barcode-outer-container');
     if (barcodeOuter && barcodeOuter.parentNode) {
         if (settings.position ==='above_barcode') {
@@ -11131,7 +9207,6 @@ function applyLoyaltyQrSettingsToDom(pendingQr) {
             barcodeOuter.parentNode.insertBefore(container, barcodeOuter.nextSibling);
         }
     }
-
     if (barcodeOuter) {
         if (settings.position ==='above_barcode') {
             container.style.marginTop ='15px';
@@ -11145,16 +9220,13 @@ function applyLoyaltyQrSettingsToDom(pendingQr) {
             container.style.marginBottom ='15px';
         }
     }
-
     const dividerEl = document.getElementById('r-loyalty-qr-divider');
     if (dividerEl) dividerEl.style.display = settings.showDivider ?'' :'none';
-
     const noteEl = document.getElementById('r-loyalty-qr-note');
     if (noteEl) {
         noteEl.style.display = settings.showNote ?'block' :'none';
         noteEl.innerText = (settings.noteText && settings.noteText.trim()) || pendingQr.note ||'Loyalty QR (for next visit)';
     }
-
     const renderEl = document.getElementById('r-loyalty-qr-render');
     if (renderEl) {
         renderEl.innerHTML ='';
@@ -11174,7 +9246,6 @@ function applyLoyaltyQrSettingsToDom(pendingQr) {
             }
         }, 50);
     }
-
     currentReceiptLoyaltyQrPrintData = (settings.printOn !=='regular')
         ? {
             token: pendingQr.token,
@@ -11185,11 +9256,9 @@ function applyLoyaltyQrSettingsToDom(pendingQr) {
         }
         : null;
 }
-
 async function saveLoyaltyQrSettings() {
     const loyaltyQrSettings = collectLoyaltyQrSettingsFromForm();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/loyalty-qr`, {
             method:'POST',
@@ -11197,7 +9266,6 @@ async function saveLoyaltyQrSettings() {
             body: JSON.stringify({ loyaltyQrSettings, username })
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The loyalty QR settings request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -11212,9 +9280,7 @@ async function saveLoyaltyQrSettings() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 const DEFAULT_TAIWAN_TEMPLATE_SETTINGS = { enabled: false, widthMm: 57 };
-
 function collectTaiwanTemplateSettingsFromForm() {
     const enabledEl = document.getElementById('twset-enabled');
     const widthEl = document.getElementById('twset-widthmm');
@@ -11223,7 +9289,6 @@ function collectTaiwanTemplateSettingsFromForm() {
         widthMm: widthEl ? Number(widthEl.value) : DEFAULT_TAIWAN_TEMPLATE_SETTINGS.widthMm
     };
 }
-
 function updateTaiwanTemplateSettingsPreview() {
     const settings = collectTaiwanTemplateSettingsFromForm();
     const fieldsWrap = document.getElementById('twset-fields-wrap');
@@ -11231,13 +9296,11 @@ function updateTaiwanTemplateSettingsPreview() {
     const label = document.getElementById('twset-widthmm-val');
     if (label) label.textContent = `(${settings.widthMm}mm)`;
 }
-
 function applyTaiwanTemplateWidthToElement(paperEl, taiwanSettings, forceActive) {
     if (!paperEl) return false;
     const st = Object.assign({}, DEFAULT_TAIWAN_TEMPLATE_SETTINGS, taiwanSettings || {});
     const active = (forceActive === undefined || forceActive === null) ? !!st.enabled : !!forceActive;
     const widthMm = Number.isFinite(Number(st.widthMm)) ? Number(st.widthMm) : DEFAULT_TAIWAN_TEMPLATE_SETTINGS.widthMm;
-
     if (active) {
         paperEl.style.setProperty('max-width', `${widthMm}mm`,'important');
         paperEl.style.setProperty('margin','0 auto','important');
@@ -11249,11 +9312,9 @@ function applyTaiwanTemplateWidthToElement(paperEl, taiwanSettings, forceActive)
     }
     return active;
 }
-
 async function saveTaiwanTemplateSettings() {
     const taiwanTemplateSettings = collectTaiwanTemplateSettingsFromForm();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/taiwan-template`, {
             method:'POST',
@@ -11261,7 +9322,6 @@ async function saveTaiwanTemplateSettings() {
             body: JSON.stringify({ taiwanTemplateSettings, username })
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The Taiwan Receipt Template request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -11276,7 +9336,6 @@ async function saveTaiwanTemplateSettings() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 function collectTransactionIdSettingsFromForm() {
     const formatEl = document.getElementById('rc-form-txnid-format');
     const format = formatEl && TRANSACTION_ID_FORMAT_INFO[formatEl.value]
@@ -11284,7 +9343,6 @@ function collectTransactionIdSettingsFromForm() {
         : DEFAULT_TRANSACTION_ID_SETTINGS.format;
     return { format };
 }
-
 function updateTransactionIdFormatPreview() {
     const settings = collectTransactionIdSettingsFromForm();
     const info = TRANSACTION_ID_FORMAT_INFO[settings.format] || TRANSACTION_ID_FORMAT_INFO.xs;
@@ -11300,11 +9358,9 @@ function updateTransactionIdFormatPreview() {
             : `${sample.length} characters (varies by millisecond timestamp)`;
     }
 }
-
 async function saveReceiptTransactionIdFormat() {
     const transactionIdSettings = collectTransactionIdSettingsFromForm();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     try {
         const res = await authFetch(`${API_URL}/receipt-settings/transaction-id`, {
             method:'POST',
@@ -11312,7 +9368,6 @@ async function saveReceiptTransactionIdFormat() {
             body: JSON.stringify({ transactionIdSettings, username })
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The Transaction ID Format request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -11328,17 +9383,14 @@ async function saveReceiptTransactionIdFormat() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 function buildLiveReceiptSettingsPreviewObject(baseSettings) {
     const val = (id, fallback) => { const el = document.getElementById(id); return el ? el.value : fallback; };
     const base = baseSettings || {};
-
     const headerType = document.getElementById('rc-header-image-section') &&
         document.getElementById('rc-header-image-section').style.display !=='none' ?'image' :'text';
     const headerImage = headerType ==='image'
         ? ((document.getElementById('rc-form-header-image-value') || {}).value ||'')
         :'';
-
     return Object.assign({}, base, {
         storeName: val('rc-form-storename', base.storeName),
         storeAddress: val('rc-form-address', base.storeAddress),
@@ -11354,7 +9406,6 @@ function buildLiveReceiptSettingsPreviewObject(baseSettings) {
         taiwanTemplateSettings: collectTaiwanTemplateSettingsFromForm()
     });
 }
-
 async function previewCustomizationReceipt(useTaiwanTemplate) {
     if (!receiptSettingsCache && receiptSettingsPromise) {
         await receiptSettingsPromise;
@@ -11362,15 +9413,12 @@ async function previewCustomizationReceipt(useTaiwanTemplate) {
     if (!receiptSettingsCache) {
         await fetchReceiptSettings();
     }
-
     const originalReceiptSettingsCache = receiptSettingsCache;
     receiptSettingsCache = buildLiveReceiptSettingsPreviewObject(originalReceiptSettingsCache);
-
     try {
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-US', { month:'short', day:'2-digit', year:'numeric' });
         const timeStr = now.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
-
         const sampleTx = {
             id:'PREVIEW-' + String(Date.now()).slice(-6),
             timestamp: `${dateStr}, ${timeStr}`,
@@ -11386,15 +9434,12 @@ async function previewCustomizationReceipt(useTaiwanTemplate) {
             discount: 0,
             taxAmount: 0
         };
-
         await renderInvoiceReceipt(sampleTx, true);
-
         applyTaiwanTemplateWidthToElement(
             document.getElementById('printable-receipt-area'),
             (receiptSettingsCache && receiptSettingsCache.taiwanTemplateSettings) || DEFAULT_TAIWAN_TEMPLATE_SETTINGS,
             useTaiwanTemplate
         );
-
         const qset = Object.assign({}, DEFAULT_LOYALTY_QR_SETTINGS, (receiptSettingsCache && receiptSettingsCache.loyaltyQrSettings) || {});
         if (qset.enabled) {
             applyLoyaltyQrSettingsToDom({
@@ -11404,37 +9449,28 @@ async function previewCustomizationReceipt(useTaiwanTemplate) {
                     :'New Loyalty QR ni Sample Customer — ito na ang gagamitin sa susunod na redemption.'
             });
         }
-
         const modalTitleEl = document.querySelector('#receipt-modal .modal-header h3');
         if (modalTitleEl) {
             modalTitleEl.innerText = useTaiwanTemplate ?'Receipt Preview — Taiwan Template' :'Receipt Preview — Default';
         }
     } finally {
-
         receiptSettingsCache = originalReceiptSettingsCache;
     }
 }
-
 const HEADER_IMAGE_MAX_DIM = 500;
-
 function switchReceiptHeaderType(type, skipClearOnEmpty) {
     const textSection = document.getElementById('rc-header-text-section');
     const imageSection = document.getElementById('rc-header-image-section');
     const btnText = document.getElementById('rc-header-type-btn-text');
     const btnImage = document.getElementById('rc-header-type-btn-image');
-
     if (textSection) textSection.style.display = type ==='image' ?'none' :'block';
     if (imageSection) imageSection.style.display = type ==='image' ?'block' :'none';
     if (btnText) btnText.classList.toggle('active', type !=='image');
     if (btnImage) btnImage.classList.toggle('active', type ==='image');
-
     const hiddenType = document.getElementById('rc-form-header-image-value');
-
     if (!skipClearOnEmpty && type !=='image' && hiddenType) {
-
     }
 }
-
 function loadImageFileAsElement(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -11448,45 +9484,36 @@ function loadImageFileAsElement(file) {
         reader.readAsDataURL(file);
     });
 }
-
 async function handleReceiptHeaderImageSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
         Swal.fire('Wrong File Type','Only images (PNG, JPG, WEBP) can be uploaded as a header logo.','error');
         event.target.value ='';
         return;
     }
-
     try {
         const img = await loadImageFileAsElement(file);
         const naturalWidth = img.naturalWidth || img.width;
         const naturalHeight = img.naturalHeight || img.height;
-
         const scale = Math.min(1, HEADER_IMAGE_MAX_DIM / Math.max(naturalWidth, naturalHeight));
         const targetWidth = Math.max(1, Math.round(naturalWidth * scale));
         const targetHeight = Math.max(1, Math.round(naturalHeight * scale));
-
         const canvas = document.createElement('canvas');
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, targetWidth, targetHeight);
         ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-
         let dataUrl = canvas.toDataURL('image/png');
         if (dataUrl.length > 450 * 1024) {
             dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         }
-
         document.getElementById('rc-form-header-image-value').value = dataUrl;
-
         const previewWrap = document.getElementById('rc-header-image-preview-wrap');
         const settingsBox = document.getElementById('rc-header-image-settings');
         if (previewWrap) previewWrap.style.display ='block';
         if (settingsBox) settingsBox.style.display ='block';
-
         updateReceiptHeaderImagePreview();
     } catch (err) {
         console.error(err);
@@ -11495,20 +9522,16 @@ async function handleReceiptHeaderImageSelect(event) {
         event.target.value ='';
     }
 }
-
 function removeReceiptHeaderImage() {
     const hiddenType = document.getElementById('rc-form-header-image-value');
     if (hiddenType) hiddenType.value ='';
-
     const previewWrap = document.getElementById('rc-header-image-preview-wrap');
     const settingsBox = document.getElementById('rc-header-image-settings');
     if (previewWrap) previewWrap.style.display ='none';
     if (settingsBox) settingsBox.style.display ='none';
-
     const previewImg = document.getElementById('rc-header-image-preview');
     if (previewImg) previewImg.removeAttribute('src');
 }
-
 function collectReceiptHeaderImageStyleFromForm() {
     const getRange = (id, fallback) => {
         const el = document.getElementById(id);
@@ -11516,7 +9539,6 @@ function collectReceiptHeaderImageStyleFromForm() {
     };
     const alignEl = document.getElementById('rc-hi-align');
     const grayscaleEl = document.getElementById('rc-hi-grayscale');
-
     return {
         widthPct: getRange('rc-hi-width', DEFAULT_HEADER_IMAGE_STYLE.widthPct),
         align: alignEl ? alignEl.value : DEFAULT_HEADER_IMAGE_STYLE.align,
@@ -11529,16 +9551,13 @@ function collectReceiptHeaderImageStyleFromForm() {
         lineSpacingPx: getRange('rc-hi-linespacing', DEFAULT_HEADER_IMAGE_STYLE.lineSpacingPx)
     };
 }
-
 function updateReceiptHeaderImagePreview() {
     const dataUrl = (document.getElementById('rc-form-header-image-value') || {}).value ||'';
     const previewImg = document.getElementById('rc-header-image-preview');
     const style = collectReceiptHeaderImageStyleFromForm();
-
     if (previewImg && dataUrl) {
         applyReceiptHeaderImageStyle(previewImg, dataUrl, style);
     }
-
     const setLabel = (id, val, suffix) => {
         const el = document.getElementById(id);
         if (el) el.textContent = `(${val}${suffix})`;
@@ -11550,14 +9569,12 @@ function updateReceiptHeaderImagePreview() {
     setLabel('rc-hi-marginbottom-val', style.marginBottomPx,'px');
     setLabel('rc-hi-linespacing-val', style.lineSpacingPx,'px');
 }
-
 async function saveReceiptCustomization() {
     const headerType = document.getElementById('rc-header-image-section') &&
         document.getElementById('rc-header-image-section').style.display !=='none' ?'image' :'text';
     const headerImage = headerType ==='image'
         ? ((document.getElementById('rc-form-header-image-value') || {}).value ||'')
         :'';
-
     const payload = {
         storeName: (document.getElementById('rc-form-storename').value ||'').trim(),
         storeAddress: (document.getElementById('rc-form-address').value ||'').trim(),
@@ -11569,17 +9586,14 @@ async function saveReceiptCustomization() {
         headerImageStyle: collectReceiptHeaderImageStyleFromForm(),
         username: currentUser ? (currentUser.username || currentUser.name) :'Unknown'
     };
-
     if (!payload.storeName) {
         Swal.fire('Missing Details','Store Name is required.','warning');
         return;
     }
-
     if (payload.headerType ==='image' && !payload.headerImage) {
         Swal.fire('Missing Logo','Please upload a header logo/image, or switch back to "Text Only".','warning');
         return;
     }
-
     try {
         let res = await authFetch(`${API_URL}/receipt-settings`, {
             method:'POST',
@@ -11587,7 +9601,6 @@ async function saveReceiptCustomization() {
             body: JSON.stringify(payload)
         });
         let data = await res.json();
-
         if (data.requiresOtp) {
             const otpReqRes = await authFetch(`${API_URL}/receipt-settings/request-otp`, {
                 method:'POST',
@@ -11595,12 +9608,10 @@ async function saveReceiptCustomization() {
                 body: JSON.stringify({ username: payload.username })
             });
             const otpReqData = await otpReqRes.json();
-
             if (!otpReqData.success) {
                 Swal.fire('OTP Not Sent', otpReqData.message ||'Failed to send the OTP.','error');
                 return;
             }
-
             const { value: otpCode } = await Swal.fire({
                 title:'🔒 OTP Required',
                 html:'You have reached the free limit for receipt customization (2/2). An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
@@ -11610,24 +9621,19 @@ async function saveReceiptCustomization() {
                 confirmButtonColor:'#2563eb',
                 cancelButtonColor:'#64748b'
             });
-
             if (!otpCode || !otpCode.trim()) return;
-
             payload.otp = otpCode.trim();
-
             res = await authFetch(`${API_URL}/receipt-settings`, {
                 method:'POST',
                 headers: {'Content-Type':'application/json' },
                 body: JSON.stringify(payload)
             });
             data = await res.json();
-
             if (data.pending) {
                 data = await pollUntilApproved(`${API_URL}/receipt-settings`, payload);
             }
             if (data.cancelled) return;
         }
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The Receipt Customization request has been submitted for Admin approval.','info');
         } else if (data.success) {
@@ -11643,9 +9649,7 @@ async function saveReceiptCustomization() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 let storeSettingsCache = null;
-
 async function fetchStoreSettings() {
     try {
         const res = await authFetch(`${API_URL}/store-settings`);
@@ -11656,14 +9660,11 @@ async function fetchStoreSettings() {
     }
     return storeSettingsCache;
 }
-
 async function loadStoreSettingsPanel() {
     const s = await fetchStoreSettings();
     if (!s) return;
-
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
-
     setVal('ss-currency-code', s.currencyCode);
     setChecked('ss-tax-enabled', s.taxEnabled);
     setVal('ss-tax-label', s.taxLabel);
@@ -11683,14 +9684,12 @@ async function loadStoreSettingsPanel() {
     setVal('ss-loyalty-point-value', s.loyaltyPointValue);
     setVal('ss-branch-name', s.branchName || '');
     setVal('ss-branch-group-key', s.branchGroupKey || '');
-
     const statusEl = document.getElementById('store-settings-status');
     if (statusEl) {
         statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
         statusEl.style.color = '#64748b';
     }
 }
-
 async function saveStoreSettings() {
     const payload = {
         currencyCode: document.getElementById('ss-currency-code').value,
@@ -11716,7 +9715,6 @@ async function saveStoreSettings() {
         branchGroupKey: (document.getElementById('ss-branch-group-key').value || '').trim(),
         username: currentUser ? (currentUser.username || currentUser.name) : 'Unknown'
     };
-
     try {
         const res = await authFetch(`${API_URL}/store-settings`, {
             method: 'POST',
@@ -11724,7 +9722,6 @@ async function saveStoreSettings() {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message || 'The Store & Sales Settings request has been submitted for Admin approval.', 'info');
         } else if (data.success) {
@@ -11740,12 +9737,10 @@ async function saveStoreSettings() {
         Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
     }
 }
-
 async function testBranchConnection() {
     const btn = document.getElementById('branch-test-connection-btn');
     const statusEl = document.getElementById('branch-test-connection-status');
     if (!btn || !statusEl) return;
-
     const currentInputVal = (document.getElementById('ss-branch-group-key').value || '').trim();
     const savedVal = (storeSettingsCache && storeSettingsCache.branchGroupKey) || '';
     if (currentInputVal !== savedVal) {
@@ -11758,13 +9753,11 @@ async function testBranchConnection() {
         statusEl.textContent = 'Ilagay muna ang Business Group Code sa itaas.';
         return;
     }
-
     btn.disabled = true;
     const originalHtml = btn.innerHTML;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing…';
     statusEl.style.color = '#64748b';
     statusEl.textContent = '';
-
     try {
         const res = await authFetch(`${API_URL}/relay-branch/checkin-now`, { method: 'POST' });
         const data = await res.json();
@@ -11779,10 +9772,8 @@ async function testBranchConnection() {
         btn.innerHTML = originalHtml;
     }
 }
-
 const QR_AUTOCROP_MARGIN_PX = 2;
 const QR_AUTOCROP_MAX_DIM = 500;
-
 function qrAutoCropLoadImage(file) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -11791,21 +9782,18 @@ function qrAutoCropLoadImage(file) {
         img.src = URL.createObjectURL(file);
     });
 }
-
 async function qrAutoCropDetectBox(img) {
     if (typeof BarcodeDetector === 'undefined') return null;
     try {
         const detector = new BarcodeDetector({ formats: ['qr_code'] });
         const barcodes = await detector.detect(img);
         if (!barcodes || barcodes.length === 0) return null;
-
         let best = barcodes[0];
         let bestArea = best.boundingBox.width * best.boundingBox.height;
         for (let i = 1; i < barcodes.length; i++) {
             const area = barcodes[i].boundingBox.width * barcodes[i].boundingBox.height;
             if (area > bestArea) { best = barcodes[i]; bestArea = area; }
         }
-
         const bb = best.boundingBox;
         if (!bb || bb.width <= 0 || bb.height <= 0) return null;
         return { minX: bb.x, minY: bb.y, maxX: bb.x + bb.width, maxY: bb.y + bb.height };
@@ -11813,61 +9801,48 @@ async function qrAutoCropDetectBox(img) {
         return null;
     }
 }
-
 async function handlePaymentQrPhotoSelect(event, kind) {
     const file = event.target.files[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
         Swal.fire('Wrong File Type','Only images (JPG, PNG, etc.) can be uploaded as a QR code.','error');
         event.target.value ='';
         return;
     }
-
     try {
         const img = await qrAutoCropLoadImage(file);
         const naturalWidth = img.naturalWidth || img.width;
         const naturalHeight = img.naturalHeight || img.height;
-
         const box = await qrAutoCropDetectBox(img);
-
         let cropX, cropY, cropSize;
         if (box) {
-
             const boxW = Math.max(box.maxX - box.minX, 1);
             const boxH = Math.max(box.maxY - box.minY, 1);
             const padX = boxW * 0.15;
             const padY = boxH * 0.15;
-
             let x0 = box.minX - padX;
             let y0 = box.minY - padY;
             let x1 = box.maxX + padX;
             let y1 = box.maxY + padY;
-
             const size = Math.max(x1 - x0, y1 - y0);
             const cx = (x0 + x1) / 2;
             const cy = (y0 + y1) / 2;
             x0 = cx - size / 2;
             y0 = cy - size / 2;
-
             x0 = Math.max(0, Math.min(x0, naturalWidth - 1));
             y0 = Math.max(0, Math.min(y0, naturalHeight - 1));
             const maxSize = Math.min(naturalWidth - x0, naturalHeight - y0);
-
             cropX = x0;
             cropY = y0;
             cropSize = Math.min(size, maxSize);
         } else {
-
             const size = Math.min(naturalWidth, naturalHeight);
             cropX = (naturalWidth - size) / 2;
             cropY = (naturalHeight - size) / 2;
             cropSize = size;
         }
-
         const drawSize = Math.min(QR_AUTOCROP_MAX_DIM, Math.round(cropSize));
         const finalSize = drawSize + QR_AUTOCROP_MARGIN_PX * 2;
-
         const canvas = document.createElement('canvas');
         canvas.width = finalSize;
         canvas.height = finalSize;
@@ -11878,7 +9853,6 @@ async function handlePaymentQrPhotoSelect(event, kind) {
             cropX, cropY, cropSize, cropSize,
             QR_AUTOCROP_MARGIN_PX, QR_AUTOCROP_MARGIN_PX, drawSize, drawSize
         );
-
         const compressedDataUrl = canvas.toDataURL('image/png');
         document.getElementById(`ss-${kind}-qr-value`).value = compressedDataUrl;
         updatePaymentQrPreview(kind, compressedDataUrl);
@@ -11889,7 +9863,6 @@ async function handlePaymentQrPhotoSelect(event, kind) {
         event.target.value = '';
     }
 }
-
 function updatePaymentQrPreview(kind, dataUrl) {
     const preview = document.getElementById(`ss-${kind}-qr-preview`);
     const removeBtn = document.getElementById(`ss-${kind}-qr-remove-btn`);
@@ -11904,15 +9877,12 @@ function updatePaymentQrPreview(kind, dataUrl) {
         if (removeBtn) removeBtn.style.display ='none';
     }
 }
-
 function removePaymentQrPhoto(kind) {
     updatePaymentQrPreview(kind, '');
     const fileInput = document.getElementById(`ss-${kind}-qr-input`);
     if (fileInput) fileInput.value ='';
 }
-
 let uxSettingsCache = null;
-
 async function fetchUxSettings() {
     try {
         const res = await authFetch(`${API_URL}/ux-settings`);
@@ -11923,14 +9893,11 @@ async function fetchUxSettings() {
     }
     return uxSettingsCache;
 }
-
 async function loadUxSettingsPanel() {
     const s = await fetchUxSettings();
     if (!s) return;
-
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
-
     setChecked('ux-dark-mode-default', s.darkModeDefault);
     setVal('ux-low-stock-threshold', s.lowStockAlertThreshold);
     setChecked('ux-scanner-sound', s.scannerSound);
@@ -11939,26 +9906,22 @@ async function loadUxSettingsPanel() {
     setChecked('ux-widget-topproducts', s.dashboardWidgets.topProducts);
     setChecked('ux-widget-recenttx', s.dashboardWidgets.recentTransactions);
     setChecked('ux-swap-terminal-layout', getTerminalLayoutSwapped());
-
     const statusEl = document.getElementById('ux-settings-status');
     if (statusEl) {
         statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
         statusEl.style.color = '#64748b';
     }
 }
-
 function previewDarkMode(isChecked) {
     if (typeof THEME_CATALOG === 'undefined' || typeof isThemeUnlocked !== 'function') return;
     const darkTheme = THEME_CATALOG.find(t => t.id === 'dark');
     if (isChecked && darkTheme && !isThemeUnlocked(darkTheme)) {
-
         return;
     }
     if (typeof applyTheme === 'function') {
         applyTheme(isChecked ? 'dark' : 'day', { persist: false });
     }
 }
-
 async function saveUxSettings() {
     const payload = {
         darkModeDefault: document.getElementById('ux-dark-mode-default').checked,
@@ -11972,7 +9935,6 @@ async function saveUxSettings() {
         },
         username: currentUser ? (currentUser.username || currentUser.name) : 'Unknown'
     };
-
     try {
         const res = await authFetch(`${API_URL}/ux-settings`, {
             method: 'POST',
@@ -11980,7 +9942,6 @@ async function saveUxSettings() {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message || 'The Appearance/UX Settings request has been submitted for Admin approval.', 'info');
         } else if (data.success) {
@@ -11995,45 +9956,35 @@ async function saveUxSettings() {
         Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
     }
 }
-
 const TERMINAL_LAYOUT_SWAP_KEY = 'omnipos_terminal_layout_swapped';
-
 function isDesktopTerminalView() {
     return window.matchMedia('(min-width: 1025px)').matches;
 }
-
 function getTerminalLayoutSwapped() {
     return localStorage.getItem(TERMINAL_LAYOUT_SWAP_KEY) === 'true';
 }
-
 function applyTerminalLayoutSwap(swapped) {
     const container = document.querySelector('.terminal-container');
     if (container) container.classList.toggle('layout-swapped', !!swapped);
 }
-
 function setTerminalLayoutSwapped(swapped) {
     localStorage.setItem(TERMINAL_LAYOUT_SWAP_KEY, swapped ? 'true' : 'false');
     applyTerminalLayoutSwap(swapped);
     const cb = document.getElementById('ux-swap-terminal-layout');
     if (cb) cb.checked = !!swapped;
 }
-
 function toggleTerminalLayoutSwap() {
     setTerminalLayoutSwapped(!getTerminalLayoutSwapped());
 }
-
 function toggleTerminalLayoutSetting(isChecked) {
     setTerminalLayoutSwapped(isChecked);
 }
-
 function initTerminalLayoutSwap() {
     applyTerminalLayoutSwap(getTerminalLayoutSwapped());
-
     const header = document.getElementById('terminal-cart-header');
     const cartPane = document.getElementById('terminal-cart-pane');
     const productPane = document.getElementById('terminal-product-pane');
     if (!header || !cartPane || !productPane) return;
-
     function refreshDraggableState() {
         const enabled = isDesktopTerminalView();
         header.setAttribute('draggable', enabled ? 'true' : 'false');
@@ -12041,30 +9992,25 @@ function initTerminalLayoutSwap() {
     }
     refreshDraggableState();
     window.addEventListener('resize', refreshDraggableState);
-
     header.addEventListener('dragstart', (e) => {
         if (!isDesktopTerminalView()) { e.preventDefault(); return; }
         e.dataTransfer.setData('text/plain', 'omnipos-terminal-pane');
         e.dataTransfer.effectAllowed = 'move';
         cartPane.classList.add('pane-dragging');
     });
-
     header.addEventListener('dragend', () => {
         cartPane.classList.remove('pane-dragging');
         productPane.classList.remove('pane-drop-target');
     });
-
     productPane.addEventListener('dragover', (e) => {
         if (!cartPane.classList.contains('pane-dragging')) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         productPane.classList.add('pane-drop-target');
     });
-
     productPane.addEventListener('dragleave', () => {
         productPane.classList.remove('pane-drop-target');
     });
-
     productPane.addEventListener('drop', (e) => {
         if (!cartPane.classList.contains('pane-dragging')) return;
         e.preventDefault();
@@ -12072,40 +10018,27 @@ function initTerminalLayoutSwap() {
         toggleTerminalLayoutSwap();
     });
 }
-
 document.addEventListener('DOMContentLoaded', initTerminalLayoutSwap);
-
 const CART_PANE_WIDTH_KEY = 'omnipos_terminal_cart_pane_width';
-const CART_PANE_DEFAULT_WIDTH = 680; // widened further per request
-
+const CART_PANE_DEFAULT_WIDTH = 680; 
 const CART_PANE_MIN_WIDTH = CART_PANE_DEFAULT_WIDTH;
 const CART_PANE_MAX_WIDTH = 1040;
-
-// Reserved space for the product grid/list pane. Lowered so the cart pane can
-// take priority when resized wider — the product grid/list now shrinks first
-// instead of capping how far the cart pane (with the Customer + Charge/Total
-// row) can grow.
 const CART_PANE_PRODUCT_RESERVE_GRID = 300;
 const CART_PANE_PRODUCT_RESERVE_LIST = 340;
-
 function getSavedCartPaneWidth() {
     const raw = localStorage.getItem(CART_PANE_WIDTH_KEY);
     const parsed = raw ? parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) ? parsed : null;
 }
-
 function getCartPaneProductPaneReserve() {
     const gridOutput = document.getElementById('terminal-grid-output');
     const isListView = !!(gridOutput && gridOutput.classList.contains('terminal-list-view'));
     return isListView ? CART_PANE_PRODUCT_RESERVE_LIST : CART_PANE_PRODUCT_RESERVE_GRID;
 }
-
 function clampCartPaneWidth(width) {
-
     const dynamicMax = Math.max(CART_PANE_MIN_WIDTH, Math.min(CART_PANE_MAX_WIDTH, window.innerWidth - getCartPaneProductPaneReserve()));
     return Math.min(Math.max(width, CART_PANE_MIN_WIDTH), dynamicMax);
 }
-
 function reclampCartPaneWidthToCurrentView() {
     const cartPane = document.getElementById('terminal-cart-pane');
     if (!cartPane || !isDesktopTerminalView()) return;
@@ -12113,39 +10046,31 @@ function reclampCartPaneWidthToCurrentView() {
     if (!currentWidth) return;
     applyCartPaneWidth(cartPane, currentWidth);
 }
-
 function applyCartPaneWidth(cartPane, width) {
     if (!cartPane) return;
     if (isDesktopTerminalView() && width) {
         cartPane.style.width = `${clampCartPaneWidth(width)}px`;
     } else {
-
         cartPane.style.width = '';
     }
 }
-
 function initCartPaneResize() {
     const cartPane = document.getElementById('terminal-cart-pane');
     const handle = document.getElementById('cart-pane-resize-handle');
     const container = document.querySelector('.terminal-container');
     if (!cartPane || !handle || !container) return;
-
     applyCartPaneWidth(cartPane, getSavedCartPaneWidth() || CART_PANE_DEFAULT_WIDTH);
     window.addEventListener('resize', () => applyCartPaneWidth(cartPane, getSavedCartPaneWidth() || CART_PANE_DEFAULT_WIDTH));
-
     let dragStartX = 0;
     let dragStartWidth = CART_PANE_DEFAULT_WIDTH;
     let dragging = false;
-
     function onPointerMove(e) {
         if (!dragging) return;
         const swapped = container.classList.contains('layout-swapped');
-
         const deltaX = e.clientX - dragStartX;
         const newWidth = swapped ? (dragStartWidth - deltaX) : (dragStartWidth + deltaX);
         cartPane.style.width = `${clampCartPaneWidth(newWidth)}px`;
     }
-
     function onPointerUp() {
         if (!dragging) return;
         dragging = false;
@@ -12154,13 +10079,11 @@ function initCartPaneResize() {
         document.body.classList.remove('cart-pane-resizing-cursor');
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', onPointerUp);
-
         const finalWidth = parseInt(cartPane.style.width, 10);
         if (Number.isFinite(finalWidth)) {
             localStorage.setItem(CART_PANE_WIDTH_KEY, String(finalWidth));
         }
     }
-
     handle.addEventListener('pointerdown', (e) => {
         if (!isDesktopTerminalView()) return;
         e.preventDefault();
@@ -12173,17 +10096,13 @@ function initCartPaneResize() {
         window.addEventListener('pointermove', onPointerMove);
         window.addEventListener('pointerup', onPointerUp);
     });
-
     handle.addEventListener('dblclick', () => {
         localStorage.removeItem(CART_PANE_WIDTH_KEY);
         applyCartPaneWidth(cartPane, CART_PANE_DEFAULT_WIDTH);
     });
 }
-
 document.addEventListener('DOMContentLoaded', initCartPaneResize);
-
 let advancedSettingsCache = null;
-
 async function fetchAdvancedSettings() {
     try {
         const res = await authFetch(`${API_URL}/advanced-settings`);
@@ -12194,14 +10113,11 @@ async function fetchAdvancedSettings() {
     }
     return advancedSettingsCache;
 }
-
 async function loadAdvancedSettingsPanel() {
     const s = await fetchAdvancedSettings();
     if (!s) return;
-
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
-
     setChecked('adv-idle-lock-enabled', s.idleAutoLockEnabled);
     setVal('adv-idle-lock-minutes', s.idleAutoLockMinutes);
     setChecked('adv-customer-display-enabled', s.customerDisplayEnabled);
@@ -12215,16 +10131,13 @@ async function loadAdvancedSettingsPanel() {
     setChecked('adv-fraud-email-enabled', s.fraudAlertEmailEnabled);
     setVal('adv-fraud-recipient-email', s.fraudAlertRecipientEmail || '');
     if (typeof toggleFraudDetectionFields === 'function') toggleFraudDetectionFields();
-
     const statusEl = document.getElementById('advanced-settings-status');
     if (statusEl) {
         statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
         statusEl.style.color = '#64748b';
     }
-
     setupIdleAutoLock();
 }
-
 async function saveAdvancedSettings() {
     const payload = {
         idleAutoLockEnabled: document.getElementById('adv-idle-lock-enabled').checked,
@@ -12241,7 +10154,6 @@ async function saveAdvancedSettings() {
         fraudAlertRecipientEmail: (document.getElementById('adv-fraud-recipient-email').value || '').trim(),
         username: currentUser ? (currentUser.username || currentUser.name) : 'Unknown'
     };
-
     try {
         const res = await authFetch(`${API_URL}/advanced-settings`, {
             method: 'POST',
@@ -12249,7 +10161,6 @@ async function saveAdvancedSettings() {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
-
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message || 'The Advanced Settings request has been submitted for Admin approval.', 'info');
         } else if (data.success) {
@@ -12264,7 +10175,6 @@ async function saveAdvancedSettings() {
         Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
     }
 }
-
 function toggleFraudDetectionFields() {
     const enabled = document.getElementById('adv-fraud-detection-enabled') ? document.getElementById('adv-fraud-detection-enabled').checked : false;
     ['adv-fraud-sensitivity', 'adv-fraud-email-enabled', 'adv-fraud-recipient-email'].forEach(id => {
@@ -12272,7 +10182,6 @@ function toggleFraudDetectionFields() {
         if (el) el.disabled = !enabled;
     });
 }
-
 const FRAUD_ALERT_TYPE_LABELS = {
     discount_anomaly: 'Unusual Discount',
     void_velocity: 'Rapid Voids',
@@ -12280,39 +10189,32 @@ const FRAUD_ALERT_TYPE_LABELS = {
     large_refund: 'Oversized Refund',
     unusual_hour_sale: 'Off-Hours Sale'
 };
-
 const FRAUD_ALERT_SEVERITY_COLORS = {
     low: '#64748b',
     medium: '#d97706',
     high: '#dc2626'
 };
-
 async function loadFraudAlertsTable() {
     const counterTab = document.getElementById('fraud-alerts-counter-tab');
     const tbody = document.getElementById('fraud-alerts-table-body');
     const emptyState = document.getElementById('fraud-alerts-empty-state');
     if (!tbody) return;
-
     try {
         const res = await authFetch(`${API_URL}/fraud-alerts`);
         if (!res.ok) {
-
             tbody.innerHTML = '';
             if (emptyState) emptyState.style.display = 'none';
             return;
         }
         const data = await res.json();
         const alerts = data.alerts || [];
-
         if (counterTab) counterTab.innerText = `Fraud Alerts${data.unreviewedCount ? ` (${data.unreviewedCount})` : ''}`;
-
         if (alerts.length === 0) {
             tbody.innerHTML = '';
             if (emptyState) emptyState.style.display = 'block';
             return;
         }
         if (emptyState) emptyState.style.display = 'none';
-
         tbody.innerHTML = alerts.map(a => {
             const typeLabel = FRAUD_ALERT_TYPE_LABELS[a.type] || a.type;
             const color = FRAUD_ALERT_SEVERITY_COLORS[a.severity] || '#64748b';
@@ -12322,7 +10224,6 @@ async function loadFraudAlertsTable() {
             const actionHtml = a.reviewed
                 ? '—'
                 : `<button class="btn-action-outline" onclick="reviewFraudAlert('${a.id}')"><i class="fa-solid fa-check"></i> Mark Reviewed</button>`;
-
             return `<tr>
                 <td>${escapeHtml(a.timestamp || '')}</td>
                 <td>${escapeHtml(typeLabel)}</td>
@@ -12337,7 +10238,6 @@ async function loadFraudAlertsTable() {
         console.error('Failed to load fraud alerts:', err);
     }
 }
-
 async function reviewFraudAlert(alertId) {
     const { value: note } = await Swal.fire({
         title: 'Mark Fraud Alert as Reviewed',
@@ -12347,7 +10247,6 @@ async function reviewFraudAlert(alertId) {
         confirmButtonText: 'Mark Reviewed'
     });
     if (note === undefined) return;
-
     try {
         const res = await authFetch(`${API_URL}/fraud-alerts/${encodeURIComponent(alertId)}/review`, {
             method: 'POST',
@@ -12365,20 +10264,16 @@ async function reviewFraudAlert(alertId) {
         Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
     }
 }
-
 let idleAutoLockTimer = null;
 let idleAutoLockListenersAttached = false;
-
 function setupIdleAutoLock() {
     if (idleAutoLockTimer) { clearTimeout(idleAutoLockTimer); idleAutoLockTimer = null; }
     if (!advancedSettingsCache || !advancedSettingsCache.idleAutoLockEnabled) return;
-
     const resetTimer = () => {
         if (idleAutoLockTimer) clearTimeout(idleAutoLockTimer);
         const minutes = advancedSettingsCache.idleAutoLockMinutes || 5;
         idleAutoLockTimer = setTimeout(triggerIdleAutoLock, minutes * 60 * 1000);
     };
-
     if (!idleAutoLockListenersAttached) {
         ['click', 'keydown', 'touchstart', 'mousemove'].forEach(evt => {
             window.addEventListener(evt, () => { if (advancedSettingsCache && advancedSettingsCache.idleAutoLockEnabled) resetTimer(); }, { passive: true });
@@ -12387,7 +10282,6 @@ function setupIdleAutoLock() {
     }
     resetTimer();
 }
-
 function triggerIdleAutoLock() {
     if (document.getElementById('idle-lock-overlay')) return;
     const overlay = document.createElement('div');
@@ -12405,7 +10299,6 @@ function triggerIdleAutoLock() {
     document.body.appendChild(overlay);
     setTimeout(() => { const el = document.getElementById('idle-lock-password'); if (el) el.focus(); }, 50);
 }
-
 async function submitIdleUnlock() {
     const pwInput = document.getElementById('idle-lock-password');
     const errEl = document.getElementById('idle-lock-error');
@@ -12423,14 +10316,12 @@ async function submitIdleUnlock() {
             if (overlay) overlay.remove();
             setupIdleAutoLock();
         } else if (errEl) {
-
             errEl.textContent = data.message || 'Incorrect password.';
         }
     } catch (err) {
         if (errEl) errEl.textContent = 'Connection error — please try again.';
     }
 }
-
 function applyPaymentMethodVisibility() {
     const pm = (storeSettingsCache && storeSettingsCache.paymentMethods) || { cash: true, gcash: false, maya: false, card: false, bankTransfer: false };
     const map = { cash: 'pay-method-cash', gcash: 'pay-method-gcash', maya: 'pay-method-maya', card: 'pay-method-card' };
@@ -12445,7 +10336,6 @@ function applyPaymentMethodVisibility() {
     if (selectedIsHidden && typeof selectPaymentMethod === 'function') {
         selectPaymentMethod('CASH');
     }
-
     const seniorPwdRateLabel = document.getElementById('cart-senior-pwd-rate-label');
     if (seniorPwdRateLabel && storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate)) {
         seniorPwdRateLabel.textContent = storeSettingsCache.seniorPwdDiscountRate;
@@ -12457,15 +10347,12 @@ function applyPaymentMethodVisibility() {
         seniorPwdToggleLabel.title = disabled ? 'Naka-disable sa Store & Sales Settings' : '';
     }
 }
-
 async function requestReceiptCounterReset() {
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-
     if (!receiptSettingsCache || !receiptSettingsCache.otpRequired) {
         Swal.fire('Not Needed Yet','You still have free customizations remaining — no need to reset the counter yet.','info');
         return;
     }
-
     const confirm = await Swal.fire({
         title:'Confirm Reset',
         html:'This will send an OTP to the developer\'s registered email. You will need to enter that OTP here to continue. Proceed?',
@@ -12477,7 +10364,6 @@ async function requestReceiptCounterReset() {
         cancelButtonColor:'#64748b'
     });
     if (!confirm.isConfirmed) return;
-
     try {
         const otpReqRes = await authFetch(`${API_URL}/receipt-settings/request-reset-otp`, {
             method:'POST',
@@ -12485,12 +10371,10 @@ async function requestReceiptCounterReset() {
             body: JSON.stringify({ username })
         });
         const otpReqData = await otpReqRes.json();
-
         if (!otpReqData.success) {
             Swal.fire('OTP Not Sent', otpReqData.message ||'Failed to send the OTP.','error');
             return;
         }
-
         const { value: otpCode } = await Swal.fire({
             title:'🔓 Enter Reset OTP',
             html:'An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
@@ -12501,7 +10385,6 @@ async function requestReceiptCounterReset() {
             cancelButtonColor:'#64748b'
         });
         if (!otpCode || !otpCode.trim()) return;
-
         const resetBody = { otp: otpCode.trim(), username };
         const resetRes = await authFetch(`${API_URL}/receipt-settings/reset-counter`, {
             method:'POST',
@@ -12509,18 +10392,15 @@ async function requestReceiptCounterReset() {
             body: JSON.stringify(resetBody)
         });
         let resetData = await resetRes.json();
-
         if (resetData.pending) {
             resetData = await pollUntilApproved(`${API_URL}/receipt-settings/reset-counter`, resetBody);
         }
         if (resetData.cancelled) return;
-
         if (resetData.success) {
             Swal.fire('Reset!','You now have 2 free customizations again.','success');
             receiptSettingsCache = resetData.settings || receiptSettingsCache;
             applyReceiptBranding();
             loadReceiptCustomizationPanel();
-
             if (receiptSettingsCache && receiptSettingsCache.otpSenderConfigured) {
                 const clearPrompt = await Swal.fire({
                     title:'Remove Registered Email?',
@@ -12532,7 +10412,6 @@ async function requestReceiptCounterReset() {
                     confirmButtonColor:'#dc2626',
                     cancelButtonColor:'#64748b'
                 });
-
                 if (clearPrompt.isConfirmed) {
                     const clearData = await performClearOtpSenderConfig();
                     if (clearData.success) {
@@ -12550,33 +10429,25 @@ async function requestReceiptCounterReset() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-
 function openReceiptPreview() {
     if (shoppingCart.length === 0) {
         Swal.fire('Empty Cart','Add an item first before previewing the receipt.','warning');
         return;
     }
-
     applyReceiptBranding();
-
     document.getElementById('rp-id').innerText ='PREVIEW';
     const now = new Date();
     document.getElementById('rp-date').innerText = now.toLocaleDateString();
     document.getElementById('rp-time').innerText = now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
     document.getElementById('rp-cashier').innerText = currentUser ? (currentUser.username || currentUser.name) :'-';
-
     const itemsTable = document.getElementById('rp-items-table');
     itemsTable.innerHTML ='';
-
     let rpItemCounterQty = 0;
-
     shoppingCart.forEach(item => {
         const itemBlock = document.createElement('div');
         itemBlock.className ='r-item-block';
-
         const row = document.createElement('div');
         row.className ='r-item-line';
-
         const itemDiscount = Math.max(0, parseFloat(item.itemDiscount) || 0);
         const nameLabel = itemDiscount > 0
             ? `${escapeHtml(item.name)} <small style="color:#dc2626;">(-₱${itemDiscount.toFixed(2)})</small>`
@@ -12587,7 +10458,6 @@ function openReceiptPreview() {
             <span>₱${lineTotal.toFixed(2)}</span>
         `;
         itemBlock.appendChild(row);
-
         const detailRow = document.createElement('div');
         detailRow.className ='r-item-detail-line';
         detailRow.innerHTML = `
@@ -12596,36 +10466,27 @@ function openReceiptPreview() {
             <span>₱${parseFloat(item.price).toFixed(2)}</span>
         `;
         itemBlock.appendChild(detailRow);
-
         itemsTable.appendChild(itemBlock);
-
         rpItemCounterQty += Number(item.quantity) || 0;
     });
-
     const rpItemCounterQtyEl = document.getElementById('rp-item-counter-qty');
     if (rpItemCounterQtyEl) rpItemCounterQtyEl.innerText = rpItemCounterQty.toFixed(1);
-
     document.getElementById('rp-total').innerText = document.getElementById('summary-total').innerText;
     document.getElementById('rp-method').innerText ='—';
     document.getElementById('rp-paid').innerText ='₱0.00';
     document.getElementById('rp-change').innerText ='₱0.00';
-
     document.getElementById('receipt-preview-modal').style.display ='flex';
 }
-
 function chargeFromReceiptPreview() {
     closeModal('receipt-preview-modal');
     openPaymentModal();
 }
-
 let currentReceiptTransaction = null;
-
 function generateReceiptImageDataUrl(tx) {
     const s = receiptSettingsCache || {};
     const storeName = s.storeName ||'OmniPOS';
     const storeAddress = s.storeAddress ||'';
     const footerText = s.footerText ||'Thank you for shopping!';
-
     const qrContainerEl = document.getElementById('r-loyalty-qr-container');
     const showLoyaltyQr = !!(qrContainerEl && qrContainerEl.style.display !=='none');
     const qrImgEls = showLoyaltyQr
@@ -12633,51 +10494,42 @@ function generateReceiptImageDataUrl(tx) {
         : [];
     const qrNoteEl = document.getElementById('r-loyalty-qr-note');
     const qrNoteText = (showLoyaltyQr && qrNoteEl && qrNoteEl.style.display !=='none') ? (qrNoteEl.innerText || '').trim() : '';
-
     const items = tx.items || [];
     const width = 380;
     const lineHeight = 20;
     const headerHeight = 110;
     const footerHeight = 130;
-
     const qrBlockHeight = qrImgEls.length ? (24 + (qrNoteText ? 18 : 0) + 130) : 0;
     const height = headerHeight + (items.length * lineHeight) + footerHeight + qrBlockHeight;
-
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-
     ctx.fillStyle ='#ffffff';
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle ='#111111';
     ctx.textBaseline ='top';
-
     let y = 16;
     ctx.font ='bold 16px monospace';
     ctx.textAlign ='center';
     ctx.fillText(storeName, width / 2, y);
     y += 22;
-
     if (storeAddress) {
         ctx.font ='11px monospace';
         ctx.fillText(storeAddress, width / 2, y);
         y += 18;
     }
-
     ctx.textAlign ='left';
     ctx.font ='11px monospace';
     ctx.fillText(`Receipt: ${tx.id ||''}`, 14, y); y += 14;
     ctx.fillText(`Date: ${tx.timestamp ||''}`, 14, y); y += 14;
     ctx.fillText(`Cashier: ${formatCashierLabel(tx)}`, 14, y); y += 8;
-
     ctx.strokeStyle ='#cccccc';
     ctx.beginPath();
     ctx.moveTo(14, y + 8);
     ctx.lineTo(width - 14, y + 8);
     ctx.stroke();
     y += 18;
-
     ctx.font ='12px monospace';
     items.forEach(i => {
         const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
@@ -12690,27 +10542,23 @@ function generateReceiptImageDataUrl(tx) {
         ctx.textAlign ='left';
         y += lineHeight;
     });
-
     ctx.beginPath();
     ctx.moveTo(14, y + 4);
     ctx.lineTo(width - 14, y + 4);
     ctx.stroke();
     y += 16;
-
     ctx.font ='bold 13px monospace';
     ctx.fillText('TOTAL', 14, y);
     ctx.textAlign ='right';
     ctx.fillText(`P${(parseFloat(tx.total) || 0).toFixed(2)}`, width - 14, y);
     ctx.textAlign ='left';
     y += 20;
-
     const paymentLine = (tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1)
         ? tx.payments.map(p => `${p.method} P${parseFloat(p.amount).toFixed(2)}`).join(' + ')
         : (tx.method || tx.payment_method ||'CASH');
     ctx.font ='11px monospace';
     ctx.fillText(`Payment: ${paymentLine}`, 14, y);
     y += 24;
-
     if (qrImgEls.length) {
         ctx.strokeStyle ='#cccccc';
         ctx.beginPath();
@@ -12718,14 +10566,12 @@ function generateReceiptImageDataUrl(tx) {
         ctx.lineTo(width - 14, y);
         ctx.stroke();
         y += 14;
-
         if (qrNoteText) {
             ctx.textAlign ='center';
             ctx.font ='11px monospace';
             ctx.fillText(qrNoteText.slice(0, 60), width / 2, y);
             y += 18;
         }
-
         const qrSize = 110;
         const qrGap = 10;
         const totalQrWidth = (qrSize * qrImgEls.length) + (qrGap * (qrImgEls.length - 1));
@@ -12736,19 +10582,15 @@ function generateReceiptImageDataUrl(tx) {
         });
         y += qrSize + 16;
     }
-
     ctx.textAlign ='center';
     ctx.font ='italic 11px monospace';
     ctx.fillText(footerText, width / 2, y);
-
     return canvas.toDataURL('image/png');
 }
-
 async function emailCurrentReceipt() {
     const emailInput = document.getElementById('r-email-input');
     const toEmail = emailInput ? emailInput.value.trim() :'';
     const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
     if (!toEmail || !emailPattern.test(toEmail)) {
         Swal.fire('Invalid Email','Enter a valid email address.','warning');
         return;
@@ -12757,18 +10599,15 @@ async function emailCurrentReceipt() {
         Swal.fire('Error','No active receipt to send.','error');
         return;
     }
-
     const btn = document.getElementById('receipt-email-btn');
     const originalHtml = btn ? btn.innerHTML :'';
     if (btn) { btn.disabled = true; btn.innerHTML ='<i class="fa-solid fa-spinner fa-spin"></i> Sending...'; }
-
     let receiptImage = null;
     try {
         receiptImage = generateReceiptImageDataUrl(currentReceiptTransaction);
     } catch (imgErr) {
         console.warn('Could not generate receipt image:', imgErr);
     }
-
     try {
         const res = await authFetch(`${API_URL}/transactions/${encodeURIComponent(currentReceiptTransaction.id)}/email-receipt`, {
             method:'POST',
@@ -12789,36 +10628,27 @@ async function emailCurrentReceipt() {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
-
 async function renderInvoiceReceipt(tx, isHistory = false) {
-
     if (!receiptSettingsCache && receiptSettingsPromise) {
         await receiptSettingsPromise;
     }
     applyReceiptBranding();
     currentReceiptTransaction = tx;
-
     const modalTitleElReset = document.querySelector('#receipt-modal .modal-header h3');
     if (modalTitleElReset) modalTitleElReset.innerText ='Receipt Invoice';
-
     document.getElementById('r-id').innerText = tx.id;
     document.getElementById('r-footer-id').innerText = tx.id;
-
     const parts = tx.timestamp.split(', ');
     document.getElementById('r-date').innerText = parts[0] || tx.timestamp;
     document.getElementById('r-time').innerText = parts[1] ||'';
     document.getElementById('r-cashier').innerText = formatCashierLabel(tx);
-
     const itemsTable = document.getElementById('receipt-items-table');
     itemsTable.innerHTML ='';
-
     let rItemCounterQty = 0;
     let rItemCounterSubtotal = 0;
-
     tx.items.forEach(i => {
         const itemBlock = document.createElement('div');
         itemBlock.className ='r-item-block';
-
         const itemRow = document.createElement('div');
         itemRow.className ='r-item-line';
         const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
@@ -12831,9 +10661,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             <span>₱${lineTotal.toFixed(2)}</span>
         `;
         itemBlock.appendChild(itemRow);
-
         rItemCounterSubtotal += lineTotal;
-
         const detailRow = document.createElement('div');
         detailRow.className ='r-item-detail-line';
         detailRow.innerHTML = `
@@ -12842,26 +10670,20 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             <span>₱${parseFloat(i.price).toFixed(2)}</span>
         `;
         itemBlock.appendChild(detailRow);
-
         itemsTable.appendChild(itemBlock);
-
         rItemCounterQty += Number(i.quantity) || 0;
     });
-
     const rItemCounterQtyEl = document.getElementById('r-item-counter-qty');
     if (rItemCounterQtyEl) rItemCounterQtyEl.innerText = rItemCounterQty.toFixed(1);
     const rItemCounterSubtotalEl = document.getElementById('r-item-counter-subtotal');
     if (rItemCounterSubtotalEl) rItemCounterSubtotalEl.innerText = `₱${rItemCounterSubtotal.toFixed(2)}`;
-
     document.getElementById('r-total').innerText = `₱${parseFloat(tx.total).toFixed(2)}`;
-
     if (tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1) {
         document.getElementById('r-method').innerText = tx.payments.map(p => `${p.method} ₱${parseFloat(p.amount).toFixed(2)}`).join(' + ');
     } else {
         document.getElementById('r-method').innerText = tx.method;
     }
     document.getElementById('r-paid').innerText = `₱${parseFloat(tx.received).toFixed(2)}`;
-
     const payRefRow = document.getElementById('r-payref-row');
     if (payRefRow) {
         let refText ='';
@@ -12878,7 +10700,6 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         }
     }
     document.getElementById('r-change').innerText = `₱${parseFloat(tx.change).toFixed(2)}`;
-
     const discountRow = document.getElementById('r-discount-row');
     const discountAmt = parseFloat(tx.discount) || 0;
     if (discountRow) {
@@ -12893,7 +10714,6 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             discountRow.style.display ='none';
         }
     }
-
     const taxRow = document.getElementById('r-tax-row');
     const taxAmt = parseFloat(tx.taxAmount) || 0;
     if (taxRow && taxAmt > 0) {
@@ -12904,17 +10724,14 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     } else {
         if (taxRow) taxRow.style.display ='none';
     }
-
     const customerRow = document.getElementById('r-customer-row');
     if (customerRow) {
         if (tx.customerName) {
             document.getElementById('r-customer-name').innerText = tx.customerName;
-
             const ptsBalanceEl = document.getElementById('r-customer-points-balance');
             if (ptsBalanceEl) {
                 ptsBalanceEl.innerText = Number.isFinite(tx.loyaltyPointsBalance) ? tx.loyaltyPointsBalance : '—';
             }
-
             customerRow.style.display ='grid';
         } else {
             customerRow.style.display ='none';
@@ -12940,7 +10757,6 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     }
     const loyaltyBalanceRow = document.getElementById('r-loyalty-balance-row');
     if (loyaltyBalanceRow) {
-
         if ((tx.loyaltyPointsRedeemed || tx.loyaltyPointsEarned) && Number.isFinite(tx.loyaltyPointsBalance)) {
             document.getElementById('r-loyalty-balance').innerText = tx.loyaltyPointsBalance;
             loyaltyBalanceRow.style.display ='flex';
@@ -12948,16 +10764,13 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             loyaltyBalanceRow.style.display ='none';
         }
     }
-
     const emailInputEl = document.getElementById('r-email-input');
     if (emailInputEl) {
         emailInputEl.value = tx.customerEmail ||'';
     }
-
     const bcSettings = Object.assign({}, DEFAULT_RECEIPT_BARCODE_SETTINGS, (receiptSettingsCache && receiptSettingsCache.barcodeSettings) || {});
     const barcodeContainerEl = document.querySelector('#printable-receipt-area .receipt-barcode-container');
     if (barcodeContainerEl) barcodeContainerEl.style.display = bcSettings.show !== false ?'' :'none';
-
     if (bcSettings.show !== false) {
         setTimeout(() => {
             JsBarcode("#receipt-barcode", tx.id, {
@@ -12970,50 +10783,38 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             });
         }, 50);
     }
-
     applyLoyaltyQrSettingsToDom(!isHistory ? currentReceiptLoyaltyQr : null);
-
     const nextSaleBtn = document.getElementById('receipt-next-sale-btn');
     const closeReceiptBtn = document.getElementById('receipt-close-btn');
     const printReceiptBtn = document.getElementById('receipt-print-btn');
     const receiptFooter = document.getElementById('receipt-actions-footer');
-
     if (isHistory) {
-
         if (nextSaleBtn) nextSaleBtn.style.display ='none';
         if (closeReceiptBtn) closeReceiptBtn.style.display ='none';
-
         if (printReceiptBtn) {
             printReceiptBtn.style.display ='block';
             printReceiptBtn.style.margin ='0 0 0 auto';
         }
     } else {
-
         if (nextSaleBtn) nextSaleBtn.style.display ='inline-block';
         if (closeReceiptBtn) closeReceiptBtn.style.display ='inline-block';
-
         if (printReceiptBtn) {
             printReceiptBtn.style.display ='inline-block';
             printReceiptBtn.style.margin ='0';
         }
     }
-
     document.getElementById('receipt-modal').classList.toggle('terminal-origin', !isHistory);
     document.getElementById('receipt-modal').style.display ='flex';
-
     document.body.classList.add('print-target-receipt');
     document.body.classList.remove('print-target-barcode');
 }
-
 function resetSaleTerminalCycle() {
     closeModal('receipt-modal');
     clearCart();
     loadTerminalCatalog();
-
     currentReceiptLoyaltyQr = null;
     currentReceiptLoyaltyQrPrintData = null;
 }
-
 async function loadTransactionsHistory() {
     try {
         const requesterUsername = currentUser ? currentUser.username :'';
@@ -13031,20 +10832,15 @@ async function loadTransactionsHistory() {
         if(badge) badge.innerText = `${localTransactionsList.length} Records`;
         renderTransactionsRows(localTransactionsList);
     }
-
 }
-
 function renderTransactionsRows(transactions) {
     const tbody = document.getElementById('transactions-table-body');
     if (!tbody) return;
-
     tbody.innerHTML ='';
-
     if (transactions.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No transaction logs located within active archive parameters.</td></tr>`;
         return;
     }
-
     transactions.forEach(tx => {
         const totalItemsQty = tx.items.reduce((sum, item) => sum + item.quantity, 0);
         const totalRefunded = parseFloat(tx.totalRefunded) || 0;
@@ -13052,7 +10848,6 @@ function renderTransactionsRows(transactions) {
         const refundBadge = totalRefunded > 0
             ? `<br><span class="badge" style="background:${isFullyRefunded ? '#ef4444' : '#f59e0b'}; margin-top:4px; display:inline-block;">${isFullyRefunded ? 'Fully Refunded' : 'Partially Refunded'} (₱${totalRefunded.toFixed(2)})</span>`
             : '';
-
         const row = document.createElement('tr');
         row.innerHTML = `
             <td><strong>${tx.id}</strong></td>
@@ -13083,19 +10878,15 @@ function renderTransactionsRows(transactions) {
         tbody.appendChild(row);
     });
 }
-
 let cachedInventoryProducts = [];
-
 const columnFilters = { code: new Set(), name: new Set(), category: new Set(), supplier: new Set(), price: new Set(), stock: new Set(), expiryDate: new Set(), hasSpecs: new Set() };
 let activeFilterField = null;
-
 function productHasDetails(p) {
     const hasDescription = !!(p.description && p.description.trim());
     const hasSpecsList = Array.isArray(p.specs) && p.specs.some(s => s && ((s.key && s.key.trim()) || (s.value && s.value.trim())));
     const hasGallery = Array.isArray(p.images) && p.images.filter(Boolean).length > 0;
     return hasDescription || hasSpecsList || hasGallery;
 }
-
 function getColumnDisplayValue(field, p) {
     switch (field) {
         case'code': return p.code ||'';
@@ -13109,18 +10900,15 @@ function getColumnDisplayValue(field, p) {
         default: return'';
     }
 }
-
 function toggleColumnFilter(field, evt) {
     evt.stopPropagation();
     const btn = evt.currentTarget;
-
     if (document.getElementById('col-filter-dropdown') && activeFilterField === field) {
         closeColumnFilterDropdown();
         return;
     }
     closeColumnFilterDropdown();
     activeFilterField = field;
-
     const query = (document.getElementById('inventory-search')?.value ||'').trim().toLowerCase();
     const contextProducts = cachedInventoryProducts.filter(p => {
         if (query && !((p.name ||'').toLowerCase().includes(query) || (p.code ||'').toLowerCase().includes(query))) return false;
@@ -13130,13 +10918,10 @@ function toggleColumnFilter(field, evt) {
         }
         return true;
     });
-
     const uniqueValues = [...new Set(contextProducts.map(p => getColumnDisplayValue(field, p)))]
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
     const currentSelection = columnFilters[field];
     const selectedSet = currentSelection.size > 0 ? currentSelection : new Set(uniqueValues);
-
     const dropdown = document.createElement('div');
     dropdown.id ='col-filter-dropdown';
     dropdown.className ='col-filter-dropdown';
@@ -13151,23 +10936,19 @@ function toggleColumnFilter(field, evt) {
     `;
     document.body.appendChild(dropdown);
     renderColumnFilterOptions(uniqueValues, selectedSet);
-
     const selectAllCb = document.getElementById('col-filter-selectall-cb');
     selectAllCb.checked = uniqueValues.length > 0 && selectedSet.size === uniqueValues.length;
     selectAllCb.onchange = () => {
         document.querySelectorAll('#col-filter-list .col-filter-option:not([style*="display: none"]) input[type="checkbox"]')
             .forEach(cb => cb.checked = selectAllCb.checked);
     };
-
     const rect = btn.getBoundingClientRect();
     dropdown.style.top = `${rect.bottom + 4}px`;
     const maxLeft = window.innerWidth - 246;
     dropdown.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
-
     btn.classList.add('filter-btn-open');
     setTimeout(() => document.addEventListener('click', closeColumnFilterDropdownOnOutsideClick), 0);
 }
-
 function renderColumnFilterOptions(values, selectedSet) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
@@ -13181,7 +10962,6 @@ function renderColumnFilterOptions(values, selectedSet) {
         return `<label class="col-filter-option"><input type="checkbox" value="${safe}" ${checked}><span>${safe}</span></label>`;
     }).join('');
 }
-
 function filterColumnFilterOptions(query) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
@@ -13191,27 +10971,22 @@ function filterColumnFilterOptions(query) {
         opt.style.display = text.includes(q) ?'' :'none';
     });
 }
-
 function applyColumnFilter(field) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
     const allCbs = [...list.querySelectorAll('input[type="checkbox"]')];
     const checked = allCbs.filter(cb => cb.checked).map(cb => cb.value);
-
     columnFilters[field] = (checked.length === 0 || checked.length === allCbs.length) ? new Set() : new Set(checked);
-
     updateFilterIconStates();
     closeColumnFilterDropdown();
     renderInventoryProductsTable();
 }
-
 function clearColumnFilter(field) {
     columnFilters[field] = new Set();
     updateFilterIconStates();
     closeColumnFilterDropdown();
     renderInventoryProductsTable();
 }
-
 function updateFilterIconStates() {
     document.querySelectorAll('.col-filter-btn').forEach(btn => {
         const field = btn.getAttribute('data-field');
@@ -13219,7 +10994,6 @@ function updateFilterIconStates() {
         btn.classList.toggle('active', hasFilter);
     });
 }
-
 function closeColumnFilterDropdown() {
     const existing = document.getElementById('col-filter-dropdown');
     if (existing) existing.remove();
@@ -13227,7 +11001,6 @@ function closeColumnFilterDropdown() {
     activeFilterField = null;
     document.removeEventListener('click', closeColumnFilterDropdownOnOutsideClick);
 }
-
 function closeColumnFilterDropdownOnOutsideClick(evt) {
     const dropdown = document.getElementById('col-filter-dropdown');
     if (!dropdown) return;
@@ -13235,7 +11008,6 @@ function closeColumnFilterDropdownOnOutsideClick(evt) {
     if (evt.target.closest && evt.target.closest('.col-filter-btn')) return;
     closeColumnFilterDropdown();
 }
-
 async function loadInventoryProductsTable() {
     try {
         const res = await authFetch(`${API_URL}/products`);
@@ -13246,19 +11018,15 @@ async function loadInventoryProductsTable() {
     }
     renderInventoryProductsTable();
 }
-
 function filterInventoryTable() {
     renderInventoryProductsTable();
 }
-
 function renderInventoryProductsTable() {
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
     tbody.innerHTML ='';
-
     const searchBox = document.getElementById('inventory-search');
     const query = searchBox ? searchBox.value.trim().toLowerCase() :'';
-
     try {
         const products = cachedInventoryProducts.filter(p => {
             if (query && !((p.name ||'').toLowerCase().includes(query) || (p.code ||'').toLowerCase().includes(query))) return false;
@@ -13267,9 +11035,7 @@ function renderInventoryProductsTable() {
             }
             return true;
         });
-
         updateFilterIconStates();
-
         products.forEach(p => {
             try {
                 const row = document.createElement('tr');
@@ -13277,7 +11043,6 @@ function renderInventoryProductsTable() {
                 const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
                 const stockNum = parseInt(p.stock) || 0;
                 const isLowStock = stockNum > 0 && stockNum <= threshold;
-
                 let expiryDisplay ='<span style="color:#94a3b8;">—</span>';
                 if (p.expiryDate) {
                     const expiryDate = new Date(p.expiryDate);
@@ -13289,7 +11054,6 @@ function renderInventoryProductsTable() {
                         expiryDisplay = `<span style="color:${color};font-weight:${(isExpired || isExpiringSoon) ?'600' :'400'};">${p.expiryDate}</span>`;
                     }
                 }
-
                 const safeCode = escapeHtml(p.code);
                 const safeCodeAttr = safeCode.replace(/'/g,'&#39;');
                 const hasDetails = productHasDetails(p);
@@ -13316,7 +11080,6 @@ function renderInventoryProductsTable() {
                 `;
                 tbody.appendChild(row);
             } catch (rowError) {
-
                 console.error("Skipped a product in the Inventory table due to a row render error:", p, rowError);
             }
         });
@@ -13324,26 +11087,21 @@ function renderInventoryProductsTable() {
         console.error("Failed to render Inventory product table:", renderError);
     }
 }
-
 function highlightInventoryRow(code) {
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
     const row = tbody.querySelector(`tr[data-code="${CSS && CSS.escape ? CSS.escape(code) : code}"]`);
     if (!row) return;
-
     row.scrollIntoView({ behavior:'smooth', block:'center' });
     row.classList.add('row-scan-highlight');
     setTimeout(() => row.classList.remove('row-scan-highlight'), 2000);
 }
-
 function openProductModal(mode, code ='') {
     document.getElementById('p-form-mode').value = mode;
     const codeInput = document.getElementById('p-form-code');
     const scanBtn = document.getElementById('p-form-scan-btn');
     const scanPromptBtn = document.getElementById('p-form-scan-prompt-btn');
-
     addProductScanSession = { active: false, lastScannedFormCode: null };
-
     if (mode ==='ADD') {
         document.getElementById('product-modal-title').innerText ="Add Product";
         document.getElementById('product-schema-form').reset();
@@ -13354,7 +11112,6 @@ function openProductModal(mode, code ='') {
         document.getElementById('p-form-specs').value ='';
         setProductGalleryImages([]);
         updateProductSpecsButtonLabel();
-
         if (scanBtn) scanBtn.style.display ='flex';
         if (scanPromptBtn) scanPromptBtn.style.display ='flex';
         codeInput.focus();
@@ -13363,7 +11120,6 @@ function openProductModal(mode, code ='') {
         codeInput.setAttribute('disabled', true);
         if (scanBtn) scanBtn.style.display ='none';
         if (scanPromptBtn) scanPromptBtn.style.display ='none';
-
         document.getElementById('product-schema-form').reset();
         codeInput.value = code;
         updateProductPhotoPreview('');
@@ -13371,7 +11127,6 @@ function openProductModal(mode, code ='') {
         document.getElementById('p-form-specs').value ='';
         setProductGalleryImages([]);
         updateProductSpecsButtonLabel();
-
         authFetch(`${API_URL}/products`).then(r => r.json()).then(prods => {
             let match = prods.find(p => p.code === code);
             if(match) {
@@ -13402,9 +11157,6 @@ function openProductModal(mode, code ='') {
     }
     document.getElementById('product-modal').style.display ='flex';
 }
-
-// ---- Additional Photos (gallery) ----
-
 function getProductGalleryImages() {
     try {
         const raw = document.getElementById('p-form-images').value;
@@ -13414,12 +11166,10 @@ function getProductGalleryImages() {
         return [];
     }
 }
-
 function setProductGalleryImages(images) {
     document.getElementById('p-form-images').value = images.length ? JSON.stringify(images) :'';
     renderProductGalleryPreview(images);
 }
-
 function renderProductGalleryPreview(images) {
     const container = document.getElementById('p-form-gallery-preview');
     if (!container) return;
@@ -13430,17 +11180,14 @@ function renderProductGalleryPreview(images) {
         </div>
     `).join('');
 }
-
 function removeProductGalleryImage(idx) {
     const images = getProductGalleryImages();
     images.splice(idx, 1);
     setProductGalleryImages(images);
 }
-
 function handleProductGalleryPhotoSelect(event) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
-
     const existing = getProductGalleryImages();
     const remainingSlots = Math.max(0, PRODUCT_GALLERY_MAX_PHOTOS - existing.length);
     if (remainingSlots <= 0) {
@@ -13448,7 +11195,6 @@ function handleProductGalleryPhotoSelect(event) {
         event.target.value ='';
         return;
     }
-
     const toProcess = files.slice(0, remainingSlots);
     Promise.all(toProcess.map(file => new Promise((resolve) => {
         if (!file.type.startsWith('image/')) { resolve(null); return; }
@@ -13464,19 +11210,10 @@ function handleProductGalleryPhotoSelect(event) {
         event.target.value ='';
     });
 }
-
-// ---- Specs / Description modal ----
-// Opens a dedicated modal so the Add/Edit Product form itself doesn't get
-// cluttered — this is where any extra product detail (free-text description
-// plus structured key/value specs like sukat, laman, warranty, atbp.) gets
-// typed in full, then stored into the hidden #p-form-details /
-// #p-form-specs fields when the user presses Save here.
-
 function getProductSpecsDraftKey() {
     const code = (document.getElementById('p-form-code').value ||'').trim();
     return'omnipos_specs_draft_' + (code ||'NEW');
 }
-
 function autosaveProductSpecsDraft() {
     try {
         const draft = {
@@ -13486,11 +11223,9 @@ function autosaveProductSpecsDraft() {
         localStorage.setItem(getProductSpecsDraftKey(), JSON.stringify(draft));
     } catch (e) {  }
 }
-
 function clearProductSpecsDraft() {
     try { localStorage.removeItem(getProductSpecsDraftKey()); } catch (e) {  }
 }
-
 function addProductSpecRow(key ='', value ='') {
     const container = document.getElementById('p-form-specs-rows');
     if (!container) return;
@@ -13504,7 +11239,6 @@ function addProductSpecRow(key ='', value ='') {
     `;
     container.appendChild(row);
 }
-
 function renderProductSpecsRows(specsArray) {
     const container = document.getElementById('p-form-specs-rows');
     if (!container) return;
@@ -13513,7 +11247,6 @@ function renderProductSpecsRows(specsArray) {
         if (s && (s.key || s.value)) addProductSpecRow(s.key ||'', s.value ||'');
     });
 }
-
 function getProductSpecsRowsData() {
     const rows = document.querySelectorAll('#p-form-specs-rows .p-spec-row');
     const result = [];
@@ -13524,7 +11257,6 @@ function getProductSpecsRowsData() {
     });
     return result;
 }
-
 function updateProductSpecsCharCount() {
     const el = document.getElementById('p-form-details-charcount');
     const textarea = document.getElementById('p-form-details-textarea');
@@ -13534,7 +11266,6 @@ function updateProductSpecsCharCount() {
     el.textContent = `${len} / ${MAX_CHARS}`;
     el.style.color = len > MAX_CHARS ?'#dc2626' :'#94a3b8';
 }
-
 function openProductSpecsModal() {
     const savedDescription = document.getElementById('p-form-details').value ||'';
     let savedSpecs = [];
@@ -13542,24 +11273,19 @@ function openProductSpecsModal() {
         const raw = document.getElementById('p-form-specs').value;
         savedSpecs = raw ? JSON.parse(raw) : [];
     } catch (e) { savedSpecs = []; }
-
     let draft = null;
     try {
         const rawDraft = localStorage.getItem(getProductSpecsDraftKey());
         draft = rawDraft ? JSON.parse(rawDraft) : null;
     } catch (e) { draft = null; }
-
     const draftHasContent = draft && ((draft.description ||'').trim() || (Array.isArray(draft.specs) && draft.specs.length));
     const savedHasContent = (savedDescription ||'').trim() || savedSpecs.length;
-
     const applyState = (description, specs) => {
         document.getElementById('p-form-details-textarea').value = description ||'';
         updateProductSpecsCharCount();
         renderProductSpecsRows(specs || []);
     };
-
     if (draftHasContent && !savedHasContent) {
-
         applyState(draft.description, draft.specs);
         Swal.fire({
             toast: true, position:'top-end', icon:'info',
@@ -13569,15 +11295,11 @@ function openProductSpecsModal() {
     } else {
         applyState(savedDescription, savedSpecs);
     }
-
     document.getElementById('product-specs-modal').style.display ='flex';
 }
-
 function closeProductSpecsModal() {
-
     closeModal('product-specs-modal');
 }
-
 function saveProductSpecsModal() {
     const description = document.getElementById('p-form-details-textarea').value.trim();
     const specs = getProductSpecsRowsData();
@@ -13587,7 +11309,6 @@ function saveProductSpecsModal() {
     clearProductSpecsDraft();
     closeModal('product-specs-modal');
 }
-
 function updateProductSpecsButtonLabel() {
     const btn = document.getElementById('p-form-specs-btn');
     if (!btn) return;
@@ -13601,17 +11322,14 @@ function updateProductSpecsButtonLabel() {
         ? '<i class="fa-solid fa-circle-check"></i> Specs / Description Added (tap to edit)'
         : '<i class="fa-solid fa-list-ul"></i> Add Specs / Description';
 }
-
 function openCopySpecsFromProductModal() {
     const currentCode = (document.getElementById('p-form-code').value ||'').trim();
     const pool = (cachedInventoryProducts && cachedInventoryProducts.length) ? cachedInventoryProducts : (globalProducts || []);
     const candidates = pool.filter(p => p.code !== currentCode && ((p.description && p.description.trim()) || (Array.isArray(p.specs) && p.specs.length)));
-
     if (!candidates.length) {
         Swal.fire('Walang Available','Wala pang ibang produkto na may naka-save na Specs/Description.','info');
         return;
     }
-
     Swal.fire({
         title:'Copy Specs mula sa Ibang Produkto',
         html: `
@@ -13655,17 +11373,14 @@ function openCopySpecsFromProductModal() {
         }
     });
 }
-
 function handleProductPhotoSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
         Swal.fire('Wrong File Type','Only images (JPG, PNG, etc.) can be uploaded as a product photo.','error');
         event.target.value ='';
         return;
     }
-
     const reader = new FileReader();
     reader.onload = (e) => {
         resizeImageDataUrlForProduct(e.target.result).then((compressedDataUrl) => {
@@ -13678,62 +11393,33 @@ function handleProductPhotoSelect(event) {
     };
     reader.readAsDataURL(file);
 }
-
-// ---- Image Quality preference (Search Image / Omni Search / Bulk Search
-// Images / Omni Search Images) --------------------------------------------
-// Isang shared na setting lang ito (naka-store sa localStorage, kaya
-// instant at hindi na kailangan mag-round trip sa server) na ginagamit ng
-// LAHAT ng image search/import flow sa app — dahil silang lima
-// (manual upload, single "Search Image" modal, Bulk Search Images, at Omni
-// Search Images) ay dumadaan lahat sa resizeImageDataUrlForProduct() sa
-// ibaba, sapat na palitan dito ang MAX_DIM/quality para maapply agad ito
-// sa lahat ng search — hindi na kailangan ng hiwalay na setting kada modal.
 const IMAGE_QUALITY_PRESETS = {
-    // BAGO: 720px na ngayon ang "standard"/pinakamaliit na option (dati
-    // 600px) — bahagyang mas malinaw pero maliit pa rin ang file size.
     standard: { maxDim: 720, quality: 0.90, label: 'Standard (720px, mas maliit na file)' },
     hd:       { maxDim: 1280, quality: 0.92, label: 'HD (1280px)' },
     fullhd:   { maxDim: 1920, quality: 0.95, label: 'Full HD (1920px, pinakamalinaw)' }
 };
 const IMAGE_QUALITY_STORAGE_KEY = 'omnipos_image_quality_pref';
-// Default na ngayon ay "standard" (720px) — ito na ang default sa lahat
-// ng search (Search Image, Omni Search, Bulk/Omni Search Images), sa
-// halip na Full HD. Ang "hd" at "fullhd" presets sa itaas ay hindi
-// ginalaw — pareho pa rin silang laging pinipiliang opsyon, hindi lang
-// sila ang default.
 const IMAGE_QUALITY_DEFAULT = 'standard';
-
 function getImageQualityPref() {
     try {
         const v = localStorage.getItem(IMAGE_QUALITY_STORAGE_KEY);
         if (v && IMAGE_QUALITY_PRESETS[v]) return v;
-    } catch (err) { /* no-op */ }
+    } catch (err) {   }
     return IMAGE_QUALITY_DEFAULT;
 }
-
-// Sinesave ang piniling quality AT sine-sync ang lahat ng quality
-// dropdown na kasalukuyang nasa DOM (Search Image modal + Bulk/Omni Search
-// Images modal) — kaya kung saan man ito papalitan, agad na "nasabay" ang
-// value sa ibang modal din, at ang susunod na search kahit saan ay
-// gagamit na ng bagong setting.
 function setImageQualityPref(value) {
     if (!IMAGE_QUALITY_PRESETS[value]) return;
-    try { localStorage.setItem(IMAGE_QUALITY_STORAGE_KEY, value); } catch (err) { /* no-op */ }
+    try { localStorage.setItem(IMAGE_QUALITY_STORAGE_KEY, value); } catch (err) {   }
     document.querySelectorAll('.image-quality-pref-select').forEach(sel => {
         if (sel.value !== value) sel.value = value;
     });
 }
-
-// Tinatawag sa pagbukas ng bawat modal na may quality dropdown, para
-// laging sync ang nakikita sa lahat ng modal sa kasalukuyang naka-set na
-// preference.
 function syncImageQualityPrefSelects() {
     const current = getImageQualityPref();
     document.querySelectorAll('.image-quality-pref-select').forEach(sel => {
         sel.value = current;
     });
 }
-
 function resizeImageDataUrlForProduct(dataUrl) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -13758,13 +11444,8 @@ function resizeImageDataUrlForProduct(dataUrl) {
         img.src = dataUrl;
     });
 }
-
 let productImageSearchState = { nonce: null, busy: false, source: null };
-// IDs the user has checked via the per-thumbnail checkbox, meant for the
-// "+ Gallery" button (adds them to Additional Photos) — separate from the
-// existing single-click "use as main photo" behavior on the thumb itself.
 let productImageSearchSelectedIds = new Set();
-
 function openProductImageSearchModal() {
     const nameVal = (document.getElementById('p-form-name').value || '').trim();
     productImageSearchState = { nonce: null, busy: false, source: null };
@@ -13782,27 +11463,22 @@ function openProductImageSearchModal() {
         document.getElementById('p-image-search-query').focus();
     }
 }
-
 function closeProductImageSearchModal() {
     document.getElementById('product-image-search-modal').style.display = 'none';
 }
-
 async function performProductImageSearch() {
     const query = (document.getElementById('p-image-search-query').value || '').trim();
     const statusEl = document.getElementById('p-image-search-status');
     const resultsEl = document.getElementById('p-image-search-results');
-
     if (!query) {
         statusEl.textContent = 'Type a search term first.';
         return;
     }
     if (productImageSearchState.busy) return;
-
     productImageSearchState.busy = true;
     productImageSearchState.source = 'paid';
     statusEl.textContent = 'Searching...';
     resultsEl.innerHTML = '';
-
     try {
         const res = await authFetch(`${API_URL}/products/image-search`, {
             method: 'POST',
@@ -13810,19 +11486,15 @@ async function performProductImageSearch() {
             body: JSON.stringify({ query })
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Image search failed.';
             return;
         }
-
         productImageSearchState.nonce = data.nonce;
-
         if (!data.results || !data.results.length) {
             statusEl.textContent = 'No results found. Try a different search term.';
             return;
         }
-
         statusEl.textContent = `${data.results.length} result(s) — click one to use it, then review and Save.`;
         renderProductImageSearchResults(data.results);
     } catch (err) {
@@ -13832,27 +11504,19 @@ async function performProductImageSearch() {
         productImageSearchState.busy = false;
     }
 }
-
-// Free, no-API-key version of the search above — same self-healing provider
-// cascade (DuckDuckGo → Bing (free) → Openverse → Wikimedia Commons →
-// Yandex) used by the "Omni Search" option in the Bulk Search Images modal,
-// just scoped to this one product instead of running over a whole batch.
 async function performOmniProductImageSearch() {
     const query = (document.getElementById('p-image-search-query').value || '').trim();
     const statusEl = document.getElementById('p-image-search-status');
     const resultsEl = document.getElementById('p-image-search-results');
-
     if (!query) {
         statusEl.textContent = 'Type a search term first.';
         return;
     }
     if (productImageSearchState.busy) return;
-
     productImageSearchState.busy = true;
     productImageSearchState.source = 'omni';
     statusEl.textContent = 'Omni Search running (trying free sources)...';
     resultsEl.innerHTML = '';
-
     try {
         const res = await authFetch(`${API_URL}/products/image-search/omni`, {
             method: 'POST',
@@ -13860,19 +11524,15 @@ async function performOmniProductImageSearch() {
             body: JSON.stringify({ query })
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Omni Search failed.';
             return;
         }
-
         productImageSearchState.nonce = data.nonce;
-
         if (!data.results || !data.results.length) {
             statusEl.textContent = 'No results found. Try a different search term.';
             return;
         }
-
         statusEl.textContent = `${data.results.length} result(s) via ${data.provider} — click one to use it, then review and Save.`;
         renderProductImageSearchResults(data.results);
     } catch (err) {
@@ -13882,7 +11542,6 @@ async function performOmniProductImageSearch() {
         productImageSearchState.busy = false;
     }
 }
-
 function renderProductImageSearchResults(results) {
     const resultsEl = document.getElementById('p-image-search-results');
     productImageSearchFullResCache.clear();
@@ -13903,24 +11562,14 @@ function renderProductImageSearchResults(results) {
     }).join('');
     updateProductImageSearchGalleryBtnState();
     updateProductImageSearchCheckboxAvailability();
-
-    // Hold-press a result to enlarge it (no blink, and it won't disappear
-    // even if the pointer/finger moves around the screen while held) —
-    // shows the thumbnail instantly, then swaps in the full-resolution
-    // version (the one actually saved when picked) as soon as it downloads.
-    // Releasing closes it. A normal/quick tap still works exactly like the
-    // existing "click to use it" behavior.
     attachHoldZoomToProductSearchThumbs(resultsEl);
 }
-
-// Tracks which results are checked for the "+ Gallery" (multi-select) flow.
 function toggleProductImageSearchSelect(id, checked) {
     if (checked) productImageSearchSelectedIds.add(id);
     else productImageSearchSelectedIds.delete(id);
     updateProductImageSearchGalleryBtnState();
     updateProductImageSearchCheckboxAvailability();
 }
-
 function updateProductImageSearchGalleryBtnState() {
     const btn = document.getElementById('p-image-search-add-gallery-btn');
     if (!btn) return;
@@ -13930,18 +11579,10 @@ function updateProductImageSearchGalleryBtnState() {
         ? `<i class="fa-solid fa-images"></i> + Gallery (${count})`
         : `<i class="fa-solid fa-images"></i> + Gallery`;
 }
-
-// The gallery can only hold PRODUCT_GALLERY_MAX_PHOTOS photos total. Once the
-// number of checked results reaches however many slots are actually free
-// right now, every still-unchecked checkbox gets disabled (and dimmed) so
-// it's impossible to select more than can be added — no need to wait for the
-// "+ Gallery" click to find out. Unchecking one immediately frees up a slot
-// and re-enables the rest.
 function updateProductImageSearchCheckboxAvailability() {
     const existing = getProductGalleryImages();
     const remainingSlots = Math.max(0, PRODUCT_GALLERY_MAX_PHOTOS - existing.length);
     const atLimit = productImageSearchSelectedIds.size >= remainingSlots;
-
     document.querySelectorAll('#p-image-search-results .p-image-search-check-wrap').forEach(wrap => {
         const cb = wrap.querySelector('input[type="checkbox"]');
         if (!cb) return;
@@ -13949,7 +11590,6 @@ function updateProductImageSearchCheckboxAvailability() {
         cb.disabled = shouldDisable;
         wrap.classList.toggle('is-disabled', shouldDisable);
     });
-
     const limitNote = document.getElementById('p-image-search-gallery-limit-note');
     if (limitNote) {
         limitNote.style.display = remainingSlots <= 0 ? 'block' : 'none';
@@ -13957,34 +11597,24 @@ function updateProductImageSearchCheckboxAvailability() {
         if (countEl) countEl.textContent = PRODUCT_GALLERY_MAX_PHOTOS;
     }
 }
-
-// Downloads every checked result (full resolution, same nonce/endpoint used
-// by the single-select flow) and appends them straight into Additional
-// Photos — no need to first "use as main photo" one at a time.
 async function addSelectedSearchImagesToGallery() {
     if (!productImageSearchState.nonce || !productImageSearchSelectedIds.size) return;
-
     const statusEl = document.getElementById('p-image-search-status');
     const btn = document.getElementById('p-image-search-add-gallery-btn');
     const existing = getProductGalleryImages();
     const remainingSlots = Math.max(0, PRODUCT_GALLERY_MAX_PHOTOS - existing.length);
-
     if (remainingSlots <= 0) {
         Swal.fire('Limit Reached', `You can only have up to ${PRODUCT_GALLERY_MAX_PHOTOS} additional photos per product.`, 'warning');
         return;
     }
-
     const allSelected = Array.from(productImageSearchSelectedIds);
     const ids = allSelected.slice(0, remainingSlots);
     const overLimitCount = allSelected.length - ids.length;
-
     if (btn) btn.disabled = true;
     statusEl.textContent = `Adding ${ids.length} photo(s) to the gallery...`;
-
     const endpoint = productImageSearchState.source === 'omni'
         ? '/products/image-search/omni/select'
         : '/products/image-search/select';
-
     const results = await Promise.all(ids.map(async (id) => {
         try {
             const res = await authFetch(`${API_URL}${endpoint}`, {
@@ -14000,34 +11630,25 @@ async function addSelectedSearchImagesToGallery() {
             return null;
         }
     }));
-
     const valid = results.filter(Boolean);
     const failedCount = ids.length - valid.length;
-
     setProductGalleryImages(existing.concat(valid));
-
-    // Uncheck everything after adding, so the button/count resets cleanly,
-    // and re-evaluate availability against the now-larger gallery.
     productImageSearchSelectedIds.clear();
     document.querySelectorAll('#p-image-search-results .p-image-search-check-wrap input[type="checkbox"]').forEach(cb => { cb.checked = false; });
     updateProductImageSearchGalleryBtnState();
     updateProductImageSearchCheckboxAvailability();
-
     let msg = `${valid.length} photo(s) added to Additional Photos.`;
     if (overLimitCount > 0) msg += ` ${overLimitCount} skipped due to the ${PRODUCT_GALLERY_MAX_PHOTOS}-photo limit.`;
     if (failedCount > 0) msg += ` ${failedCount} failed to download.`;
     statusEl.textContent = msg;
 }
-
 async function selectSearchedProductImage(id) {
     if (!productImageSearchState.nonce) return;
     const statusEl = document.getElementById('p-image-search-status');
     statusEl.textContent = 'Loading image...';
-
     const endpoint = productImageSearchState.source === 'omni'
         ? '/products/image-search/omni/select'
         : '/products/image-search/select';
-
     try {
         const res = await authFetch(`${API_URL}${endpoint}`, {
             method: 'POST',
@@ -14035,12 +11656,10 @@ async function selectSearchedProductImage(id) {
             body: JSON.stringify({ nonce: productImageSearchState.nonce, id })
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Could not load that image.';
             return;
         }
-
         const resized = await resizeImageDataUrlForProduct(data.dataUrl);
         document.getElementById('p-form-image').value = resized;
         updateProductPhotoPreview(resized);
@@ -14050,7 +11669,6 @@ async function selectSearchedProductImage(id) {
         statusEl.textContent = 'Connection error while loading the image. Please try again.';
     }
 }
-
 function updateProductPhotoPreview(dataUrl) {
     const preview = document.getElementById('p-form-photo-preview');
     const removeBtn = document.getElementById('p-form-photo-remove-btn');
@@ -14063,7 +11681,6 @@ function updateProductPhotoPreview(dataUrl) {
         if (removeBtn) removeBtn.style.display ='none';
     }
 }
-
 function removeProductPhoto() {
     document.getElementById('p-form-image').value ='';
     document.getElementById('p-form-photo-input').value ='';
@@ -14071,12 +11688,10 @@ function removeProductPhoto() {
     if (cameraInput) cameraInput.value ='';
     updateProductPhotoPreview('');
 }
-
 async function handleProductFormSubmit(e) {
     e.preventDefault();
     const mode = document.getElementById('p-form-mode').value;
     const code = document.getElementById('p-form-code').value;
-
     const payload = {
         code: code,
         name: document.getElementById('p-form-name').value,
@@ -14085,7 +11700,6 @@ async function handleProductFormSubmit(e) {
         stock: parseInt(document.getElementById('p-form-stock').value),
         image: document.getElementById('p-form-image').value ||''
     };
-
     const costVal = document.getElementById('p-form-cost').value;
     if (costVal !=='') payload.cost = parseFloat(costVal);
     const supplierVal = document.getElementById('p-form-supplier').value.trim();
@@ -14101,19 +11715,12 @@ async function handleProductFormSubmit(e) {
     if (specsRaw) {
         try { payload.specs = JSON.parse(specsRaw); } catch (e) {  }
     }
-    // Always include `images` (even as an empty array) so that removing every
-    // Additional Photo actually clears it on the server. Previously this was
-    // wrapped in `if (imagesRaw)`, which skipped sending the field entirely
-    // once the gallery was emptied — the backend's { ...old, ...updatedData }
-    // merge then kept the old photos forever since the key was just missing.
     try {
         payload.images = imagesRaw ? JSON.parse(imagesRaw) : [];
     } catch (e) {
         payload.images = [];
     }
-
     const isScanRestock = (mode ==='ADD' && addProductScanSession.lastScannedFormCode === code.trim());
-
     if (mode ==='ADD' && !isScanRestock) {
         const barcodeExists = globalProducts.some(p => p.code === code.trim());
         if (barcodeExists) {
@@ -14121,37 +11728,29 @@ async function handleProductFormSubmit(e) {
             return;
         }
     }
-
     let url = `${API_URL}/products`;
     let reqMethod ='POST';
     let bodyData = { product: payload, userRole: currentUser.role, username: currentUser.username };
-
     if (mode ==='UPDATE' || isScanRestock) {
         url = `${API_URL}/products/${code}`;
         reqMethod ='PUT';
         bodyData = { updatedData: payload, userRole: currentUser.role, username: currentUser.username };
     }
-
     try {
         const res = await authFetch(url, {
             method: reqMethod,
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify(bodyData)
         });
-
         const reply = await res.json();
-
         if (reply.success) {
             loadInventoryProductsTable();
             loadDashboardMetrics();
             clearProductSpecsDraft();
-
             if (mode ==='ADD' && addProductScanSession.active) {
-
                 globalProducts = globalProducts.filter(p => p.code !== code);
                 globalProducts.push(payload);
                 addProductScanSession.lastScannedFormCode = null;
-
                 Swal.fire({
                     title:'Success',
                     text: reply.message ||'Product schema records modified cleanly.',
@@ -14159,7 +11758,6 @@ async function handleProductFormSubmit(e) {
                     timer: 1200,
                     showConfirmButton: false
                 });
-
                 document.getElementById('product-schema-form').reset();
                 document.getElementById('p-form-mode').value ='ADD';
                 document.getElementById('p-form-image').value ='';
@@ -14179,7 +11777,6 @@ async function handleProductFormSubmit(e) {
         Swal.fire('Connection Lost','❌ Connection Lost: Unable to contact system data nodes.','error');
     }
 }
-
 async function downloadAuthFetch(url, fallbackFilename) {
     try {
         const res = await authFetch(url);
@@ -14193,11 +11790,9 @@ async function downloadAuthFetch(url, fallbackFilename) {
             return false;
         }
         const blob = await res.blob();
-
         const disposition = res.headers.get('Content-Disposition') ||'';
         const match = disposition.match(/filename="?([^"]+)"?/);
         const filename = match ? match[1] : fallbackFilename;
-
         const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = blobUrl;
@@ -14213,16 +11808,9 @@ async function downloadAuthFetch(url, fallbackFilename) {
         return false;
     }
 }
-
 function downloadProductTemplate() {
     downloadAuthFetch(`${API_URL}/products/template`, `product_template_${Date.now()}.xlsx`);
 }
-
-// ---- Bulk Import Specs/Description (CSV: Code, Description) ----
-// Lightweight, client-side counterpart to the full product Excel
-// import/template — meant specifically for quickly filling in Description
-// for many existing products at once via a simple 2-column CSV.
-
 function openBulkSpecsImportModal() {
     Swal.fire({
         title:'Bulk Import Specs',
@@ -14242,7 +11830,6 @@ function openBulkSpecsImportModal() {
         }
     });
 }
-
 function parseSimpleCsv(text) {
     const rows = [];
     const lines = text.split(/\r?\n/).filter(l => l.trim() !=='');
@@ -14269,12 +11856,10 @@ function parseSimpleCsv(text) {
     }
     return rows;
 }
-
 async function handleBulkSpecsImportFile(event) {
     const file = event.target.files[0];
     if (!file) return;
     event.target.value ='';
-
     let text ='';
     try {
         text = await file.text();
@@ -14282,13 +11867,11 @@ async function handleBulkSpecsImportFile(event) {
         Swal.fire('Error','Hindi ma-basa ang file.','error');
         return;
     }
-
     const rows = parseSimpleCsv(text);
     if (rows.length < 2) {
         Swal.fire('Walang Laman','Walang mahanap na laman sa CSV file.','warning');
         return;
     }
-
     const header = rows[0].map(h => h.trim().toLowerCase());
     const codeIdx = header.indexOf('code');
     const descIdx = header.indexOf('description');
@@ -14296,13 +11879,11 @@ async function handleBulkSpecsImportFile(event) {
         Swal.fire('Maling Format','Kailangan ng "Code" at "Description" column sa CSV file.','error');
         return;
     }
-
     const dataRows = rows.slice(1).filter(r => (r[codeIdx] ||'').trim());
     if (!dataRows.length) {
         Swal.fire('Walang Laman','Walang valid na Code na nahanap sa file.','warning');
         return;
     }
-
     const confirmResult = await Swal.fire({
         title: `I-import ang ${dataRows.length} specs/description?`,
         text:'Ipapalit nito ang Description ng mga tumutugmang Product Code.',
@@ -14312,7 +11893,6 @@ async function handleBulkSpecsImportFile(event) {
         cancelButtonText:'Cancel'
     });
     if (!confirmResult.isConfirmed) return;
-
     Swal.fire({
         title:'Iniimport...',
         allowOutsideClick: false,
@@ -14320,7 +11900,6 @@ async function handleBulkSpecsImportFile(event) {
         showConfirmButton: false,
         didOpen: () => Swal.showLoading()
     });
-
     let updated = 0, skipped = 0, failed = 0;
     for (const row of dataRows) {
         const code = (row[codeIdx] ||'').trim();
@@ -14339,19 +11918,15 @@ async function handleBulkSpecsImportFile(event) {
             failed++;
         }
     }
-
     if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
-
     Swal.fire({
         title:'Import Complete',
         html: `<p>✅ Na-update: <b>${updated}</b></p><p>⏭️ Na-skip (walang tugmang code): <b>${skipped}</b></p>${failed ? `<p>❌ Nabigo: <b>${failed}</b></p>` :''}`,
         icon:'success'
     });
 }
-
 async function exportProductsCsv() {
     if (guardPremiumFeature('advanced_reports')) return;
-
     const confirmResult = await Swal.fire({
         title:'Export Products?',
         html:'This will download your <strong>current product inventory</strong> as a CSV file. Do you want to continue?',
@@ -14362,7 +11937,6 @@ async function exportProductsCsv() {
         confirmButtonColor:'#7c5cff',
     });
     if (!confirmResult.isConfirmed) return;
-
     Swal.fire({
         title:'Preparing your file…',
         allowOutsideClick: false,
@@ -14370,16 +11944,12 @@ async function exportProductsCsv() {
         showConfirmButton: false,
         didOpen: () => Swal.showLoading(),
     });
-
     const success = await downloadAuthFetch(`${API_URL}/products/export`, `inventory_export_${Date.now()}.csv`);
-
     if (success) {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title:'Product export downloaded', showConfirmButton:false, timer:1800, timerProgressBar: true });
     }
 }
-
 let selectedImportMode ='skip';
-
 function triggerProductImport() {
     Swal.fire({
         title:'How would you like to import the file?',
@@ -14403,44 +11973,36 @@ function triggerProductImport() {
         if (fileInput) fileInput.click();
     });
 }
-
 async function handleProductImportFile(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append('file', file);
     formData.append('username', currentUser.username);
     formData.append('mode', selectedImportMode ||'skip');
-
     Swal.fire({
         title:'Importing products...',
         text:'Please wait a moment.',
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading()
     });
-
     try {
         const res = await authFetch(`${API_URL}/products/import`, {
             method:'POST',
             body: formData
         });
         const reply = await res.json();
-
         event.target.value ='';
-
         if (!reply.success) {
             Swal.fire('Import Failed', reply.message ||'Could not import the file.','error');
             return;
         }
-
         if (reply.products) globalProducts = reply.products;
         if (reply.categories) customCategories = reply.categories;
         updateDropdownCategoriesDynamic();
         updateCategoryChipsDynamic();
         if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-
         let summaryHtml = `<p>✅ Successfully added: <b>${reply.added}</b> product(s)</p>`;
         if (reply.updated) {
             summaryHtml += `<p>🔄 Updated: <b>${reply.updated}</b> existing product(s)</p>`;
@@ -14455,7 +12017,6 @@ async function handleProductImportFile(event) {
             summaryHtml += `<div style="text-align:left;max-height:150px;overflow:auto;margin-top:10px;padding:8px;background:#fef2f2;border-radius:6px;font-size:12.5px;color:#b91c1c;">${reply.errors.join('<br>')}</div>`;
             summaryHtml += `<div style="margin-top:10px;"><button type="button" id="download-import-errors-btn" class="btn-action-outline" style="font-size:12.5px;padding:6px 12px;">📥 Download Error Report (CSV)</button></div>`;
         }
-
         Swal.fire({
             title:'Import Complete',
             html: summaryHtml,
@@ -14473,7 +12034,6 @@ async function handleProductImportFile(event) {
         Swal.fire('Connection Lost','❌ Could not connect to the server. Try again.','error');
     }
 }
-
 function downloadImportErrorsCsv(errorsArray) {
     if (!errorsArray || !errorsArray.length) return;
     const escapeCsv = (val) => {
@@ -14493,10 +12053,8 @@ function downloadImportErrorsCsv(errorsArray) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
-
 let bulkPhotoSelection = [];
 let bulkPhotoProductsList = [];
-
 function normalizeMatchKeyClient(str) {
     return (str ||'')
         .toString()
@@ -14507,13 +12065,10 @@ function normalizeMatchKeyClient(str) {
         .replace(/[^a-z0-9 ]/g,'')
         .trim();
 }
-
 async function openBulkPhotoModal() {
     clearBulkPhotoSelection();
     bulkPhotoProductsList = Array.isArray(globalProducts) && globalProducts.length ? globalProducts :[];
-
     document.getElementById('bulk-photo-modal').style.display ='flex';
-
     try {
         const res = await authFetch(`${API_URL}/products`);
         if (res.ok) {
@@ -14527,36 +12082,27 @@ async function openBulkPhotoModal() {
         console.warn('Bulk Upload Photos: hindi ma-refresh ang products list, gagamitin na lang ang cached list.', err);
     }
 }
-
 function closeBulkPhotoModal() {
     closeModal('bulk-photo-modal');
 }
-
 function findMatchingProductForFilename(filename) {
     const key = normalizeMatchKeyClient(filename);
     if (!key) return null;
-
     let match = bulkPhotoProductsList.find(p => p && p.code && normalizeMatchKeyClient(p.code) === key);
     if (match) return { product: match, matchedBy:'code' };
-
     match = bulkPhotoProductsList.find(p => p && p.name && normalizeMatchKeyClient(p.name) === key);
     if (match) return { product: match, matchedBy:'name' };
-
     return null;
 }
-
 function handleBulkPhotoFilesSelected(event) {
     const pickedFiles = Array.from(event.target.files ||[]).filter(f => f.type && f.type.startsWith('image/'));
     event.target.value ='';
     if (!pickedFiles.length) return;
-
     const existingKeys = new Set(bulkPhotoSelection.map(item => `${item.file.name}__${item.file.size}`));
-
     pickedFiles.forEach(file => {
         const dedupeKey = `${file.name}__${file.size}`;
         if (existingKeys.has(dedupeKey)) return;
         existingKeys.add(dedupeKey);
-
         const found = findMatchingProductForFilename(file.name);
         bulkPhotoSelection.push({
             file,
@@ -14565,17 +12111,14 @@ function handleBulkPhotoFilesSelected(event) {
             matchedBy: found ? found.matchedBy : null
         });
     });
-
     renderBulkPhotoPreview();
 }
-
 function renderBulkPhotoPreview() {
     const listEl = document.getElementById('bulk-photo-preview-list');
     const summaryEl = document.getElementById('bulk-photo-summary');
     const applyBtn = document.getElementById('bulk-photo-apply-btn');
     const clearBtn = document.getElementById('bulk-photo-clear-btn');
     if (!listEl) return;
-
     if (!bulkPhotoSelection.length) {
         listEl.innerHTML ='';
         summaryEl.style.display ='none';
@@ -14583,17 +12126,13 @@ function renderBulkPhotoPreview() {
         clearBtn.style.display ='none';
         return;
     }
-
     const matchedCount = bulkPhotoSelection.filter(i => i.matchedProduct).length;
     const unmatchedCount = bulkPhotoSelection.length - matchedCount;
-
     summaryEl.style.display ='block';
     summaryEl.innerHTML = `✅ <span style="color:#16a34a;">${matchedCount} matched</span>` +
         (unmatchedCount ? ` &nbsp;|&nbsp; ⚠️ <span style="color:#dc2626;">${unmatchedCount} unmatched</span>` :'');
-
     clearBtn.style.display ='inline-flex';
     applyBtn.style.display = matchedCount ?'inline-flex' :'none';
-
     listEl.innerHTML = bulkPhotoSelection.map((item, idx) => {
         const isMatched = !!item.matchedProduct;
         const matchLabel = isMatched
@@ -14613,14 +12152,12 @@ function renderBulkPhotoPreview() {
         `;
     }).join('');
 }
-
 function removeBulkPhotoItem(idx) {
     const item = bulkPhotoSelection[idx];
     if (item) URL.revokeObjectURL(item.previewUrl);
     bulkPhotoSelection.splice(idx, 1);
     renderBulkPhotoPreview();
 }
-
 function clearBulkPhotoSelection() {
     bulkPhotoSelection.forEach(item => URL.revokeObjectURL(item.previewUrl));
     bulkPhotoSelection = [];
@@ -14630,7 +12167,6 @@ function clearBulkPhotoSelection() {
     if (folderInput) folderInput.value ='';
     renderBulkPhotoPreview();
 }
-
 function compressImageFileToBlob(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -14664,70 +12200,55 @@ function compressImageFileToBlob(file) {
         reader.readAsDataURL(file);
     });
 }
-
 async function submitBulkPhotoUpload() {
     const matchedItems = bulkPhotoSelection.filter(i => i.matchedProduct);
     if (!matchedItems.length) return;
-
     Swal.fire({
         title: `Applying ${matchedItems.length} photo(s)...`,
         text:'Please wait a moment.',
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading()
     });
-
     try {
         const formData = new FormData();
         for (const item of matchedItems) {
             const compressedBlob = await compressImageFileToBlob(item.file);
             formData.append('images', compressedBlob, item.file.name);
         }
-
         const res = await authFetch(`${API_URL}/products/bulk-photos`, {
             method:'POST',
             body: formData,
             timeoutMs: 120000
         });
         const reply = await res.json();
-
         if (!reply.success) {
             Swal.fire('Bulk Upload Failed', reply.message ||'Could not apply the photos.','error');
             return;
         }
-
         if (reply.products) globalProducts = reply.products;
         if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-
         let summaryHtml = `<p>✅ Applied: <b>${reply.appliedCount}</b> photo(s)</p>`;
         if (reply.unmatchedCount) summaryHtml += `<p>⚠️ No match found: <b>${reply.unmatchedCount}</b> file(s)</p>`;
         if (reply.failedCount) summaryHtml += `<p>❌ Failed: <b>${reply.failedCount}</b> file(s)</p>`;
-
         Swal.fire({
             title:'Bulk Upload Complete',
             html: summaryHtml,
             icon: (reply.failedCount) ?'warning' :'success'
         });
-
         closeBulkPhotoModal();
     } catch (error) {
         console.error(error);
         Swal.fire('Connection Lost','❌ Could not connect to the server. Try again.','error');
     }
 }
-
 let bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null, minimized: false, finished: false, lastBadgeText: '' };
-
 function stopBulkImageSearchPolling() {
     if (bulkImageSearchState.pollTimer) {
         clearTimeout(bulkImageSearchState.pollTimer);
         bulkImageSearchState.pollTimer = null;
     }
 }
-
-// Minimize/restore icon sa header — .header-icon-btn na rin ang class
-// (kagaya ng notification bell), kaya awtomatiko itong sumusunod sa
-// parehong tema (light/dark/terminal) nang walang extra styling code.
 function hideBulkImageSearchHeaderIcon() {
     const btn = document.getElementById('bulk-imgsearch-minimized-btn');
     if (btn) {
@@ -14735,12 +12256,10 @@ function hideBulkImageSearchHeaderIcon() {
         btn.classList.remove('is-searching');
     }
 }
-
 function showBulkImageSearchHeaderIcon() {
     const btn = document.getElementById('bulk-imgsearch-minimized-btn');
     if (btn) btn.style.display = 'flex';
 }
-
 function updateBulkImageSearchHeaderBadge(text, searching) {
     const btn = document.getElementById('bulk-imgsearch-minimized-btn');
     const badge = document.getElementById('bulk-imgsearch-minimized-badge');
@@ -14749,14 +12268,7 @@ function updateBulkImageSearchHeaderBadge(text, searching) {
     badge.style.display = text ? 'inline-block' : 'none';
     btn.classList.toggle('is-searching', !!searching);
 }
-
 function openBulkImageSearchModal() {
-    // BUG FIX: kung may ACTIBONG search session pa (may nonce, o may
-    // proposals na naghihintay i-review) — hal. na-minimize lang ito
-    // kanina at itinuloy ang paggawa ng ibang bagay — i-RESTORE na lang
-    // ito sa halip na i-reset. Kung hindi, mawawala/mababalewala ang
-    // background search kapag na-click ng user ang "Bulk Search Images"
-    // toolbar button sa halip na ang minimized icon sa header.
     if (bulkImageSearchState.nonce || bulkImageSearchState.proposals.length) {
         restoreBulkImageSearchModal();
         return;
@@ -14773,44 +12285,24 @@ function openBulkImageSearchModal() {
     hideBulkImageSearchHeaderIcon();
     document.getElementById('bulk-image-search-modal').style.display = 'flex';
 }
-
 function closeBulkImageSearchModal() {
     stopBulkImageSearchPolling();
     if (typeof stopOmniImageSearchPolling === 'function') stopOmniImageSearchPolling();
-    // Buong reset (hindi lang UI) — talagang cancel/dismiss ang ibig
-    // sabihin ng "x" (di gaya ng "-" minimize), kaya dapat blangko ulit
-    // ang susunod na openBulkImageSearchModal() sa halip na mag-akalang
-    // may laman pa ring dapat i-restore.
     bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null, minimized: false, finished: false, lastBadgeText: '' };
     hideBulkImageSearchHeaderIcon();
     document.getElementById('bulk-image-search-modal').style.display = 'none';
 }
-
-// MINIMIZE — itinatago lang ang modal (display:none), HINDI hinihinto
-// ang polling. Ibig sabihin, patuloy pa ring tumatakbo ang searching sa
-// background (bulkImageSearchState.pollTimer) kahit lumipat ng page
-// (Products, Overview, atbp.) o gumawa ng ibang bagay habang naghihintay
-// — lahat ng element na ginagamit ng pollBulkImageSearchProgress() /
-// updateBulkImageSearchProgressUI() ay permanente sa DOM (global modal,
-// hindi kabilang sa alinmang view/page, kaya hindi ito natatanggal kapag
-// nagpalit ng view) — walang error kahit hindi ito kasalukuyang
-// nakikita.
 function minimizeBulkImageSearchModal() {
     document.getElementById('bulk-image-search-modal').style.display = 'none';
     bulkImageSearchState.minimized = true;
     showBulkImageSearchHeaderIcon();
     updateBulkImageSearchHeaderBadge(bulkImageSearchState.lastBadgeText, !bulkImageSearchState.finished);
 }
-
 function restoreBulkImageSearchModal() {
     bulkImageSearchState.minimized = false;
     hideBulkImageSearchHeaderIcon();
     document.getElementById('bulk-image-search-modal').style.display = 'flex';
 }
-
-
-// Ginagawang mas madaling basahin ang etaMs (galing sa backend) —
-// hal. "~45s" o "~2m 10s" — sa halip na hilaw na milliseconds.
 function formatBulkImageSearchEta(ms) {
     if (!Number.isFinite(ms) || ms <= 0) return '';
     const totalSec = Math.round(ms / 1000);
@@ -14819,7 +12311,6 @@ function formatBulkImageSearchEta(ms) {
     if (min <= 0) return `~${sec}s left`;
     return `~${min}m ${sec}s left`;
 }
-
 function updateBulkImageSearchProgressUI(done, total, etaMs) {
     const wrap = document.getElementById('bulk-imgsearch-progress-wrap');
     const bar = document.getElementById('bulk-imgsearch-progress-bar');
@@ -14829,27 +12320,20 @@ function updateBulkImageSearchProgressUI(done, total, etaMs) {
     bar.style.width = `${pct}%`;
     const etaText = formatBulkImageSearchEta(etaMs);
     text.textContent = `${done}/${total} searched (${pct}%)${etaText ? ' — ' + etaText : ''}`;
-
-    // I-update din ang badge ng minimized header icon (kahit hindi
-    // kasalukuyang naka-minimize) — para tama agad ang laman nito sa
-    // sandaling i-minimize ng user pagkatapos.
     bulkImageSearchState.lastBadgeText = `${done}/${total}`;
     if (bulkImageSearchState.minimized) {
         updateBulkImageSearchHeaderBadge(bulkImageSearchState.lastBadgeText, true);
     }
 }
-
 async function startBulkImageSearch() {
     const onlyMissing = document.getElementById('bulk-imgsearch-only-missing').checked;
     let limit = parseInt(document.getElementById('bulk-imgsearch-limit').value, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 50;
     limit = Math.min(limit, 100);
-
     const startBtn = document.getElementById('bulk-imgsearch-start-btn');
     const statusEl = document.getElementById('bulk-imgsearch-status');
     const listEl = document.getElementById('bulk-imgsearch-preview-list');
     const progressWrap = document.getElementById('bulk-imgsearch-progress-wrap');
-
     stopBulkImageSearchPolling();
     startBtn.disabled = true;
     bulkImageSearchState.finished = false;
@@ -14860,7 +12344,6 @@ async function startBulkImageSearch() {
     listEl.innerHTML = '';
     progressWrap.style.display = 'none';
     statusEl.textContent = 'Starting search...';
-
     try {
         const res = await authFetch(`${API_URL}/products/bulk-image-search`, {
             method: 'POST',
@@ -14869,13 +12352,11 @@ async function startBulkImageSearch() {
             timeoutMs: 30000
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Bulk image search failed.';
             startBtn.disabled = false;
             return;
         }
-
         if (!data.nonce || !data.totalTargeted) {
             statusEl.textContent = onlyMissing
                 ? 'All products already have a photo — nothing to search for.'
@@ -14883,13 +12364,11 @@ async function startBulkImageSearch() {
             startBtn.disabled = false;
             return;
         }
-
         bulkImageSearchState.nonce = data.nonce;
         bulkImageSearchState.totalEligible = data.totalEligible;
         bulkImageSearchState.truncated = data.truncated;
         statusEl.textContent = `Searching ${data.totalTargeted} product(s) — this can take a bit for larger batches...`;
         updateBulkImageSearchProgressUI(0, data.totalTargeted, null);
-
         pollBulkImageSearchProgress(startBtn);
     } catch (err) {
         console.error('Bulk image search error:', err);
@@ -14897,36 +12376,16 @@ async function startBulkImageSearch() {
         startBtn.disabled = false;
     }
 }
-
-// Live progress polling — tinatawagan bawat ~900ms habang tumatakbo pa
-// ang bulk search sa background (server.js), hanggang matapos (finished)
-// o magkaroon ng error. Gumagamit ng setTimeout chain (hindi setInterval)
-// para hindi mag-overlap ang mga poll request kung sakaling medyo
-// lumambot ang network sa isang tugon.
 async function pollBulkImageSearchProgress(startBtn) {
     const statusEl = document.getElementById('bulk-imgsearch-status');
     const nonce = bulkImageSearchState.nonce;
     if (!nonce) return;
-
     try {
         const res = await authFetch(`${API_URL}/products/bulk-image-search/progress?nonce=${encodeURIComponent(nonce)}`, {
             timeoutMs: 15000
         });
         const data = await res.json();
-
         if (res.status === 429) {
-            // BUG FIX: dating pareho ng treatment ng ibang di-inaasahang
-            // error ang 429 (per-IP rate limit ng progress-checking
-            // endpoint mismo, ~1200 request/oras) — kaya sa napakahaba/
-            // malaking search (>~18 minuto ng tuloy-tuloy na polling
-            // bawat 900ms), PERMANENTENG humihinto ang polling KAHIT
-            // patuloy pa rin talaga ang totoong search sa server sa
-            // likod. Ngayon, RETRYABLE na ito (kagaya ng transient
-            // network error) — hinihintay muna ang "Retry-After" na
-            // sinasabi ng server (o 5s kung wala, max 60s) bago subukan
-            // ulit, sa halip na basta sumuko agad. May hard cap pa rin
-            // (20 sunud-sunod na 429) para hindi talaga walang-hanggan
-            // ang pag-ulit kung sakaling may tunay na ibang problema.
             bulkImageSearchState.rateLimitRetries = (bulkImageSearchState.rateLimitRetries || 0) + 1;
             if (bulkImageSearchState.rateLimitRetries > 20) {
                 statusEl.textContent = 'Still rate-limited after several retries — the search may still be running on the server. Try reopening this later.';
@@ -14943,7 +12402,6 @@ async function pollBulkImageSearchProgress(startBtn) {
             return;
         }
         bulkImageSearchState.rateLimitRetries = 0;
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Lost track of the search progress. Please try again.';
             document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
@@ -14952,9 +12410,7 @@ async function pollBulkImageSearchProgress(startBtn) {
             if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('!', false);
             return;
         }
-
         updateBulkImageSearchProgressUI(data.done, data.total, data.etaMs);
-
         if (data.error) {
             statusEl.textContent = data.error;
             document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
@@ -14963,25 +12419,19 @@ async function pollBulkImageSearchProgress(startBtn) {
             if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('!', false);
             return;
         }
-
         if (!data.finished) {
             bulkImageSearchState.pollTimer = setTimeout(() => pollBulkImageSearchProgress(startBtn), 900);
             return;
         }
-
-        // Tapos na — ipakita ang buong resulta, kapareho ng dating
-        // ginagawa noong synchronous pa ang endpoint.
         document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
         bulkImageSearchState.proposals = data.proposals || [];
         bulkImageSearchState.finished = true;
-
         if (!bulkImageSearchState.proposals.length) {
             statusEl.textContent = 'No products found to search for.';
             startBtn.disabled = false;
             if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('', false);
             return;
         }
-
         const foundCount = bulkImageSearchState.proposals.filter(p => p.found).length;
         let statusText = `Found images for ${foundCount}/${bulkImageSearchState.proposals.length} product(s).`;
         if (bulkImageSearchState.truncated) {
@@ -14989,25 +12439,15 @@ async function pollBulkImageSearchProgress(startBtn) {
         }
         statusText += ' Review below, then Apply.';
         statusEl.textContent = statusText;
-
         renderBulkImageSearchPreview();
         document.getElementById('bulk-imgsearch-selectall-row').style.display = foundCount ? 'flex' : 'none';
         startBtn.disabled = false;
-        // Tapos na ang paghahanap pero naghihintay pa ng review/apply —
-        // panatilihing visible ang header icon (kung naka-minimize)
-        // para malaman ng user na may resulta nang dapat balikan, pero
-        // itigil na ang "pulsing" (finished = true na, hindi na
-        // aktibong naghahanap).
         if (bulkImageSearchState.minimized) updateBulkImageSearchHeaderBadge('✓', false);
     } catch (err) {
         console.error('Bulk image search progress poll error:', err);
-        // Transient network hiccup lang — subukan ulit sa susunod na
-        // tick sa halip na agad sumuko, dahil normal lang na medyo
-        // magkaproblema minsan ang polling sa mobile networks.
         bulkImageSearchState.pollTimer = setTimeout(() => pollBulkImageSearchProgress(startBtn), 1500);
     }
 }
-
 function renderBulkImageSearchPreview() {
     const listEl = document.getElementById('bulk-imgsearch-preview-list');
     listEl.innerHTML = bulkImageSearchState.proposals.map((p, idx) => {
@@ -15033,12 +12473,10 @@ function renderBulkImageSearchPreview() {
     }).join('');
     updateBulkImageSearchApplyBtn();
 }
-
 function setAllBulkImageSearchSelections(checked) {
     document.querySelectorAll('[data-bulk-imgsearch-idx]').forEach(cb => { cb.checked = checked; });
     updateBulkImageSearchApplyBtn();
 }
-
 function updateBulkImageSearchApplyBtn() {
     const checked = document.querySelectorAll('[data-bulk-imgsearch-idx]:checked').length;
     const btn = document.getElementById('bulk-imgsearch-apply-btn');
@@ -15049,19 +12487,15 @@ function updateBulkImageSearchApplyBtn() {
         btn.style.display = 'none';
     }
 }
-
 async function applyBulkImageSearchSelections() {
     const checkedBoxes = Array.from(document.querySelectorAll('[data-bulk-imgsearch-idx]:checked'));
     if (!checkedBoxes.length || !bulkImageSearchState.nonce) return;
-
     const selectedCodes = checkedBoxes.map(cb => bulkImageSearchState.proposals[parseInt(cb.dataset.bulkImgsearchIdx, 10)].code);
     const statusEl = document.getElementById('bulk-imgsearch-status');
     const applyBtn = document.getElementById('bulk-imgsearch-apply-btn');
     applyBtn.disabled = true;
-
     const updates = [];
     const downloadFailed = [];
-
     for (let i = 0; i < selectedCodes.length; i++) {
         const code = selectedCodes[i];
         statusEl.textContent = `Downloading and preparing photo ${i + 1}/${selectedCodes.length} (${code})...`;
@@ -15084,15 +12518,12 @@ async function applyBulkImageSearchSelections() {
             downloadFailed.push(code);
         }
     }
-
     if (!updates.length) {
         statusEl.textContent = 'None of the selected photos could be downloaded. Please try again.';
         applyBtn.disabled = false;
         return;
     }
-
     statusEl.textContent = `Applying ${updates.length} photo(s)...`;
-
     try {
         const res = await authFetch(`${API_URL}/products/bulk-image-search/apply`, {
             method: 'POST',
@@ -15101,28 +12532,23 @@ async function applyBulkImageSearchSelections() {
             timeoutMs: 60000
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Could not apply the photos.';
             applyBtn.disabled = false;
             return;
         }
-
         if (data.products) globalProducts = data.products;
         if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
-
         let summaryHtml = `<p>✅ Applied: <b>${data.appliedCount}</b> photo(s)</p>`;
         if (downloadFailed.length) summaryHtml += `<p>⚠️ Could not download: <b>${downloadFailed.length}</b> photo(s)</p>`;
         if (data.failedCount) summaryHtml += `<p>❌ Failed to apply: <b>${data.failedCount}</b> photo(s)</p>`;
         summaryHtml += `<p style="color:#64748b;font-size:0.85rem;">Tip: double-check a few of the applied photos in the Products list — image search results aren't always a perfect match.</p>`;
-
         Swal.fire({
             title: 'Bulk Search Images Complete',
             html: summaryHtml,
             icon: (downloadFailed.length || data.failedCount) ? 'warning' : 'success'
         });
-
         closeBulkImageSearchModal();
     } catch (err) {
         console.error('Bulk image apply error:', err);
@@ -15130,28 +12556,13 @@ async function applyBulkImageSearchSelections() {
         applyBtn.disabled = false;
     }
 }
-
-// ============================================================================
-// OMNI SEARCH IMAGES — free, no-API-key image search (new)
-// ----------------------------------------------------------------------------
-// Mirrors the Bulk Search Images flow above, but talks to the free
-// /api/products/omni-image-search endpoints instead. It runs quietly in the
-// background on the server (a separate background process, invisible to
-// the user) and reports live progress here, exactly like the paid flow
-// above. Applying selected photos reuses the same
-// POST /api/products/bulk-image-search/apply endpoint as the paid flow,
-// since applying only ever needs a product code + already-downloaded image.
-// ============================================================================
-
 let omniImageSearchState = { nonce: null, proposals: [], pollTimer: null };
-
 function stopOmniImageSearchPolling() {
     if (omniImageSearchState.pollTimer) {
         clearTimeout(omniImageSearchState.pollTimer);
         omniImageSearchState.pollTimer = null;
     }
 }
-
 function resetOmniImageSearchUI() {
     stopOmniImageSearchPolling();
     omniImageSearchState = { nonce: null, proposals: [], pollTimer: null };
@@ -15166,7 +12577,6 @@ function resetOmniImageSearchUI() {
     if (applyBtn) applyBtn.style.display = 'none';
     if (progressWrap) progressWrap.style.display = 'none';
 }
-
 function updateOmniImageSearchProgressUI(done, total, etaMs) {
     const wrap = document.getElementById('omni-imgsearch-progress-wrap');
     const bar = document.getElementById('omni-imgsearch-progress-bar');
@@ -15177,18 +12587,15 @@ function updateOmniImageSearchProgressUI(done, total, etaMs) {
     const etaText = formatBulkImageSearchEta(etaMs);
     text.textContent = `${done}/${total} searched (${pct}%)${etaText ? ' — ' + etaText : ''}`;
 }
-
 async function startOmniImageSearch() {
     const onlyMissing = document.getElementById('bulk-imgsearch-only-missing').checked;
     let limit = parseInt(document.getElementById('bulk-imgsearch-limit').value, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 50;
     limit = Math.min(limit, 100);
-
     const startBtn = document.getElementById('omni-imgsearch-start-btn');
     const statusEl = document.getElementById('omni-imgsearch-status');
     const listEl = document.getElementById('omni-imgsearch-preview-list');
     const progressWrap = document.getElementById('omni-imgsearch-progress-wrap');
-
     stopOmniImageSearchPolling();
     startBtn.disabled = true;
     document.getElementById('omni-imgsearch-selectall-row').style.display = 'none';
@@ -15196,7 +12603,6 @@ async function startOmniImageSearch() {
     listEl.innerHTML = '';
     progressWrap.style.display = 'none';
     statusEl.textContent = 'Starting Omni Search (free)...';
-
     try {
         const res = await authFetch(`${API_URL}/products/omni-image-search`, {
             method: 'POST',
@@ -15205,13 +12611,11 @@ async function startOmniImageSearch() {
             timeoutMs: 30000
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Omni Search Images failed to start.';
             startBtn.disabled = false;
             return;
         }
-
         if (!data.nonce || !data.totalTargeted) {
             statusEl.textContent = onlyMissing
                 ? 'All products already have a photo — nothing to search for.'
@@ -15219,13 +12623,11 @@ async function startOmniImageSearch() {
             startBtn.disabled = false;
             return;
         }
-
         omniImageSearchState.nonce = data.nonce;
         omniImageSearchState.totalEligible = data.totalEligible;
         omniImageSearchState.truncated = data.truncated;
         statusEl.textContent = `Searching ${data.totalTargeted} product(s) using free sources — running quietly in the background...`;
         updateOmniImageSearchProgressUI(0, data.totalTargeted, null);
-
         pollOmniImageSearchProgress(startBtn);
     } catch (err) {
         console.error('Omni Search Images error:', err);
@@ -15233,48 +12635,39 @@ async function startOmniImageSearch() {
         startBtn.disabled = false;
     }
 }
-
 async function pollOmniImageSearchProgress(startBtn) {
     const statusEl = document.getElementById('omni-imgsearch-status');
     const nonce = omniImageSearchState.nonce;
     if (!nonce) return;
-
     try {
         const res = await authFetch(`${API_URL}/products/omni-image-search/progress?nonce=${encodeURIComponent(nonce)}`, {
             timeoutMs: 15000
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Lost track of the search progress. Please try again.';
             document.getElementById('omni-imgsearch-progress-wrap').style.display = 'none';
             startBtn.disabled = false;
             return;
         }
-
         updateOmniImageSearchProgressUI(data.done, data.total, data.etaMs);
-
         if (data.error) {
             statusEl.textContent = data.error;
             document.getElementById('omni-imgsearch-progress-wrap').style.display = 'none';
             startBtn.disabled = false;
             return;
         }
-
         if (!data.finished) {
             omniImageSearchState.pollTimer = setTimeout(() => pollOmniImageSearchProgress(startBtn), 900);
             return;
         }
-
         document.getElementById('omni-imgsearch-progress-wrap').style.display = 'none';
         omniImageSearchState.proposals = data.proposals || [];
-
         if (!omniImageSearchState.proposals.length) {
             statusEl.textContent = 'No products found to search for.';
             startBtn.disabled = false;
             return;
         }
-
         const foundCount = omniImageSearchState.proposals.filter(p => p.found).length;
         let statusText = `Found images for ${foundCount}/${omniImageSearchState.proposals.length} product(s).`;
         if (omniImageSearchState.truncated) {
@@ -15282,17 +12675,14 @@ async function pollOmniImageSearchProgress(startBtn) {
         }
         statusText += ' Review below, then Apply.';
         statusEl.textContent = statusText;
-
         renderOmniImageSearchPreview();
         document.getElementById('omni-imgsearch-selectall-row').style.display = foundCount ? 'flex' : 'none';
         startBtn.disabled = false;
     } catch (err) {
         console.error('Omni Search Images progress poll error:', err);
-        // Transient network hiccup — retry on the next tick instead of giving up.
         omniImageSearchState.pollTimer = setTimeout(() => pollOmniImageSearchProgress(startBtn), 1500);
     }
 }
-
 function renderOmniImageSearchPreview() {
     const listEl = document.getElementById('omni-imgsearch-preview-list');
     listEl.innerHTML = omniImageSearchState.proposals.map((p, idx) => {
@@ -15320,12 +12710,10 @@ function renderOmniImageSearchPreview() {
     }).join('');
     updateOmniImageSearchApplyBtn();
 }
-
 function setAllOmniImageSearchSelections(checked) {
     document.querySelectorAll('[data-omni-imgsearch-idx]').forEach(cb => { cb.checked = checked; });
     updateOmniImageSearchApplyBtn();
 }
-
 function updateOmniImageSearchApplyBtn() {
     const checked = document.querySelectorAll('[data-omni-imgsearch-idx]:checked').length;
     const btn = document.getElementById('omni-imgsearch-apply-btn');
@@ -15336,19 +12724,15 @@ function updateOmniImageSearchApplyBtn() {
         btn.style.display = 'none';
     }
 }
-
 async function applyOmniImageSearchSelections() {
     const checkedBoxes = Array.from(document.querySelectorAll('[data-omni-imgsearch-idx]:checked'));
     if (!checkedBoxes.length || !omniImageSearchState.nonce) return;
-
     const selectedCodes = checkedBoxes.map(cb => omniImageSearchState.proposals[parseInt(cb.dataset.omniImgsearchIdx, 10)].code);
     const statusEl = document.getElementById('omni-imgsearch-status');
     const applyBtn = document.getElementById('omni-imgsearch-apply-btn');
     applyBtn.disabled = true;
-
     const updates = [];
     const downloadFailed = [];
-
     for (let i = 0; i < selectedCodes.length; i++) {
         const code = selectedCodes[i];
         statusEl.textContent = `Downloading and preparing photo ${i + 1}/${selectedCodes.length} (${code})...`;
@@ -15371,18 +12755,13 @@ async function applyOmniImageSearchSelections() {
             downloadFailed.push(code);
         }
     }
-
     if (!updates.length) {
         statusEl.textContent = 'None of the selected photos could be downloaded. Please try again.';
         applyBtn.disabled = false;
         return;
     }
-
     statusEl.textContent = `Applying ${updates.length} photo(s)...`;
-
     try {
-        // Shared with the paid flow — applying only needs a code + already
-        // downloaded image, so the same endpoint works for both.
         const res = await authFetch(`${API_URL}/products/bulk-image-search/apply`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -15390,28 +12769,23 @@ async function applyOmniImageSearchSelections() {
             timeoutMs: 60000
         });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
             statusEl.textContent = data.message || 'Could not apply the photos.';
             applyBtn.disabled = false;
             return;
         }
-
         if (data.products) globalProducts = data.products;
         if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
-
         let summaryHtml = `<p>✅ Applied: <b>${data.appliedCount}</b> photo(s)</p>`;
         if (downloadFailed.length) summaryHtml += `<p>⚠️ Could not download: <b>${downloadFailed.length}</b> photo(s)</p>`;
         if (data.failedCount) summaryHtml += `<p>❌ Failed to apply: <b>${data.failedCount}</b> photo(s)</p>`;
         summaryHtml += `<p style="color:#64748b;font-size:0.85rem;">Tip: double-check a few of the applied photos in the Products list — free image search results aren't always a perfect match.</p>`;
-
         Swal.fire({
             title: 'Omni Search Images Complete',
             html: summaryHtml,
             icon: (downloadFailed.length || data.failedCount) ? 'warning' : 'success'
         });
-
         closeBulkImageSearchModal();
     } catch (err) {
         console.error('Omni image apply error:', err);
@@ -15419,7 +12793,6 @@ async function applyOmniImageSearchSelections() {
         applyBtn.disabled = false;
     }
 }
-
 async function deleteProductTrigger(code) {
     const confirmation = await Swal.fire({
         title:'Are you sure?',
@@ -15430,9 +12803,7 @@ async function deleteProductTrigger(code) {
         cancelButtonColor:'#64748b',
         confirmButtonText:'Yes, delete it'
     });
-
     if(!confirmation.isConfirmed) return;
-
     try {
         const res = await authFetch(`${API_URL}/products/${code}`, {
             method:'DELETE',
@@ -15447,16 +12818,13 @@ async function deleteProductTrigger(code) {
         Swal.fire('Error','Failed to delete the selected product asset.','error');
     }
 }
-
 async function loadBarcodeGeneratorModule() {
     try {
         const res = await authFetch(`${API_URL}/products`);
         const products = await res.json();
         const tbody = document.getElementById('barcode-table-body');
         tbody.innerHTML ='';
-
         document.getElementById('select-all-barcodes').checked = false;
-
         products.forEach((p, idx) => {
             const row = document.createElement('tr');
             row.innerHTML = `
@@ -15468,18 +12836,15 @@ async function loadBarcodeGeneratorModule() {
                 <td><canvas id="canvas-row-${idx}" style="max-height: 40px;"></canvas></td>
             `;
             tbody.appendChild(row);
-
             setTimeout(() => {
                 JsBarcode(`#canvas-row-${idx}`, p.code, { format:"CODE128", displayValue: false, height: 30, margin: 10, background: "#ffffff" });
             }, 50);
         });
     } catch (e) { console.error(e); }
 }
-
 function toggleSelectAllBarcodes(master) {
     document.querySelectorAll('.barcode-select-item').forEach(cb => cb.checked = master.checked);
 }
-
 const DEFAULT_BARCODE_SETTINGS = {
     columns: 5,
     alignment:'center',
@@ -15509,7 +12874,6 @@ const DEFAULT_BARCODE_SETTINGS = {
     cardBg:'#ffffff'
 };
 const BARCODE_SETTINGS_STORAGE_KEY ='omnipos_barcode_print_settings';
-
 function getBarcodeSettings() {
     try {
         const saved = localStorage.getItem(BARCODE_SETTINGS_STORAGE_KEY);
@@ -15517,18 +12881,15 @@ function getBarcodeSettings() {
     } catch (e) { console.error('Failed to load barcode print settings:', e); }
     return Object.assign({}, DEFAULT_BARCODE_SETTINGS);
 }
-
 function saveBarcodeSettingsToStorage(settings) {
     try {
         localStorage.setItem(BARCODE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     } catch (e) { console.error('Failed to save barcode print settings:', e); }
 }
-
 function applyBarcodeSettingsToDom(settings) {
     const root = document.documentElement.style;
     const hAlignMap = { left:'flex-start', center:'center', right:'flex-end' };
     const vAlignMap = { top:'flex-start', middle:'center', bottom:'flex-end' };
-
     root.setProperty('--barcode-columns', settings.columns);
     root.setProperty('--barcode-text-align', settings.alignment);
     root.setProperty('--barcode-card-max-width', settings.cardMaxWidth +'mm');
@@ -15550,11 +12911,9 @@ function applyBarcodeSettingsToDom(settings) {
     root.setProperty('--barcode-border-color', settings.borderColor);
     root.setProperty('--barcode-print-border-color', settings.borderColor);
     root.setProperty('--barcode-card-bg', settings.cardBg);
-
     const hint = document.getElementById('barcode-preview-col-hint');
     if (hint) hint.textContent = settings.columns;
 }
-
 function populateBarcodeSettingsForm(settings) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     set('bset-columns', settings.columns);
@@ -15584,7 +12943,6 @@ function populateBarcodeSettingsForm(settings) {
     set('bset-border-color', settings.borderColor);
     set('bset-card-bg', settings.cardBg);
 }
-
 function readBarcodeSettingsFromForm() {
     const num = (id, fallback) => {
         const el = document.getElementById(id);
@@ -15624,66 +12982,53 @@ function readBarcodeSettingsFromForm() {
         cardBg: str('bset-card-bg', DEFAULT_BARCODE_SETTINGS.cardBg)
     };
 }
-
 function openBarcodePrintSettingsModal() {
     populateBarcodeSettingsForm(getBarcodeSettings());
     document.getElementById('barcode-print-settings-modal').style.display ='flex';
 }
-
 function applyBarcodeSettingsFromForm() {
     const settings = readBarcodeSettingsFromForm();
     saveBarcodeSettingsToStorage(settings);
     applyBarcodeSettingsToDom(settings);
     closeModal('barcode-print-settings-modal');
-
     if (Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
         renderBarcodeSheetPreview(window.__lastBarcodePrintBatch);
     }
-
     if (typeof Swal !=='undefined') {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title:'Barcode print settings applied', showConfirmButton:false, timer:1500 });
     }
 }
-
 function resetBarcodeSettingsToDefault() {
     const defaults = Object.assign({}, DEFAULT_BARCODE_SETTINGS);
     saveBarcodeSettingsToStorage(defaults);
     applyBarcodeSettingsToDom(defaults);
     populateBarcodeSettingsForm(defaults);
-
     if (Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
         renderBarcodeSheetPreview(window.__lastBarcodePrintBatch);
     }
-
     if (typeof Swal !=='undefined') {
         Swal.fire({ toast:true, position:'top-end', icon:'info', title:'Reset to default settings', showConfirmButton:false, timer:1500 });
     }
 }
-
 function renderBarcodeSheetPreview(batch) {
     const settings = getBarcodeSettings();
     applyBarcodeSettingsToDom(settings);
-
     const sheetContainer = document.getElementById('barcode-sheet-print-container');
     sheetContainer.innerHTML ='';
     window.__lastBarcodePrintBatch = batch;
-
     batch.forEach(({ code, name, qty, price }) => {
         for (let loop = 0; loop < qty; loop++) {
             const cellUnit = document.createElement('div');
             cellUnit.className ='barcode-print-card-unit';
-
             const uniqueId = `svg-print-${code}-${loop}-${Math.random().toString(36).slice(2,7)}`;
             cellUnit.innerHTML = `
                 <p>${escapeHtml(name)}</p>
                 <svg id="${uniqueId}"></svg>
             `;
             sheetContainer.appendChild(cellUnit);
-
             const labelText = settings.showPriceWithId
                 ? `${code} - ₱${(parseFloat(price) || 0).toFixed(2)}`
                 : code;
-
             setTimeout(() => {
                 JsBarcode(`#${uniqueId}`, code, {
                     format:"CODE128",
@@ -15698,27 +13043,21 @@ function renderBarcodeSheetPreview(batch) {
             }, 20);
         }
     });
-
     document.getElementById('barcode-preview-modal').style.display ='flex';
-
     document.body.classList.add('print-target-barcode');
     document.body.classList.remove('print-target-receipt');
 }
-
 document.addEventListener('DOMContentLoaded', () => {
     try { applyBarcodeSettingsToDom(getBarcodeSettings()); } catch (e) { console.error(e); }
 });
-
 async function generateSelectedBarcodePreview() {
     const checkboxes = document.querySelectorAll('.barcode-select-item:checked');
     if(checkboxes.length === 0) {
         Swal.fire('Selection Required','Please select at least one item from the product table lists.','info');
         return;
     }
-
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
     let authMethod ='';
-
     if (!isAdmin) {
         const { value: adminPassword } = await Swal.fire({
             title:'🔒 Admin Authorization Required',
@@ -15729,12 +13068,10 @@ async function generateSelectedBarcodePreview() {
             confirmButtonColor:'#2563eb',
             cancelButtonColor:'#ef4444'
         });
-
         if (!adminPassword || adminPassword.trim() ==="") {
             Swal.fire('Cancelled','Barcode printing was cancelled.','info');
             return;
         }
-
         try {
             const response = await authFetch(`${API_URL}/auth/verify-void`, {
                 method:'POST',
@@ -15742,7 +13079,6 @@ async function generateSelectedBarcodePreview() {
                 body: JSON.stringify({ adminPassword: adminPassword })
             });
             const data = await response.json();
-
             if (!data.success) {
                 Swal.fire('Access Denied', data.message ||'Maling Admin password.','error');
                 return;
@@ -15756,7 +13092,6 @@ async function generateSelectedBarcodePreview() {
     } else {
         authMethod ="ADMIN_BYPASS";
     }
-
     try {
         await authFetch(`${API_URL}/logs`, {
             method:'POST',
@@ -15772,7 +13107,6 @@ async function generateSelectedBarcodePreview() {
     } catch (logError) {
         console.error(logError);
     }
-
     if (typeof showBtPrintButtons === 'function' && typeof hideBtPrintButtons === 'function') {
         if (typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic) {
             showBtPrintButtons();
@@ -15780,7 +13114,6 @@ async function generateSelectedBarcodePreview() {
             hideBtPrintButtons();
         }
     }
-
     const batch = [];
     checkboxes.forEach((cb) => {
         const code = cb.getAttribute('data-code');
@@ -15789,12 +13122,9 @@ async function generateSelectedBarcodePreview() {
         const printQty = parseInt(document.getElementById(`bar-qty-${code}`).value) || 1;
         batch.push({ code, name, qty: printQty, price });
     });
-
     renderBarcodeSheetPreview(batch);
 }
-
 let currentAnalyticsRange = 'all';
-
 function setAnalyticsRange(range) {
     currentAnalyticsRange = range;
     document.querySelectorAll('.chip-range').forEach(btn => {
@@ -15802,7 +13132,6 @@ function setAnalyticsRange(range) {
     });
     loadSalesAnalyticsReport();
 }
-
 function renderRankList(elementId, rows, opts) {
     opts = opts || {};
     const el = document.getElementById(elementId);
@@ -15824,47 +13153,37 @@ function renderRankList(elementId, rows, opts) {
         el.appendChild(li);
     });
 }
-
 async function loadSalesAnalyticsReport() {
     try {
         const res = await authFetch(`${API_URL}/reports/sales-analytics?range=${currentAnalyticsRange}`);
         if (res.status === 402) {
-
             return;
         }
         const data = await res.json();
         if (!data.success) return;
-
         document.getElementById('report-gross').innerText = `₱${data.gross.toFixed(2)}`;
         document.getElementById('report-count').innerText = data.transactionCount;
         document.getElementById('report-profit').innerText = data.hasCostData ? `₱${data.estimatedProfit.toFixed(2)}` : '₱0.00 (no cost data)';
         document.getElementById('report-margin-pct').innerText = data.hasCostData ? `${data.marginPct.toFixed(1)}%` : '—';
-
         initSalesAnalyticsChartToolbar();
         loadSalesAnalyticsChartData();
-
         renderRankList('top-products-list', (data.topProducts || []).map(p => ({ name: p.name, value: `${p.qty} sold` })),
             { emptyMessage: 'No sales data yet.' });
-
         renderRankList('slow-products-list', (data.slowProducts || []).map(p => ({ name: p.name, value: `${p.qty} sold` })),
             { emptyMessage: 'No sales data yet.' });
-
         if (!data.hasCostData) {
             renderRankList('profit-by-product-list', [], { emptyMessage: 'No Cost Price set on any products yet. Add it in Inventory > Edit Product for profit to show here.' });
         } else {
             renderRankList('profit-by-product-list', (data.profitByProduct || []).map(p => ({ name: p.name, value: `₱${p.profit.toFixed(2)}`, negative: p.profit < 0 })),
                 { emptyMessage: 'No sales data yet.' });
         }
-
         const paymentRows = Object.entries(data.paymentBreakdown || {})
             .sort((a, b) => b[1] - a[1])
             .map(([method, total]) => ({ name: method, value: `₱${total.toFixed(2)}` }));
         renderRankList('payment-breakdown-list', paymentRows, { emptyMessage: 'No sales data yet.' });
-
     } catch (e) { console.error(e); }
   checkAdminResetVisibility();
 }
-
 const salesAnalyticsChartState = {
     granularity: 'day',
     rangePreset: '30d',
@@ -15876,29 +13195,24 @@ const salesAnalyticsChartState = {
     lastTxs: [],
     lastBuckets: []
 };
-
 const SA_METRIC_LABELS = { total: 'Total', high: 'High', low: 'Low', avg: 'Average' };
 const SA_GRAN_LABELS = { hour: 'Hourly', shift: 'Shift', day: 'Day', week: 'Week', month: 'Month', year: 'Year' };
 const SA_RANGE_LABELS = { today: 'Today', '7d': 'Last 7 Days', '30d': 'Last 30 Days', '90d': 'Last 90 Days', year: 'Last 1 Year', all: 'All Time', custom: 'Custom Range' };
 const SA_STYLE_LABELS = { area: 'Area', line: 'Line', bar: 'Bar', combo: 'Combo' };
-
 function saGetThemeColors() {
     const base = ovGetThemeColors();
     return { ...base, avg: document.body.classList.contains('dark-mode') ? '#c084fc' : '#a855f7' };
 }
-
 function saResolveDateRange() {
     const now = new Date();
     let to = salesAnalyticsChartState.toDate ? new Date(salesAnalyticsChartState.toDate) : new Date(now);
     to.setHours(23, 59, 59, 999);
     let from;
-
     if (salesAnalyticsChartState.fromDate && salesAnalyticsChartState.toDate) {
         from = new Date(salesAnalyticsChartState.fromDate);
         from.setHours(0, 0, 0, 0);
         return { from, to };
     }
-
     switch (salesAnalyticsChartState.rangePreset) {
         case 'today':
             from = new Date(now); from.setHours(0, 0, 0, 0); break;
@@ -15916,7 +13230,6 @@ function saResolveDateRange() {
     }
     return { from, to };
 }
-
 async function loadSalesAnalyticsChartData() {
     try {
         const res = await authFetch(`${API_URL}/transactions`);
@@ -15928,40 +13241,33 @@ async function loadSalesAnalyticsChartData() {
     }
     renderAdvancedSalesAnalyticsChart();
 }
-
 function renderAdvancedSalesAnalyticsChart() {
     const wrap = document.getElementById('sa-chart-svg-wrap');
     if (!wrap) return;
-
     const txs = salesAnalyticsChartState.lastTxs;
     const { from, to } = saResolveDateRange();
     const buckets = ovComputeBuckets(txs, salesAnalyticsChartState.granularity, from, to);
     buckets.forEach(b => { b.avg = b.count > 0 ? Math.round((b.total / b.count) * 100) / 100 : 0; });
-
     let compareBuckets = null;
     if (salesAnalyticsChartState.compare) {
         const prevRange = ovGetComparisonRange(from, to);
         compareBuckets = ovComputeBuckets(txs, salesAnalyticsChartState.granularity, prevRange.from, prevRange.to);
         compareBuckets.forEach(b => { b.avg = b.count > 0 ? Math.round((b.total / b.count) * 100) / 100 : 0; });
     }
-
     const rangeLabelEl = document.getElementById('sa-chart-range-label');
     if (rangeLabelEl) {
         const fmt = (d) => d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
         rangeLabelEl.textContent = `(${fmt(from)} – ${fmt(to)})`;
     }
-
     const emptyEl = document.getElementById('sa-chart-empty');
     const hasData = buckets.some(b => b.count > 0);
     if (emptyEl) emptyEl.style.display = hasData ? 'none' : 'flex';
-
     saDrawChart(wrap, buckets, compareBuckets);
     saRenderLegend(!!compareBuckets);
     saRenderSummary(buckets, compareBuckets);
     saRenderSummaryBar();
     salesAnalyticsChartState.lastBuckets = buckets;
 }
-
 function saRenderSummaryBar() {
     const bar = document.getElementById('sa-chart-summary-bar');
     if (!bar) return;
@@ -15974,7 +13280,6 @@ function saRenderSummaryBar() {
     if (salesAnalyticsChartState.compare) pills.push('Comparing');
     bar.innerHTML = pills.map(p => `<span class="sb-pill">${escapeHtml(p)}</span>`).join('');
 }
-
 function saRenderLegend(hasCompare) {
     const legendEl = document.getElementById('sa-chart-legend');
     if (!legendEl) return;
@@ -15982,25 +13287,21 @@ function saRenderLegend(hasCompare) {
     const metrics = salesAnalyticsChartState.metrics.size ? Array.from(salesAnalyticsChartState.metrics) : ['total'];
     const items = metrics.map(m => ({ color: colors[m] || colors.total, label: SA_METRIC_LABELS[m] || m }));
     if (hasCompare) items.push({ color: colors.compare, label: 'Previous Period', dashed: true });
-
     legendEl.innerHTML = items.map(it => `
         <span class="legend-item" style="color:${it.color}">
             <span class="legend-swatch${it.dashed ? ' dashed' : ''}" style="background-color:${it.dashed ? 'transparent' : it.color}; color:${it.color};"></span>
             ${it.label}
         </span>`).join('');
 }
-
 function saRenderSummary(buckets, compareBuckets) {
     const el = document.getElementById('sa-chart-summary');
     if (!el) return;
-
     const totalSum = buckets.reduce((s, b) => s + b.total, 0);
     const highest = buckets.reduce((max, b) => (b.total > max.total ? b : max), { total: -Infinity, label: '—' });
     const lowestActive = buckets.filter(b => b.count > 0);
     const lowest = lowestActive.reduce((min, b) => (b.total < min.total ? b : min), { total: Infinity, label: '—' });
     const totalCount = buckets.reduce((s, b) => s + b.count, 0);
     const avgTicket = totalCount > 0 ? totalSum / totalCount : 0;
-
     let compareHtml = '';
     if (compareBuckets) {
         const compareSum = compareBuckets.reduce((s, b) => s + b.total, 0);
@@ -16012,7 +13313,6 @@ function saRenderSummary(buckets, compareBuckets) {
                 <h4 class="stat-value ${isUp ? 'up' : 'down'}"><i class="fa-solid fa-arrow-${isUp ? 'up' : 'down'}"></i> ${Math.abs(pctChange).toFixed(1)}%</h4>
             </div>`;
     }
-
     el.innerHTML = `
         <div class="adv-summary-stat">
             <p class="stat-label">Total Sales</p>
@@ -16033,29 +13333,24 @@ function saRenderSummary(buckets, compareBuckets) {
         ${compareHtml}
     `;
 }
-
 function saDrawChart(wrapEl, buckets, compareBuckets) {
     const width = Math.max(wrapEl.clientWidth || 600, 300);
     const height = wrapEl.clientHeight || 260;
     const padL = 52, padR = 16, padT = 16, padB = 34;
     const plotW = Math.max(width - padL - padR, 10);
     const plotH = Math.max(height - padT - padB, 10);
-
     const colors = saGetThemeColors();
     const style = salesAnalyticsChartState.chartStyle;
     const metrics = salesAnalyticsChartState.metrics.size ? Array.from(salesAnalyticsChartState.metrics) : ['total'];
     const seriesToPlot = metrics.map(m => ({ key: m, color: colors[m] || colors.total }));
-
     const allVals = [0];
     buckets.forEach(b => seriesToPlot.forEach(s => allVals.push(b[s.key] || 0)));
     if (compareBuckets) compareBuckets.forEach(b => allVals.push(b.total || 0));
     const maxVal = Math.max(...allVals, 1);
-
     const n = Math.max(buckets.length, 1);
     const xStep = n > 1 ? plotW / (n - 1) : plotW;
     const xAt = (i) => padL + (n > 1 ? i * xStep : plotW / 2);
     const yAt = (v) => padT + plotH - (Math.max(v, 0) / maxVal) * plotH;
-
     const gridCount = 4;
     let gridSvg = '';
     for (let g = 0; g <= gridCount; g++) {
@@ -16064,7 +13359,6 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
         gridSvg += `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${colors.grid}" stroke-width="1" stroke-dasharray="3,4"/>`;
         gridSvg += `<text x="${padL - 8}" y="${y + 4}" font-size="10" fill="${colors.axisText}" text-anchor="end">${ovFormatShortPeso(val)}</text>`;
     }
-
     const maxLabels = Math.max(Math.floor(plotW / 60), 3);
     const labelEvery = Math.max(1, Math.ceil(n / maxLabels));
     let xLabelsSvg = '';
@@ -16072,7 +13366,6 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
         if (i % labelEvery !== 0 && i !== n - 1) return;
         xLabelsSvg += `<text x="${xAt(i)}" y="${height - 10}" font-size="10" fill="${colors.axisText}" text-anchor="middle">${escapeHtml(b.label)}</text>`;
     });
-
     function buildLinePath(getVal, srcBuckets) {
         return srcBuckets.map((b, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i).toFixed(1)} ${yAt(getVal(b)).toFixed(1)}`).join(' ');
     }
@@ -16080,12 +13373,9 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
         const line = srcBuckets.map((b, i) => `${xAt(i).toFixed(1)},${yAt(getVal(b)).toFixed(1)}`).join(' L ');
         return `M ${xAt(0).toFixed(1)},${(padT + plotH).toFixed(1)} L ${line} L ${xAt(srcBuckets.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
     }
-
     let seriesSvg = '';
     let gradientsSvg = '';
-
     if (style === 'bar' || style === 'combo') {
-
         const barSeriesKeys = style === 'combo' ? ['total'] : metrics;
         const barSeries = barSeriesKeys.map(m => ({ key: m, color: colors[m] || colors.total }));
         const groupW = n > 1 ? xStep * 0.62 : plotW * 0.5;
@@ -16100,7 +13390,6 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
                 seriesSvg += `<rect class="adv-chart-pt" data-idx="${i}" data-series="${s.key}" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${s.color}" opacity="0.88"/>`;
             });
         });
-
         if (style === 'combo') {
             const lineKeys = metrics.filter(m => m !== 'total');
             lineKeys.forEach((m) => {
@@ -16115,13 +13404,11 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
             });
         }
     } else {
-
         gradientsSvg = seriesToPlot.map((s, idx) => `
             <linearGradient id="saGrad${idx}" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stop-color="${s.color}" stop-opacity="0.28"/>
                 <stop offset="100%" stop-color="${s.color}" stop-opacity="0.02"/>
             </linearGradient>`).join('');
-
         seriesToPlot.forEach((s, idx) => {
             const getVal = (b) => b[s.key] || 0;
             if (style === 'area' && buckets.length > 1) {
@@ -16136,19 +13423,16 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
             });
         });
     }
-
     let compareSvg = '';
     if (compareBuckets && compareBuckets.length > 1) {
         compareSvg = `<path d="${buildLinePath(b => b.total || 0, compareBuckets)}" fill="none" stroke="${colors.compare}" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
     }
-
     let hoverSvg = '';
     buckets.forEach((b, i) => {
         const colX = padL + (i * xStep) - xStep / 2;
         const colW = n > 1 ? xStep : plotW;
         hoverSvg += `<rect class="adv-chart-hover-col" data-idx="${i}" x="${Math.max(colX, padL).toFixed(1)}" y="${padT}" width="${colW.toFixed(1)}" height="${plotH}" fill="transparent"/>`;
     });
-
     wrapEl.querySelectorAll('svg.adv-chart-svg').forEach(el => el.remove());
     const svgHtml = `
         <svg class="adv-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
@@ -16161,7 +13445,6 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
             ${hoverSvg}
         </svg>`;
     wrapEl.insertAdjacentHTML('afterbegin', svgHtml);
-
     const tooltip = document.getElementById('sa-chart-tooltip');
     const svgEl = wrapEl.querySelector('svg.adv-chart-svg');
     if (svgEl && tooltip) {
@@ -16190,7 +13473,6 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
         });
     }
 }
-
 function saExportChartCsv() {
     const buckets = salesAnalyticsChartState.lastBuckets || [];
     if (!buckets.length) {
@@ -16217,12 +13499,10 @@ function saExportChartCsv() {
     a.remove();
     URL.revokeObjectURL(url);
 }
-
 function initSalesAnalyticsChartToolbar() {
     const card = document.getElementById('sa-adv-chart-card');
     if (!card || card.getAttribute('data-sa-bound') === '1') return;
     card.setAttribute('data-sa-bound', '1');
-
     const filtersToggleBtn = document.getElementById('sa-chart-filters-toggle');
     const toolbarEl = document.getElementById('sa-chart-toolbar');
     if (filtersToggleBtn && toolbarEl) {
@@ -16233,7 +13513,6 @@ function initSalesAnalyticsChartToolbar() {
             filtersToggleBtn.setAttribute('aria-expanded', String(!isOpen));
         });
     }
-
     const granSelect = document.getElementById('sa-chart-granularity-select');
     if (granSelect) {
         granSelect.value = salesAnalyticsChartState.granularity;
@@ -16242,7 +13521,6 @@ function initSalesAnalyticsChartToolbar() {
             renderAdvancedSalesAnalyticsChart();
         });
     }
-
     const customRangeRow = document.getElementById('sa-chart-custom-range-row');
     const rangeSelect = document.getElementById('sa-chart-range-select');
     if (rangeSelect) {
@@ -16263,7 +13541,6 @@ function initSalesAnalyticsChartToolbar() {
             renderAdvancedSalesAnalyticsChart();
         });
     }
-
     const applyBtn = document.getElementById('sa-chart-apply-range');
     if (applyBtn) {
         applyBtn.addEventListener('click', () => {
@@ -16279,7 +13556,6 @@ function initSalesAnalyticsChartToolbar() {
             renderAdvancedSalesAnalyticsChart();
         });
     }
-
     const styleSelect = document.getElementById('sa-chart-style-select');
     if (styleSelect) {
         styleSelect.value = salesAnalyticsChartState.chartStyle;
@@ -16288,7 +13564,6 @@ function initSalesAnalyticsChartToolbar() {
             renderAdvancedSalesAnalyticsChart();
         });
     }
-
     const metricChecksWrap = document.getElementById('sa-chart-metric-checks');
     if (metricChecksWrap) {
         metricChecksWrap.querySelectorAll('input[type="checkbox"]').forEach(cb => {
@@ -16307,7 +13582,6 @@ function initSalesAnalyticsChartToolbar() {
             });
         });
     }
-
     const compareToggle = document.getElementById('sa-chart-compare-toggle');
     if (compareToggle) {
         compareToggle.addEventListener('change', () => {
@@ -16315,27 +13589,22 @@ function initSalesAnalyticsChartToolbar() {
             renderAdvancedSalesAnalyticsChart();
         });
     }
-
     const refreshBtn = document.getElementById('sa-chart-refresh-btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => loadSalesAnalyticsChartData());
     }
-
     const exportBtn = document.getElementById('sa-chart-export-btn');
     if (exportBtn) {
         exportBtn.addEventListener('click', () => saExportChartCsv());
     }
-
     let saResizeTimer = null;
     window.addEventListener('resize', () => {
         clearTimeout(saResizeTimer);
         saResizeTimer = setTimeout(() => renderAdvancedSalesAnalyticsChart(), 200);
     });
-
     const themeObserver = new MutationObserver(() => renderAdvancedSalesAnalyticsChart());
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 }
-
 const USER_TAB_PERMISSION_MAP = {
 'manage-users-tab':'users_manage',
 'pending-requests-tab':'pending_requests',
@@ -16345,7 +13614,6 @@ const USER_TAB_PERMISSION_MAP = {
 'fraud-alerts-tab':'fraud_alerts_view',
 'reset-restore-panel':'reset_restore'
 };
-
 function isUserTabAllowed(tabId) {
     const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     if ((activeUser && (activeUser.role ||'').toLowerCase()) ==='admin') return true;
@@ -16353,7 +13621,6 @@ function isUserTabAllowed(tabId) {
     if (!permKey) return true;
     return !!(currentPermissions && currentPermissions[permKey]);
 }
-
 function updateUsersTabVisibility() {
     const btnMap = {
 'manage-users-tab':'manage-users-tab-btn',
@@ -16366,7 +13633,6 @@ function updateUsersTabVisibility() {
     };
     let activeTabStillVisible = false;
     let firstVisibleTabId = null;
-
     Object.keys(USER_TAB_PERMISSION_MAP).forEach((tabId) => {
         const btn = document.getElementById(btnMap[tabId]);
         if (!btn) return;
@@ -16375,97 +13641,71 @@ function updateUsersTabVisibility() {
         if (allowed && !firstVisibleTabId) firstVisibleTabId = tabId;
         if (allowed && btn.classList.contains('active')) activeTabStillVisible = true;
     });
-
     if (!activeTabStillVisible && firstVisibleTabId) {
         const fallbackBtn = document.getElementById(btnMap[firstVisibleTabId]);
         switchUserTab(firstVisibleTabId, fallbackBtn);
     }
 }
-
 function centerActiveUserTab(activeBtn) {
     if (!isMobileOrTabletScreen()) return;
-
     const container = document.querySelector('#view-users .tabs-container');
     if (!container) return;
-
     const btn = activeBtn || container.querySelector('.tab-btn.active');
     if (!btn) return;
-
     requestAnimationFrame(() => {
         if (container.scrollWidth <= container.clientWidth) return;
-
         const containerRect = container.getBoundingClientRect();
         const btnRect = btn.getBoundingClientRect();
         const btnCenterRelativeToContainer = (btnRect.left - containerRect.left) + (btnRect.width / 2);
         const targetScrollLeft = container.scrollLeft + btnCenterRelativeToContainer - (containerRect.width / 2);
-
         container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
     });
 }
-
 function switchUserTab(tabId, element) {
-
     if (Object.prototype.hasOwnProperty.call(USER_TAB_PERMISSION_MAP, tabId) && !isUserTabAllowed(tabId)) {
         console.warn(`[OmniPOS] Access denied to Users tab "${tabId}" for the current role`);
         return;
     }
-
     if (tabId ==='roles-permissions-tab') {
         updateRolesPermissionsLockState();
     }
-
     if (tabId !=='receipt-custom-tab' && typeof closeGoogleAppVerificationFloatingBox ==='function') {
         closeGoogleAppVerificationFloatingBox();
     }
-
     if (tabId !=='reset-restore-panel' && typeof closeAllResetRestoreCards ==='function') {
         closeAllResetRestoreCards();
     }
-
     document.querySelectorAll('.tab-content-panel').forEach(p => p.style.display ='none');
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-
     document.getElementById(tabId).style.display ='flex';
     if (element) {
         element.classList.add('active');
         centerActiveUserTab(element);
     }
 }
-
 function initUsersViewSwipeTabs() {
     const usersView = document.getElementById('view-users');
     if (!usersView) return;
-
     const SWIPE_MIN_DISTANCE = 60;
     const SWIPE_MAX_OFF_AXIS = 60;
     const SWIPE_MAX_TIME = 700;
-
     let touchStartX = 0;
     let touchStartY = 0;
     let touchStartTime = 0;
     let touchActive = false;
     let skipSwipe = false;
-
     function isInsideHorizontalScroller(target) {
         if (!target || typeof target.closest !== 'function') return false;
-
-        // Sliding along the tab bar itself should only scroll the tabs, never switch pages.
         if (target.closest('.tabs-container')) return true;
-
-        // Dragging on adjustment controls (range sliders, dropdowns, text fields) should
-        // never be interpreted as a swipe-to-change-tab gesture.
         if (target.closest('input, select, textarea')) return true;
-
         const scroller = target.closest('.table-container, .permission-matrix-scroll');
         if (!scroller) return false;
         return scroller.scrollWidth > scroller.clientWidth + 1;
     }
-
     function getVisibleTabButtons() {
         return Array.from(usersView.querySelectorAll('.tabs-container .tab-btn'))
             .filter(btn => btn.style.display !== 'none');
     }
-
     function goToAdjacentTab(direction) {
         const btns = getVisibleTabButtons();
         if (btns.length < 2) return;
@@ -16474,7 +13714,6 @@ function initUsersViewSwipeTabs() {
         const nextIndex = (activeIndex + direction + btns.length) % btns.length;
         btns[nextIndex].click();
     }
-
     usersView.addEventListener('touchstart', (e) => {
         if (typeof isMobileOrTabletScreen === 'function' && !isMobileOrTabletScreen()) return;
         if (!e.touches || e.touches.length !== 1) return;
@@ -16484,54 +13723,42 @@ function initUsersViewSwipeTabs() {
         touchActive = true;
         skipSwipe = isInsideHorizontalScroller(e.target);
     }, { passive: true });
-
     usersView.addEventListener('touchend', (e) => {
         if (!touchActive) return;
         touchActive = false;
         if (skipSwipe) { skipSwipe = false; return; }
         if (typeof isMobileOrTabletScreen === 'function' && !isMobileOrTabletScreen()) return;
         if (!e.changedTouches || !e.changedTouches.length) return;
-
         const touch = e.changedTouches[0];
         const deltaX = touch.clientX - touchStartX;
         const deltaY = touch.clientY - touchStartY;
         const elapsed = Date.now() - touchStartTime;
-
         if (elapsed > SWIPE_MAX_TIME) return;
         if (Math.abs(deltaY) > SWIPE_MAX_OFF_AXIS) return;
         if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE) return;
-
         goToAdjacentTab(deltaX < 0 ? 1 : -1);
     }, { passive: true });
-
     usersView.addEventListener('touchcancel', () => {
         touchActive = false;
         skipSwipe = false;
     }, { passive: true });
 }
-
 document.addEventListener('DOMContentLoaded', initUsersViewSwipeTabs);
-
 async function loadUsersTable() {
     try {
-
 const res = await authFetch(`${API_URL}/users?requester=${currentUser.username}`);
         if (!res.ok) throw new Error('Network response was not ok');
-
         const users = await res.json();
         const tbody = document.getElementById('users-table-body');
         tbody.innerHTML ='';
-
         const roleClasses = {
 'Staff':'staff',
 'Cashier':'cashier',
 'Admin':'admin'
         };
-
         users.forEach(u => {
             const badgeClass = roleClasses[u.role] ||'custom';
             const row = document.createElement('tr');
-
             row.innerHTML = `
                 <td class="font-bold user-name-cell"></td>
                 <td><span class="badge-role ${badgeClass}">${u.role}</span></td>
@@ -16553,12 +13780,10 @@ const res = await authFetch(`${API_URL}/users?requester=${currentUser.username}`
                     </div>
                 </td>
             `;
-
             const nameCell = row.querySelector('.user-name-cell');
             nameCell.innerHTML = u.avatar
                 ? `<img src="${u.avatar}" class="user-avatar-thumb" alt="">`
                 : `<i class="fa-solid fa-user-tag" style="margin-right:8px; color:#64748b;"></i>`;
-
             if (u.displayName) {
                 const nameWrap = document.createElement('span');
                 nameWrap.style.display = 'inline-flex';
@@ -16577,11 +13802,9 @@ const res = await authFetch(`${API_URL}/users?requester=${currentUser.username}`
             } else {
                 nameCell.appendChild(document.createTextNode(u.username));
             }
-
             row.querySelector('.avatar').addEventListener('click', () => openUserAvatarModal(u.username, u.avatar ||''));
             row.querySelector('.edit-user').addEventListener('click', () => openEditUserModal(u));
             row.querySelector('.edit').addEventListener('click', () => resetPasswordTrigger(u.username));
-
             const deleteBtn = row.querySelector('.delete');
 if (u.username && u.username.toLowerCase() ==='admin') {
     deleteBtn.disabled = true;
@@ -16590,14 +13813,12 @@ if (u.username && u.username.toLowerCase() ==='admin') {
 } else {
     deleteBtn.addEventListener('click', () => deleteUserAccount(u.username));
 }
-
             tbody.appendChild(row);
         });
     } catch (e) {
         console.error("Failed to load users:", e);
     }
 }
-
 function openAddUserModal() {
     userFormEditingUsername = null;
     document.getElementById('user-schema-form').reset();
@@ -16610,7 +13831,6 @@ function openAddUserModal() {
     refreshUserFormRoleOptions();
     document.getElementById('user-modal').style.display ='flex';
 }
-
 async function refreshUserFormRoleOptions(preserveValue) {
     try {
         const res = await authFetch(`${API_URL}/roles`);
@@ -16627,7 +13847,6 @@ async function refreshUserFormRoleOptions(preserveValue) {
         console.error('Failed to refresh role options:', err);
     }
 }
-
 function openEditUserModal(u) {
     userFormEditingUsername = u.username;
     document.getElementById('user-schema-form').reset();
@@ -16643,17 +13862,14 @@ function openEditUserModal(u) {
     refreshUserFormRoleOptions(u.role ||'');
     document.getElementById('user-modal').style.display ='flex';
 }
-
 function handleAvatarFileSelect(event, hiddenInputId, previewBoxId) {
     const file = event.target.files[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
         Swal.fire('Invalid File Type','Only images (JPG, PNG, etc.) can be uploaded as a profile picture.','error');
         event.target.value ='';
         return;
     }
-
     const reader = new FileReader();
     reader.onload = (e) => {
         const img = new Image();
@@ -16663,13 +13879,11 @@ function handleAvatarFileSelect(event, hiddenInputId, previewBoxId) {
             canvas.width = SIZE;
             canvas.height = SIZE;
             const ctx = canvas.getContext('2d');
-
             const side = Math.min(img.width, img.height);
             const sx = (img.width - side) / 2;
             const sy = (img.height - side) / 2;
             ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
             const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-
             document.getElementById(hiddenInputId).value = compressedDataUrl;
             updateAvatarPreview(previewBoxId, compressedDataUrl);
         };
@@ -16677,7 +13891,6 @@ function handleAvatarFileSelect(event, hiddenInputId, previewBoxId) {
     };
     reader.readAsDataURL(file);
 }
-
 function updateAvatarPreview(previewBoxId, dataUrl) {
     const preview = document.getElementById(previewBoxId);
     if (!preview) return;
@@ -16693,17 +13906,14 @@ function updateAvatarPreview(previewBoxId, dataUrl) {
         if (removeBtn) removeBtn.style.display ='none';
     }
 }
-
 function removeAvatarPhoto(hiddenInputId, previewBoxId) {
     const hidden = document.getElementById(hiddenInputId);
     if (hidden) hidden.value ='';
     updateAvatarPreview(previewBoxId,'');
 }
-
 let rolesMatrixCache = { roles: [], menuRegistry: [] };
 let pendingMatrixEdits = {};
 let columnOrderDirty = false;
-
 async function loadRolesPermissionMatrix() {
     try {
         const res = await authFetch(`${API_URL}/roles`);
@@ -16718,25 +13928,21 @@ async function loadRolesPermissionMatrix() {
         console.error('Failed to load roles/permissions matrix:', err);
     }
 }
-
 function getEffectivePermission(role, menuKey) {
     if (pendingMatrixEdits[role.name] && (menuKey in pendingMatrixEdits[role.name])) {
         return pendingMatrixEdits[role.name][menuKey];
     }
     return !!(role.permissions && role.permissions[menuKey]);
 }
-
 function renderPermissionMatrix() {
     const { roles, menuRegistry: registry } = rolesMatrixCache;
     const headRow = document.getElementById('permission-matrix-head-row');
     const body = document.getElementById('permission-matrix-body');
     if (!headRow || !body) return;
-
     const colgroup = document.getElementById('permission-matrix-colgroup');
     if (colgroup) {
         colgroup.innerHTML = '<col class="matrix-col-label">' + roles.map(() => '<col class="matrix-col-role">').join('');
     }
-
     headRow.innerHTML ='<th class="matrix-col-label">Menu</th>' + roles.map((r, idx) => `
         <th class="matrix-col-role" style="text-align:center; white-space:nowrap;">
             <div style="display:flex; align-items:center; justify-content:center; gap:4px;">
@@ -16748,7 +13954,6 @@ function renderPermissionMatrix() {
             </div>
         </th>
     `).join('');
-
     const menuRows = registry.map((m, idx) => {
         const prevGroup = idx > 0 ? registry[idx - 1].group : null;
         const groupHeaderRow = (m.group && m.group !== prevGroup)
@@ -16771,7 +13976,6 @@ function renderPermissionMatrix() {
         </tr>
     `;
     }).join('');
-
     const saveRow = `
         <tr>
             <td class="matrix-col-label" style="color:#94a3b8; font-style:italic;">Save Changes</td>
@@ -16786,33 +13990,25 @@ function renderPermissionMatrix() {
             ).join('')}
         </tr>
     `;
-
     body.innerHTML = menuRows + saveRow;
 }
-
 function moveRoleColumn(index, direction) {
     const roles = rolesMatrixCache.roles;
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= roles.length) return;
-
     const temp = roles[index];
     roles[index] = roles[targetIndex];
     roles[targetIndex] = temp;
-
     columnOrderDirty = true;
     const saveBtn = document.getElementById('save-column-order-btn');
     if (saveBtn) saveBtn.style.display ='inline-flex';
-
     renderPermissionMatrix();
 }
-
 async function saveRoleColumnOrder() {
     if (guardPremiumFeature('rbac_management')) return;
     const orderedRoleNames = rolesMatrixCache.roles.map(r => r.name);
-
     const adminPassword = await promptAdminPasswordConfirm('Save the new Role column order in the Permission Matrix');
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/roles/reorder`, {
             method:'POST',
@@ -16836,21 +14032,17 @@ async function saveRoleColumnOrder() {
         Swal.fire('Connection Error','Unable to save the column order right now.','error');
     }
 }
-
 function handlePermissionToggle(roleName, menuKey, checked) {
     if (!pendingMatrixEdits[roleName]) pendingMatrixEdits[roleName] = {};
     pendingMatrixEdits[roleName][menuKey] = checked;
 }
-
 async function saveRolePermissions(roleName) {
     if (guardPremiumFeature('rbac_management')) return;
     const role = rolesMatrixCache.roles.find(r => r.name === roleName);
     if (!role) return;
     const finalPermissions = { ...role.permissions, ...(pendingMatrixEdits[roleName] || {}) };
-
     const adminPassword = await promptAdminPasswordConfirm(`Save the updated access for the "${roleName}" role`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/roles`, {
             method:'POST',
@@ -16863,7 +14055,6 @@ async function saveRolePermissions(roleName) {
             rolesMatrixCache.roles = data.roles;
             delete pendingMatrixEdits[roleName];
             renderPermissionMatrix();
-
             if (currentUser && (currentUser.role ||'').toLowerCase() === roleName.toLowerCase()) {
                 refreshPermissions();
             }
@@ -16875,7 +14066,6 @@ async function saveRolePermissions(roleName) {
         Swal.fire('Connection Error','Unable to save permission changes right now.','error');
     }
 }
-
 async function deleteRole(roleName) {
     if (guardPremiumFeature('rbac_management')) return;
     const confirmResult = await Swal.fire({
@@ -16888,10 +14078,8 @@ async function deleteRole(roleName) {
         confirmButtonText:'Yes, delete it'
     });
     if (!confirmResult.isConfirmed) return;
-
     const adminPassword = await promptAdminPasswordConfirm(`Delete role: ${roleName}`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/roles/delete`, {
             method:'POST',
@@ -16913,14 +14101,12 @@ async function deleteRole(roleName) {
         Swal.fire('Connection Error','Unable to delete the role right now.','error');
     }
 }
-
 function openAddRoleModal() {
     if (guardPremiumFeature('rbac_management')) return;
     const form = document.getElementById('role-schema-form');
     if (form) form.reset();
     document.getElementById('role-modal').style.display ='flex';
 }
-
 function populateRoleSelectOptions(roles) {
     const select = document.getElementById('u-form-role');
     if (!select || !roles || !roles.length) return;
@@ -16928,7 +14114,6 @@ function populateRoleSelectOptions(roles) {
     select.innerHTML = roles.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
     if (roles.some(r => r.name === previousValue)) select.value = previousValue;
 }
-
 document.addEventListener('DOMContentLoaded', () => {
     const roleForm = document.getElementById('role-schema-form');
     if (roleForm) {
@@ -16936,13 +14121,10 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const roleName = document.getElementById('r-form-name').value.trim();
             if (!roleName) return;
-
             const blankPermissions = {};
             (rolesMatrixCache.menuRegistry || []).forEach(m => { blankPermissions[m.key] = false; });
-
             const adminPassword = await promptAdminPasswordConfirm(`Create new role: ${roleName}`);
             if (!adminPassword) return;
-
             try {
                 const res = await authFetch(`${API_URL}/roles`, {
                     method:'POST',
@@ -16966,7 +14148,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-
 async function promptAdminPasswordConfirm(actionLabel) {
     const { value: adminPassword } = await Swal.fire({
         title:'🔒 Confirm Admin Password',
@@ -16982,31 +14163,24 @@ async function promptAdminPasswordConfirm(actionLabel) {
     }
     return adminPassword;
 }
-
 async function handleUserFormSubmit(e) {
     e.preventDefault();
-
     if (!currentUser || !currentUser.username) {
         Swal.fire('Session Expired', SYSTEM_CONFIG.getErrorMessage("Operational Context Exception: Active user session null."),'error');
         return;
     }
-
     const formUsername = document.getElementById('u-form-username').value.trim();
     const formPassword = document.getElementById('u-form-password').value.trim();
     const formDisplayName = document.getElementById('u-form-display-name').value.trim();
     const formRole = document.getElementById('u-form-role').value;
     const formAvatar = document.getElementById('u-form-avatar').value || null;
-
     if (userFormEditingUsername) {
-
         if (!formUsername) {
             Swal.fire('Missing Values', SYSTEM_CONFIG.getErrorMessage("Validation Constraint Violation: Identity fields cannot be blank."),'warning');
             return;
         }
-
         const adminPassword = await promptAdminPasswordConfirm(`Edit user account: ${userFormEditingUsername}`);
         if (!adminPassword) return;
-
         try {
             const res = await authFetch(`${API_URL}/users/${encodeURIComponent(userFormEditingUsername)}`, {
                 method:'PUT',
@@ -17021,7 +14195,6 @@ async function handleUserFormSubmit(e) {
                 })
             });
             const data = await res.json();
-
             if (res.ok && data.success) {
                 if (formPassword) {
                     const pwRes = await authFetch(`${API_URL}/users/${encodeURIComponent(data.user.username)}/reset-password`, {
@@ -17037,7 +14210,6 @@ async function handleUserFormSubmit(e) {
                         return;
                     }
                 }
-
                 if (data.user && currentUser && data.user.username &&
                     userFormEditingUsername.toLowerCase() === currentUser.username.toLowerCase()) {
                     currentUser.username = data.user.username;
@@ -17048,7 +14220,6 @@ async function handleUserFormSubmit(e) {
                     if (typeof renderSidebarUserWidget ==='function') renderSidebarUserWidget();
                     if (typeof renderOverviewGreeting ==='function') renderOverviewGreeting();
                 }
-
                 Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage("Na-update na ang user account."),'success');
                 closeModal('user-modal');
                 if (typeof loadUsersTable ==='function') loadUsersTable();
@@ -17063,7 +14234,6 @@ async function handleUserFormSubmit(e) {
         }
         return;
     }
-
     const userPayload = {
         username: formUsername,
         password: formPassword,
@@ -17071,24 +14241,19 @@ async function handleUserFormSubmit(e) {
         role: formRole,
         avatar: formAvatar
     };
-
     if (!userPayload.username || !userPayload.password) {
         Swal.fire('Missing Values', SYSTEM_CONFIG.getErrorMessage("Validation Constraint Violation: Identity fields cannot be blank."),'warning');
         return;
     }
-
     const adminPassword = await promptAdminPasswordConfirm(`New user account: ${userPayload.username}`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/users`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ user: userPayload, username: currentUser.username, adminPassword })
         });
-
         const data = await res.json();
-
         if (res.ok && data.success) {
             Swal.fire('Created', SYSTEM_CONFIG.getSuccessMessage("System Credentials Provisioned successfully."),'success');
             closeModal('user-modal');
@@ -17103,9 +14268,7 @@ async function handleUserFormSubmit(e) {
         Swal.fire('Gateway Error', SYSTEM_CONFIG.getErrorMessage("Remote network transport paths disrupted."),'error');
     }
 }
-
 let pendingAvatarTargetUser = null;
-
 function openUserAvatarModal(username, currentAvatar) {
     pendingAvatarTargetUser = username;
     document.getElementById('ua-target-username').innerText = username;
@@ -17114,14 +14277,11 @@ function openUserAvatarModal(username, currentAvatar) {
     document.getElementById('ua-photo-input').value ='';
     document.getElementById('user-avatar-modal').style.display ='flex';
 }
-
 async function saveUserAvatar() {
     if (!pendingAvatarTargetUser) return;
     const avatar = document.getElementById('ua-avatar').value || null;
-
     const adminPassword = await promptAdminPasswordConfirm(`Update profile picture for: ${pendingAvatarTargetUser}`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/users/${encodeURIComponent(pendingAvatarTargetUser)}/avatar`, {
             method:'PUT',
@@ -17133,7 +14293,6 @@ async function saveUserAvatar() {
             Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage('The profile picture has been updated.'),'success');
             closeModal('user-avatar-modal');
             if (typeof loadUsersTable ==='function') loadUsersTable();
-
             if (currentUser && currentUser.username.toLowerCase() === pendingAvatarTargetUser.toLowerCase()) {
                 currentUser.avatar = avatar;
                 localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
@@ -17147,13 +14306,11 @@ async function saveUserAvatar() {
         Swal.fire('Gateway Error', SYSTEM_CONFIG.getErrorMessage('Remote network transport paths disrupted.'),'error');
     }
 }
-
 async function deleteUserAccount(targetUsername) {
     if (!currentUser || currentUser.role.toLowerCase() !=='admin') {
         Swal.fire('Restricted Access',"Access Control Exception: Action restricted to administrative operators.",'error');
         return;
     }
-
     const confirmation = await Swal.fire({
         title:'Critical Structural Warning',
         text: `Are you absolute certain you want to permanently delete system profile entries for [ ${targetUsername} ]?`,
@@ -17163,19 +14320,15 @@ async function deleteUserAccount(targetUsername) {
         cancelButtonColor:'#64748b',
         confirmButtonText:'Yes, permanently delete'
     });
-
     if (!confirmation.isConfirmed) return;
-
     const adminPassword = await promptAdminPasswordConfirm(`Delete account: ${targetUsername}`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/users/delete-account`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ targetUser: targetUsername, username: currentUser.username, adminPassword })
         });
-
         const output = await res.json();
         if (output.success) {
             Swal.fire('Deleted', output.message,'success');
@@ -17189,25 +14342,19 @@ async function deleteUserAccount(targetUsername) {
         Swal.fire('Infrastructure Failure',"Transport Infrastructure Failure: Endpoint routing mechanisms dropped.",'error');
     }
 }
-
 async function loadPendingRequestsTable() {
     try {
         const res = await authFetch(`${API_URL}/requests`);
         const requests = await res.json();
-
         const counterTab = document.getElementById('pending-requests-counter-tab');
         counterTab.innerText = `Pending Requests (${requests.length})`;
-
         const tbody = document.getElementById('requests-table-body');
         tbody.innerHTML ='';
-
         if(requests.length === 0) {
             tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#64748b; font-style:italic; padding:30px;">No pending operation alteration authorization requests detected in data queues.</td></tr>`;
             return;
         }
-
         const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
-
                 requests.forEach(r => {
             let summaryDetails ='N/A';
             if (r.type ==='PROFILE_UPDATE') {
@@ -17220,7 +14367,6 @@ async function loadPendingRequestsTable() {
             } else {
                 summaryDetails = `Remove targeted item code allocation from system array database record tracking rows completely.`;
             }
-
             const row = document.createElement('tr');
             const safeReqId = escapeHtml(r.id).replace(/'/g,'&#39;');
             row.innerHTML = `
@@ -17240,12 +14386,10 @@ async function loadPendingRequestsTable() {
             `;
             tbody.appendChild(row);
         });
-
     } catch (e) {
         console.error("Error loading pending requests:", e);
     }
 }
-
 async function resolveStaffOperationRequest(id, decisionAction) {
     const confirmation = await Swal.fire({
         title:'Confirm Request Resolution',
@@ -17256,21 +14400,16 @@ async function resolveStaffOperationRequest(id, decisionAction) {
         cancelButtonColor:'#64748b',
         confirmButtonText: `Yes, ${decisionAction.toLowerCase()}`
     });
-
     if(!confirmation.isConfirmed) return;
-
     const adminPassword = await promptAdminPasswordConfirm(`${decisionAction} request ${id}`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/requests/${id}/resolve`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ action: decisionAction, username: currentUser.username, role: currentUser.role, adminPassword })
         });
-
         const msg = await res.json();
-
         if (res.ok && msg.success !== false) {
             Swal.fire('Resolved', msg.message || `Request ${decisionAction.toLowerCase()} processed successfully.`,'success');
             loadPendingRequestsTable();
@@ -17287,7 +14426,6 @@ async function resolveStaffOperationRequest(id, decisionAction) {
         Swal.fire('Host Interface Break','Unable to stabilize connection vectors heading toward system data microservices.','error');
     }
 }
-
 const AUDIT_LOG_KEYWORD_MAP = {
     login: ['logged into the system', 'naka-login', 'na-login'],
     logout: ['[logout]', 'logged out'],
@@ -17313,41 +14451,31 @@ const AUDIT_LOG_KEYWORD_MAP = {
     email: ['naipadala ang resibo', 'email'],
     blocked: ['blocked call']
 };
-
 let allSystemAuditLogs = [];
-
 async function loadSystemAuditLogs() {
     if (!currentUser || !currentPermissions || !currentPermissions.logs) return;
-
     try {
-
         const res = await authFetch(`${API_URL}/logs?requester=${encodeURIComponent(currentUser.username)}`);
         if (res.status === 403) {
             console.warn("Security Alert: Insufficient access clearance profiles level. Request to fetch system operational trace records denied.");
             return;
         }
         const payload = await res.json();
-
         const logs = Array.isArray(payload) ? payload : (payload.data || []);
-
         if (!payload.success && !Array.isArray(payload)) {
             console.warn("System logs fetch was not successful:", payload.message);
         }
-
         allSystemAuditLogs = logs;
         renderSystemAuditLogsTable();
     } catch (err) {
         console.error("System Log Fetch Exception: Failed to inherit administrative chronological system monitoring parameters logs.", err);
     }
 }
-
 function renderSystemAuditLogsTable() {
     const tbody = document.getElementById('system-logs-table-body');
     if (!tbody) return;
-
     const filterSelect = document.getElementById('logs-filter-keyword');
     const selectedKeyword = filterSelect ? filterSelect.value : 'ALL';
-
     let logs = allSystemAuditLogs;
     if (selectedKeyword && selectedKeyword !== 'ALL') {
         const needles = AUDIT_LOG_KEYWORD_MAP[selectedKeyword] || [selectedKeyword];
@@ -17356,14 +14484,11 @@ function renderSystemAuditLogsTable() {
             return needles.some(needle => haystack.includes(needle));
         });
     }
-
     tbody.innerHTML = '';
-
     if (logs.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="text-muted" style="text-align:center;">Walang audit log na tumugma sa napiling filter.</td></tr>`;
         return;
     }
-
     logs.forEach(log => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -17375,18 +14500,10 @@ function renderSystemAuditLogsTable() {
         tbody.appendChild(tr);
     });
 }
-
 let __saveCartDebounceId = null;
 const SAVE_CART_DEBOUNCE_MS = 600;
-
-// Debounced: this used to fire a network POST on every single cart change
-// (every tap-to-add, every +/- press), which added a request-per-tap on top
-// of the DOM work and made rapid taps feel laggy. Now it waits for a short
-// pause in activity before actually sending, but still always ends up
-// persisting the final cart state.
 function saveCartToDatabase() {
     if (!currentUser || !currentUser.username) return;
-
     if (__saveCartDebounceId) clearTimeout(__saveCartDebounceId);
     __saveCartDebounceId = setTimeout(async () => {
         __saveCartDebounceId = null;
@@ -17404,10 +14521,8 @@ function saveCartToDatabase() {
         }
     }, SAVE_CART_DEBOUNCE_MS);
 }
-
 async function loadCartFromDatabase() {
     if (!currentUser || !currentUser.username) return;
-
     try {
         const response = await authFetch(`${API_URL}/cart/${currentUser.username}`);
         const data = await response.json();
@@ -17419,34 +14534,27 @@ async function loadCartFromDatabase() {
         console.error("Error loading cart from database:", error);
     }
 }
-
 async function executeSystemHardReset() {
     const elConfirm = document.getElementById('reset-confirm-word');
     const elAdditionalEmail = document.getElementById('reset-additional-email');
-
     if (!elConfirm || !elAdditionalEmail) {
         Swal.fire('UI Error','Some input elements are missing from your layout view.','error');
         return;
     }
-
     const confirmWord = elConfirm.value.trim();
     const additionalEmail = elAdditionalEmail.value.trim();
-
     if (confirmWord !=='RESET') {
         Swal.fire('Confirmation Required','Type the word "RESET" in the box provided to continue.','warning');
         return;
     }
-
     if (!receiptSettingsCache || !receiptSettingsCache.otpSenderConfigured) {
         Swal.fire('Google App Not Yet Verified','Set up and verify the Google App in the Receipt Customization panel before using Hard Reset.','warning');
         return;
     }
-
     if (!additionalEmail) {
         Swal.fire('Missing Data','Secondary Backup Email is required — the backup file will be sent there.','warning');
         return;
     }
-
     const doubleCheck = await Swal.fire({
         title:'Are you absolutely sure?',
         text:"The system will take a 100% synchronized backup, send it to the Secondary Backup Email using the verified Google App, and permanently delete your current databases!",
@@ -17457,9 +14565,7 @@ async function executeSystemHardReset() {
         confirmButtonText:'Yes, Start Backup and Reset',
         cancelButtonText:'Cancel'
     });
-
     if (!doubleCheck.isConfirmed) return;
-
     const imageChoice = await Swal.fire({
         title: 'Include Product Photos in the Email Backup?',
         html: `Product photos are usually the largest part of the backup file. On slow internet/mobile data, sending the email is slower and more likely to fail if photos are included.<br><br>
@@ -17476,10 +14582,8 @@ async function executeSystemHardReset() {
         denyButtonText: 'Exclude Photos (Faster)',
         cancelButtonText: 'Cancel'
     });
-
     if (imageChoice.isDismissed) return;
     const includeImages = imageChoice.isConfirmed;
-
     const passwordConfirm = await Swal.fire({
         title: 'Confirm Admin Password',
         html: 'This action is irreversible. Enter your Admin Password to proceed with the Hard Factory Reset:',
@@ -17491,12 +14595,9 @@ async function executeSystemHardReset() {
         cancelButtonColor: '#64748b',
         confirmButtonText: 'Verify and Reset'
     });
-
     const adminPassword = passwordConfirm.value;
     if (!adminPassword) return;
-
     window.__logoutInProgress = true;
-
     function renderResetProgress(percent, message) {
         const bar = document.getElementById('reset-progress-bar');
         const pct = document.getElementById('reset-progress-pct');
@@ -17505,7 +14606,6 @@ async function executeSystemHardReset() {
         if (pct) pct.textContent = `${Math.round(percent)}%`;
         if (msg) msg.textContent = message || '';
     }
-
     Swal.fire({
         title: 'Processing System Reset...',
         html: `
@@ -17523,9 +14623,7 @@ async function executeSystemHardReset() {
         allowOutsideClick: false,
         showConfirmButton: false
     });
-
     try {
-
         const startResponse = await authFetch(`${API_URL}/system/reset/start`, {
             method:'POST',
             headers: { 'Content-Type':'application/json' },
@@ -17536,36 +14634,28 @@ async function executeSystemHardReset() {
             }),
             timeoutMs: 15000
         });
-
         const startResult = await startResponse.json();
-
         if (startResponse.status === 403 && startResult.code === 'WRONG_ADMIN_PASSWORD') {
             window.__logoutInProgress = false;
             Swal.fire('Access Denied', startResult.message || 'Incorrect Admin password.', 'error');
             return;
         }
-
         if (!startResult.success || !startResult.jobId) {
             window.__logoutInProgress = false;
             Swal.fire('Process Failed', startResult.message || 'Hindi na-start ang reset job.', 'error');
             return;
         }
-
         const jobId = startResult.jobId;
-
         const finalResult = await new Promise((resolve, reject) => {
             const poll = async () => {
                 try {
                     const statusRes = await fetch(`${API_URL}/system/reset/status/${jobId}`);
                     const statusData = await statusRes.json();
-
                     if (!statusData.success) {
                         reject(new Error(statusData.message || 'Reset job not found.'));
                         return;
                     }
-
                     renderResetProgress(statusData.percent || 0, statusData.message);
-
                     if (statusData.status === 'done') {
                         resolve(statusData.result);
                     } else if (statusData.status === 'error') {
@@ -17574,13 +14664,11 @@ async function executeSystemHardReset() {
                         setTimeout(poll, 700);
                     }
                 } catch (pollErr) {
-
                     setTimeout(poll, 1200);
                 }
             };
             poll();
         });
-
         if (finalResult && finalResult.success) {
             Swal.fire({
                 title:'Reset Successful!',
@@ -17601,14 +14689,11 @@ async function executeSystemHardReset() {
         }
     } catch (error) {
         console.error("Hard Reset Error Connection:", error);
-
         const isRealTimeout = error && error.name === 'AbortError';
         const isNetworkFailure = error instanceof TypeError;
         const isParseFailure = error && error.name === 'SyntaxError';
-
         localStorage.removeItem('omnipos_user');
         localStorage.removeItem('omnipos_token');
-
         let title, text;
         if (isRealTimeout) {
             title = 'Request Timed Out';
@@ -17623,7 +14708,6 @@ async function executeSystemHardReset() {
             title = 'Reset Interrupted';
             text = `An unexpected error stopped the process before it could finish: ${error.message || 'unknown error'}. The reset may have already completed in the background — check your Secondary Backup Email for the backup file, then log in again.`;
         }
-
         Swal.fire({
             icon: 'warning',
             title,
@@ -17635,27 +14719,21 @@ async function executeSystemHardReset() {
         });
     }
 }
-
 let lastCheckedUpdateInfo = null;
-
 async function checkForSystemUpdate() {
     if (blockIfOffline('Checking for updates')) return;
     const statusEl = document.getElementById('system-update-status');
     const deployBtn = document.getElementById('system-update-deploy-btn');
     if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving status from RELAY&hellip;';
     if (deployBtn) deployBtn.style.display = 'none';
-
     try {
         const response = await authFetch(`${API_URL}/system/update-check`);
         const result = await response.json();
-
         if (!result.success) {
             if (statusEl) statusEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> ${result.message || 'Unable to check the update status.'}`;
             return;
         }
-
         lastCheckedUpdateInfo = result;
-
         if (result.updateAvailable) {
             if (statusEl) {
                 statusEl.innerHTML =
@@ -17673,18 +14751,6 @@ async function checkForSystemUpdate() {
         if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> Unable to connect to the server.';
     }
 }
-
-// ============================================================
-// SYSTEM UPDATE — ADVANCED LIVE DEPLOY PROGRESS
-// ============================================================
-// Kagaya ng "Bulk Search Images" (progress bar + ETA na pina-poll), pero
-// mas advance pa: may hakbang-hakbang na stepper (trigger/download →
-// build/extract → deploy/apply → restart → verify), TUNAY na progreso
-// (bytes na-download, files na na-apply) para sa self-update, at isang
-// "natutunang" ETA para sa Render path — hango sa exponential moving
-// average ng mga nakaraang TUNAY na deploy duration, kaya lalong
-// tumatama ang tinatayang oras habang mas madalas ginagamit ito.
-
 const DEPLOY_STEP_DEFS = {
     render: [
         { key: 'trigger', label: 'Trigger deploy' },
@@ -17700,10 +14766,8 @@ const DEPLOY_STEP_DEFS = {
         { key: 'verify', label: 'Verify live' }
     ]
 };
-
 let deployProgressState = null;
 let deployLogLines = [];
-
 function formatDeployEta(ms) {
     if (!Number.isFinite(ms) || ms <= 0) return '';
     const totalSec = Math.round(ms / 1000);
@@ -17711,17 +14775,12 @@ function formatDeployEta(ms) {
     const sec = totalSec % 60;
     return min > 0 ? `~${min}m ${sec}s left` : `~${sec}s left`;
 }
-
 function formatDeployElapsed(ms) {
     const totalSec = Math.max(0, Math.round(ms / 1000));
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
     return min > 0 ? `${min}m ${sec}s` : `${sec}s`;
 }
-
-// Ginagawa ang stepper ng buo-buong inline HTML/CSS (walang panibagong
-// class sa style.css) para maging self-contained ang buong feature na
-// ito sa loob ng isang dynamic na Swal modal.
 function renderDeployStepper(kind, activeKey, erroredKey) {
     const steps = DEPLOY_STEP_DEFS[kind] || DEPLOY_STEP_DEFS.render;
     const activeIdx = activeKey === 'done' ? steps.length : Math.max(0, steps.findIndex(s => s.key === activeKey));
@@ -17738,7 +14797,6 @@ function renderDeployStepper(kind, activeKey, erroredKey) {
     }).join('');
     return `<div style="display:flex; flex-wrap:wrap; gap:6px 14px; justify-content:center;">${items}</div>`;
 }
-
 function openDeployProgressModal() {
     deployLogLines = [];
     Swal.fire({
@@ -17766,7 +14824,6 @@ function openDeployProgressModal() {
         didOpen: () => Swal.showLoading()
     });
 }
-
 function updateDeployProgressUI({ activeKey, erroredKey, message, percent, elapsedMs, etaMs }) {
     if (!deployProgressState) return;
     const kind = deployProgressState.kind;
@@ -17777,7 +14834,6 @@ function updateDeployProgressUI({ activeKey, erroredKey, message, percent, elaps
     const elapsedEl = document.getElementById('deploy-progress-elapsed');
     const etaEl = document.getElementById('deploy-progress-eta');
     const logEl = document.getElementById('deploy-progress-log');
-
     if (stepsEl) stepsEl.innerHTML = renderDeployStepper(kind, activeKey, erroredKey);
     if (typeof percent === 'number') {
         const clamped = Math.max(0, Math.min(100, percent));
@@ -17787,7 +14843,6 @@ function updateDeployProgressUI({ activeKey, erroredKey, message, percent, elaps
     if (msgEl && message) msgEl.textContent = message;
     if (elapsedEl) elapsedEl.textContent = `Elapsed: ${formatDeployElapsed(elapsedMs != null ? elapsedMs : (Date.now() - deployProgressState.startedAt))}`;
     if (etaEl) etaEl.textContent = (etaMs != null && etaMs > 0) ? formatDeployEta(etaMs) : '';
-
     if (message && logEl && deployLogLines[deployLogLines.length - 1] !== message) {
         deployLogLines.push(message);
         if (deployLogLines.length > 20) deployLogLines.shift();
@@ -17795,14 +14850,12 @@ function updateDeployProgressUI({ activeKey, erroredKey, message, percent, elaps
         logEl.scrollTop = logEl.scrollHeight;
     }
 }
-
 async function deploySystemUpdate() {
     if (blockIfOffline('Deploying updates')) return;
     if (!lastCheckedUpdateInfo || !lastCheckedUpdateInfo.updateAvailable) {
         Swal.fire('Not Checked Yet', 'Click "Check for Updates" first before deploying.', 'info');
         return;
     }
-
     const confirmResult = await Swal.fire({
         title: 'Deploy the Update?',
         html: `The system will be updated to <strong>v${lastCheckedUpdateInfo.latestVersion}</strong>. This will take a few minutes — your data (products, transactions, users, etc.) will not be affected, and the system will refresh automatically afterward.`,
@@ -17813,10 +14866,8 @@ async function deploySystemUpdate() {
         confirmButtonColor: '#16a34a'
     });
     if (!confirmResult.isConfirmed) return;
-
     const targetVersion = lastCheckedUpdateInfo.latestVersion;
     openDeployProgressModal();
-
     try {
         const response = await authFetch(`${API_URL}/system/deploy-update`, { method: 'POST' });
         const result = await response.json();
@@ -17824,7 +14875,6 @@ async function deploySystemUpdate() {
             Swal.fire('Not Triggered', result.message || 'Unable to trigger the deploy.', 'error');
             return;
         }
-
         const kind = result.mode === 'self' ? 'self' : 'render';
         deployProgressState = {
             kind,
@@ -17835,14 +14885,12 @@ async function deploySystemUpdate() {
             timer: null,
             verifyUiSet: false
         };
-
         updateDeployProgressUI({
             activeKey: kind === 'self' ? 'download' : 'trigger',
             message: result.message,
             percent: 2,
             elapsedMs: 0
         });
-
         if (kind === 'self' && deployProgressState.jobId) {
             pollSelfDeployJob();
         } else {
@@ -17853,28 +14901,18 @@ async function deploySystemUpdate() {
         Swal.fire('Network Error', 'Unable to connect to the server backend.', 'error');
     }
 }
-
-// SELF-UPDATE (Termux/non-Render) — sinusuri ang TUNAY na progreso ng
-// job sa server (download bytes, extract, files applied) bawat ~900ms.
 async function pollSelfDeployJob() {
     if (!deployProgressState || deployProgressState.kind !== 'self') return;
     const jobId = deployProgressState.jobId;
-
     try {
         const res = await authFetch(`${API_URL}/system/deploy-update/progress/${encodeURIComponent(jobId)}`, { timeoutMs: 15000 });
         const data = await res.json();
-
         if (!res.ok || !data.success) {
-            // Kadalasang nangyayari ito kapag na-restart na ang process
-            // pagkatapos ng "restart" step (normal — nawala na ang job sa
-            // memory ng bagong process) — dumako na sa verification phase.
             beginVerifyPhase(false);
             return;
         }
-
         const activeStep = data.steps.find(s => s.status === 'active') || data.steps.slice().reverse().find(s => s.status === 'done') || data.steps[0];
         const erroredStep = data.steps.find(s => s.status === 'error');
-
         updateDeployProgressUI({
             activeKey: activeStep ? activeStep.key : 'download',
             erroredKey: erroredStep ? erroredStep.key : null,
@@ -17882,31 +14920,21 @@ async function pollSelfDeployJob() {
             percent: data.percent,
             elapsedMs: data.elapsedMs
         });
-
         if (data.status === 'error') {
             handleDeployError(data.message);
             return;
         }
-
         if (data.status === 'done') {
             beginVerifyPhase(false);
             return;
         }
-
         deployProgressState.timer = setTimeout(pollSelfDeployJob, 900);
     } catch (err) {
         deployProgressState.timer = setTimeout(pollSelfDeployJob, 1500);
     }
 }
-
-// RENDER PATH — walang server-side job na ligtas (papatayin ang process
-// na ito ni Render mismo pag-tapos ng build), kaya dito sa client
-// simulated (batay sa natutunang average duration) ang trigger/build/
-// deploy stages habang tumatakbo nang paralel ang TUNAY na
-// verification poll sa ibaba.
 function simulateRenderDeployProgress() {
     if (!deployProgressState || deployProgressState.kind !== 'render') return;
-
     const tick = () => {
         if (!deployProgressState || deployProgressState.kind !== 'render') return;
         const elapsed = Date.now() - deployProgressState.startedAt;
@@ -17921,7 +14949,6 @@ function simulateRenderDeployProgress() {
             activeKey = 'deploy'; message = 'Rolling out & restarting the service... (estimate)';
         }
         const simulatedPct = Math.min(92, Math.round((elapsed / estimated) * 92));
-
         updateDeployProgressUI({
             activeKey,
             message,
@@ -17929,21 +14956,13 @@ function simulateRenderDeployProgress() {
             elapsedMs: elapsed,
             etaMs: Math.max(0, estimated - elapsed)
         });
-
         deployProgressState.timer = setTimeout(tick, 1000);
     };
     tick();
-
     beginVerifyPhase(true);
 }
-
 const DEPLOY_VERIFY_INTERVAL_MS = 4000;
 const DEPLOY_VERIFY_TIMEOUT_MS = 6 * 60 * 1000;
-
-// Ang totoong "katapusan" na hudyat — parehas gamit ng render at
-// self-update path — pinapatunayan lang kung ang /system/update-check
-// ay talagang nagsasabi na na sa bagong version na, anuman ang server
-// instance na sumagot.
 function beginVerifyPhase(alsoSimulating) {
     if (!deployProgressState) return;
     if (!alsoSimulating) {
@@ -17952,46 +14971,34 @@ function beginVerifyPhase(alsoSimulating) {
     }
     pollDeployVerification();
 }
-
 async function pollDeployVerification() {
     if (!deployProgressState) return;
     const state = deployProgressState;
-
     try {
         const response = await authFetch(`${API_URL}/system/update-check`);
         const result = await response.json();
-
         if (result.success && !result.updateAvailable && (!state.targetVersion || result.currentVersion === state.targetVersion)) {
             finishDeploySuccess(result);
             return;
         }
     } catch (_err) {
-        // Transient lang ito — normal habang tumatakbo ang tunay na
-        // redeploy sa likod (posibleng bumagsak muna ang koneksyon
-        // habang lumilipat ng process/instance).
     }
-
     if (!state.verifyUiSet && state.kind === 'self') {
         updateDeployProgressUI({ activeKey: 'verify', message: 'Verifying the new version is live...', percent: 96 });
         state.verifyUiSet = true;
     }
-
     if (Date.now() - state.startedAt >= DEPLOY_VERIFY_TIMEOUT_MS) {
         handleDeployTimeout();
         return;
     }
-
     setTimeout(pollDeployVerification, DEPLOY_VERIFY_INTERVAL_MS);
 }
-
 async function finishDeploySuccess(result) {
     if (!deployProgressState) return;
     const durationMs = Date.now() - deployProgressState.startedAt;
     const kind = deployProgressState.kind;
     if (deployProgressState.timer) clearTimeout(deployProgressState.timer);
-
     updateDeployProgressUI({ activeKey: 'done', message: 'New version confirmed live.', percent: 100, elapsedMs: durationMs, etaMs: 0 });
-
     try {
         await authFetch(`${API_URL}/system/deploy-update/record`, {
             method: 'POST',
@@ -17999,34 +15006,27 @@ async function finishDeploySuccess(result) {
             body: JSON.stringify({ kind, durationMs })
         });
     } catch (_e) {
-        // Hindi kritikal — ang ETA/estimate lang ang apektado kung
-        // hindi ito na-record.
     }
-
     lastCheckedUpdateInfo = result;
     deployProgressState = null;
     deployLogLines = [];
-
     const statusEl = document.getElementById('system-update-status');
     if (statusEl) {
         statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success-green,#16a34a);"></i> System is up to date (v${result.currentVersion}).`;
     }
     const deployBtn = document.getElementById('system-update-deploy-btn');
     if (deployBtn) deployBtn.style.display = 'none';
-
     Swal.fire({
         icon: 'success',
         title: 'Deployed!',
         html: `System is up to date (v${result.currentVersion}). Total time: ${formatDeployElapsed(durationMs)}.`
     });
 }
-
 function handleDeployError(message) {
     if (deployProgressState && deployProgressState.timer) clearTimeout(deployProgressState.timer);
     deployProgressState = null;
     Swal.fire('Deploy Failed', message || 'Something went wrong while deploying.', 'error');
 }
-
 function handleDeployTimeout() {
     if (deployProgressState && deployProgressState.timer) clearTimeout(deployProgressState.timer);
     deployProgressState = null;
@@ -18036,7 +15036,6 @@ function handleDeployTimeout() {
         text: 'The deploy/restart may still be in progress. Click "Check for Updates" again later to confirm.'
     });
 }
-
 async function syncFeaturesFromRelay() {
     if (blockIfOffline('Syncing features from Relay')) return;
     Swal.fire({
@@ -18049,22 +15048,17 @@ async function syncFeaturesFromRelay() {
         const response = await authFetch(`${API_URL}/features/restore-check`, { method: 'POST' });
         const result = await response.json();
         if (result.success) {
-
             await refreshUnlockedFeaturesFromServer();
             await refreshUnlockedThemesFromServer();
-
             await initDemoModeUI();
-
             const removedFeatures = Array.isArray(result.removedFeatures) ? result.removedFeatures : [];
             if (removedFeatures.length > 0) {
                 applyLockdownForRemovedFeatures(removedFeatures);
             }
-
             const icon = removedFeatures.length > 0 ? 'warning' : (result.restoredCount > 0 ? 'success' : 'info');
             const title = removedFeatures.length > 0
                 ? (result.restoredCount > 0 ? 'Restored & Locked' : 'Feature(s) Locked')
                 : (result.restoredCount > 0 ? 'Restored!' : 'Nothing New');
-
             Swal.fire({
                 icon,
                 title,
@@ -18077,18 +15071,6 @@ async function syncFeaturesFromRelay() {
         Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
     }
 }
-
-// --------------------------------------------------------------
-// NO-INTERRUPT GUARD (frontend): mirrors the lock enforced server-side
-// (server.js performCloudBackupUpload / RELAY's per-installation lock).
-// While a cloud backup is uploading, warn before the tab is closed or
-// reloaded — the actual upload runs on the server regardless of what
-// happens to this page, but closing/reloading could make someone think
-// they can "stop" it or accidentally trigger a duplicate attempt on
-// reload. The ONLY thing that should ever legitimately stop a backup
-// mid-flight is the plan's storage quota being exceeded (handled by the
-// server/RELAY itself) — nothing the person does in the browser should.
-// --------------------------------------------------------------
 window.__cloudBackupSyncInProgress = false;
 window.addEventListener('beforeunload', (e) => {
     if (window.__cloudBackupSyncInProgress) {
@@ -18096,15 +15078,12 @@ window.addEventListener('beforeunload', (e) => {
         e.returnValue = '';
     }
 });
-
 async function runCloudBackupSync() {
     if (blockIfOffline('Cloud Backup')) return;
-
     if (window.__cloudBackupSyncInProgress) {
         Swal.fire('Already Syncing', 'A cloud backup upload is already in progress. Please wait for it to finish before starting another.', 'info');
         return;
     }
-
     const confirmResult = await Swal.fire({
         title: 'Sync to Cloud?',
         html: 'This will upload the ENTIRE current database to the developer\'s cloud storage.<br><br>Enter the Admin Password to continue:',
@@ -18116,30 +15095,16 @@ async function runCloudBackupSync() {
         cancelButtonColor: '#64748b',
         confirmButtonText: 'Verify and Sync'
     });
-
     const adminPassword = confirmResult.value;
     if (!adminPassword) return;
-
     window.__cloudBackupSyncInProgress = true;
     const loggedInUser = currentUser ? currentUser.username : 'admin';
     const statusBox = document.getElementById('cloud-backup-status');
     const btn = document.getElementById('cloud-backup-sync-btn');
-
     if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'not-allowed'; }
     if (statusBox) {
         statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing the database to the cloud&hellip;';
     }
-
-    // BUG FIX: dating walang paraan makita ng user kung tumatakbo pa ba
-    // talaga ang isang mahabang cloud backup upload (hanggang 40 minuto,
-    // hanggang ~1GB ang datos) o natigil na lang ito nang tahimik —
-    // isang static na spinner text lang ang nakikita. Dito, habang
-    // hinihintay ang /cloud-backup/sync request (POST), nag-po-poll ito
-    // paminsan-minsan (kada 1s) sa /cloud-backup/status para makuha ang
-    // live na uploadedBytes/uploadTotalBytes/uploadStartedAt (mula sa
-    // cloudBackupStatus sa server.js) at ipakita bilang progress bar +
-    // elapsed time (renderCloudBackupUploadProgress). Tumitigil ang
-    // polling sa `finally` block sa ibaba, tapos man o nabigo ang sync.
     let progressPollTimer = null;
     const pollUploadProgress = async () => {
         try {
@@ -18147,30 +15112,11 @@ async function runCloudBackupSync() {
             const data = await res.json();
             renderCloudBackupUploadProgress(data);
         } catch (e) {
-            // Tahimik lang na balewalain ang isang naabalang poll — susubukan
-            // na lang ulit sa susunod na tick, hindi ito dapat makaabala sa
-            // pangunahing sync request na tumatakbo pa.
         }
     };
     progressPollTimer = setInterval(pollUploadProgress, 1000);
     pollUploadProgress();
-
     try {
-        // BUG FIX: dating gamit ang default na AUTH_FETCH_TIMEOUT_MS (6s
-        // lang) — sobrang ikli para sa isang cloud backup upload kapag
-        // malaki na ang datos ng store (lalo na kung maraming naka-attach
-        // na product images bilang base64). Sinusuportahan na ngayon ang
-        // pag-upload ng hanggang ~1GB na backup — kaya 40 minuto na ang
-        // timeout dito (2,400,000ms), sapat na sapat kahit sa medyo mabagal
-        // na upload speed (hal. ~5 Mbps ≈ ~29 min para sa 1GB, may extra
-        // buffer pa). Ito rin ang dapat palaging katugma/mas mababa sa
-        // 1) ang timeoutMs ng relayFetch sa server.js (parehong 40 min) at
-        // 2) ang server.requestTimeout ng RELAY mismo (60 min) — para ang
-        // pinakamaikling timeout sa buong chain ay ito (client-side), kaya
-        // ito palagi ang unang mag-a-abort nang maayos (na may malinaw na
-        // mensahe), sa halip na basta biglang maputol ang koneksyon dahil
-        // may mas maiksing timeout na "nagtatago" sa gitna ng RELAY o ng
-        // OMNIPOS server.
         const response = await authFetch(`${API_URL}/cloud-backup/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -18178,21 +15124,17 @@ async function runCloudBackupSync() {
             timeoutMs: 2400000
         });
         const result = await response.json();
-
         if (response.status === 403 && result.code === 'WRONG_ADMIN_PASSWORD') {
             Swal.fire('Access Denied', result.message || 'Incorrect Admin password.', 'error');
             if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Incorrect Admin password.';
             return;
         }
-
         if (response.status === 402) {
-
             if (statusBox) {
                 statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
             }
             return;
         }
-
         if (response.status === 409 || result.uploadInProgress) {
             if (statusBox) {
                 statusBox.innerHTML = '<i class="fa-solid fa-circle-info"></i> A cloud backup upload is already in progress — please wait for it to finish.';
@@ -18200,7 +15142,6 @@ async function runCloudBackupSync() {
             Swal.fire('Already Syncing', result.message || 'A cloud backup upload is already in progress.', 'info');
             return;
         }
-
         if (result.success) {
             const sizeLabel = typeof result.sizeMB === 'number'
                 ? `, ${result.sizeMB >= 1024 ? (result.sizeMB / 1024).toFixed(2) + ' GB' : result.sizeMB.toFixed(2) + ' MB'} consumed`
@@ -18249,10 +15190,8 @@ async function runCloudBackupSync() {
         if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
     }
 }
-
 async function runCloudBackupRestore() {
     if (blockIfOffline('Cloud Backup Restore')) return;
-
     const confirmResult = await Swal.fire({
         title: 'Restore from Cloud?',
         html: 'This will replace the CURRENT data of every module with what is stored in your latest Cloud Backup.<br><br><strong>This cannot be undone</strong> once confirmed. Enter the Admin Password to continue:',
@@ -18264,29 +15203,16 @@ async function runCloudBackupRestore() {
         cancelButtonColor: '#64748b',
         confirmButtonText: 'Verify and Restore'
     });
-
     const adminPassword = confirmResult.value;
     if (!adminPassword) return;
-
     const loggedInUser = currentUser ? currentUser.username : 'admin';
     const statusBox = document.getElementById('cloud-backup-status');
     const btn = document.getElementById('cloud-backup-restore-btn');
-
     if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'not-allowed'; }
     if (statusBox) {
         statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving the cloud backup and restoring&hellip;';
     }
-
     try {
-        // BUG FIX: kagaya ng sa runCloudBackupSync — dating 6s lang
-        // (default) ang timeout dito, sobrang ikli kapag malaki na ang
-        // ida-download/i-restore na backup (lalo na kung maraming naka-
-        // attach na product images), kaya laging naka-"Network Error" kahit
-        // tumatakbo pa naman ang restore sa backend. 40 minuto na ngayon,
-        // katugma ng runCloudBackupSync at ng bagong mas mataas na
-        // timeoutMs/requestTimeout sa server.js/RELAY (see notes doon) —
-        // para suportado ang hanggang ~1GB na backup nang hindi
-        // aabutan ng timeout kahit sa mabagal na koneksyon.
         const response = await authFetch(`${API_URL}/cloud-backup/restore`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -18294,7 +15220,6 @@ async function runCloudBackupRestore() {
             timeoutMs: 2400000
         });
         const result = await response.json();
-
         if (response.status === 402) {
             if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
             return;
@@ -18304,7 +15229,6 @@ async function runCloudBackupRestore() {
             if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Incorrect Admin password.';
             return;
         }
-
         if (result.success) {
             if (statusBox) {
                 statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Restored (${result.restoredCount ?? '—'} modules) — ${new Date().toLocaleString()}`;
@@ -18335,25 +15259,20 @@ async function runCloudBackupRestore() {
         if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
     }
 }
-
 const RELAY_SYNC_VIEW_FEATURE_MAP = {
     customer_crm: 'customers',
     shift_management: 'shiftreport',
     advanced_reports: 'reports',
     purchase_orders: 'reorder'
 };
-
 function applyLockdownForRemovedFeatures(removedFeatures) {
     const currentThemeId = localStorage.getItem('omnipos_theme') || 'day';
     const currentView = sessionStorage.getItem('currentView') || 'overview';
     let themeWasReverted = false;
-
     const activeTerminalThemeId = (typeof getActiveTerminalThemeId ==='function') ? getActiveTerminalThemeId() : '';
-
     removedFeatures.forEach((removed) => {
         if (removed.category === 'theme') {
             if (currentThemeId === removed.featureId) {
-
                 applyTheme('dark');
                 themeWasReverted = true;
             }
@@ -18367,22 +15286,18 @@ function applyLockdownForRemovedFeatures(removedFeatures) {
             }
         }
     });
-
     if (themeWasReverted) {
         renderThemeMenu();
     }
     if (typeof renderTerminalThemeMenu === 'function') renderTerminalThemeMenu();
     if (typeof updateSidebarFeatureLocks === 'function') updateSidebarFeatureLocks();
 }
-
 function buildRelaySyncResultHtml(result, removedFeatures) {
     let html = '';
-
     const demoRestored = !!result.demoRestored;
     const purchasedRestoredCount = typeof result.purchasedRestoredCount === 'number'
         ? result.purchasedRestoredCount
         : (result.restoredCount || 0);
-
     if (purchasedRestoredCount > 0) {
         html += '<p style="margin:0 0 8px;font-size:0.85rem;">' +
             `Restored <strong>${purchasedRestoredCount}</strong> previously purchased feature(s).</p>`;
@@ -18409,7 +15324,6 @@ function buildRelaySyncResultHtml(result, removedFeatures) {
     }
     return html;
 }
-
 async function resetPasswordTrigger(targetUsername) {
     const { value: newPassword } = await Swal.fire({
         title: `Reset Password       
@@ -18421,23 +15335,19 @@ async function resetPasswordTrigger(targetUsername) {
         confirmButtonColor:'#2563eb',
         cancelButtonColor:'#64748b'
     });
-
     if (newPassword === undefined) return;
     if (newPassword.trim() ==='') {
         Swal.fire('Input Required','Password cannot be empty.','warning');
         return;
     }
-
     const adminPassword = await promptAdminPasswordConfirm(`Force reset password for: ${targetUsername}`);
     if (!adminPassword) return;
-
     try {
         const res = await authFetch(`${API_URL}/users/${targetUsername}/reset-password`, {
             method:'PUT',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ newPassword: newPassword.trim(), username: currentUser.username, adminPassword })
         });
-
         const reply = await res.json();
         if (reply.success) {
             Swal.fire('Updated', reply.message,'success');
@@ -18449,18 +15359,14 @@ async function resetPasswordTrigger(targetUsername) {
         Swal.fire('Server Error','Server connection error while resetting password.','error');
     }
 }
-
 let html5QrcodeScanner = null;
 let lastScannedCode ="";
 let lastScannedTime = 0;
-
 let currentScanMode ='AUTO';
 let currentScanType ='QR';
 let isManualTriggered = false;
 let manualTimeoutId = null;
-
 let scanResultMode ='SEARCH';
-
 function openQRScanner() {
   scannerTarget ='PRODUCT';
     document.getElementById('qr-scanner-modal').style.display ='flex';
@@ -18473,88 +15379,67 @@ function openTxQRScanner() {
     updateScannerUIControls();
     startLiveScanner();
 }
-
 function openInventoryScanner() {
     scannerTarget ='INVENTORY';
     document.getElementById('qr-scanner-modal').style.display ='flex';
     updateScannerUIControls();
     startLiveScanner();
-
     window.onQRScanSuccess = function (scannedCode) {
         const cleanCode = scannedCode.trim();
-
         closeQRScanner();
         window.onQRScanSuccess = null;
-
         handleInventoryScanResult(cleanCode);
     };
 }
-
 async function handleInventoryScanResult(code) {
-
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { cachedInventoryProducts = data; globalProducts = data; })
         .catch(e => console.warn("Failed to background-refresh products:", e));
-
     const product = cachedInventoryProducts.find(p => p.code === code);
-
     if (!product) {
         Swal.fire('Not Found', `No product matches the code "${code}".`,'warning');
         return;
     }
-
     if (typeof playScanBeep ==='function') playScanBeep();
-
     if (scanResultMode ==='EDIT') {
-
         openProductModal('UPDATE', product.code);
     } else {
-
         const searchInput = document.getElementById('inventory-search');
         if (searchInput) searchInput.value ='';
         filterInventoryTable();
         highlightInventoryRow(product.code);
     }
 }
-
 function openProductFormScanner() {
     scannerTarget ='PRODUCT_FORM';
     productFormScanLastCode ='';
     productFormScanLastTime = 0;
     const counterPanel = document.getElementById('product-scan-stock-counter');
     if (counterPanel) counterPanel.style.display ='none';
-
     document.getElementById('qr-scanner-modal').style.display ='flex';
     updateScannerUIControls();
     startLiveScanner();
-
     window.onQRScanSuccess = function (scannedCode) {
-
         if (currentScanMode ==='MANUAL') {
             if (!isManualTriggered) return;
             isManualTriggered = false;
             if (manualTimeoutId) clearTimeout(manualTimeoutId);
             updateScannerUIControls();
         }
-
         const cleanCode = scannedCode.trim();
-
         const now = Date.now();
         if (cleanCode === productFormScanLastCode && (now - productFormScanLastTime < 1000)) {
             return;
         }
         productFormScanLastCode = cleanCode;
         productFormScanLastTime = now;
-
         handleProductFormScanResult(cleanCode);
     };
 }
-
 async function saveAccumulatedStockIfPending() {
     const code = addProductScanSession.lastScannedFormCode;
     if (!code) return false;
-
     const payload = {
         code: code,
         name: document.getElementById('p-form-name').value,
@@ -18578,15 +15463,11 @@ async function saveAccumulatedStockIfPending() {
     if (specsRaw) {
         try { payload.specs = JSON.parse(specsRaw); } catch (e) {  }
     }
-    // Same fix as handleProductFormSubmit: always send `images` (even empty)
-    // so a fully-cleared gallery actually gets persisted instead of being
-    // silently kept as-is by the server's shallow merge.
     try {
         payload.images = imagesRaw ? JSON.parse(imagesRaw) : [];
     } catch (e) {
         payload.images = [];
     }
-
     try {
         const res = await authFetch(`${API_URL}/products/${code}`, {
             method:'PUT',
@@ -18607,7 +15488,6 @@ async function saveAccumulatedStockIfPending() {
     }
     return false;
 }
-
 function openScanToAddStockPrompt() {
     Swal.fire({
         title:'Scan Barcode to Add Stock',
@@ -18634,7 +15514,6 @@ function openScanToAddStockPrompt() {
             const input = document.getElementById('stock-scan-input');
             const saveBtn = document.getElementById('stock-scan-save-btn');
             const closeBtn = document.getElementById('stock-scan-close-btn');
-
             if (input) {
                 input.focus();
                 input.addEventListener('keydown', (e) => {
@@ -18644,7 +15523,6 @@ function openScanToAddStockPrompt() {
                     }
                 });
             }
-
             if (saveBtn) {
                 saveBtn.addEventListener('click', async () => {
                     saveBtn.disabled = true;
@@ -18661,44 +15539,33 @@ function openScanToAddStockPrompt() {
                     if (input) input.focus();
                 });
             }
-
             if (closeBtn) closeBtn.addEventListener('click', () => Swal.close());
         }
     });
 }
-
 async function handleScanStockPromptInput(rawCode) {
     const cleanCode = (rawCode ||'').trim();
     if (!cleanCode) return;
-
     const input = document.getElementById('stock-scan-input');
     const statusEl = document.getElementById('stock-scan-status');
     const saveBtn = document.getElementById('stock-scan-save-btn');
-
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { globalProducts = data; })
         .catch(e => console.warn("Failed to background-refresh products:", e));
-
     addProductScanSession.active = true;
-
     const match = globalProducts.find(p => p.code === cleanCode);
     const codeInput = document.getElementById('p-form-code');
     const stockInput = document.getElementById('p-form-stock');
-
     if (match) {
         if (typeof playScanBeep ==='function') playScanBeep();
-
         let baseStock;
         if (addProductScanSession.lastScannedFormCode === cleanCode) {
-
             baseStock = parseInt(stockInput.dataset.baseStock || match.stock) || 0;
             const currentQty = parseInt(stockInput.value) || 0;
             stockInput.value = currentQty + 1;
         } else {
-
             await saveAccumulatedStockIfPending();
-
             baseStock = parseInt(match.stock) || 0;
             codeInput.value = match.code;
             document.getElementById('p-form-name').value = match.name;
@@ -18714,7 +15581,6 @@ async function handleScanStockPromptInput(rawCode) {
             updateProductPhotoPreview(match.image ||'');
             addProductScanSession.lastScannedFormCode = match.code;
         }
-
         if (statusEl) {
             statusEl.innerHTML = `
                 <div style="font-weight:bold; color:#e2e8f0;">${escapeHtml(match.name)} <span style="color:#64748b; font-weight:normal;">(${escapeHtml(match.code)})</span></div>
@@ -18726,20 +15592,15 @@ async function handleScanStockPromptInput(rawCode) {
         }
         if (saveBtn) saveBtn.removeAttribute('disabled');
     } else {
-
         const savedPrevious = await saveAccumulatedStockIfPending();
-
         Swal.close();
-
         document.getElementById('product-schema-form').reset();
         document.getElementById('p-form-mode').value ='ADD';
         document.getElementById('p-form-image').value ='';
         updateProductPhotoPreview('');
         addProductScanSession.lastScannedFormCode = null;
-
         codeInput.removeAttribute('disabled');
         codeInput.value = cleanCode;
-
         Swal.fire({
             title:'Not Exist',
             html: (savedPrevious ? `Added stock for the previously scanned product has been saved.<br><br>` :'') +
@@ -18751,23 +15612,18 @@ async function handleScanStockPromptInput(rawCode) {
         });
         return;
     }
-
     if (input) {
         input.value ='';
         input.focus();
     }
 }
-
 async function handleProductFormScanResult(code) {
     if (!code) return;
-
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { globalProducts = data; })
         .catch(e => console.warn("Failed to background-refresh products:", e));
-
     addProductScanSession.active = true;
-
     const match = globalProducts.find(p => p.code === code);
     const codeInput = document.getElementById('p-form-code');
     const stockInput = document.getElementById('p-form-stock');
@@ -18776,18 +15632,14 @@ async function handleProductFormScanResult(code) {
     const oldStockEl = document.getElementById('psc-old-stock');
     const newStockEl = document.getElementById('psc-new-stock');
     const feedback = document.getElementById('qr-scanner-feedback');
-
     if (match) {
         let baseStock;
         if (addProductScanSession.lastScannedFormCode === code) {
-
             baseStock = parseInt(oldStockEl.dataset.base || match.stock) || 0;
             const currentQty = parseInt(stockInput.value) || 0;
             stockInput.value = currentQty + 1;
         } else {
-
             await saveAccumulatedStockIfPending();
-
             baseStock = parseInt(match.stock) || 0;
             codeInput.value = match.code;
             document.getElementById('p-form-name').value = match.name;
@@ -18802,7 +15654,6 @@ async function handleProductFormScanResult(code) {
             updateProductPhotoPreview(match.image ||'');
             addProductScanSession.lastScannedFormCode = code;
         }
-
         if (counterPanel) {
             counterPanel.style.display ='block';
             nameLabel.textContent = match.name;
@@ -18815,20 +15666,16 @@ async function handleProductFormScanResult(code) {
             feedback.style.color ='#22c55e';
         }
     } else {
-
         const savedPrevious = await saveAccumulatedStockIfPending();
-
         closeQRScanner();
         window.onQRScanSuccess = null;
         if (counterPanel) counterPanel.style.display ='none';
-
         document.getElementById('product-schema-form').reset();
         document.getElementById('p-form-mode').value ='ADD';
         codeInput.value = code;
         document.getElementById('p-form-image').value ='';
         updateProductPhotoPreview('');
         addProductScanSession.lastScannedFormCode = null;
-
         Swal.fire({
             title:'Not Exist',
             html: (savedPrevious ? `Added stock for the previously scanned product has been saved.<br><br>` :'') +
@@ -18840,36 +15687,27 @@ async function handleProductFormScanResult(code) {
         });
     }
 }
-
 async function handleHardwareScanProductForm(scannedCode) {
     const cleanCode = scannedCode.trim();
     if (!cleanCode) return;
-
     const modeInput = document.getElementById('p-form-mode');
     if (!modeInput || modeInput.value !=='ADD') return;
-
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
         .then(data => { globalProducts = data; })
         .catch(e => console.warn("Failed to background-refresh products:", e));
-
     addProductScanSession.active = true;
-
     const match = globalProducts.find(p => p.code === cleanCode);
     const codeInput = document.getElementById('p-form-code');
     const stockInput = document.getElementById('p-form-stock');
-
     if (match) {
         let baseStock;
         if (addProductScanSession.lastScannedFormCode === cleanCode) {
-
             baseStock = parseInt(stockInput.dataset.baseStock || match.stock) || 0;
             const currentQty = parseInt(stockInput.value) || 0;
             stockInput.value = currentQty + 1;
         } else {
-
             await saveAccumulatedStockIfPending();
-
             baseStock = parseInt(match.stock) || 0;
             codeInput.value = match.code;
             document.getElementById('p-form-name').value = match.name;
@@ -18885,26 +15723,20 @@ async function handleHardwareScanProductForm(scannedCode) {
             updateProductPhotoPreview(match.image ||'');
             addProductScanSession.lastScannedFormCode = cleanCode;
         }
-
         if (typeof playScanBeep ==='function') playScanBeep();
-
         Swal.fire({
             toast: true, position:'top-end', icon:'success',
             title: `${escapeHtml(match.name)} — Stock: ${baseStock}/${stockInput.value}`,
             showConfirmButton: false, timer: 1500, timerProgressBar: true
         });
     } else {
-
         const savedPrevious = await saveAccumulatedStockIfPending();
-
         document.getElementById('product-schema-form').reset();
         document.getElementById('p-form-mode').value ='ADD';
         document.getElementById('p-form-image').value ='';
         updateProductPhotoPreview('');
         addProductScanSession.lastScannedFormCode = null;
-
         codeInput.value = cleanCode;
-
         Swal.fire({
             title:'Not Exist',
             html: (savedPrevious ? `Added stock for the previously scanned product has been saved.<br><br>` :'') +
@@ -18916,18 +15748,15 @@ async function handleHardwareScanProductForm(scannedCode) {
         });
     }
 }
-
 function updateScannerUIControls() {
     const btnAuto = document.getElementById('btn-mode-auto');
     const btnManual = document.getElementById('btn-mode-manual');
     const btnTrigger = document.getElementById('btn-manual-trigger');
     const btnQR = document.getElementById('btn-type-qr');
     const btnBarcode = document.getElementById('btn-type-barcode');
-
     if (currentScanMode ==='AUTO') {
         btnAuto.style.background ='#2563eb'; btnAuto.style.color ='#ffffff';
         btnManual.style.background ='transparent'; btnManual.style.color ='#94a3b8';
-
         btnTrigger.disabled = true;
         btnTrigger.style.background ='#374151';
         btnTrigger.style.color ='#6b7280';
@@ -18936,14 +15765,12 @@ function updateScannerUIControls() {
     } else {
         btnAuto.style.background ='transparent'; btnAuto.style.color ='#94a3b8';
         btnManual.style.background ='#2563eb'; btnManual.style.color ='#ffffff';
-
         btnTrigger.disabled = false;
         btnTrigger.style.background ='#22c55e';
         btnTrigger.style.color ='#ffffff';
         btnTrigger.style.cursor ='pointer';
         btnTrigger.innerHTML = `<i class="fa-solid fa-expand"></i> PINDUTIN PARA MAG-SCAN`;
     }
-
     if (currentScanType ==='QR') {
         btnQR.style.background ='#2563eb'; btnQR.style.color ='#ffffff';
         btnBarcode.style.background ='transparent'; btnBarcode.style.color ='#94a3b8';
@@ -18951,7 +15778,6 @@ function updateScannerUIControls() {
         btnQR.style.background ='transparent'; btnQR.style.color ='#94a3b8';
         btnBarcode.style.background ='#2563eb'; btnBarcode.style.color ='#ffffff';
     }
-
     const modeGroup = document.getElementById('inventory-scan-mode-group');
     const btnResultSearch = document.getElementById('btn-result-search');
     const btnResultEdit = document.getElementById('btn-result-edit');
@@ -18970,12 +15796,10 @@ function updateScannerUIControls() {
         }
     }
 }
-
 function setScanResultMode(mode) {
     if (scanResultMode === mode) return;
     scanResultMode = mode;
     updateScannerUIControls();
-
     const feedback = document.getElementById('qr-scanner-feedback');
     if (feedback) {
         feedback.innerText = (mode ==='EDIT')
@@ -18984,15 +15808,12 @@ function setScanResultMode(mode) {
         feedback.style.color ='#38bdf8';
     }
 }
-
 function setScanMode(mode) {
     if (currentScanMode === mode) return;
     currentScanMode = mode;
     isManualTriggered = false;
     if (manualTimeoutId) clearTimeout(manualTimeoutId);
-
     updateScannerUIControls();
-
     const feedback = document.getElementById('qr-scanner-feedback');
     if (mode ==='AUTO') {
         feedback.innerText ='Auto scan active. Align code inside frame.';
@@ -19002,15 +15823,12 @@ function setScanMode(mode) {
         feedback.style.color ='#eab308';
     }
 }
-
 function setScanType(type) {
     if (currentScanType === type) return;
     currentScanType = type;
     updateScannerUIControls();
-
     document.getElementById('qr-scanner-feedback').innerText ='Calibrating scanner framework scaling configurations proportions...';
     document.getElementById('qr-scanner-feedback').style.color ='#eab308';
-
     if (html5QrcodeScanner && html5QrcodeScanner.isScanning) {
         html5QrcodeScanner.stop().then(() => {
             startLiveScanner();
@@ -19022,20 +15840,16 @@ function setScanType(type) {
         startLiveScanner();
     }
 }
-
 function startLiveScanner() {
     if (!html5QrcodeScanner) {
         html5QrcodeScanner = new Html5Qrcode("qr-reader");
     }
-
     const qrCodeSuccessCallback = (decodedText, decodedResult) => {
         playScanBeep();
-
         if (typeof window.onQRScanSuccess ==='function') {
             window.onQRScanSuccess(decodedText);
             return;
         }
-
         if (currentScanMode ==='AUTO') {
             if (scannerTarget ==='TRANSACTION') {
                 handleScannedTransaction(decodedText);
@@ -19046,7 +15860,6 @@ function startLiveScanner() {
             if (isManualTriggered) {
                 isManualTriggered = false;
                 if (manualTimeoutId) clearTimeout(manualTimeoutId);
-
                 updateScannerUIControls();
                 if (scannerTarget ==='TRANSACTION') {
                     handleScannedTransaction(decodedText);
@@ -19056,7 +15869,6 @@ function startLiveScanner() {
             }
         }
     };
-
     let qrboxConfig;
     if (currentScanType ==='QR') {
         qrboxConfig = function(width, height) {
@@ -19070,14 +15882,12 @@ function startLiveScanner() {
             return { width: w, height: h };
         };
     }
-
     const config = {
         fps: 30,
         qrbox: qrboxConfig,
         aspectRatio: 1.0,
         disableFlip: false
     };
-
     html5QrcodeScanner.start(
         { facingMode:"environment" },
         config,
@@ -19099,23 +15909,18 @@ function startLiveScanner() {
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     });
 }
-
 function triggerManualScan() {
     if (currentScanMode !=='MANUAL') return;
-
     isManualTriggered = true;
     if (manualTimeoutId) clearTimeout(manualTimeoutId);
     manualTimeoutId = null;
-
     const feedback = document.getElementById('qr-scanner-feedback');
     feedback.innerText ='⚡ Scanning... Align barcode or QR code within the frame.';
     feedback.style.color ='#38bdf8';
-
     const btnTrigger = document.getElementById('btn-manual-trigger');
     btnTrigger.style.background ='#eab308';
     btnTrigger.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> SCANNING... ALIGN BARCODE WITHIN FRAME`;
 }
-
 async function handleScannedBarcode(scannedCode) {
     const now = Date.now();
     if (scannedCode === lastScannedCode && (now - lastScannedTime < 1000)) {
@@ -19123,7 +15928,6 @@ async function handleScannedBarcode(scannedCode) {
     }
     lastScannedCode = scannedCode;
     lastScannedTime = now;
-
     if (!globalProducts || globalProducts.length === 0) {
         globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
     }
@@ -19134,7 +15938,6 @@ async function handleScannedBarcode(scannedCode) {
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
         })
         .catch(e => console.warn("Failed to background-refresh products:", e));
-
     const product = globalProducts.find(p => p.code === scannedCode.trim());
     if (product) {
         const cartItem = shoppingCart.find(item => item.code === product.code);
@@ -19152,37 +15955,28 @@ async function handleScannedBarcode(scannedCode) {
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     }
 }
-
 function closeQRScanner() {
     document.getElementById('qr-scanner-modal').style.display ='none';
     isManualTriggered = false;
     if (manualTimeoutId) clearTimeout(manualTimeoutId);
-
     if (html5QrcodeScanner && html5QrcodeScanner.isScanning) {
         html5QrcodeScanner.stop().catch(err => console.error("Scanner tracking disconnect shutdown exception:", err));
     }
-
     window.onQRScanSuccess = null;
-
     const stockCounterPanel = document.getElementById('product-scan-stock-counter');
     if (stockCounterPanel) stockCounterPanel.style.display ='none';
 }
-
 function handleScannedTransaction(scannedCode) {
     const cleanCode = scannedCode.trim();
     const searchInput = document.getElementById('tx-history-search');
-
     if (searchInput) {
         searchInput.value = cleanCode;
         filterTransactionsTable();
     }
-
     const match = localTransactionsList.find(tx => tx.id.toLowerCase() === cleanCode.toLowerCase());
-
     if (match) {
         document.getElementById('qr-scanner-feedback').innerText = `✔ Entity Resolved: Reference key ${cleanCode} mapped successfully (Initializing transactional statement layout views rendering loops...)`;
         document.getElementById('qr-scanner-feedback').style.color ='#22c55e';
-
         try {
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = audioCtx.createOscillator();
@@ -19192,7 +15986,6 @@ function handleScannedTransaction(scannedCode) {
             osc.start();
             osc.stop(audioCtx.currentTime + 0.1);
         } catch (e) {}
-
         setTimeout(() => {
             closeQRScanner();
             reopenReceiptFromHistory(match.id);
@@ -19202,10 +15995,8 @@ function handleScannedTransaction(scannedCode) {
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     }
 }
-
 const txColumnFilters = { id: new Set(), timestamp: new Set(), cashier: new Set(), items: new Set(), discount: new Set(), total: new Set(), method: new Set() };
 let activeTxFilterField = null;
-
 function getTxColumnDisplayValue(field, tx) {
     switch (field) {
         case'id': return tx.id ||'';
@@ -19221,18 +16012,15 @@ function getTxColumnDisplayValue(field, tx) {
         default: return'';
     }
 }
-
 function toggleTxColumnFilter(field, evt) {
     evt.stopPropagation();
     const btn = evt.currentTarget;
-
     if (document.getElementById('col-filter-dropdown') && activeTxFilterField === field) {
         closeTxColumnFilterDropdown();
         return;
     }
     closeTxColumnFilterDropdown();
     activeTxFilterField = field;
-
     const query = (document.getElementById('tx-history-search')?.value ||'').trim().toLowerCase();
     const contextTx = localTransactionsList.filter(tx => {
         if (query && !((tx.id ||'').toLowerCase().includes(query) || (tx.cashier ||'').toLowerCase().includes(query))) return false;
@@ -19242,13 +16030,10 @@ function toggleTxColumnFilter(field, evt) {
         }
         return true;
     });
-
     const uniqueValues = [...new Set(contextTx.map(tx => getTxColumnDisplayValue(field, tx)))]
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
     const currentSelection = txColumnFilters[field];
     const selectedSet = currentSelection.size > 0 ? currentSelection : new Set(uniqueValues);
-
     const dropdown = document.createElement('div');
     dropdown.id ='col-filter-dropdown';
     dropdown.className ='col-filter-dropdown';
@@ -19263,23 +16048,19 @@ function toggleTxColumnFilter(field, evt) {
     `;
     document.body.appendChild(dropdown);
     renderTxColumnFilterOptions(uniqueValues, selectedSet);
-
     const selectAllCb = document.getElementById('col-filter-selectall-cb');
     selectAllCb.checked = uniqueValues.length > 0 && selectedSet.size === uniqueValues.length;
     selectAllCb.onchange = () => {
         document.querySelectorAll('#col-filter-list .col-filter-option:not([style*="display: none"]) input[type="checkbox"]')
             .forEach(cb => cb.checked = selectAllCb.checked);
     };
-
     const rect = btn.getBoundingClientRect();
     dropdown.style.top = `${rect.bottom + 4}px`;
     const maxLeft = window.innerWidth - 246;
     dropdown.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
-
     btn.classList.add('filter-btn-open');
     setTimeout(() => document.addEventListener('click', closeTxColumnFilterDropdownOnOutsideClick), 0);
 }
-
 function renderTxColumnFilterOptions(values, selectedSet) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
@@ -19293,7 +16074,6 @@ function renderTxColumnFilterOptions(values, selectedSet) {
         return `<label class="col-filter-option"><input type="checkbox" value="${safe}" ${checked}><span>${safe}</span></label>`;
     }).join('');
 }
-
 function filterTxColumnFilterOptions(query) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
@@ -19303,27 +16083,22 @@ function filterTxColumnFilterOptions(query) {
         opt.style.display = text.includes(q) ?'' :'none';
     });
 }
-
 function applyTxColumnFilter(field) {
     const list = document.getElementById('col-filter-list');
     if (!list) return;
     const allCbs = [...list.querySelectorAll('input[type="checkbox"]')];
     const checked = allCbs.filter(cb => cb.checked).map(cb => cb.value);
-
     txColumnFilters[field] = (checked.length === 0 || checked.length === allCbs.length) ? new Set() : new Set(checked);
-
     updateTxFilterIconStates();
     closeTxColumnFilterDropdown();
     filterTransactionsTable();
 }
-
 function clearTxColumnFilter(field) {
     txColumnFilters[field] = new Set();
     updateTxFilterIconStates();
     closeTxColumnFilterDropdown();
     filterTransactionsTable();
 }
-
 function updateTxFilterIconStates() {
     document.querySelectorAll('.tx-col-filter-btn').forEach(btn => {
         const field = btn.getAttribute('data-field');
@@ -19331,7 +16106,6 @@ function updateTxFilterIconStates() {
         btn.classList.toggle('active', hasFilter);
     });
 }
-
 function closeTxColumnFilterDropdown() {
     const existing = document.getElementById('col-filter-dropdown');
     if (existing) existing.remove();
@@ -19339,7 +16113,6 @@ function closeTxColumnFilterDropdown() {
     activeTxFilterField = null;
     document.removeEventListener('click', closeTxColumnFilterDropdownOnOutsideClick);
 }
-
 function closeTxColumnFilterDropdownOnOutsideClick(evt) {
     const dropdown = document.getElementById('col-filter-dropdown');
     if (!dropdown) return;
@@ -19347,10 +16120,8 @@ function closeTxColumnFilterDropdownOnOutsideClick(evt) {
     if (evt.target.closest && evt.target.closest('.tx-col-filter-btn')) return;
     closeTxColumnFilterDropdown();
 }
-
 function filterTransactionsTable() {
     const searchQuery = document.getElementById('tx-history-search').value.trim().toLowerCase();
-
     const filtered = localTransactionsList.filter(tx => {
         const matchesSearch = tx.id.toLowerCase().includes(searchQuery) || tx.cashier.toLowerCase().includes(searchQuery);
         if (!matchesSearch) return false;
@@ -19359,38 +16130,28 @@ function filterTransactionsTable() {
         }
         return true;
     });
-
     updateTxFilterIconStates();
     renderTransactionsRows(filtered);
 }
-
 function reopenReceiptFromHistory(id) {
-
     const foundTx = localTransactionsList.find(tx => tx.id === id);
-
     if (!foundTx) {
         console.error("Transaction not found for ID:", id);
         alert("Transaction record not found.");
         return;
     }
-
     if (typeof renderInvoiceReceipt ==='function') {
         renderInvoiceReceipt(foundTx, true);
     } else {
         alert("Transaction ID: " + foundTx.id);
     }
 }
-
 async function syncOfflineTransactions() {
-
     if (!currentUser) return;
-
     let offlineTx = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
     if (offlineTx.length === 0) return;
-
     console.log(`Synchronization Pipeline Engaged: Detected ${offlineTx.length} pending local transaction logs. Initializing background data transport routines...`);
     let successfulSyncs = [];
-
     for (let i = 0; i < offlineTx.length; i++) {
         const item = offlineTx[i];
         try {
@@ -19408,37 +16169,27 @@ async function syncOfflineTransactions() {
             break;
         }
     }
-
     offlineTx = offlineTx.filter(item => !successfulSyncs.includes(item.transaction.id));
     localStorage.setItem('offline_transactions', JSON.stringify(offlineTx));
-
     if (successfulSyncs.length > 0) {
         console.log(`Synced ${successfulSyncs.length} offline transaction(s) to the server.`);
-
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
         if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
     }
 }
-
 window.addEventListener('online', () => {
     console.log("Internet connection restored — starting sync of offline transactions...");
     syncOfflineTransactions();
 });
-
 setInterval(syncOfflineTransactions, 30000);
-
 async function pollMyShiftClosedRemotely() {
     if (!currentUser) return;
-
     if (!isFeatureUnlockedCached('shift_management')) return;
-
     if (document.getElementById('payment-modal') && document.getElementById('payment-modal').style.display ==='flex') return;
-
     try {
         const res = await authFetch(`${API_URL}/shift/current`);
         const data = await res.json();
         if (!data.success) return;
-
         const nowLocked = !!data.beginningCashLocked;
         if (myShiftLockedState === true && nowLocked === false) {
             myShiftLockedState = false;
@@ -19457,11 +16208,9 @@ async function pollMyShiftClosedRemotely() {
         }
         myShiftLockedState = nowLocked;
     } catch (e) {
-
     }
 }
 setInterval(pollMyShiftClosedRemotely, 15000);
-
 function openSidebarMenu() {
     const sidebar = document.querySelector('.sidebar');
     if (sidebar) {
@@ -19469,7 +16218,6 @@ function openSidebarMenu() {
         sidebar.classList.add('mobile-open');
     }
 }
-
 function closeSidebarMenu() {
     const sidebar = document.querySelector('.sidebar');
     if (sidebar) {
@@ -19477,14 +16225,12 @@ function closeSidebarMenu() {
         sidebar.classList.remove('mobile-open');
     }
 }
-
 function initAutoCloseSidebarOnPrompt() {
     const maybeCloseSidebar = () => {
         if (document.body.classList.contains('sidebar-mobile-active')) {
             closeSidebarMenu();
         }
     };
-
     const bodyObserver = new MutationObserver((mutations) => {
         for (const m of mutations) {
             for (const node of m.addedNodes) {
@@ -19496,7 +16242,6 @@ function initAutoCloseSidebarOnPrompt() {
         }
     });
     bodyObserver.observe(document.body, { childList: true });
-
     document.querySelectorAll('.modal-overlay').forEach((overlay) => {
         const overlayObserver = new MutationObserver(() => {
             const display = overlay.style.display;
@@ -19505,23 +16250,18 @@ function initAutoCloseSidebarOnPrompt() {
         overlayObserver.observe(overlay, { attributes: true, attributeFilter: ['style'] });
     });
 }
-
 window.checkRealInternetAccess = function checkRealInternetAccess(timeoutMs = 1500) {
     return Promise.resolve(!!navigator.onLine);
 };
-
 function initNetworkStatusIndicator() {
-
     const indicators = [
         document.getElementById('connection-indicator'),
         document.getElementById('terminal-connection-indicator'),
         document.getElementById('login-connection-indicator')
     ].filter(Boolean);
     if (!indicators.length) return;
-
     let realInternetCheckInFlight = false;
     let lastAppliedState = 'connecting';
-
     function applyState(state, title) {
         lastAppliedState = state;
         indicators.forEach(indicator => {
@@ -19529,37 +16269,28 @@ function initNetworkStatusIndicator() {
             indicator.classList.add(state);
             indicator.setAttribute('title', title);
         });
-
         if (window.setConnectivityLiveState) window.setConnectivityLiveState(state);
     }
-
     async function updateStatusIndicator() {
-
         if (!navigator.onLine) {
             applyState('offline','System Status: No WiFi connected or Data SIM is off');
             return;
         }
-
         if (realInternetCheckInFlight) return;
         realInternetCheckInFlight = true;
-
         applyState('connecting','System Status: Connected to network, waiting for internet connection...');
-
         const hasRealInternet = await window.checkRealInternetAccess();
         realInternetCheckInFlight = false;
-
         if (!navigator.onLine) {
             applyState('offline','System Status: No WiFi connected or Data SIM is off');
             return;
         }
-
         if (hasRealInternet) {
             applyState('online','System Status: Connected to Internet');
         } else {
             applyState('connecting','System Status: Connected to network, waiting for internet connection...');
         }
     }
-
     let pollTimer = null;
     function scheduleNextPoll() {
         if (pollTimer) clearTimeout(pollTimer);
@@ -19570,17 +16301,13 @@ function initNetworkStatusIndicator() {
         await updateStatusIndicator();
         scheduleNextPoll();
     }
-
     function forceRecheckNow() {
         if (pollTimer) clearTimeout(pollTimer);
         runPoll();
     }
-
     forceRecheckNow();
-
     window.addEventListener('online', forceRecheckNow);
     window.addEventListener('offline', forceRecheckNow);
-
     let lastForcedCheckAt = 0;
     window.__triggerNetworkRecheck = () => {
         const now = Date.now();
@@ -19588,48 +16315,39 @@ function initNetworkStatusIndicator() {
         lastForcedCheckAt = now;
         forceRecheckNow();
     };
-
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') forceRecheckNow();
     });
     window.addEventListener('focus', forceRecheckNow);
 }
-
 function initAuthDeviceScaling() {
     const authView = document.getElementById('auth-view');
     if (!authView) return;
-
     function applyAuthScale() {
         const isMobileDevice =/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         const isWideViewport = window.innerWidth > 900;
         authView.classList.toggle('pc-auth-mode', !isMobileDevice && isWideViewport);
     }
-
     applyAuthScale();
     window.addEventListener('resize', applyAuthScale);
 }
-
 function isFullscreenApiSupported() {
     const el = document.documentElement;
     return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen);
 }
-
 function isCurrentlyFullscreen() {
     return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
 }
-
 function requestAppFullscreen(el) {
     const request = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
     if (request) return request.call(el);
     return Promise.reject(new Error('Fullscreen API not supported'));
 }
-
 function exitAppFullscreen() {
     const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
     if (exit) return exit.call(document);
     return Promise.reject(new Error('Fullscreen API not supported'));
 }
-
 function updateFullscreenButtonUI() {
     const btn = document.getElementById('btn-fullscreen-toggle');
     const icon = document.getElementById('fullscreen-icon');
@@ -19643,10 +16361,8 @@ function updateFullscreenButtonUI() {
     const labelEl = document.getElementById('fullscreen-toggle-label');
     if (labelEl) labelEl.textContent = label;
 }
-
 async function toggleAppFullscreen() {
     if (!isFullscreenApiSupported()) {
-
         const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         if (typeof showInstallAppBanner === 'function') {
             showInstallAppBanner({ mode: isIOS ? 'ios' : 'android' });
@@ -19664,67 +16380,49 @@ async function toggleAppFullscreen() {
     } catch (e) {
         console.error('Fullscreen toggle failed:', e);
     }
-
     updateFullscreenButtonUI();
 }
-
 ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach((evt) => {
     document.addEventListener(evt, updateFullscreenButtonUI);
 });
-
 function initFullscreenToggleButton() {
     const btn = document.getElementById('btn-fullscreen-toggle');
     if (!btn) return;
-
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const isStandaloneAlready = window.matchMedia('(display-mode: standalone)').matches
         || window.navigator.standalone === true;
-
     if (isStandaloneAlready && isIOS && !isFullscreenApiSupported()) {
         btn.style.display = 'none';
         return;
     }
-
     updateFullscreenButtonUI();
 }
-
 function isHeaderInteractiveTarget(target) {
     if (!target || typeof target.closest !== 'function') return false;
-    // Anumang button, link, o element na may sariling onclick/role — huwag
-    // patakbuhin ang fullscreen toggle dito (logo, hamburger, bell, user menu, atbp.)
     return !!target.closest('button, a, [role="button"], [onclick], input, select, textarea, .header-user-menu-wrap, #header-user-dropdown');
 }
-
 function initHeaderDoubleTapFullscreen() {
     const header = document.getElementById('app-top-header');
     if (!header) return;
-
-    // Desktop: native double-click
     header.addEventListener('dblclick', (e) => {
         if (isHeaderInteractiveTarget(e.target)) return;
         toggleAppFullscreen();
     });
-
-    // Mobile: manual double-tap detection — hindi laging maaasahang mag-fire
-    // ang native "dblclick" mula sa dalawang magkasunod na tap sa touchscreen.
     const DOUBLE_TAP_MAX_DELAY = 350;
     const DOUBLE_TAP_MAX_MOVE = 20;
     let lastTapTime = 0;
     let lastTapX = 0;
     let lastTapY = 0;
-
     header.addEventListener('touchend', (e) => {
         if (isHeaderInteractiveTarget(e.target)) {
             lastTapTime = 0;
             return;
         }
         if (!e.changedTouches || !e.changedTouches.length) return;
-
         const touch = e.changedTouches[0];
         const now = Date.now();
         const movedX = Math.abs(touch.clientX - lastTapX);
         const movedY = Math.abs(touch.clientY - lastTapY);
-
         if (lastTapTime && (now - lastTapTime) <= DOUBLE_TAP_MAX_DELAY && movedX <= DOUBLE_TAP_MAX_MOVE && movedY <= DOUBLE_TAP_MAX_MOVE) {
             lastTapTime = 0;
             e.preventDefault();
@@ -19736,38 +16434,29 @@ function initHeaderDoubleTapFullscreen() {
         }
     });
 }
-
 let deferredInstallPromptEvent = null;
-
 function initInstallAppBanner() {
     const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     if (!isMobileDevice) return;
-
     const isStandaloneAlready = window.matchMedia('(display-mode: standalone)').matches
         || window.navigator.standalone === true;
     if (isStandaloneAlready) return;
-
     if (localStorage.getItem('installBannerDismissedAt')) {
         const dismissedAgoMs = Date.now() - parseInt(localStorage.getItem('installBannerDismissedAt'), 10);
         if (dismissedAgoMs < 7 * 24 * 60 * 60 * 1000) return;
     }
-
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredInstallPromptEvent = e;
         showInstallAppBanner({ mode: 'android' });
     });
-
     if (isIOS) {
         showInstallAppBanner({ mode: 'ios' });
     }
 }
-
 function showInstallAppBanner({ mode }) {
     if (document.getElementById('install-app-banner')) return;
-
     const banner = document.createElement('div');
     banner.id = 'install-app-banner';
     banner.className = 'install-app-banner';
@@ -19788,15 +16477,12 @@ function showInstallAppBanner({ mode }) {
     `;
     document.body.appendChild(banner);
     requestAnimationFrame(() => banner.classList.add('install-app-banner-visible'));
-
     const dismiss = () => {
         banner.classList.remove('install-app-banner-visible');
         localStorage.setItem('installBannerDismissedAt', String(Date.now()));
         setTimeout(() => banner.remove(), 250);
     };
-
     document.getElementById('install-app-banner-dismiss').addEventListener('click', dismiss);
-
     const confirmBtn = document.getElementById('install-app-banner-confirm');
     if (confirmBtn) {
         confirmBtn.addEventListener('click', async () => {
@@ -19809,15 +16495,11 @@ function showInstallAppBanner({ mode }) {
         });
     }
 }
-
 let currentTerminalView ='grid';
-
 function toggleTerminalView() {
     const gridOutput = document.getElementById('terminal-grid-output');
     const toggleBtn = document.getElementById('btn-view-toggle');
-
     if (!gridOutput || !toggleBtn) return;
-
     if (currentTerminalView ==='grid') {
         currentTerminalView ='list';
         gridOutput.classList.add('terminal-list-view');
@@ -19827,83 +16509,62 @@ function toggleTerminalView() {
         gridOutput.classList.remove('terminal-list-view');
         toggleBtn.innerHTML ='<i class="fa-solid fa-list"></i>';
     }
-
     if (typeof renderTerminalProducts === 'function') {
         renderTerminalProducts();
     }
-
     if (typeof reclampCartPaneWidthToCurrentView === 'function') {
         reclampCartPaneWidthToCurrentView();
     }
 }
-
 function updateCategoryChipsDynamic() {
     const container = document.getElementById('category-chips');
     if (!container) return;
-
     try {
         const validProducts = globalProducts.filter(p => p && typeof p ==='object');
         const uniqueCategories = ['All', ...new Set(validProducts.map(p => p.category ||'Others'))];
-
         container.innerHTML ='';
-
         uniqueCategories.forEach(cat => {
             const chip = document.createElement('span');
-
             chip.className = `chip ${activeTerminalCategory === cat ?'active' :''}`;
             chip.innerText = cat;
-
             chip.onclick = () => filterTerminalCategory(cat);
             attachInstantTapFeedback(chip, { hapticMs: 8 });
-
             container.appendChild(chip);
         });
     } catch (chipError) {
         console.error('Failed to render category chips:', chipError);
     }
 }
-
 function updateDropdownCategoriesDynamic() {
     const categorySelect = document.getElementById('p-form-category');
     if (!categorySelect) return;
-
     const dbCategories = globalProducts.map(p => p.category ||'Others');
-
     const uniqueCategories = [...new Set([...dbCategories, ...customCategories])];
-
     const previousSelectedValue = categorySelect.value;
-
     categorySelect.innerHTML ='';
-
     uniqueCategories.forEach(cat => {
         const option = document.createElement('option');
         option.value = cat;
         option.text = cat;
         categorySelect.appendChild(option);
     });
-
     const addNewOption = document.createElement('option');
     addNewOption.value ='ADD_NEW_CATEGORY';
     addNewOption.text ='+ Add New Category...';
     categorySelect.appendChild(addNewOption);
-
     if (previousSelectedValue && uniqueCategories.includes(previousSelectedValue)) {
         categorySelect.value = previousSelectedValue;
     }
 }
-
 async function initializeSystem() {
     if (!currentUser) return;
     try {
-
         const [productsRes, categoriesRes] = await Promise.all([
             authFetch(`${API_URL}/products`),
             authFetch(`${API_URL}/categories`)
         ]);
-
         globalProducts = await productsRes.json();
         customCategories = await categoriesRes.json();
-
         updateDropdownCategoriesDynamic();
         if (typeof loadDashboardMetrics ==='function') {
             await loadDashboardMetrics();
@@ -19912,56 +16573,42 @@ async function initializeSystem() {
         console.error("System Initialization Failed:", err);
     }
 }
-
 window.addEventListener('DOMContentLoaded', initializeSystem);
-
 window.addEventListener('popstate', function(event) {
-
     if (event.state && event.state.view) {
-
         if (currentUser) {
             switchView(event.state.view);
         }
     } else {
-
         const savedView = sessionStorage.getItem('currentView');
         if (savedView && currentUser && savedView !=='auth-view') {
             switchView(savedView);
         }
     }
 });
-
 function playScanBeep() {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
-
         oscillator.type ='sine';
         oscillator.frequency.setValueAtTime(1400, audioCtx.currentTime);
-
         gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-
         oscillator.connect(gainNode);
         gainNode.connect(audioCtx.destination);
-
         oscillator.start();
-
         oscillator.stop(audioCtx.currentTime + 0.08);
     } catch (error) {
         console.warn("Could not play scan audio:", error);
     }
 }
-
 function triggerSystemRestore() {
     const fileInput = document.getElementById('recoveryFileInput');
     const file = fileInput.files[0];
-
     if (!file) {
         Swal.fire('File Missing',"Please select the 'full_system_backup.json' file downloaded from the email first.",'warning');
         return;
     }
-
     Swal.fire({
         title:'System Restore Authorization',
         text:'Enter the Admin Password to confirm the data restore:',
@@ -19974,14 +16621,11 @@ function triggerSystemRestore() {
     }).then((authResult) => {
         const adminPassword = authResult.value;
         if (!adminPassword) return;
-
         const loggedInUser = currentUser ? currentUser.username :'admin';
-
         const reader = new FileReader();
         reader.onload = function(e) {
             try {
                 const parsedBackupData = JSON.parse(e.target.result);
-
                 authFetch(`${API_URL}/restore-backup`, {
                     method:'POST',
                     headers: {'Content-Type':'application/json' },
@@ -19996,8 +16640,6 @@ function triggerSystemRestore() {
                     try {
                         data = await res.json();
                     } catch (parseErr) {
-                        // May sagot ang server (hindi ito network failure) pero hindi
-                        // JSON yung laman — karaniwang dahilan: sobrang laki ng file.
                         throw new Error(res.ok
                             ?'Hindi mabasa ang sagot ng server.'
                             : `Tinanggihan ng server ang request (status ${res.status}). Maaaring sobrang laki ng backup file.`);
@@ -20023,13 +16665,11 @@ function triggerSystemRestore() {
                 .catch(err => {
                     console.error(err);
                     if (err instanceof TypeError) {
-                        // Totoong hindi-maabot ang server (offline/hindi tumatakbo).
                         Swal.fire('Server Connection Error','There was a problem connecting to the server. Make sure server.js is running.','error');
                     } else {
                         Swal.fire('Restore Failed', err.message ||'May problema sa pag-restore. Subukan ulit.','error');
                     }
                 });
-
             } catch (err) {
                 Swal.fire('Invalid Format','Invalid JSON file format. Make sure this is the backup file from the email.','error');
             }
@@ -20037,65 +16677,50 @@ function triggerSystemRestore() {
         reader.readAsText(file);
     });
 }
-
 function validateResetField(inputElement) {
-
     if (inputElement.value !=='RESET') {
         inputElement.classList.add('maling-kumpirma');
     } else {
-
         inputElement.classList.remove('maling-kumpirma');
     }
 }
-
 document.addEventListener("DOMContentLoaded", function() {
     const resetInput = document.getElementById('confirm-reset-input');
     if (resetInput) {
         validateResetField(resetInput);
     }
 });
-
 function initDeskClock() {
     const clockEl = document.getElementById('live-clock-display');
     const dateEl = document.getElementById('current-date-display');
-
     if (!clockEl || !dateEl) return;
-
     const timeFormatter = new Intl.DateTimeFormat('en-US', {
         hour:'2-digit',
         minute:'2-digit',
         second:'2-digit',
         hour12: true
     });
-
     const dateFormatter = new Intl.DateTimeFormat('en-US', {
         month:'2-digit',
         day:'2-digit',
         year:'numeric'
     });
-
     function updateClock() {
         const ngayon = new Date();
         clockEl.textContent = timeFormatter.format(ngayon);
         dateEl.textContent = dateFormatter.format(ngayon).replace(/\//g,'-');
     }
-
     updateClock();
     setInterval(updateClock, 1000);
 }
-
 document.addEventListener('DOMContentLoaded', initDeskClock);
-
 let idleTimer = null;
 let countdownInterval = null;
 const IDLE_TIMEOUT_LIMIT = 5 * 60 * 1000;
 const COUNTDOWN_DURATION = 15;
-
 function initIdleTimer() {
     destroyIdleTimer();
-
     if (!currentUser) return;
-
     const resetTimer = () => {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
@@ -20103,14 +16728,11 @@ function initIdleTimer() {
             triggerIdleWarning();
         }, IDLE_TIMEOUT_LIMIT);
     };
-
     const userInteractionEvents = ['mousemove','keydown','mousedown','touchstart','scroll','click'];
     userInteractionEvents.forEach(event => window.addEventListener(event, resetTimer));
-
     resetTimer();
     window._idleEventsHandler = resetTimer;
 }
-
 function destroyIdleTimer() {
     if (idleTimer) {
         clearTimeout(idleTimer);
@@ -20126,18 +16748,13 @@ function destroyIdleTimer() {
         window._idleEventsHandler = null;
     }
 }
-
 function triggerIdleWarning() {
-
     if (window._idleEventsHandler) {
         const userInteractionEvents = ['mousemove','keydown','mousedown','touchstart','scroll','click'];
         userInteractionEvents.forEach(event => window.removeEventListener(event, window._idleEventsHandler));
     }
-
     let timeLeft = COUNTDOWN_DURATION;
-
     const isDarkMode = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark-mode');
-
     Swal.fire({
         title:'Inactivity Warning',
         html: `You have been inactive for too long. The system will automatically log you out in <strong id="idle-countdown-box" style="color: #ef4444; font-size: 1.2rem;">${timeLeft}</strong> seconds.`,
@@ -20149,19 +16766,15 @@ function triggerIdleWarning() {
         cancelButtonColor:'#ef4444',
         allowOutsideClick: false,
         allowEscapeKey: false,
-
         background: isDarkMode ?'#1f2937' :'#ffffff',
         color: isDarkMode ?'#f3f4f6' :'#1f2937',
-
         didOpen: () => {
-
             countdownInterval = setInterval(() => {
                 timeLeft--;
                 const countdownDisplay = document.getElementById('idle-countdown-box');
                 if (countdownDisplay) {
                     countdownDisplay.innerText = timeLeft;
                 }
-
                 if (timeLeft <= 0) {
                     clearInterval(countdownInterval);
                     Swal.close();
@@ -20170,78 +16783,54 @@ function triggerIdleWarning() {
             }, 1000);
         }
     }).then((result) => {
-
         clearInterval(countdownInterval);
-
         if (result.isConfirmed) {
-
             console.log("Session extended by operator action.");
             initIdleTimer();
         } else if (result.isDismissed && result.dismiss === Swal.DismissReason.cancel) {
-
             handleLogout('manual');
         }
     });
 }
-
 async function handleLogout(type ='manual') {
-
-    // NO-INTERRUPT GUARD: don't let a manual logout walk away mid cloud
-    // backup upload. (Auto/idle-timeout logout is left alone — it's a
-    // security control, and the upload itself keeps running server-side
-    // regardless, but a manual logout attempt is a clear moment to just
-    // ask the person to wait.)
     if (type === 'manual' && window.__cloudBackupSyncInProgress) {
         Swal.fire('Cloud Backup In Progress', 'Please wait for the current Cloud Backup upload to finish before logging out.', 'warning');
         return;
     }
-
     try { closeUserWidgetMenu(); } catch (e) {}
     try { if (typeof Swal !=='undefined' && Swal.isVisible && Swal.isVisible()) Swal.close(); } catch (e) {}
-
     window.__logoutInProgress = true;
-
     try { destroyIdleTimer(); } catch (e) {}
     try { stopTerminalStockPolling(); } catch (e) {}
     try { stopInventoryStockPolling(); } catch (e) {}
-
     try { stopReorderPolling(); } catch (e) {}
-
     try {
         if (demoCountdownInterval) { clearInterval(demoCountdownInterval); demoCountdownInterval = null; }
         const demoWidget = document.getElementById('demo-mode-banner-container');
         if (demoWidget) demoWidget.style.display ='none';
     } catch (e) {}
-
     const username = currentUser ? (currentUser.username ||'Unknown') :'Unknown';
     const logMethod = type ==='auto' ?'AUTO_TIMEOUT' :'MANUAL';
     const detailMsg = type ==='auto' ?'Idle timeout' :'User sign-out';
     const oldUser = currentUser ? currentUser.username : null;
-
     const tokenAtLogout = localStorage.getItem('omnipos_token');
-
     console.log(type ==='manual'
         ?"Manual logout detected. Clearing cart from database (background)..."
         : `Auto-logout (${type}) detected. Cart is safely preserved in the database.`);
     shoppingCart = [];
-
     try {
         sessionStorage.removeItem('currentView');
         localStorage.removeItem('omnipos_user');
         localStorage.removeItem('omnipos_token');
         currentUser = null;
-
         unlockedFeatureIdsCache = null;
         purchasedFeatureIdsCache = null;
         fullyPurchasedCache = false;
-
         if (typeof renderSidebarProBadge ==='function') {
             renderSidebarProBadge(false, false);
         }
-
         const txtUser = document.getElementById('login-username');
         const txtPass = document.getElementById('login-password');
-
         if (txtUser) txtUser.value ='';
         if (txtPass) txtPass.value ='';
     } catch (err) {
@@ -20252,11 +16841,9 @@ async function handleLogout(type ='manual') {
         } catch (e) {}
         showAuthenticationInterface();
     }
-
     (async () => {
         try {
             const authHeader = tokenAtLogout ? {'Authorization': `Bearer ${tokenAtLogout}` } :{};
-
             const preLogoutResults = await Promise.allSettled([
                 (type ==='manual' && oldUser)
                     ? authFetch(`${API_URL}/cart`, {
@@ -20276,7 +16863,6 @@ async function handleLogout(type ='manual') {
                     })
                 })
             ]);
-
             const logoutResult = await authFetch(`${API_URL}/auth/logout`, {
                 method:'POST',
                 headers: {'Content-Type':'application/json', ...authHeader }
@@ -20284,7 +16870,6 @@ async function handleLogout(type ='manual') {
                 (res) => ({ status:'fulfilled', value: res }),
                 (err) => ({ status:'rejected', reason: err })
             );
-
             const results = [...preLogoutResults, logoutResult];
             const labels = ['Cart clear','Log transmission','Session invalidation'];
             results.forEach((r, i) => {
@@ -20293,19 +16878,16 @@ async function handleLogout(type ='manual') {
         } catch (err) {
             console.error('Background logout cleanup failed:', err);
         }
-
         setTimeout(() => {
             window.__logoutInProgress = false;
             window.__sessionExpiredShown = false;
         }, 5000);
     })();
 }
-
 async function showMainSystemInterface() {
     document.getElementById('auth-view').style.display ='none';
     document.getElementById('main-view').style.display ='flex';
     renderSidebarUserWidget();
-
     (async () => {
         try {
             const res = await authFetch(`${API_URL}/users/self`);
@@ -20318,18 +16900,13 @@ async function showMainSystemInterface() {
             }
         } catch (err) {  }
     })();
-
     try {
         try { applyRoleBasedAccessControls(currentUser.role); } catch (e) { console.error('applyRoleBasedAccessControls failed (non-blocking):', e); }
-
         await refreshPermissions();
         try { checkAdminResetVisibility(); } catch (e) { console.error('checkAdminResetVisibility failed (non-blocking):', e); }
-
         await refreshUnlockedFeaturesFromServer();
         await refreshUnlockedThemesFromServer();
-
         await initDemoModeUI();
-
         (async () => {
             try {
                 await authFetch(`${API_URL}/features/restore-check`, { method:'POST' });
@@ -20340,21 +16917,15 @@ async function showMainSystemInterface() {
                 console.warn('Automatic Relay sync did not complete after login:', err);
             }
         })();
-
         try {
             if (typeof window.syncConnectivityModeOnLogin ==='function') {
                 window.syncConnectivityModeOnLogin();
             }
         } catch (e) { console.error('syncConnectivityModeOnLogin failed (non-blocking):', e); }
-
         initializeSystem();
-
         initIdleTimer();
-
         loadCartFromDatabase();
-
         receiptSettingsPromise = fetchReceiptSettings();
-
         try { await fetchStoreSettings(); } catch (e) { console.error('fetchStoreSettings failed (non-blocking):', e); }
         try { await fetchUxSettings(); } catch (e) { console.error('fetchUxSettings failed (non-blocking):', e); }
         try { await fetchAdvancedSettings(); setupIdleAutoLock(); } catch (e) { console.error('fetchAdvancedSettings failed (non-blocking):', e); }
@@ -20362,15 +16933,12 @@ async function showMainSystemInterface() {
     } catch (err) {
         console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);
     } finally {
-
         try {
             const shortcutView = new URLSearchParams(window.location.search).get('view');
             const ALLOWED_SHORTCUT_VIEWS = ['terminal','products'];
-
             const savedView = sessionStorage.getItem('currentView');
             if (shortcutView && ALLOWED_SHORTCUT_VIEWS.includes(shortcutView)) {
                 switchView(shortcutView);
-
                 history.replaceState({ view: shortcutView }, '', window.location.pathname);
             } else if (savedView && savedView !=='auth-view') {
                 switchView(savedView);
@@ -20384,7 +16952,6 @@ async function showMainSystemInterface() {
         }
     }
 }
-
 function showTermsAndConditions() {
     Swal.fire({
         title: '<i class="fa-solid fa-file-contract"></i> Terms and Conditions',
@@ -20434,10 +17001,8 @@ function showTermsAndConditions() {
         width: '640px'
     });
 }
-
 function showGoogleAppVerificationFAQ() {
     const isDarkMode = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark-mode');
-
     Swal.fire({
         title:'ℹ️ Guide to Google App Verification',
         html: `
@@ -20458,10 +17023,8 @@ function showGoogleAppVerificationFAQ() {
         color: isDarkMode ?'#f3f4f6' :'#1f2937'
     });
 }
-
 async function handleVoidTransaction(transactionId) {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
-
     const { value: adminPassword } = await Swal.fire({
         title: isAdmin ?'🔒 Admin Authorization Required' :'🔒 Void Authorization Required',
         html: isAdmin
@@ -20473,9 +17036,7 @@ async function handleVoidTransaction(transactionId) {
         confirmButtonColor:'#2563eb',
         cancelButtonColor:'#ef4444'
     });
-
     if (!adminPassword || adminPassword.trim() ==="") return;
-
     try {
         const response = await authFetch(`${API_URL}/transactions/${transactionId}/void`, {
             method:'POST',
@@ -20485,7 +17046,6 @@ async function handleVoidTransaction(transactionId) {
                 adminPassword: adminPassword
             })
         });
-
         const result = await response.json();
         if (result.success) {
             Swal.fire('Success', result.message ||'Transaction voided and stock restored!','success');
@@ -20498,26 +17058,22 @@ async function handleVoidTransaction(transactionId) {
         Swal.fire('Error','May problema sa connection sa server.','error');
     }
 }
-
 async function handleRefundTransaction(transactionId) {
     const tx = (localTransactionsList || []).find(t => t.id === transactionId);
     if (!tx) {
         Swal.fire('Not Found', 'Hindi mahanap ang transaksyong ito sa kasalukuyang listahan. I-refresh muna ang Transactions tab.', 'error');
         return;
     }
-
     const refundedQtyMap = tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
     const refundableItems = (tx.items || []).map(item => {
         const alreadyRefunded = parseInt(refundedQtyMap[item.code], 10) || 0;
         const maxRefundable = Math.max(0, (parseInt(item.quantity, 10) || 0) - alreadyRefunded);
         return { ...item, alreadyRefunded, maxRefundable };
     });
-
     if (refundableItems.every(it => it.maxRefundable <= 0)) {
         Swal.fire('Wala nang Matitira', 'Naka-full refund na ang lahat ng items sa transaksyong ito.', 'info');
         return;
     }
-
     const itemRowsHtml = refundableItems.map((item, idx) => {
         const disabled = item.maxRefundable <= 0 ? 'disabled' : '';
         const alreadyNote = item.alreadyRefunded > 0 ? ` <span style="color:#f59e0b;">(${item.alreadyRefunded} na na-refund dati)</span>` : '';
@@ -20532,7 +17088,6 @@ async function handleRefundTransaction(transactionId) {
             </div>
         `;
     }).join('');
-
     const { value: refundSelection } = await Swal.fire({
         title: '↩️ Refund Items',
         html: `
@@ -20568,9 +17123,7 @@ async function handleRefundTransaction(transactionId) {
             return { items, reason };
         }
     });
-
     if (!refundSelection) return;
-
     const isAdminForRefund = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
     const { value: refundAdminPassword } = await Swal.fire({
         title: isAdminForRefund ? '🔒 Admin Authorization Required' : '🔒 Refund Authorization Required',
@@ -20583,9 +17136,7 @@ async function handleRefundTransaction(transactionId) {
         confirmButtonColor: '#f59e0b',
         cancelButtonColor: '#64748b'
     });
-
     if (!refundAdminPassword || refundAdminPassword.trim() === '') return;
-
     try {
         const response = await authFetch(`${API_URL}/transactions/${transactionId}/refund`, {
             method: 'POST',
@@ -20597,7 +17148,6 @@ async function handleRefundTransaction(transactionId) {
                 reason: refundSelection.reason
             })
         });
-
         const result = await response.json();
         if (result.success) {
             Swal.fire('Success', result.message || 'Na-process ang refund at naibalik ang stock!', 'success');
@@ -20610,11 +17160,9 @@ async function handleRefundTransaction(transactionId) {
         Swal.fire('Error', 'May problema sa connection sa server.', 'error');
     }
 }
-
 function searchInsideBackupFile() {
     const fileInput = document.getElementById('backup-query-file');
     const searchId = document.getElementById('backup-query-id').value.trim();
-
     if (!fileInput.files || fileInput.files.length === 0) {
         Swal.fire({
             title:'No File',
@@ -20624,7 +17172,6 @@ function searchInsideBackupFile() {
         });
         return;
     }
-
     if (!searchId) {
         Swal.fire({
             title:'ID or Keyword Required',
@@ -20634,17 +17181,13 @@ function searchInsideBackupFile() {
         });
         return;
     }
-
     const file = fileInput.files[0];
     const reader = new FileReader();
-
     reader.onload = function(e) {
         try {
             const backupData = JSON.parse(e.target.result);
-
             let hit = null;
             let foundSection ='';
-
             if (backupData.transactions && Array.isArray(backupData.transactions)) {
                 hit = backupData.transactions.find(t =>
                     (t.id && String(t.id) === searchId) ||
@@ -20652,7 +17195,6 @@ function searchInsideBackupFile() {
                 );
                 if (hit) foundSection ='Transactions (Benta)';
             }
-
             if (!hit && backupData.userlogs && Array.isArray(backupData.userlogs)) {
                 hit = backupData.userlogs.find(log =>
                     (log.id && String(log.id) === searchId) ||
@@ -20660,7 +17202,6 @@ function searchInsideBackupFile() {
                 );
                 if (hit) foundSection ='User Logs (Kasaysayan)';
             }
-
             if (!hit && backupData.products && Array.isArray(backupData.products)) {
                 hit = backupData.products.find(p =>
                     (p.code && String(p.code) === searchId) ||
@@ -20668,19 +17209,13 @@ function searchInsideBackupFile() {
                 );
                 if (hit) foundSection ='Products (Imbentaryo)';
             }
-
             if (hit) {
                 let tableRowsHtml ='';
-
                 for (const [key, value] of Object.entries(hit)) {
-
                     let humanizedKey = key.replace(/([A-Z])/g,' $1').replace(/[_-]/g,' ').trim();
                     humanizedKey = humanizedKey.charAt(0).toUpperCase() + humanizedKey.slice(1);
-
                     let displayValue ='';
-
                     if (Array.isArray(value)) {
-
                         displayValue = `<ul style="margin: 0; padding-left: 18px; list-style-type: square; line-height: 1.5; color: #1e293b;">`;
                         value.forEach(item => {
                             if (typeof item ==='object' && item !== null) {
@@ -20696,14 +17231,12 @@ function searchInsideBackupFile() {
                         });
                         displayValue += `</ul>`;
                     } else if (typeof value ==='object' && value !== null) {
-
                         displayValue = `<div style="padding-left: 8px; border-left: 3px solid #cbd5e1; font-size: 0.85rem; color: #475569;">`;
                         for (const [subKey, subVal] of Object.entries(value)) {
                             displayValue += `<div><strong>${subKey}:</strong> ${subVal}</div>`;
                         }
                         displayValue += `</div>`;
                     } else {
-
                         const keyLower = key.toLowerCase();
                         if (typeof value ==='number' && (keyLower.includes('price') || keyLower.includes('amount') || keyLower.includes('total') || keyLower.includes('payment') || keyLower.includes('change'))) {
                             displayValue = `<span style="font-weight: bold; color: #16a34a;">₱${Number(value).toFixed(2)}</span>`;
@@ -20718,7 +17251,6 @@ function searchInsideBackupFile() {
                             displayValue = value;
                         }
                     }
-
                     tableRowsHtml += `
                         <tr style="border-bottom: 1px solid #e2e8f0;">
                             <td style="padding: 10px 12px; font-weight: 600; color: #334155; width: 35%; background-color: #f8fafc; vertical-align: top; font-size: 0.85rem;">${humanizedKey}</td>
@@ -20726,7 +17258,6 @@ function searchInsideBackupFile() {
                         </tr>
                     `;
                 }
-
                 Swal.fire({
                     title: `Record Found in ${foundSection}!`,
                     html: `
@@ -20754,7 +17285,6 @@ function searchInsideBackupFile() {
                     confirmButtonColor:'#2563eb'
                 });
             }
-
         } catch (error) {
             console.error("Backup search error:", error);
             Swal.fire({
@@ -20765,73 +17295,44 @@ function searchInsideBackupFile() {
             });
         }
     };
-
     reader.readAsText(file);
 }
-
 function buksanScannerParaSaBackup() {
-
     openQRScanner();
-
     window.onQRScanSuccess = function(scannedCode) {
-
         const cleanCode = scannedCode.trim();
-
         const backupInput = document.getElementById('backup-query-id') ||
                             document.getElementById('backup-search-id') ||
                             document.querySelector('input[placeholder*="ID" i]') ||
                             document.querySelector('input[placeholder*="Transaction" i]');
-
         if (backupInput) {
-
             backupInput.value = cleanCode;
-
             closeQRScanner();
-
             window.onQRScanSuccess = null;
-
             setTimeout(() => {
-
                 const SearchBtn = Array.from(document.querySelectorAll('button'))
                                         .find(btn => btn.textContent.trim().includes('Search') || btn.innerText.includes('Search'));
-
                 if (SearchBtn) {
                     SearchBtn.click();
                 } else {
                     console.error("Could not find the button with the text 'Search' in the HTML.");
                 }
             }, 300);
-
         } else {
             console.error("Could not find the input text box for the backup ID.");
         }
     };
 }
-
 function isDesktopOrLaptopDevice() {
     const ua = navigator.userAgent || navigator.vendor || window.opera ||'';
     const mobileTabletRegex =/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet|Silk/i;
     return !mobileTabletRegex.test(ua);
 }
-
-// ---- Global external barcode scanner auto-detect & auto-focus ----
-// Lets a cashier scan a barcode from anywhere on the page — no need to click/tap into
-// a search box first. Works on desktop, mobile, and tablet: a USB-OTG or Bluetooth
-// external barcode scanner registers with the OS as a keyboard (HID), so it produces
-// the exact same fast keystroke-then-Enter pattern on a phone/tablet as it does on a PC.
-// is open), a scanner-speed burst of keystrokes ending in Enter is treated as a scan and
-// automatically routed to whichever search box belongs to the page currently on screen
-// (Terminal, Product Inventory, or Transaction History), reusing the exact same
-// scan-handling logic those boxes already use. If the user has actually clicked into
-// any input/textarea (including one of these search boxes, or a form field inside a
-// modal like the barcode field on the Add/Edit Product screen), this router steps aside
-// so that field's own normal behavior/listener handles the keystrokes instead.
 let __globalScanBuffer ='';
 let __globalScanLastKeyTime = 0;
 let __globalScanResetId = null;
 const GLOBAL_SCAN_GAP_MS = 45;
 const GLOBAL_SCAN_MIN_LENGTH = 4;
-
 function isEditableElementFocused() {
     const el = document.activeElement;
     if (!el) return false;
@@ -20840,7 +17341,6 @@ function isEditableElementFocused() {
     if (el.isContentEditable) return true;
     return false;
 }
-
 function isAnyModalOpen() {
     const overlays = document.querySelectorAll('.modal-overlay, .swal2-container');
     for (let i = 0; i < overlays.length; i++) {
@@ -20848,16 +17348,13 @@ function isAnyModalOpen() {
     }
     return false;
 }
-
 function isViewVisible(viewId) {
     const el = document.getElementById(viewId);
     return !!el && window.getComputedStyle(el).display !=='none';
 }
-
 function handleHardwareScanGenericSearch(inputId, filterFnName, scannedCode) {
     const cleanCode = (scannedCode ||'').trim();
     if (!cleanCode) return;
-
     const input = document.getElementById(inputId);
     if (input) {
         input.value = cleanCode;
@@ -20866,11 +17363,9 @@ function handleHardwareScanGenericSearch(inputId, filterFnName, scannedCode) {
     if (typeof window[filterFnName] ==='function') window[filterFnName]();
     if (typeof playScanBeep ==='function') playScanBeep();
 }
-
 function routeGlobalScannedCode(code) {
     const cleanCode = (code ||'').trim();
     if (!cleanCode) return;
-
     if (isViewVisible('view-terminal')) {
         const input = document.getElementById('terminal-search');
         if (input) input.focus();
@@ -20890,22 +17385,13 @@ function routeGlobalScannedCode(code) {
     } else if (isViewVisible('view-reorder')) {
         handleHardwareScanGenericSearch('reorder-search-input','renderReorderTable', cleanCode);
     }
-    // Any other page has no relevant search box, so there's nothing to auto-route to.
 }
-
 document.addEventListener('keydown', function (e) {
-    // Works on desktop AND mobile/tablet: Bluetooth or USB-OTG external barcode
-    // scanners identify themselves to the OS as a keyboard (HID), so they fire the
-    // exact same fast keystroke bursts on phones/tablets as they do on a PC keyboard.
-    // The on-screen virtual keyboard is unaffected since this only engages when
-    // nothing editable is focused (see isEditableElementFocused below).
     if (isEditableElementFocused()) return;
     if (isAnyModalOpen()) return;
-
     const now = Date.now();
     const delta = now - __globalScanLastKeyTime;
     __globalScanLastKeyTime = now;
-
     if (e.key ==='Enter') {
         if (__globalScanBuffer.length >= GLOBAL_SCAN_MIN_LENGTH) {
             e.preventDefault();
@@ -20915,18 +17401,14 @@ document.addEventListener('keydown', function (e) {
         }
         return;
     }
-
     if (e.key.length === 1) {
         __globalScanBuffer = (delta <= GLOBAL_SCAN_GAP_MS) ? (__globalScanBuffer + e.key) : e.key;
     }
-
     if (__globalScanResetId) clearTimeout(__globalScanResetId);
     __globalScanResetId = setTimeout(() => { __globalScanBuffer =''; }, 300);
 });
-
 function applyDeviceScanRestrictions() {
     const isDesktop = isDesktopOrLaptopDevice();
-
     if (isDesktop) {
         document.querySelectorAll('.btn-scan-qr:not(.btn-scan-hardware-only), .btn-scan-backup').forEach(btn => {
             btn.disabled = true;
@@ -20934,7 +17416,6 @@ function applyDeviceScanRestrictions() {
             btn.title ='Camera scan is only available on mobile or tablet devices. Use an external barcode scanner in the search box.';
         });
     }
-
     document.querySelectorAll('.btn-scan-hardware-only').forEach(btn => {
         if (isDesktop) {
             btn.disabled = false;
@@ -20946,22 +17427,17 @@ function applyDeviceScanRestrictions() {
         }
     });
 }
-
 function attachHardwareScannerListener(inputEl, onScanComplete, options = {}) {
     if (!inputEl) return;
-
     const maxInterval = options.maxInterval || 50;
     const minLength = options.minLength || 4;
-
     let buffer ='';
     let lastKeyTime = 0;
     let resetTimeoutId = null;
-
     inputEl.addEventListener('keydown', function (e) {
         const now = Date.now();
         const delta = now - lastKeyTime;
         lastKeyTime = now;
-
         if (e.key ==='Enter') {
             if (buffer.length >= minLength) {
                 e.preventDefault();
@@ -20971,38 +17447,31 @@ function attachHardwareScannerListener(inputEl, onScanComplete, options = {}) {
             }
             return;
         }
-
         if (e.key.length === 1) {
             if (delta > maxInterval) {
-
                 buffer = e.key;
             } else {
                 buffer += e.key;
             }
         }
-
         if (resetTimeoutId) clearTimeout(resetTimeoutId);
         resetTimeoutId = setTimeout(() => { buffer =''; }, 300);
     });
 }
-
 async function handleHardwareScanTerminal(scannedCode) {
     const cleanCode = scannedCode.trim();
     if (!cleanCode) return;
-
     const terminalSearchInput = document.getElementById('terminal-search');
     if (terminalSearchInput) {
         terminalSearchInput.value ='';
         if (typeof renderTerminalProducts ==='function') renderTerminalProducts();
     }
-
     const now = Date.now();
     if (cleanCode === lastScannedCode && (now - lastScannedTime < 1000)) {
         return;
     }
     lastScannedCode = cleanCode;
     lastScannedTime = now;
-
     if (!globalProducts || globalProducts.length === 0) {
         globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
     }
@@ -21013,13 +17482,10 @@ async function handleHardwareScanTerminal(scannedCode) {
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
         })
         .catch(e => console.warn("Failed to background-refresh products:", e));
-
     const product = globalProducts.find(p => p.code === cleanCode);
-
     if (product) {
         const cartItem = shoppingCart.find(item => item.code === product.code);
         const qtyInBasket = cartItem ? cartItem.quantity : 0;
-
         if (product.stock <= 0 || qtyInBasket >= product.stock) {
             Swal.fire({
                 toast: true, position:'top-end', icon:'error',
@@ -21030,12 +17496,8 @@ async function handleHardwareScanTerminal(scannedCode) {
             });
             return;
         }
-
-        // Add to cart immediately — the confirmation toast below is purely informational
-        // and never blocks or delays the item from landing in the cart.
         addItemToCart(product);
         if (typeof playScanBeep ==='function') playScanBeep();
-
         Swal.fire({
             toast: true, position:'top-end', icon:'success',
             title: `Naidagdag sa cart: ${product.name}`,
@@ -21053,19 +17515,15 @@ async function handleHardwareScanTerminal(scannedCode) {
         });
     }
 }
-
 function handleHardwareScanTransaction(scannedCode) {
     const cleanCode = scannedCode.trim();
     if (!cleanCode) return;
-
     const searchInput = document.getElementById('tx-history-search');
     if (searchInput) {
         searchInput.value = cleanCode;
         filterTransactionsTable();
     }
-
     const match = localTransactionsList.find(tx => tx.id.toLowerCase() === cleanCode.toLowerCase());
-
     if (match) {
         if (typeof playScanBeep ==='function') playScanBeep();
         reopenReceiptFromHistory(match.id);
@@ -21078,19 +17536,15 @@ function handleHardwareScanTransaction(scannedCode) {
         });
     }
 }
-
 function handleHardwareScanInventory(scannedCode) {
     const cleanCode = scannedCode.trim();
     if (!cleanCode) return;
-
     const searchInput = document.getElementById('inventory-search');
     if (searchInput) {
         searchInput.value ='';
         filterInventoryTable();
     }
-
     const product = cachedInventoryProducts.find(p => p.code === cleanCode);
-
     if (product) {
         if (typeof playScanBeep ==='function') playScanBeep();
         highlightInventoryRow(product.code);
@@ -21107,68 +17561,53 @@ function handleHardwareScanInventory(scannedCode) {
         });
     }
 }
-
 function handleHardwareScanBackup(scannedCode) {
     const cleanCode = scannedCode.trim();
     if (!cleanCode) return;
-
     const backupInput = document.getElementById('backup-query-id');
     if (backupInput) {
         backupInput.value = cleanCode;
     }
-
     if (typeof playScanBeep ==='function') playScanBeep();
     searchInsideBackupFile();
 }
-
 document.addEventListener('DOMContentLoaded', function () {
     applyDeviceScanRestrictions();
-
     initAutoCloseSidebarOnPrompt();
-
     attachHardwareScannerListener(
         document.getElementById('terminal-search'),
         handleHardwareScanTerminal
     );
-
     attachHardwareScannerListener(
         document.getElementById('tx-history-search'),
         handleHardwareScanTransaction
     );
-
     attachHardwareScannerListener(
         document.getElementById('inventory-search'),
         handleHardwareScanInventory
     );
-
     attachHardwareScannerListener(
         document.getElementById('backup-query-id'),
         handleHardwareScanBackup
     );
-
     attachHardwareScannerListener(
         document.getElementById('p-form-code'),
         handleHardwareScanProductForm
     );
 });
-
 (function setupHiddenAdminResetGesture() {
     const TAP_TARGET_SELECTOR = '.brand-title';
     const TAPS_REQUIRED = 7;
     const TAP_WINDOW_MS = 3000;
-
     let tapCount = 0;
     let tapTimer = null;
-
     document.addEventListener('DOMContentLoaded', () => {
         const target = document.querySelector(TAP_TARGET_SELECTOR);
         if (!target) return;
-
         target.addEventListener('click', () => {
             tapCount++;
             clearTimeout(tapTimer);
             tapTimer = setTimeout(() => { tapCount = 0; }, TAP_WINDOW_MS);
-
             if (tapCount >= TAPS_REQUIRED) {
                 tapCount = 0;
                 clearTimeout(tapTimer);
@@ -21176,9 +17615,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
-
     async function openAdminResetModal() {
-
         const confirm = await Swal.fire({
             title: 'Reset Admin Password',
             text: 'Magpapadala ito ng reset request papunta sa developer. Kailangan mo ng OTP mula sa kanila para magpatuloy.',
@@ -21187,7 +17624,6 @@ document.addEventListener('DOMContentLoaded', function () {
             confirmButtonText: 'Magpadala ng Request'
         });
         if (!confirm.isConfirmed) return;
-
         try {
             const reqRes = await fetch('/api/admin/request-password-reset', { method: 'POST' });
             const reqData = await reqRes.json();
@@ -21199,7 +17635,6 @@ document.addEventListener('DOMContentLoaded', function () {
             Swal.fire('Error', `Hindi ma-reach ang server: ${err.message}`, 'error');
             return;
         }
-
         const { value: formValues } = await Swal.fire({
             title: 'Ilagay ang OTP + Bagong Password',
             html:
@@ -21210,7 +17645,6 @@ document.addEventListener('DOMContentLoaded', function () {
             confirmButtonText: 'I-reset ang Password',
             preConfirm: () => {
                 const otp = document.getElementById('swal-otp').value.trim();
-
                 const newPassword = document.getElementById('swal-new-pw').value.trim();
                 if (!otp || otp.length !== 6) {
                     Swal.showValidationMessage('Ilagay ang 6-digit OTP.');
@@ -21224,7 +17658,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         if (!formValues) return;
-
         try {
             let confirmRes = await authFetch('/api/admin/confirm-password-reset', {
                 method: 'POST',
@@ -21232,82 +17665,58 @@ document.addEventListener('DOMContentLoaded', function () {
                 body: JSON.stringify(formValues)
             });
             let confirmData = await confirmRes.json();
-
             if (confirmData.pending) {
                 confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', formValues);
             }
-
             if (confirmData.cancelled) return;
-
             if (!confirmData.success) {
                 Swal.fire('Hindi Na-reset', confirmData.message || 'Nabigo ang pag-reset.', 'error');
                 return;
             }
-
             Swal.fire('Tagumpay!', 'Na-update na ang Admin password. Puwede ka nang mag-login gamit ang bago.', 'success');
         } catch (err) {
             Swal.fire('Error', `Hindi ma-reach ang server: ${err.message}`, 'error');
         }
     }
 })();
-
-// ============================================================
-// Quick Access floating dock — desktop "fish-eye" hover effect
-// (mirrors a macOS-dock-style magnification). Fully self-contained:
-// it only ever touches elements inside #quick-access-dock, only
-// runs when #quick-access-dock exists in the DOM, and only applies
-// its effect when the matchMedia check below matches (desktop width
-// + a real mouse/trackpad). On any other screen, or if the dock
-// markup isn't present, this function does nothing and exits early
-// — so it cannot affect mobile/tablet layout, the terminal view, or
-// any other part of the app.
 function initQuickAccessFishEye() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
-
     const fishEyeActive = window.matchMedia('(min-width: 1025px) and (hover: hover) and (pointer: fine)');
-    const MAX_SCALE = 1.5;   // magnification at the exact pointer position
-    const LIFT_PX = 16;      // how far the magnified icon rises
-    const INFLUENCE_PX = 95; // how far (in px) neighboring icons still feel the effect
-
+    const MAX_SCALE = 1.5;   
+    const LIFT_PX = 16;      
+    const INFLUENCE_PX = 95; 
     let rafId = null;
-
     function resetCards() {
         dock.querySelectorAll('.qa-card').forEach((card) => {
             card.style.transform = '';
             card.style.zIndex = '';
         });
     }
-
     function applyFishEye(pointerX) {
         const cards = dock.querySelectorAll('.qa-card');
         cards.forEach((card) => {
             const rect = card.getBoundingClientRect();
             const cardCenterX = rect.left + rect.width / 2;
             const distance = Math.abs(pointerX - cardCenterX);
-
             if (distance >= INFLUENCE_PX) {
                 card.style.transform = '';
                 card.style.zIndex = '';
                 return;
             }
-
-            const proximity = 1 - (distance / INFLUENCE_PX); // 0..1, 1 = right under the pointer
+            const proximity = 1 - (distance / INFLUENCE_PX); 
             const scale = 1 + (MAX_SCALE - 1) * proximity;
             const lift = LIFT_PX * proximity;
-
             card.style.transform = `translateY(-${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`;
             card.style.zIndex = proximity > 0.05 ? '2' : '';
         });
     }
-
     function onPointerMove(e) {
         if (!fishEyeActive.matches) return;
         const pointerX = e.clientX;
         if (rafId) cancelAnimationFrame(rafId);
         rafId = requestAnimationFrame(() => applyFishEye(pointerX));
     }
-
     function onPointerLeave() {
         if (rafId) {
             cancelAnimationFrame(rafId);
@@ -21315,51 +17724,27 @@ function initQuickAccessFishEye() {
         }
         resetCards();
     }
-
     dock.addEventListener('mousemove', onPointerMove, { passive: true });
     dock.addEventListener('mouseleave', onPointerLeave, { passive: true });
-
-    // If the window is resized/rotated across the desktop breakpoint
-    // (or a mouse gets disconnected on a touch device), immediately
-    // drop any leftover magnification so nothing is left mid-scale.
     const handleMediaChange = (ev) => {
         if (!ev.matches) resetCards();
     };
     if (typeof fishEyeActive.addEventListener === 'function') {
         fishEyeActive.addEventListener('change', handleMediaChange);
     } else if (typeof fishEyeActive.addListener === 'function') {
-        // Safari/older-browser fallback
         fishEyeActive.addListener(handleMediaChange);
     }
 }
 document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
-
-// ============================================================
-// Quick Access floating dock — width sync with Overview siblings
-// Makes the floating dock's width match its Overview siblings —
-// e.g. the Sales Trend card — exactly, instead of the old fixed
-// ~680px guess, while keeping it centered at the bottom of the
-// screen. Recomputes on load, on window resize, and via
-// ResizeObserver whenever the reference card's rendered size
-// changes (sidebar width change, zoom, font-load reflow, switching
-// back into the Overview view, etc.). Only ever touches
-// #quick-access-dock; a no-op if that element or its reference
-// sibling isn't present, and it removes its own sync state below
-// the desktop breakpoint so the CSS fallback (centered, capped
-// width) takes over on tablet/mobile untouched.
-// ============================================================
 (function initQuickAccessDockWidthSync() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
-
     const desktopQuery = window.matchMedia('(min-width: 1025px)');
     let rafId = null;
-
     function getReferenceCard() {
         return document.getElementById('ov-adv-chart-card') ||
             document.querySelector('#view-overview .overview-trend-card');
     }
-
     function syncDockWidth() {
         if (!desktopQuery.matches) {
             dock.classList.remove('qa-dock-synced');
@@ -21369,34 +17754,27 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
         const ref = getReferenceCard();
         if (!ref) return;
         const rect = ref.getBoundingClientRect();
-        if (!rect.width) return; // Overview isn't the active view right now
+        if (!rect.width) return; 
         dock.style.setProperty('--qa-dock-width', rect.width + 'px');
         dock.classList.add('qa-dock-synced');
     }
-
     function requestSync() {
         if (rafId) cancelAnimationFrame(rafId);
         rafId = requestAnimationFrame(syncDockWidth);
     }
-
     window.addEventListener('resize', requestSync, { passive: true });
     window.addEventListener('load', requestSync);
-
     if (typeof desktopQuery.addEventListener === 'function') {
         desktopQuery.addEventListener('change', requestSync);
     } else if (typeof desktopQuery.addListener === 'function') {
-        desktopQuery.addListener(requestSync); // Safari/older-browser fallback
+        desktopQuery.addListener(requestSync); 
     }
-
     if (typeof ResizeObserver !== 'undefined') {
         const ro = new ResizeObserver(requestSync);
         ro.observe(document.body);
         const ref = getReferenceCard();
         if (ref) ro.observe(ref);
     }
-
-    // Re-sync whenever the app navigates back into Overview, since the
-    // reference card reports zero width while its view is hidden.
     if (typeof window.switchView === 'function') {
         const originalSwitchView = window.switchView;
         window.switchView = function (viewKey, opts) {
@@ -21405,20 +17783,16 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
             return result;
         };
     }
-
     requestSync();
 })();
-
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')
             .then((reg) => {
                 console.log('[PWA] Service worker registered:', reg.scope);
-
                 setInterval(() => reg.update(), 60 * 1000);
             })
             .catch((err) => console.warn('[PWA] Service worker registration failed:', err));
-
         let swAlreadyReloaded = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (swAlreadyReloaded) return;

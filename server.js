@@ -16,21 +16,15 @@ const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
 const { readData, writeData, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getBackupStatus } = require('./db');
 const webauthn = require('./webauthn');
-
 try {
-
     require('./env-loader')();
 } catch (err) {
-
 }
-
 process.on('uncaughtException', (err) => {
     console.error('🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server):', err);
 });
-
 function createAsyncMutex() {
     let chain = Promise.resolve();
-
     return function runExclusive(fn) {
         const result = chain.then(fn, fn);
         chain = result.then(() => {}, () => {});
@@ -38,31 +32,23 @@ function createAsyncMutex() {
     };
 }
 const transactionsMutexRunExclusive = createAsyncMutex();
-
 process.on('unhandledRejection', (reason) => {
     console.error('🔥 [CRASH-SAFETY] Unhandled Promise Rejection (hindi pinatay ang server):', reason);
 });
-
 const { sendMailSmart, verifyMailCredentialsSmart, SMTP_TIMEOUTS } = require('./mailer');
-
 const app = express();
-
 app.set('trust proxy', true);
-
 function getClientIp(req) {
     const cfIp = req.headers['cf-connecting-ip'];
     if (cfIp) return cfIp.trim().replace(/^::ffff:/, '');
-
     const xff = req.headers['x-forwarded-for'];
     if (xff) {
         const first = xff.split(',')[0].trim();
         if (first) return first.replace(/^::ffff:/, '');
     }
-
     const raw = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
     return raw.replace(/^::ffff:/, '');
 }
-
 function getServerLanSubnets() {
     const subnets = [];
     const interfaces = os.networkInterfaces();
@@ -75,19 +61,16 @@ function getServerLanSubnets() {
     }
     return subnets;
 }
-
 function ipToLong(ip) {
     const parts = ip.split('.').map(Number);
     if (parts.length !== 4 || parts.some(p => Number.isNaN(p))) return null;
     return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
 }
-
 function isSameLanAsServer(ip) {
     if (!ip || ip === 'unknown') return false;
     if (ip === '127.0.0.1' || ip === '::1') return true;
     const ipLong = ipToLong(ip);
     if (ipLong === null) return false;
-
     const subnets = getServerLanSubnets();
     for (const { address, netmask } of subnets) {
         const addrLong = ipToLong(address);
@@ -97,7 +80,6 @@ function isSameLanAsServer(ip) {
     }
     return false;
 }
-
 app.get('/api/system/network-info', (req, res) => {
     const subnets = getServerLanSubnets();
     res.json({
@@ -106,17 +88,14 @@ app.get('/api/system/network-info', (req, res) => {
         port: PORT
     });
 });
-
 let helmet;
 try {
     helmet = require('helmet');
 } catch (err) {
     console.warn('⚠️ Hindi pa naka-install ang "helmet" package. Patakbuhin ang `npm install` para magamit ito. Gagamitin muna ang manual security headers bilang fallback.');
 }
-
 if (helmet) {
     app.use(helmet({
-
         contentSecurityPolicy: false,
         crossOriginEmbedderPolicy: false
     }));
@@ -129,9 +108,7 @@ if (helmet) {
         next();
     });
 }
-
 const RATE_LIMIT_BUCKETS = new Map();
-
 function rateLimit(routeKey, maxAttempts, windowMs, customMessage) {
     return (req, res, next) => {
         const ip = req.ip || req.connection?.remoteAddress ||'unknown';
@@ -154,7 +131,6 @@ function rateLimit(routeKey, maxAttempts, windowMs, customMessage) {
         next();
     };
 }
-
 setInterval(() => {
     const now = Date.now();
     for (const [key, attempts] of RATE_LIMIT_BUCKETS.entries()) {
@@ -163,12 +139,10 @@ setInterval(() => {
         else RATE_LIMIT_BUCKETS.set(key, fresh);
     }
 }, 5 * 60 * 1000).unref();
-
 function checkLoginRateLimit(req, res, maxAttemptsPerAccount, maxAttemptsPerIp, windowMs) {
     const ip = req.ip || req.connection?.remoteAddress ||'unknown';
     const username = ((req.body && req.body.username) ||'').toString().trim().toLowerCase();
     const now = Date.now();
-
     const ipKey = `login-ip:${ip}`;
     const ipAttempts = (RATE_LIMIT_BUCKETS.get(ipKey) || []).filter(ts => now - ts < windowMs);
     if (ipAttempts.length >= maxAttemptsPerIp) {
@@ -180,7 +154,6 @@ function checkLoginRateLimit(req, res, maxAttemptsPerAccount, maxAttemptsPerIp, 
         });
         return false;
     }
-
     if (username) {
         const acctKey = `login-account:${username}`;
         const acctAttempts = (RATE_LIMIT_BUCKETS.get(acctKey) || []).filter(ts => now - ts < windowMs);
@@ -194,20 +167,16 @@ function checkLoginRateLimit(req, res, maxAttemptsPerAccount, maxAttemptsPerIp, 
             return false;
         }
     }
-
     return true;
 }
-
 function recordLoginAttempt(req, windowMs) {
     const ip = req.ip || req.connection?.remoteAddress ||'unknown';
     const username = ((req.body && req.body.username) ||'').toString().trim().toLowerCase();
     const now = Date.now();
-
     const ipKey = `login-ip:${ip}`;
     const ipAttempts = (RATE_LIMIT_BUCKETS.get(ipKey) || []).filter(ts => now - ts < windowMs);
     ipAttempts.push(now);
     RATE_LIMIT_BUCKETS.set(ipKey, ipAttempts);
-
     if (username) {
         const acctKey = `login-account:${username}`;
         const acctAttempts = (RATE_LIMIT_BUCKETS.get(acctKey) || []).filter(ts => now - ts < windowMs);
@@ -215,28 +184,17 @@ function recordLoginAttempt(req, windowMs) {
         RATE_LIMIT_BUCKETS.set(acctKey, acctAttempts);
     }
 }
-
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||'')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);
-
 app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
     origin(origin, callback) {
-
         if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
         return callback(new Error(`CORS: hindi pinapayagang origin — ${origin}`));
     }
 } : undefined));
-
 app.use(express.json({ limit:'5gb' }));
-
-// Kapag na-reject ng body-parser yung request (halimbawa: sobrang laki ng
-// backup file na ipinadala, o sira ang JSON), default na plain-text/HTML na
-// error page ang ibabalik ni Express — na hindi nababasa ng res.json() sa
-// client, kaya nagiging misleading yung "Server Connection Error / Make sure
-// server.js is running" kahit tumatakbo naman talaga ang server. Dito, sinisigurado
-// nating JSON pa rin ang isasagot para tama ang lalabas na error sa client.
 app.use((err, req, res, next) => {
     if (err && err.type ==='entity.too.large') {
         return res.status(413).json({
@@ -252,7 +210,6 @@ app.use((err, req, res, next) => {
     }
     next(err);
 });
-
 app.use(express.static(path.join(__dirname,'public'), {
     etag: true,
     lastModified: true,
@@ -260,18 +217,14 @@ app.use(express.static(path.join(__dirname,'public'), {
         res.setHeader('Cache-Control','no-cache');
     }
 }));
-
 const SESSIONS = new Map();
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-
 const SESSIONS_MODULE ='sessions';
-
 function persistSessions() {
     const snapshot = {};
     for (const [token, session] of SESSIONS.entries()) snapshot[token] = session;
     writeData(SESSIONS_MODULE, snapshot);
 }
-
 function loadSessionsFromDisk() {
     const snapshot = readData(SESSIONS_MODULE, {});
     const now = Date.now();
@@ -285,24 +238,20 @@ function loadSessionsFromDisk() {
     if (restored > 0) console.log(`🔄 Naibalik ang ${restored} aktibong session mula sa huling pagkaka-save (bago pa mag-restart).`);
 }
 loadSessionsFromDisk();
-
 function parseDeviceInfo(userAgent) {
     const ua = (userAgent ||'');
-
     let deviceType ='Desktop';
     if (/Tablet|iPad/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) {
         deviceType ='Tablet';
     } else if (/Mobi|Android|iPhone|iPod|Windows Phone/i.test(ua)) {
         deviceType ='Mobile';
     }
-
     let os ='Unknown OS';
     if (/Windows NT/i.test(ua)) os ='Windows';
     else if (/Mac OS X/i.test(ua) && !/iPhone|iPad|iPod/i.test(ua)) os ='macOS';
     else if (/Android/i.test(ua)) os ='Android';
     else if (/iPhone|iPad|iPod/i.test(ua)) os ='iOS';
     else if (/Linux/i.test(ua)) os ='Linux';
-
     let browser ='Unknown Browser';
     if (/Edg\//i.test(ua)) browser ='Edge';
     else if (/OPR\/|Opera/i.test(ua)) browser ='Opera';
@@ -310,18 +259,14 @@ function parseDeviceInfo(userAgent) {
     else if (/CriOS\//i.test(ua)) browser ='Chrome';
     else if (/Firefox\//i.test(ua)) browser ='Firefox';
     else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser ='Safari';
-
     return { deviceType, os, browser, label: `${deviceType} · ${os} · ${browser}` };
 }
-
 function createSession(username, role, userAgent, ip) {
     const token = crypto.randomBytes(32).toString('hex');
-
     SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown' });
     persistSessions();
     return token;
 }
-
 function getSession(token) {
     const session = SESSIONS.get(token);
     if (!session) return null;
@@ -332,12 +277,10 @@ function getSession(token) {
     session.expiresAt = Date.now() + SESSION_TTL_MS;
     return session;
 }
-
 function destroySession(token) {
     SESSIONS.delete(token);
     persistSessions();
 }
-
 function renameUsernameEverywhere(oldUsername, newUsername) {
     for (const session of SESSIONS.values()) {
         if (session.username.toLowerCase() === oldUsername.toLowerCase()) {
@@ -353,7 +296,6 @@ function renameUsernameEverywhere(oldUsername, newUsername) {
         writeData(FILE_CARTS, cartsData);
     }
 }
-
 setInterval(() => {
     const now = Date.now();
     let removedAny = false;
@@ -365,51 +307,38 @@ setInterval(() => {
     }
     if (removedAny) persistSessions();
 }, 15 * 60 * 1000).unref();
-
 setInterval(persistSessions, 2 * 60 * 1000).unref();
-
 const AUTO_BACKUP_DISABLED = String(process.env.DISABLE_AUTO_BACKUP ||'').trim().toLowerCase() ==='true';
-
 const INTEGRITY_MONITOR_DISABLED = String(process.env.DISABLE_INTEGRITY_MONITOR || '').trim().toLowerCase() === 'true';
-
 if (INTEGRITY_MONITOR_DISABLED) {
     console.log('⏸️  Naka-disable ang file integrity monitor (DISABLE_INTEGRITY_MONITOR=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.');
 }
-
 if (AUTO_BACKUP_DISABLED) {
     console.log('⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.');
 } else {
     setTimeout(() => runLocalDatabaseBackup(14), 30 * 1000);
     setInterval(() => runLocalDatabaseBackup(14), 24 * 60 * 60 * 1000).unref();
 }
-
 setTimeout(() => checkModuleBlobSizes(), 45 * 1000);
 setInterval(() => checkModuleBlobSizes(), 24 * 60 * 60 * 1000).unref();
-
 function extractToken(req) {
     const authHeader = req.headers['authorization'] ||'';
     if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
     return req.headers['x-auth-token'] ||'';
 }
-
 const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset']);
-
 app.use((req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
-
     if (req.path.startsWith('/api/system/reset/status/')) return next();
-
     const token = extractToken(req);
     if (!token) {
         return res.status(401).json({ success: false, code:'NO_TOKEN', message:'Kailangan mag-login muna. Walang session token.' });
     }
-
     const session = getSession(token);
     if (!session) {
         return res.status(401).json({ success: false, code:'INVALID_TOKEN', message:'Expired o invalid na ang session. Mangyaring mag-login muli.' });
     }
-
     const currentDeviceData = readFeatureUnlocks();
     if (currentDeviceData.relayAuthorized === false) {
         destroySession(token);
@@ -419,15 +348,12 @@ app.use((req, res, next) => {
             message:'Inalis ng developer/store owner ang device na ito sa listahan ng mga pinapayagang device. Awtomatikong na-logout ka. Kontakin ang developer/store owner.'
         });
     }
-
     if (Date.now() - lastLiveRecheckAt > DEVICE_REVOCATION_RECHECK_MS) {
         lastLiveRecheckAt = Date.now();
         recheckDeviceAuthorizationLive();
     }
-
     req.authUser = { username: session.username, role: session.role };
     req.authToken = token;
-
     if (req.body && typeof req.body ==='object') {
         if (typeof req.body.username ==='string') req.body.username = req.authUser.username;
         if (typeof req.body.user ==='string') req.body.user = req.authUser.username;
@@ -436,10 +362,8 @@ app.use((req, res, next) => {
     if (req.query && typeof req.query ==='object') {
         if ('requester' in req.query) req.query.requester = req.authUser.username;
     }
-
     next();
 });
-
 const FILE_USERS ='users';
 const FILE_PRODUCTS ='products';
 const FILE_TRANSACTIONS ='transactions';
@@ -455,49 +379,38 @@ const FILE_PROMOCODES ='promocodes';
 const FILE_SHIFTS ='shifts';
 const FILE_SHIFT_META ='shiftMeta';
 const FILE_PURCHASE_ORDERS ='purchaseOrders';
-
 const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
-
 const MENU_REGISTRY = [
-
     { key:'overview',     label:'Overview / Home Dashboard (Landing Page After Login)', group:'Core' },
     { key:'terminal',     label:'POS Terminal', group:'Core' },
     { key:'dashboard',    label:'Inventory Dashboard', group:'Core' },
     { key:'products',     label:'Products', group:'Core' },
     { key:'products_direct_apply', label:'Products — Add/Update/Delete Direct Apply (No Approval Needed)', group:'Core' },
     { key:'barcode',      label:'Barcode', group:'Core' },
-
     { key:'transactions', label:'Transactions', group:'Transactions' },
     { key:'transactions_view_all', label:'Transactions — View All Cashiers', group:'Transactions' },
     { key:'void_own_password', label:'Transactions — Void gamit ang Sariling Password (Hindi na kailangan ng Admin Password)', group:'Transactions' },
     { key:'refund', label:'Transactions — Pwedeng Mag-process ng Refund (Full o Partial)', group:'Transactions' },
     { key:'refund_own_password', label:'Transactions — Refund gamit ang Sariling Password (Hindi na kailangan ng Admin Password)', group:'Transactions' },
     { key:'manual_discount_own_password', label:'Transactions — Authorize Manual Discount With Own Password (Admin Password Not Required)', group:'Transactions' },
-
     { key:'reports',      label:'Sales Report', group:'Reports' },
-
     { key:'customers', label:'Customers & Loyalty', group:'Customers & Loyalty' },
     { key:'loyalty_card_issue', label:'Customers & Loyalty — Issue/Regenerate Loyalty Card or QR (Authorized Personnel Only, e.g. New Customer Enrollment or Lost Card Replacement)', group:'Customers & Loyalty' },
     { key:'loyalty_redeem_own_password', label:'Transactions — Authorize MANUAL Loyalty Points Redemption With Own Password (No Card/QR Scan, Admin Password Not Required)', group:'Customers & Loyalty' },
-
     { key:'shiftreport', label:'Shift / Z-Reading', group:'Shift / Z-Reading' },
     { key:'shiftreport_view_all', label:'Shift / Z-Reading — View All Cashiers', group:'Shift / Z-Reading' },
     { key:'shiftreport_view_amounts', label:'Shift / Z-Reading — View Sales Amounts (Gross/Discount/Net)', group:'Shift / Z-Reading' },
     { key:'shift_close_control', label:'Shift / Z-Reading — Admin/Supervisor Control (Close Other Cashiers\' Shift)', group:'Shift / Z-Reading' },
     { key:'shift_close_own_password', label:'Shift / Z-Reading — Pwedeng Mag-authorize ng Close gamit ang Sariling Password (Hindi na kailangan ng Admin Password)', group:'Shift / Z-Reading' },
-
     { key:'reorder', label:'Reorder Alerts / Purchase Orders', group:'Reorder / Purchase Orders' },
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)', group:'Reorder / Purchase Orders' },
-
     { key:'branches_view', label:'Overview — "All Branches" Widget (View Combined Sales ng Ibang Branch, Premium Feature)', group:'Multi-Branch' },
-
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
     { key:'pending_requests', label:'Users — Pending Requests Tab', group:'Users & Access' },
     { key:'roles_permissions_view', label:'Users — Roles & Permissions Tab (opening/viewing the RBAC matrix)', group:'Users & Access' },
     { key:'edit_user_profile', label:'Edit User Profile (Widget)', group:'Users & Access' },
     { key:'logs',         label:'User Logs', group:'Users & Access' },
-
     { key:'receipt_settings_view', label:'Users — Receipt Customization Tab (view/open access)', group:'Settings' },
     { key:'receipt_settings_direct_apply', label:'Receipt Customization — Direct Apply (No Approval Needed)', group:'Settings' },
     { key:'store_settings_view', label:'Users — Store & Sales Settings Tab (view/open access)', group:'Settings' },
@@ -508,16 +421,12 @@ const MENU_REGISTRY = [
     { key:'advanced_settings_direct_apply', label:'Advanced Settings — Direct Apply (No Approval Needed)', group:'Settings' },
     { key:'reset_restore', label:'Users — Reset/Restore Tab', group:'Settings' },
     { key:'fraud_alerts_view', label:'Users — Fraud & Anomaly Alerts Tab (view access to flagged transactions/voids/refunds)', group:'Settings' },
-
     { key:'relay_unlock_request', label:'Features/Themes — Pwedeng Mag-send ng Unlock/Demo OTP Request sa Relay', group:'Features & Themes' },
 ];
-
 const FILE_ROLES ='roles';
-
 const DEFAULT_ROLES = [
     {
         name:'Admin',
-
         protected: true,
         permissions: MENU_REGISTRY.reduce((acc, m) => { acc[m.key] = true; return acc; }, {})
     },
@@ -529,18 +438,11 @@ const DEFAULT_ROLES = [
     {
         name:'Cashier',
         protected: false,
-
-        // Cashier role is intentionally locked down to the POS Terminal only.
-        // "overview" (the home/landing dashboard shown right after login) is
-        // explicitly disabled so that Terminal is the only screen that opens
-        // for this role. All other menu keys stay false for the same reason.
         permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
     }
 ];
-
 function getRoles() {
     let roles = readData(FILE_ROLES, DEFAULT_ROLES);
-
     let changed = false;
     roles.forEach(r => {
         if (!r.permissions) { r.permissions = {}; changed = true; }
@@ -554,12 +456,10 @@ function getRoles() {
     if (changed) writeData(FILE_ROLES, roles);
     return roles;
 }
-
 function getPermissionsForRole(roleName) {
     const roles = getRoles();
     const role = roles.find(r => r.name.toLowerCase() === (roleName ||'').toLowerCase());
     if (!role) {
-
         if ((roleName ||'').toLowerCase() ==='admin') {
             return MENU_REGISTRY.reduce((acc, m) => { acc[m.key] = true; return acc; }, {});
         }
@@ -567,7 +467,6 @@ function getPermissionsForRole(roleName) {
     }
     return role.permissions;
 }
-
 async function findPasswordAuthorizer(users, password, permissionKey) {
     if (!password) return null;
     for (const u of users) {
@@ -578,34 +477,26 @@ async function findPasswordAuthorizer(users, password, permissionKey) {
             match = (password === u.password);
         }
         if (!match) continue;
-
         const role = (u.role ||'').toLowerCase();
         if (role ==='admin') return { user: u, isAdmin: true };
         if (permissionKey && !!getPermissionsForRole(u.role)[permissionKey]) return { user: u, isAdmin: false };
-
         return null;
     }
     return null;
 }
-
 function findVoidAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'void_own_password');
 }
-
 function findRefundAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'refund_own_password');
 }
-
 function findManualDiscountAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'manual_discount_own_password');
 }
-
 function findShiftCloseAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'shift_close_own_password');
 }
-
 const FILE_LOYALTY_SECURITY ='loyaltySecurity';
-
 function getLoyaltyCardSigningKey() {
     const data = readData(FILE_LOYALTY_SECURITY, {});
     if (data.cardSigningKey) return data.cardSigningKey;
@@ -613,11 +504,9 @@ function getLoyaltyCardSigningKey() {
     writeData(FILE_LOYALTY_SECURITY, data);
     return data.cardSigningKey;
 }
-
 function hashLoyaltyCardSecret(secret) {
     return crypto.createHmac('sha256', getLoyaltyCardSigningKey()).update(secret).digest('hex');
 }
-
 function timingSafeEqualHex(a, b) {
     try {
         const bufA = Buffer.from(String(a || ''), 'hex');
@@ -628,7 +517,6 @@ function timingSafeEqualHex(a, b) {
         return false;
     }
 }
-
 function issueLoyaltyCard(customer, mode, issuedByUsername) {
     const secret = crypto.randomBytes(24).toString('base64url');
     const versionNo = ((customer.loyaltyCard && customer.loyaltyCard.versionNo) || 0) + 1;
@@ -645,7 +533,6 @@ function issueLoyaltyCard(customer, mode, issuedByUsername) {
     const token = `LC1.${customer.id}.${versionNo}.${secret}`;
     return { token, card: customer.loyaltyCard };
 }
-
 function verifyLoyaltyCardToken(customer, rawToken) {
     if (!rawToken || typeof rawToken !=='string') return { valid:false, message:'Missing card/QR token.' };
     const parts = rawToken.split('.');
@@ -660,11 +547,9 @@ function verifyLoyaltyCardToken(customer, rawToken) {
     if (!timingSafeEqualHex(candidateHash, card.secretHash)) return { valid:false, message:'Invalid o pekeng card/QR token.' };
     return { valid:true, mode: card.mode };
 }
-
 function findLoyaltyRedeemAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'loyalty_redeem_own_password');
 }
-
 function sanitizeCustomerForClient(c) {
     if (!c) return c;
     const { loyaltyCard, ...rest } = c;
@@ -679,7 +564,6 @@ function sanitizeCustomerForClient(c) {
         } : null
     };
 }
-
 function requirePermission(menuKey) {
     return (req, res, next) => {
         const role = req.authUser && req.authUser.role;
@@ -691,14 +575,10 @@ function requirePermission(menuKey) {
         next();
     };
 }
-
 const FILE_RECEIPT_SETTINGS ='receiptSettings';
 const FREE_CUSTOMIZE_LIMIT = 2;
-
 const OTP_RECIPIENT_EMAIL = Buffer.from('cml2ZXJvbWFyazE3QGdtYWlsLmNvbQ==','base64').toString('utf8');
-
 const OTP_TTL_MS = 10 * 60 * 1000;
-
 function getOtpMailCredentials(settings) {
     if (process.env.OTP_MAIL_USER && process.env.OTP_MAIL_PASS) {
         return { user: process.env.OTP_MAIL_USER, pass: process.env.OTP_MAIL_PASS };
@@ -709,7 +589,6 @@ function getOtpMailCredentials(settings) {
     }
     return null;
 }
-
 const DEFAULT_RECEIPT_SETTINGS = {
     storeName:'OmniPOS',
     storeAddress:'Your Store Address Here',
@@ -717,7 +596,6 @@ const DEFAULT_RECEIPT_SETTINGS = {
     headerText:'',
     footerText:'Thank you for shopping!',
     paperSize:'80mm',
-
     headerType:'text',
     headerImage: null,
     headerImageStyle: {
@@ -730,7 +608,6 @@ const DEFAULT_RECEIPT_SETTINGS = {
         marginTopPx: 4,
         marginBottomPx: 8
     },
-
     barcodeSettings: {
         show: true,
         width: 1.5,
@@ -739,51 +616,37 @@ const DEFAULT_RECEIPT_SETTINGS = {
         displayValue: true,
         fontSize: 11
     },
-
     advancedSettings: {
         fontSize:'normal',
         divider:'dashed',
         accentColor:'#000000',
         boldTotal: true,
         uppercaseStoreName: false,
-
         itemDetailGapPx: 0,
-
         itemCounterGapTopPx: 6,
         itemCounterGapBottomPx: 6,
-
         metaRowGapPx: 4,
         itemsRowGapPx: 6,
         totalsRowGapPx: 4
     },
-
     loyaltyQrSettings: {
         enabled: true,
         sizePx: 160,
         moduleSize: 6,
         position: 'below_barcode',
         showNote: true,
-
         printOn: 'all',
-
         correctLevel: 'M',
-
         gapPx: 15,
-
         noteText: '',
-
         showDivider: true,
-
         doubleCopy: false,
-
         copyGapPx: 15
     },
-
     taiwanTemplateSettings: {
         enabled: false,
         widthMm: 57
     },
-
     transactionIdSettings: {
         format: 'xs'
     },
@@ -795,7 +658,6 @@ const DEFAULT_RECEIPT_SETTINGS = {
     otpSenderEmail: null,
     otpSenderAppPassword: null
 };
-
 const VALID_PAPER_SIZES = ['58mm','80mm'];
 const VALID_HEADER_TYPES = ['text','image'];
 const VALID_HEADER_IMAGE_ALIGNS = ['left','center','right'];
@@ -805,24 +667,19 @@ const VALID_HEX_COLOR =/^#[0-9a-fA-F]{6}$/;
 const VALID_LOYALTY_QR_POSITIONS = ['above_barcode','below_barcode'];
 const VALID_LOYALTY_QR_PRINT_ON = ['all','bluetooth','regular'];
 const VALID_LOYALTY_QR_CORRECT_LEVELS = ['L','M','Q','H'];
-
 const VALID_TRANSACTION_ID_FORMATS = ['xs','sm','md','lg','original'];
-
 const MAX_HEADER_IMAGE_DATAURL_LENGTH = 450 * 1024;
-
 function sanitizeReceiptHeaderImageDataUrl(val) {
     if (typeof val !== 'string' || !val.trim()) return null;
     if (!/^data:image\/(png|jpeg|jpg|webp);base64,/.test(val)) return null;
     if (val.length > MAX_HEADER_IMAGE_DATAURL_LENGTH) return null;
     return val;
 }
-
 function clampNumber(val, min, max, fallback) {
     const n = Number(val);
     if (!Number.isFinite(n)) return fallback;
     return Math.min(max, Math.max(min, n));
 }
-
 function sanitizeHeaderImageStyle(raw) {
     const d = DEFAULT_RECEIPT_SETTINGS.headerImageStyle;
     const s = raw && typeof raw === 'object' ? raw : {};
@@ -837,7 +694,6 @@ function sanitizeHeaderImageStyle(raw) {
         marginBottomPx: clampNumber(s.marginBottomPx, 0, 40, d.marginBottomPx)
     };
 }
-
 function sanitizeBarcodeSettings(raw) {
     const d = DEFAULT_RECEIPT_SETTINGS.barcodeSettings;
     const s = raw && typeof raw === 'object' ? raw : {};
@@ -850,13 +706,10 @@ function sanitizeBarcodeSettings(raw) {
         fontSize: clampNumber(s.fontSize, 8, 16, d.fontSize)
     };
 }
-
 function sanitizeAdvancedSettings(raw) {
     const d = DEFAULT_RECEIPT_SETTINGS.advancedSettings;
     const s = raw && typeof raw === 'object' ? raw : {};
-
     const legacyCounterGap = Number.isFinite(parseFloat(s.itemCounterGapPx)) ? parseFloat(s.itemCounterGapPx) : undefined;
-
     return {
         fontSize: VALID_RECEIPT_FONT_SIZES.includes(s.fontSize) ? s.fontSize : d.fontSize,
         divider: VALID_RECEIPT_DIVIDER_STYLES.includes(s.divider) ? s.divider : d.divider,
@@ -870,36 +723,29 @@ function sanitizeAdvancedSettings(raw) {
         itemCounterGapBottomPx: clampNumber(
             s.itemCounterGapBottomPx !== undefined ? s.itemCounterGapBottomPx : legacyCounterGap, 0, 40, d.itemCounterGapBottomPx
         ),
-
         metaRowGapPx: clampNumber(s.metaRowGapPx, 0, 20, d.metaRowGapPx),
         itemsRowGapPx: clampNumber(s.itemsRowGapPx, 0, 20, d.itemsRowGapPx),
         totalsRowGapPx: clampNumber(s.totalsRowGapPx, 0, 20, d.totalsRowGapPx)
     };
 }
-
 function sanitizeLoyaltyQrSettings(raw) {
     const d = DEFAULT_RECEIPT_SETTINGS.loyaltyQrSettings;
     const s = raw && typeof raw === 'object' ? raw : {};
     return {
         enabled: s.enabled === undefined ? d.enabled : !!s.enabled,
-
         sizePx: clampNumber(s.sizePx, 80, 400, d.sizePx),
-
         moduleSize: clampNumber(s.moduleSize, 2, 16, d.moduleSize),
         position: VALID_LOYALTY_QR_POSITIONS.includes(s.position) ? s.position : d.position,
         showNote: s.showNote === undefined ? d.showNote : !!s.showNote,
         printOn: VALID_LOYALTY_QR_PRINT_ON.includes(s.printOn) ? s.printOn : d.printOn,
         correctLevel: VALID_LOYALTY_QR_CORRECT_LEVELS.includes(s.correctLevel) ? s.correctLevel : d.correctLevel,
-
         gapPx: clampNumber(s.gapPx, 0, 40, d.gapPx),
         noteText: typeof s.noteText === 'string' ? s.noteText.trim().slice(0, 120) : d.noteText,
-
         showDivider: s.showDivider === undefined ? d.showDivider : !!s.showDivider,
         doubleCopy: s.doubleCopy === undefined ? d.doubleCopy : !!s.doubleCopy,
         copyGapPx: clampNumber(s.copyGapPx, 0, 80, d.copyGapPx)
     };
 }
-
 function sanitizeTaiwanTemplateSettings(raw) {
     const d = DEFAULT_RECEIPT_SETTINGS.taiwanTemplateSettings;
     const s = raw && typeof raw === 'object' ? raw : {};
@@ -908,7 +754,6 @@ function sanitizeTaiwanTemplateSettings(raw) {
         widthMm: clampNumber(s.widthMm, 40, 80, d.widthMm)
     };
 }
-
 function sanitizeTransactionIdSettings(raw) {
     const d = DEFAULT_RECEIPT_SETTINGS.transactionIdSettings;
     const s = raw && typeof raw === 'object' ? raw : {};
@@ -916,7 +761,6 @@ function sanitizeTransactionIdSettings(raw) {
         format: VALID_TRANSACTION_ID_FORMATS.includes(s.format) ? s.format : d.format
     };
 }
-
 function getReceiptSettingsPublic(rawSettings) {
     const s = rawSettings || DEFAULT_RECEIPT_SETTINGS;
     const customizeCount = s.customizeCount || 0;
@@ -941,63 +785,49 @@ function getReceiptSettingsPublic(rawSettings) {
         firstCustomizedAt: s.firstCustomizedAt || null,
         freeAttemptsRemaining: Math.max(0, FREE_CUSTOMIZE_LIMIT - customizeCount),
         otpRequired: customizeCount >= FREE_CUSTOMIZE_LIMIT,
-
         otpSenderConfigured: !!(s.otpSenderEmail && s.otpSenderAppPassword),
         otpSenderEmailMasked: maskEmail(s.otpSenderEmail)
     };
 }
-
 function maskEmail(email) {
     if (!email || typeof email !=='string' || !email.includes('@')) return null;
     const [local, domain] = email.split('@');
     const visible = local.slice(0, 2);
     return `${visible}${'*'.repeat(Math.max(1, local.length - 2))}@${domain}`;
 }
-
 const UPLOAD_TMP_DIR = path.join(__dirname,'uploads_tmp');
 if (!fs.existsSync(UPLOAD_TMP_DIR)) {
     fs.mkdirSync(UPLOAD_TMP_DIR);
 }
-
 const productImportUpload = multer({ dest: UPLOAD_TMP_DIR, limits: { fileSize: 10 * 1024 * 1024 } });
-
 const productBulkPhotoUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024, files: 300 }
 });
-
 app.get('/api/categories', (req, res) => {
-
     const data = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
     res.json(data);
 });
-
 app.post('/api/categories', (req, res) => {
     const { category } = req.body;
     let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
-
     if (!categories.includes(category)) {
         categories.push(category);
         writeData(FILE_CATEGORIES, categories);
     }
     res.json({ success: true, categories });
 });
-
 app.get('/api/receipt-settings', (req, res) => {
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     res.json(getReceiptSettingsPublic(settings));
 });
-
 app.post('/api/receipt-settings/paper-size', requirePermission('receipt_settings_view'), (req, res) => {
     const { paperSize, username } = req.body;
-
     if (!VALID_PAPER_SIZES.includes(paperSize)) {
         return res.status(400).json({ success: false, message: `Invalid paper size. Choose from: ${VALID_PAPER_SIZES.join(', ')}` });
     }
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1011,22 +841,17 @@ app.post('/api/receipt-settings/paper-size', requirePermission('receipt_settings
         logAction(req.authUser.username, `Submitted a Receipt Paper Size change request (${paperSize}) for Admin approval`);
         return res.json({ success: true, pending: true, message:'The paper size request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     settings.paperSize = paperSize;
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username || req.authUser.username, `Changed the Receipt Paper Size to ${paperSize}`);
-
     res.json({ success: true, message:'Paper size updated.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/barcode', requirePermission('receipt_settings_view'), (req, res) => {
     const sanitized = sanitizeBarcodeSettings(req.body.barcodeSettings);
     const { username } = req.body;
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1040,22 +865,17 @@ app.post('/api/receipt-settings/barcode', requirePermission('receipt_settings_vi
         logAction(req.authUser.username, `Submitted a Receipt Barcode Settings change request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The barcode settings request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     settings.barcodeSettings = sanitized;
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username || req.authUser.username, `Updated the Receipt Barcode Settings`);
-
     res.json({ success: true, message:'Barcode settings updated.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/loyalty-qr', requirePermission('receipt_settings_view'), (req, res) => {
     const sanitized = sanitizeLoyaltyQrSettings(req.body.loyaltyQrSettings);
     const { username } = req.body;
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1069,22 +889,17 @@ app.post('/api/receipt-settings/loyalty-qr', requirePermission('receipt_settings
         logAction(req.authUser.username, `Submitted a Receipt Loyalty QR Settings change request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The loyalty QR settings request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     settings.loyaltyQrSettings = sanitized;
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username || req.authUser.username, `Updated the Receipt Loyalty QR Settings`);
-
     res.json({ success: true, message:'Loyalty QR settings updated.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/taiwan-template', requirePermission('receipt_settings_view'), (req, res) => {
     const sanitized = sanitizeTaiwanTemplateSettings(req.body.taiwanTemplateSettings);
     const { username } = req.body;
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1098,22 +913,17 @@ app.post('/api/receipt-settings/taiwan-template', requirePermission('receipt_set
         logAction(req.authUser.username, `Submitted a Taiwan Receipt Template change request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The Taiwan Receipt Template request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     settings.taiwanTemplateSettings = sanitized;
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username || req.authUser.username, `Updated the Taiwan Receipt Template settings`);
-
     res.json({ success: true, message:'Taiwan Receipt Template settings updated.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/transaction-id', requirePermission('receipt_settings_view'), (req, res) => {
     const sanitized = sanitizeTransactionIdSettings(req.body.transactionIdSettings);
     const { username } = req.body;
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1127,22 +937,17 @@ app.post('/api/receipt-settings/transaction-id', requirePermission('receipt_sett
         logAction(req.authUser.username, `Submitted a Transaction ID Format change request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The Transaction ID Format request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     settings.transactionIdSettings = sanitized;
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username || req.authUser.username, `Updated the Transaction ID Format (${sanitized.format})`);
-
     res.json({ success: true, message:'Transaction ID Format updated.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/advanced', requirePermission('receipt_settings_view'), (req, res) => {
     const sanitized = sanitizeAdvancedSettings(req.body.advancedSettings);
     const { username } = req.body;
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1156,25 +961,19 @@ app.post('/api/receipt-settings/advanced', requirePermission('receipt_settings_v
         logAction(req.authUser.username, `Submitted an Advanced Receipt Style change request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The advanced style request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     settings.advancedSettings = sanitized;
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username || req.authUser.username, `Updated the Advanced Receipt Style`);
-
     res.json({ success: true, message:'Advanced receipt style updated.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/otp-sender', rateLimit('otp-sender-config', 5, 15 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Action Denied: Admin privileges only can configure the OTP sender.' });
     }
-
     const { username } = req.body;
-
     const otpSenderEmail = (req.body.otpSenderEmail ||'').trim();
     const otpSenderAppPassword = (req.body.otpSenderAppPassword ||'').replace(/\s+/g,'');
-
     const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailPattern.test(otpSenderEmail)) {
         return res.status(400).json({ success: false, message:'Invalid email address.' });
@@ -1182,17 +981,13 @@ app.post('/api/receipt-settings/otp-sender', rateLimit('otp-sender-config', 5, 1
     if (!otpSenderAppPassword || otpSenderAppPassword.length < 12) {
         return res.status(400).json({ success: false, message:'Invalid App Password (must be a 16-character Gmail App Password, not the normal account password).' });
     }
-
     try {
         const verifyResult = await verifyMailCredentialsSmart(otpSenderEmail, otpSenderAppPassword);
-
         const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         settings.otpSenderEmail = otpSenderEmail;
         settings.otpSenderAppPassword = otpSenderAppPassword;
         writeData(FILE_RECEIPT_SETTINGS, settings);
-
         logAction(username ||'Unknown', `Configured the OTP Sender Email (${maskEmail(otpSenderEmail)})`);
-
         let message = 'Sender Gmail + App Password verified and saved.';
         if (verifyResult.viaFallback) {
             message = 'Verified (via Gmail API/HTTPS fallback, since SMTP is blocked here) and saved the Sender Gmail + App Password.';
@@ -1205,33 +1000,25 @@ app.post('/api/receipt-settings/otp-sender', rateLimit('otp-sender-config', 5, 1
         res.status(400).json({ success: false, message: `Unable to verify the Gmail credentials: ${err.message}. Make sure the email is correct and that you're using a 16-character App Password (not the normal password).` });
     }
 });
-
 app.post('/api/receipt-settings/otp-sender/clear', rateLimit('otp-sender-clear', 5, 15 * 60 * 1000), (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Action Denied: Admin privileges only can clear the OTP sender.' });
     }
-
     const { username } = req.body;
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const hadEmail = maskEmail(settings.otpSenderEmail);
-
     settings.otpSenderEmail = null;
     settings.otpSenderAppPassword = null;
     writeData(FILE_RECEIPT_SETTINGS, settings);
-
     logAction(username ||'Unknown', `Cleared the OTP Sender Email${hadEmail ? ` (previously: ${hadEmail})` :''}`);
     res.json({ success: true, message:'The configured Sender Gmail + App Password has been cleared.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-
     if ((settings.customizeCount || 0) < FREE_CUSTOMIZE_LIMIT) {
-
         return res.json({ success: true, otpNeeded: false, message:'You still have free customizations left — no OTP needed.' });
     }
-
     const otpCode = String(Math.floor(100000 + Math.random() * 900000));
     settings.pendingOtp = {
         code: otpCode,
@@ -1239,9 +1026,7 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
         requestedBy: username ||'Unknown'
     };
     writeData(FILE_RECEIPT_SETTINGS, settings);
-
     const otpMailCreds = getOtpMailCredentials(settings);
-
     if (!otpMailCreds) {
         console.error('⚠️ Unable to send the Receipt Customization OTP: no Sender Gmail / App Password has been configured yet in the Receipt Customization panel (or OTP_MAIL_USER/OTP_MAIL_PASS env vars).');
         return res.status(500).json({
@@ -1251,7 +1036,6 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
     }
     const senderUser = otpMailCreds.user;
     const senderPass = otpMailCreds.pass;
-
     try {
         await sendMailSmart(senderUser, senderPass, {
             from: `"OmniPOS Receipt Customization" <${senderUser}>`,
@@ -1263,7 +1047,6 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
                   `This will expire in 10 minutes.\n\n` +
                   `If you did not request this, you can ignore this email.`
         });
-
         logAction(username ||'Unknown','Requested an OTP for Receipt Customization (2 free attempts used up)');
         res.json({ success: true, otpNeeded: true, message:'The OTP was successfully sent to the registered email.' });
     } catch (err) {
@@ -1271,14 +1054,11 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
         res.status(500).json({ success: false, message: `Failed to send the OTP: ${err.message}` });
     }
 });
-
 app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 1000), requirePermission('receipt_settings_view'), (req, res) => {
     const { storeName, storeAddress, storeContact, headerText, footerText, headerType, headerImage, headerImageStyle, otp, username } = req.body;
-
     if (!storeName || !storeName.trim()) {
         return res.status(400).json({ success: false, message:'Store Name is required.' });
     }
-
     const normalizedHeaderType = VALID_HEADER_TYPES.includes(headerType) ? headerType :'text';
     let sanitizedHeaderImage = null;
     if (normalizedHeaderType ==='image') {
@@ -1288,10 +1068,8 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
         }
     }
     const sanitizedHeaderImageStyle = sanitizeHeaderImageStyle(headerImageStyle);
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1314,16 +1092,13 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
         logAction(req.authUser.username, `Submitted a Receipt Customization update request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The Receipt Customization request has been submitted for Admin approval.' });
     }
-
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const currentCount = settings.customizeCount || 0;
     const needsOtp = currentCount >= FREE_CUSTOMIZE_LIMIT;
-
     if (needsOtp) {
         if (!otp || !String(otp).trim()) {
             return res.json({ success: false, requiresOtp: true, message:'OTP verification is now required to continue customizing the receipt.' });
         }
-
         const pending = settings.pendingOtp;
         if (!pending || !pending.code) {
             return res.status(400).json({ success: false, requiresOtp: true, message:'No active OTP request. Please request a new OTP first.' });
@@ -1336,10 +1111,8 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
         if (String(otp).trim() !== pending.code) {
             return res.status(400).json({ success: false, requiresOtp: true, message:'Incorrect OTP code.' });
         }
-
         settings.pendingOtp = null;
     }
-
     settings.storeName = storeName.trim();
     settings.storeAddress = (storeAddress ||'').trim();
     settings.storeContact = (storeContact ||'').trim();
@@ -1348,46 +1121,36 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
     settings.headerType = normalizedHeaderType;
     settings.headerImage = normalizedHeaderType ==='image' ? sanitizedHeaderImage : null;
     settings.headerImageStyle = sanitizedHeaderImageStyle;
-
     settings.customizeCount = currentCount + 1;
-
     if (!settings.firstCustomizedAt) {
         settings.firstCustomizedAt = new Date().toISOString();
     }
-
     writeData(FILE_RECEIPT_SETTINGS, settings);
     logAction(username ||'Unknown', `Updated the Receipt Customization details (attempt #${settings.customizeCount})`);
-
     res.json({ success: true, message:'Receipt details updated successfully.', settings: getReceiptSettingsPublic(settings) });
 });
-
 app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-
     if ((settings.customizeCount || 0) < FREE_CUSTOMIZE_LIMIT) {
         return res.status(400).json({
             success: false,
             message: `You still have ${FREE_CUSTOMIZE_LIMIT - (settings.customizeCount || 0)} free customization(s) left — no need to reset the counter yet.`
         });
     }
-
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     try {
         const featureData = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(featureData);
         const storeName = settings.storeName || null;
-
         const relayRes = await relayFetch(`${RELAY_URL}/relay/request-receipt-reset`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, storeName, requestedBy: username || 'Unknown' })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.success) {
             logAction(username || 'Unknown', 'Requested an OTP (via Relay) to reset the Receipt Customization counter');
         }
@@ -1397,59 +1160,47 @@ app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}.` });
     }
 });
-
 app.post('/api/receipt-settings/reset-counter', rateLimit('otp-reset-verify', 120, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { otp, username } = req.body;
-
     if (!otp || !String(otp).trim()) {
         return res.status(400).json({ success: false, message:'The OTP code is required.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     try {
         const featureData = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(featureData);
-
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-receipt-reset`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId, otp: String(otp).trim() })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.pending) {
             return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang OTP! Naghihintay pa lang ng approval mula sa developer.' });
         }
-
         if (!relayData.success) {
             return res.status(relayRes.status === 200 ? 400 : relayRes.status).json(relayData);
         }
-
         if (!verifyReceiptResetTicket(relayData.ticket, installationId)) {
             console.error('⚠️ Natanggap ang isang receipt-reset ticket mula sa relay pero HINDI valid ang signature nito.');
             return res.status(400).json({ success: false, message: 'Hindi valid ang reset ticket na natanggap. Subukan ulit.' });
         }
-
         const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         settings.customizeCount = 0;
         settings.pendingResetOtp = null;
         settings.resetHistory = Array.isArray(settings.resetHistory) ? settings.resetHistory : [];
         settings.resetHistory.push({ resetAt: new Date().toISOString(), resetBy: username || 'Unknown' });
-
         writeData(FILE_RECEIPT_SETTINGS, settings);
         logAction(username || 'Unknown', 'Reset the Receipt Customization counter (back to 2 free attempts, via Relay-verified OTP)');
-
         res.json({ success: true, message:'Counter reset — 2 free customizations are available again.', settings: getReceiptSettingsPublic(settings) });
     } catch (err) {
         console.error('Hindi ma-abot ang Unlock Relay (receipt-reset):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}.` });
     }
 });
-
 const FILE_STORE_SETTINGS = 'storeSettings';
-
 const DEFAULT_STORE_SETTINGS = {
     currencyCode: 'PHP',
     currencySymbol: '₱',
@@ -1458,7 +1209,6 @@ const DEFAULT_STORE_SETTINGS = {
     taxRate: 12,
     pricesIncludeTax: true,
     paymentMethods: { cash: true, gcash: false, maya: false, card: false, bankTransfer: false },
-
     gcashQrImage: null,
     mayaQrImage: null,
     seniorPwdDiscountEnabled: false,
@@ -1466,23 +1216,18 @@ const DEFAULT_STORE_SETTINGS = {
     loyaltyEnabled: true,
     loyaltyEarnRate: 100,
     loyaltyPointValue: 1,
-
     branchName: '',
     branchGroupKey: '',
     updatedAt: null
 };
-
 const VALID_CURRENCY_CODES = ['PHP', 'USD', 'EUR', 'JPY', 'SGD'];
-
 const MAX_QR_IMAGE_DATAURL_LENGTH = 400 * 1024;
-
 function sanitizeQrImageDataUrl(val) {
     if (typeof val !== 'string' || !val.trim()) return null;
     if (!/^data:image\/(png|jpeg|jpg|webp);base64,/.test(val)) return null;
     if (val.length > MAX_QR_IMAGE_DATAURL_LENGTH) return null;
     return val;
 }
-
 function getStoreSettingsPublic(rawSettings) {
     const s = rawSettings || DEFAULT_STORE_SETTINGS;
     const pm = s.paymentMethods || DEFAULT_STORE_SETTINGS.paymentMethods;
@@ -1512,15 +1257,12 @@ function getStoreSettingsPublic(rawSettings) {
         updatedAt: s.updatedAt || null
     };
 }
-
 app.get('/api/store-settings', (req, res) => {
     const settings = readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS);
     res.json(getStoreSettingsPublic(settings));
 });
-
 app.post('/api/store-settings', requirePermission('store_settings_view'), (req, res) => {
     const { username } = req.body;
-
     for (const [field, label] of [['gcashQrImage', 'GCash QR'], ['mayaQrImage', 'Maya QR']]) {
         const raw = (req.body || {})[field];
         if (raw !== undefined && raw !== null && raw !== '' && sanitizeQrImageDataUrl(raw) === null) {
@@ -1530,9 +1272,7 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
             });
         }
     }
-
     const incoming = getStoreSettingsPublic(req.body || {});
-
     if (!VALID_CURRENCY_CODES.includes(incoming.currencyCode)) {
         return res.status(400).json({ success: false, message: `Di-wastong currency. Pumili sa: ${VALID_CURRENCY_CODES.join(', ')}` });
     }
@@ -1548,10 +1288,8 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
     if (incoming.loyaltyPointValue < 0) {
         return res.status(400).json({ success: false, message: 'Ang Loyalty point value ay hindi puwedeng negative.' });
     }
-
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).store_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1565,16 +1303,12 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
         logAction(req.authUser.username, 'Nag-submit ng Store & Sales Settings change request para sa Admin approval');
         return res.json({ success: true, pending: true, message: 'Isinumite ang Store & Sales Settings request para sa Admin approval.' });
     }
-
     incoming.updatedAt = new Date().toISOString();
     writeData(FILE_STORE_SETTINGS, incoming);
     logAction(username || req.authUser.username, 'Binago ang Store & Sales Settings (tax/payment methods/discount)');
-
     res.json({ success: true, message: 'Na-update ang Store & Sales Settings.', settings: incoming });
 });
-
 const FILE_UX_SETTINGS = 'uxSettings';
-
 const DEFAULT_UX_SETTINGS = {
     darkModeDefault: false,
     lowStockAlertThreshold: 10,
@@ -1582,7 +1316,6 @@ const DEFAULT_UX_SETTINGS = {
     dashboardWidgets: { salesToday: true, lowStock: true, topProducts: true, recentTransactions: true },
     updatedAt: null
 };
-
 function getUxSettingsPublic(rawSettings) {
     const s = rawSettings || DEFAULT_UX_SETTINGS;
     const w = s.dashboardWidgets || DEFAULT_UX_SETTINGS.dashboardWidgets;
@@ -1599,23 +1332,18 @@ function getUxSettingsPublic(rawSettings) {
         updatedAt: s.updatedAt || null
     };
 }
-
 app.get('/api/ux-settings', (req, res) => {
     const settings = readData(FILE_UX_SETTINGS, DEFAULT_UX_SETTINGS);
     res.json(getUxSettingsPublic(settings));
 });
-
 app.post('/api/ux-settings', requirePermission('ux_settings_view'), (req, res) => {
     const { username } = req.body;
     const incoming = getUxSettingsPublic(req.body || {});
-
     if (incoming.lowStockAlertThreshold < 0) {
         return res.status(400).json({ success: false, message: 'The low-stock threshold cannot be negative.' });
     }
-
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).ux_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1629,57 +1357,44 @@ app.post('/api/ux-settings', requirePermission('ux_settings_view'), (req, res) =
         logAction(req.authUser.username, 'Submitted an Appearance/UX Settings change request for Admin approval');
         return res.json({ success: true, pending: true, message: 'The Appearance/UX Settings request has been submitted for Admin approval.' });
     }
-
     incoming.updatedAt = new Date().toISOString();
     writeData(FILE_UX_SETTINGS, incoming);
     logAction(username || req.authUser.username, 'Updated Appearance/UX Settings (dark mode/low-stock/widgets)');
-
     res.json({ success: true, message: 'Appearance/UX Settings have been updated.', settings: incoming });
 });
-
 const FILE_ADVANCED_SETTINGS = 'advancedSettings';
-
 const DEFAULT_ADVANCED_SETTINGS = {
     idleAutoLockEnabled: false,
     idleAutoLockMinutes: 5,
     customerDisplayEnabled: false,
-
     customerDisplayCompactThreshold: 8,
     saleWebhookEnabled: false,
     saleWebhookUrl: '',
-
     twoFactorLoginEnabled: false,
     twoFactorRecipientEmail: '',
-
     fraudDetectionEnabled: false,
     fraudDetectionSensitivity: 'medium',
     fraudAlertEmailEnabled: false,
     fraudAlertRecipientEmail: '',
     updatedAt: null
 };
-
 function getAdvancedSettingsPublic(rawSettings) {
     const s = rawSettings || DEFAULT_ADVANCED_SETTINGS;
     let minutes = parseInt(s.idleAutoLockMinutes, 10);
     if (!Number.isFinite(minutes) || minutes < 1) minutes = DEFAULT_ADVANCED_SETTINGS.idleAutoLockMinutes;
     if (minutes > 120) minutes = 120;
     let webhookUrl = typeof s.saleWebhookUrl === 'string' ? s.saleWebhookUrl.trim() : '';
-
     if (webhookUrl && !/^https?:\/\//i.test(webhookUrl)) webhookUrl = '';
-
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     let twoFactorRecipientEmail = typeof s.twoFactorRecipientEmail === 'string' ? s.twoFactorRecipientEmail.trim() : '';
     if (twoFactorRecipientEmail && !emailPattern.test(twoFactorRecipientEmail)) twoFactorRecipientEmail = '';
-
     let compactThreshold = parseInt(s.customerDisplayCompactThreshold, 10);
     if (!Number.isFinite(compactThreshold) || compactThreshold < 3) compactThreshold = DEFAULT_ADVANCED_SETTINGS.customerDisplayCompactThreshold;
     if (compactThreshold > 50) compactThreshold = 50;
-
     const validSensitivities = ['low', 'medium', 'high'];
     let fraudDetectionSensitivity = validSensitivities.includes(s.fraudDetectionSensitivity) ? s.fraudDetectionSensitivity : 'medium';
     let fraudAlertRecipientEmail = typeof s.fraudAlertRecipientEmail === 'string' ? s.fraudAlertRecipientEmail.trim() : '';
     if (fraudAlertRecipientEmail && !emailPattern.test(fraudAlertRecipientEmail)) fraudAlertRecipientEmail = '';
-
     return {
         idleAutoLockEnabled: !!s.idleAutoLockEnabled,
         idleAutoLockMinutes: minutes,
@@ -1687,27 +1402,22 @@ function getAdvancedSettingsPublic(rawSettings) {
         customerDisplayCompactThreshold: compactThreshold,
         saleWebhookEnabled: !!s.saleWebhookEnabled && !!webhookUrl,
         saleWebhookUrl: webhookUrl,
-
         twoFactorLoginEnabled: !!s.twoFactorLoginEnabled && !!twoFactorRecipientEmail,
         twoFactorRecipientEmail,
         fraudDetectionEnabled: !!s.fraudDetectionEnabled,
         fraudDetectionSensitivity,
-
         fraudAlertEmailEnabled: !!s.fraudAlertEmailEnabled && !!fraudAlertRecipientEmail,
         fraudAlertRecipientEmail,
         updatedAt: s.updatedAt || null
     };
 }
-
 app.get('/api/advanced-settings', (req, res) => {
     const settings = readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS);
     res.json(getAdvancedSettingsPublic(settings));
 });
-
 app.post('/api/advanced-settings', requirePermission('advanced_settings_view'), (req, res) => {
     const { username } = req.body;
     const incoming = getAdvancedSettingsPublic(req.body || {});
-
     if (req.body && req.body.saleWebhookEnabled && !incoming.saleWebhookUrl) {
         return res.status(400).json({ success: false, message: 'Enter a valid http:// or https:// webhook URL to enable the Sale Webhook.' });
     }
@@ -1717,10 +1427,8 @@ app.post('/api/advanced-settings', requirePermission('advanced_settings_view'), 
     if (req.body && req.body.fraudAlertEmailEnabled && !incoming.fraudAlertRecipientEmail) {
         return res.status(400).json({ success: false, message: 'Maglagay ng valid na email address para makatanggap ng Fraud Alert email bago i-enable ang email notifications.' });
     }
-
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).advanced_settings_direct_apply;
-
     if (!canApplyDirectly) {
         let requests = readData(FILE_REQUESTS);
         requests.push({
@@ -1734,19 +1442,14 @@ app.post('/api/advanced-settings', requirePermission('advanced_settings_view'), 
         logAction(req.authUser.username, 'Submitted an Advanced Settings change request for Admin approval');
         return res.json({ success: true, pending: true, message: 'The Advanced Settings request has been submitted for Admin approval.' });
     }
-
     incoming.updatedAt = new Date().toISOString();
     writeData(FILE_ADVANCED_SETTINGS, incoming);
     logAction(username || req.authUser.username, 'Updated Advanced Settings (idle auto-lock/customer display/sale webhook/2FA/fraud detection)');
-
     res.json({ success: true, message: 'Advanced Settings have been updated.', settings: incoming });
 });
-
 const FILE_FRAUD_ALERTS = 'fraudAlerts';
 const FRAUD_ALERTS_MAX_STORED = 500;
-
 const fraudVelocityLog = new Map();
-
 function getFraudSensitivityThresholds(sensitivity) {
     const presets = {
         low: { zScore: 3.5, minDiscountPct: 40, voidWindowCount: 6, refundWindowCount: 5, largeRefundMultiplier: 6, unusualHourStart: 1, unusualHourEnd: 4 },
@@ -1755,7 +1458,6 @@ function getFraudSensitivityThresholds(sensitivity) {
     };
     return presets[sensitivity] || presets.medium;
 }
-
 function pushFraudAlert(alert) {
     let alerts = readData(FILE_FRAUD_ALERTS, []);
     const record = {
@@ -1771,9 +1473,7 @@ function pushFraudAlert(alert) {
     alerts.unshift(record);
     if (alerts.length > FRAUD_ALERTS_MAX_STORED) alerts = alerts.slice(0, FRAUD_ALERTS_MAX_STORED);
     writeData(FILE_FRAUD_ALERTS, alerts);
-
     logAction('AI Fraud Detection', `[${record.severity.toUpperCase()}] ${record.type} — ${record.summary}`);
-
     try {
         const advSettings = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
         if (advSettings.fraudAlertEmailEnabled && advSettings.fraudAlertRecipientEmail) {
@@ -1796,10 +1496,8 @@ function pushFraudAlert(alert) {
     } catch (mailErr) {
         console.error('Fraud alert email error:', mailErr.message);
     }
-
     return record;
 }
-
 function recordAndCountVelocity(cashier, kind, windowMinutes) {
     const key = `${cashier || 'unknown'}:${kind}`;
     const now = Date.now();
@@ -1809,16 +1507,13 @@ function recordAndCountVelocity(cashier, kind, windowMinutes) {
     fraudVelocityLog.set(key, events);
     return events.length;
 }
-
 function checkDiscountAnomaly(transaction, thresholds) {
     const cashier = transaction.cashier;
     const grossSubtotal = (transaction.items || []).reduce((sum, it) => sum + (parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0), 0);
     if (grossSubtotal <= 0) return null;
-
     const totalDiscount = (parseFloat(transaction.discount) || 0) + (transaction.items || []).reduce((s, it) => s + (parseFloat(it.itemDiscount) || 0), 0);
     const currentPct = (totalDiscount / grossSubtotal) * 100;
     if (currentPct < thresholds.minDiscountPct) return null;
-
     const history = readData(FILE_TRANSACTIONS, [])
         .filter(t => t.cashier === cashier && t.id !== transaction.id)
         .slice(0, 30)
@@ -1829,20 +1524,16 @@ function checkDiscountAnomaly(transaction, thresholds) {
             return (d / g) * 100;
         })
         .filter(v => v !== null);
-
     if (history.length < 5) {
-
         if (currentPct >= thresholds.minDiscountPct * 1.5) {
             return { severity: 'medium', summary: `Cashier ${cashier} gave a ${currentPct.toFixed(1)}% discount on Transaction ${transaction.id} — no sufficient sales history yet to baseline, flagged on absolute threshold alone.` };
         }
         return null;
     }
-
     const mean = history.reduce((s, v) => s + v, 0) / history.length;
     const variance = history.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / history.length;
     const stddev = Math.sqrt(variance);
     if (stddev < 1) return currentPct >= thresholds.minDiscountPct * 1.5 ? { severity: 'medium', summary: `Cashier ${cashier} gave a ${currentPct.toFixed(1)}% discount on Transaction ${transaction.id} vs. a near-constant historical average of ${mean.toFixed(1)}%.` } : null;
-
     const zScore = (currentPct - mean) / stddev;
     if (zScore >= thresholds.zScore) {
         const severity = zScore >= thresholds.zScore * 1.6 ? 'high' : 'medium';
@@ -1850,7 +1541,6 @@ function checkDiscountAnomaly(transaction, thresholds) {
     }
     return null;
 }
-
 function checkUnusualHour(transaction, thresholds) {
     const hour = new Date().getHours();
     const inWindow = thresholds.unusualHourStart <= thresholds.unusualHourEnd
@@ -1859,13 +1549,11 @@ function checkUnusualHour(transaction, thresholds) {
     if (!inWindow) return null;
     return { severity: 'low', summary: `Transaction ${transaction.id} by ${transaction.cashier} was processed at an unusual hour (${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}).` };
 }
-
 function runFraudChecks(kind, ctx) {
     try {
         const advSettings = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
         if (!advSettings.fraudDetectionEnabled) return;
         const thresholds = getFraudSensitivityThresholds(advSettings.fraudDetectionSensitivity);
-
         if (kind === 'sale') {
             const discountFlag = checkDiscountAnomaly(ctx.transaction, thresholds);
             if (discountFlag) {
@@ -1893,7 +1581,6 @@ function runFraudChecks(kind, ctx) {
                     summary: `${ctx.cashier || 'Unknown'} has processed ${count} refund(s) in the last 30 minutes (latest: ${ctx.transactionId}, ₱${(ctx.refundAmount || 0).toFixed(2)}).`
                 });
             }
-
             const allTx = readData(FILE_TRANSACTIONS, []);
             const avgTxTotal = allTx.length > 0 ? allTx.reduce((s, t) => s + (parseFloat(t.total) || 0), 0) / allTx.length : 0;
             if (avgTxTotal > 0 && ctx.refundAmount >= avgTxTotal * thresholds.largeRefundMultiplier) {
@@ -1905,105 +1592,81 @@ function runFraudChecks(kind, ctx) {
             }
         }
     } catch (err) {
-
         console.error('Fraud detection engine error:', err.message);
     }
 }
-
 app.get('/api/fraud-alerts', requirePermission('fraud_alerts_view'), (req, res) => {
     const alerts = readData(FILE_FRAUD_ALERTS, []);
     const unreviewedCount = alerts.filter(a => !a.reviewed).length;
     res.json({ success: true, alerts, unreviewedCount });
 });
-
 app.post('/api/fraud-alerts/:id/review', requirePermission('fraud_alerts_view'), rateLimit('fraud-alert-review', 60, 10 * 60 * 1000), (req, res) => {
     const { id } = req.params;
     const { note, reviewedBy } = req.body;
-
     let alerts = readData(FILE_FRAUD_ALERTS, []);
     const alert = alerts.find(a => a.id === id);
     if (!alert) return res.status(404).json({ success: false, message: 'Hindi nahanap ang Fraud Alert.' });
-
     alert.reviewed = true;
     alert.reviewedBy = reviewedBy || req.authUser.username;
     alert.reviewedAt = new Date().toISOString();
     alert.note = (note || '').trim();
-
     writeData(FILE_FRAUD_ALERTS, alerts);
     logAction(req.authUser.username, `Marked Fraud Alert ${id} (${alert.type}) as reviewed`);
-
     res.json({ success: true, message: 'Na-mark bilang reviewed ang Fraud Alert.', alert });
 });
-
 app.post('/api/verify-password', rateLimit('verify-password', 10, 5 * 60 * 1000), (req, res) => {
     const { password } = req.body;
     if (!password) return res.status(400).json({ success: false, message: 'Password is required.' });
-
     let users = readData(FILE_USERS);
     const me = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
     if (!me) return res.status(404).json({ success: false, message: 'Account not found.' });
-
     let isMatch = false;
     try { isMatch = bcrypt.compareSync(password, me.password); }
     catch (e) { isMatch = (password === me.password); }
-
     if (!isMatch) return res.status(403).json({ success: false, message: 'Incorrect password.' });
     res.json({ success: true });
 });
-
 const FILE_FEATURE_UNLOCKS ='featureUnlocks';
-
 const FILE_CONNECTIVITY_MODE ='connectivityMode';
 const DEFAULT_CONNECTIVITY_MODE = { mode: 'online', changedAt: null };
-
 function getConnectivityMode() {
     const data = readData(FILE_CONNECTIVITY_MODE, DEFAULT_CONNECTIVITY_MODE);
     return (data && data.mode === 'offline') ? 'offline' : 'online';
 }
-
 function setConnectivityMode(mode) {
     const normalized = mode === 'offline' ? 'offline' : 'online';
     writeData(FILE_CONNECTIVITY_MODE, { mode: normalized, changedAt: Date.now() });
     return normalized;
 }
-
 const DEFAULT_FEATURE_UNLOCKS = {
     installationId: null,
     hardwareFingerprint: null,
     tokens: {},
     lockedAttempts: 0,
-
     deviceVerified: false,
     verifiedFingerprint: null,
     firstVerifiedAt: null,
     lastVerifiedAt: null
 };
-
 const RELAY_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEARoRImC1WH3GgR6yO9ZeRYmiMsDvHfytsKQ2f/lwVzfU=
 -----END PUBLIC KEY-----
 `;
 const RELAY_PUBLIC_KEY = crypto.createPublicKey(RELAY_PUBLIC_KEY_PEM);
-
 const RELAY_URL = process.env.RELAY_URL ||'http://127.0.0.1:4477';
-
 const RELAY_API_KEY = process.env.RELAY_API_KEY || null;
 if (!RELAY_API_KEY) {
     console.warn('⚠️  Walang RELAY_API_KEY na naka-set sa .env — hindi magfa-function ang feature unlock requests hangga\'t hindi ito nalagyan.');
 }
-
 const IMAGE_SEARCH_PROVIDER = (process.env.IMAGE_SEARCH_PROVIDER || '').trim().toLowerCase();
 const IMAGE_SEARCH_API_KEY = (process.env.IMAGE_SEARCH_API_KEY || '').trim();
 const IMAGE_SEARCH_CX = (process.env.IMAGE_SEARCH_CX || '').trim();
-
 function isImageSearchConfigured() {
     if (!IMAGE_SEARCH_PROVIDER || !IMAGE_SEARCH_API_KEY) return false;
     if (IMAGE_SEARCH_PROVIDER === 'google' && !IMAGE_SEARCH_CX) return false;
     return ['google', 'bing', 'serpapi'].includes(IMAGE_SEARCH_PROVIDER);
 }
-
 const IMAGE_SEARCH_BLOCKED_HOSTNAMES = new Set(['localhost', 'metadata.google.internal']);
-
 function isPrivateOrReservedIPv4(ip) {
     const parts = ip.split('.').map(Number);
     if (parts.length !== 4 || parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return true;
@@ -2022,7 +1685,6 @@ function isPrivateOrReservedIPv4(ip) {
     if (a >= 224) return true;
     return false;
 }
-
 function isPrivateOrReservedIPv6(ip) {
     const norm = ip.toLowerCase();
     if (norm === '::1' || norm === '::') return true;
@@ -2034,28 +1696,24 @@ function isPrivateOrReservedIPv6(ip) {
     }
     return false;
 }
-
 function isBlockedImageSearchIP(ip) {
     const version = net.isIP(ip);
     if (version === 4) return isPrivateOrReservedIPv4(ip);
     if (version === 6) return isPrivateOrReservedIPv6(ip);
     return true;
 }
-
 function ssrfSafeLookup(hostname, options, callback) {
     if (typeof options === 'function') { callback = options; options = {}; }
     dns.lookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
         if (err) return callback(err);
         const safeAddrs = (addresses || []).filter(a => !isBlockedImageSearchIP(a.address));
         if (!safeAddrs.length) return callback(new Error('Hindi pinapayagan ang address na ito (internal/private IP o hindi ma-resolve).'));
-
         if (options && options.all) {
             return callback(null, safeAddrs);
         }
         callback(null, safeAddrs[0].address, safeAddrs[0].family);
     });
 }
-
 function assertPublicHttpUrlSync(rawUrl) {
     let parsed;
     try {
@@ -2078,22 +1736,12 @@ function assertPublicHttpUrlSync(rawUrl) {
     }
     return parsed;
 }
-
 async function fetchImageBuffer(urlStr, { maxBytes = 6 * 1024 * 1024, maxRedirects = 3, timeoutMs = 12000 } = {}) {
     let currentUrl = urlStr;
     for (let hop = 0; hop <= maxRedirects; hop++) {
         const parsed = assertPublicHttpUrlSync(currentUrl);
         const lib = parsed.protocol === 'https:' ? https : http;
-
-        // Maraming e-commerce/CDN host (hal. Shopee, Lazada) ang nag-b-block
-        // ng direktang download kung walang "totoong browser" na headers —
-        // dati, generic lang ang User-Agent at walang Referer, kaya madalas
-        // ma-reject (401/403) ang unang search result (na kalimitan mula sa
-        // mas protektadong host), habang minsan nakakalusot ang susunod na
-        // resulta na galing sa ibang host. Ginawang mas parang tunay na
-        // browser ang request para hindi ito palaging mag-fail.
         const refererOrigin = `${parsed.protocol}//${parsed.host}/`;
-
         const result = await new Promise((resolve, reject) => {
             const req = lib.get(currentUrl, {
                 lookup: ssrfSafeLookup,
@@ -2138,13 +1786,11 @@ async function fetchImageBuffer(urlStr, { maxBytes = 6 * 1024 * 1024, maxRedirec
             req.on('timeout', () => req.destroy(new Error('Nag-timeout habang kinukuha ang image.')));
             req.on('error', reject);
         });
-
         if (result.redirect) { currentUrl = result.redirect; continue; }
         return result;
     }
     throw new Error('Sobra sa allowed na bilang ng redirects.');
 }
-
 async function imageSearchProviderFetchWithTimeout(url, options = {}, timeoutMs = 10000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -2154,13 +1800,6 @@ async function imageSearchProviderFetchWithTimeout(url, options = {}, timeoutMs 
         clearTimeout(timer);
     }
 }
-
-// Pinapangunahan ang mga resultang may alam na width x height gamit ang
-// pinakamalaking resolution (area) — mas malaking resolution, mas malinaw
-// karaniwan kaysa sa maliliit/naka-compress na thumbnail o watermark-heavy
-// na resellter banner. Yung mga walang width/height info (di alam ang
-// resolution, hal. Yandex) ay inilalagay sa hulihan, pero sa parehong
-// pagkakasunod-sunod nang huwag masira ang orihinal na resulta ng provider.
 function sortImageResultsByResolution(results) {
     const withDims = [];
     const withoutDims = [];
@@ -2171,7 +1810,6 @@ function sortImageResultsByResolution(results) {
     withDims.sort((a, b) => (Number(b.width) * Number(b.height)) - (Number(a.width) * Number(a.height)));
     return [...withDims, ...withoutDims];
 }
-
 async function searchProductImages(query) {
     const q = (query || '').toString().trim().slice(0, 150);
     if (!q) {
@@ -2179,7 +1817,6 @@ async function searchProductImages(query) {
         err.statusCode = 400;
         throw err;
     }
-
     if (IMAGE_SEARCH_PROVIDER === 'google') {
         const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(IMAGE_SEARCH_API_KEY)}&cx=${encodeURIComponent(IMAGE_SEARCH_CX)}&searchType=image&safe=active&num=10&q=${encodeURIComponent(q)}`;
         const r = await imageSearchProviderFetchWithTimeout(url);
@@ -2194,7 +1831,6 @@ async function searchProductImages(query) {
             height: (it.image && it.image.height) || null
         })).filter(r => r.imageUrl && r.thumbnailUrl);
     }
-
     if (IMAGE_SEARCH_PROVIDER === 'bing') {
         const url = `https://api.bing.microsoft.com/v7.0/images/search?safeSearch=Strict&count=10&q=${encodeURIComponent(q)}`;
         const r = await imageSearchProviderFetchWithTimeout(url, { headers: { 'Ocp-Apim-Subscription-Key': IMAGE_SEARCH_API_KEY } });
@@ -2209,7 +1845,6 @@ async function searchProductImages(query) {
             height: it.height || null
         })).filter(r => r.imageUrl && r.thumbnailUrl);
     }
-
     if (IMAGE_SEARCH_PROVIDER === 'serpapi') {
         const url = `https://serpapi.com/search.json?engine=google_images&safe=active&num=10&q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(IMAGE_SEARCH_API_KEY)}`;
         const r = await imageSearchProviderFetchWithTimeout(url);
@@ -2224,26 +1859,9 @@ async function searchProductImages(query) {
             height: it.original_height || null
         })).filter(r => r.imageUrl && r.thumbnailUrl);
     }
-
     throw new Error('Unsupported o hindi pa naka-configure ang IMAGE_SEARCH_PROVIDER.');
 }
-
-// ============================================================================
-// OMNI SEARCH IMAGES — free, no-API-key image search providers
-// ----------------------------------------------------------------------------
-// English version note: everything below (this section, its routes, and the
-// matching frontend code) is new. It does NOT touch the SerpApi/Google/Bing
-// (paid) provider above — that flow is left completely untouched.
-//
-// Each free provider below is tried in order for a given query. If a
-// provider errors out, is blocked, or returns nothing usable, the cascade
-// automatically falls through to the next free provider — that's the
-// "self-healing" fallback the feature is built around, so one blocked site
-// (e.g. Bing returning a CAPTCHA page) never breaks the whole search.
-// ============================================================================
-
 const OMNI_FREE_SEARCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-
 async function omniFetchText(url, headers = {}, timeoutMs = 10000) {
     const r = await imageSearchProviderFetchWithTimeout(url, {
         headers: { 'User-Agent': OMNI_FREE_SEARCH_USER_AGENT, 'Accept-Encoding': 'identity', ...headers }
@@ -2251,14 +1869,12 @@ async function omniFetchText(url, headers = {}, timeoutMs = 10000) {
     const body = await r.text();
     return { statusCode: r.status, body };
 }
-
 async function searchDuckDuckGoImagesFree(query, timeoutMs = 10000) {
     const tokenUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`;
     const { statusCode, body: html } = await omniFetchText(tokenUrl, {}, timeoutMs);
     if (statusCode < 200 || statusCode >= 300) throw new Error(`DuckDuckGo token page returned HTTP ${statusCode}.`);
     const m = html.match(/vqd=['"]?([\d-]+)['"]?/);
     if (!m) throw new Error('DuckDuckGo vqd token not found (page layout may have changed).');
-
     const searchUrl = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${encodeURIComponent(m[1])}&f=,,,&p=1`;
     const { statusCode: sc2, body: jsonBody } = await omniFetchText(searchUrl, { Referer: 'https://duckduckgo.com/' }, timeoutMs);
     if (sc2 < 200 || sc2 >= 300) throw new Error(`DuckDuckGo image search returned HTTP ${sc2}.`);
@@ -2273,12 +1889,10 @@ async function searchDuckDuckGoImagesFree(query, timeoutMs = 10000) {
         width: it.width || null, height: it.height || null
     })).filter(r => r.imageUrl && r.thumbnailUrl);
 }
-
 async function searchBingImagesFree(query, timeoutMs = 10000) {
     const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1&mkt=en-US`;
     const { statusCode, body: html } = await omniFetchText(url, { 'Accept-Language': 'en-US,en;q=0.9' }, timeoutMs);
     if (statusCode < 200 || statusCode >= 300) throw new Error(`Bing (free) returned HTTP ${statusCode} (may be temporarily blocking this network).`);
-
     const out = [];
     const attrRegex = /m="({.*?})"/g;
     let am;
@@ -2295,13 +1909,11 @@ async function searchBingImagesFree(query, timeoutMs = 10000) {
                 });
             }
         } catch {
-            // One malformed entry shouldn't stop the whole scan — skip it and keep going.
         }
     }
     if (!out.length) throw new Error('Bing (free) returned no parsable image results (layout may have changed, or the request was blocked).');
     return out;
 }
-
 async function searchOpenverseImagesFree(query, timeoutMs = 10000) {
     const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=10`;
     const { statusCode, body } = await omniFetchText(url, {}, timeoutMs);
@@ -2317,7 +1929,6 @@ async function searchOpenverseImagesFree(query, timeoutMs = 10000) {
         width: it.width || null, height: it.height || null
     })).filter(r => r.imageUrl && r.thumbnailUrl);
 }
-
 async function searchWikimediaCommonsImagesFree(query, timeoutMs = 10000) {
     const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent('file:' + query)}&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url%7Csize&iiurlwidth=400&format=json&origin=*`;
     const { statusCode, body } = await omniFetchText(url, {}, timeoutMs);
@@ -2340,7 +1951,6 @@ async function searchWikimediaCommonsImagesFree(query, timeoutMs = 10000) {
     if (!out.length) throw new Error('Wikimedia Commons returned no image results.');
     return out;
 }
-
 async function searchYandexImagesFree(query, timeoutMs = 10000) {
     const url = `https://yandex.com/images/search?text=${encodeURIComponent(query)}`;
     const { statusCode, body: html } = await omniFetchText(url, {}, timeoutMs);
@@ -2352,9 +1962,6 @@ async function searchYandexImagesFree(query, timeoutMs = 10000) {
         return { id: `yx${i}`, provider: 'Yandex', title: '', thumbnailUrl: imageUrl, imageUrl, width: null, height: null };
     });
 }
-
-// Order matters: most reliable / most product-relevant free sources first,
-// Yandex last since it's the most likely to serve a CAPTCHA instead of results.
 const OMNI_FREE_IMAGE_PROVIDERS = [
     { name: 'DuckDuckGo', run: searchDuckDuckGoImagesFree },
     { name: 'Bing (free)', run: searchBingImagesFree },
@@ -2362,7 +1969,6 @@ const OMNI_FREE_IMAGE_PROVIDERS = [
     { name: 'Wikimedia Commons', run: searchWikimediaCommonsImagesFree },
     { name: 'Yandex', run: searchYandexImagesFree }
 ];
-
 async function omniFreeImageSearch(query, timeoutMs = 10000) {
     const q = (query || '').toString().trim().slice(0, 150);
     if (!q) {
@@ -2376,8 +1982,6 @@ async function omniFreeImageSearch(query, timeoutMs = 10000) {
             const results = await provider.run(q, timeoutMs);
             if (results && results.length) return { provider: provider.name, results: sortImageResultsByResolution(results) };
         } catch (err) {
-            // Self-healing fallback: this free provider failed or got blocked —
-            // move on to the next one in the cascade automatically.
             errors.push(`${provider.name}: ${err.message}`);
         }
     }
@@ -2385,75 +1989,39 @@ async function omniFreeImageSearch(query, timeoutMs = 10000) {
     err.statusCode = 502;
     throw err;
 }
-
 const IMAGE_SEARCH_SESSION_TTL_MS = 10 * 60 * 1000;
 const imageSearchSessions = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [nonce, sess] of imageSearchSessions.entries()) {
         if (now - sess.createdAt > IMAGE_SEARCH_SESSION_TTL_MS) imageSearchSessions.delete(nonce);
     }
 }, 5 * 60 * 1000).unref();
-
 const BULK_IMAGE_SEARCH_SESSION_TTL_MS = 30 * 60 * 1000;
 const bulkImageSearchSessions = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [nonce, sess] of bulkImageSearchSessions.entries()) {
         if (now - sess.createdAt > BULK_IMAGE_SEARCH_SESSION_TTL_MS) bulkImageSearchSessions.delete(nonce);
     }
 }, 5 * 60 * 1000).unref();
-
-// LIVE PROGRESS ng bulk image search (hiling: makita kung gaano na
-// katagal/kailan pa matatapos habang tumatakbo ang search). Hiwalay ito
-// sa bulkImageSearchSessions sa itaas (na para sa /fetch at /apply
-// pagkatapos matapos ang buong search) — ito naman ay naka-imbak habang
-// TUMATAKBO pa ang search mismo, sinusuri (polled) ng frontend bawat
-// ilang segundo. Parehong TTL/cleanup pattern lang ng existing sessions
-// sa itaas.
 const BULK_IMAGE_SEARCH_PROGRESS_TTL_MS = 30 * 60 * 1000;
 const bulkImageSearchProgress = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [nonce, p] of bulkImageSearchProgress.entries()) {
         if (now - p.startedAt > BULK_IMAGE_SEARCH_PROGRESS_TTL_MS) bulkImageSearchProgress.delete(nonce);
     }
 }, 5 * 60 * 1000).unref();
-
 function sleepMs(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
-
-// ============================================================================
-// OMNI SEARCH IMAGES — background job orchestration
-// ----------------------------------------------------------------------------
-// "Omni Search Images" runs the free-provider cascade above as a detached
-// background OS process (a separate Node process from the running OmniPOS
-// server, spawned via child_process.spawn — this is what makes it a real
-// background job on Termux: nothing about it is printed to the terminal the
-// user is using, and all output only ever reaches the app through the live
-// progress endpoint below). If spawning a background process isn't possible
-// for any reason (missing permissions, unusual Termux/Node setup, etc.), the
-// server automatically falls back to running the exact same search logic
-// in-process instead, so the feature keeps working either way.
-//
-// The worker process reports progress back to the main server through a
-// small internal HTTP callback server bound ONLY to 127.0.0.1 (never
-// reachable from outside the device), authenticated with a random
-// per-job secret so nothing else on the device can inject fake progress.
-// ============================================================================
-
 const OMNI_SEARCH_WORKER_SCRIPT = path.join(__dirname, 'omnipos-search-image.js');
 const OMNI_SEARCH_SESSION_TTL_MS = BULK_IMAGE_SEARCH_SESSION_TTL_MS;
 const OMNI_SEARCH_PROGRESS_TTL_MS = BULK_IMAGE_SEARCH_PROGRESS_TTL_MS;
-
-const omniImageSearchSessions = new Map();   // nonce -> { username, createdAt, items: Map(code -> proposal) }
-const omniImageSearchProgress = new Map();   // nonce -> live progress object (polled by the frontend)
-const omniImageSearchJobs = new Map();       // nonce -> { secret, username, clearFallback }
-
+const omniImageSearchSessions = new Map();   
+const omniImageSearchProgress = new Map();   
+const omniImageSearchJobs = new Map();       
 setInterval(() => {
     const now = Date.now();
     for (const [nonce, sess] of omniImageSearchSessions.entries()) {
@@ -2463,30 +2031,19 @@ setInterval(() => {
         if (now - p.startedAt > OMNI_SEARCH_PROGRESS_TTL_MS) { omniImageSearchProgress.delete(nonce); omniImageSearchJobs.delete(nonce); }
     }
 }, 5 * 60 * 1000).unref();
-
 let omniInternalCallbackServer = null;
 let omniInternalCallbackPort = null;
-
-// Self-troubleshooting: handles a progress update posted by the worker
-// process. Validates that it truly came from this device (loopback only)
-// and carries the correct per-job secret before trusting anything in it.
 function handleOmniProgressUpdate(remoteAddress, payload) {
     const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
     if (!isLoopback) throw new Error('Forbidden: internal-only endpoint.');
-
     const nonce = payload && payload.nonce;
     const job = nonce ? omniImageSearchJobs.get(nonce) : null;
     if (!job || !payload || job.secret !== payload.secret) {
         throw new Error('Invalid or expired Omni Search job token.');
     }
-
-    // The background process is alive and reporting — cancel the
-    // "hasn't reported anything yet" self-healing fallback timer.
     if (typeof job.clearFallback === 'function') job.clearFallback();
-
     const progress = omniImageSearchProgress.get(nonce);
-    if (!progress || progress.finished) return; // already finished elsewhere — no-op
-
+    if (!progress || progress.finished) return; 
     if (payload.type === 'item') {
         progress.proposals.push(payload.proposal);
         progress.done = payload.done;
@@ -2503,7 +2060,6 @@ function handleOmniProgressUpdate(remoteAddress, payload) {
         progress.updatedAt = Date.now();
     }
 }
-
 function ensureOmniInternalCallbackServer() {
     if (omniInternalCallbackServer) return Promise.resolve(omniInternalCallbackPort);
     return new Promise((resolve, reject) => {
@@ -2514,7 +2070,7 @@ function ensureOmniInternalCallbackServer() {
             let body = '';
             req.on('data', (chunk) => {
                 body += chunk;
-                if (body.length > 2 * 1024 * 1024) req.destroy(); // guard against runaway payloads
+                if (body.length > 2 * 1024 * 1024) req.destroy(); 
             });
             req.on('end', () => {
                 try {
@@ -2530,7 +2086,6 @@ function ensureOmniInternalCallbackServer() {
             req.on('error', () => { try { res.destroy(); } catch {} });
         });
         srv.on('error', reject);
-        // Bound to 127.0.0.1 only (loopback) — never reachable from the LAN/internet.
         srv.listen(0, '127.0.0.1', () => {
             omniInternalCallbackServer = srv;
             omniInternalCallbackPort = srv.address().port;
@@ -2538,19 +2093,13 @@ function ensureOmniInternalCallbackServer() {
         });
     });
 }
-
-// Fallback path: runs the exact same free-provider cascade directly inside
-// the main OmniPOS process (fully non-blocking async, same pattern as the
-// existing SerpApi/Google/Bing bulk search job above). Used automatically
-// whenever spawning the separate background worker process isn't possible.
 async function runOmniImageSearchInProcess(nonce, targets, username) {
     const progress = omniImageSearchProgress.get(nonce);
     if (!progress || progress.finished) return;
-
     const items = new Map();
     try {
         for (let i = 0; i < targets.length; i++) {
-            if (progress.finished) break; // the background process may have finished meanwhile
+            if (progress.finished) break; 
             const p = targets[i];
             try {
                 const { provider, results } = await omniFreeImageSearch(`${p.name} product photo`);
@@ -2583,14 +2132,9 @@ async function runOmniImageSearchInProcess(nonce, targets, username) {
         }
     }
 }
-
-// Primary path: spawns omnipos-search-image.js as a real, detached
-// background OS process. Falls back to the in-process runner above the
-// moment anything about the spawn looks wrong (self-healing).
 async function runOmniImageSearchJob(nonce, targets, username) {
     const progress = omniImageSearchProgress.get(nonce);
     if (!progress) return;
-
     let callbackPort;
     try {
         callbackPort = await ensureOmniInternalCallbackServer();
@@ -2598,10 +2142,8 @@ async function runOmniImageSearchJob(nonce, targets, username) {
         console.warn('⚠️  Omni Search Images: could not start the internal progress callback server — running the search in-process instead. Detalye:', err.message);
         return runOmniImageSearchInProcess(nonce, targets, username);
     }
-
     const secret = crypto.randomBytes(24).toString('hex');
     const jobFile = path.join(os.tmpdir(), `omnipos-omni-search-${nonce}.json`);
-
     try {
         fs.writeFileSync(jobFile, JSON.stringify({
             nonce, secret, host: '127.0.0.1', port: callbackPort,
@@ -2611,7 +2153,6 @@ async function runOmniImageSearchJob(nonce, targets, username) {
         console.warn('⚠️  Omni Search Images: could not write the background job file — running the search in-process instead. Detalye:', err.message);
         return runOmniImageSearchInProcess(nonce, targets, username);
     }
-
     let handedOff = false;
     let fallbackTimer = null;
     const triggerFallback = (reason) => {
@@ -2621,9 +2162,7 @@ async function runOmniImageSearchJob(nonce, targets, username) {
         console.warn(`⚠️  Omni Search Images (job ${nonce}): ${reason} — automatically switching to the in-process fallback so the search still completes.`);
         runOmniImageSearchInProcess(nonce, targets, username).catch(e => console.error('Omni Search Images in-process fallback failed:', e));
     };
-
     omniImageSearchJobs.set(nonce, { secret, username, clearFallback: () => { handedOff = true; if (fallbackTimer) clearTimeout(fallbackTimer); } });
-
     let child;
     try {
         child = spawn(process.execPath, [OMNI_SEARCH_WORKER_SCRIPT, jobFile], {
@@ -2636,42 +2175,20 @@ async function runOmniImageSearchJob(nonce, targets, username) {
         try { fs.unlinkSync(jobFile); } catch {}
         return triggerFallback(`could not spawn the background worker process (${err.message})`);
     }
-
-    // Self-healing safety net: if 20s pass with zero progress reported by
-    // the worker, assume the background process can't run properly in this
-    // Termux/Node environment and fall back automatically instead of
-    // leaving the UI stuck.
     fallbackTimer = setTimeout(() => {
         if (!progress.finished && progress.done === 0) {
             try { if (child && !child.killed) child.kill(); } catch {}
             triggerFallback('background worker reported no progress after 20s (it may not have been able to start)');
         }
     }, 20000);
-
     child.once('error', (err) => triggerFallback(`background worker process error (${err.message})`));
     child.once('exit', (code, signal) => {
         if (!handedOff && !progress.finished && code !== 0) {
             triggerFallback(`background worker exited early (code ${code}${signal ? ', signal ' + signal : ''})`);
         }
     });
-
     child.unref();
 }
-
-// --------------------------------------------------------------
-// BUG FIX (removed): this used to hold a custom undici Agent + a
-// `makeProgressReadableBody()` ReadableStream, used to stream the WHOLE
-// backup in one giant request while reporting "progress" as bytes were
-// handed to the local write buffer. That's exactly what caused the
-// progress bar to shoot to 100% almost instantly while the real network
-// transfer was still happening — the OS's TCP send buffer can accept
-// several MB locally long before RELAY has actually received any of it.
-// Cloud backup uploads are now split into small (100 KB) chunks, each its
-// own ordinary HTTP request (see performCloudBackupUpload below) — so
-// there's no more need for a single giant long-lived request/dispatcher
-// here, and no more fake "buffered, not really sent" progress.
-// --------------------------------------------------------------
-
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
     if (!(await isInternetLikelyUp())) {
         const err = new Error('Walang internet connection na na-detect sa device na ito.');
@@ -2686,11 +2203,9 @@ async function relayFetch(url, options = {}, timeoutMs = 20000) {
         clearTimeout(timer);
     }
 }
-
 let lastConnectivityProbe = { at: 0, up: true };
 const CONNECTIVITY_PROBE_CACHE_MS = 10 * 1000;
 const CONNECTIVITY_PROBE_TIMEOUT_MS = 1200;
-
 function rawTcpProbe(host, port, timeoutMs) {
     return new Promise((resolve) => {
         const socket = new net.Socket();
@@ -2705,17 +2220,14 @@ function rawTcpProbe(host, port, timeoutMs) {
         socket.once('connect', () => finish(true));
         socket.once('timeout', () => finish(false));
         socket.once('error', () => finish(false));
-
         socket.connect(port, host);
     });
 }
-
 async function isInternetLikelyUp() {
     const now = Date.now();
     if (now - lastConnectivityProbe.at < CONNECTIVITY_PROBE_CACHE_MS) {
         return lastConnectivityProbe.up;
     }
-
     let up;
     try {
         up = await Promise.race([
@@ -2731,42 +2243,10 @@ async function isInternetLikelyUp() {
     lastConnectivityProbe = { at: now, up };
     return up;
 }
-
 const APP_VERSION = require('./package.json').version || '0.0.0';
 const RENDER_DEPLOY_HOOK_URL = process.env.RENDER_DEPLOY_HOOK_URL || null;
-
-// ============================================================
-// SYSTEM UPDATE — ADVANCED LIVE DEPLOY PROGRESS
-// ============================================================
-// Dalawang magkaibang paraan ng pag-update, kaya dalawang magkaibang
-// istratehiya ng progress-tracking:
-//
-// 1) Render deploy hook — pag na-trigger na ito, ang kasalukuyang
-//    server PROCESS mismo ang papatayin ni Render kapag tapos na ang
-//    bagong build (papalitan ng bagong instance). Kaya HINDI ligtas
-//    ilagay ang "naghihintay" na state dito sa memory ng process na
-//    ito — puwede itong basta mawala bago pa man matapos. Dahil dito,
-//    ang totoong paghihintay/pag-verify para dito ay nasa CLIENT
-//    (browser) — doon lang talaga tumatakbo nang tuloy-tuloy ang
-//    pag-poll ng /system/update-check, kahit anong server instance pa
-//    ang sumagot. Ang estimated duration/ETA lang (na-"learn" mula sa
-//    nakaraang totoong deploy times) ang ibinibigay dito ng backend.
-//
-// 2) Self-update (Termux/non-Render) — buong buo itong nangyayari
-//    (download → extract → apply) BAGO pa man i-restart ang parehong
-//    process, kaya ligtas dito ang isang tunay na job sa memory
-//    (deployJobs sa ibaba) na may TUNAY na progreso: bytes na
-//    na-download (mula sa Content-Length ng response), files na
-//    na-apply, atbp. — hindi basta pasimula/guesswork.
-//
-// Pareho silang may "learned" ETA — hindi hard-coded na guess lang,
-// kundi isang exponential moving average ng mga tunay na naitalang
-// nakaraang deploy duration (deployStats module sa database), kaya
-// lalong tumatama ang tinatayang oras habang mas madalas ginagamit.
-
 const FILE_DEPLOY_STATS = 'deployStats';
 const DEFAULT_DEPLOY_STATS = { renderAvgMs: 90000, selfUpdateAvgMs: 20000, samples: { render: 0, self: 0 } };
-
 function readDeployStats() {
     const raw = readData(FILE_DEPLOY_STATS, DEFAULT_DEPLOY_STATS) || {};
     return {
@@ -2778,41 +2258,31 @@ function readDeployStats() {
         }
     };
 }
-
 function recordDeployDuration(kind, durationMs) {
     if (!Number.isFinite(durationMs) || durationMs <= 0) return;
     const stats = readDeployStats();
     const statKey = kind === 'self' ? 'selfUpdateAvgMs' : 'renderAvgMs';
     const sampleKey = kind === 'self' ? 'self' : 'render';
-    // Exponential moving average — mas mabigat ang mga kamakailan-lamang
-    // na takbo kaysa sa matagal nang datos, para agad makaadjust kung
-    // bumagal/bumilis ang totoong deploy time (hal. nagbago ang
-    // koneksyon o laki ng build) sa halip na permanenteng bigat pare-
-    // pareho ang bawat sample gaya ng plain average.
     const alpha = 0.35;
     const hasSamples = stats.samples[sampleKey] > 0;
     stats[statKey] = hasSamples ? Math.round(stats[statKey] * (1 - alpha) + durationMs * alpha) : Math.round(durationMs);
     stats.samples[sampleKey] = (stats.samples[sampleKey] || 0) + 1;
     writeData(FILE_DEPLOY_STATS, stats);
 }
-
 const DEPLOY_JOB_TTL_MS = 30 * 60 * 1000;
 const deployJobs = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [jobId, job] of deployJobs.entries()) {
         if (now - job.startedAt > DEPLOY_JOB_TTL_MS) deployJobs.delete(jobId);
     }
 }, 5 * 60 * 1000).unref();
-
 const SELF_UPDATE_STEPS = [
     { key: 'download', label: 'Download package' },
     { key: 'extract', label: 'Extract update' },
     { key: 'apply', label: 'Apply files' },
     { key: 'restart', label: 'Restart' }
 ];
-
 function createSelfUpdateJob() {
     const jobId = crypto.randomUUID();
     deployJobs.set(jobId, {
@@ -2831,7 +2301,6 @@ function createSelfUpdateJob() {
     });
     return jobId;
 }
-
 function jobAdvanceStep(jobId, stepKey, message, percent) {
     const job = deployJobs.get(jobId);
     if (!job) return;
@@ -2847,7 +2316,6 @@ function jobAdvanceStep(jobId, stepKey, message, percent) {
     if (job.logs.length > 30) job.logs.shift();
     job.updatedAt = Date.now();
 }
-
 function jobSetPercent(jobId, percent, message) {
     const job = deployJobs.get(jobId);
     if (!job) return;
@@ -2859,7 +2327,6 @@ function jobSetPercent(jobId, percent, message) {
     }
     job.updatedAt = Date.now();
 }
-
 function jobFinish(jobId, message) {
     const job = deployJobs.get(jobId);
     if (!job) return;
@@ -2871,7 +2338,6 @@ function jobFinish(jobId, message) {
     job.updatedAt = Date.now();
     recordDeployDuration(job.kind, Date.now() - job.startedAt);
 }
-
 function jobFail(jobId, message) {
     const job = deployJobs.get(jobId);
     if (!job) return;
@@ -2882,7 +2348,6 @@ function jobFail(jobId, message) {
     job.logs.push({ at: Date.now(), text: `Error: ${message}` });
     job.updatedAt = Date.now();
 }
-
 function countFilesRecursive(dir, preserveNames) {
     let count = 0;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -2893,7 +2358,6 @@ function countFilesRecursive(dir, preserveNames) {
     }
     return count;
 }
-
 function copyRecursivePreservingWithProgress(srcDir, destDir, preserveNames, stats, jobId) {
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
         if (preserveNames.has(entry.name)) continue;
@@ -2913,7 +2377,6 @@ function copyRecursivePreservingWithProgress(srcDir, destDir, preserveNames, sta
         }
     }
 }
-
 const UNPUBLISHED_VERSION_SENTINEL = '0.0.0';
 function parseVersionParts(v) {
     return String(v || '0.0.0').trim().split('.').map((n) => parseInt(n, 10) || 0);
@@ -2930,32 +2393,14 @@ function isVersionNewer(candidate, current) {
     }
     return false;
 }
-
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
-
-// ============================================================
-// MODULE SUBSCRIPTIONS — Roles & Permissions (RBAC) Management, and
-// Multi-Branch Dashboard
-// ============================================================
-// Converted from a ONE-TIME purchase (₱999 each) to a monthly/yearly
-// subscription — same overall "RELAY is ground truth, synced via GET
-// /relay/pricing" architecture as Cloud Backup below, but kept as a
-// fully SEPARATE code path so none of the already-working Cloud Backup
-// logic is touched or risked by this change. Unlike Cloud Backup, these
-// two are flat (not tiered) — a single monthly/yearly price each, no
-// Basic/Standard/Pro storage-quota style split.
 const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch'];
-
 function isModuleSubscriptionFeature(featureId) {
     return MODULE_SUBSCRIPTION_FEATURE_IDS.includes(featureId);
 }
-
-// A feature that is ALWAYS purchased/subscribed to separately, never
-// bundled into a one-time Upgrade Tier bundle price.
 function isSubscriptionOnlyFeature(featureId) {
     return featureId === CLOUD_BACKUP_FEATURE_ID || isModuleSubscriptionFeature(featureId);
 }
-
 const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
     rbac_management: {
         id: 'rbac_management',
@@ -2970,30 +2415,15 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
         price: { monthly: 199, yearly: 1990 }
     }
 };
-
 const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
-
-// Grace period: unlike Cloud Backup (hard lock the instant it expires),
-// these two are day-to-day OPERATIONAL features — losing access to role
-// permissions or the multi-branch dashboard mid-shift can disrupt actual
-// store operations. So there's a short buffer after expiry where access
-// still works (with a renewal warning), before it finally locks. Keep
-// this constant scoped to these two features only — do not reuse it for
-// Cloud Backup or any other feature.
 const MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS = 7;
 const MODULE_SUBSCRIPTION_GRACE_PERIOD_MS = MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
-
-// MODULE_SUBSCRIPTION_PLANS = the actual plans used throughout this file
-// (fallback copy above, overlaid with live pricing from RELAY when
-// available — same pattern as CLOUD_BACKUP_PLANS below).
 let MODULE_SUBSCRIPTION_PLANS = JSON.parse(JSON.stringify(MODULE_SUBSCRIPTION_PLANS_FALLBACK));
-
 function getModuleSubscriptionPrice(featureId, billingCycle) {
     const plan = MODULE_SUBSCRIPTION_PLANS[featureId];
     if (!plan || !MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle]) return null;
     return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
 }
-
 function applyModuleSubscriptionPricingOverlay(remotePlans) {
     if (!remotePlans || typeof remotePlans !== 'object') return;
     const merged = {};
@@ -3015,31 +2445,15 @@ function applyModuleSubscriptionPricingOverlay(remotePlans) {
     }
     MODULE_SUBSCRIPTION_PLANS = merged;
 }
-
-// Grace-period-aware verification for a module-subscription token —
-// SEPARATE from verifyUnlockToken() below on purpose, so the grace
-// period NEVER accidentally applies to any other feature (including
-// Cloud Backup, which stays hard-cutoff). Signature/binding checks are
-// identical to verifyUnlockToken(); the only difference is the extra
-// grace window applied AFTER expiresAt before finally denying access.
-// Returns { active, inGracePeriod, expiresAt }:
-//   - active: true while genuinely unexpired AND while inside the grace
-//     window (i.e. access is NOT cut off yet).
-//   - inGracePeriod: true only in the second case, for UI/banner use.
-//   - A token with NO expiresAt at all (legacy/perpetual one-time
-//     purchase, i.e. a GRANDFATHERED customer from before this
-//     subscription conversion) is always active, never in a grace period.
 function verifyModuleSubscriptionToken(token, expectedInstallationId, expectedFeatureId) {
     if (!token || !token.payload || !token.signature) return { active: false, inGracePeriod: false, expiresAt: null };
     const { installationId, featureId, issuedAt, expiresAt } = token.payload;
     if (installationId !== expectedInstallationId) return { active: false, inGracePeriod: false, expiresAt: null };
     if (featureId !== expectedFeatureId) return { active: false, inGracePeriod: false, expiresAt: null };
     if (typeof issuedAt !== 'number') return { active: false, inGracePeriod: false, expiresAt: null };
-
     const payloadString = typeof expiresAt === 'number'
         ? JSON.stringify({ installationId, featureId, issuedAt, expiresAt })
         : JSON.stringify({ installationId, featureId, issuedAt });
-
     let signatureValid = false;
     try {
         signatureValid = crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(token.signature, 'base64'));
@@ -3047,49 +2461,18 @@ function verifyModuleSubscriptionToken(token, expectedInstallationId, expectedFe
         signatureValid = false;
     }
     if (!signatureValid) return { active: false, inGracePeriod: false, expiresAt: null };
-
-    if (typeof expiresAt !== 'number') return { active: true, inGracePeriod: false, expiresAt: null }; // grandfathered/perpetual
-
+    if (typeof expiresAt !== 'number') return { active: true, inGracePeriod: false, expiresAt: null }; 
     const now = Date.now();
     if (now <= expiresAt) return { active: true, inGracePeriod: false, expiresAt };
     if (now <= expiresAt + MODULE_SUBSCRIPTION_GRACE_PERIOD_MS) return { active: true, inGracePeriod: true, expiresAt };
     return { active: false, inGracePeriod: false, expiresAt };
 }
-
-// ============================================================
-// CLOUD BACKUP — SUBSCRIPTION PLANS (Basic / Standard / Pro)
-// ============================================================
-// This changed from a ONE-TIME payment (₱1,499 lifetime) to a
-// monthly/yearly subscription. Reason: Cloud Backup uses RELAY's
-// shared Postgres instance, which has an ONGOING hosting cost (not
-// one-time) — so revenue needs to be recurring too, so the developer
-// doesn't end up in the red over time as subscribers/data grow.
-//
-// Pricing (PHP) — this isn't a random number: it's based on the
-// REAL cost of a shared managed-Postgres + web-service hosting setup
-// (e.g. Render/Neon: typically ₱750–₱1,450/month TOTAL for ALL
-// clients combined, not per-client — since only one Postgres instance
-// is used for everyone, see RELAY/server.js). In other words, even
-// with just a handful of subscribers, the cost is already covered,
-// and the rest is profit — so this pricing is realistic/won't put you
-// at a loss.
-//
-// UPDATE: presyo/quota are NO LONGER hardcoded here as the source of
-// truth. RELAY is the ONLY place pricing is configured now (via its
-// admin pricing page, /relay/admin/pricing.html) — this object below
-// is kept purely as a FALLBACK (tagline/features copy, plus a
-// last-resort default price/quota in case this device has NEVER
-// successfully reached RELAY, e.g. first run while offline). Once
-// connectivity to RELAY is established, fetchCloudBackupPricing()
-// (below) overwrites price/storageQuotaMB/name on top of this with
-// whatever RELAY currently says, and caches that to disk so it
-// survives restarts even if RELAY later becomes unreachable.
 const CLOUD_BACKUP_PLANS_FALLBACK = {
     basic: {
         id: 'basic',
         name: 'Cloud Backup — Basic',
         tagline: 'Once-a-day automatic backup with a 30-day history — perfect for a single small store.',
-        autoBackupIntervalMs: 24 * 60 * 60 * 1000, // 24 hours
+        autoBackupIntervalMs: 24 * 60 * 60 * 1000, 
         retentionDays: 30,
         storageQuotaMB: 250,
         features: [
@@ -3098,13 +2481,13 @@ const CLOUD_BACKUP_PLANS_FALLBACK = {
             'Unlimited manual/on-demand backup at restore',
             '250 MB cloud storage allowance'
         ],
-        price: { monthly: 129, yearly: 1290 } // yearly ≈ 2 buwan libre kumpara sa monthly
+        price: { monthly: 129, yearly: 1290 } 
     },
     standard: {
         id: 'standard',
         name: 'Cloud Backup — Standard',
         tagline: 'Backs up every 6 hours with a longer 90-day history and priority restore.',
-        autoBackupIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
+        autoBackupIntervalMs: 6 * 60 * 60 * 1000, 
         retentionDays: 90,
         storageQuotaMB: 1024,
         features: [
@@ -3120,7 +2503,7 @@ const CLOUD_BACKUP_PLANS_FALLBACK = {
         id: 'pro',
         name: 'Cloud Backup — Pro',
         tagline: 'Near real-time protection built for busy or multi-branch stores.',
-        autoBackupIntervalMs: 60 * 60 * 1000, // 1 hour ("near real-time")
+        autoBackupIntervalMs: 60 * 60 * 1000, 
         retentionDays: 365,
         storageQuotaMB: 5120,
         features: [
@@ -3134,41 +2517,18 @@ const CLOUD_BACKUP_PLANS_FALLBACK = {
         price: { monthly: 399, yearly: 3990 }
     }
 };
-
 const CLOUD_BACKUP_BILLING_CYCLES = {
     monthly: { label: 'Monthly', days: 30 },
     yearly: { label: 'Yearly', days: 365 }
 };
-
-// CLOUD_BACKUP_PLANS = ang AKTWAL na ginagamit ng buong file (fallback
-// copy sa taas, na-overlay ng live na presyo/quota galing RELAY kapag
-// available). Simula sa fallback bago pa man magawa ang unang fetch,
-// para may sensible na default habang naghihintay ng koneksyon.
 let CLOUD_BACKUP_PLANS = JSON.parse(JSON.stringify(CLOUD_BACKUP_PLANS_FALLBACK));
-
 function getCloudBackupPlanPrice(tier, billingCycle) {
     const plan = CLOUD_BACKUP_PLANS[tier];
     if (!plan || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) return null;
     return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
 }
-
-// --------------------------------------------------------------
-// CLOUD BACKUP PRICING — dynamic fetch from RELAY
-// --------------------------------------------------------------
-// RELAY (/relay/pricing) ang TANGING pinagmumulan ng presyo/quota.
-// Dito lang natin ino-overlay ang mga field na `price` at
-// `storageQuotaMB` (at `name`, kung binago) sa ibabaw ng
-// CLOUD_BACKUP_PLANS_FALLBACK — hindi natin ginagalaw ang
-// tagline/features/autoBackupIntervalMs/retentionDays dahil display
-// copy lang iyon, hindi presyo.
-//
-// May local disk cache (CLOUD_BACKUP_PRICING_CACHE_PATH) para kapag
-// nag-restart ang OMNIPOS habang OFFLINE o hindi maabot ang RELAY,
-// gagamitin muna ang HULING successfully-fetched na presyo sa halip
-// na bumalik agad sa FALLBACK (na maaaring luma na).
 const CLOUD_BACKUP_PRICING_CACHE_PATH = path.join(__dirname, 'cloud-backup-pricing-cache.json');
-const CLOUD_BACKUP_PRICING_REFRESH_MS = 30 * 60 * 1000; // 30 minutes — hindi ito kailangang real-time
-
+const CLOUD_BACKUP_PRICING_REFRESH_MS = 30 * 60 * 1000; 
 function applyCloudBackupPricingOverlay(remotePlans) {
     if (!remotePlans || typeof remotePlans !== 'object') return;
     const merged = {};
@@ -3188,56 +2548,19 @@ function applyCloudBackupPricingOverlay(remotePlans) {
                 yearly: (remote.price && typeof remote.price.yearly === 'number') ? remote.price.yearly : fallback.price.yearly
             }
         };
-        // Kung mas mataas ang quota na sinasabi ng RELAY kaysa sa
-        // 'features' bullet list (na naka-hardcode na text), hindi na
-        // natin babaguhin ang text na iyon dito — ito ay display copy
-        // lang, banggit lang ito sa comment para malinaw sa susunod na
-        // bumasa nito na sadyang HINDI na-auto-update ang mismong
-        // features[] array kapag nagbago ang quota sa RELAY (manual
-        // pa rin ang pag-e-edit noon dahil marketing text ito).
     }
     CLOUD_BACKUP_PLANS = merged;
 }
-
-// --------------------------------------------------------------
-// BUG FIX: dati, si Cloud Backup lang ang totoong "naka-sync" sa
-// pagitan ng RELAY at OMNIPOS (via ang overlay function sa itaas) —
-// ang mga IBANG feature (Pro Themes/Modules) ay hardcoded pa rin sa
-// FEATURE_CATALOG sa ibaba (flat `price:` numbers), kaya kahit i-edit
-// ang presyo ng mga ito sa RELAY (hal. sa bagong Feature Pricing
-// editor doon), walang mangyayari dito hangga't hindi ito ma-re-deploy
-// nang manual sa OMNIPOS mismo.
-//
-// featureCatalogPricingOverlay = ang live na price/name na galing sa
-// `featureCatalog` field ng GET /relay/pricing response (kasama na
-// ngayon iyon doon, tingnan ang RELAY/server.js) — id -> {name, price}.
-// Ginagamit ito ng mga getter sa loob ng FEATURE_CATALOG sa ibaba
-// (catalogEntry() helper) — kaya kapag nag-refresh ang overlay na ito
-// (parehong fetch/cache cycle na ginagamit na ng Cloud Backup pricing
-// sa itaas — IISANG request lang sa /relay/pricing ang dinadala ng
-// dalawa), agad ding nag-uupdate ang presyong nakikita ng buong
-// OMNIPOS server, walang redeploy kailangan — kagaya na ngayon ng
-// Cloud Backup.
 let featureCatalogPricingOverlay = {};
-
 function applyFeatureCatalogPricingOverlay(remoteFeatureCatalog) {
     if (!remoteFeatureCatalog || typeof remoteFeatureCatalog !== 'object') return;
     featureCatalogPricingOverlay = remoteFeatureCatalog;
 }
-
-// upgradeTierPricingOverlay — kapareho ng featureCatalogPricingOverlay
-// sa itaas, pero para sa bundlePrice/name ng UPGRADE_TIERS (basic/
-// standard/pro) mismo, hindi sa individual na theme/module presyo.
-// id -> {name, bundlePrice}, mula sa `upgradeTiers` field ng GET
-// /relay/pricing response. Ginagamit ito ng tierBundlePrice() helper
-// sa ibaba (tingnan ang UPGRADE_TIERS pagkatapos ng FEATURE_CATALOG).
 let upgradeTierPricingOverlay = {};
-
 function applyUpgradeTierPricingOverlay(remoteUpgradeTiers) {
     if (!remoteUpgradeTiers || typeof remoteUpgradeTiers !== 'object') return;
     upgradeTierPricingOverlay = remoteUpgradeTiers;
 }
-
 function loadCloudBackupPricingCache() {
     try {
         const cached = JSON.parse(fs.readFileSync(CLOUD_BACKUP_PRICING_CACHE_PATH, 'utf8'));
@@ -3245,29 +2568,18 @@ function loadCloudBackupPricingCache() {
             applyCloudBackupPricingOverlay(cached.cloudBackupPlans);
             console.log(`💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: ${cached.fetchedAt || 'hindi alam'}).`);
         }
-        // Parehong cache file/blob ang ginagamit para sa Feature Catalog
-        // (themes/modules) pricing overlay — tingnan ang comment sa
-        // applyFeatureCatalogPricingOverlay() sa itaas kung bakit iisa
-        // lang ang cache/fetch cycle na ito para sa dalawa.
         if (cached && cached.featureCatalog) {
             applyFeatureCatalogPricingOverlay(cached.featureCatalog);
         }
-        // Gayundin, ang bundlePrice ng Upgrade Tiers (basic/standard/pro)
-        // — parehong cache/fetch cycle din ito, tingnan ang comment sa
-        // applyUpgradeTierPricingOverlay() sa itaas.
         if (cached && cached.upgradeTiers) {
             applyUpgradeTierPricingOverlay(cached.upgradeTiers);
         }
-        // Module subscriptions (RBAC Management / Multi-Branch Dashboard)
-        // — same shared cache blob/cycle as everything else above.
         if (cached && cached.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(cached.moduleSubscriptions);
         }
     } catch (err) {
-        // Walang cache pa (unang beses na patakbo, o bagong device) — okay lang, gagamitin ang fallback.
     }
 }
-
 function saveCloudBackupPricingCache(remoteData) {
     try {
         fs.writeFileSync(CLOUD_BACKUP_PRICING_CACHE_PATH, JSON.stringify(remoteData, null, 2));
@@ -3275,20 +2587,10 @@ function saveCloudBackupPricingCache(remoteData) {
         console.error('Hindi ma-save ang cloud-backup-pricing-cache.json:', err);
     }
 }
-
-// lastCloudBackupPricingFetchAt / CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS
-// — throttle guard so an ON-DEMAND refresh (see refreshCloudBackupPricingIfStale()
-// below, called from /api/features/upgrade-catalog) never hits RELAY more than
-// once per this window, even if many cashiers/devices open the Cloud Backup
-// dialog back-to-back. Kept short (not 30 minutes) precisely so that a price
-// change made in RELAY's admin panel shows up on OMNIPOS the NEXT time anyone
-// actually looks at pricing, instead of waiting for the slow background
-// interval below.
 let lastCloudBackupPricingFetchAt = 0;
-const CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS = 60 * 1000; // 1 minute
-
+const CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS = 60 * 1000; 
 async function fetchCloudBackupPricing() {
-    if (!RELAY_API_KEY) return; // walang RELAY configured — mananatili sa cache/fallback
+    if (!RELAY_API_KEY) return; 
     lastCloudBackupPricingFetchAt = Date.now();
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/pricing`, {
@@ -3303,20 +2605,12 @@ async function fetchCloudBackupPricing() {
             applyCloudBackupPricingOverlay(data.cloudBackupPlans);
             saveCloudBackupPricingCache(data);
         }
-        // Kasama na ngayon sa parehong response ang `featureCatalog`
-        // (themes/modules pricing) — i-apply din ito, at MAKASAMA na sa
-        // saveCloudBackupPricingCache(data) sa itaas dahil buong `data`
-        // blob naman ang na-se-save doon.
         if (data && data.success && data.featureCatalog) {
             applyFeatureCatalogPricingOverlay(data.featureCatalog);
         }
-        // Gayundin, kasama na rin ngayon ang `upgradeTiers` (bundlePrice
-        // ng basic/standard/pro) — parehong blob, parehong cache.
         if (data && data.success && data.upgradeTiers) {
             applyUpgradeTierPricingOverlay(data.upgradeTiers);
         }
-        // Module subscriptions (RBAC Management / Multi-Branch Dashboard)
-        // — same request/response, same cache blob.
         if (data && data.success && data.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(data.moduleSubscriptions);
         }
@@ -3324,25 +2618,7 @@ async function fetchCloudBackupPricing() {
         console.warn('⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback:', err.message);
     }
 }
-
-// refreshCloudBackupPricingIfStale — called right before answering any
-// request that actually shows Cloud Backup pricing to a human (currently:
-// GET /api/features/upgrade-catalog). If the last live fetch was more than
-// CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS ago, kicks off a fresh one
-// and waits — but only up to ON_DEMAND_REFRESH_DEADLINE_MS, NOT the full
-// 15-second relayFetch timeout inside fetchCloudBackupPricing(). Without
-// this cap, the very first person to open the Cloud Backup dialog after
-// the 1-minute window elapses would be stuck waiting however long RELAY
-// takes to respond (or the full 15s on a timeout/outage) before the
-// dialog could even open. With the cap, that person still gets the
-// freshest price if RELAY answers quickly (normally milliseconds, since
-// this hits the developer's own service) — but never waits more than
-// ON_DEMAND_REFRESH_DEADLINE_MS regardless. The fetch itself is never
-// cancelled: even if the deadline wins the race, fetchCloudBackupPricing()
-// keeps running in the background and will still update CLOUD_BACKUP_PLANS
-// whenever RELAY does eventually answer, so the NEXT request benefits.
 const CLOUD_BACKUP_ON_DEMAND_REFRESH_DEADLINE_MS = 4000;
-
 async function refreshCloudBackupPricingIfStale() {
     if (Date.now() - lastCloudBackupPricingFetchAt < CLOUD_BACKUP_PRICING_MIN_REFRESH_INTERVAL_MS) return;
     await Promise.race([
@@ -3350,26 +2626,6 @@ async function refreshCloudBackupPricingIfStale() {
         new Promise(resolve => setTimeout(resolve, CLOUD_BACKUP_ON_DEMAND_REFRESH_DEADLINE_MS))
     ]);
 }
-
-// --------------------------------------------------------------
-// MULTI-TERMINAL / MULTI-BRANCH DISCOUNT (new, Aug 2026) — reward for
-// businesses running multiple OMNIPOS terminals under the same
-// Business Group Code (the same grouping already used by the
-// Multi-Branch Dashboard's branch-checkin/branch-summary), applied as
-// an extra % off on top of whatever Basic/Standard/Pro Upgrade Tier
-// discount + already-purchased credit this device already qualifies
-// for (see getTierPricing() below).
-//
-// Unlike Cloud Backup pricing (shared across ALL devices, so worth a
-// persistent disk-cached overlay), this discount is PER-DEVICE (depends
-// on which group THIS installationId belongs to) — so there's no
-// cross-device cache to maintain here. It's fetched fresh, with a short
-// timeout, right before the upgrade/bundle catalog is shown to a human
-// (GET /api/features/upgrade-catalog below). If RELAY is unreachable,
-// this simply resolves to 0% — never blocks or breaks the catalog
-// screen, worst case the customer just doesn't see a discount they may
-// be entitled to until the next successful fetch.
-// --------------------------------------------------------------
 async function fetchGroupDiscount(installationId) {
     if (!RELAY_API_KEY || !installationId) return { deviceCount: 1, discountPercent: 0 };
     try {
@@ -3382,30 +2638,12 @@ async function fetchGroupDiscount(installationId) {
             return { deviceCount: data.deviceCount || 1, discountPercent: data.discountPercent || 0 };
         }
     } catch (err) {
-        // Offline/unreachable/timeout — treat as "no discount known yet",
-        // same fail-open-to-zero behavior as any other optional pricing
-        // hint. Never throws up to the caller.
     }
     return { deviceCount: 1, discountPercent: 0 };
 }
-
-// I-load muna ang disk cache (kung meron) para agad tama ang presyo
-// kahit bago pa matapos ang unang live fetch, tapos subukan ang live
-// fetch, tapos mag-refresh paminsan-minsan habang tumatakbo (safety net
-// sa background sakaling walang humiling ng pricing sa loob ng matagal).
 loadCloudBackupPricingCache();
 fetchCloudBackupPricing();
 setInterval(fetchCloudBackupPricing, CLOUD_BACKUP_PRICING_REFRESH_MS).unref?.();
-
-// catalogEntry() — helper na gumagawa ng isang FEATURE_CATALOG entry na
-// may `name`/`price` GETTERS (hindi plain fields) na nagbabasa mula sa
-// featureCatalogPricingOverlay kapag meron (fresh mula sa RELAY),
-// bumabalik sa fallbackName/fallbackPrice kung wala pang na-fetch o
-// kung hindi kasama ang featureId na ito sa overlay. Parehong dahilan
-// ito ng `get price()`/`get plans()` na ginagamit na ng
-// [CLOUD_BACKUP_FEATURE_ID] sa ibaba — isang plain field lang dito ay
-// mag-i-freeze sa fallback value magpakailanman, kahit pa may
-// dumating na fresh na presyo mula sa RELAY Feature Pricing editor.
 function catalogEntry(featureId, fallbackName, fallbackPrice, category, description) {
     return {
         category,
@@ -3420,46 +2658,22 @@ function catalogEntry(featureId, fallbackName, fallbackPrice, category, descript
         }
     };
 }
-
-// tierBundlePrice() — kapareho ng catalogEntry() sa itaas, pero para sa
-// bundlePrice ng isang UPGRADE_TIERS entry (basic/standard/pro). Ginagamit
-// ito bilang GETTER (hindi plain field) sa loob ng UPGRADE_TIERS sa ibaba,
-// para live na re-reresolve laban sa upgradeTierPricingOverlay sa tuwing
-// tinatanong (kagaya ng ginagawa na ng catalogEntry() para sa individual
-// na feature price/name).
 function tierBundlePrice(tierId, fallbackPrice) {
     const overlay = upgradeTierPricingOverlay[tierId];
     return (overlay && typeof overlay.bundlePrice === 'number') ? overlay.bundlePrice : fallbackPrice;
 }
-
 function tierName(tierId, fallbackName) {
     const overlay = upgradeTierPricingOverlay[tierId];
     return (overlay && typeof overlay.name === 'string' && overlay.name) ? overlay.name : fallbackName;
 }
-
-// tierFeatureIds() — kapareho ng tierBundlePrice()/tierName() sa itaas,
-// pero para sa featureIds SELECTION mismo ng isang UPGRADE_TIERS entry
-// (basic/standard/pro) — alin bang mga theme/module ang kasama sa bundle
-// na ito. Dati, hardcoded array lang ito; ngayon, admin-editable na ito
-// sa RELAY (POST /relay/admin/api/pricing/tiers, bagong `featureIds`
-// field), kaya kailangan din itong maging GETTER (hindi plain array) na
-// laging bumabasa mula sa live na upgradeTierPricingOverlay.
 function tierFeatureIds(tierId, fallbackFeatureIds) {
     const overlay = upgradeTierPricingOverlay[tierId];
     if (overlay && Array.isArray(overlay.featureIds) && overlay.featureIds.length) {
-        // Defensive filter: only keep featureIds that actually still
-        // exist in FEATURE_CATALOG and are not a subscription-only
-        // feature (cloud_backup/rbac_management/multi_branch), in case
-        // RELAY and OMNIPOS momentarily disagree on the catalog (e.g.
-        // right after a feature is removed) — never silently include an
-        // unknown or subscription-only id in a one-time bundle.
         return overlay.featureIds.filter(id => FEATURE_CATALOG[id] && !isSubscriptionOnlyFeature(id));
     }
     return fallbackFeatureIds;
 }
-
 const FEATURE_CATALOG = {
-
     ocean: catalogEntry('ocean', 'Ocean Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
     emerald: catalogEntry('emerald', 'Emerald Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
     sunset: catalogEntry('sunset', 'Sunset Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
@@ -3469,7 +2683,6 @@ const FEATURE_CATALOG = {
     mintfrost: catalogEntry('mintfrost', 'Mint Frost Pro', 149, 'theme', 'A new color theme for the entire dashboard.'),
     liquidglass: catalogEntry('liquidglass', 'Liquid Glass Pro', 149, 'theme', 'A translucent, layered "liquid glass" theme with frosted-glass panels and fluid animations for the entire dashboard.'),
     galaxyambient: catalogEntry('galaxyambient', 'Galaxy Ambient Pro', 149, 'theme', 'An ambient, frosted dark theme with wide rounded corners and a floating sidebar, inspired by Samsung One UI, for the entire dashboard.'),
-
     promo_codes: catalogEntry('promo_codes', 'Promo Codes Module', 499, 'module', 'Create discount/promo codes that can be used at checkout.'),
     advanced_reports: catalogEntry('advanced_reports', 'Sales Analytics & Advanced Reports', 799, 'module', 'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.'),
     purchase_orders: catalogEntry('purchase_orders', 'Purchase Orders Module', 999, 'module', 'Create and track Purchase Orders to suppliers, including reorder suggestions.'),
@@ -3479,10 +2692,6 @@ const FEATURE_CATALOG = {
         name: 'Roles & Permissions (RBAC) Management',
         category: 'module',
         isSubscription: true,
-        // Getters (not plain fields) for the same reason as cloud_backup
-        // below — MODULE_SUBSCRIPTION_PLANS is reassigned in-place
-        // whenever fresh pricing arrives from RELAY, so a plain field
-        // here would freeze at the fallback price forever.
         get price() { return MODULE_SUBSCRIPTION_PLANS.rbac_management.price.monthly; },
         get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.rbac_management.price; },
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
@@ -3497,62 +2706,38 @@ const FEATURE_CATALOG = {
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
         description: 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay. Now offered as a monthly or yearly subscription instead of a one-time purchase.'
     },
-
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
         category:'cloud-service',
         isSubscription: true,
-        // `price`/`plans` are GETTERS (not plain fields) on purpose:
-        // CLOUD_BACKUP_PLANS is reassigned in-place whenever fresh
-        // pricing arrives from RELAY (see fetchCloudBackupPricing()
-        // above). A plain field here would freeze whatever the price
-        // was at the moment this FEATURE_CATALOG object was first
-        // built (i.e. the fallback, before any RELAY fetch even had a
-        // chance to complete) — a getter instead re-reads the live
-        // CLOUD_BACKUP_PLANS every time something asks for it.
         get price() { return CLOUD_BACKUP_PLANS.basic.price.monthly; },
         get plans() { return CLOUD_BACKUP_PLANS; },
         billingCycles: CLOUD_BACKUP_BILLING_CYCLES,
         description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost. Now offered as a Basic/Standard/Pro subscription (monthly or yearly) instead of a one-time purchase — pick a plan to see full pricing.'
     },
 };
-
 const DEMO_FEATURE_ID ='__demo__';
-
 function sumFeaturePrices(featureIds) {
     return featureIds.reduce((sum, id) => sum + ((FEATURE_CATALOG[id] && FEATURE_CATALOG[id].price) || 0), 0);
 }
-
 function getTierPricing(tier, alreadyPurchased, multiTerminalDiscountPercent = 0) {
     const fullAlaCarteValue = sumFeaturePrices(tier.featureIds);
     const remainingFeatureIds = tier.featureIds.filter(id => !alreadyPurchased.includes(id));
     const remainingAlaCarteValue = sumFeaturePrices(remainingFeatureIds);
-
     if (fullAlaCarteValue <= 0 || remainingAlaCarteValue <= 0) {
         return { discount: fullAlaCarteValue, effectivePrice: 0 };
     }
-
     const bundleRate = tier.bundlePrice / fullAlaCarteValue;
-
     let effectivePrice = Math.min(
         tier.bundlePrice,
         Math.max(1, Math.ceil(remainingAlaCarteValue * bundleRate))
     );
-
-    // Apply the multi-terminal/multi-branch discount (if any) ON TOP of
-    // the already-purchased-credit price above — same order every time
-    // (credit first, then %-off), so the two stack predictably instead
-    // of interacting in a way that's hard to explain to a customer.
-    // Floor at ₱1 so a feature is never "free" outright from stacking
-    // discounts (a ₱0 bundle would be indistinguishable from a bug).
     if (multiTerminalDiscountPercent > 0) {
         effectivePrice = Math.max(1, Math.round(effectivePrice * (1 - multiTerminalDiscountPercent / 100)));
     }
-
     const discount = Math.max(0, remainingAlaCarteValue - effectivePrice);
     return { discount, effectivePrice };
 }
-
 const UPGRADE_TIERS = [
     {
         id:'basic',
@@ -3570,37 +2755,12 @@ const UPGRADE_TIERS = [
     },
     {
         id:'pro',
-        // NOTE: Cloud Backup, RBAC Management, and Multi-Branch Dashboard
-        // are no longer included here — they are subscriptions now
-        // (billed monthly/yearly), so they can no longer be part of a
-        // ONE-TIME bundle price. This bundle contains all OTHER
-        // modules/themes (perpetual/one-time). Those three are purchased
-        // SEPARATELY, each as its own subscription.
         description:'Every other module and every Pro Theme — nothing left locked, except Cloud Backup, Roles & Permissions (RBAC) Management, and Multi-Branch Dashboard, which are billed separately as their own subscriptions.',
-
         get featureIds() { return tierFeatureIds('pro', Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id))); },
-
         get name() { return tierName('pro', 'Pro Upgrade (Complete)'); },
-        // Fallback history: 6499 -> 4999 -> 3599. At 6499 this bundle's
-        // discount vs its own à-la-carte total worked out to only ~9%
-        // off; the follow-up fix to 4999 was ALSO wrong (computed against
-        // stale catalog prices — by the time purchase_orders/customer_crm
-        // prices had risen, 4999 had quietly drifted to only ~2.7% off,
-        // worse than Basic (~23%) or Standard (~28.5%), which is backwards
-        // for the "buy everything" tier, and worse than just buying
-        // Standard + purchase_orders + all themes separately). 3599 puts
-        // Pro back at ~30% off (the deepest of the three, as it should
-        // be) against the CURRENT catalog total of ₱5,136. This is only
-        // a fallback used before the first successful RELAY sync — the
-        // live source of truth is RELAY's Feature Pricing admin page,
-        // which now also shows an "à la carte total / suggested price"
-        // preview so this kind of drift gets caught early next time.
-        // Editable anytime from there without a redeploy — see
-        // tierBundlePrice() above.
         get bundlePrice() { return tierBundlePrice('pro', 3599); }
     }
 ];
-
 function readFeatureUnlocks() {
     const raw = readData(FILE_FEATURE_UNLOCKS, DEFAULT_FEATURE_UNLOCKS);
     return {
@@ -3612,28 +2772,12 @@ function readFeatureUnlocks() {
         verifiedFingerprint: raw.verifiedFingerprint || null,
         firstVerifiedAt: typeof raw.firstVerifiedAt ==='number' ? raw.firstVerifiedAt : null,
         lastVerifiedAt: typeof raw.lastVerifiedAt ==='number' ? raw.lastVerifiedAt : null,
-
         deviceSeed: raw.deviceSeed || null,
-
         devicePermit: raw.devicePermit || null,
-
         relayAuthorized: raw.relayAuthorized === true,
-
-        // This is metadata only (which tier/billing cycle was chosen) —
-        // the ACTUAL enforcement of access (unlocked or expired) is still
-        // the signed token in `tokens.cloud_backup` (verifyUnlockToken,
-        // with expiresAt). So even if a user directly edits this field on
-        // disk, it has no effect on actual access — it's display/
-        // scheduling purposes only.
         cloudBackupPlan: (raw.cloudBackupPlan && typeof raw.cloudBackupPlan ==='object')
             ? { tier: raw.cloudBackupPlan.tier || null, billingCycle: raw.cloudBackupPlan.billingCycle || null, activatedAt: raw.cloudBackupPlan.activatedAt || null }
             : null,
-
-        // Same idea as cloudBackupPlan above, but for the RBAC Management
-        // / Multi-Branch Dashboard module subscriptions — metadata only
-        // (display purposes), keyed by featureId. Actual access is still
-        // enforced by the signed token in `tokens.<featureId>` (via
-        // verifyModuleSubscriptionToken, with its grace period).
         moduleSubscriptions: (raw.moduleSubscriptions && typeof raw.moduleSubscriptions === 'object')
             ? Object.fromEntries(
                 Object.entries(raw.moduleSubscriptions)
@@ -3646,14 +2790,12 @@ function readFeatureUnlocks() {
             : {}
     };
 }
-
 function recordLockedAttempt() {
     const data = readFeatureUnlocks();
     data.lockedAttempts = (data.lockedAttempts || 0) + 1;
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.lockedAttempts;
 }
-
 function getAndroidProp(name) {
     try {
         const value = execSync(`getprop ${name}`, { encoding:'utf8', timeout: 2000, stdio: ['ignore','pipe','ignore'] }).trim();
@@ -3662,41 +2804,20 @@ function getAndroidProp(name) {
         return'';
     }
 }
-
 const IS_VOLATILE_CLOUD_HOST = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
-
 function getOrCreateDeviceSeed(data) {
-    // FIX #2: sa volatile host (Render free plan, walang persistent disk),
-    // HINDI na dapat mag-generate/mag-save ng random seed dahil ephemeral
-    // din ang file kung saan ito naka-imbak — mawawala ito kada deploy,
-    // kahit iisang OMNIPOS_FIXED_INSTALLATION_ID na naman ang gamit.
-    // Resulta noon: parehong installationId pero IBANG "fingerprint" kada
-    // deploy dahil random ang seed na bahagi nito — na-flag ito ng RELAY
-    // bilang posibleng clone (403) kahit iisa lang talaga ang device.
-    //
-    // Ayos: sa volatile host, i-derive ang seed nang DETERMINISTIC mula
-    // mismo sa fixed installation id (env var, hindi disk) — kaya pareho
-    // palagi ang seed (at ang buong fingerprint) kada deploy. Kung walang
-    // fixed id na naka-set, walang paraan para maging stable ang seed sa
-    // volatile host — ibalik na lang ang null dito, para malinis na
-    // mag-skip ng fingerprint enforcement ang caller (computeHardwareFingerprint)
-    // sa halip na mag-compute ng random/hindi-stable na fingerprint.
     if (IS_VOLATILE_CLOUD_HOST) {
         const fixedId = process.env.OMNIPOS_FIXED_INSTALLATION_ID;
         if (!fixedId) return null;
         return crypto.createHash('sha256').update(`omnipos-fixed-seed:${fixedId}`).digest('hex');
     }
-
     if (data.deviceSeed) return data.deviceSeed;
     data.deviceSeed = crypto.randomBytes(32).toString('hex');
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.deviceSeed;
 }
-
 function getNonAndroidMachineParts() {
-
     if (IS_VOLATILE_CLOUD_HOST) {
-
         return [];
     }
     const parts = [];
@@ -3708,7 +2829,6 @@ function getNonAndroidMachineParts() {
         if (cpus && cpus[0] && cpus[0].model) parts.push(cpus[0].model);
     } catch (e) {}
     try {
-
         const nets = os.networkInterfaces();
         const macs = Object.values(nets || {})
             .flat()
@@ -3718,14 +2838,12 @@ function getNonAndroidMachineParts() {
         if (macs.length) parts.push(macs.join(','));
     } catch (e) {}
     try {
-
         if (fs.existsSync('/etc/machine-id')) {
             parts.push(fs.readFileSync('/etc/machine-id', 'utf8').trim());
         }
     } catch (e) {}
     return parts.filter(Boolean);
 }
-
 function computeHardwareFingerprint(data) {
     const androidParts = [
         getAndroidProp('ro.product.model'),
@@ -3735,42 +2853,17 @@ function computeHardwareFingerprint(data) {
         getAndroidProp('ro.serialno'),
         getAndroidProp('ro.boot.serialno'),
     ].filter(Boolean);
-
     const seed = getOrCreateDeviceSeed(data);
-
     if (androidParts.length > 0) {
-        // May stable hardware props na mula mismo sa Android device — kung
-        // wala mang stable seed (volatile host + walang fixed id), sapat na
-        // ang androidParts mag-isa dahil hardware-based na ito.
         const parts = seed ? [...androidParts, seed] : androidParts;
         return crypto.createHash('sha256').update(parts.join('|')).digest('hex');
     }
-
     const machineParts = getNonAndroidMachineParts();
     const allParts = [...machineParts, seed].filter(Boolean);
-    // FIX #2: kung walang natitirang bahagi (volatile host, walang fixed id
-    // kaya null ang seed, at wala ring machine parts dahil volatile din),
-    // ibalik ang null sa halip na mag-hash lang ng random-per-deploy na seed.
-    // Sinusuportahan na ng caller (checkDeviceBeforeLogin) ang null fingerprint
-    // bilang "hindi ma-enforce" — clean skip, hindi false clone-flag.
     if (allParts.length === 0) return null;
     return crypto.createHash('sha256').update(allParts.join('|')).digest('hex');
 }
-
 function getOrCreateInstallationId(data) {
-    // FIX: sa Render Free plan, walang Persistent Disk, kaya ephemeral
-    // ang buong filesystem (pati ang SQLite file kung saan naka-save
-    // dating ang installationId) kada bagong deploy — bagong random
-    // UUID kada git push kahit iisa lang talaga ang device.
-    //
-    // Ayos: kung naka-set ang OMNIPOS_FIXED_INSTALLATION_ID env var
-    // (itakda ito ISANG BESES sa Render dashboard, hindi sa .env file
-    // dahil hindi na-deploy yun), GAMITIN palagi ito bilang
-    // installationId — hindi na ito mababago pa kada deploy dahil naka-
-    // save na sa Render env vars mismo, hindi sa disk. Kung wala
-    // itong env var (hal. lokal na Termux install na may sariling
-    // disk), babalik sa dating behavior: generate once, i-save sa
-    // local DB.
     const fixedId = process.env.OMNIPOS_FIXED_INSTALLATION_ID;
     if (fixedId) {
         if (data.installationId !== fixedId) {
@@ -3779,33 +2872,27 @@ function getOrCreateInstallationId(data) {
         }
         return data.installationId;
     }
-
     if (data.installationId) return data.installationId;
     data.installationId = crypto.randomUUID();
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.installationId;
 }
-
 function verifyUnlockToken(token, expectedInstallationId, expectedFeatureId) {
     if (!token || !token.payload || !token.signature) return false;
     const { installationId, featureId, issuedAt, expiresAt } = token.payload;
     if (installationId !== expectedInstallationId) return false;
     if (featureId !== expectedFeatureId) return false;
     if (typeof issuedAt !=='number') return false;
-
     if (typeof expiresAt ==='number' && Date.now() > expiresAt) return false;
-
     const payloadString = typeof expiresAt ==='number'
         ? JSON.stringify({ installationId, featureId, issuedAt, expiresAt })
         : JSON.stringify({ installationId, featureId, issuedAt });
-
     try {
         return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(token.signature,'base64'));
     } catch (err) {
         return false;
     }
 }
-
 function verifyAdminResetTicket(ticket, expectedInstallationId) {
     if (!ticket || !ticket.payload || !ticket.signature) return false;
     const { installationId, purpose, issuedAt, expiresAt } = ticket.payload;
@@ -3813,7 +2900,6 @@ function verifyAdminResetTicket(ticket, expectedInstallationId) {
     if (purpose !== 'admin-password-reset') return false;
     if (typeof issuedAt !== 'number' || typeof expiresAt !== 'number') return false;
     if (Date.now() > expiresAt) return false;
-
     const payloadString = JSON.stringify({ installationId, purpose, issuedAt, expiresAt });
     try {
         return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(ticket.signature, 'base64'));
@@ -3821,7 +2907,6 @@ function verifyAdminResetTicket(ticket, expectedInstallationId) {
         return false;
     }
 }
-
 function verifyReceiptResetTicket(ticket, expectedInstallationId) {
     if (!ticket || !ticket.payload || !ticket.signature) return false;
     const { installationId, purpose, issuedAt, expiresAt } = ticket.payload;
@@ -3829,7 +2914,6 @@ function verifyReceiptResetTicket(ticket, expectedInstallationId) {
     if (purpose !== 'receipt-customization-reset') return false;
     if (typeof issuedAt !== 'number' || typeof expiresAt !== 'number') return false;
     if (Date.now() > expiresAt) return false;
-
     const payloadString = JSON.stringify({ installationId, purpose, issuedAt, expiresAt });
     try {
         return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(ticket.signature, 'base64'));
@@ -3837,14 +2921,12 @@ function verifyReceiptResetTicket(ticket, expectedInstallationId) {
         return false;
     }
 }
-
 function verifyDevicePermit(permit, expectedInstallationId, expectedFingerprint) {
     if (!permit || !permit.payload || !permit.signature) return false;
     const { installationId, fingerprint, issuedAt } = permit.payload;
     if (installationId !== expectedInstallationId) return false;
     if (fingerprint !== expectedFingerprint) return false;
     if (typeof issuedAt !== 'number') return false;
-
     const payloadString = JSON.stringify({ installationId, fingerprint, issuedAt });
     try {
         return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(permit.signature, 'base64'));
@@ -3852,12 +2934,10 @@ function verifyDevicePermit(permit, expectedInstallationId, expectedFingerprint)
         return false;
     }
 }
-
 async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { username, storeName } = {}) {
     if (!RELAY_API_KEY) {
         return { ok: false, reason: 'no_api_key', message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
     }
-
     if (!(await isInternetLikelyUp())) {
         return { ok: false, reason: 'unreachable', message: 'Walang internet connection na na-detect sa device na ito.' };
     }
@@ -3878,9 +2958,7 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
         return {
             ok: true,
             allowed: !!relayData.allowed,
-
             reassignedInstallationId: relayData.reassignedInstallationId || null,
-
             permit: relayData.permit || null
         };
     } catch (err) {
@@ -3890,24 +2968,17 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
         return { ok: false, reason: 'unreachable', message };
     }
 }
-
 async function checkDeviceBeforeLogin({ username } = {}) {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     const liveFingerprint = computeHardwareFingerprint(data);
-
     if (!liveFingerprint) {
         console.warn('⚠️ ANTI-CLONE: walang na-compute na hardware fingerprint — hindi ma-enforce ang device-binding check.');
         return { allowed: true };
     }
-
     const fingerprintUnchanged = data.deviceVerified && data.verifiedFingerprint === liveFingerprint;
-
     const permitOk = !data.devicePermit || verifyDevicePermit(data.devicePermit, installationId, liveFingerprint);
-
     if (fingerprintUnchanged && permitOk && data.relayAuthorized === true) {
-
         if (getConnectivityMode() === 'online') {
             verifyDeviceWithRelay(installationId, liveFingerprint, { username })
                 .then(r => {
@@ -3922,9 +2993,7 @@ async function checkDeviceBeforeLogin({ username } = {}) {
         }
         return { allowed: true };
     }
-
     const result = await verifyDeviceWithRelay(installationId, liveFingerprint, { username });
-
     if (!result.ok) {
         return {
             allowed: false,
@@ -3933,18 +3002,14 @@ async function checkDeviceBeforeLogin({ username } = {}) {
                 : 'Unable to verify this device right now. Please check your internet connection and try again.'
         };
     }
-
     const updated = readFeatureUnlocks();
-
     if (result.reassignedInstallationId && result.reassignedInstallationId !== installationId) {
-
         console.log(`ℹ️ ANTI-CLONE: hiwalay na installationId ang ibinigay ng RELAY (${result.reassignedInstallationId}) — ina-adopt lokal.`);
         updated.installationId = result.reassignedInstallationId;
         updated.tokens = {};
     } else {
         updated.installationId = installationId;
     }
-
     updated.deviceVerified = true;
     updated.verifiedFingerprint = liveFingerprint;
     updated.devicePermit = result.permit || null;
@@ -3952,43 +3017,32 @@ async function checkDeviceBeforeLogin({ username } = {}) {
     updated.firstVerifiedAt = updated.firstVerifiedAt || Date.now();
     updated.lastVerifiedAt = Date.now();
     writeData(FILE_FEATURE_UNLOCKS, updated);
-
     if (!result.allowed) {
         return {
             allowed: false,
             message: 'This device has been logged with the developer/store owner. Please wait for authorization (Allow) before it can log in. Contact the developer/store owner.'
         };
     }
-
     return { allowed: true };
 }
-
 const DEVICE_REVOCATION_RECHECK_MS = 3 * 60 * 1000;
-
 let lastLiveRecheckAt = 0;
-
 async function recheckDeviceAuthorizationLive() {
     try {
-
         if (SESSIONS.size === 0) return;
         if (getConnectivityMode() !== 'online') return;
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
         const liveFingerprint = computeHardwareFingerprint(data);
         if (!liveFingerprint) return;
-
         const wasAuthorized = data.relayAuthorized === true;
         const result = await verifyDeviceWithRelay(installationId, liveFingerprint, {});
-
         if (!result.ok && result.reason === 'unreachable') return;
-
         const nowAuthorized = result.ok && !!result.allowed;
-
         const latest = readFeatureUnlocks();
         latest.relayAuthorized = nowAuthorized;
         if (result.ok && result.permit) latest.devicePermit = result.permit;
         writeData(FILE_FEATURE_UNLOCKS, latest);
-
         if (wasAuthorized && !nowAuthorized) {
             const revokedCount = SESSIONS.size;
             SESSIONS.clear();
@@ -3999,7 +3053,6 @@ async function recheckDeviceAuthorizationLive() {
         console.error('⚠️ Hindi na-finish ang live device-authorization recheck:', err.message);
     }
 }
-
 const relayBackupStatus = {
     state: 'orange',
     lastAttemptAt: null,
@@ -4007,21 +3060,18 @@ const relayBackupStatus = {
     lastError: null,
     path: null
 };
-
 async function runRelayBackupSync() {
     if (getConnectivityMode() === 'offline') {
         relayBackupStatus.state = 'orange';
         relayBackupStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
         return;
     }
-
     if (!(await isInternetLikelyUp())) {
         relayBackupStatus.state = 'orange';
         relayBackupStatus.lastError = 'Walang internet connection na na-detect.';
         return;
     }
     relayBackupStatus.lastAttemptAt = Date.now();
-
     const mirrorResult = mirrorBackupToDownloads();
     if (!mirrorResult.success) {
         relayBackupStatus.state = 'orange';
@@ -4035,18 +3085,15 @@ async function runRelayBackupSync() {
             ? `🔁 RELAY_BACKUP: na-update ang existing na file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
             : `🆕 RELAY_BACKUP: unang beses na nagawa ang file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
     );
-
     if (!RELAY_API_KEY) {
         relayBackupStatus.state = 'orange';
         relayBackupStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
         return;
     }
-
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-
         const relayRes = await relayFetch(`${RELAY_URL}/relay/backup-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -4058,13 +3105,11 @@ async function runRelayBackupSync() {
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             relayBackupStatus.state = 'orange';
             relayBackupStatus.lastError = relayData.message || 'Tinanggihan ng relay ang backup check-in.';
             return;
         }
-
         relayBackupStatus.state = 'green';
         relayBackupStatus.lastSuccessAt = Date.now();
         relayBackupStatus.lastError = null;
@@ -4075,38 +3120,20 @@ async function runRelayBackupSync() {
         console.error('⚠️ RELAY_BACKUP: hindi ma-abot ang relay para sa check-in:', err.message);
     }
 }
-
 if (!AUTO_BACKUP_DISABLED) {
     setTimeout(runRelayBackupSync, 40 * 1000);
     setInterval(runRelayBackupSync, 24 * 60 * 60 * 1000).unref();
 }
-
 app.get('/api/relay-backup/status', (req, res) => {
     res.json({ success: true, ...relayBackupStatus });
 });
-
 const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
-    // BUG FIX: dating hindi tugma ang exclude list na ito sa ginagamit
-    // ng RELAY (buildFileManifest) at ng build-release.js (EXCLUDE set)
-    // — kulang ng '.start.sh.lock' at '.self-update-backup' dito, kaya
-    // kapag naka-start.sh ang OMNIPOS (may .start.sh.lock habang
-    // tumatakbo) o may natirang self-update backup folder, PALAGING
-    // "added" ang lumalabas sa integrity check kahit walang tunay na
-    // binagong file — false positive kada check-in.
     '.env', '.env.key', 'database', 'node_modules', 'uploads_tmp',
     '.git', 'release', 'cf.log', 'server.log', '.start.sh.lock',
     '.self-update-backup', 'package-lock.json', 'certs',
-    // BUG FIX: idinagdag ang cache file na ginagawa ng
-    // fetchCloudBackupPricing() (tingnan sa itaas) sa RUNTIME, hindi
-    // bahagi ng release package/baseline dahil hindi pa ito umiiral
-    // noong nabuo ang baseline. Kung hindi ito ilagay dito, palaging
-    // lalabas itong "New file (not part of the release)" sa integrity
-    // check kahit walang aktwal na tampering — parehong klase ng
-    // false positive gaya ng '.start.sh.lock' sa itaas.
     'cloud-backup-pricing-cache.json'
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
-
 function computeInstallDirManifest() {
     const manifest = {};
     function walk(dir, relBase) {
@@ -4130,14 +3157,12 @@ function computeInstallDirManifest() {
                 hash.update(fs.readFileSync(full));
                 manifest[rel] = hash.digest('hex');
             } catch (err) {
-
             }
         }
     }
     walk(__dirname, '');
     return manifest;
 }
-
 const relayIntegrityStatus = {
     state: 'orange',
     lastAttemptAt: null,
@@ -4148,7 +3173,6 @@ const relayIntegrityStatus = {
     deletedCount: 0,
     addedCount: 0
 };
-
 async function runRelayIntegrityCheckin() {
     if (getConnectivityMode() === 'offline') {
         relayIntegrityStatus.state = 'orange';
@@ -4165,14 +3189,11 @@ async function runRelayIntegrityCheckin() {
         relayIntegrityStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
         return;
     }
-
     relayIntegrityStatus.lastAttemptAt = Date.now();
-
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
         const files = computeInstallDirManifest();
-
         const relayRes = await relayFetch(`${RELAY_URL}/relay/integrity-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -4180,18 +3201,15 @@ async function runRelayIntegrityCheckin() {
                 installationId,
                 version: APP_VERSION,
                 files,
-
                 watcherActive: !INTEGRITY_MONITOR_DISABLED && integrityWatchers.size > 0
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             relayIntegrityStatus.state = 'orange';
             relayIntegrityStatus.lastError = relayData.message || 'Tinanggihan ng relay ang integrity check-in.';
             return;
         }
-
         relayIntegrityStatus.lastSuccessAt = Date.now();
         relayIntegrityStatus.lastError = null;
         relayIntegrityStatus.flagged = !!relayData.flagged;
@@ -4199,29 +3217,23 @@ async function runRelayIntegrityCheckin() {
         relayIntegrityStatus.deletedCount = relayData.deletedCount || 0;
         relayIntegrityStatus.addedCount = relayData.addedCount || 0;
         relayIntegrityStatus.state = relayData.flagged ? 'red' : 'green';
-
     } catch (err) {
         relayIntegrityStatus.state = 'orange';
         relayIntegrityStatus.lastError = err.message;
-
     }
 }
-
 if (!INTEGRITY_MONITOR_DISABLED) {
     setTimeout(runRelayIntegrityCheckin, 55 * 1000);
     setInterval(runRelayIntegrityCheckin, 24 * 60 * 60 * 1000).unref();
 }
-
 function hashBranchGroupKey(rawKey) {
     const trimmed = String(rawKey || '').trim();
     if (!trimmed) return null;
     return crypto.createHash('sha256').update(trimmed).digest('hex');
 }
-
 function computeBranchSummaryPayload() {
     const todayKey = new Date().toISOString().slice(0, 10);
     const transactions = readData(FILE_TRANSACTIONS);
-
     let grossSalesToday = 0;
     let transactionCountToday = 0;
     transactions.forEach((t) => {
@@ -4230,15 +3242,12 @@ function computeBranchSummaryPayload() {
         grossSalesToday += parseFloat(t.total) || 0;
         transactionCountToday += 1;
     });
-
     let lowStockCount = 0;
     try {
         lowStockCount = computeLowStockItems().length;
     } catch (err) {
-
         lowStockCount = 0;
     }
-
     let activeShiftCount = 0;
     try {
         const shiftMeta = readData(FILE_SHIFT_META, { cashiers: {} });
@@ -4249,7 +3258,6 @@ function computeBranchSummaryPayload() {
     } catch (err) {
         activeShiftCount = 0;
     }
-
     return {
         grossSalesToday: Math.round(grossSalesToday * 100) / 100,
         netSalesToday: Math.round(grossSalesToday * 100) / 100,
@@ -4258,54 +3266,19 @@ function computeBranchSummaryPayload() {
         activeShiftCount
     };
 }
-
 const relayBranchStatus = {
     state: 'orange',
     lastAttemptAt: null,
     lastSuccessAt: null,
     lastError: null,
-    // Purely informational — separate from `state` (which reflects
-    // whether the check-in ITSELF is succeeding) so that a store which
-    // hasn't purchased Multi-Branch Dashboard yet can still show
-    // state:'green' (check-in working fine, contributing to Multi-
-    // Terminal Discount grouping) while this flag notes that the
-    // COMBINED VIEW is still locked until they subscribe.
     multiBranchFeatureLocked: true
 };
-
 async function runRelayBranchCheckin() {
-
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
     if (!groupKeyHash) return;
-
-    // BUG FIX (Aug 2026): dati, agad na-re-return ang function na ito
-    // (WALANG tinatawagang RELAY) maliban kung naka-unlock na ang
-    // multi_branch subscription — kahit may naka-configure na ang
-    // merchant na Business Group Code. Resulta: kailanman ay HINDI
-    // nakaka-checkin sa RELAY ang isang device maliban kung nagbayad na
-    // ito para sa Multi-Branch Dashboard mismo — pero ang parehong
-    // grouping data na ito (branchSummaries sa RELAY) ang siya ring
-    // pinagbabatayan ng bagong Multi-Terminal Discount feature (tingnan
-    // ang getGroupDeviceCount() sa RELAY/server.js), kaya sa lumang
-    // gawi, HINDI kailanman makakatanggap ng discount ang isang
-    // negosyong may maraming terminal maliban kung binili na rin nila
-    // ang Multi-Branch Dashboard — circular at halos walang epekto ang
-    // discount para sa karamihan ng maliliit na negosyo.
-    //
-    // Ang pagtingin sa COMBINED dashboard mismo ay HIWALAY nang naka-
-    // gate ng requireFeature('multi_branch') sa /api/branches/summary
-    // (tingnan sa ibaba) — kaya ligtas na payagan ang checkin na ito
-    // (isang beses lang bawat 5 minuto, sariling datos lang ng tindahan
-    // ang ipinapadala) anuman ang subscription status; ang pagbabayad
-    // pa rin ang kailangan para MAKITA ang combined view ng lahat ng
-    // branch, hindi para lang mailista bilang isang device sa group.
     const isMultiBranchUnlocked = getUnlockedFeatureIds().includes('multi_branch');
     relayBranchStatus.multiBranchFeatureLocked = !isMultiBranchUnlocked;
-    // NOTE: intentionally NOT returning here even when locked — the
-    // check-in call below still proceeds regardless of subscription
-    // status (see comment above this function).
-
     if (getConnectivityMode() === 'offline') {
         relayBranchStatus.state = 'orange';
         relayBranchStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
@@ -4321,14 +3294,11 @@ async function runRelayBranchCheckin() {
         relayBranchStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
         return;
     }
-
     relayBranchStatus.lastAttemptAt = Date.now();
-
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
         const summary = computeBranchSummaryPayload();
-
         const relayRes = await relayFetch(`${RELAY_URL}/relay/branch-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -4340,13 +3310,11 @@ async function runRelayBranchCheckin() {
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             relayBranchStatus.state = 'orange';
             relayBranchStatus.lastError = relayData.message || 'Tinanggihan ng relay ang branch check-in.';
             return;
         }
-
         relayBranchStatus.state = 'green';
         relayBranchStatus.lastSuccessAt = Date.now();
         relayBranchStatus.lastError = null;
@@ -4355,14 +3323,11 @@ async function runRelayBranchCheckin() {
         relayBranchStatus.lastError = err.message;
     }
 }
-
 setTimeout(runRelayBranchCheckin, 50 * 1000);
 setInterval(runRelayBranchCheckin, 5 * 60 * 1000).unref();
-
 app.get('/api/relay-branch/status', (req, res) => {
     res.json({ success: true, ...relayBranchStatus });
 });
-
 app.post('/api/relay-branch/checkin-now', requirePermission('store_settings_view'), requireFeature('multi_branch'), rateLimit('relay-branch-checkin-now', 10, 10 * 60 * 1000), async (req, res) => {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     if (!hashBranchGroupKey(storeSettings.branchGroupKey)) {
@@ -4371,9 +3336,7 @@ app.post('/api/relay-branch/checkin-now', requirePermission('store_settings_view
             message: 'Walang naka-set na Business Group Code. Ilagay muna ito sa itaas, i-Save, saka subukan ulit.'
         });
     }
-
     await runRelayBranchCheckin();
-
     if (relayBranchStatus.state === 'green') {
         return res.json({ success: true, message: 'Successful ang check-in! Makikita ka na ng ibang branch (o sila sayo) sa loob ng ilang segundo.', status: relayBranchStatus });
     }
@@ -4383,29 +3346,24 @@ app.post('/api/relay-branch/checkin-now', requirePermission('store_settings_view
         status: relayBranchStatus
     });
 });
-
 app.get('/api/branches/summary', requirePermission('branches_view'), requireFeature('multi_branch'), async (req, res) => {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
-
     if (!groupKeyHash) {
         return res.json({ success: true, configured: false, branchCount: 0, branches: [], combined: null });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, configured: true, message: 'Walang RELAY_API_KEY na naka-configure sa .env.' });
     }
-
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
         const url = `${RELAY_URL}/relay/branch-summary?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`;
-
         const relayRes = await relayFetch(url, {
             method: 'GET',
             headers: { 'x-relay-key': RELAY_API_KEY }
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             return res.status(relayRes.status || 502).json({
                 success: false,
@@ -4413,7 +3371,6 @@ app.get('/api/branches/summary', requirePermission('branches_view'), requireFeat
                 message: relayData.message || 'Hindi makuha ang branch summary mula sa relay.'
             });
         }
-
         res.json({
             success: true,
             configured: true,
@@ -4431,13 +3388,11 @@ app.get('/api/branches/summary', requirePermission('branches_view'), requireFeat
         res.status(502).json({ success: false, configured: true, message: `Hindi maabot ang relay: ${err.message}` });
     }
 });
-
 let integrityWatchDebounceTimer = null;
 let integrityWatchLastRunAt = 0;
 const INTEGRITY_WATCH_DEBOUNCE_MS = 800;
 const INTEGRITY_WATCH_MIN_GAP_MS = 1500;
 const integrityWatchers = new Map();
-
 function scheduleIntegrityCheckinFromWatcher(changedPath) {
     if (integrityWatchDebounceTimer) clearTimeout(integrityWatchDebounceTimer);
     integrityWatchDebounceTimer = setTimeout(() => {
@@ -4449,7 +3404,6 @@ function scheduleIntegrityCheckinFromWatcher(changedPath) {
         }, wait);
     }, INTEGRITY_WATCH_DEBOUNCE_MS);
 }
-
 function watchDirForIntegrity(dir) {
     if (integrityWatchers.has(dir)) return;
     try {
@@ -4459,12 +3413,9 @@ function watchDirForIntegrity(dir) {
         watcher.on('error', () => { integrityWatchers.delete(dir); });
         integrityWatchers.set(dir, watcher);
     } catch (err) {
-
     }
 }
-
 function refreshIntegrityWatchers() {
-
     function walk(dir) {
         let entries;
         try {
@@ -4480,31 +3431,25 @@ function refreshIntegrityWatchers() {
     }
     walk(__dirname);
 }
-
 if (!INTEGRITY_MONITOR_DISABLED) {
     setTimeout(refreshIntegrityWatchers, 10 * 1000);
     setInterval(refreshIntegrityWatchers, 5 * 60 * 1000).unref();
 }
-
 let integrityCheckNowInProgress = false;
 const INTEGRITY_CHECK_NOW_POLL_MS = Number(process.env.RELAY_INTEGRITY_CHECK_NOW_POLL_MS) || 3 * 1000;
-
 async function pollPendingIntegrityCheckNow() {
     if (!RELAY_API_KEY || getConnectivityMode() === 'offline') return;
     if (integrityCheckNowInProgress) return;
     if (!(await isInternetLikelyUp())) return;
-
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-
         const relayRes = await relayFetch(`${RELAY_URL}/relay/pending-integrity-check`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ installationId })
         }, 8000);
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.success && relayData.pending) {
             integrityCheckNowInProgress = true;
             try {
@@ -4514,23 +3459,18 @@ async function pollPendingIntegrityCheckNow() {
             }
         }
     } catch (err) {
-
     }
 }
-
 if (!INTEGRITY_MONITOR_DISABLED && RELAY_API_KEY) {
     setTimeout(pollPendingIntegrityCheckNow, 15 * 1000);
     setInterval(() => { pollPendingIntegrityCheckNow().catch(() => {}); }, INTEGRITY_CHECK_NOW_POLL_MS).unref();
 }
-
 app.get('/api/relay-integrity/status', (req, res) => {
     res.json({ success: true, ...relayIntegrityStatus });
 });
-
 app.get('/api/connectivity-mode', (req, res) => {
     res.json({ success: true, mode: getConnectivityMode() });
 });
-
 app.post('/api/connectivity-mode', (req, res) => {
     const { mode } = req.body || {};
     if (mode !== 'online' && mode !== 'offline') {
@@ -4539,78 +3479,40 @@ app.post('/api/connectivity-mode', (req, res) => {
     const saved = setConnectivityMode(mode);
     res.json({ success: true, mode: saved });
 });
-
 const cloudBackupStatus = {
     state: 'idle',
     lastAttemptAt: null,
     lastSuccessAt: null,
     lastError: null,
     lastTotalRecords: null,
-    lastTrigger: null, // 'manual' | 'automatic'
-    // BUG FIX: distinguishes "the last attempt failed specifically because
-    // RELAY rate-limited us" from any other kind of failure — used by
-    // maybeRunAutomaticCloudBackup() below to decide how long to back off
-    // before trying again automatically. See that function for the full
-    // explanation of the bug this fixes.
+    lastTrigger: null, 
     lastErrorWasRateLimited: false,
-    // "Na-consume" na storage sa RELAY's Postgres — cache lang ito ng
-    // pinakahuling alam na value (mula sa sync response o sa live
-    // /relay/cloud-backup/usage check sa /api/cloud-backup/status route
-    // sa ibaba), para may makita agad ang UI kahit hindi pa na-refresh.
     lastSizeBytes: null,
     lastSizeMB: null,
     lastQuotaMB: null,
     lastPercentUsed: null,
-    // BUG FIX: mga bagong field para sa LIVE upload progress (habang
-    // isinasagawa pa lang ang pag-upload patungong RELAY, bago pa man
-    // matapos ang buong sync) — ginagamit ng /api/cloud-backup/status
-    // (na sine-spread na ang buong cloudBackupStatus object papunta sa
-    // response nito) at ng frontend polling sa runCloudBackupSync (app.js)
-    // para maipakita bilang isang progress bar (bytes uploaded/total) at
-    // elapsed time.
     uploadStartedAt: null,
     uploadedBytes: null,
     uploadTotalBytes: null
 };
-
-// --------------------------------------------------------------
-// getCloudBackupSubscriptionInfo — combines (1) the ACTUAL signed
-// token (`tokens.cloud_backup`, with expiresAt — this is what actually
-// governs access) and (2) the tier/billingCycle metadata
-// (`cloudBackupPlan`, display + scheduling only) to figure out WHICH
-// plan the auto-backup scheduler below should use.
-// --------------------------------------------------------------
 function getCloudBackupSubscriptionInfo() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     const token = data.tokens[CLOUD_BACKUP_FEATURE_ID];
     const active = !!(token && verifyUnlockToken(token, installationId, CLOUD_BACKUP_FEATURE_ID));
-    const expiresAt = (token && typeof token.payload.expiresAt === 'number') ? token.payload.expiresAt : null; // null = permanent legacy one-time buyer
+    const expiresAt = (token && typeof token.payload.expiresAt === 'number') ? token.payload.expiresAt : null; 
     const plan = (data.cloudBackupPlan && CLOUD_BACKUP_PLANS[data.cloudBackupPlan.tier]) ? data.cloudBackupPlan : null;
     return {
         active,
         expiresAt,
-        tier: plan ? plan.tier : (active ? 'basic' : null), // legacy one-time buyers (no recoverable tier) -> treat as Basic-frequency as a safe default
+        tier: plan ? plan.tier : (active ? 'basic' : null), 
         billingCycle: plan ? plan.billingCycle : null,
         isLegacyLifetime: active && expiresAt === null && !plan
     };
 }
-
-// --------------------------------------------------------------
-// GET /api/cloud-backup/status
-// Ipinapakita rito ang cached na cloudBackupStatus (kasama na ang
-// lastSizeBytes/lastSizeMB mula sa huling sync). Karagdagan: sinusubukan
-// din nitong mag-live-check sa RELAY (/relay/cloud-backup/usage) para
-// makuha ang PINAKA-UPDATED na "na-consume na storage" kahit hindi pa
-// nagre-refresh ang cached value dito (hal. bago pa lang na-restart ang
-// OMNIPOS server, o may na-sync na ibang paraan/device). Kung hindi
-// maabot ang RELAY o walang RELAY_API_KEY, babalik lang sa cached value
-// (hindi ito dapat maging dahilan para mabigo ang buong status check).
-// --------------------------------------------------------------
 app.get('/api/cloud-backup/status', async (req, res) => {
     const subscription = getCloudBackupSubscriptionInfo();
     let liveUsage = null;
-
     if (subscription.active && RELAY_API_KEY) {
         try {
             const featureData = readFeatureUnlocks();
@@ -4636,11 +3538,8 @@ app.get('/api/cloud-backup/status', async (req, res) => {
                 cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
             }
         } catch (err) {
-            // Tahimik lang na balewalain — babalik sa cached na value sa
-            // cloudBackupStatus sa halip na masira ang buong status check.
         }
     }
-
     res.json({
         success: true,
         ...cloudBackupStatus,
@@ -4655,49 +3554,8 @@ app.get('/api/cloud-backup/status', async (req, res) => {
         subscription
     });
 });
-
-// --------------------------------------------------------------
-// NO-INTERRUPT GUARD: only ONE cloud backup upload (manual OR automatic)
-// is ever allowed to run at a time for this installation. Nothing is
-// permitted to start a second one — not the "Sync" button, not the
-// automatic scheduler — while a previous one is still running. This
-// flag is checked as the VERY FIRST thing in performCloudBackupUpload,
-// before cloudBackupStatus is touched, so a rejected second call never
-// clobbers the progress of the one already in flight. The ONLY thing
-// that is allowed to stop an upload before it completes is the plan's
-// storage quota being exceeded (checked by RELAY at /upload/start and
-// again at /upload/finish, below) — every other kind of hiccup (a
-// dropped chunk, a slow connection, etc.) is retried rather than
-// treated as a reason to give up.
-// --------------------------------------------------------------
 let cloudBackupUploadInFlight = false;
-
-// 100 KB per chunk (fallback only — RELAY's own chunkSizeBytes, returned
-// by /upload/start, is what's actually used below; this just matches it
-// so the two stay in sync even if one side is redeployed slightly before
-// the other). Smaller chunks = more frequent, smoother progress updates.
 const CLOUD_BACKUP_CHUNK_SIZE_BYTES = 100 * 1024;
-
-// --------------------------------------------------------------
-// ADAPTIVE CHUNK SIZE — dati, FIXED na laki lang (100 KB) ang bawat
-// chunk kahit gaano pa kabilis ang internet ng device. Ngayon, kusang
-// "nag-fu-fluctuate" ito paakyat/pababa base sa TUNAY na bilis (measured
-// mula sa mismong round-trip ng bawat chunk papunta sa RELAY, hindi
-// basta pinapalagay): mabagal na koneksyon = maliliit na chunks (mas
-// ligtas, mas madalas ang progress update, mas kaunting nasasayang kapag
-// naputol); mabilis na koneksyon = unti-unting lumalaki ang chunks
-// hanggang 5 MB (mas kaunting HTTP round-trips = mas mabilis matapos ang
-// buong upload).
-//
-// Tiers (bytes/sec, base sa AVERAGE ng huling ilang successful chunks,
-// hindi ng isang sample lang, para hindi basta-basta nagpapalit-palit
-// dahil sa pansamantalang spike/dip):
-//   < 150 KB/s   -> 100 KB chunks
-//   < 700 KB/s   -> 500 KB chunks
-//   < 1.5 MB/s   -> 1 MB   chunks
-//   < 4 MB/s     -> 3 MB   chunks
-//   >= 4 MB/s    -> 5 MB   chunks
-// --------------------------------------------------------------
 const CLOUD_BACKUP_CHUNK_TIERS = [
     { maxBytesPerSec: 150 * 1024,          size: 100 * 1024 },
     { maxBytesPerSec: 700 * 1024,          size: 500 * 1024 },
@@ -4705,47 +3563,13 @@ const CLOUD_BACKUP_CHUNK_TIERS = [
     { maxBytesPerSec: 4 * 1024 * 1024,     size: 3 * 1024 * 1024 },
     { maxBytesPerSec: Infinity,            size: 5 * 1024 * 1024 }
 ];
-
 function formatMBForLog(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
-
-// --------------------------------------------------------------
-// performCloudBackupUpload — the ONE place where the whole database is
-// actually uploaded to RELAY (Postgres). Used by TWO callers: (1) the
-// /api/cloud-backup/sync route below (MANUAL, triggered by the Admin,
-// with password confirmation), and (2) the automatic scheduler (see
-// maybeRunAutomaticCloudBackup()) which runs on its own based on the
-// frequency included in the Cloud Backup plan (Basic = 24h, Standard =
-// 6h, Pro = 1h) — no password prompt since this is an automatic/local
-// trigger, not something a person typed.
-//
-// BUG FIX (fake/instant progress bar): the old version sent the WHOLE
-// backup as a single streamed request body, and counted a byte as
-// "uploaded" the moment it was handed to Node's local write buffer.
-// Because the OS's own TCP send buffer can silently swallow several MB
-// before anything has actually reached RELAY, the progress bar would
-// race to 100% almost instantly while the real transfer over the
-// network was still happening in the background — so if the connection
-// then failed, the user had already seen "100%" and the failure looked
-// like data was lost after a successful upload, when really nothing
-// had been saved at all.
-//
-// FIX: the backup is now split into fixed 100 KB CHUNKS, each sent as its
-// own separate HTTP request to RELAY. A chunk only counts toward
-// cloudBackupStatus.uploadedBytes once RELAY has sent back a real,
-// successful response confirming it actually received that chunk —
-// i.e. progress only ever reflects data RELAY has truly acknowledged,
-// never just data sitting in a local buffer. If a chunk fails, it is
-// retried a few times; if it still fails, the upload stops and reports
-// truthfully how much was actually confirmed, instead of silently
-// jumping to 100%.
-// --------------------------------------------------------------
 async function performCloudBackupUpload(trigger, actorUsername) {
     if (getConnectivityMode() === 'offline') {
         return { success: false, status: 400, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to back up to the cloud.' };
     }
-
     if (cloudBackupUploadInFlight) {
         return {
             success: false,
@@ -4755,35 +3579,24 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         };
     }
     cloudBackupUploadInFlight = true;
-
     cloudBackupStatus.state = 'syncing';
     cloudBackupStatus.lastAttemptAt = Date.now();
     cloudBackupStatus.lastTrigger = trigger;
-    // Reset the rate-limit flag at the start of every fresh attempt — if
-    // this attempt fails for some OTHER reason, we don't want to keep
-    // applying the (longer) rate-limit cooldown based on a stale flag from
-    // an earlier, unrelated failure.
     cloudBackupStatus.lastErrorWasRateLimited = false;
-    // I-reset ang LIVE progress fields ng bagong pagsubok na ito (bago pa
-    // man malaman kung ilan ang kabuuang laki) — para hindi makita ng
-    // frontend ang natitirang progress bar mula sa dati/nabigong sync.
     cloudBackupStatus.uploadStartedAt = null;
     cloudBackupStatus.uploadedBytes = null;
     cloudBackupStatus.uploadTotalBytes = null;
-
     if (!RELAY_API_KEY) {
         cloudBackupUploadInFlight = false;
         cloudBackupStatus.state = 'error';
         cloudBackupStatus.lastError = 'No RELAY_API_KEY is configured in .env.';
         return { success: false, status: 500, message: cloudBackupStatus.lastError };
     }
-
     try {
         const featureData = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(featureData);
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const backupPayload = getCloudBackupPayload();
-
         const backupBodyBuffer = Buffer.from(JSON.stringify({
             installationId,
             storeName: (receiptSettings && receiptSettings.storeName) || null,
@@ -4792,15 +3605,9 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             totalRecords: backupPayload.totalRecords,
             generatedAt: backupPayload.generatedAt
         }), 'utf8');
-
         cloudBackupStatus.uploadStartedAt = Date.now();
         cloudBackupStatus.uploadedBytes = 0;
         cloudBackupStatus.uploadTotalBytes = backupBodyBuffer.length;
-
-        // Small helper: retry a transient (network-level) failure a few
-        // times with backoff, but never retry a definitive/structured
-        // answer from RELAY itself (402 locked, 413 too large/over quota,
-        // 409 already in progress) — those are real answers, not blips.
         async function withTransientRetry(fn, { attempts = 3, delaysMs = [3000, 8000] } = {}) {
             let lastErr;
             for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -4814,7 +3621,6 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             }
             throw lastErr;
         }
-
         function throwIfRateLimited(res) {
             if (res.status === 429) {
                 const retryAfterSec = parseInt(res.headers.get('retry-after'), 10);
@@ -4826,15 +3632,6 @@ async function performCloudBackupUpload(trigger, actorUsername) {
                 throw err;
             }
         }
-
-        // ------------------------------------------------------------
-        // 1) START — reserve an upload session on RELAY. This is where
-        // RELAY checks (a) the Cloud Backup feature is unlocked and (b)
-        // the declared total size fits the plan's storage quota — the
-        // ONLY condition that is allowed to stop/refuse a backup — and
-        // also where RELAY enforces the "one upload at a time per
-        // installation" lock, so this same guard exists on both ends.
-        // ------------------------------------------------------------
         const startRes = await withTransientRetry(async () => {
             const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload/start`, {
                 method: 'POST',
@@ -4845,7 +3642,6 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             return res;
         });
         const startData = await parseRelayResponse(startRes);
-
         if (startRes.status === 402 || startData.featureLocked) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = startData.message || 'The Cloud Backup subscription is still locked/expired.';
@@ -4876,48 +3672,18 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             cloudBackupStatus.lastError = startData.message || 'RELAY rejected the cloud backup upload.';
             return { success: false, status: 502, message: cloudBackupStatus.lastError };
         }
-
         const uploadId = startData.uploadId;
-        // RELAY's own chunkSizeBytes (kung binigay) ay itinuturing na
-        // CEILING na lang ngayon — hindi na iisang laki lang habang buo
-        // ang upload — para magamit ang adaptive sizing sa ibaba. Kung
-        // walang sinabi ang RELAY (o mas mataas pa sa pinakamalaking
-        // tier), ang default ceiling ay ang pinakamataas na tier (5 MB).
-        // NOTE: kailangan ding tugma ang RELAY /upload/chunk endpoint
-        // (dapat tinatanggap nito ang VARYING na laki ng bawat chunk
-        // request, hindi lang iisang fixed na laki) para talagang
-        // gumana ang pag-akyat hanggang 5 MB.
         const chunkCeilingBytes = Math.min(
             startData.chunkSizeBytes || CLOUD_BACKUP_CHUNK_TIERS[CLOUD_BACKUP_CHUNK_TIERS.length - 1].size,
             CLOUD_BACKUP_CHUNK_TIERS[CLOUD_BACKUP_CHUNK_TIERS.length - 1].size
         );
-
-        // ------------------------------------------------------------
-        // 2) CHUNKS — send sequentially, may ADAPTIVE na laki (see
-        // CLOUD_BACKUP_CHUNK_TIERS above). Nagsisimula sa pinaka-maliit/
-        // pinaka-ligtas na tier (100 KB). "Slow start" paakyat: isang
-        // tier lang ang tumataas kada successful chunk, base sa AVERAGE
-        // na measured speed ng huling hanggang 3 chunks — kaya kahit
-        // isang mabilis na sample palang, hindi basta tumatalon agad
-        // sa 5 MB. "Fast backoff" pababa: bumabalik agad sa 100 KB
-        // (kahit ilang tier ang lundag) kapag kinailangan pang i-retry
-        // ang isang chunk — malinaw na senyales iyon ng congestion o
-        // pagkaputol-putol ng koneksyon, kaya mas ligtas munang
-        // magpaliit bago subukan ulit palakihin.
-        //
-        // uploadedBytes ay tumataas pa rin lang kapag ACTUAL na
-        // na-confirm na ng RELAY ang chunk — hindi ito nagbago, panatag
-        // pa rin ang totoong progress bar.
-        // ------------------------------------------------------------
         let offset = 0;
-        let tierIndex = 0; // simula sa pinaka-maliit/ligtas na 100 KB
-        const recentSpeedSamples = []; // bytes/sec, huling hanggang 3 successful chunks
-
+        let tierIndex = 0; 
+        const recentSpeedSamples = []; 
         while (offset < backupBodyBuffer.length) {
             const chunkSize = Math.min(CLOUD_BACKUP_CHUNK_TIERS[tierIndex].size, chunkCeilingBytes);
             const end = Math.min(offset + chunkSize, backupBodyBuffer.length);
             const chunkBuf = backupBodyBuffer.subarray(offset, end);
-
             let neededRetry = false;
             let attemptCount = 0;
             const chunkStartedAt = Date.now();
@@ -4946,22 +3712,11 @@ async function performCloudBackupUpload(trigger, actorUsername) {
                 cloudBackupStatus.lastError = `Lost connection while uploading the backup (stopped at ${formatMBForLog(offset)} of ${formatMBForLog(backupBodyBuffer.length)} — ${chunkErr.message}). No partial backup was saved; please try syncing again.`;
                 return { success: false, status: 502, message: cloudBackupStatus.lastError };
             }
-
             const elapsedSec = Math.max((Date.now() - chunkStartedAt) / 1000, 0.001);
             const measuredBytesPerSec = chunkBuf.length / elapsedSec;
-
             offset = end;
-            // GENUINE progress — only moves forward once RELAY has
-            // actually confirmed this chunk over the network.
             cloudBackupStatus.uploadedBytes = offset;
-
-            // --- I-adjust ang tier para sa SUSUNOD na chunk ---
             if (neededRetry) {
-                // Nag-timeout/nag-fail muna bago natuloy ang chunk na ito —
-                // malinaw na senyales ng congestion/mahinang koneksyon.
-                // Bumalik agad sa pinaka-maliit/ligtas na tier sa halip
-                // na unti-unti lang, at kalimutan muna ang lumang
-                // speed samples (baka luma/hindi na representative).
                 tierIndex = 0;
                 recentSpeedSamples.length = 0;
             } else {
@@ -4973,18 +3728,12 @@ async function performCloudBackupUpload(trigger, actorUsername) {
                     if (avgBytesPerSec < CLOUD_BACKUP_CHUNK_TIERS[i].maxBytesPerSec) { idealTierIndex = i; break; }
                 }
                 if (idealTierIndex > tierIndex) {
-                    tierIndex += 1; // "slow start" — isang tier lang kada successful chunk
+                    tierIndex += 1; 
                 } else if (idealTierIndex < tierIndex) {
-                    tierIndex = idealTierIndex; // pwedeng bumaba agad nang buo papunta sa mas mababa
+                    tierIndex = idealTierIndex; 
                 }
             }
         }
-
-        // ------------------------------------------------------------
-        // 3) FINISH — RELAY re-validates (feature unlock + quota, using
-        // the ACTUAL assembled size, not just what was declared at
-        // /start) and writes everything to Postgres in one transaction.
-        // ------------------------------------------------------------
         const finishRes = await withTransientRetry(async () => {
             const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload/finish`, {
                 method: 'POST',
@@ -4995,13 +3744,11 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             return res;
         });
         const relayData = await parseRelayResponse(finishRes);
-
         if (finishRes.status === 402 || relayData.featureLocked) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'The Cloud Backup subscription is still locked/expired.';
             return { success: false, status: 402, body: relayData };
         }
-
         if (relayData.storageQuotaExceeded) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'Cloud backup exceeds your plan\'s storage allowance.';
@@ -5017,13 +3764,11 @@ async function performCloudBackupUpload(trigger, actorUsername) {
                 overageMB: relayData.overageMB
             };
         }
-
         if (!relayData.success) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'RELAY rejected the cloud backup upload.';
             return { success: false, status: 502, message: cloudBackupStatus.lastError };
         }
-
         cloudBackupStatus.state = 'success';
         cloudBackupStatus.lastSuccessAt = Date.now();
         cloudBackupStatus.lastError = null;
@@ -5035,9 +3780,7 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
             cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
         }
-
         logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}): synced ${backupPayload.moduleNames.length} modules (${backupPayload.totalRecords} records, ${relayData.sizeMB ?? '?'} MB) to cloud.`);
-
         return {
             success: true,
             status: 200,
@@ -5067,7 +3810,6 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupUploadInFlight = false;
     }
 }
-
 app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
     const { username, password } = req.body || {};
     const currentUsersForSync = readData(FILE_USERS, []);
@@ -5075,77 +3817,39 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
     if (!currentAdminForSync || !bcrypt.compareSync(password || '', currentAdminForSync.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Cloud backup was not authorized.' });
     }
-
     const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username);
     if (result.body) return res.status(result.status).json(result.body);
     return res.status(result.status).json(result);
 });
-
-// --------------------------------------------------------------
-// AUTOMATIC CLOUD BACKUP SCHEDULER — this is the actual "auto backup
-// every X hours" promise of each Cloud Backup plan (Basic 24h,
-// Standard 6h, Pro 1h). Instead of a separate setInterval per tier
-// (which would need to be restarted whenever the user upgrades/
-// downgrades their plan), this is simpler/more robust: it ticks every
-// 15 minutes ("heartbeat") and just checks whether the CURRENT plan's
-// interval has ELAPSED since the last successful backup.
-// --------------------------------------------------------------
 const AUTO_CLOUD_BACKUP_HEARTBEAT_MS = 15 * 60 * 1000;
-
-// BUG FIX: `dueAt` below is based on `lastSuccessAt` — but if an automatic
-// attempt FAILS, `lastSuccessAt` is never updated, so `dueAt` stays stuck in
-// the past and every single 15-minute heartbeat from then on would see the
-// backup as "overdue" and retry immediately, forever, with no backoff at
-// all. In practice this is exactly what produced the "Could not reach RELAY
-// ... RATE_LIMITED: Too many cloud backup uploads in the last hour" error
-// persisting for HOURS even though RELAY's own rate-limit window is only 60
-// minutes: a rejected (429) request doesn't get counted by RELAY, but any
-// OTHER kind of failure (e.g. a genuinely oversized payload, a flaky
-// connection, etc.) DOES still consume one of the 30-per-hour upload slots.
-// So once something started failing, the unthrottled 15-minute retry loop
-// kept re-consuming slots faster than the window could drain, keeping the
-// bucket topped up near/at its limit indefinitely — which is why simply
-// waiting "a few minutes" never actually cleared it.
-//
-// The fix: after a FAILED attempt, don't retry automatically again until a
-// cooldown has passed since that attempt (not just since the last success).
-// A rate-limited failure gets a longer cooldown (just over RELAY's own
-// 60-minute window), since retrying sooner is guaranteed to fail again.
-const AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS = 60 * 60 * 1000; // 1 hour
-const AUTO_RETRY_COOLDOWN_AFTER_RATE_LIMIT_MS = 65 * 60 * 1000; // a bit over RELAY's 60-min rate-limit window
-
+const AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS = 60 * 60 * 1000; 
+const AUTO_RETRY_COOLDOWN_AFTER_RATE_LIMIT_MS = 65 * 60 * 1000; 
 async function maybeRunAutomaticCloudBackup() {
     const subscription = getCloudBackupSubscriptionInfo();
-    if (!subscription.active) return; // no active subscription/it has expired — nothing to do
+    if (!subscription.active) return; 
     if (getConnectivityMode() === 'offline') return;
     if (!(await isInternetLikelyUp())) return;
-
     const plan = CLOUD_BACKUP_PLANS[subscription.tier] || CLOUD_BACKUP_PLANS.basic;
     const dueAt = (cloudBackupStatus.lastSuccessAt || 0) + plan.autoBackupIntervalMs;
-    if (Date.now() < dueAt) return; // not due yet
-
+    if (Date.now() < dueAt) return; 
     if (cloudBackupStatus.state === 'error' && cloudBackupStatus.lastAttemptAt) {
         const cooldownMs = cloudBackupStatus.lastErrorWasRateLimited
             ? AUTO_RETRY_COOLDOWN_AFTER_RATE_LIMIT_MS
             : AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS;
-        if (Date.now() - cloudBackupStatus.lastAttemptAt < cooldownMs) return; // still cooling down after the last failure
+        if (Date.now() - cloudBackupStatus.lastAttemptAt < cooldownMs) return; 
     }
-
     await performCloudBackupUpload('automatic', null);
 }
-
 if (!AUTO_BACKUP_DISABLED) {
     setTimeout(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, 2 * 60 * 1000);
     setInterval(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, AUTO_CLOUD_BACKUP_HEARTBEAT_MS).unref();
 }
-
 function mergeRestoredUsers(restoredUsers) {
     const currentUsers = readData(FILE_USERS, []);
     const currentByUsername = new Map(
         currentUsers.map(u => [String(u.username || '').toLowerCase(), u])
     );
     const accountsNeedingPasswordReset = [];
-
     const merged = restoredUsers.map(record => {
         const clone = { ...record };
         const key = String(clone.username || '').toLowerCase();
@@ -5153,67 +3857,30 @@ function mergeRestoredUsers(restoredUsers) {
         if (existing && existing.password) {
             clone.password = existing.password;
         } else {
-
             clone.password = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
             accountsNeedingPasswordReset.push(clone.username);
         }
         return clone;
     });
-
     return { merged, accountsNeedingPasswordReset };
 }
-
 app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit('cloud-backup-restore', 5, 15 * 60 * 1000), async (req, res) => {
     const { username, password } = req.body;
-
     const currentUsers = readData(FILE_USERS, []);
     const currentAdmin = currentUsers.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
     if (!currentAdmin || !bcrypt.compareSync(password || '', currentAdmin.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Restore was not authorized.' });
     }
-
     if (getConnectivityMode() === 'offline') {
         return res.status(400).json({ success: false, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to restore from the cloud.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
     }
-
     try {
         const featureData = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(featureData);
         const hardwareFingerprint = computeHardwareFingerprint(featureData);
-
-        // BUG FIX: kagaya ng sa performCloudBackupUpload sa itaas — dating
-        // default (20000ms), pagkatapos ay 180000ms na lang ang timeout
-        // dito, hindi pa rin sapat para sa pag-download/restore ng
-        // hanggang ~1GB na backup (maraming product images). 40 minuto na
-        // ngayon (2,400,000ms), katugma ng buong chain sa itaas.
-        //
-        // BUG FIX: kagaya rin ng sa performCloudBackupUpload — dating isang
-        // subok lang (single attempt) ang restore, kaya kahit alin sa
-        // dalawang anyo ng transient failure ang mangyari — (1) hindi man
-        // lang natapos ang koneksyon (relayFetch() mismo ang nag-throw), o
-        // (2) 502/503/504 mula sa gateway/proxy sa unahan ng RELAY habang
-        // ito ay nagre-restart (parseRelayResponse() ang nag-throw dahil
-        // walang `success` field ang response body — ibig sabihin hindi ito
-        // mula sa RELAY app code mismo) — agad na-mamark bilang "Hindi
-        // ma-abot ang RELAY" kahit maayos na sana kung sinubukan ulit
-        // pagkalipas ng ilang segundo. Inuulit na ngayon hanggang 3 beses
-        // (5s/15s backoff) BAGO ito ituring na tunay na hindi-maabot —
-        // hindi ito ginagawa kapag structured na sagot (402 locked, atbp. —
-        // palaging may `success` field, kaya hindi nagpapa-throw sa
-        // parseRelayResponse) na ang natanggap mula RELAY APP CODE mismo,
-        // dahil doon tama nang ipakita agad ang totoong dahilan.
-        //
-        // BUG FIX: 429 ("Too Many Requests" — narating na ng restore
-        // attempts ang rate limit ng RELAY, 5 bawat 15 minuto — o network-
-        // level rate limit ng hosting sa unahan nito) ay HINDI dapat
-        // i-retry: oras (minuto) ang window nito, kaya walang saysay ang
-        // 5s/15s backoff at maaari pa itong lalong makasira sa budget ng
-        // rate limit. Agad na huminto ang loop kapag ito ang natanggap, at
-        // malinaw na "maghintay muna" ang mensahe sa halip na generic/
-        // nakakalitong "non-JSON response".
         const CLOUD_BACKUP_RESTORE_MAX_ATTEMPTS = 3;
         const CLOUD_BACKUP_RESTORE_RETRY_DELAYS_MS = [5000, 15000];
         let relayRes;
@@ -5251,18 +3918,15 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
             }
         }
         if (lastNetworkErr) throw lastNetworkErr;
-
         if (relayRes.status === 402 || relayData.featureLocked) {
             return res.status(402).json(relayData);
         }
         if (!relayData.success) {
             return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the cloud backup restore.' });
         }
-
         const modules = relayData.modules || {};
         let restoredCount = 0;
         const accountsNeedingPasswordReset = [];
-
         for (const [moduleName, data] of Object.entries(modules)) {
             if (moduleName === 'users' && Array.isArray(data)) {
                 const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
@@ -5274,9 +3938,7 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
                 restoredCount++;
             }
         }
-
         logAction(username, `Cloud Backup: restored ${restoredCount}/${Object.keys(modules).length} modules.`);
-
         res.json({
             success: true,
             message: `Successfully restored ${restoredCount} module(s) from Cloud Backup.`,
@@ -5285,16 +3947,11 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
             accountsNeedingPasswordReset
         });
     } catch (err) {
-        // BUG FIX: same as the upload route above — the message here used
-        // to be identical no matter the real cause (no internet,
-        // ECONNREFUSED, timeout). Now includes the actual reason code so
-        // it's immediately clear where to look.
         const reasonCode = err.code || err.name || 'ERR';
         console.error('⚠️ CLOUD_BACKUP: could not reach the relay for restore after retries:', reasonCode, '-', err.message);
         res.status(502).json({ success: false, message: `Could not reach RELAY for the cloud backup restore (${reasonCode}: ${err.message}).` });
     }
 });
-
 function isDemoActive() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
@@ -5302,37 +3959,24 @@ function isDemoActive() {
     if (!token) return false;
     return verifyUnlockToken(token, installationId, DEMO_FEATURE_ID);
 }
-
 function getDemoExpiry() {
     const data = readFeatureUnlocks();
     const token = data.tokens[DEMO_FEATURE_ID];
     if (!token || !token.payload) return null;
     return typeof token.payload.expiresAt ==='number' ? token.payload.expiresAt : null;
 }
-
 function getPurchasedFeatureIds() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     return Object.keys(data.tokens)
         .filter(featureId => featureId !== DEMO_FEATURE_ID)
         .filter(featureId => {
-            // RBAC Management / Multi-Branch Dashboard use grace-period-
-            // aware verification (still counted as "unlocked" for a few
-            // days after expiry, with a renewal warning shown elsewhere)
-            // — every other feature (including Cloud Backup) keeps the
-            // existing hard-cutoff verifyUnlockToken() behavior.
             if (isModuleSubscriptionFeature(featureId)) {
                 return verifyModuleSubscriptionToken(data.tokens[featureId], installationId, featureId).active;
             }
             return verifyUnlockToken(data.tokens[featureId], installationId, featureId);
         });
 }
-
-// getModuleSubscriptionGraceWarnings() — for each RBAC Management /
-// Multi-Branch Dashboard subscription that is CURRENTLY inside its grace
-// period (expired, but still working thanks to the buffer above), return
-// enough detail for the UI to show a renewal warning banner. Used by GET
-// /api/features/status below.
 function getModuleSubscriptionGraceWarnings() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
@@ -5353,22 +3997,18 @@ function getModuleSubscriptionGraceWarnings() {
     }
     return warnings;
 }
-
 function getUnlockedFeatureIds() {
     const purchased = getPurchasedFeatureIds();
-
     if (isDemoActive()) {
         return Array.from(new Set([...Object.keys(FEATURE_CATALOG), ...purchased]));
     }
     return purchased;
 }
-
 function isFullyProUnlocked() {
     const purchased = getPurchasedFeatureIds();
     const allIds = Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id));
     return allIds.length > 0 && allIds.every(id => purchased.includes(id));
 }
-
 function requireFeature(featureId) {
     return (req, res, next) => {
         const unlockedIds = getUnlockedFeatureIds();
@@ -5384,15 +4024,10 @@ function requireFeature(featureId) {
             featureName: feature ? feature.name : featureId,
             price: (feature && !feature.isSubscription) ? feature.price : null,
             isSubscription: !!(feature && feature.isSubscription),
-            // Cloud Backup is tiered (Basic/Standard/Pro) — `plans` is the
-            // per-tier object. RBAC Management / Multi-Branch Dashboard
-            // are flat (no tiers) — `subscriptionPrice` is just
-            // {monthly, yearly} for the one plan.
             plans: isCloudBackup ? feature.plans : undefined,
             subscriptionPrice: isModuleSubscription ? feature.subscriptionPrice : undefined,
             billingCycles: (feature && feature.isSubscription) ? feature.billingCycles : undefined,
             description: feature ? feature.description : null,
-
             showUpgradeTiers: (isCloudBackup || isModuleSubscription)
                 ? false
                 : (attemptCount > 0 && attemptCount % 2 === 0),
@@ -5404,7 +4039,6 @@ function requireFeature(featureId) {
         });
     };
 }
-
 function checkShiftManagementUnlocked() {
     const unlockedIds = getUnlockedFeatureIds();
     if (unlockedIds.includes('shift_management')) return { unlocked: true };
@@ -5423,21 +4057,16 @@ function checkShiftManagementUnlocked() {
         }
     };
 }
-
 async function attemptRelayRestore() {
     if (!RELAY_API_KEY) return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
-
     if (getConnectivityMode() === 'offline') {
         return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
     }
-
     if (!(await isInternetLikelyUp())) {
         return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/restore-tokens`, {
             method: 'POST',
@@ -5445,15 +4074,12 @@ async function attemptRelayRestore() {
             body: JSON.stringify({ installationId })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success || !relayData.tokens) {
             return { attempted: true, restoredCount: 0, restoredFeatureIds: [] };
         }
-
         let restoredCount = 0;
         const restoredFeatureIds = [];
         for (const [featureId, token] of Object.entries(relayData.tokens)) {
-
             if (data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
                 continue;
             }
@@ -5462,56 +4088,43 @@ async function attemptRelayRestore() {
             restoredCount++;
             restoredFeatureIds.push(featureId);
         }
-
         if (restoredCount > 0) {
             writeData(FILE_FEATURE_UNLOCKS, data);
             logAction('System', `Automatically restored ${restoredCount} feature(s) from Relay (post-reset check-in).`);
         }
-
         return { attempted: true, restoredCount, restoredFeatureIds };
     } catch (err) {
         console.warn('⚠️  Could not reach Relay for auto-restore check:', err.message);
         return { attempted: true, restoredCount: 0, restoredFeatureIds: [], error: err.message };
     }
 }
-
 setTimeout(() => {
     attemptRelayRestore().catch(() => {});
 }, 3000);
-
 async function attemptRelayFeatureSync() {
     const restoreResult = await attemptRelayRestore();
     const restoredFeatureIds = restoreResult.restoredFeatureIds || [];
-
     if (!RELAY_API_KEY || getConnectivityMode() === 'offline' || !(await isInternetLikelyUp())) {
         return { attempted: restoreResult.attempted, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures: [] };
     }
-
     const latestData = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(latestData);
     const localFeatureIds = Object.keys(latestData.tokens);
-
     const removedFeatures = [];
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/check-feature-status`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-
             body: JSON.stringify({ installationId, featureIds: localFeatureIds })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.success && relayData.forceIntegrityCheck) {
-
             runRelayIntegrityCheckin().catch(() => {});
         }
-
         if (relayData.success && relayData.statuses && typeof relayData.statuses === 'object') {
             for (const [featureId, info] of Object.entries(relayData.statuses)) {
                 if (!info || info.status === 'active') continue;
                 if (!latestData.tokens[featureId]) continue;
-
                 delete latestData.tokens[featureId];
                 removedFeatures.push({
                     featureId,
@@ -5520,7 +4133,6 @@ async function attemptRelayFeatureSync() {
                     reason: info.reason === 'expired' ? 'expired' : 'deactivated'
                 });
             }
-
             if (removedFeatures.length > 0) {
                 writeData(FILE_FEATURE_UNLOCKS, latestData);
                 const summary = removedFeatures.map(r => `${r.featureName} (${r.reason})`).join(', ');
@@ -5530,24 +4142,18 @@ async function attemptRelayFeatureSync() {
     } catch (err) {
         console.warn('⚠️  Could not reach Relay for the feature status check:', err.message);
     }
-
     return { attempted: true, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures };
 }
-
 const RELAY_FEATURE_SYNC_INTERVAL_MS = Number(process.env.RELAY_FEATURE_SYNC_INTERVAL_MS) || 30 * 1000;
 if (RELAY_API_KEY) {
-
     setTimeout(() => { attemptRelayFeatureSync().catch(() => {}); }, 10 * 1000);
     setInterval(() => { attemptRelayFeatureSync().catch(() => {}); }, RELAY_FEATURE_SYNC_INTERVAL_MS).unref();
 }
-
 app.post('/api/features/restore-check', rateLimit('feature-restore-check', 10, 10 * 60 * 1000), async (req, res) => {
     const result = await attemptRelayFeatureSync();
-
     const restoredFeatureIds = result.restoredFeatureIds || [];
     const demoRestored = restoredFeatureIds.includes(DEMO_FEATURE_ID);
     const purchasedRestoredCount = restoredFeatureIds.filter(id => id !== DEMO_FEATURE_ID).length;
-
     const messageParts = [];
     if (purchasedRestoredCount > 0) {
         messageParts.push(`Restored ${purchasedRestoredCount} previously purchased feature(s).`);
@@ -5561,7 +4167,6 @@ app.post('/api/features/restore-check', rateLimit('feature-restore-check', 10, 1
     if (messageParts.length === 0) {
         messageParts.push('Nothing newly restored — no configurations or previously unlocked features detected for this device.');
     }
-
     res.json({
         success: true,
         restoredCount: result.restoredCount,
@@ -5573,22 +4178,15 @@ app.post('/api/features/restore-check', rateLimit('feature-restore-check', 10, 1
         unlockedFeatureIds: getUnlockedFeatureIds()
     });
 });
-
 app.get('/api/features/status', (req, res) => {
     res.json({
         success: true,
         unlockedFeatureIds: getUnlockedFeatureIds(),
-
         purchasedFeatureIds: getPurchasedFeatureIds(),
         fullyPurchased: isFullyProUnlocked(),
-        // Module subscriptions (RBAC Management / Multi-Branch Dashboard)
-        // currently inside their post-expiry grace period — still
-        // unlocked/working, but the client should show a renewal warning
-        // banner for each of these until renewed.
         subscriptionGraceWarnings: getModuleSubscriptionGraceWarnings()
     });
 });
-
 async function parseRelayResponse(relayRes) {
     const rawText = await relayRes.text();
     let parsed;
@@ -5606,7 +4204,6 @@ async function parseRelayResponse(relayRes) {
     }
     return parsed;
 }
-
 function relayRejectionResponse(res, relayData, fallbackMessage) {
     if (relayData && relayData.deviceNotAllowed) {
         return res.status(403).json({
@@ -5617,53 +4214,35 @@ function relayRejectionResponse(res, relayData, fallbackMessage) {
     }
     return res.status(502).json({ success: false, message: (relayData && relayData.message) || fallbackMessage });
 }
-
 app.post('/api/features/request-unlock', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
     const { featureId, username, photo, tier, billingCycle } = req.body;
     const feature = FEATURE_CATALOG[featureId];
-
     if (!feature) {
         return res.status(400).json({ success: false, message:'Unknown feature.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
     const isModuleSubscription = isModuleSubscriptionFeature(featureId);
     let resolvedPrice = feature.price;
-
     if (isCloudBackup) {
-        // This is a subscription — a tier + billing cycle must be chosen
-        // before requesting an OTP. RELAY still makes the final call on
-        // the ACTUAL price (ground truth); here, we just validate early so
-        // the user is told right away if their selection is invalid,
-        // instead of waiting for a round-trip.
         resolvedPrice = getCloudBackupPlanPrice(tier, billingCycle);
         if (!CLOUD_BACKUP_PLANS[tier] || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle] || resolvedPrice === null) {
             return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
         }
     } else if (isModuleSubscription) {
-        // Flat monthly/yearly subscription — only a billing cycle is
-        // needed (no tier). Same early-validation idea as Cloud Backup.
         resolvedPrice = getModuleSubscriptionPrice(featureId, billingCycle);
         if (!MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle] || resolvedPrice === null) {
             return res.status(400).json({ success: false, message: `Please choose a valid billing cycle (Monthly/Yearly) for ${feature.name}.` });
         }
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
-    // For subscription features, we should NOT shortcut even if the old
-    // token is still "unlocked" — it must be possible to RENEW while the
-    // current one is still active (e.g. just before it expires, or while
-    // inside its grace period).
     const isAnySubscription = isCloudBackup || isModuleSubscription;
     if (!isAnySubscription && data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
         return res.json({ success: true, alreadyUnlocked: true, message: `Naka-unlock na ang ${feature.name}.` });
     }
-
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const relayRes = await relayFetch(`${RELAY_URL}/relay/request-unlock`, {
@@ -5682,11 +4261,9 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
         }
-
         logAction(username ||'Unknown', isCloudBackup
             ? `Requested an OTP to subscribe to Cloud Backup (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
             : isModuleSubscription
@@ -5698,13 +4275,11 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120, 10 * 60 * 1000), async (req, res) => {
     const { featureId, otp, username, tier, billingCycle } = req.body;
     const feature = FEATURE_CATALOG[featureId];
     const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
     const isModuleSubscription = isModuleSubscriptionFeature(featureId);
-
     if (!feature) {
         return res.status(400).json({ success: false, message:'Unknown feature.' });
     }
@@ -5714,10 +4289,8 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock`, {
             method:'POST',
@@ -5725,52 +4298,38 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
             body: JSON.stringify({ installationId, featureId, otp: String(otp).trim() })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.pending) {
             return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
         }
-
         if (!relayData.success) {
             return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
         }
-
         if (!verifyUnlockToken(relayData.token, installationId, featureId)) {
             console.error('⚠️ Natanggap ang isang token mula sa relay pero HINDI valid ang signature nito. Posibleng may problema sa RELAY_PUBLIC_KEY_PEM o kompromisado ang koneksyon.');
             return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
         }
-
         data.tokens[featureId] = relayData.token;
-
         if (isCloudBackup) {
-            // tier/billingCycle is METADATA only (display + so the
-            // auto-backup scheduler knows how often to auto-backup) — the
-            // RELAY-signed token (with expiresAt) is still what actually
-            // enforces whether the subscription is active.
             const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : tier;
             const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
             data.cloudBackupPlan = { tier: confirmedTier || null, billingCycle: confirmedCycle || null, activatedAt: Date.now() };
         } else if (isModuleSubscription) {
-            // Same idea as Cloud Backup above — metadata only (display
-            // purposes), for RBAC Management / Multi-Branch Dashboard.
             const confirmedCycle = (relayData.billingCycle && MODULE_SUBSCRIPTION_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
             data.moduleSubscriptions = data.moduleSubscriptions || {};
             data.moduleSubscriptions[featureId] = { billingCycle: confirmedCycle || null, activatedAt: Date.now() };
         }
-
         writeData(FILE_FEATURE_UNLOCKS, data);
         logAction(username ||'Unknown', isCloudBackup
             ? `Activated/renewed the Cloud Backup subscription (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle})`
             : isModuleSubscription
                 ? `Activated/renewed the ${feature.name} subscription (${data.moduleSubscriptions[featureId].billingCycle})`
                 : `Unlocked the feature: ${feature.name}`);
-
         res.json({ success: true, message: `${feature.name} has been unlocked!`, unlockedFeatureIds: getUnlockedFeatureIds() });
     } catch (err) {
         console.error('Hindi ma-abot ang Unlock Relay:', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 app.post('/api/admin/request-password-reset',
     rateLimit('admin-reset-request', 3, 15 * 60 * 1000),
     async (req, res) => {
@@ -5782,10 +4341,8 @@ app.post('/api/admin/request-password-reset',
             const installationId = getOrCreateInstallationId(data);
             const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
             const storeName = (receiptSettings && receiptSettings.storeName) || null;
-
             const users = readData(FILE_USERS) || [];
             const adminUser = users.find(u => u.role === 'Admin');
-
             const relayRes = await relayFetch(`${RELAY_URL}/relay/request-admin-reset`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -5803,13 +4360,10 @@ app.post('/api/admin/request-password-reset',
         }
     }
 );
-
 app.post('/api/admin/confirm-password-reset',
-
     rateLimit('admin-reset-confirm', 120, 10 * 60 * 1000),
     async (req, res) => {
         const { otp } = req.body;
-
         const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : req.body.newPassword;
         if (!otp || !newPassword) {
             return res.status(400).json({ success: false, message: 'Kulang ang otp o newPassword.' });
@@ -5820,48 +4374,39 @@ app.post('/api/admin/confirm-password-reset',
         if (!RELAY_API_KEY) {
             return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
         }
-
         try {
             const data = readFeatureUnlocks();
             const installationId = getOrCreateInstallationId(data);
-
             const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-admin-reset`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
                 body: JSON.stringify({ installationId, otp: String(otp).trim() })
             });
             const relayData = await parseRelayResponse(relayRes);
-
             if (relayData.pending) {
                 return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang OTP! Naghihintay pa lang ng approval mula sa developer.' });
             }
-
             if (!relayData.success) {
                 return res.status(relayRes.status === 200 ? 400 : relayRes.status).json(relayData);
             }
-
             if (!verifyAdminResetTicket(relayData.ticket, installationId)) {
                 console.error('⚠️ Natanggap ang isang admin-reset ticket mula sa relay pero HINDI valid ang signature nito. Posibleng may problema sa RELAY_PUBLIC_KEY_PEM o kompromisado ang koneksyon.');
                 return res.status(400).json({ success: false, message: 'Hindi valid ang reset ticket na natanggap. Subukan ulit.' });
             }
-
             let users = readData(FILE_USERS) || [];
             const adminIndex = users.findIndex(u => u.role === 'Admin');
             if (adminIndex === -1) {
                 return res.status(404).json({ success: false, message: 'Walang nahanap na Admin account.' });
             }
-
             users[adminIndex].password = bcrypt.hashSync(newPassword, 10);
             const adminUsername = users[adminIndex].username;
             const writeOk = writeData(FILE_USERS, users);
-
             const verifyUsers = readData(FILE_USERS) || [];
             const verifyUser = verifyUsers.find(u => u.username === adminUsername);
             const verified = writeOk && verifyUser && (() => {
                 try { return bcrypt.compareSync(newPassword, verifyUser.password); }
                 catch (e) { return false; }
             })();
-
             if (!verified) {
                 console.error(`⚠️ Nabigo ang pag-save ng bagong Admin password para sa "${adminUsername}" — hindi na-verify ang bagong hash pagkatapos mag-writeData(). Posibleng may problema sa lokal na database (SQLite lock/disk).`);
                 return res.status(500).json({
@@ -5869,9 +4414,7 @@ app.post('/api/admin/confirm-password-reset',
                     message: 'Nabigo ang pag-save ng bagong password sa lokal na database. Hindi nagbago ang password mo — subukan ulit, at kung paulit-ulit itong nangyayari, i-check ang storage/permissions ng device.'
                 });
             }
-
             logAction('System (Relay Admin Reset)', 'Admin password na-reset gamit ang Relay-verified OTP flow.');
-
             res.json({ success: true, message: 'Na-update na ang Admin password. Puwede ka nang mag-login gamit ang bago.' });
         } catch (err) {
             console.error('Hindi ma-abot ang Unlock Relay (admin-reset):', err);
@@ -5879,21 +4422,16 @@ app.post('/api/admin/confirm-password-reset',
         }
     }
 );
-
 app.post('/api/features/request-demo', requirePermission('relay_unlock_request'), rateLimit('feature-demo-request', 3, 10 * 60 * 1000), async (req, res) => {
     const { username, photo } = req.body;
-
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     if (isDemoActive()) {
         return res.json({ success: true, alreadyActive: true, message:'Aktibo na ang Demo Mode.', demoExpiresAt: getDemoExpiry() });
     }
-
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const relayRes = await relayFetch(`${RELAY_URL}/relay/request-demo`, {
@@ -5907,11 +4445,9 @@ app.post('/api/features/request-demo', requirePermission('relay_unlock_request')
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
         }
-
         logAction(username ||'Unknown','Humiling ng OTP para sa Demo Mode');
         res.json({ success: true, message:'The demo request has been sent. Please wait for the confirmation code from the developer/owner.' });
     } catch (err) {
@@ -5919,20 +4455,16 @@ app.post('/api/features/request-demo', requirePermission('relay_unlock_request')
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10 * 60 * 1000), async (req, res) => {
     const { otp, username } = req.body;
-
     if (!otp || !String(otp).trim()) {
         return res.status(400).json({ success: false, message:'The OTP code is required.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-demo`, {
             method:'POST',
@@ -5940,24 +4472,19 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
             body: JSON.stringify({ installationId, otp: String(otp).trim() })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.pending) {
             return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
         }
-
         if (!relayData.success) {
             return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
         }
-
         if (!verifyUnlockToken(relayData.token, installationId, DEMO_FEATURE_ID)) {
             console.error('⚠️ Natanggap ang isang demo token mula sa relay pero HINDI valid ang signature/expiry nito.');
             return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
         }
-
         data.tokens[DEMO_FEATURE_ID] = relayData.token;
         writeData(FILE_FEATURE_UNLOCKS, data);
         logAction(username ||'Unknown','Na-activate ang Demo Mode');
-
         res.json({
             success: true,
             message:'Demo Mode has been activated!',
@@ -5969,7 +4496,6 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 app.get('/api/features/demo-status', (req, res) => {
     const active = isDemoActive();
     res.json({
@@ -5979,7 +4505,6 @@ app.get('/api/features/demo-status', (req, res) => {
         fullyPurchased: isFullyProUnlocked()
     });
 });
-
 app.post('/api/features/end-demo', async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Aksyon Tinanggihan: Admin privileges lamang ang pwedeng magtapos ng Demo Mode nang maaga.' });
@@ -5991,7 +4516,6 @@ app.post('/api/features/end-demo', async (req, res) => {
     delete data.tokens[DEMO_FEATURE_ID];
     writeData(FILE_FEATURE_UNLOCKS, data);
     logAction(req.authUser.username,'Manual na tinapos ang Demo Mode bago pa man mag-expire.');
-
     if (RELAY_API_KEY) {
         try {
             const installationId = getOrCreateInstallationId(data);
@@ -6008,7 +4532,6 @@ app.post('/api/features/end-demo', async (req, res) => {
             console.warn('⚠️ END_DEMO: hindi na-abot ang RELAY para tuluyang tapusin ang demo doon:', e.message);
         }
     }
-
     res.json({
         success: true,
         message:'Demo Mode has been closed.',
@@ -6016,20 +4539,11 @@ app.post('/api/features/end-demo', async (req, res) => {
         fullyPurchased: isFullyProUnlocked()
     });
 });
-
 app.get('/api/features/upgrade-catalog', async (req, res) => {
-    // Cloud Backup pricing must reflect whatever RELAY currently says, even
-    // if it was changed in the last few minutes (see
-    // refreshCloudBackupPricingIfStale() above) — this is what a
-    // human actually sees when they open the plan picker, so it's the
-    // one spot that's worth an on-demand refresh instead of waiting for
-    // the slow 30-minute background interval.
     await refreshCloudBackupPricingIfStale();
-
     const alreadyPurchased = getPurchasedFeatureIds();
     const installationId = getOrCreateInstallationId(readFeatureUnlocks());
     const { deviceCount, discountPercent: multiTerminalDiscountPercent } = await fetchGroupDiscount(installationId);
-
     const features = Object.keys(FEATURE_CATALOG)
         .map(id => ({ id, ...FEATURE_CATALOG[id] }));
     const tiers = UPGRADE_TIERS.map(tier => {
@@ -6048,10 +4562,8 @@ app.get('/api/features/upgrade-catalog', async (req, res) => {
     });
     res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount });
 });
-
 app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-bulk-request', 3, 10 * 60 * 1000), async (req, res) => {
     const { featureIds, tierId, username, photo } = req.body;
-
     if (!Array.isArray(featureIds) || featureIds.length === 0) {
         return res.status(400).json({ success: false, message:'featureIds must be a non-empty array.' });
     }
@@ -6059,36 +4571,21 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
     if (unknown.length) {
         return res.status(400).json({ success: false, message: `Unknown feature(s): ${unknown.join(', ')}` });
     }
-    // This bulk/bundle path is for ONE-TIME (perpetual) purchases only —
-    // subscription features (Cloud Backup, RBAC Management, Multi-Branch
-    // Dashboard) must go through the dedicated subscribe/renew flow
-    // (/api/features/request-unlock with a billingCycle) instead.
     const subscriptionIdsInBulk = featureIds.filter(id => isSubscriptionOnlyFeature(id));
     if (subscriptionIdsInBulk.length) {
         return res.status(400).json({ success: false, message: `These are subscription features and cannot be bundled into a one-time unlock: ${subscriptionIdsInBulk.map(id => (FEATURE_CATALOG[id] && FEATURE_CATALOG[id].name) || id).join(', ')}. Please subscribe to each of them separately.` });
     }
-
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     const alreadyPurchased = getPurchasedFeatureIds();
     const stillLocked = featureIds.filter(id => !alreadyPurchased.includes(id));
     if (stillLocked.length === 0) {
         return res.json({ success: true, alreadyUnlocked: true, message:'All selected items are already unlocked.' });
     }
-
-    // Same multi-terminal/multi-branch discount used by the catalog
-    // preview (GET /api/features/upgrade-catalog) — fetched again here
-    // rather than trusted from the client, so the actual amount sent to
-    // RELAY always matches what the discount rules say NOW, even if it
-    // changed (e.g. a sibling device joined/left the group) between the
-    // moment the customer opened the dialog and the moment they confirm.
     const { discountPercent: multiTerminalDiscountPercent } = await fetchGroupDiscount(installationId);
-
     let totalPrice = sumFeaturePrices(stillLocked);
     if (tierId) {
         const tier = UPGRADE_TIERS.find(t => t.id === tierId);
@@ -6101,7 +4598,6 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
             }
         }
     }
-
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const relayRes = await relayFetch(`${RELAY_URL}/relay/request-unlock-bulk`, {
@@ -6118,11 +4614,9 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
         }
-
         logAction(username ||'Unknown', `Requested OTP to unlock ${stillLocked.length} feature(s) (₱${totalPrice})`);
         res.json({ success: true, message:'The bundle unlock request has been sent. Please wait for the confirmation code.', totalPrice, featureIds: stillLocked });
     } catch (err) {
@@ -6130,10 +4624,8 @@ app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_re
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-confirm', 120, 10 * 60 * 1000), async (req, res) => {
     const { featureIds, otp, username } = req.body;
-
     if (!Array.isArray(featureIds) || featureIds.length === 0) {
         return res.status(400).json({ success: false, message:'featureIds must be a non-empty array.' });
     }
@@ -6143,10 +4635,8 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock-bulk`, {
             method:'POST',
@@ -6154,15 +4644,12 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
             body: JSON.stringify({ installationId, featureIds, otp: String(otp).trim() })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.pending) {
             return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Code correct — waiting for owner approval.' });
         }
-
         if (!relayData.success) {
             return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
         }
-
         const tokens = relayData.tokens || {};
         for (const featureId of featureIds) {
             const token = tokens[featureId];
@@ -6174,42 +4661,22 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
         featureIds.forEach(featureId => { data.tokens[featureId] = tokens[featureId]; });
         writeData(FILE_FEATURE_UNLOCKS, data);
         logAction(username ||'Unknown', `Unlocked ${featureIds.length} feature(s) via bundle`);
-
         res.json({ success: true, message:'Bundle unlocked!', unlockedFeatureIds: getUnlockedFeatureIds() });
     } catch (err) {
         console.error('Could not reach the Unlock Relay (bulk confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
-// --------------------------------------------------------------
-// POST /api/features/cancel-otp
-// Shared "cancel-otp" proxy used by the new 6-box verification modal
-// (see showOtpVerificationModal in app.js). Called whenever the modal
-// is closed/cancelled by the person without a correct code, OR the
-// person runs out of verification attempts (wrong code 3 times) — in
-// BOTH cases the still-pending OTP on RELAY should stop being usable
-// right away, even if its normal 10-minute expiry hasn't passed yet.
-// Works for single features, Pro themes, Cloud Backup, bundle/bulk
-// unlocks, and Demo Mode, since they all resolve to the same
-// installationId-based pendingOtps entry on RELAY — just forward
-// whichever identifier the caller has (featureId, featureIds, or
-// demo: true).
-// Body: { featureId?, featureIds?, demo? }
-// --------------------------------------------------------------
 app.post('/api/features/cancel-otp', rateLimit('feature-cancel-otp', 30, 10 * 60 * 1000), async (req, res) => {
     const { featureId, featureIds, demo } = req.body;
-
     if (!demo && !featureId && !(Array.isArray(featureIds) && featureIds.length)) {
         return res.status(400).json({ success: false, message: 'featureId, featureIds, or demo is required.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cancel-otp`, {
             method: 'POST',
@@ -6219,38 +4686,29 @@ app.post('/api/features/cancel-otp', rateLimit('feature-cancel-otp', 30, 10 * 60
         const relayData = await parseRelayResponse(relayRes);
         res.json({ success: !!relayData.success, message: relayData.message || 'OTP cancelled.' });
     } catch (err) {
-        // Best-effort only — if this fails, the OTP will still fall
-        // off naturally once its normal 10-minute expiry is reached,
-        // so it's fine to not block the person on this call failing.
         console.error('Could not reach the Unlock Relay (cancel-otp):', err);
         res.json({ success: false, message: `Could not reach the unlock relay: ${err.message}` });
     }
 });
-
 app.get('/api/themes/status', (req, res) => {
     const unlockedFeatureIds = getUnlockedFeatureIds();
     const unlockedThemeIds = unlockedFeatureIds.filter(id => FEATURE_CATALOG[id] && FEATURE_CATALOG[id].category ==='theme');
     res.json({ success: true, unlockedThemeIds });
 });
-
 app.post('/api/themes/request-unlock', requirePermission('relay_unlock_request'), rateLimit('theme-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
     const { themeId, username, photo } = req.body;
     const theme = FEATURE_CATALOG[themeId];
-
     if (!theme || theme.category !=='theme') {
         return res.status(400).json({ success: false, message:'Unknown Pro theme.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     if (data.tokens[themeId] && verifyUnlockToken(data.tokens[themeId], installationId, themeId)) {
         return res.json({ success: true, alreadyUnlocked: true, message: `Naka-unlock na ang ${theme.name}.` });
     }
-
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const relayRes = await relayFetch(`${RELAY_URL}/relay/request-unlock`, {
@@ -6267,11 +4725,9 @@ app.post('/api/themes/request-unlock', requirePermission('relay_unlock_request')
             })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (!relayData.success) {
             return relayRejectionResponse(res, relayData, 'The unlock relay declined the request.');
         }
-
         logAction(username ||'Unknown', `Humiling ng OTP para i-unlock ang ${theme.name}`);
         res.json({ success: true, message:'The unlock request has been sent. Please wait for the confirmation code from the developer/owner.' });
     } catch (err) {
@@ -6279,7 +4735,6 @@ app.post('/api/themes/request-unlock', requirePermission('relay_unlock_request')
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10 * 60 * 1000), async (req, res) => {
     const { themeId, otp, username } = req.body;
     const theme = FEATURE_CATALOG[themeId];
@@ -6292,10 +4747,8 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
-
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock`, {
             method:'POST',
@@ -6303,11 +4756,9 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
             body: JSON.stringify({ installationId, featureId: themeId, otp: String(otp).trim() })
         });
         const relayData = await parseRelayResponse(relayRes);
-
         if (relayData.pending) {
             return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Tama ang code — naghihintay ng approval ng may-ari.' });
         }
-
         if (!relayData.success) {
             return res.status(400).json({ success: false, message: relayData.message ||'Failed to verify the code.' });
         }
@@ -6315,11 +4766,9 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
             console.error('⚠️ Natanggap ang isang token mula sa relay pero HINDI valid ang signature nito.');
             return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
         }
-
         data.tokens[themeId] = relayData.token;
         writeData(FILE_FEATURE_UNLOCKS, data);
         logAction(username ||'Unknown', `Na-unlock ang Pro theme: ${theme.name}`);
-
         const unlockedThemeIds = getUnlockedFeatureIds().filter(id => FEATURE_CATALOG[id] && FEATURE_CATALOG[id].category ==='theme');
         res.json({ success: true, message: `${theme.name} has been unlocked!`, unlockedThemeIds });
     } catch (err) {
@@ -6327,23 +4776,19 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-
 function getPHTime() {
     return new Date().toLocaleString("sv-SE", { timeZone:"Asia/Manila" });
 }
-
 const defaultUsers = [
     { username:'admin', password:'admin', role:'Admin', created:'2026-07-07 04:32:09' },
     { username:'cashier1', password:'cashier123', role:'Cashier', created:'2026-07-07 18:30:20' },
     { username:'staff', password:'staff123', role:'Staff', created:'2026-07-07 16:34:41' }
 ];
-
 function daysFromNow(days) {
     const d = new Date();
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
 }
-
 const defaultProducts = [
     { code:'PRDT20250001', name:'Bottled Water 500ml', category:'Beverages', price: 25.00, stock: 8, cost: 15.00, supplier:'Absolute Distribution', expiryDate: daysFromNow(180), lowStockThreshold: 5 },
     { code:'PRDT20250002', name:'Coca-Cola 1L', category:'Beverages', price: 55.00, stock: 9, cost: 42.00, supplier:'Coca-Cola Beverages Philippines, Inc.', expiryDate: daysFromNow(150), lowStockThreshold: 5 },
@@ -6351,7 +4796,6 @@ const defaultProducts = [
     { code:'PRDT20250004', name:'Nova Multigrain', category:'Snacks', price: 30.00, stock: 10, cost: 22.00, supplier:'Universal Robina Corporation', expiryDate: daysFromNow(90), lowStockThreshold: 5 },
     { code:'PRDT20250005', name:'Piattos Cheese', category:'Snacks', price: 35.00, stock: 10, cost: 26.00, supplier:'Universal Robina Corporation', expiryDate: daysFromNow(90), lowStockThreshold: 5 }
 ];
-
 if (readData(FILE_USERS).length === 0) {
     const secureDefaultUsers = defaultUsers.map(u => ({
         ...u,
@@ -6360,48 +4804,36 @@ if (readData(FILE_USERS).length === 0) {
     writeData(FILE_USERS, secureDefaultUsers);
 }
 if (readData(FILE_PRODUCTS).length === 0) writeData(FILE_PRODUCTS, defaultProducts);
-
 function verifyAdmin(req, res, next) {
-
     const { username, adminPassword } = req.body;
-
     if (!username) {
         return res.status(400).json({ success: false, message:'May kulang na impormasyon (Username required).' });
     }
-
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-
     if (!activeUser || activeUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({
             success: false,
             message:'Akses Denied: Ang account na ito ay walang sapat na pribilehiyo bilang Admin!'
         });
     }
-
     if (!adminPassword) {
         return res.status(400).json({ success: false, message:'Kailangan ng Admin password para sa aksyong ito.' });
     }
-
     let isPasswordCorrect = false;
     try {
         isPasswordCorrect = bcrypt.compareSync(adminPassword, activeUser.password);
     } catch (e) {
         isPasswordCorrect = (adminPassword === activeUser.password);
     }
-
     if (!isPasswordCorrect) {
-
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling Admin Password. Hindi pinahintulutan ang aksyong ito.' });
     }
-
     next();
 }
-
 app.get('/api/roles', (req, res) => {
     res.json({ success: true, roles: getRoles(), menuRegistry: MENU_REGISTRY });
 });
-
 app.post('/api/roles', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
     const { roleName, permissions } = req.body;
     if (!roleName || typeof roleName !=='string' || !roleName.trim()) {
@@ -6414,12 +4846,9 @@ app.post('/api/roles', requireFeature('rbac_management'), verifyAdmin, (req, res
     if (!permissions || typeof permissions !=='object') {
         return res.status(400).json({ success: false, message:'Kulang ang permissions data.' });
     }
-
     let roles = getRoles();
-
     const normalizedPerms = {};
     MENU_REGISTRY.forEach(m => { normalizedPerms[m.key] = !!permissions[m.key]; });
-
     const existingIdx = roles.findIndex(r => r.name.toLowerCase() === name.toLowerCase());
     if (existingIdx !== -1) {
         if (roles[existingIdx].protected) {
@@ -6433,79 +4862,62 @@ app.post('/api/roles', requireFeature('rbac_management'), verifyAdmin, (req, res
     logAction(req.authUser.username, `Na-update ang permissions ng role: ${name}`);
     res.json({ success: true, roles });
 });
-
 app.post('/api/roles/reorder', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
     const { orderedRoleNames } = req.body;
     if (!Array.isArray(orderedRoleNames) || !orderedRoleNames.length) {
         return res.status(400).json({ success: false, message:'Kailangan ng listahan ng roles sa bagong pagkakasunod-sunod.' });
     }
-
     let roles = getRoles();
-
     const currentNamesLower = roles.map(r => r.name.toLowerCase()).sort();
     const requestedNamesLower = orderedRoleNames.map(n => (n ||'').toLowerCase()).sort();
     const sameSet = currentNamesLower.length === requestedNamesLower.length &&
         currentNamesLower.every((n, i) => n === requestedNamesLower[i]);
-
     if (!sameSet) {
         return res.status(400).json({ success: false, message:'Hindi tugma ang listahan ng roles — baka may role na nadagdag/nabura habang nagre-reorder.' });
     }
-
     const roleByLowerName = new Map(roles.map(r => [r.name.toLowerCase(), r]));
     const reordered = orderedRoleNames.map(n => roleByLowerName.get(n.toLowerCase()));
-
     writeData(FILE_ROLES, reordered);
     logAction(req.body.username ||'Unknown', `Binago ang pagkakasunod-sunod ng Role columns sa Permission Matrix: ${orderedRoleNames.join(' → ')}`);
     res.json({ success: true, roles: reordered });
 });
-
 app.post('/api/roles/delete', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
     const { roleName } = req.body;
     let roles = getRoles();
     const role = roles.find(r => r.name.toLowerCase() === (roleName ||'').toLowerCase());
     if (!role) return res.status(404).json({ success: false, message:'Role not found.' });
     if (role.protected) return res.status(403).json({ success: false, message:'Hindi maaaring burahin ang Admin role.' });
-
     const users = readData(FILE_USERS);
     const inUse = users.some(u => u.role.toLowerCase() === role.name.toLowerCase());
     if (inUse) {
         return res.status(409).json({ success: false, message: `May mga user pa na naka-assign sa role na "${role.name}". I-reassign muna sila bago ito burahin.` });
     }
-
     roles = roles.filter(r => r.name.toLowerCase() !== role.name.toLowerCase());
     writeData(FILE_ROLES, roles);
     logAction(req.authUser.username, `Binura ang role: ${role.name}`);
     res.json({ success: true, roles });
 });
-
 const LOGIN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-
 const LOGIN_OTP_TTL_MS = 10 * 60 * 1000;
 const LOGIN_OTP_CHALLENGES = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [k, v] of LOGIN_OTP_CHALLENGES.entries()) if (now > v.expiresAt) LOGIN_OTP_CHALLENGES.delete(k);
 }, 60 * 1000).unref();
-
 function generateLoginToken() {
     return 'LOGIN-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
-
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
-
     if (!username || !password) {
         return res.status(400).json({
             success: false,
             message:'Please enter your username and password.'
         });
     }
-
     if (!checkLoginRateLimit(req, res, 5, 30, LOGIN_RATE_LIMIT_WINDOW_MS)) {
         return;
     }
-
     const deviceCheck = await checkDeviceBeforeLogin({ username });
     if (!deviceCheck.allowed) {
         return res.status(403).json({
@@ -6514,41 +4926,29 @@ app.post('/api/auth/login', async (req, res) => {
             message: deviceCheck.message
         });
     }
-
     recordLoginAttempt(req, LOGIN_RATE_LIMIT_WINDOW_MS);
-
     let users = readData(FILE_USERS);
-
     let userIndex = users.findIndex(u => u.username.trim().toLowerCase() === username.trim().toLowerCase());
-
     if (userIndex !== -1) {
         const user = users[userIndex];
         let isMatch = false;
         let needsUpgrade = false;
-
         try {
-
             isMatch = bcrypt.compareSync(password, user.password);
         } catch (error) {
-
             isMatch = (password === user.password);
             if (isMatch) needsUpgrade = true;
         }
-
         if (isMatch) {
-
             if (needsUpgrade) {
                 user.password = bcrypt.hashSync(password, 10);
                 writeData(FILE_USERS, users);
             }
-
             const advSettingsForLogin = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
             const isAdminRole = (user.role || '').toLowerCase() === 'admin';
-
             if (advSettingsForLogin.twoFactorLoginEnabled && isAdminRole) {
                 const otpMailCreds = getOtpMailCredentials();
                 if (!otpMailCreds) {
-
                     console.warn('⚠️ Naka-enable ang 2FA Admin Login pero walang naka-configure na OTP sender email — nag-proceed nang walang OTP.');
                 } else {
                     const otpCode = String(Math.floor(100000 + Math.random() * 900000));
@@ -6561,7 +4961,6 @@ app.post('/api/auth/login', async (req, res) => {
                         userAgent: req.headers['user-agent'],
                         ip: getClientIp(req)
                     });
-
                     try {
                         await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
                             from: `"OmniPOS Security" <${otpMailCreds.user}>`,
@@ -6576,7 +4975,6 @@ app.post('/api/auth/login', async (req, res) => {
                         console.error('2FA login OTP send failure:', mailErr.message);
                         return res.status(500).json({ success: false, message: `Nabigo ang pagpapadala ng 2FA OTP: ${mailErr.message}` });
                     }
-
                     return res.json({
                         success: true,
                         requiresOtp: true,
@@ -6585,26 +4983,19 @@ app.post('/api/auth/login', async (req, res) => {
                     });
                 }
             }
-
             logAction(user.username, `Logged into the system`);
-
             const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req));
-
             const permissions = getPermissionsForRole(user.role);
             return res.json({ success: true, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
         }
     }
-
     res.status(401).json({ success: false, message:'Incorrect username or password.' });
 });
-
 app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 * 1000), (req, res) => {
     const { loginToken, otp } = req.body;
-
     if (!loginToken || !otp) {
         return res.status(400).json({ success: false, message: 'Kailangan ang loginToken at OTP code.' });
     }
-
     const pending = LOGIN_OTP_CHALLENGES.get(loginToken);
     if (!pending) {
         return res.status(400).json({ success: false, code: 'OTP_EXPIRED', message: 'Expired na o walang aktibong login OTP request. Mag-login ulit para makahingi ng bagong OTP.' });
@@ -6616,57 +5007,44 @@ app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 
     if (String(otp).trim() !== pending.code) {
         return res.status(403).json({ success: false, code: 'WRONG_OTP', message: 'Maling OTP code.' });
     }
-
     LOGIN_OTP_CHALLENGES.delete(loginToken);
-
     const users = readData(FILE_USERS);
     const user = users.find(u => u.username.toLowerCase() === pending.username.toLowerCase());
     if (!user) {
         return res.status(404).json({ success: false, message: 'Hindi na umiiral ang account na ito.' });
     }
-
     logAction(user.username, `Logged into the system (2FA-verified)`);
-
     const token = createSession(user.username, user.role, pending.userAgent, pending.ip);
     const permissions = getPermissionsForRole(user.role);
-
     res.json({ success: true, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
 });
-
 const WEBAUTHN_CHALLENGE_TTL_MS = 2 * 60 * 1000;
 const WEBAUTHN_REGISTER_CHALLENGES = new Map();
 const WEBAUTHN_LOGIN_CHALLENGES = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [k, v] of WEBAUTHN_REGISTER_CHALLENGES.entries()) if (now > v.expiresAt) WEBAUTHN_REGISTER_CHALLENGES.delete(k);
     for (const [k, v] of WEBAUTHN_LOGIN_CHALLENGES.entries()) if (now > v.expiresAt) WEBAUTHN_LOGIN_CHALLENGES.delete(k);
 }, 60 * 1000).unref();
-
 function webauthnRpId(req) {
     return req.hostname;
 }
 function webauthnExpectedOrigin(req) {
     return `${req.protocol}://${req.get('host')}`;
 }
-
 app.post('/api/auth/webauthn/register-options', (req, res) => {
     const username = req.authUser.username;
     const users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
     if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
     const user = users[userIndex];
-
     const challenge = webauthn.randomChallenge();
     WEBAUTHN_REGISTER_CHALLENGES.set(username.toLowerCase(), { challenge, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
-
     const existingCredentials = (user.webauthnCredentials || []).map(c => ({ id: c.id, type:'public-key' }));
-
     if (!user.webauthnUserHandle) {
         user.webauthnUserHandle = crypto.randomBytes(32).toString('base64url');
         writeData(FILE_USERS, users);
     }
-
     res.json({
         success: true,
         options: {
@@ -6683,7 +5061,6 @@ app.post('/api/auth/webauthn/register-options', (req, res) => {
             ],
             authenticatorSelection: {
                 authenticatorAttachment:'platform',
-
                 residentKey:'required',
                 userVerification:'required'
             },
@@ -6693,7 +5070,6 @@ app.post('/api/auth/webauthn/register-options', (req, res) => {
         }
     });
 });
-
 app.post('/api/auth/webauthn/register-verify', (req, res) => {
     try {
         const username = req.authUser.username;
@@ -6701,12 +5077,10 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         if (!credentialId || !clientDataJSON || !attestationObject) {
             return res.status(400).json({ success: false, message:'Missing data from the authenticator.' });
         }
-
         const stored = WEBAUTHN_REGISTER_CHALLENGES.get(username.toLowerCase());
         if (!stored || Date.now() > stored.expiresAt) {
             return res.status(400).json({ success: false, message:'Nag-expire na ang enrollment request. Subukan muli.' });
         }
-
         const clientData = JSON.parse(Buffer.from(clientDataJSON,'base64url').toString('utf8'));
         if (clientData.type !== 'webauthn.create') {
             return res.status(400).json({ success: false, message:'Invalid WebAuthn response type.' });
@@ -6717,12 +5091,10 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         if (clientData.origin !== webauthnExpectedOrigin(req)) {
             return res.status(400).json({ success: false, message:'The WebAuthn response origin does not match.' });
         }
-
         const attestationBuf = Buffer.from(attestationObject,'base64url');
         const { value: attObj } = webauthn.decodeCbor(attestationBuf, 0);
         const authDataBuf = Buffer.from(attObj.get('authData'));
         const parsed = webauthn.parseAuthenticatorData(authDataBuf);
-
         const expectedRpIdHash = webauthn.sha256(Buffer.from(webauthnRpId(req),'utf8'));
         if (Buffer.compare(parsed.rpIdHash, expectedRpIdHash) !== 0) {
             return res.status(400).json({ success: false, message:'The credential RP ID (site) does not match.' });
@@ -6733,21 +5105,16 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         if (!parsed.credentialPublicKey) {
             return res.status(400).json({ success: false, message:'Walang natanggap na public key mula sa authenticator.' });
         }
-
         const { keyObject } = webauthn.coseKeyToPublicKeyObject(parsed.credentialPublicKey);
         const publicKeyJwk = keyObject.export({ format:'jwk' });
         const credIdB64 = Buffer.from(parsed.credentialId).toString('base64url');
-
         const users = readData(FILE_USERS);
-
         const alreadyUsed = users.some(u => (u.webauthnCredentials || []).some(c => c.id === credIdB64));
         if (alreadyUsed) {
             return res.status(409).json({ success: false, message:'Naka-rehistro na ang fingerprint na ito.' });
         }
-
         const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
         if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
-
         if (!Array.isArray(users[userIndex].webauthnCredentials)) users[userIndex].webauthnCredentials = [];
         users[userIndex].webauthnCredentials.push({
             id: credIdB64,
@@ -6758,7 +5125,6 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         });
         writeData(FILE_USERS, users);
         WEBAUTHN_REGISTER_CHALLENGES.delete(username.toLowerCase());
-
         logAction(username,`Nag-enable ng Fingerprint/Biometric Login (${users[userIndex].webauthnCredentials.at(-1).deviceLabel})`);
         res.json({ success: true, message:'Na-enable ang Fingerprint Login sa device na ito.' });
     } catch (err) {
@@ -6766,19 +5132,16 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         res.status(400).json({ success: false, message:'Hindi ma-verify ang fingerprint enrollment. Subukan muli.' });
     }
 });
-
 app.get('/api/auth/webauthn/credentials', (req, res) => {
     const users = readData(FILE_USERS);
     const user = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
     const creds = ((user && user.webauthnCredentials) || []).map(c => ({ id: c.id, deviceLabel: c.deviceLabel, createdAt: c.createdAt }));
     res.json({ success: true, credentials: creds });
 });
-
 app.delete('/api/auth/webauthn/credentials/:id', (req, res) => {
     const users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
     if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
-
     const before = (users[userIndex].webauthnCredentials || []).length;
     users[userIndex].webauthnCredentials = (users[userIndex].webauthnCredentials || []).filter(c => c.id !== req.params.id);
     if (users[userIndex].webauthnCredentials.length === before) {
@@ -6788,13 +5151,10 @@ app.delete('/api/auth/webauthn/credentials/:id', (req, res) => {
     logAction(req.authUser.username,'Inalis ang isang Fingerprint/Biometric Login credential');
     res.json({ success: true, message:'Naalis na ang fingerprint credential.' });
 });
-
 app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options', 20, 10 * 60 * 1000), (req, res) => {
     const username = ((req.body && req.body.username) || '').toString().trim();
     const challenge = webauthn.randomChallenge();
-
     if (!username) {
-
         WEBAUTHN_LOGIN_CHALLENGES.set(challenge, { username: null, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
         return res.json({
             success: true,
@@ -6805,16 +5165,13 @@ app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options',
             allowCredentials: []
         });
     }
-
     const users = readData(FILE_USERS);
     const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
     const credentials = (user && user.webauthnCredentials) || [];
     if (!user || credentials.length === 0) {
         return res.status(404).json({ success: false, message:'Fingerprint Login is not enabled for this account/device.' });
     }
-
     WEBAUTHN_LOGIN_CHALLENGES.set(challenge, { username: user.username, expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS });
-
     res.json({
         success: true,
         challenge,
@@ -6824,29 +5181,24 @@ app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options',
         allowCredentials: credentials.map(c => ({ id: c.id, type:'public-key' }))
     });
 });
-
 app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     const { credentialId, clientDataJSON, authenticatorData, signature, userHandle } = req.body || {};
     if (!credentialId || !clientDataJSON || !authenticatorData || !signature) {
         return res.status(400).json({ success: false, message:'Missing data from the authenticator.' });
     }
-
     let clientData;
     try {
         clientData = JSON.parse(Buffer.from(clientDataJSON,'base64url').toString('utf8'));
     } catch {
         return res.status(400).json({ success: false, message:'Corrupted WebAuthn response.' });
     }
-
     const stored = WEBAUTHN_LOGIN_CHALLENGES.get(clientData.challenge);
     if (!stored || Date.now() > stored.expiresAt) {
         return res.status(400).json({ success: false, message:'The login request has expired. Please try again.' });
     }
-
     const users = readData(FILE_USERS);
     let userIndex = -1;
     let credIndex = -1;
-
     if (stored.username) {
         userIndex = users.findIndex(u => u.username.toLowerCase() === stored.username.toLowerCase());
         if (userIndex !== -1) {
@@ -6858,29 +5210,23 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
             if (idx !== -1) { userIndex = i; credIndex = idx; break; }
         }
     }
-
     if (userIndex === -1 || credIndex === -1) {
         return res.status(401).json({ success: false, message:'This fingerprint is no longer registered. Please re-enroll it in Profile settings.' });
     }
-
     const username = users[userIndex].username;
-
     if (userHandle) {
         const expectedHandle = users[userIndex].webauthnUserHandle;
         if (expectedHandle && userHandle !== expectedHandle) {
             return res.status(401).json({ success: false, message:'This fingerprint does not match the account.' });
         }
     }
-
     req.body.username = username;
     if (!checkLoginRateLimit(req, res, 5, 30, LOGIN_RATE_LIMIT_WINDOW_MS)) return;
-
     const deviceCheck = await checkDeviceBeforeLogin({ username });
     if (!deviceCheck.allowed) {
         return res.status(403).json({ success: false, deviceBlocked: true, message: deviceCheck.message });
     }
     recordLoginAttempt(req, LOGIN_RATE_LIMIT_WINDOW_MS);
-
     try {
         if (clientData.type !== 'webauthn.get') {
             return res.status(400).json({ success: false, message:'Invalid WebAuthn response type.' });
@@ -6888,11 +5234,9 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         if (clientData.origin !== webauthnExpectedOrigin(req)) {
             return res.status(400).json({ success: false, message:'The WebAuthn response origin does not match.' });
         }
-
         const cred = users[userIndex].webauthnCredentials[credIndex];
         const authDataBuf = Buffer.from(authenticatorData,'base64url');
         const parsed = webauthn.parseAuthenticatorData(authDataBuf);
-
         const expectedRpIdHash = webauthn.sha256(Buffer.from(webauthnRpId(req),'utf8'));
         if (Buffer.compare(parsed.rpIdHash, expectedRpIdHash) !== 0) {
             return res.status(401).json({ success: false, message:'The credential RP ID (site) does not match.' });
@@ -6900,7 +5244,6 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         if (!parsed.flags.userPresent || !parsed.flags.userVerified) {
             return res.status(401).json({ success: false, message:'Biometric verification was not confirmed.' });
         }
-
         const clientDataHash = webauthn.sha256(Buffer.from(clientDataJSON,'base64url'));
         const signedData = Buffer.concat([authDataBuf, clientDataHash]);
         const keyObject = crypto.createPublicKey({ key: cred.publicKeyJwk, format:'jwk' });
@@ -6908,17 +5251,14 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         if (!sigOk) {
             return res.status(401).json({ success: false, message:'Unable to verify the fingerprint signature.' });
         }
-
         if (!(parsed.counter === 0 && cred.counter === 0) && parsed.counter <= cred.counter) {
             return res.status(401).json({ success: false, message:'Suspicious repeated fingerprint signature (possible cloned authenticator). Please log in with your password.' });
         }
         cred.counter = parsed.counter;
         writeData(FILE_USERS, users);
         WEBAUTHN_LOGIN_CHALLENGES.delete(clientData.challenge);
-
         const user = users[userIndex];
         logAction(user.username,`Naka-login gamit ang Fingerprint/Biometric Login (${cred.deviceLabel || 'device'})`);
-
         const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req));
         const permissions = getPermissionsForRole(user.role);
         return res.json({ success: true, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
@@ -6927,22 +5267,17 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         return res.status(400).json({ success: false, message:'Unable to verify Fingerprint Login. Please try again or use your password.' });
     }
 });
-
 app.post('/api/auth/logout', (req, res) => {
     if (req.authToken) {
         destroySession(req.authToken);
     }
     res.json({ success: true, message:'Logged out.' });
 });
-
 app.get('/api/auth/active-sessions', (req, res) => {
     const now = Date.now();
-
     const allUsers = readData(FILE_USERS);
-
     const requesterRole = req.authUser && req.authUser.role;
     const canSeeSensitiveDetails = (requesterRole ||'').toLowerCase() ==='admin' || !!getPermissionsForRole(requesterRole).users;
-
     const latestSessionByUsername = new Map();
     Array.from(SESSIONS.values())
         .filter(s => now <= s.expiresAt)
@@ -6952,7 +5287,6 @@ app.get('/api/auth/active-sessions', (req, res) => {
                 latestSessionByUsername.set(s.username, s);
             }
         });
-
     const sessions = Array.from(latestSessionByUsername.values())
         .map(s => {
             const userRecord = allUsers.find(u => u.username === s.username);
@@ -6964,17 +5298,14 @@ app.get('/api/auth/active-sessions', (req, res) => {
                 loginAt: s.loginAt || null,
                 minutesActive: s.loginAt ? Math.max(0, Math.floor((now - s.loginAt) / 60000)) : null,
                 isCurrentSession: req.authToken ? SESSIONS.get(req.authToken) === s : false,
-
                 device: canSeeSensitiveDetails ? (s.device || parseDeviceInfo('')) : null,
                 ip: canSeeSensitiveDetails ? (s.ip ||'unknown') : null,
                 sameWifi: canSeeSensitiveDetails ? isSameLanAsServer(s.ip) : false
             };
         })
         .sort((a, b) => (a.loginAt || 0) - (b.loginAt || 0));
-
     res.json({ success: true, activeUsers: sessions, count: sessions.length });
 });
-
 app.post('/api/products/checkout', requirePermission('terminal'), (req, res) => {
     try {
         logAction(req.authUser && req.authUser.username, `Blocked call to removed endpoint /api/products/checkout (security fix — direct stock manipulation na walang transaction record). Payload: ${JSON.stringify(req.body || {}).slice(0, 300)}`);
@@ -6987,13 +5318,10 @@ app.post('/api/products/checkout', requirePermission('terminal'), (req, res) => 
         message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin para baguhin ang stock nang walang naitatalang benta at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
 });
-
 app.get('/api/products', (req, res) => {
-
     res.set('X-Active-Terminals', String(SESSIONS.size));
     res.json(readData(FILE_PRODUCTS));
 });
-
 app.get('/api/products/export', requireFeature('advanced_reports'), (req, res) => {
     try {
         const products = readData(FILE_PRODUCTS);
@@ -7011,7 +5339,6 @@ app.get('/api/products/export', requireFeature('advanced_reports'), (req, res) =
             ].join(','));
         });
         const csvContent ='\uFEFF' + lines.join('\r\n');
-
         res.setHeader('Content-Type','text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="inventory_export_${Date.now()}.csv"`);
         res.send(csvContent);
@@ -7020,19 +5347,16 @@ app.get('/api/products/export', requireFeature('advanced_reports'), (req, res) =
         res.status(500).json({ success: false, message:'Hindi ma-export ang inventory.' });
     }
 });
-
 app.get('/api/products/template', async (req, res) => {
     try {
         const categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
         const workbook = new ExcelJS.Workbook();
         workbook.creator ='OmniPOS System';
-
         const catSheet = workbook.addWorksheet('CategoriesList');
         categories.forEach((cat, i) => {
             catSheet.getCell(`A${i + 1}`).value = cat;
         });
         catSheet.state ='veryHidden';
-
         const sheet = workbook.addWorksheet('New Products');
         sheet.columns = [
             { header:'Code', key:'code', width: 22 },
@@ -7051,7 +5375,6 @@ app.get('/api/products/template', async (req, res) => {
             cell.fill = { type:'pattern', pattern:'solid', fgColor: { argb:'FF2563EB' } };
             cell.alignment = { vertical:'middle', horizontal:'center' };
         });
-
         const catRange = `CategoriesList!$A$1:$A$${Math.max(categories.length, 1)}`;
         for (let row = 2; row <= 501; row++) {
             sheet.getCell(`C${row}`).dataValidation = {
@@ -7065,7 +5388,6 @@ app.get('/api/products/template', async (req, res) => {
             sheet.getCell(`D${row}`).numFmt ='#,##0.00';
             sheet.getCell(`E${row}`).numFmt ='#,##0';
         }
-
         const infoSheet = workbook.addWorksheet('Paano Gamitin');
         infoSheet.getColumn(1).width = 95;
         const instructions = [
@@ -7083,7 +5405,6 @@ app.get('/api/products/template', async (req, res) => {
         ];
         instructions.forEach((line, i) => { infoSheet.getCell(`A${i + 1}`).value = line; });
         infoSheet.getCell('A1').font = { bold: true, size: 13 };
-
         res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition','attachment; filename="product_import_template.xlsx"');
         await workbook.xlsx.write(res);
@@ -7093,7 +5414,6 @@ app.get('/api/products/template', async (req, res) => {
         res.status(500).json({ success: false, message:'Hindi magawa ang Excel template.' });
     }
 });
-
 function parseCsvLine(line) {
     const result = [];
     let cur ='';
@@ -7125,7 +5445,6 @@ function parseCsvLine(line) {
     result.push(cur);
     return result;
 }
-
 function parseMoney(raw) {
     const s = (raw ||'').toString().trim();
     if (s ==='') return NaN;
@@ -7133,20 +5452,16 @@ function parseMoney(raw) {
     if (!/^\d+(\.\d+)?$/.test(cleaned)) return NaN;
     return parseFloat(cleaned);
 }
-
 function parseWholeNumber(raw) {
     const s = (raw ||'').toString().trim().replace(/,/g,'');
     if (!/^\d+$/.test(s)) return NaN;
     return parseInt(s, 10);
 }
-
 app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000), productImportUpload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message:'Walang na-attach na file.' });
     }
-
     const cleanupTmpFile = () => fs.unlink(req.file.path, () => {});
-
     const { username } = req.body;
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === (username ||'').toLowerCase());
@@ -7154,11 +5469,9 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
         cleanupTmpFile();
         return res.status(403).json({ success: false, message:'Admin lang ang pwedeng mag-import ng products.' });
     }
-
     try {
         const ext = path.extname(req.file.originalname).toLowerCase();
         let rows = [];
-
         if (ext ==='.csv') {
             let content = fs.readFileSync(req.file.path,'utf8');
             content = content.replace(/^\uFEFF/,'');
@@ -7177,7 +5490,6 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             await workbook.xlsx.readFile(req.file.path);
             const sheet = workbook.getWorksheet('New Products') || workbook.worksheets[0];
             const headerValues = (sheet.getRow(1).values || []).map(v => (v ||'').toString().trim().toLowerCase());
-
             sheet.eachRow((row, rowNumber) => {
                 if (rowNumber === 1) return;
                 const rowValues = row.values;
@@ -7190,16 +5502,13 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 if (Object.values(obj).some(v => v !=='')) rows.push(obj);
             });
         }
-
         const mode = (req.body.mode ||'skip').toLowerCase() ==='update' ?'update' :'skip';
-
         let products = readData(FILE_PRODUCTS);
         let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
         const codeIndex = new Map(products.map((p, i) => [p.code.trim().toLowerCase(), i]));
         const newCategoriesFound = new Set();
         let added = 0, updated = 0, skipped = 0;
         const errors = [];
-
         rows.forEach((r, idx) => {
             const rowNum = idx + 2;
             const code = (r.code ||'').toString().trim();
@@ -7209,26 +5518,22 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             const expiry = (r['expiry date'] || r.expiry || r.expirydate ||'').toString().trim();
             const thresholdRaw = (r['low stock threshold'] || r.threshold || r.lowstockthreshold ||'').toString().trim();
             const costRaw = (r['cost price'] || r.cost || r.costprice ||'').toString().trim();
-
             const priceRaw = (r.price ||'').toString().trim();
             const stockRaw = (r.stock ||'').toString().trim();
             const price = parseMoney(priceRaw);
             const stock = parseWholeNumber(stockRaw);
             const existingIdx = codeIndex.get(code.toLowerCase());
-
             if (!code || !name) {
                 errors.push(`Row ${rowNum}: Kulang ang Code o Product Name — na-skip.`);
                 skipped++;
                 return;
             }
-
             if (existingIdx !== undefined) {
                 if (mode !=='update') {
                     errors.push(`Row ${rowNum}: Ginagamit na ang Code "${code}" — na-skip.`);
                     skipped++;
                     return;
                 }
-
                 if (priceRaw !=='' && isNaN(price)) {
                     errors.push(`Row ${rowNum}: Hindi valid ang Price para sa Code "${code}" — hindi na-update ang price.`);
                 } else if (priceRaw !=='') {
@@ -7258,14 +5563,12 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 updated++;
                 return;
             }
-
             const category = categoryRaw ||'Others';
             if (isNaN(price) || isNaN(stock)) {
                 errors.push(`Row ${rowNum}: Hindi valid ang Price o Stock — na-skip.`);
                 skipped++;
                 return;
             }
-
             const newProduct = { code, name, category, price, stock };
             if (supplier) newProduct.supplier = supplier;
             if (expiry) newProduct.expiryDate = expiry;
@@ -7277,22 +5580,18 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 const costVal = parseMoney(costRaw);
                 if (!isNaN(costVal)) newProduct.cost = costVal;
             }
-
             products.push(newProduct);
             codeIndex.set(code.toLowerCase(), products.length - 1);
-
             if (!categories.includes(category)) {
                 categories.push(category);
                 newCategoriesFound.add(category);
             }
             added++;
         });
-
         writeData(FILE_PRODUCTS, products);
         writeData(FILE_CATEGORIES, categories);
         logAction(username, `Bulk-imported products via Excel/CSV: ${added} added, ${updated} updated, ${skipped} skipped.`);
         cleanupTmpFile();
-
         res.json({
             success: true,
             added,
@@ -7309,20 +5608,16 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
         res.status(500).json({ success: false, message:'Hindi mabasa ang file. Siguraduhing wastong .xlsx o .csv format ang ginamit (gamitin ang Download Template button).' });
     }
 });
-
 app.post('/api/products', (req, res) => {
     const { product } = req.body;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
-
     const codeExists = products.some(p => p.code.trim().toLowerCase() === product.code.trim().toLowerCase());
     if (codeExists) {
         return res.status(400).json({ success: false, message: `❌ Ang Product Code [${product.code}] ay ginagamit na!` });
     }
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
-
     if (canApplyDirectly) {
         products.push(product);
         writeData(FILE_PRODUCTS, products);
@@ -7341,9 +5636,7 @@ app.post('/api/products', (req, res) => {
     return res.json({ success: true, message:'Request sent to Admin for approval.'
                     });
 }
-
 });
-
 app.post('/api/products/deduct', (req, res) => {
     try {
         logAction(req.authUser && req.authUser.username, `Blocked call to removed endpoint /api/products/deduct (security fix — walang permission check dati, direct stock manipulation na walang transaction record). Payload: ${JSON.stringify(req.body || {}).slice(0, 300)}`);
@@ -7356,16 +5649,13 @@ app.post('/api/products/deduct', (req, res) => {
         message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin ng kahit sinong naka-login para baguhin ang stock nang walang permission check at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
 });
-
 app.put('/api/products/:code', (req, res) => {
     const { code } = req.params;
     const { updatedData } = req.body;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
-
     if (canApplyDirectly) {
         products = products.map(p => p.code.trim().toLowerCase() === code.trim().toLowerCase() ? { ...p, ...updatedData } : p);
         writeData(FILE_PRODUCTS, products);
@@ -7379,15 +5669,12 @@ app.put('/api/products/:code', (req, res) => {
         return res.json({ success: true, message:'Update request submitted for Admin approval' });
     }
 });
-
 app.delete('/api/products/:code', (req, res) => {
     const { code } = req.params;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
-
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
-
     if (canApplyDirectly) {
         products = products.filter(p => p.code.trim().toLowerCase() !== code.trim().toLowerCase());
         writeData(FILE_PRODUCTS, products);
@@ -7401,7 +5688,6 @@ app.delete('/api/products/:code', (req, res) => {
         return res.json({ success: true, message:'Delete request submitted for Admin approval' });
     }
 });
-
 function normalizeMatchKey(str) {
     return (str || '')
         .toString()
@@ -7412,27 +5698,22 @@ function normalizeMatchKey(str) {
         .replace(/[^a-z0-9 ]/g, '')
         .trim();
 }
-
 app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 60 * 1000), requirePermission('products'), productBulkPhotoUpload.array('images', 300), (req, res) => {
     try {
         const files = req.files || [];
         if (!files.length) {
             return res.status(400).json({ success: false, message: 'No photos were attached.' });
         }
-
         const username = req.authUser.username;
         const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
         const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
-
         if (!canApplyDirectly) {
             return res.status(403).json({
                 success: false,
                 message: 'Access Denied: You need "Direct Apply" permission to use Bulk Upload Photos. Please contact an Admin.'
             });
         }
-
         let products = readData(FILE_PRODUCTS);
-
         const codeIndex = new Map();
         const nameIndex = new Map();
         products.forEach((p, i) => {
@@ -7442,11 +5723,9 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
                 if (!nameIndex.has(nk)) nameIndex.set(nk, i);
             }
         });
-
         const applied = [];
         const unmatched = [];
         const failed = [];
-
         for (const file of files) {
             try {
                 const baseName = normalizeMatchKey(file.originalname);
@@ -7456,17 +5735,14 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
                     idx = nameIndex.get(baseName);
                     matchedBy = 'name';
                 }
-
                 if (idx === undefined) {
                     unmatched.push({ filename: file.originalname });
                     continue;
                 }
-
                 if (!file.mimetype || !file.mimetype.startsWith('image/')) {
                     failed.push({ filename: file.originalname, message: 'Not a valid image file.' });
                     continue;
                 }
-
                 const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
                 products[idx].image = dataUrl;
                 applied.push({
@@ -7480,12 +5756,10 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
                 failed.push({ filename: file.originalname, message: 'Could not process this file.' });
             }
         }
-
         if (applied.length) {
             writeData(FILE_PRODUCTS, products);
             logAction(username, `Bulk-uploaded product photos: ${applied.length} applied, ${unmatched.length} unmatched, ${failed.length} failed.`);
         }
-
         res.json({
             success: true,
             appliedCount: applied.length,
@@ -7501,7 +5775,6 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
         res.status(500).json({ success: false, message: 'An error occurred while applying the photos.' });
     }
 });
-
 app.post('/api/products/image-search', rateLimit('product-image-search', 20, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
     if (!isImageSearchConfigured()) {
         return res.status(501).json({
@@ -7516,7 +5789,6 @@ app.post('/api/products/image-search', rateLimit('product-image-search', 20, 10 
         const items = new Map();
         results.forEach(r => items.set(r.id, r.imageUrl));
         imageSearchSessions.set(nonce, { username: req.authUser.username, createdAt: Date.now(), items });
-
         res.json({
             success: true,
             nonce,
@@ -7527,7 +5799,6 @@ app.post('/api/products/image-search', rateLimit('product-image-search', 20, 10 
         res.status(err.statusCode === 400 ? 400 : 502).json({ success: false, message: err.message || 'Nabigo ang image search.' });
     }
 });
-
 app.post('/api/products/image-search/select', rateLimit('product-image-search-select', 30, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const { nonce, id } = req.body || {};
     const sess = imageSearchSessions.get(nonce);
@@ -7549,29 +5820,14 @@ app.post('/api/products/image-search/select', rateLimit('product-image-search-se
         res.status(502).json({ success: false, message: err.message || 'Hindi ma-download ang piniling larawan.' });
     }
 });
-
-// ============================================================================
-// Single-product Omni Search (free) — same free/no-API-key provider cascade
-// used by the bulk Omni Search Images flow above (searchDuckDuckGoImagesFree,
-// searchBingImagesFree, searchOpenverseImagesFree,
-// searchWikimediaCommonsImagesFree, searchYandexImagesFree via
-// omniFreeImageSearch). This lets the single-product "Search Image" modal
-// (used from the Add/Edit Product form) offer an "Omni Search" option that
-// works even when IMAGE_SEARCH_PROVIDER / IMAGE_SEARCH_API_KEY are not
-// configured, since it needs no API key at all. The existing paid
-// /api/products/image-search flow above is left completely untouched.
-// ============================================================================
-
 const OMNI_SINGLE_SEARCH_SESSION_TTL_MS = 10 * 60 * 1000;
 const omniSingleSearchSessions = new Map();
-
 setInterval(() => {
     const now = Date.now();
     for (const [nonce, sess] of omniSingleSearchSessions.entries()) {
         if (now - sess.createdAt > OMNI_SINGLE_SEARCH_SESSION_TTL_MS) omniSingleSearchSessions.delete(nonce);
     }
 }, 5 * 60 * 1000).unref();
-
 app.post('/api/products/image-search/omni', rateLimit('product-image-search-omni', 20, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
     try {
         const { provider, results } = await omniFreeImageSearch(req.body && req.body.query);
@@ -7579,7 +5835,6 @@ app.post('/api/products/image-search/omni', rateLimit('product-image-search-omni
         const items = new Map();
         results.forEach(r => items.set(r.id, { imageUrl: r.imageUrl, thumbnailUrl: r.thumbnailUrl }));
         omniSingleSearchSessions.set(nonce, { username: req.authUser.username, createdAt: Date.now(), items });
-
         res.json({
             success: true,
             nonce,
@@ -7591,7 +5846,6 @@ app.post('/api/products/image-search/omni', rateLimit('product-image-search-omni
         res.status(err.statusCode === 400 ? 400 : 502).json({ success: false, message: err.message || 'Omni Search failed.' });
     }
 });
-
 app.post('/api/products/image-search/omni/select', rateLimit('product-image-search-omni-select', 30, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const { nonce, id } = req.body || {};
     const sess = omniSingleSearchSessions.get(nonce);
@@ -7602,13 +5856,7 @@ app.post('/api/products/image-search/omni/select', rateLimit('product-image-sear
     if (!item) {
         return res.status(400).json({ success: false, message: 'Invalid selection — not part of your earlier search results.' });
     }
-
-    // Same self-healing fallback as the bulk Omni Search flow: try the
-    // full-size image URL first, then fall back to the thumbnail (usually
-    // served from the search provider's own CDN, so it's less likely to be
-    // hotlink-blocked) — so one blocked source doesn't fail the selection.
     const candidateUrls = [item.imageUrl, item.thumbnailUrl].filter((u, i, arr) => u && arr.indexOf(u) === i);
-
     let lastErr = null;
     for (const candidateUrl of candidateUrls) {
         try {
@@ -7623,10 +5871,8 @@ app.post('/api/products/image-search/omni/select', rateLimit('product-image-sear
             lastErr = err;
         }
     }
-
     res.status(502).json({ success: false, message: (lastErr && lastErr.message) || 'Could not download the selected image.' });
 });
-
 app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search', 5, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     if (!isImageSearchConfigured()) {
         return res.status(501).json({
@@ -7635,36 +5881,19 @@ app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search
             message: 'Hindi pa naka-set up ang Image Search. Ipa-add sa Admin ang IMAGE_SEARCH_PROVIDER at IMAGE_SEARCH_API_KEY (at IMAGE_SEARCH_CX kung Google Custom Search) sa .env file, tapos i-restart ang server.'
         });
     }
-
     const onlyMissing = req.body?.onlyMissing !== false;
     let limit = parseInt(req.body?.limit, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 50;
     limit = Math.min(limit, 100);
-
     const allProducts = readData(FILE_PRODUCTS);
     let targets = onlyMissing ? allProducts.filter(p => p && !p.image) : allProducts.slice();
     const totalEligible = targets.length;
     const truncated = targets.length > limit;
     targets = targets.slice(0, limit);
-
     if (!targets.length) {
         return res.json({ success: true, nonce: null, totalTargeted: 0, totalEligible, truncated: false, proposals: [] });
     }
-
     const nonce = crypto.randomBytes(16).toString('hex');
-
-    // LIVE PROGRESS (hiling): dati, hinihintay ng request na ito ang
-    // BUONG loop (isa-isang search, ~400ms pahinga sa pagitan) bago
-    // sumagot — kaya sa malaking batch (hal. 100 produkto), parang
-    // "nag-hang" ang UI nang matagal na oras nang walang anumang
-    // makikitang progreso. Ngayon, AGAD sumasagot ang endpoint na ito
-    // (bago pa man magsimula ang aktwal na search), at ang totoong
-    // paghahanap ay tumatakbo sa BACKGROUND (hindi na hinihintay/hindi
-    // naka-await dito) — ang progreso nito (ilan na ang tapos, ETA,
-    // proposals-so-far) ay naka-imbak sa bulkImageSearchProgress,
-    // sinusuri lang paulit-ulit (polling) ng frontend gamit ang bagong
-    // GET /api/products/bulk-image-search/progress?nonce=... endpoint
-    // sa ibaba.
     bulkImageSearchProgress.set(nonce, {
         username: req.authUser.username,
         total: targets.length,
@@ -7677,7 +5906,6 @@ app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search
         startedAt: Date.now(),
         updatedAt: Date.now()
     });
-
     res.json({
         success: true,
         nonce,
@@ -7685,12 +5913,6 @@ app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search
         totalEligible,
         truncated
     });
-
-    // Hindi na-await sa itaas nang sinasadya — background job na ito,
-    // patuloy na tumatakbo pagkatapos maipadala ang response sa itaas.
-    // Anumang error dito ay naka-catch at nakalagay sa progress.error
-    // lang (hindi na ito maiisyu bilang HTTP error response dahil
-    // naipadala na ang res sa itaas).
     (async () => {
         const items = new Map();
         const progress = bulkImageSearchProgress.get(nonce);
@@ -7710,13 +5932,10 @@ app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search
                     console.error(`Bulk image search error for ${p.code}:`, err);
                     progress.proposals.push({ code: p.code, name: p.name, found: false, message: 'Search failed for this product.' });
                 }
-
                 progress.done = i + 1;
                 progress.updatedAt = Date.now();
-
                 if (i < targets.length - 1) await sleepMs(400);
             }
-
             bulkImageSearchSessions.set(nonce, { username: req.authUser.username, createdAt: Date.now(), items });
             progress.finished = true;
             progress.updatedAt = Date.now();
@@ -7728,23 +5947,16 @@ app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search
         }
     })();
 });
-
-// GET /api/products/bulk-image-search/progress
-// Pina-poll ng frontend bawat ~1s habang tumatakbo ang bulk search sa
-// itaas, para makita ang live progress (X/Y na-search, tinatayang ilang
-// segundo pa) sa halip na basta maghintay nang walang tanda ng galaw.
 app.get('/api/products/bulk-image-search/progress', rateLimit('product-bulk-image-search-progress', 1200, 60 * 60 * 1000), requirePermission('products'), (req, res) => {
     const nonce = req.query?.nonce;
     const progress = nonce ? bulkImageSearchProgress.get(nonce) : null;
     if (!progress || progress.username !== req.authUser.username) {
         return res.status(400).json({ success: false, message: 'Invalid o expired na bulk search session. Mag-search ulit.' });
     }
-
     const elapsedMs = Date.now() - progress.startedAt;
     const avgMsPerItem = progress.done > 0 ? elapsedMs / progress.done : null;
     const remainingItems = Math.max(0, progress.total - progress.done);
     const etaMs = (!progress.finished && avgMsPerItem != null) ? Math.round(avgMsPerItem * remainingItems) : 0;
-
     res.json({
         success: true,
         total: progress.total,
@@ -7757,7 +5969,6 @@ app.get('/api/products/bulk-image-search/progress', rateLimit('product-bulk-imag
         etaMs
     });
 });
-
 app.post('/api/products/bulk-image-search/fetch', rateLimit('product-bulk-image-search-fetch', 300, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const { nonce, code } = req.body || {};
     const sess = bulkImageSearchSessions.get(nonce);
@@ -7768,16 +5979,8 @@ app.post('/api/products/bulk-image-search/fetch', rateLimit('product-bulk-image-
     if (!proposal) {
         return res.status(400).json({ success: false, message: 'Invalid na produkto — wala ito sa kanina mong bulk search results.' });
     }
-
-    // Sinusubukan muna ang full-size na imageUrl; kung ma-block o mag-fail
-    // ito (karaniwan dahil sa hotlink protection ng pinagmulang site), awtomatikong
-    // sinusubukan ang thumbnailUrl bilang fallback (galing mismo sa CDN ng
-    // search provider, mas maaasahan). Dati, isang beses lang sinusubukan
-    // ang imageUrl — kaya kapag na-block ito, agad na "failed" ang produktong
-    // iyon kahit may magandang fallback na sana sa thumbnail.
     const candidateUrls = [proposal.imageUrl, proposal.thumbnailUrl]
         .filter((u, i, arr) => u && arr.indexOf(u) === i);
-
     let lastErr = null;
     for (const candidateUrl of candidateUrls) {
         try {
@@ -7792,10 +5995,8 @@ app.post('/api/products/bulk-image-search/fetch', rateLimit('product-bulk-image-
             lastErr = err;
         }
     }
-
     res.status(502).json({ success: false, message: (lastErr && lastErr.message) || 'Hindi ma-download ang larawan para sa produktong ito.' });
 });
-
 app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-search-apply', 15, 60 * 60 * 1000), requirePermission('products'), (req, res) => {
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
@@ -7805,20 +6006,16 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
             message: 'Access Denied: You need "Direct Apply" permission to use Bulk Search Images. Please contact an Admin.'
         });
     }
-
     const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
     if (!updates.length) {
         return res.status(400).json({ success: false, message: 'Walang piniling larawan na i-a-apply.' });
     }
-
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
     const codeIndex = new Map();
     products.forEach((p, i) => { if (p && p.code) codeIndex.set(p.code, i); });
-
     const applied = [];
     const failed = [];
-
     for (const u of updates) {
         const code = u && u.code;
         const image = u && u.image;
@@ -7834,48 +6031,26 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
         products[idx].image = image;
         applied.push({ code, name: products[idx].name });
     }
-
     if (applied.length) {
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Bulk Search Images: naglapat ng ${applied.length} auto-search product photo(s) (${failed.length} nabigo).`);
     }
-
     res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products });
 });
-
-// ============================================================================
-// OMNI SEARCH IMAGES — routes (free, no API key required)
-// ----------------------------------------------------------------------------
-// Mirrors the "Bulk Search Images" endpoints above, but uses the free
-// multi-provider cascade (DuckDuckGo → Bing (free) → Openverse → Wikimedia
-// Commons → Yandex) instead of the configured paid provider (SerpApi /
-// Google / Bing API), so it works with zero setup. The existing SerpApi
-// flow above is untouched.
-//
-// "Apply" is intentionally shared with the paid flow's
-// POST /api/products/bulk-image-search/apply route above — it only ever
-// takes a product code + already-downloaded image data, so it works
-// identically no matter which search flow produced the image.
-// ============================================================================
-
 app.post('/api/products/omni-image-search', rateLimit('product-omni-image-search', 5, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const onlyMissing = req.body?.onlyMissing !== false;
     let limit = parseInt(req.body?.limit, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 50;
     limit = Math.min(limit, 100);
-
     const allProducts = readData(FILE_PRODUCTS);
     let targets = onlyMissing ? allProducts.filter(p => p && !p.image) : allProducts.slice();
     const totalEligible = targets.length;
     const truncated = targets.length > limit;
     targets = targets.slice(0, limit);
-
     if (!targets.length) {
         return res.json({ success: true, nonce: null, totalTargeted: 0, totalEligible, truncated: false, proposals: [] });
     }
-
     const nonce = crypto.randomBytes(16).toString('hex');
-
     omniImageSearchProgress.set(nonce, {
         username: req.authUser.username,
         total: targets.length,
@@ -7888,36 +6063,23 @@ app.post('/api/products/omni-image-search', rateLimit('product-omni-image-search
         startedAt: Date.now(),
         updatedAt: Date.now()
     });
-
-    // Respond immediately — the actual search runs as a background job
-    // (real detached OS process when possible, transparently falling back
-    // to an in-process background task otherwise). Live progress is
-    // available via the /progress endpoint below.
     res.json({ success: true, nonce, totalTargeted: targets.length, totalEligible, truncated });
-
     runOmniImageSearchJob(nonce, targets, req.authUser.username).catch(err => {
         console.error('Omni Search Images job dispatch failed:', err);
         const p = omniImageSearchProgress.get(nonce);
         if (p && !p.finished) { p.error = err.message || 'Omni Search Images failed to start.'; p.finished = true; p.updatedAt = Date.now(); }
     });
 });
-
-// GET /api/products/omni-image-search/progress
-// Polled by the frontend roughly every second while the Omni Search runs,
-// to show live progress (X/Y searched, ETA) the same way the paid Bulk
-// Search Images flow does above.
 app.get('/api/products/omni-image-search/progress', rateLimit('product-omni-image-search-progress', 1200, 60 * 60 * 1000), requirePermission('products'), (req, res) => {
     const nonce = req.query?.nonce;
     const progress = nonce ? omniImageSearchProgress.get(nonce) : null;
     if (!progress || progress.username !== req.authUser.username) {
         return res.status(400).json({ success: false, message: 'Invalid o expired na Omni Search session. Mag-search ulit.' });
     }
-
     const elapsedMs = Date.now() - progress.startedAt;
     const avgMsPerItem = progress.done > 0 ? elapsedMs / progress.done : null;
     const remainingItems = Math.max(0, progress.total - progress.done);
     const etaMs = (!progress.finished && avgMsPerItem != null) ? Math.round(avgMsPerItem * remainingItems) : 0;
-
     res.json({
         success: true,
         total: progress.total,
@@ -7930,7 +6092,6 @@ app.get('/api/products/omni-image-search/progress', rateLimit('product-omni-imag
         etaMs
     });
 });
-
 app.post('/api/products/omni-image-search/fetch', rateLimit('product-omni-image-search-fetch', 300, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const { nonce, code } = req.body || {};
     const sess = omniImageSearchSessions.get(nonce);
@@ -7941,13 +6102,8 @@ app.post('/api/products/omni-image-search/fetch', rateLimit('product-omni-image-
     if (!proposal) {
         return res.status(400).json({ success: false, message: 'Invalid na produkto — wala ito sa kanina mong Omni Search results.' });
     }
-
-    // Same self-healing fallback as the paid flow: try the full-size image
-    // URL first, then fall back to the thumbnail (usually served from the
-    // search provider's own CDN, so it's less likely to be hotlink-blocked).
     const candidateUrls = [proposal.imageUrl, proposal.thumbnailUrl]
         .filter((u, i, arr) => u && arr.indexOf(u) === i);
-
     let lastErr = null;
     for (const candidateUrl of candidateUrls) {
         try {
@@ -7962,31 +6118,23 @@ app.post('/api/products/omni-image-search/fetch', rateLimit('product-omni-image-
             lastErr = err;
         }
     }
-
     res.status(502).json({ success: false, message: (lastErr && lastErr.message) || 'Hindi ma-download ang larawan para sa produktong ito.' });
 });
-
 app.get('/api/requests', requirePermission('pending_requests'), (req, res) => {
     res.json(readData(FILE_REQUESTS));
 });
-
 app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { id } = req.params;
     const { action, username } = req.body;
-
     let requests = readData(FILE_REQUESTS);
     const reqIndex = requests.findIndex(r => r.id.toString() === id.toString());
-
     if (reqIndex === -1) {
         return res.status(404).json({ success: false, message:'Request Reference ID Not Found.' });
     }
-
     const targetReq = requests[reqIndex];
     const normalizedAction = action ? action.toLowerCase() :'';
-
     if (normalizedAction ==='approve' || normalizedAction ==='approved') {
         if (targetReq.type ==='PROFILE_UPDATE') {
-
             const result = applyProfileChanges(targetReq.targetUser, targetReq.data || {});
             if (!result.ok) {
                 return res.status(400).json({ success: false, message: `Hindi ma-apply ang Edit Profile request: ${result.error}` });
@@ -8030,7 +6178,6 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
             writeData(FILE_RECEIPT_SETTINGS, settings);
             logAction(username, `APPROVED Advanced Receipt Style request mula kay "${targetReq.requester}"`);
         } else if (targetReq.type ==='RECEIPT_LOYALTY_QR') {
-
             const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
             settings.loyaltyQrSettings = sanitizeLoyaltyQrSettings(targetReq.data && targetReq.data.loyaltyQrSettings);
             writeData(FILE_RECEIPT_SETTINGS, settings);
@@ -8047,7 +6194,6 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
             logAction(username, `APPROVED Transaction ID Format request (${settings.transactionIdSettings.format}) mula kay "${targetReq.requester}"`);
         } else {
             let products = readData(FILE_PRODUCTS);
-
             if (targetReq.type ==='ADD') {
                 products.push(targetReq.data);
                 logAction(username, `APPROVED ADD Request for product: ${targetReq.data?.name}`);
@@ -8070,7 +6216,6 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
                 });
                 logAction(username, `APPROVED RESTOCK Request for code: ${targetReq.targetCode} (+${qtyToAdd})`);
             }
-
             writeData(FILE_PRODUCTS, products);
         }
     } else {
@@ -8080,45 +6225,24 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
             logAction(username, `REJECTED ${targetReq.type} request for item ID/Code: ${targetReq.targetCode || targetReq.data?.code}`);
         }
     }
-
     requests = requests.filter(r => r.id.toString() !== id.toString());
     writeData(FILE_REQUESTS, requests);
-
     res.json({ success: true, message: `Request processed and removed successfully.` });
 });
-
 app.post('/api/transactions', requirePermission('terminal'), async (req, res) => {
     await transactionsMutexRunExclusive(() => processTransaction(req, res));
 });
-
 async function processTransaction(req, res) {
     const { transaction, username, creditDebtInfo } = req.body;
-
     if (!transaction || typeof transaction !== 'object' || !Array.isArray(transaction.items) || transaction.items.length === 0) {
         return res.status(400).json({ success: false, message: 'Walang laman o hindi valid ang transaction items.' });
     }
-
     transaction.cashier = req.authUser.username;
-
     {
         const cashierRecord = readData(FILE_USERS).find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
         transaction.cashierDisplayName = (cashierRecord && cashierRecord.displayName) || null;
     }
-
     let transactions = readData(FILE_TRANSACTIONS);
-
-    // INTEGRITY FIX (revised): dating plano ay palitan agad ng server ang
-    // ID (auto-generate) — pero na-realize na ang client mismo ang
-    // gumagawa ng ID base sa configurable na "Transaction ID Format"
-    // setting (Receipt Customization > Transaction ID), at agad itong
-    // ipinapakita bilang "Reference Code" sa cashier/customer display
-    // BAGO pa man sumagot ang server. Kung papalitan ito ng server,
-    // masisira ang format na iyon at magkaka-mismatch ang reference code
-    // na nakita ng cashier/customer laban sa aktwal na naka-print sa
-    // resibo. Sa halip, dito na lang VINA-VALIDATE/tinatanggihan ang
-    // duplicate ID (kung existing na sa FILE_TRANSACTIONS) — pinapanatili
-    // ang format ng client pero sinasarhan ang butas ng collision/replay
-    // na dating pwedeng gawin sa findIndex/filter-based void/refund logic.
     if (!transaction.id || typeof transaction.id !== 'string' || !transaction.id.trim()) {
         return res.status(400).json({ success: false, message: 'Kailangan ng valid na Transaction ID.' });
     }
@@ -8129,21 +6253,13 @@ async function processTransaction(req, res) {
             message: 'May existing nang transaction na may ganitong ID — malamang parehong request ang naipadala nang dalawang beses. I-refresh at subukan muli.'
         });
     }
-
     let products = readData(FILE_PRODUCTS);
     let customers = readData(FILE_CUSTOMERS, []);
-
-
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
-
     const enabledMethodKeys = Object.entries(storeSettings.paymentMethods)
         .filter(([, enabled]) => enabled)
         .map(([key]) => key.toLowerCase());
     const methodAliasMap = { cash:'cash', gcash:'gcash', maya:'maya', paymaya:'maya', card:'card', banktransfer:'banktransfer', bank_transfer:'banktransfer' };
-    // "C-Credit" (Customer Credit / utang) is not a real money-in method — it's an
-    // accounting entry that routes the sale to the Debtors ledger instead of cash
-    // drawer/e-wallet/card, so it's intentionally NOT gated by the Store & Sales
-    // Settings payment-method toggles (same way Cash is always considered available).
     const creditMethodAliases = new Set(['ccredit', 'credit', 'customercredit']);
     function normalizeMethodKeyLoose(rawMethod) {
         return String(rawMethod || '').toLowerCase().replace(/[\s_-]/g, '');
@@ -8167,7 +6283,6 @@ async function processTransaction(req, res) {
             message: `Ang payment method na "${disabledMethodUsed}" ay hindi naka-enable sa Store & Sales Settings. Puntahan ang Users > Store & Sales para i-enable.`
         });
     }
-
     const usesCreditPayment = paymentMethodsUsed.some(isCreditMethod);
     if (usesCreditPayment) {
         if (paymentMethodsUsed.length > 1) {
@@ -8189,7 +6304,6 @@ async function processTransaction(req, res) {
             return res.status(400).json({ success: false, message: 'Kailangan ng pangalan ng debtor (Add Debt form) bago maproseso ang bentang C-Credit.' });
         }
     }
-
     const eWalletMethods = new Set(['gcash', 'maya', 'paymaya']);
     function normalizeMethodKey(rawMethod) {
         return String(rawMethod || '').toLowerCase().replace(/[\s_-]/g, '');
@@ -8212,34 +6326,26 @@ async function processTransaction(req, res) {
             });
         }
     }
-
     const resolvedItems = [];
     const stockIssues = [];
     const rejectedItems = [];
-
     const requestedQtyByCode = {};
-
     for (const item of (transaction.items || [])) {
         let prod = products.find(p => p.code === item.code);
         if (!prod) prod = products.find(p => p.name === item.name);
-
         if (!prod) {
             rejectedItems.push(item && (item.code || item.name) || '(unknown item)');
             continue;
         }
-
         const qty = parseInt(item.quantity, 10);
         if (!Number.isInteger(qty) || qty <= 0 || String(item.quantity).trim() === '') {
             rejectedItems.push(`${prod.name} (invalid quantity: ${item.quantity})`);
             continue;
         }
-
         const catalogPrice = parseFloat(prod.price) || 0;
         const lineSubtotal = Math.round(catalogPrice * qty * 100) / 100;
         const itemDiscount = Math.min(Math.max(0, parseFloat(item.itemDiscount) || 0), lineSubtotal);
-
         requestedQtyByCode[prod.code] = (requestedQtyByCode[prod.code] || 0) + qty;
-
         resolvedItems.push({
             code: prod.code,
             name: prod.name,
@@ -8249,7 +6355,6 @@ async function processTransaction(req, res) {
             cost: parseFloat(prod.cost) || 0
         });
     }
-
     if (rejectedItems.length === 0) {
         for (const code of Object.keys(requestedQtyByCode)) {
             const prod = products.find(p => p.code === code);
@@ -8261,7 +6366,6 @@ async function processTransaction(req, res) {
             }
         }
     }
-
     if (rejectedItems.length > 0) {
         return res.status(400).json({
             success: false,
@@ -8275,14 +6379,11 @@ async function processTransaction(req, res) {
             message: `Hindi ma-proceed ang benta — naubos/kulang na ang stock: ${stockIssues.join(', ')}. Malamang na-benta na ito sa ibang terminal/device. I-refresh ang product list.`
         });
     }
-
     const grossSubtotal = Math.round(resolvedItems.reduce((sum, it) => sum + (it.price * it.quantity), 0) * 100) / 100;
     const itemDiscountTotal = Math.round(resolvedItems.reduce((sum, it) => sum + it.itemDiscount, 0) * 100) / 100;
     const netAfterItemDiscounts = Math.max(0, Math.round((grossSubtotal - itemDiscountTotal) * 100) / 100);
-
     let cartDiscount = 0;
     const discountType = transaction.discountType || 'NONE';
-
     if (discountType === 'SENIOR_PWD') {
         if (!transaction.seniorPwdId || !String(transaction.seniorPwdId).trim()) {
             return res.status(400).json({ success: false, message: 'Kailangan ng Senior/PWD ID Number para sa discount na ito.' });
@@ -8307,7 +6408,6 @@ async function processTransaction(req, res) {
     } else if (discountType === 'MANUAL') {
         cartDiscount = Math.round(Math.min(Math.max(0, parseFloat(transaction.discount) || 0), netAfterItemDiscounts) * 100) / 100;
     } else if (discountType === 'LOYALTY') {
-
         if (usesCreditPayment) {
             return res.status(400).json({ success: false, message: 'Hindi puwedeng gumamit ng Loyalty Points redemption sa isang C-Credit (utang) na benta — hindi pa ito totoong bayad.' });
         }
@@ -8326,14 +6426,12 @@ async function processTransaction(req, res) {
         const pointValue = Math.max(0, parseFloat(storeSettings.loyaltyPointValue) || 0);
         let pointsToRedeem = Math.min(requestedPoints, availablePoints);
         cartDiscount = Math.round(Math.min(pointsToRedeem * pointValue, netAfterItemDiscounts) * 100) / 100;
-
         pointsToRedeem = pointValue > 0 ? Math.floor(cartDiscount / pointValue) : 0;
         cartDiscount = Math.round(pointsToRedeem * pointValue * 100) / 100;
         if (pointsToRedeem <= 0) {
             return res.status(400).json({ success: false, message: 'Walang sapat na loyalty points para gamitin.' });
         }
         transaction.loyaltyPointsRedeemed = pointsToRedeem;
-
         const cardToken = transaction.loyaltyCardToken;
         if (cardToken) {
             const cardCheck = verifyLoyaltyCardToken(redeemingCustomer, cardToken);
@@ -8341,7 +6439,6 @@ async function processTransaction(req, res) {
                 return res.status(403).json({ success: false, code:'LOYALTY_CARD_INVALID', message: cardCheck.message });
             }
             transaction.loyaltyAuthorizedBy = 'Customer Loyalty Card/QR Scan';
-
         } else {
             const loyaltyAuthPassword = transaction.loyaltyAuthPassword;
             if (!loyaltyAuthPassword) {
@@ -8361,10 +6458,8 @@ async function processTransaction(req, res) {
                 : `${loyaltyAuthResult.user.username} (RBAC, manual)`;
         }
     }
-
     const manualDiscountTotal = Math.round((itemDiscountTotal + (discountType ==='MANUAL' ? cartDiscount : 0)) * 100) / 100;
     let discountAuthorizedBy = null;
-
     if (manualDiscountTotal > 0) {
         const discountAuthPassword = transaction.discountAuthPassword;
         if (!discountAuthPassword) {
@@ -8387,7 +6482,6 @@ async function processTransaction(req, res) {
             ? `${discountAuthResult.user.username} (Admin)`
             : `${discountAuthResult.user.username} (RBAC)`;
     }
-
     products = readData(FILE_PRODUCTS);
     const freshStockIssues = [];
     for (const code of Object.keys(requestedQtyByCode)) {
@@ -8409,9 +6503,7 @@ async function processTransaction(req, res) {
             message: `Hindi ma-proceed ang benta — naubos/kulang na ang stock: ${freshStockIssues.join(', ')}. Malamang na-benta na ito sa ibang terminal/device. I-refresh ang product list.`
         });
     }
-
     const verifiedTotal = Math.max(0, Math.round((netAfterItemDiscounts - cartDiscount) * 100) / 100);
-
     let taxAmount = 0;
     const taxRatePct = Math.min(Math.max(0, storeSettings.taxRate), 100);
     if (storeSettings.taxEnabled && taxRatePct > 0) {
@@ -8424,18 +6516,15 @@ async function processTransaction(req, res) {
     const grandTotal = (storeSettings.taxEnabled && !storeSettings.pricesIncludeTax)
         ? Math.round((verifiedTotal + taxAmount) * 100) / 100
         : verifiedTotal;
-
     const tendered = Array.isArray(transaction.payments) && transaction.payments.length > 0
         ? transaction.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
         : (parseFloat(transaction.received ?? transaction.amount_paid) || 0);
-
     if (Math.round(tendered * 100) / 100 < grandTotal - 0.01) {
         return res.status(400).json({
             success: false,
             message: `Hindi tama ang binayad — kulang ito (₱${tendered.toFixed(2)}) kumpara sa tamang total (₱${grandTotal.toFixed(2)}).`
         });
     }
-
     transaction.items = resolvedItems;
     transaction.discount = cartDiscount;
     transaction.subtotalBeforeTax = verifiedTotal;
@@ -8446,26 +6535,21 @@ async function processTransaction(req, res) {
     transaction.change = Math.round((tendered - grandTotal) * 100) / 100;
     transaction.discountAuthorizedBy = discountAuthorizedBy;
     delete transaction.discountAuthPassword;
-
     delete transaction.loyaltyAuthPassword;
     delete transaction.loyaltyCardToken;
-
     transaction.items.forEach(item => {
         const prod = products.find(p => p.code === item.code);
         if (prod) {
             prod.stock = Math.max(0, prod.stock - item.quantity);
         }
     });
-
     let newLoyaltyCardToken = null;
     if (transaction.customerId) {
         const cust = customers.find(c => c.id === transaction.customerId);
         if (cust) {
-
             const redeem = discountType === 'LOYALTY' ? Math.max(0, parseInt(transaction.loyaltyPointsRedeemed) || 0) : 0;
             if (redeem > 0) {
                 cust.points = Math.max(0, (cust.points || 0) - redeem);
-
                 const custHasRotatingCard = cust.loyaltyCard && !cust.loyaltyCard.revoked && cust.loyaltyCard.mode ==='rotating';
                 if (custHasRotatingCard) {
                     const rotated = issueLoyaltyCard(cust, 'rotating', transaction.loyaltyAuthorizedBy || 'system');
@@ -8475,38 +6559,25 @@ async function processTransaction(req, res) {
                 transaction.loyaltyPointsRedeemed = 0;
             }
             delete transaction._loyaltyCardRotate;
-
-            // C-Credit (utang) sales don't earn loyalty points — no real payment
-            // has come in yet, only when the debt gets settled would that apply.
             const earnRate = (storeSettings.loyaltyEnabled && !usesCreditPayment) ? (parseFloat(storeSettings.loyaltyEarnRate) || 100) : 0;
             const earned = earnRate > 0 ? Math.floor((parseFloat(transaction.total) || 0) / earnRate) : 0;
             cust.points = (cust.points || 0) + earned;
             cust.totalSpent = Math.round(((cust.totalSpent || 0) + (parseFloat(transaction.total) || 0)) * 100) / 100;
             cust.visits = (cust.visits || 0) + 1;
             cust.lastVisit = new Date().toISOString();
-
             transaction.customerName = cust.name;
             transaction.customerEmail = cust.email ||'';
             transaction.loyaltyPointsEarned = earned;
             transaction.loyaltyPointsBalance = cust.points;
-
             writeData(FILE_CUSTOMERS, customers);
         }
     }
-
     transactions.unshift(transaction);
     writeData(FILE_TRANSACTIONS, transactions);
     writeData(FILE_PRODUCTS, products);
-
     logAction(username, `Processed sale transaction: ${transaction.id}`
         + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : '')
         + (transaction.loyaltyAuthorizedBy ? ` (Loyalty redemption authorized by: ${transaction.loyaltyAuthorizedBy})` : ''));
-
-    // ---- C-Credit sale => auto-create a linked Debtor/Debt record ----
-    // The sale above already went through the normal flow (inventory reduced,
-    // transaction recorded like any other sale). When paid via C-Credit, we
-    // additionally drop a debt record so the amount owed — and which
-    // products it's for — shows up in the Debtors ledger.
     let createdDebt = null;
     if (usesCreditPayment) {
         const debts = readData(FILE_DEBTS, []);
@@ -8543,9 +6614,7 @@ async function processTransaction(req, res) {
         writeData(FILE_DEBTS, debts);
         logAction(username, `Auto-recorded a debt from C-Credit sale ${transaction.id}: ${debtorName} — ₱${(transaction.total || 0).toFixed(2)}`);
     }
-
     runFraudChecks('sale', { transaction });
-
     try {
         const advSettings = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
         if (advSettings.saleWebhookEnabled && advSettings.saleWebhookUrl && typeof fetch === 'function') {
@@ -8565,60 +6634,44 @@ async function processTransaction(req, res) {
     } catch (webhookErr) {
         console.error('Sale webhook error:', webhookErr.message);
     }
-
     res.json({ success: true, currentTransaction: transaction, newLoyaltyCardToken, debt: createdDebt });
-
 }
-
 app.get('/api/cart/:username', (req, res) => {
     const username = req.params.username;
-
     const isOwner = req.authUser.username.toLowerCase() === username.toLowerCase();
     const isAdmin = req.authUser.role.toLowerCase() ==='admin';
     if (!isOwner && !isAdmin) {
         return res.status(403).json({ success: false, message:'Akses Denied: Hindi mo pwedeng tingnan ang cart ng ibang user.' });
     }
-
     const cartsData = readData(FILE_CARTS, {});
-
     res.json({ success: true, cart: cartsData[username] || [] });
 });
-
 app.post('/api/cart', (req, res) => {
     const { username, cart } = req.body;
     if (!username) {
         return res.status(400).json({ success: false, message:'Missing username' });
     }
-
     const cartsData = readData(FILE_CARTS, {});
-
     cartsData[username] = cart;
-
     writeData(FILE_CARTS, cartsData);
     res.json({ success: true, message:'Cart saved to database successfully.' });
 });
-
 app.get('/api/transactions', (req, res) => {
-
     const requester = req.authUser.username;
     const allTransactions = readData(FILE_TRANSACTIONS);
-
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
-
     const activeRole = activeUser && activeUser.role;
     const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
     if (canViewAll) {
         return res.json(allTransactions);
     }
-
     const ownTransactions = allTransactions.filter(
         tx => (tx.cashier ||'').toLowerCase() === requester.toLowerCase()
     );
     res.json(ownTransactions);
 });
-
 function escapeHtml(str) {
     return String(str ?? '')
         .replace(/&/g, '&amp;')
@@ -8627,12 +6680,6 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
-
-// Server-side CODE128 barcode (PNG) ng transaction ID — parehong uri ng
-// barcode (at parehong laman: ang tx.id) na nakikita sa naka-print na
-// resibo (tingnan ang JsBarcode(...) call sa public/app.js). Ginagamit
-// ang bwip-js dahil pure-JS ito (walang native/canvas na kailangang
-// i-compile) — ligtas ito sa Termux/Android build.
 async function generateReceiptBarcodePng(text, barcodeSettings) {
     const bset = barcodeSettings || {};
     return bwipjs.toBuffer({
@@ -8648,14 +6695,6 @@ async function generateReceiptBarcodePng(text, barcodeSettings) {
         backgroundcolor: 'FFFFFF'
     });
 }
-
-// Server-side QR code (PNG) — ginagamit para sa Loyalty Card QR (parehong
-// token na naka-encode sa QR na nasa naka-print na resibo, tingnan ang
-// applyLoyaltyQrSettingsToDom() sa public/app.js). Gaya ng barcode, ito
-// ay ipina-pasa lang sa client (walang RECEIPT_IMAGE) kaya kailangan
-// muling i-render dito bilang aktwal na imahe (hindi puwedeng umasa sa
-// client-side QRCode.js library — hindi tumatakbo ang JS sa loob ng
-// email client).
 async function generateReceiptQrPng(text, sizePx, correctLevel) {
     return QRCode.toBuffer(String(text || ''), {
         width: Math.max(80, Math.min(400, sizePx || 160)),
@@ -8663,25 +6702,15 @@ async function generateReceiptQrPng(text, sizePx, correctLevel) {
         errorCorrectionLevel: correctLevel || 'M'
     });
 }
-
-// Bumubuo ng "pro/modern" HTML e-receipt — sinisikap na ipakita ang
-// LAHAT ng makikita sa naka-print na resibo (item breakdown, discount,
-// tax, payment breakdown, loyalty points, barcode, loyalty QR) sa loob
-// ng isang maayos/de-kalidad na email layout. Table-based + inline
-// styles lang (sinasadya — pinaka-compatible ito sa buong hanay ng mail
-// client, kasama ang Outlook, na hindi sumusuporta sa modernong CSS
-// gaya ng flexbox/grid).
 function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentRows, itemsHtml, totalsRows, hasBarcode, loyaltyQr, changeAmount }) {
     const accent = (settings.advancedSettings && settings.advancedSettings.accentColor) || '#4f46e5';
     const storeAddress = settings.storeAddress || '';
     const storeContact = settings.storeContact || '';
     const footerText = settings.footerText || 'Thank you for shopping!';
     const dateLabel = tx.timestamp || (tx.isoDate ? new Date(tx.isoDate).toLocaleString() : '');
-
     const customerRow = tx.customerName
         ? `<tr><td style="padding:4px 0;color:#64748b;">Customer</td><td align="right" style="padding:4px 0;font-weight:600;color:#0f172a;">${escapeHtml(tx.customerName)}</td></tr>`
         : '';
-
     const loyaltyBlock = (tx.loyaltyPointsEarned || tx.loyaltyPointsRedeemed || Number.isFinite(tx.loyaltyPointsBalance))
         ? `<tr><td style="padding:14px 32px 0;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
@@ -8693,24 +6722,20 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
             </table>
         </td></tr>`
         : '';
-
     const barcodeBlock = hasBarcode
         ? `<tr><td style="padding:26px 32px 0;text-align:center;">
             <img src="cid:receiptBarcode" alt="Barcode ${escapeHtml(tx.id)}" style="max-width:260px;width:100%;height:auto;">
         </td></tr>`
         : '';
-
     const loyaltyQrBlock = loyaltyQr
         ? `<tr><td style="padding:20px 32px 0;text-align:center;">
             <img src="cid:loyaltyQr" alt="Loyalty QR" width="${loyaltyQr.sizePx}" height="${loyaltyQr.sizePx}" style="border:1px solid #e2e8f0;border-radius:10px;padding:8px;background:#ffffff;">
             ${loyaltyQr.note ? `<div style="font-size:12px;color:#64748b;margin-top:8px;">${escapeHtml(loyaltyQr.note)}</div>` : ''}
         </td></tr>`
         : '';
-
     const changeRow = changeAmount > 0
         ? `<tr><td style="padding:8px 16px 0;font-size:13px;color:#64748b;">Change</td><td align="right" style="padding:8px 16px 0;font-size:13px;font-weight:700;color:#0f172a;">₱${changeAmount.toFixed(2)}</td></tr>`
         : '';
-
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -8778,36 +6803,18 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
 </body>
 </html>`;
 }
-
 app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-receipt', 20, 15 * 60 * 1000), async (req, res) => {
     const { transactionId } = req.params;
     const { toEmail, transaction: clientTx, receiptImage, loyaltyQr: loyaltyQrInput } = req.body;
-
     const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!toEmail || !emailPattern.test(toEmail)) {
         return res.status(400).json({ success: false, message:'Di-wastong email address.' });
     }
-
     const transactions = readData(FILE_TRANSACTIONS, []);
     const tx = transactions.find(t => t.id === transactionId) || clientTx;
     if (!tx) {
         return res.status(404).json({ success: false, message:'Hindi mahanap ang transaction record na ito.' });
     }
-
-    // SECURITY FIX: dati, WALANG role/ownership check dito — kahit anong
-    // logged-in na account (kasama yung mga walang "transactions_view_all"
-    // permission, na dapat "sarili lang na transactions" makikita) ay
-    // pwedeng mag-email ng buong resibo (customer info, item list, presyo,
-    // cashier) ng KAHIT ANONG transaction ID papunta sa KAHIT ANONG email
-    // address — bypass ng access-control na ginagamit na ng GET /api/transactions.
-    // Ngayon, kailangang ang tumatawag ay: (a) admin, (b) may
-    // transactions_view_all permission, o (c) siya mismo ang cashier sa
-    // transaction na iyon — PERO ito ay ipinapatupad LAMANG kung totoong
-    // naka-save ang transaction sa server (may tunay na customer/sale data
-    // na dapat protektahan). Ang "Preview Receipt" sample sa Receipt
-    // Customization settings (id na nagsisimula sa "PREVIEW-") ay
-    // client-fabricated na data lang, walang tunay na cashier/customer
-    // info na malelenda, kaya hindi ito dapat harangin.
     const isPersistedTransaction = transactions.some(t => t.id === transactionId);
     if (isPersistedTransaction) {
         const requester = req.authUser.username;
@@ -8821,14 +6828,8 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             return res.status(403).json({ success: false, message: 'Akses Denied: Hindi mo pwedeng i-email ang resibo ng transaksyon na hindi sa iyo.' });
         }
     }
-
     const rawReceiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const settings = getReceiptSettingsPublic(rawReceiptSettings);
-    // BUGFIX: dating ipinapasa dito ang "public" (masked) settings, na wala
-    // nang otpSenderEmail/otpSenderAppPassword field (tinanggal na para hindi
-    // ma-leak sa client) — kaya LAGING "hindi configured" ang nakikita rito
-    // kahit naka-save at naka-verify na ang Sender Gmail sa totoo lang. Dapat
-    // ang RAW settings (may kasamang aktwal na credentials) ang gamitin dito.
     const mailCreds = getOtpMailCredentials(rawReceiptSettings);
     if (!mailCreds) {
         return res.status(400).json({
@@ -8836,35 +6837,28 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             message:'No Sender Gmail configured yet. Set this up first under Users > Receipt Customization > OTP Sender Email.'
         });
     }
-
     try {
         const storeName = settings.storeName ||'OmniPOS';
-
         const cashierUsername = tx.cashier ||'';
         const cashierDisplayName = tx.cashierDisplayName ||'';
         const cashierLabel = (cashierDisplayName && cashierDisplayName.trim() && cashierDisplayName.trim().toLowerCase() !== cashierUsername.toLowerCase())
             ? `${cashierDisplayName.trim()} / @${cashierUsername}`
             : (cashierUsername ? `@${cashierUsername}` :'');
-
         const items = tx.items || [];
         const itemLines = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
             const lineTotal = ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)) - itemDiscount;
             return `  ${i.name} x${i.quantity} .......... ₱${lineTotal.toFixed(2)}`;
         }).join('\n');
-
         const isSplitPayment = tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1;
         const paymentLine = isSplitPayment
             ? tx.payments.map(p => `${p.method} ₱${parseFloat(p.amount).toFixed(2)}`).join(' + ')
             : (tx.method || tx.payment_method ||'CASH');
-
         const discountAmount = Math.max(0, parseFloat(tx.discount) || 0);
         const taxAmount = Math.max(0, parseFloat(tx.taxAmount) || 0);
         const grandTotal = parseFloat(tx.total || 0) || 0;
         const changeAmount = Math.max(0, parseFloat(tx.change) || 0);
-
         const textBody = `${storeName}\n${settings.storeAddress ||''}\n\nReceipt: ${tx.id}\nDate: ${tx.timestamp ||''}\nCashier: ${cashierLabel}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}`;
-
         const grossSubtotal = items.reduce((sum, i) => sum + ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)), 0);
         const itemsHtml = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
@@ -8875,7 +6869,6 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
                 <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${lineTotal.toFixed(2)}</td>
             </tr>`;
         }).join('');
-
         let totalsRows = `<tr><td style="padding:2px 0;">Subtotal</td><td align="right" style="padding:2px 0;">₱${grossSubtotal.toFixed(2)}</td></tr>`;
         if (discountAmount > 0) {
             totalsRows += `<tr><td style="padding:2px 0;color:#059669;">Discount${tx.discountAuthorizedBy ? ` (${escapeHtml(tx.discountAuthorizedBy)})` : ''}</td><td align="right" style="padding:2px 0;color:#059669;">-₱${discountAmount.toFixed(2)}</td></tr>`;
@@ -8884,13 +6877,10 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             totalsRows += `<tr><td style="padding:2px 0;">Tax${tx.taxRate ? ` (${tx.taxRate}%)` : ''}</td><td align="right" style="padding:2px 0;">₱${taxAmount.toFixed(2)}</td></tr>`;
         }
         totalsRows += `<tr><td style="padding-top:10px;font-size:17px;font-weight:800;color:#0f172a;">TOTAL</td><td align="right" style="padding-top:10px;font-size:17px;font-weight:800;color:${(settings.advancedSettings && settings.advancedSettings.accentColor) || '#4f46e5'};">₱${grandTotal.toFixed(2)}</td></tr>`;
-
         const paymentRows = isSplitPayment
             ? tx.payments.map(p => `${escapeHtml(p.method)} ₱${parseFloat(p.amount).toFixed(2)}`).join(' + ')
             : escapeHtml(paymentLine);
-
         const attachments = [];
-
         const bset = settings.barcodeSettings || {};
         const hasBarcode = bset.show !== false && !!tx.id;
         if (hasBarcode) {
@@ -8907,15 +6897,6 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
                 console.warn('Hindi na-generate ang barcode para sa e-receipt:', bcErr.message);
             }
         }
-
-        // Loyalty QR: available lang KAAGAD pagkatapos ng bagong benta (ang
-        // client ang nagpapasa ng token, tulad ng ginagawa nito para sa
-        // naka-print na resibo — tingnan ang currentReceiptLoyaltyQr sa
-        // public/app.js) dahil sinasadyang hindi na-pe-persist ang loyalty
-        // card token sa transaction record pagkatapos ng benta (security —
-        // rotating token). Kaya kapag muling ipinadala/reprint galing sa
-        // history, wala nang QR na maipapakita dito — kagaya rin ng
-        // pag-uugali ng naka-print na resibo sa parehong sitwasyon.
         const lqSettings = settings.loyaltyQrSettings || {};
         let loyaltyQr = null;
         if (lqSettings.enabled !== false && loyaltyQrInput && loyaltyQrInput.token) {
@@ -8939,13 +6920,11 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
                 console.warn('Hindi na-generate ang loyalty QR para sa e-receipt:', qrErr.message);
             }
         }
-
         const htmlBody = buildReceiptEmailHtml({
             settings, tx, storeName, cashierLabel, paymentRows, itemsHtml, totalsRows,
             hasBarcode: hasBarcode && attachments.some(a => a.cid === 'receiptBarcode'),
             loyaltyQr, changeAmount
         });
-
         const mailOptions = {
             from: `"${storeName}" <${mailCreds.user}>`,
             to: toEmail,
@@ -8953,14 +6932,12 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             text: textBody,
             html: htmlBody
         };
-
         if (typeof receiptImage ==='string' && receiptImage.startsWith('data:image/')) {
             try {
                 const match = receiptImage.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
                 if (match) {
                     const ext = match[1] ==='jpg' ?'jpeg' : match[1];
                     const base64Data = match[2];
-
                     if (base64Data.length < 2_800_000) {
                         attachments.push({
                             filename: `receipt-${tx.id}.${ext ==='jpeg' ?'jpg' :'png'}`,
@@ -8973,11 +6950,8 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
                 console.warn('Hindi na-attach ang receipt image:', imgErr.message);
             }
         }
-
         if (attachments.length > 0) mailOptions.attachments = attachments;
-
         await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
-
         logAction(req.authUser ? req.authUser.username :'Unknown', `Naipadala ang resibo ${tx.id} sa email (${maskEmail(toEmail)})`);
         res.json({ success: true, message:'Naipadala ang resibo.' });
     } catch (err) {
@@ -8985,7 +6959,6 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         res.status(500).json({ success: false, message: `Hindi naipadala ang resibo: ${err.message}` });
     }
 });
-
 app.get('/api/logs', requirePermission('logs'), (req, res) => {
     try {
         const logs = readData(FILE_USERLOGS, []);
@@ -8995,31 +6968,25 @@ app.get('/api/logs', requirePermission('logs'), (req, res) => {
         res.status(500).json({ success: false, message:'Hindi makuha ang system logs.' });
     }
 });
-
 app.get('/api/users', requirePermission('users'), (req, res) => {
     const users = readData(FILE_USERS);
-
     const safeUsers = users.map(({ password, webauthnCredentials, ...rest }) => rest);
     res.json(safeUsers);
 });
-
 app.get('/api/users/self', (req, res) => {
     const users = readData(FILE_USERS);
     const me = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
     if (!me) return res.status(404).json({ success: false, message:'Account not found.' });
     res.json({ success: true, username: me.username, displayName: me.displayName || null, role: me.role, avatar: me.avatar || null, created: me.created || null });
 });
-
 function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw, displayName: displayNameRaw }) {
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === currentUsername.toLowerCase());
     if (userIndex === -1) {
         return { ok: false, error:'Account not found.' };
     }
-
     const newUsername = typeof newUsernameRaw ==='string' ? newUsernameRaw.trim() :'';
     const isRenaming = newUsername && newUsername.toLowerCase() !== currentUsername.toLowerCase();
-
     if (isRenaming) {
         if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(newUsername)) {
             return { ok: false, error:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' };
@@ -9029,7 +6996,6 @@ function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw
             return { ok: false, error:'Kinuha na ng ibang account ang username na iyan.' };
         }
     }
-
     let displayNameError = null;
     if (typeof displayNameRaw !=='undefined') {
         const trimmedDisplayName = typeof displayNameRaw ==='string' ? displayNameRaw.trim() :'';
@@ -9042,7 +7008,6 @@ function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw
     if (displayNameError) {
         return { ok: false, error: displayNameError };
     }
-
     if (typeof avatar !=='undefined') {
         users[userIndex].avatar = avatar || null;
     }
@@ -9051,20 +7016,16 @@ function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw
         users[userIndex].username = finalUsername;
     }
     writeData(FILE_USERS, users);
-
     if (isRenaming) {
         renameUsernameEverywhere(currentUsername, finalUsername);
     }
-
     return { ok: true, user: users[userIndex], renamedFrom: isRenaming ? currentUsername : null };
 }
-
 app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 1000), (req, res) => {
     const { avatar, username: newUsername, displayName } = req.body;
     const actingUsername = req.authUser.username;
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).edit_user_profile;
-
     if (typeof displayName !=='undefined' && !avatar && !newUsername) {
         const result = applyProfileChanges(actingUsername, { displayName });
         if (!result.ok) {
@@ -9081,7 +7042,6 @@ app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 
             usernameChanged: false
         });
     }
-
     if (canApplyDirectly) {
         const result = applyProfileChanges(actingUsername, { avatar, username: newUsername, displayName });
         if (!result.ok) {
@@ -9102,7 +7062,6 @@ app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 
             usernameChanged: !!result.renamedFrom
         });
     }
-
     if (typeof displayName !=='undefined') {
         const dnResult = applyProfileChanges(actingUsername, { displayName });
         if (!dnResult.ok) {
@@ -9110,7 +7069,6 @@ app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 
         }
         logAction(actingUsername, `Updated own display name`);
     }
-
     const trimmedNewUsername = typeof newUsername ==='string' ? newUsername.trim() :'';
     if (trimmedNewUsername && trimmedNewUsername.toLowerCase() !== actingUsername.toLowerCase()) {
         if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(trimmedNewUsername)) {
@@ -9122,7 +7080,6 @@ app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 
             return res.status(400).json({ success: false, message:'Kinuha na ng ibang account ang username na iyan.' });
         }
     }
-
     let requests = readData(FILE_REQUESTS);
     requests.push({
         id: Date.now(),
@@ -9142,37 +7099,30 @@ app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 
             :'Naisumite ang iyong Edit Profile request. Hihintayin ang pag-approve ng Admin.'
     });
 });
-
 app.put('/api/users/:targetUser/avatar', rateLimit('admin-set-avatar', 20, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { targetUser } = req.params;
     const { avatar, username } = req.body;
-
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
-
     users[userIndex].avatar = avatar || null;
     writeData(FILE_USERS, users);
     logAction(username, `Updated profile picture for account: ${targetUser}`);
     res.json({ success: true, message: `Profile picture for ${targetUser} has been updated.`, avatar: users[userIndex].avatar });
 });
-
 app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { targetUser } = req.params;
     const { username: actingUsername, newUsername: newUsernameRaw, displayName, role, avatar } = req.body;
-
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
-
     const currentUsername = users[userIndex].username;
     const newUsername = typeof newUsernameRaw ==='string' ? newUsernameRaw.trim() :'';
     const isRenaming = newUsername && newUsername.toLowerCase() !== currentUsername.toLowerCase();
-
     if (isRenaming) {
         if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(newUsername)) {
             return res.status(400).json({ success: false, message:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' });
@@ -9182,14 +7132,12 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
             return res.status(400).json({ success: false, message:'Kinuha na ng ibang account ang username na iyan.' });
         }
     }
-
     if (typeof role !=='undefined' && role) {
         const roles = getRoles();
         const roleExists = roles.some(r => r.name === role);
         if (!roleExists) {
             return res.status(400).json({ success: false, message: `Ang role na "${role}" ay wala sa listahan ng Roles & Permissions. Gumawa muna nito doon (Users > Roles & Permissions) bago ito i-assign.` });
         }
-
         const currentRole = (users[userIndex].role ||'').toLowerCase();
         if (currentRole ==='admin' && role.toLowerCase() !=='admin') {
             const otherAdmins = users.filter((u, i) => i !== userIndex && (u.role ||'').toLowerCase() ==='admin').length;
@@ -9199,7 +7147,6 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
         }
         users[userIndex].role = role;
     }
-
     if (typeof displayName !=='undefined') {
         const trimmedDisplayName = typeof displayName ==='string' ? displayName.trim() :'';
         if (trimmedDisplayName && trimmedDisplayName.length > 60) {
@@ -9207,24 +7154,18 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
         }
         users[userIndex].displayName = trimmedDisplayName || null;
     }
-
     if (typeof avatar !=='undefined') {
         users[userIndex].avatar = avatar || null;
     }
-
     const finalUsername = isRenaming ? newUsername : currentUsername;
     if (isRenaming) {
         users[userIndex].username = finalUsername;
     }
-
     writeData(FILE_USERS, users);
-
     if (isRenaming) {
         renameUsernameEverywhere(currentUsername, finalUsername);
     }
-
     logAction(actingUsername, `Edited user account "${currentUsername}"` + (isRenaming ? ` — renamed to "${finalUsername}"` : '') + (role ? ` — role set to "${role}"` : ''));
-
     res.json({
         success: true,
         message:'Na-update na ang user account.',
@@ -9236,23 +7177,19 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
         }
     });
 });
-
 app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 60 * 1000), (req, res) => {
     const { currentPassword, newPassword } = req.body;
-
     if (!currentPassword || !newPassword) {
         return res.status(400).json({ success: false, message:'Kailangan ang kasalukuyan at bagong password.' });
     }
     if (String(newPassword).length < 4) {
         return res.status(400).json({ success: false, message:'Masyadong maikli ang bagong password.' });
     }
-
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'Account not found.' });
     }
-
     const me = users[userIndex];
     let isMatch = false;
     try {
@@ -9263,11 +7200,9 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
     if (!isMatch) {
         return res.status(403).json({ success: false, code:'WRONG_CURRENT_PASSWORD', message:'Mali ang kasalukuyang password.' });
     }
-
     users[userIndex].password = bcrypt.hashSync(newPassword, 10);
     const meUsername = users[userIndex].username;
     const writeOk = writeData(FILE_USERS, users);
-
     const verifyUsers = readData(FILE_USERS) || [];
     const verifyUser = verifyUsers.find(u => u.username === meUsername);
     const verified = writeOk && verifyUser && (() => {
@@ -9278,19 +7213,15 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
         console.error(`⚠️ Nabigo ang pag-save ng bagong password para sa "${meUsername}" (self-service change-password).`);
         return res.status(500).json({ success: false, message: 'Nabigo ang pag-save ng bagong password sa lokal na database. Hindi nagbago ang password mo — subukan ulit.' });
     }
-
     logAction(meUsername, `Changed own account password`);
     res.json({ success: true, message:'Na-update na ang password mo.' });
 });
-
 app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { user, username } = req.body;
-
     let users = readData(FILE_USERS);
     if (users.some(u => u.username.toLowerCase() === user.username.toLowerCase())) {
         return res.status(400).json({ success: false, message:'Username is already taken.' });
     }
-
     user.password = bcrypt.hashSync(user.password, 10);
     user.created = new Date().toISOString().replace('T',' ').substring(0, 19);
     users.push(user);
@@ -9298,56 +7229,42 @@ app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdm
     logAction(username, `Created new POS account: ${user.username}`);
     res.json({ success: true, message:'User created successfully.' });
 });
-
 app.put('/api/users/:targetUser/reset-password', rateLimit('admin-reset-pw', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { targetUser } = req.params;
     const { newPassword, username } = req.body;
-
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
-
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
-
     users[userIndex].password = bcrypt.hashSync(newPassword, 10);
     writeData(FILE_USERS, users);
-
     logAction(username, `Force reset password for account: ${targetUser}`);
     res.json({ success: true, message: `Password for ${targetUser} has been updated successfully.` });
 });
-
 app.post('/api/users/delete-account', rateLimit('admin-delete-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { targetUser, username } = req.body;
-
     if (!targetUser) {
         return res.status(400).json({ success: false, message:'Kulang ang target user na buburahin.' });
     }
-
     if (targetUser.toLowerCase() === username.toLowerCase()) {
         return res.status(400).json({ success: false, message:'Bawal mong burahin ang sarili mong account habang naka-login!' });
     }
-
     let users = readData(FILE_USERS);
     const filteredUsers = users.filter(u => u.username.toLowerCase() !== targetUser.toLowerCase());
-
     if (users.length === filteredUsers.length) {
         return res.status(404).json({ success: false, message:'Account to delete not found.' });
     }
-
     writeData(FILE_USERS, filteredUsers);
-
     for (const [token, session] of SESSIONS.entries()) {
         if (session.username.toLowerCase() === targetUser.toLowerCase()) {
             SESSIONS.delete(token);
         }
     }
     persistSessions();
-
     logAction(username, `Deleted user account: ${targetUser}`);
     res.json({ success: true, message: `Account ${targetUser} has been completely removed.` });
 });
-
 function logAction(username, action) {
     let logs = readData(FILE_USERLOGS);
     logs.unshift({
@@ -9358,7 +7275,6 @@ function logAction(username, action) {
     });
     writeData(FILE_USERLOGS, logs);
 }
-
 function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
     let logs = readData(FILE_USERLOGS);
     logs.unshift({
@@ -9371,7 +7287,6 @@ function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
     });
     writeData(FILE_USERLOGS, logs);
 }
-
 function logRefundAction(username, transactionId, refundAmount, itemsLabel, reason, authMethodLabel) {
     let logs = readData(FILE_USERLOGS);
     logs.unshift({
@@ -9384,7 +7299,6 @@ function logRefundAction(username, transactionId, refundAmount, itemsLabel, reas
     });
     writeData(FILE_USERLOGS, logs);
 }
-
 app.get('/api/system/backup-status', (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakakita ng backup status.' });
@@ -9392,7 +7306,6 @@ app.get('/api/system/backup-status', (req, res) => {
     const status = getBackupStatus();
     res.json({ success: true, status });
 });
-
 app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagamit ng Check for Updates.' });
@@ -9404,7 +7317,6 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
         return res.status(400).json({ success: false, message: 'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-check ng updates.' });
     }
     try {
-
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
         const relayRes = await relayFetch(`${RELAY_URL}/relay/latest-version?installationId=${encodeURIComponent(installationId)}`, {
             headers: {'x-relay-key': RELAY_API_KEY }
@@ -9414,7 +7326,6 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
             return res.status(502).json({ success: false, message: relayData.message ||'Tinanggihan ng RELAY ang version check.' });
         }
         const publishedVersion = String(relayData.latestVersion || UNPUBLISHED_VERSION_SENTINEL).trim();
-
         const updateAvailable = publishedVersion !== UNPUBLISHED_VERSION_SENTINEL
             && isVersionNewer(publishedVersion, APP_VERSION);
         res.json({
@@ -9428,13 +7339,6 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
         res.status(502).json({ success: false, message: `Hindi ma-check ang RELAY para sa bagong version: ${err.message}` });
     }
 });
-
-// GET /api/system/deploy-update/stats
-// Ibinibigay ang "natutunang" tinatayang tagal (ETA) ng deploy, batay sa
-// exponential moving average ng mga nakaraang TUNAY na deploy duration
-// (naka-imbak sa FILE_DEPLOY_STATS) — tinitingnan ito ng frontend bago
-// magsimula para agad may makatuwirang paunang ETA sa halip na basta
-// walang-batayang hula.
 app.get('/api/system/deploy-update/stats', rateLimit('system-deploy-update-stats', 60, 10 * 60 * 1000), (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang.' });
@@ -9442,14 +7346,6 @@ app.get('/api/system/deploy-update/stats', rateLimit('system-deploy-update-stats
     const stats = readDeployStats();
     res.json({ success: true, renderAvgMs: stats.renderAvgMs, selfUpdateAvgMs: stats.selfUpdateAvgMs, samples: stats.samples, usingRenderHook: !!RENDER_DEPLOY_HOOK_URL });
 });
-
-// POST /api/system/deploy-update/record
-// Tinatawag ng frontend PAGKATAPOS ma-verify (sa update-check) na LIVE
-// na talaga ang bagong version — ipinapasa nito ang tunay na
-// natapos-nang-tagal (durationMs) para ma-update ang "natutunang"
-// average sa itaas. Ligtas itong tawagan kahit anong server instance
-// pa ang sumagot (bagong-deploy man o hindi) — nagre-record lang ito
-// ng isang stat, hindi umaasa sa anumang naunang in-memory state.
 app.post('/api/system/deploy-update/record', rateLimit('system-deploy-update-record', 20, 10 * 60 * 1000), (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang.' });
@@ -9461,13 +7357,6 @@ app.post('/api/system/deploy-update/record', rateLimit('system-deploy-update-rec
     }
     res.json({ success: true });
 });
-
-// GET /api/system/deploy-update/progress/:jobId
-// Live progress ng self-update job (download/extract/apply/restart) —
-// pina-poll ng frontend bawat ~900ms. Wala nang laman ito (404) kapag
-// naka-restart na ang process (normal ito — nangangahulugan lang na
-// nakarating na sa "restart" step; dumadako na ang frontend sa
-// version-verification phase sa ganitong pagkakataon).
 app.get('/api/system/deploy-update/progress/:jobId', rateLimit('system-deploy-update-progress', 1800, 60 * 60 * 1000), (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang.' });
@@ -9489,12 +7378,10 @@ app.get('/api/system/deploy-update/progress/:jobId', rateLimit('system-deploy-up
         error: job.error
     });
 });
-
 app.post('/api/system/deploy-update', rateLimit('system-deploy-update', 3, 30 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakapag-trigger ng deploy.' });
     }
-
     if (RENDER_DEPLOY_HOOK_URL) {
         try {
             const hookRes = await fetch(RENDER_DEPLOY_HOOK_URL, { method:'POST' });
@@ -9514,46 +7401,13 @@ app.post('/api/system/deploy-update', rateLimit('system-deploy-update', 3, 30 * 
             return res.status(502).json({ success: false, message: `Hindi ma-abot ang Render deploy hook: ${err.message}` });
         }
     }
-
     return runSelfUpdateFromRelay(req, res);
 });
-
 const SELF_UPDATE_PRESERVE = new Set([
    '.env','.env.key','database','node_modules','uploads_tmp','.git','release',
    'cf.log','server.log','.start.sh.lock'
 ]);
-
-// BUG FIX (root cause ng patuloy na "Verify live" stack-up kahit may
-// npm-install fix na sa itaas): ang copyRecursivePreservingWithProgress
-// sa ibaba ay direktang SUMUSULAT (in-place, walang backup) sa itaas ng
-// kasalukuyang gumaganang installRoot bago pa man ma-verify na
-// talagang gumagana ang bagong release. Kapag na-interrupt ang kahit
-// anong hakbang PAGKATAPOS ma-apply ang mga bagong file — hal. nawalan
-// ng internet ang Termux device (alam na natin unstable ito dito,
-// tingnan ang mailer.js) habang tumatakbo ang `npm install`, o
-// bigla na lang na-kill ng Android ang session (kahit may wake-lock)
-// bago pa man ma-verify ang restart — MANANATILI na ang bagong
-// (posibleng hindi kumpletong) files sa DISK kahit ang currently-
-// running na process ay tumatakbo pa rin gamit ang LUMANG code sa
-// memory. Sa susunod na pagkakataon na kailangang mag-restart ang
-// process (crash, factory OOM-kill, atbp.) — kahit hindi na dahil sa
-// self-update mismo — babangon ito gamit na ang mismatched na bagong
-// files kasabay ng lumang/kulang na node_modules, kaya papasok agad sa
-// walang-katapusang crash loop ng start.sh supervisor, at mananatiling
-// "Verifying the new version is live..." magpakailanman ang "Verify
-// live" step dahil hindi na talaga babangon ang server.
-// Ayos: bago i-overwrite ang installRoot, gumawa muna ng BACKUP ng
-// kasalukuyang (dati pang gumaganang) mga file papunta sa
-// SELF_UPDATE_BACKUP_DIR. Kung mabigo ang npm install pagkatapos,
-// AGAD itong ibinabalik (restoreInstallFiles) — hindi lang basta
-// "hindi ipagpapatuloy ang restart" (ang lumang komento sa ibaba ay
-// hindi totoo dati: ang mga file ay na-overwrite na noon pa man).
-// Bilang dagdag na proteksyon kung ang bagong version mismo ang may
-// bug (hindi nahuli ng npm install), makikita ang backup dir ding ito
-// ng start.sh — awtomatiko nitong ibinabalik ang backup kapag na-detect
-// ang crash loop, sa halip na paikot-ikot na crash forever.
 const SELF_UPDATE_BACKUP_DIR = '.self-update-backup';
-
 function copyRecursivePreserving(srcDir, destDir, preserveNames) {
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
         if (preserveNames.has(entry.name)) continue;
@@ -9568,14 +7422,6 @@ function copyRecursivePreserving(srcDir, destDir, preserveNames) {
         }
     }
 }
-
-// Kinukuhanan ng snapshot ang installRoot BAGO i-apply ang bagong
-// release — parehong bagay lang ang kino-copy dito na kino-copy rin
-// papunta sa installRoot pagkatapos (excluded ang SELF_UPDATE_PRESERVE
-// — database/node_modules/.env/atbp. — dahil hindi naman ito
-// nagbabago/na-o-overwrite ng update, kaya hindi na kailangang i-backup
-// pa; excluded din ang backup dir mismo para hindi ito ma-recurse sa
-// sarili nito).
 function backupInstallFiles(installRoot) {
     const backupDir = path.join(installRoot, SELF_UPDATE_BACKUP_DIR);
     fs.rmSync(backupDir, { recursive: true, force: true });
@@ -9584,11 +7430,6 @@ function backupInstallFiles(installRoot) {
     copyRecursivePreserving(installRoot, backupDir, excludeForBackup);
     return backupDir;
 }
-
-// Ibinabalik ang mga naka-backup na file pabalik sa installRoot —
-// walang exclusions na kailangan dito dahil ang laman lang ng
-// backupDir ay eksakto nang ang mga file na dapat ibalik (parehong
-// listahan gamit ang backupInstallFiles sa itaas).
 function restoreInstallFiles(installRoot) {
     const backupDir = path.join(installRoot, SELF_UPDATE_BACKUP_DIR);
     if (!fs.existsSync(backupDir)) {
@@ -9596,18 +7437,9 @@ function restoreInstallFiles(installRoot) {
     }
     copyRecursivePreserving(backupDir, installRoot, new Set());
 }
-
 function scheduleSelfRestart(installRoot) {
-
     setTimeout(() => process.exit(0), 500);
 }
-
-// Ang function na ito ay TUMUTUGON AGAD (may jobId) bago pa man
-// magsimula ang aktwal na download/extract/apply — ang mga hakbang na
-// iyon ay tumatakbo sa BACKGROUND at inuulat ang TUNAY (hindi
-// pasimula) na progreso papunta sa deployJobs (nasa itaas), na siyang
-// sinusuri (polled) ng frontend gamit ang
-// GET /api/system/deploy-update/progress/:jobId sa itaas.
 async function runSelfUpdateFromRelay(req, res) {
     if (!RELAY_API_KEY) {
         return res.status(400).json({ success: false, message:'Walang RELAY_API_KEY na naka-configure — kailangan ito para makakuha ng release package mula sa RELAY.' });
@@ -9615,19 +7447,15 @@ async function runSelfUpdateFromRelay(req, res) {
     if (getConnectivityMode() === 'offline') {
         return res.status(400).json({ success: false, message:'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-self-update.' });
     }
-
     const jobId = createSelfUpdateJob();
     const stats = readDeployStats();
     res.json({ success: true, mode: 'self', jobId, estimatedMs: stats.selfUpdateAvgMs, samples: stats.samples.self });
-
     const installRoot = __dirname;
     const tmpRoot = path.join(os.tmpdir(), `omnipos-selfupdate-${Date.now()}`);
     const zipPath = path.join(tmpRoot,'omnipos-client.zip');
     const extractDir = path.join(tmpRoot,'extracted');
-
     try {
         fs.mkdirSync(tmpRoot, { recursive: true });
-
         jobAdvanceStep(jobId,'download','Connecting to Relay for the release package...', 2);
         const relayRes = await relayFetch(`${RELAY_URL}/relay/release-package`, {
             headers: {'x-relay-key': RELAY_API_KEY }
@@ -9637,15 +7465,9 @@ async function runSelfUpdateFromRelay(req, res) {
             try { detail = (await relayRes.json()).message ||''; } catch (_e) {}
             throw new Error(`Tinanggihan ng RELAY ang release package (HTTP ${relayRes.status}). ${detail}`.trim());
         }
-
-        // TUNAY na download progress — binabasa ang response body nang
-        // paunti-unti (stream reader) sa halip na .arrayBuffer() lang
-        // na "isang bagsakan" na walang paraang malaman ang progreso
-        // hanggang matapos ito.
         const job = deployJobs.get(jobId);
         const totalBytes = parseInt(relayRes.headers.get('content-length') || '0', 10) || 0;
         if (job) job.totalBytes = totalBytes;
-
         const chunks = [];
         let downloadedBytes = 0;
         if (relayRes.body && typeof relayRes.body.getReader === 'function') {
@@ -9668,18 +7490,13 @@ async function runSelfUpdateFromRelay(req, res) {
                 }
             }
         } else {
-            // Fallback kung walang streaming body na available (mas
-            // lumang runtime) — hindi na tunay na paunti-unting
-            // progreso, pero gumagana pa rin.
             const buf = Buffer.from(await relayRes.arrayBuffer());
             chunks.push(buf);
             downloadedBytes = buf.length;
             if (job) job.downloadedBytes = downloadedBytes;
         }
-
         const fullBuffer = Buffer.concat(chunks.map(c => (Buffer.isBuffer(c) ? c : Buffer.from(c))));
         fs.writeFileSync(zipPath, fullBuffer);
-
         jobAdvanceStep(jobId,'extract','Extracting the update package...', 40);
         fs.mkdirSync(extractDir, { recursive: true });
         try {
@@ -9687,51 +7504,19 @@ async function runSelfUpdateFromRelay(req, res) {
         } catch (unzipErr) {
             throw new Error(`Hindi ma-extract ang release package. Siguraduhing naka-install ang "unzip" sa Termux ("pkg install unzip -y"). Detalye: ${unzipErr.message}`);
         }
-
-        // BUG FIX: bago i-overwrite ang installRoot, i-backup muna ang
-        // kasalukuyang (dati pang gumaganang) mga file — tingnan ang
-        // malaking komento sa itaas ng SELF_UPDATE_BACKUP_DIR kung bakit
-        // ito ang totoong root cause ng patuloy na pag-stack sa
-        // "Verify live" kahit may npm-install fix na.
         jobAdvanceStep(jobId,'apply','Backing up the current version before applying update...', 55);
         try {
             backupInstallFiles(installRoot);
         } catch (backupErr) {
             throw new Error(`Hindi magawa ang backup ng kasalukuyang bersyon bago mag-apply ng update — kinansela ang update para sa kaligtasan (walang nabago sa disk). Detalye: ${backupErr.message}`);
         }
-
         jobAdvanceStep(jobId,'apply','Applying updated files...', 60);
         const copyStats = { copied: 0, total: countFilesRecursive(extractDir, SELF_UPDATE_PRESERVE) };
         copyRecursivePreservingWithProgress(extractDir, installRoot, SELF_UPDATE_PRESERVE, copyStats, jobId);
-
-        // BUG FIX (self-update gets stuck forever on "Verify live" —
-        // dating "root cause"): SELF_UPDATE_PRESERVE ay pinapanatili ang
-        // lumang node_modules/ (hindi ito pinapalitan ng bagong
-        // release), pero dati ay wala kahit isang `npm install` na
-        // tumatakbo pagkatapos i-apply ang bagong files. Kapag may
-        // bago/na-update na npm dependency ang release na ito (o
-        // pinalitan ang package.json), agad na-crash ang bagong
-        // server.js sa startup ("Cannot find module ..."), kaya papasok
-        // sa crash-loop backoff ng start.sh supervisor sa halip na
-        // bumangon ang bagong version.
-        // Ayos: i-run muna dito ang `npm install --omit=dev` sa loob ng
-        // installRoot (parehong direktoryo kung saan naka-preserve ang
-        // node_modules) BAGO i-restart — kaya kasabay laging sync ang
-        // node_modules sa bagong package.json/package-lock.json.
         jobAdvanceStep(jobId,'apply','Installing updated dependencies (npm install)...', 80);
         try {
             execSync('npm install --omit=dev', { cwd: installRoot, stdio: 'pipe' });
         } catch (npmErr) {
-            // BUG FIX: hindi totoo ang lumang claim dito na "mananatili
-            // sa lumang gumaganang bersyon" — sa oras na ito, na-
-            // overwrite na sa DISK ang bagong (posibleng kulang sa
-            // dependency) na files habang kasalukuyang tumatakbo pa rin
-            // sa MEMORY ang lumang code. Kung sakaling ma-restart ang
-            // process (crash, Android OOM-kill) BAGO pa maayos ang
-            // isyu, babangon ito gamit ang mismatched na bagong files +
-            // lumang node_modules — walang katapusang crash loop.
-            // Kaya dito mismo, AGAD ibalik ang naka-backup na dating
-            // bersyon sa DISK (hindi lang sa memory) bago pa mag-throw.
             try {
                 restoreInstallFiles(installRoot);
             } catch (restoreErr) {
@@ -9739,12 +7524,9 @@ async function runSelfUpdateFromRelay(req, res) {
             }
             throw new Error(`Nabigo ang "npm install" pagkatapos ma-apply ang update — naibalik na sa dating gumaganang bersyon (sa DISK, hindi lang sa memory). Detalye: ${npmErr.message}`);
         }
-
         logAction(req.authUser.username ||'Unknown','Nag-self-update ng OMNIPOS mula sa RELAY release package (Termux/non-Render mode).');
-
         jobAdvanceStep(jobId,'restart','Restarting the system — this page will refresh automatically...', 95);
         jobFinish(jobId,'Update applied. Restarting now — this page will refresh automatically in a few seconds.');
-
         scheduleSelfRestart(installRoot);
     } catch (err) {
         console.error('❌ Self-update error:', err.message);
@@ -9753,9 +7535,7 @@ async function runSelfUpdateFromRelay(req, res) {
         fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
 }
-
 const resetJobs = new Map();
-
 function createResetJob() {
     const jobId = crypto.randomUUID();
     resetJobs.set(jobId, {
@@ -9763,45 +7543,35 @@ function createResetJob() {
         percent: 1,
         message: 'Preparing the backup...'
     });
-
     setTimeout(() => resetJobs.delete(jobId), 15 * 60 * 1000).unref();
     return jobId;
 }
-
 function updateResetJob(jobId, patch) {
     const job = resetJobs.get(jobId);
     if (!job) return;
     Object.assign(job, patch);
 }
-
 app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000, (s) => `Too many reset attempts. Please try again in ${s} seconds.`), async (req, res) => {
-
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Action Denied: Only Admin privileges can perform a factory reset.' });
     }
-
     const { password: adminPasswordForReset } = req.body;
     const usersForReset = readData(FILE_USERS, []);
     const currentAdminForReset = usersForReset.find(u => u.username && u.username.toLowerCase() === req.authUser.username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
     if (!currentAdminForReset || !bcrypt.compareSync(adminPasswordForReset || '', currentAdminForReset.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Hard Factory Reset not authorized.' });
     }
-
     const { additionalEmail } = req.body;
     const secondaryEmail = (additionalEmail ||'').trim();
-
     const includeImages = req.body.includeImages !== false;
-
     const receiptSettingsForReset = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const otpMailCreds = getOtpMailCredentials(receiptSettingsForReset);
-
     if (!otpMailCreds) {
         return res.status(400).json({
             success: false,
             message:'No verified Google App yet. Set this up and verify it first under Users > Receipt Customization > Google App Verification before performing a System Hard Reset.'
         });
     }
-
     const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!secondaryEmail || !emailPattern.test(secondaryEmail)) {
         return res.status(400).json({
@@ -9809,16 +7579,12 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             message:'A valid Secondary Backup Email is required — the backup file will be sent there.'
         });
     }
-
     const jobId = createResetJob();
     res.json({ success: true, jobId });
-
     (async () => {
         try {
             updateResetJob(jobId, { status: 'preparing', percent: 5, message: 'Capturing the full database snapshot...' });
-
             const fullSnapshot = getFullDatabaseSnapshot();
-
             let modulesForEmail = fullSnapshot.modules;
             let imagesExcludedCount = 0;
             if (!includeImages && Array.isArray(fullSnapshot.modules.products)) {
@@ -9832,23 +7598,18 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     return p;
                 });
             }
-
             const backupPayload = {
                 timestamp: new Date().toISOString(),
                 ...modulesForEmail
             };
-
             let recipients = [secondaryEmail];
-
             const petsa_ng_ayon = new Date().toLocaleDateString('en-PH');
             const backupJsonString = JSON.stringify(backupPayload, null, 4);
             const backupSizeBytes = Buffer.byteLength(backupJsonString, 'utf8');
             const backupSizeMb = (backupSizeBytes / 1024 / 1024).toFixed(1);
-
             const imagesNoteForEmail = !includeImages && imagesExcludedCount > 0
                 ? `\n\nNOTE: this attachment excludes ${imagesExcludedCount} product photo(s) (the operator chose to exclude them for a faster send). These images will still be permanently deleted from the local system database as part of this Hard Reset — they are only missing from this email attachment, not preserved anywhere else unless a separate Cloud Backup/local backup was taken beforehand.`
                 : '';
-
             const mailOptions = {
                 from: `"OmniPOS Core System" <${otpMailCreds.user}>`,
                 to: recipients.join(', '),
@@ -9862,13 +7623,11 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     }
                 ]
             };
-
             updateResetJob(jobId, {
                 status: 'sending',
                 percent: 10,
                 message: `Sending (${backupSizeMb} MB) via email...`
             });
-
             const ASSUMED_SLOW_THROUGHPUT_BYTES_PER_SEC = 60 * 1024;
             const estimatedSendMs = Math.max(2000, (backupSizeBytes / ASSUMED_SLOW_THROUGHPUT_BYTES_PER_SEC) * 1000);
             const sendStartedAt = Date.now();
@@ -9884,10 +7643,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                         : 'Sending... (finishing up)'
                 });
             }, 700);
-
             const dynamicSocketTimeout = Math.max(SMTP_TIMEOUTS.socketTimeout, Math.round(estimatedSendMs * 1.5));
             const dynamicConnectionTimeout = Math.max(SMTP_TIMEOUTS.connectionTimeout, 5000);
-
             try {
                 await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, mailOptions, {
                     socketTimeout: dynamicSocketTimeout,
@@ -9897,35 +7654,22 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             } finally {
                 clearInterval(progressTimer);
             }
-
             updateResetJob(jobId, { status: 'resetting', percent: 92, message: 'Resetting the database...' });
-
             const secureDefaultUsers = defaultUsers.map(u => ({
                 ...u,
                 password: bcrypt.hashSync(u.password, 10),
                 created: getPHTime()
             }));
             writeData(FILE_USERS, secureDefaultUsers);
-
             SESSIONS.clear();
             persistSessions();
-
             writeData(FILE_PRODUCTS, []);
-
             writeData(FILE_TRANSACTIONS, []);
             writeData(FILE_REQUESTS, []);
             writeData(FILE_CARTS, {});
-
             writeData(FILE_CUSTOMERS, []);
             writeData(FILE_SHIFTS, []);
             writeData(FILE_SHIFT_META, {});
-
-            // BUG FIX: dati ay hindi kasama ang mga sumusunod sa Hard
-            // Reset kaya nananatili ang datos nila kahit pagkatapos
-            // mag-"factory reset" — kasama na rito ang Fraud & Anomaly
-            // Alerts (ang partikular na na-ulat na hindi na-reset), pati
-            // na rin ang ibang business/transactional data na naka-ugnay
-            // sa mga products/customers/transactions na binubura na.
             writeData(FILE_FRAUD_ALERTS, []);
             fraudVelocityLog.clear();
             writeData(FILE_REFUNDS, []);
@@ -9934,10 +7678,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             writeData(FILE_PURCHASE_ORDERS, []);
             writeData(FILE_LOWSTOCK_TRACKING, {});
             writeData(FILE_LOYALTY_SECURITY, {});
-
             const initialCategories = ['Beverages','Dairy','Snacks','Bakery','Grains'];
             writeData(FILE_CATEGORIES, initialCategories);
-
             const preResetIdentity = readFeatureUnlocks();
             writeData(FILE_FEATURE_UNLOCKS, {
                 ...DEFAULT_FEATURE_UNLOCKS,
@@ -9950,17 +7692,13 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 relayAuthorized: preResetIdentity.relayAuthorized,
                 deviceSeed: preResetIdentity.deviceSeed
             });
-
             writeData(FILE_USERLOGS, []);
-
             updateResetJob(jobId, { percent: 96, message: 'Compacting the database file to reclaim disk space...' });
             const vacuumResult = vacuumDatabase();
             if (!vacuumResult.success) {
                 console.warn('⚠️  Nabigo ang pag-vacuum matapos ang hard reset (hindi ito pumipigil sa reset — nabura pa rin ang data, malaki lang pa rin ang .db file sa disk):', vacuumResult.message);
             }
-
             updateResetJob(jobId, { percent: 97, message: 'Checking Relay for previously unlocked features (auto-restore)...' });
-
             let restoredCount = 0;
             try {
                 const restoreResult = await attemptRelayRestore();
@@ -9968,7 +7706,6 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             } catch (err) {
                 console.warn('⚠️  Auto-restore matapos ang hard reset: hindi na-check ang Relay.', err.message);
             }
-
             updateResetJob(jobId, {
                 status: 'done',
                 percent: 100,
@@ -9982,7 +7719,6 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     imagesExcludedCount: !includeImages ? imagesExcludedCount : 0
                 }
             });
-
         } catch (err) {
             console.error("Mail Reset Failure Context:", err);
             updateResetJob(jobId, {
@@ -9997,7 +7733,6 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
         }
     })();
 });
-
 app.get('/api/system/reset/status/:jobId', rateLimit('system-reset-status', 400, 10 * 60 * 1000, (s) => `Too many status checks. Please try again in ${s} seconds.`), (req, res) => {
     const job = resetJobs.get(req.params.jobId);
     if (!job) {
@@ -10005,40 +7740,29 @@ app.get('/api/system/reset/status/:jobId', rateLimit('system-reset-status', 400,
     }
     res.json({ success: true, ...job });
 });
-
 app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), (req, res) => {
     const { username, password, backupData } = req.body;
-
     const currentUsers = readData(FILE_USERS, []);
     if (currentUsers.length === 0) {
         return res.status(400).json({ success: false, message:"Walang mahanap na records ng mga user sa system." });
     }
-
     const currentAdmin = currentUsers.find(u => u.username.toLowerCase() === username.toLowerCase() && u.role.toLowerCase() ==='admin');
-
     if (!currentAdmin) {
         return res.status(403).json({ success: false, message:"Aksyon Tinanggihan: Walang pribilehiyong pang-administrator." });
     }
-
     if (!bcrypt.compareSync(password, currentAdmin.password)) {
-
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:"Maling Admin password. Hindi pinahintulutan ang pag-restore." });
     }
-
     if (!backupData || typeof backupData !=='object') {
         return res.status(400).json({ success: false, message:"May depekto o maling format ang ipinadalang backup file." });
     }
-
     try {
-
         let restoredCount = 0;
         const restoredModuleNames = [];
         const accountsNeedingPasswordReset = [];
-
         for (const [moduleName, data] of Object.entries(backupData)) {
             if (moduleName === 'timestamp') continue;
             if (data === undefined || data === null) continue;
-
             if (moduleName === 'users' && Array.isArray(data)) {
                 const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
                 writeData(moduleName, merged);
@@ -10051,7 +7775,6 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
                 restoredModuleNames.push(moduleName);
             }
         }
-
         logAction(username, `Restored ${restoredCount} modules from backup file.`);
         res.json({
             success: true,
@@ -10064,22 +7787,17 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
         res.status(500).json({ success: false, message: `An error occurred while writing the extracted data: ${e.message}` });
     }
 });
-
 app.post('/api/transactions/:transactionId/void', rateLimit('void-transaction', 8, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processVoidTransaction(req, res));
 });
-
 async function processVoidTransaction(req, res) {
     const { transactionId } = req.params;
     const { requester, adminPassword } = req.body;
-
     if (!adminPassword) {
         return res.status(400).json({ success: false, message:'Kailangan ng password para mag-void.' });
     }
-
     const users = readData(FILE_USERS);
     const authResult = await findVoidAuthorizer(users, adminPassword);
-
     if (!authResult) {
         return res.status(403).json({
             success: false,
@@ -10087,18 +7805,14 @@ async function processVoidTransaction(req, res) {
             message:'Maling password. Hindi pinahintulutan ang void.'
         });
     }
-
     let transactions = readData(FILE_TRANSACTIONS);
     let products = readData(FILE_PRODUCTS);
-
     const txIndex = transactions.findIndex(t => t.id === transactionId);
     if (txIndex === -1) {
         return res.status(404).json({ success: false, message:'Hindi nahanap ang Transaksyon ID.' });
     }
-
     const targetTx = transactions[txIndex];
     const voidedAmount = parseFloat(targetTx.total) || 0;
-
     const alreadyRefundedForVoid = Math.round((parseFloat(targetTx.totalRefunded) || 0) * 100) / 100;
     if (alreadyRefundedForVoid > 0) {
         return res.status(400).json({
@@ -10107,11 +7821,6 @@ async function processVoidTransaction(req, res) {
             message: `Hindi na puwedeng i-void ang transaksyong ito dahil may naitalang refund na (₱${alreadyRefundedForVoid.toFixed(2)}). Gamitin na lang ang Refund para sa natitirang balanse.`
         });
     }
-
-    // ---- Linked C-Credit debt: a void cancels the sale entirely, so any
-    // Debtors-ledger record created from this transaction must be cancelled
-    // too. If the debtor already paid something against it, block the void
-    // instead of silently erasing that payment history. ----
     const debts = readData(FILE_DEBTS, []);
     const linkedDebtIndex = debts.findIndex(d => d.transactionId === transactionId);
     if (linkedDebtIndex !== -1) {
@@ -10125,64 +7834,49 @@ async function processVoidTransaction(req, res) {
             });
         }
     }
-
     targetTx.items.forEach(item => {
         let prod = products.find(p => p.code === item.code || p.name === item.name);
         if (prod) {
             prod.stock = (parseInt(prod.stock) || 0) + parseInt(item.quantity);
         }
     });
-
     if (linkedDebtIndex !== -1) {
         debts.splice(linkedDebtIndex, 1);
         writeData(FILE_DEBTS, debts);
         logAction(requester, `Naalis ang kaugnay na debt record dahil na-void ang Transaction ID: ${transactionId}`);
     }
-
     if (targetTx.customerId) {
         const customers = readData(FILE_CUSTOMERS, []);
         const cust = customers.find(c => c.id === targetTx.customerId);
         if (cust) {
             const earned = Math.max(0, parseInt(targetTx.loyaltyPointsEarned) || 0);
             const redeemed = Math.max(0, parseInt(targetTx.loyaltyPointsRedeemed) || 0);
-
             cust.points = Math.max(0, (cust.points || 0) - earned) + redeemed;
             cust.totalSpent = Math.round((((cust.totalSpent || 0) - voidedAmount)) * 100) / 100;
             if (cust.totalSpent < 0) cust.totalSpent = 0;
             cust.visits = Math.max(0, (cust.visits || 0) - 1);
-
             writeData(FILE_CUSTOMERS, customers);
         }
     }
-
     transactions = transactions.filter(t => t.id !== transactionId);
-
     writeData(FILE_TRANSACTIONS, transactions);
     writeData(FILE_PRODUCTS, products);
-
     logVoidAction(requester, transactionId, voidedAmount, authResult.isAdmin ?'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`);
-
     runFraudChecks('void', { cashier: requester, transactionId, voidedAmount });
-
     res.json({ success: true, message: `Matagumpay na na-void ang transaksyon ${transactionId} at naibalik ang mga stock!` });
 }
-
 app.post('/api/transactions/:transactionId/refund', rateLimit('refund-transaction', 12, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processRefundTransaction(req, res));
 });
-
 async function processRefundTransaction(req, res) {
     const { transactionId } = req.params;
     const { requester, adminPassword, reason } = req.body;
     const requestedItems = Array.isArray(req.body.items) ? req.body.items : null;
-
     if (!adminPassword) {
         return res.status(400).json({ success: false, message: 'Kailangan ng password para mag-refund.' });
     }
-
     const users = readData(FILE_USERS);
     const authResult = await findRefundAuthorizer(users, adminPassword);
-
     if (!authResult) {
         return res.status(403).json({
             success: false,
@@ -10190,39 +7884,30 @@ async function processRefundTransaction(req, res) {
             message: 'Maling password. Hindi pinahintulutan ang refund.'
         });
     }
-
     let transactions = readData(FILE_TRANSACTIONS);
     let products = readData(FILE_PRODUCTS);
-
     const txIndex = transactions.findIndex(t => t.id === transactionId);
     if (txIndex === -1) {
         return res.status(404).json({ success: false, message: 'Hindi nahanap ang Transaksyon ID.' });
     }
-
     const targetTx = transactions[txIndex];
     const grandTotal = parseFloat(targetTx.total) || 0;
     const alreadyRefunded = Math.min(grandTotal, parseFloat(targetTx.totalRefunded) || 0);
     const refundedQtyMap = targetTx.refundedQty && typeof targetTx.refundedQty === 'object' ? { ...targetTx.refundedQty } : {};
-
     if (alreadyRefunded >= grandTotal - 0.01) {
         return res.status(400).json({ success: false, message: 'Naka-full refund na ang transaksyong ito — wala nang matitirang matirang halaga na pwedeng i-refund.' });
     }
-
     const lineGross = (item) => {
         const qty = parseInt(item.quantity, 10) || 0;
         if (qty <= 0) return 0;
         return Math.max(0, (parseFloat(item.price) || 0) * qty - (parseFloat(item.itemDiscount) || 0));
     };
-
     const sumAllLinesGross = (targetTx.items || []).reduce((s, it) => s + lineGross(it), 0);
-
     const refundLines = [];
     const rejectedRefundItems = [];
-
     for (const item of (targetTx.items || [])) {
         const alreadyQty = parseInt(refundedQtyMap[item.code], 10) || 0;
         const maxRefundableQty = Math.max(0, (parseInt(item.quantity, 10) || 0) - alreadyQty);
-
         let qtyToRefund;
         if (requestedItems) {
             const requested = requestedItems.find(ri => ri.code === item.code);
@@ -10234,11 +7919,9 @@ async function processRefundTransaction(req, res) {
                 continue;
             }
         } else {
-
             qtyToRefund = maxRefundableQty;
             if (qtyToRefund <= 0) continue;
         }
-
         refundLines.push({
             code: item.code,
             name: item.name,
@@ -10246,34 +7929,28 @@ async function processRefundTransaction(req, res) {
             unitPrice: parseFloat(item.price) || 0
         });
     }
-
     if (rejectedRefundItems.length > 0) {
         return res.status(400).json({
             success: false,
             message: `Hindi maaaring i-refund ang mga sumusunod: ${rejectedRefundItems.join('; ')}`
         });
     }
-
     if (refundLines.length === 0) {
         return res.status(400).json({ success: false, message: 'Walang napiling item na may natitirang balanseng pwedeng i-refund.' });
     }
-
     let sumRefundGross = 0;
     for (const line of refundLines) {
         const originalItem = targetTx.items.find(it => it.code === line.code);
         const perUnitGross = originalItem.quantity > 0 ? lineGross(originalItem) / originalItem.quantity : 0;
         sumRefundGross += perUnitGross * line.quantity;
     }
-
     const refundRatio = sumAllLinesGross > 0 ? Math.min(1, sumRefundGross / sumAllLinesGross) : 0;
     let refundAmount = Math.round(grandTotal * refundRatio * 100) / 100;
-
     const remainingRefundable = Math.round((grandTotal - alreadyRefunded) * 100) / 100;
     if (refundAmount > remainingRefundable) refundAmount = remainingRefundable;
     if (refundAmount <= 0) {
         return res.status(400).json({ success: false, message: 'Zero ang na-compute na refund amount — walang matitirang halagang pwedeng i-refund.' });
     }
-
     refundLines.forEach(line => {
         const prod = products.find(p => p.code === line.code);
         if (prod) {
@@ -10281,12 +7958,10 @@ async function processRefundTransaction(req, res) {
         }
         refundedQtyMap[line.code] = (parseInt(refundedQtyMap[line.code], 10) || 0) + line.quantity;
     });
-
     const newTotalRefunded = Math.round((alreadyRefunded + refundAmount) * 100) / 100;
     targetTx.refundedQty = refundedQtyMap;
     targetTx.totalRefunded = newTotalRefunded;
     targetTx.refundStatus = newTotalRefunded >= grandTotal - 0.01 ? 'full' : 'partial';
-
     if (targetTx.customerId) {
         const customers = readData(FILE_CUSTOMERS, []);
         const cust = customers.find(c => c.id === targetTx.customerId);
@@ -10299,11 +7974,6 @@ async function processRefundTransaction(req, res) {
             writeData(FILE_CUSTOMERS, customers);
         }
     }
-
-    // ---- Linked C-Credit debt: a refund lowers what the debtor actually
-    // still owes, using the same refundRatio applied to the transaction, so
-    // the Debtors ledger stays in sync with the sale. Never drop the amount
-    // below what's already been paid. ----
     const debts = readData(FILE_DEBTS, []);
     const linkedDebtIndex = debts.findIndex(d => d.transactionId === transactionId);
     if (linkedDebtIndex !== -1) {
@@ -10316,10 +7986,6 @@ async function processRefundTransaction(req, res) {
         if (linkedDebt.amount <= 0 || paidSoFar >= linkedDebt.amount) {
             linkedDebt.status = 'paid';
             if (!linkedDebt.paidAt) linkedDebt.paidAt = new Date().toISOString();
-            // Only a real earlier cash payment that now happens to cover the
-            // (refund-reduced) balance counts as "settled" for points — a
-            // balance that hit zero purely because it got refunded away is
-            // not a payment and shouldn't earn anything.
             if (paidSoFar > 0 && paidSoFar >= linkedDebt.amount) {
                 awardLoyaltyPointsForPaidDebt(linkedDebt, requester || 'system');
             }
@@ -10331,11 +7997,9 @@ async function processRefundTransaction(req, res) {
         writeData(FILE_DEBTS, debts);
         logAction(requester || 'Unknown', `Na-adjust ang kaugnay na debt ni ${linkedDebt.customerName} dahil sa refund — natitirang utang ngayon: ₱${linkedDebt.amount.toFixed(2)} (Transaction ${transactionId})`);
     }
-
     transactions[txIndex] = targetTx;
     writeData(FILE_TRANSACTIONS, transactions);
     writeData(FILE_PRODUCTS, products);
-
     const refundRecord = {
         id: 'RFD-' + Date.now(),
         transactionId,
@@ -10350,7 +8014,6 @@ async function processRefundTransaction(req, res) {
     let refunds = readData(FILE_REFUNDS, []);
     refunds.unshift(refundRecord);
     writeData(FILE_REFUNDS, refunds);
-
     const itemsLabel = refundLines.map(l => `${l.name} x${l.quantity}`).join(', ');
     logRefundAction(
         requester || 'Unknown',
@@ -10360,9 +8023,7 @@ async function processRefundTransaction(req, res) {
         reason,
         authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`
     );
-
     runFraudChecks('refund', { cashier: requester || 'Unknown', transactionId, refundAmount });
-
     res.json({
         success: true,
         message: `Matagumpay na na-refund ang ₱${refundAmount.toFixed(2)} (${itemsLabel}) at naibalik ang mga stock!`,
@@ -10370,43 +8031,28 @@ async function processRefundTransaction(req, res) {
         transaction: targetTx
     });
 }
-
 app.get('/api/transactions/:transactionId/refunds', (req, res) => {
     const { transactionId } = req.params;
     const refunds = readData(FILE_REFUNDS, []).filter(r => r.transactionId === transactionId);
     res.json(refunds);
 });
-
 app.get('/api/refunds', (req, res) => {
-    // SECURITY FIX: dating kapag walang "requester" query param, basta na
-    // lang ibinabalik ang LAHAT ng refund records nang walang role check
-    // (IDOR) — kahit sinong may valid login token na tumawag dito nang
-    // walang query string ay nakakakita ng buong refund history ng store.
-    // Ngayon, ang authenticated na session mismo (req.authUser, set na ng
-    // global auth middleware) ang laging pinagbabatayan — hindi na
-    // basta-basta trinusto ang client-supplied query param.
     const requester = req.authUser.username;
     const allRefunds = readData(FILE_REFUNDS, []);
-
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
     const activeRole = activeUser && activeUser.role;
     const isAdminRole = (activeRole || '').toLowerCase() === 'admin';
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
     if (canViewAll) return res.json(allRefunds);
-
     res.json(allRefunds.filter(r => (r.refundedBy || '').toLowerCase() === requester.toLowerCase()));
 });
-
 app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), async (req, res) => {
     const { adminPassword, purpose } = req.body;
-
     if (!adminPassword) {
         return res.status(400).json({ success: false, message:'Kailangan ng password.' });
     }
-
     const users = readData(FILE_USERS);
-
     if (purpose ==='void') {
         const authResult = await findVoidAuthorizer(users, adminPassword);
         if (authResult) {
@@ -10414,7 +8060,6 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
-
     if (purpose ==='manual_discount') {
         const authResult = await findManualDiscountAuthorizer(users, adminPassword);
         if (authResult) {
@@ -10422,7 +8067,6 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
-
     if (purpose ==='refund') {
         const authResult = await findRefundAuthorizer(users, adminPassword);
         if (authResult) {
@@ -10430,7 +8074,6 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
-
     if (purpose ==='loyalty_redeem') {
         const authResult = await findLoyaltyRedeemAuthorizer(users, adminPassword);
         if (authResult) {
@@ -10438,26 +8081,20 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
-
     const adminUser = users.find(u => u.role.toLowerCase() ==='admin');
     if (!adminUser) {
         return res.status(404).json({ success: false, message:'Walang nahanap na Admin account sa system.' });
     }
-
     const isMatch = await bcrypt.compare(adminPassword, adminUser.password);
-
     if (isMatch) {
         return res.json({ success: true, message:'Authorized' });
     } else {
-
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling Admin Password!' });
     }
 });
-
 app.post('/api/logs', (req, res) => {
     const { user, action, authMethod, details } = req.body;
     let formattedAction = `[${action}]`;
-
     if (action ==="VOID_CART") {
         formattedAction += ` Voided cart: ${details.itemsCount} items, Total: ₱${details.totalAmount.toFixed(2)} (${authMethod}).`;
     }
@@ -10470,7 +8107,6 @@ app.post('/api/logs', (req, res) => {
     else {
         formattedAction += ` ${details.message ||'Executed non-standard action.'}`;
     }
-
     try {
         logAction(user, formattedAction);
         res.json({ success: true, message:'Log saved.' });
@@ -10479,13 +8115,11 @@ app.post('/api/logs', (req, res) => {
         res.status(500).json({ success: false, message:'Server logging failed.' });
     }
 });
-
 function computeLowStockItems() {
     const products = readData(FILE_PRODUCTS);
     const purchaseOrders = readData(FILE_PURCHASE_ORDERS, []);
     let tracking = readData(FILE_LOWSTOCK_TRACKING, {});
     const nowIso = new Date().toISOString();
-
     const openPoQtyByCode = {};
     purchaseOrders.forEach(po => {
         if (po.status ==='ordered') {
@@ -10495,11 +8129,9 @@ function computeLowStockItems() {
             });
         }
     });
-
     const uxSettingsForThreshold = readData(FILE_UX_SETTINGS, DEFAULT_UX_SETTINGS);
     const defaultLowStockThreshold = Number.isFinite(uxSettingsForThreshold.lowStockAlertThreshold)
         ? uxSettingsForThreshold.lowStockAlertThreshold : DEFAULT_UX_SETTINGS.lowStockAlertThreshold;
-
     const items = products
         .map(p => {
             const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='')
@@ -10516,7 +8148,6 @@ function computeLowStockItems() {
             };
         })
         .filter(p => p.stock <= p.threshold);
-
     const stillLowKeys = new Set(items.map(i => i._key));
     let trackingChanged = false;
     items.forEach(i => {
@@ -10526,39 +8157,32 @@ function computeLowStockItems() {
         if (!stillLowKeys.has(k)) { delete tracking[k]; trackingChanged = true; }
     });
     if (trackingChanged) writeData(FILE_LOWSTOCK_TRACKING, tracking);
-
     items.forEach(i => {
         const since = tracking[i._key] ? new Date(tracking[i._key]) : new Date();
         i.daysLow = Math.max(0, Math.floor((Date.now() - since.getTime()) / (1000 * 60 * 60 * 24)));
         i.lowSince = tracking[i._key] || nowIso;
         delete i._key;
     });
-
     items.sort((a, b) => a.stock - b.stock);
     return items;
 }
-
 app.get('/api/products/low-stock', (req, res) => {
     const items = computeLowStockItems();
     res.json({ success: true, count: items.length, items });
 });
-
 app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFeature('advanced_reports'), (req, res) => {
     try {
         const rangeParam = (req.query.range || 'all').toString();
         const transactions = readData(FILE_TRANSACTIONS);
-
         const now = Date.now();
         const RANGE_MS = { today: 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000, '30d': 30 * 24 * 60 * 60 * 1000 };
         const cutoffMs = RANGE_MS[rangeParam] || null;
-
         const txs = cutoffMs
             ? transactions.filter(t => {
                 const ts = t.isoDate ? Date.parse(t.isoDate) : NaN;
                 return !isNaN(ts) && (now - ts) <= cutoffMs;
             })
             : transactions;
-
         let gross = 0;
         let totalRevenue = 0;
         let totalCost = 0;
@@ -10567,48 +8191,37 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
         const profitByProduct = {};
         const paymentBreakdown = {};
         const dailyTrendMap = {};
-
         txs.forEach(t => {
             const total = parseFloat(t.total) || 0;
             gross += total;
-
             const method = (t.method || t.payment_method || 'OTHER').toString().toUpperCase();
             paymentBreakdown[method] = (paymentBreakdown[method] || 0) + total;
-
             const dayKey = (t.isoDate ? t.isoDate.slice(0, 10) : (t.timestamp || '').slice(0, 10)) || 'unknown';
             dailyTrendMap[dayKey] = (dailyTrendMap[dayKey] || 0) + total;
-
             (t.items || []).forEach(i => {
                 const qty = parseInt(i.quantity) || 0;
                 rankingMap[i.name] = (rankingMap[i.name] || 0) + qty;
-
                 const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
                 const revenue = ((parseFloat(i.price) || 0) * qty) - itemDiscount;
                 const cost = (parseFloat(i.cost) || 0) * qty;
                 if (parseFloat(i.cost) > 0) anyCostRecorded = true;
-
                 totalRevenue += revenue;
                 totalCost += cost;
-
                 if (!profitByProduct[i.name]) profitByProduct[i.name] = { revenue: 0, cost: 0, qty: 0 };
                 profitByProduct[i.name].revenue += revenue;
                 profitByProduct[i.name].cost += cost;
                 profitByProduct[i.name].qty += qty;
             });
         });
-
         const estimatedProfit = totalRevenue - totalCost;
         const marginPct = totalRevenue > 0 ? (estimatedProfit / totalRevenue) * 100 : 0;
-
         const sortedByQty = Object.keys(rankingMap).sort((a, b) => rankingMap[b] - rankingMap[a]);
         const topProducts = sortedByQty.slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
         const slowProducts = [...sortedByQty].reverse().slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
-
         const profitEntries = Object.entries(profitByProduct)
             .map(([name, d]) => ({ name, profit: Math.round((d.revenue - d.cost) * 100) / 100, qty: d.qty }))
             .sort((a, b) => b.profit - a.profit)
             .slice(0, 5);
-
         const dailyTrend = [];
         for (let d = 6; d >= 0; d--) {
             const dt = new Date(now - d * 24 * 60 * 60 * 1000);
@@ -10619,7 +8232,6 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
                 total: Math.round((dailyTrendMap[key] || 0) * 100) / 100
             });
         }
-
         res.json({
             success: true,
             range: rangeParam,
@@ -10639,7 +8251,6 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
         res.status(500).json({ success: false, message: 'Hindi makuha ang sales analytics data.' });
     }
 });
-
 app.get('/api/products/low-stock/export', requirePermission('reorder'), requireFeature('advanced_reports'), (req, res) => {
     try {
         const items = computeLowStockItems();
@@ -10665,22 +8276,18 @@ app.get('/api/products/low-stock/export', requirePermission('reorder'), requireF
         res.status(500).json({ success: false, message:'Hindi ma-export ang reorder list.' });
     }
 });
-
 app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rateLimit('quick-restock', 60, 10 * 60 * 1000), (req, res) => {
     const { code } = req.params;
     const qty = parseInt(req.body.qty);
     const username = req.authUser.username;
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).restock_direct_apply;
-
     if (!qty || qty <= 0) {
         return res.status(400).json({ success: false, message:'Mangyaring maglagay ng valid na quantity.' });
     }
-
     let products = readData(FILE_PRODUCTS);
     const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!target) return res.status(404).json({ success: false, message:'Product not found.' });
-
     if (canApplyDirectly) {
         target.stock = (parseInt(target.stock) || 0) + qty;
         writeData(FILE_PRODUCTS, products);
@@ -10694,28 +8301,22 @@ app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rate
         return res.json({ success: true, pending: true, message:'Restock request submitted for Admin approval.' });
     }
 });
-
 app.get('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const orders = readData(FILE_PURCHASE_ORDERS, []).sort((a, b) => (b.createdAt ||'').localeCompare(a.createdAt ||''));
     res.json({ success: true, orders });
 });
-
 app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const { supplier, items, notes } = req.body;
     const username = req.authUser.username;
-
     if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ success: false, message:'Walang napiling item para sa Purchase Order.' });
     }
-
     const cleanItems = items
         .map(it => ({ code: (it.code ||'').toString(), name: (it.name ||'').toString(), qty: parseInt(it.qty) || 0 }))
         .filter(it => it.code && it.qty > 0);
-
     if (cleanItems.length === 0) {
         return res.status(400).json({ success: false, message:'Walang valid na item/quantity sa Purchase Order.' });
     }
-
     const orders = readData(FILE_PURCHASE_ORDERS, []);
     const newPO = {
         id: Date.now(),
@@ -10731,7 +8332,6 @@ app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('p
     logAction(username, `Gumawa ng Purchase Order #${newPO.id} para kay "${newPO.supplier}" (${cleanItems.length} item/s)`);
     res.json({ success: true, message:'Nagawa ang Purchase Order.', po: newPO });
 });
-
 app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const { id } = req.params;
     const username = req.authUser.username;
@@ -10739,14 +8339,12 @@ app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requi
     const po = orders.find(o => o.id.toString() === id.toString());
     if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
     if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
-
     let products = readData(FILE_PRODUCTS);
     po.items.forEach(it => {
         const prod = products.find(p => p.code.trim().toLowerCase() === it.code.trim().toLowerCase());
         if (prod) prod.stock = (parseInt(prod.stock) || 0) + (parseInt(it.qty) || 0);
     });
     writeData(FILE_PRODUCTS, products);
-
     po.status ='received';
     po.receivedBy = username;
     po.receivedAt = new Date().toISOString();
@@ -10754,7 +8352,6 @@ app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requi
     logAction(username, `Na-receive ang Purchase Order #${po.id} (${po.supplier}) — idinagdag sa stock ang ${po.items.length} item/s`);
     res.json({ success: true, message:'Na-receive ang Purchase Order at na-update ang stock.', po });
 });
-
 app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const { id } = req.params;
     const username = req.authUser.username;
@@ -10762,7 +8359,6 @@ app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requir
     const po = orders.find(o => o.id.toString() === id.toString());
     if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
     if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
-
     po.status ='cancelled';
     po.cancelledBy = username;
     po.cancelledAt = new Date().toISOString();
@@ -10770,11 +8366,9 @@ app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requir
     logAction(username, `Kinansela ang Purchase Order #${po.id} (${po.supplier})`);
     res.json({ success: true, message:'Kinansela ang Purchase Order.', po });
 });
-
 app.get('/api/customers', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     res.json(readData(FILE_CUSTOMERS, []).map(sanitizeCustomerForClient));
 });
-
 app.get('/api/customers/for-terminal', requirePermission('terminal'), (req, res) => {
     const customers = readData(FILE_CUSTOMERS, []);
     const minimal = customers.map(c => ({
@@ -10787,7 +8381,6 @@ app.get('/api/customers/for-terminal', requirePermission('terminal'), (req, res)
     }));
     res.json(minimal);
 });
-
 app.get('/api/customers/search', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     const q = (req.query.q ||'').toLowerCase().trim();
     const customers = readData(FILE_CUSTOMERS, []);
@@ -10797,7 +8390,6 @@ app.get('/api/customers/search', requirePermission('customers'), requireFeature(
     ).slice(0, 25);
     res.json(results.map(sanitizeCustomerForClient));
 });
-
 app.post('/api/customers', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     const { name, phone, email, notes } = req.body;
     if (!name || !name.trim()) {
@@ -10825,7 +8417,6 @@ app.post('/api/customers', requirePermission('customers'), requireFeature('custo
     logAction(req.authUser.username, `Added new customer: ${customer.name}`);
     res.json({ success: true, customer: sanitizeCustomerForClient(customer) });
 });
-
 app.put('/api/customers/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     const customers = readData(FILE_CUSTOMERS, []);
     const idx = customers.findIndex(c => c.id === req.params.id);
@@ -10838,7 +8429,6 @@ app.put('/api/customers/:id', requirePermission('customers'), requireFeature('cu
     writeData(FILE_CUSTOMERS, customers);
     res.json({ success: true, customer: sanitizeCustomerForClient(customers[idx]) });
 });
-
 app.delete('/api/customers/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     let customers = readData(FILE_CUSTOMERS, []);
     if (!customers.some(c => c.id === req.params.id)) {
@@ -10849,56 +8439,28 @@ app.delete('/api/customers/:id', requirePermission('customers'), requireFeature(
     logAction(req.authUser.username, `Deleted customer ID: ${req.params.id}`);
     res.json({ success: true });
 });
-
-// Awards loyalty points once a C-Credit debt is fully settled. Points were
-// intentionally withheld at time of sale (see usesCreditPayment in the sale
-// handler) since no real payment had come in yet — this is where that
-// deferred earn actually happens, mirroring a normal cash sale's earn logic.
-// Only works if the original sale had a customer selected in the cart
-// (transaction.customerId); a debt with just a free-text debtor name/phone
-// (no linked customer account) has nowhere to credit points to.
-// `debt` is mutated in place (pointsAwarded/loyaltyPointsEarned) — caller is
-// responsible for writeData(FILE_DEBTS, ...) afterward.
 function awardLoyaltyPointsForPaidDebt(debt, actorUsername) {
     if (!debt || debt.pointsAwarded || !debt.transactionId) return;
-
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     if (!storeSettings.loyaltyEnabled) return;
-
     const transactions = readData(FILE_TRANSACTIONS, []);
     const linkedTx = transactions.find(t => t.id === debt.transactionId);
     if (!linkedTx || !linkedTx.customerId) return;
-
     const customers = readData(FILE_CUSTOMERS, []);
     const cust = customers.find(c => c.id === linkedTx.customerId);
     if (!cust) return;
-
     const earnRate = parseFloat(storeSettings.loyaltyEarnRate) || 100;
     const earned = earnRate > 0 ? Math.floor((parseFloat(debt.amount) || 0) / earnRate) : 0;
-
     debt.pointsAwarded = true;
     if (earned <= 0) return;
-
     cust.points = (cust.points || 0) + earned;
     writeData(FILE_CUSTOMERS, customers);
     debt.loyaltyPointsEarned = earned;
     logAction(actorUsername || 'system', `Nag-earn ng ${earned} loyalty points si ${cust.name} matapos ma-fully paid ang C-Credit debt (₱${(parseFloat(debt.amount) || 0).toFixed(2)}, Debt ID: ${debt.id}).`);
 }
-
-// ================== DEBTS / DEBTORS TRACKING ==================
-// Separate module from the regular Customers list — for tracking
-// customers/people who "borrowed now, will pay later/on Friday, etc."
-// Each record has a note and a dueAt (date/time payment is due) — the
-// "time remaining before due" is NOT computed here (only an ISO string
-// is stored); it's computed live on the client (app.js) using dueAt so
-// it stays accurate no matter how many hours/days the app stays open.
-// Uses the same requirePermission/requireFeature gate as the Customers
-// module (customer_crm) since this is an extension of customer
-// management.
 app.get('/api/debts', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     res.json(readData(FILE_DEBTS, []));
 });
-
 app.post('/api/debts', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     const { customerName, phone, amount, note, dueAt, items, transactionId } = req.body;
     if (!customerName || !customerName.trim()) {
@@ -10917,33 +8479,18 @@ app.post('/api/debts', requirePermission('customers'), requireFeature('customer_
         dueAtIso = parsedDue.toISOString();
     }
     const debts = readData(FILE_DEBTS, []);
-
-    // SECURITY/INTEGRITY FIX: dati, walang uniqueness check ang
-    // transactionId dito — kaya pwedeng gumawa ng MARAMING debt record na
-    // naka-link sa IISANG transaction lang. Bukod sa nakalilitong data,
-    // dahil per-debt lang ang "pointsAwarded" flag (hindi per-transaction),
-    // ang bawat duplicate na debt na na-mark na "paid" ay hiwalay na
-    // nag-aaward ng loyalty points mula sa parehong benta (loyalty
-    // points fraud). Dagdag pa, ginagamit ng void/refund logic ang
-    // findIndex() (unang tugma lang) kapag hinahanap ang "linked debt" —
-    // kaya kung may duplicate, hindi na-uupdate ang extra na debt kapag
-    // na-void/na-refund ang orihinal na transaksyon.
     if (transactionId && debts.some(d => d.transactionId === String(transactionId))) {
         return res.status(400).json({
             success: false,
             message: 'May existing na debt record na naka-link na sa Transaction ID na ito. Hindi pwedeng mag-link ng dalawang debt sa iisang transaksyon.'
         });
     }
-
     const debt = {
         id:'DEBT-' + Date.now() +'-' + crypto.randomBytes(3).toString('hex'),
         customerName: customerName.trim(),
         phone: phone ||'',
         amount: parsedAmount,
         amountPaid: 0,
-        // Breakdown ng bawat partial payment (petsa/oras + halaga) —
-        // ginagamit ng Debt Details modal sa frontend para ipakita ang
-        // history ng mga bayad, hindi lang ang kabuuang "amountPaid".
         paymentHistory: [],
         note: note ||'',
         items: Array.isArray(items)
@@ -10967,12 +8514,10 @@ app.post('/api/debts', requirePermission('customers'), requireFeature('customer_
     logAction(req.authUser.username, `Added a new debt record: ${debt.customerName} — ₱${debt.amount.toFixed(2)}`);
     res.json({ success: true, debt });
 });
-
 app.put('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     const debts = readData(FILE_DEBTS, []);
     const idx = debts.findIndex(d => d.id === req.params.id);
     if (idx === -1) return res.status(404).json({ success: false, message:'Debt record not found.' });
-
     const { customerName, phone, amount, note, dueAt } = req.body;
     if (customerName !== undefined && customerName.trim()) debts[idx].customerName = customerName.trim();
     if (phone !== undefined) debts[idx].phone = phone;
@@ -11007,12 +8552,10 @@ app.put('/api/debts/:id', requirePermission('customers'), requireFeature('custom
     writeData(FILE_DEBTS, debts);
     res.json({ success: true, debt: debts[idx] });
 });
-
 app.post('/api/debts/:id/payment', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     const debts = readData(FILE_DEBTS, []);
     const idx = debts.findIndex(d => d.id === req.params.id);
     if (idx === -1) return res.status(404).json({ success: false, message:'Debt record not found.' });
-
     const paymentAmount = parseFloat(req.body.amount);
     if (!paymentAmount || paymentAmount <= 0) {
         return res.status(400).json({ success: false, message:'A valid payment amount is required.' });
@@ -11023,11 +8566,6 @@ app.post('/api/debts/:id/payment', requirePermission('customers'), requireFeatur
         return res.status(400).json({ success: false, message:`The payment (₱${paymentAmount.toFixed(2)}) exceeds the remaining balance (₱${remainingBefore.toFixed(2)}).` });
     }
     debt.amountPaid = Math.min(debt.amount, (debt.amountPaid || 0) + paymentAmount);
-    // Itinatala ang breakdown ng partial payment na ito (petsa/oras +
-    // halaga) — para makita sa Debt Details modal ang history ng bawat
-    // bayad, hindi lang ang kabuuang natitirang "amountPaid". Backward-
-    // compatible sa mga lumang debt record na wala pang paymentHistory
-    // field (na-guard dito sa halip na sa creation lang sa itaas).
     if (!Array.isArray(debt.paymentHistory)) debt.paymentHistory = [];
     debt.paymentHistory.push({
         amount: paymentAmount,
@@ -11045,7 +8583,6 @@ app.post('/api/debts/:id/payment', requirePermission('customers'), requireFeatur
     logAction(req.authUser.username, `Recorded a payment for ${debt.customerName}'s debt: ₱${paymentAmount.toFixed(2)}`);
     res.json({ success: true, debt });
 });
-
 app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     let debts = readData(FILE_DEBTS, []);
     if (!debts.some(d => d.id === req.params.id)) {
@@ -11056,20 +8593,11 @@ app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('cus
     logAction(req.authUser.username, `Deleted debt record ID: ${req.params.id}`);
     res.json({ success: true });
 });
-
-// Builds the table-based (email-client-safe) HTML body for a debt
-// e-receipt. Mirrors the look of buildReceiptEmailHtml() above but adapted
-// for a debt/credit balance instead of a completed sale: a status banner
-// (Paid / Partially Paid / Unpaid) instead of an always-green "PAYMENT
-// RECEIVED" pill, a remaining-balance callout, the full payment
-// breakdown, and the linked items — i.e. the same complete set of fields
-// shown in the Debt Details modal on the client.
 function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
     const accent = (settings.advancedSettings && settings.advancedSettings.accentColor) || '#4f46e5';
     const storeAddress = settings.storeAddress || '';
     const storeContact = settings.storeContact || '';
     const footerText = settings.footerText || 'Thank you for your continued trust!';
-
     const amount = parseFloat(debt.amount) || 0;
     const paid = parseFloat(debt.amountPaid) || 0;
     const remaining = Math.max(0, amount - paid);
@@ -11079,7 +8607,6 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
         unpaid: { label: 'UNPAID', bg: '#fef2f2', fg: '#dc2626' }
     };
     const meta = statusMeta[debt.status] || statusMeta.unpaid;
-
     const paymentHistory = (Array.isArray(debt.paymentHistory) ? debt.paymentHistory.slice() : [])
         .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     const paymentRowsHtml = paymentHistory.length
@@ -11088,7 +8615,6 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
             <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${(parseFloat(p.amount) || 0).toFixed(2)}</td>
         </tr>`).join('')
         : `<tr><td colspan="2" style="padding:7px 0;color:#94a3b8;font-style:italic;">No payments recorded yet.</td></tr>`;
-
     const items = Array.isArray(debt.items) ? debt.items : [];
     const itemsHtml = items.length
         ? items.map(i => `<tr>
@@ -11097,22 +8623,18 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
             <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${(((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0))).toFixed(2)}</td>
         </tr>`).join('')
         : `<tr><td colspan="3" style="padding:7px 0;color:#94a3b8;font-style:italic;">No linked products for this debt.</td></tr>`;
-
     const noteBlock = debt.note
         ? `<tr><td style="padding:16px 32px 0;">
             <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note</div>
             <div style="background-color:#f8fafc;border-radius:10px;padding:12px 14px;font-size:13px;color:#334155;white-space:pre-wrap;">${escapeHtml(debt.note)}</div>
         </td></tr>`
         : '';
-
     const dueBlock = debt.dueAt
         ? `<tr><td style="padding:4px 0;">Due Date</td><td align="right" style="padding:4px 0;">${escapeHtml(new Date(debt.dueAt).toLocaleString())}</td></tr>`
         : `<tr><td style="padding:4px 0;">Due Date</td><td align="right" style="padding:4px 0;">No due date set</td></tr>`;
-
     const txRow = debt.transactionId
         ? `<tr><td style="padding:4px 0;">Linked Transaction</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.transactionId)}</td></tr>`
         : '';
-
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -11188,26 +8710,19 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
 </body>
 </html>`;
 }
-
 app.post('/api/debts/:id/email-receipt', requirePermission('customers'), requireFeature('customer_crm'), rateLimit('debt-email-receipt', 20, 15 * 60 * 1000), async (req, res) => {
     const { toEmail } = req.body;
-
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!toEmail || !emailPattern.test(toEmail)) {
         return res.status(400).json({ success: false, message: 'Invalid email address.' });
     }
-
     const debts = readData(FILE_DEBTS, []);
     const debt = debts.find(d => d.id === req.params.id);
     if (!debt) {
         return res.status(404).json({ success: false, message: 'Debt record not found.' });
     }
-
     const rawReceiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const settings = getReceiptSettingsPublic(rawReceiptSettings);
-    // Same pattern as /api/transactions/:id/email-receipt above — the RAW
-    // settings (with actual OTP-sender credentials) are needed here, not
-    // the masked "public" copy returned to the client.
     const mailCreds = getOtpMailCredentials(rawReceiptSettings);
     if (!mailCreds) {
         return res.status(400).json({
@@ -11215,29 +8730,23 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
             message: 'No Sender Gmail configured yet. Set this up first under Users > Receipt Customization > OTP Sender Email.'
         });
     }
-
     try {
         const storeName = settings.storeName || 'OmniPOS';
         const amount = parseFloat(debt.amount) || 0;
         const paid = parseFloat(debt.amountPaid) || 0;
         const remaining = Math.max(0, amount - paid);
         const statusLabels = { unpaid: 'Unpaid', partial: 'Partially Paid', paid: 'Fully Paid' };
-
         const paymentHistory = (Array.isArray(debt.paymentHistory) ? debt.paymentHistory.slice() : [])
             .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
         const paymentLines = paymentHistory.length
             ? paymentHistory.map(p => `  ${p.date ? new Date(p.date).toLocaleString() : '—'} .......... ₱${(parseFloat(p.amount) || 0).toFixed(2)}`).join('\n')
             : '  No payments recorded yet.';
-
         const items = Array.isArray(debt.items) ? debt.items : [];
         const itemLines = items.length
             ? items.map(i => `  ${i.name} x${parseInt(i.quantity) || 0} .......... ₱${(((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0))).toFixed(2)}`).join('\n')
             : '  No linked products for this debt.';
-
         const textBody = `${storeName}\n${settings.storeAddress || ''}\n\nDIGITAL DEBT RECEIPT\nStatus: ${statusLabels[debt.status] || debt.status}\n\nCustomer: ${debt.customerName || ''}\n${debt.phone ? 'Phone: ' + debt.phone + '\n' : ''}Due: ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}\n${debt.transactionId ? 'Linked Transaction: ' + debt.transactionId + '\n' : ''}Receipt No.: ${debt.id}\n\nAmount Owed: ₱${amount.toFixed(2)}\nAmount Paid: ₱${paid.toFixed(2)}\nRemaining Balance: ₱${remaining.toFixed(2)}\n\nPayment Breakdown:\n${paymentLines}\n\nItems Purchased:\n${itemLines}\n${debt.note ? '\nNote:\n  ' + debt.note + '\n' : ''}\n${settings.footerText || 'Thank you for your continued trust!'}`;
-
         const htmlBody = buildDebtReceiptEmailHtml({ settings, debt, storeName });
-
         const mailOptions = {
             from: `"${storeName}" <${mailCreds.user}>`,
             to: toEmail,
@@ -11245,9 +8754,7 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
             text: textBody,
             html: htmlBody
         };
-
         await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
-
         logAction(req.authUser ? req.authUser.username : 'Unknown', `Naipadala ang debt e-receipt ${debt.id} sa email (${maskEmail(toEmail)})`);
         res.json({ success: true, message: 'The e-receipt has been sent.' });
     } catch (err) {
@@ -11255,7 +8762,6 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
         res.status(500).json({ success: false, message: `Could not send the e-receipt: ${err.message}` });
     }
 });
-
 app.post('/api/customers/:id/loyalty-card', requirePermission('loyalty_card_issue'), requireFeature('customer_crm'), rateLimit('loyalty-card-issue', 20, 10 * 60 * 1000), (req, res) => {
     const customers = readData(FILE_CUSTOMERS, []);
     const customer = customers.find(c => c.id === req.params.id);
@@ -11274,7 +8780,6 @@ app.post('/api/customers/:id/loyalty-card', requirePermission('loyalty_card_issu
         card: { cardId: card.cardId, mode: card.mode, issuedAt: card.issuedAt }
     });
 });
-
 app.post('/api/customers/:id/loyalty-card/revoke', requirePermission('loyalty_card_issue'), requireFeature('customer_crm'), (req, res) => {
     const customers = readData(FILE_CUSTOMERS, []);
     const customer = customers.find(c => c.id === req.params.id);
@@ -11285,7 +8790,6 @@ app.post('/api/customers/:id/loyalty-card/revoke', requirePermission('loyalty_ca
     logAction(req.authUser.username, `Revoked loyalty card/QR of customer: ${customer.name} (${customer.id})`);
     res.json({ success: true, message:'Na-revoke na ang loyalty card/QR na ito.' });
 });
-
 app.post('/api/customers/lookup-by-card', requirePermission('terminal'), rateLimit('loyalty-card-scan', 60, 10 * 60 * 1000), (req, res) => {
     const rawToken = req.body && req.body.token;
     if (!rawToken || typeof rawToken !=='string') {
@@ -11306,11 +8810,9 @@ app.post('/api/customers/lookup-by-card', requirePermission('terminal'), rateLim
         cardMode: check.mode
     });
 });
-
 app.get('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
     res.json(readData(FILE_PROMOCODES, []));
 });
-
 app.post('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
     let { code, type, value, description, expiresAt, minSpend } = req.body;
     code = (code ||'').trim().toUpperCase();
@@ -11319,7 +8821,6 @@ app.post('/api/promocodes', requirePermission('products'), requireFeature('promo
     value = parseFloat(value);
     if (isNaN(value) || value <= 0) return res.status(400).json({ success: false, message:'Invalid discount value.' });
     if (type ==='percent' && value > 100) return res.status(400).json({ success: false, message:'Hindi pwedeng lumagpas sa 100% ang percent discount.' });
-
     const promos = readData(FILE_PROMOCODES, []);
     if (promos.some(p => p.code === code)) {
         return res.status(400).json({ success: false, message:'Existing na ang promo code na ito.' });
@@ -11337,7 +8838,6 @@ app.post('/api/promocodes', requirePermission('products'), requireFeature('promo
     logAction(req.authUser.username, `Added promo code: ${code}`);
     res.json({ success: true, promo });
 });
-
 app.put('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
     const codeParam = req.params.code.toUpperCase();
     const promos = readData(FILE_PROMOCODES, []);
@@ -11353,7 +8853,6 @@ app.put('/api/promocodes/:code', requirePermission('products'), requireFeature('
     writeData(FILE_PROMOCODES, promos);
     res.json({ success: true, promo: promos[idx] });
 });
-
 app.delete('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
     const codeParam = req.params.code.toUpperCase();
     let promos = readData(FILE_PROMOCODES, []);
@@ -11365,9 +8864,7 @@ app.delete('/api/promocodes/:code', requirePermission('products'), requireFeatur
     logAction(req.authUser.username, `Deleted promo code: ${codeParam}`);
     res.json({ success: true });
 });
-
 app.get('/api/promocodes/:code/validate', requireFeature('promo_codes'), (req, res) => {
-
     const codeParam = req.params.code.toUpperCase();
     const subtotal = parseFloat(req.query.subtotal) || 0;
     const promos = readData(FILE_PROMOCODES, []);
@@ -11384,20 +8881,17 @@ app.get('/api/promocodes/:code/validate', requireFeature('promo_codes'), (req, r
     discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
     res.json({ success: true, promo, discountAmount: Math.round(discountAmount * 100) / 100 });
 });
-
 function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
     const allTx = readData(FILE_TRANSACTIONS);
     const start = new Date(periodStartIso).getTime();
     const end = new Date(periodEndIso).getTime();
     const cashierKey = cashierFilter ? String(cashierFilter).toLowerCase() : null;
-
     const txs = allTx.filter(t => {
         const ts = new Date(t.isoDate || t.timestamp || 0).getTime();
         if (isNaN(ts) || ts <= start || ts > end) return false;
         if (cashierKey && (t.cashier ||'').toLowerCase() !== cashierKey) return false;
         return true;
     });
-
     const paymentBreakdown = {};
     let grossSales = 0, totalDiscount = 0, netSales = 0;
     txs.forEach(t => {
@@ -11406,7 +8900,6 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
         totalDiscount += disc;
         netSales += net;
         grossSales += net + disc;
-
         if (Array.isArray(t.payments) && t.payments.length > 0) {
             const totalTendered = t.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) || 1;
             t.payments.forEach(p => {
@@ -11415,7 +8908,6 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
                 if (!paymentBreakdown[method]) paymentBreakdown[method] = { count: 0, total: 0 };
                 paymentBreakdown[method].total = Math.round((paymentBreakdown[method].total + share) * 100) / 100;
             });
-
             const primaryMethod = (t.payments[0].method ||'CASH').toUpperCase();
             paymentBreakdown[primaryMethod].count += 1;
         } else {
@@ -11425,13 +8917,11 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
             paymentBreakdown[method].total = Math.round((paymentBreakdown[method].total + net) * 100) / 100;
         }
     });
-
     const logs = readData(FILE_USERLOGS);
     const voidLogs = logs.filter(l => l.action && l.action.indexOf('VOIDED Transaction') === 0 && l.id > start && l.id <= end
         && (!cashierKey || (l.username ||'').toLowerCase() === cashierKey));
     const voidCount = voidLogs.length;
     const voidedAmount = Math.round(voidLogs.reduce((sum, l) => sum + (parseFloat(l.voidedAmount) || 0), 0) * 100) / 100;
-
     return {
         periodStart: new Date(start).toISOString(),
         periodEnd: new Date(end).toISOString(),
@@ -11444,7 +8934,6 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
         voidedAmount
     };
 }
-
 function readShiftMetaStore() {
     const raw = readData(FILE_SHIFT_META, {});
     if (raw && !raw.cashiers && (raw.beginningCash !== undefined || raw.lastCloseAt !== undefined)) {
@@ -11453,23 +8942,19 @@ function readShiftMetaStore() {
     if (!raw.cashiers) raw.cashiers = {};
     return raw;
 }
-
 function writeShiftMetaStore(store) {
     writeData(FILE_SHIFT_META, store);
 }
-
 function getCashierShiftMeta(store, username) {
     const existingKey = Object.keys(store.cashiers).find(k => k.toLowerCase() === (username ||'').toLowerCase());
     if (existingKey) return store.cashiers[existingKey];
     store.cashiers[username] = { lastCloseAt: store.legacyLastCloseAt || null };
     return store.cashiers[username];
 }
-
 app.get('/api/shift/current', (req, res) => {
     const role = req.authUser && req.authUser.role;
     const isAdminRole = (role ||'').toLowerCase() ==='admin';
     const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
-
     const requestedCashier = (req.query.cashier ||'').toString().trim();
     let targetCashier = req.authUser.username;
     if (requestedCashier && requestedCashier.toLowerCase() !== targetCashier.toLowerCase()) {
@@ -11478,7 +8963,6 @@ app.get('/api/shift/current', (req, res) => {
         }
         targetCashier = requestedCashier;
     }
-
     const store = readShiftMetaStore();
     const targetHasOpenShift = (() => {
         const m = getCashierShiftMeta(store, targetCashier);
@@ -11491,7 +8975,6 @@ app.get('/api/shift/current', (req, res) => {
     const meta = getCashierShiftMeta(store, targetCashier);
     const periodStart = meta.lastCloseAt || new Date(0).toISOString();
     const summary = computeShiftSummary(periodStart, new Date().toISOString(), targetCashier);
-
     const canViewAmounts = isAdminRole || !!getPermissionsForRole(role).shiftreport_view_amounts;
     if (!canViewAmounts) {
         delete summary.grossSales;
@@ -11500,7 +8983,6 @@ app.get('/api/shift/current', (req, res) => {
         delete summary.voidedAmount;
         delete summary.paymentBreakdown;
     }
-
     res.json({
         success: true,
         summary,
@@ -11512,7 +8994,6 @@ app.get('/api/shift/current', (req, res) => {
         beginningCashSetBy: meta.beginningCashSetBy || null
     });
 });
-
 app.get('/api/shift/open-list', (req, res) => {
     const role = req.authUser && req.authUser.role;
     const isAdminRole = (role ||'').toLowerCase() ==='admin';
@@ -11531,7 +9012,6 @@ app.get('/api/shift/open-list', (req, res) => {
         }));
     res.json({ success: true, openShifts });
 });
-
 app.post('/api/shift/open-cash', requirePermission('terminal'), requireFeature('shift_management'), rateLimit('shift-open-cash', 20, 10 * 60 * 1000), (req, res) => {
     const store = readShiftMetaStore();
     const meta = getCashierShiftMeta(store, req.authUser.username);
@@ -11553,12 +9033,10 @@ app.post('/api/shift/open-cash', requirePermission('terminal'), requireFeature('
     logAction(req.authUser.username, `Set the Beginning Cash Float for a new shift: ₱${meta.beginningCash.toFixed(2)}`);
     res.json({ success: true, beginningCash: meta.beginningCash });
 });
-
 app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async (req, res) => {
     const role = req.authUser && req.authUser.role;
     const isAdminRole = (role ||'').toLowerCase() ==='admin';
     const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
-
     const { adminPassword } = req.body;
     if (!adminPassword) {
         return res.status(400).json({ success: false, message:'Kailangan ng Admin/Manager/Supervisor password para isara ang shift / Z-Reading.' });
@@ -11572,7 +9050,6 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
             message:'Maling password. Hindi pinahintulutan ang pag-close ng shift / Z-Reading.'
         });
     }
-
     const requestedTarget = (req.body.targetCashier ||'').toString().trim();
     let targetCashier = req.authUser.username;
     let closedOnBehalf = false;
@@ -11583,16 +9060,13 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
         targetCashier = requestedTarget;
         closedOnBehalf = true;
     }
-
     const store = readShiftMetaStore();
     const meta = getCashierShiftMeta(store, targetCashier);
     const targetHasOpenShift = meta.beginningCash !== undefined && meta.beginningCash !== null;
     if (!targetHasOpenShift) {
-
         const gateResult = checkShiftManagementUnlocked();
         if (!gateResult.unlocked) return res.status(402).json(gateResult.body);
     }
-
     const beginningCash = (meta.beginningCash !== undefined && meta.beginningCash !== null)
         ? meta.beginningCash
         : req.body.beginningCash;
@@ -11600,26 +9074,20 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
     const periodStart = meta.lastCloseAt || new Date(0).toISOString();
     const periodEnd = new Date().toISOString();
     const summary = computeShiftSummary(periodStart, periodEnd, targetCashier);
-
     const isZeroActivityClose = summary.transactionCount === 0 && summary.voidCount === 0;
-
     if (isZeroActivityClose && !targetHasOpenShift) {
         return res.json({ success: false, message: `Walang bukas na shift at walang bagong transaksyon o void para kay ${closedOnBehalf ? targetCashier :'sa iyo'}. Wala pang kailangang i-close.` });
     }
-
     const shifts = readData(FILE_SHIFTS, []);
-
     const cashSales = (summary.paymentBreakdown['CASH'] && summary.paymentBreakdown['CASH'].total) || 0;
     const beginCashNum = parseFloat(beginningCash) || 0;
     const expectedCash = Math.round((beginCashNum + cashSales) * 100) / 100;
     const hasCount = endingCashCounted !== undefined && endingCashCounted !=='' && endingCashCounted !== null;
     const endCashNum = hasCount ? (parseFloat(endingCashCounted) || 0) : null;
     const cashVariance = hasCount ? Math.round((endCashNum - expectedCash) * 100) / 100 : null;
-
     const record = {
         id:'Z-' + Date.now(),
         closedBy: targetCashier,
-
         closedOnBehalfBy: closedOnBehalf ? req.authUser.username : null,
         beginningCash: beginCashNum,
         endingCashCounted: endCashNum,
@@ -11632,10 +9100,8 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
     };
     shifts.unshift(record);
     writeData(FILE_SHIFTS, shifts);
-
     store.cashiers[targetCashier] = { lastCloseAt: periodEnd };
     writeShiftMetaStore(store);
-
     const varianceLog = cashVariance === null
         ?''
         : (cashVariance < 0
@@ -11651,36 +9117,22 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
     logAction(req.authUser.username, actionLog);
     res.json({ success: true, shift: record });
 });
-
-// SUGGESTION: dating ibinabalik LAHAT ng naka-close na shift (Z-Readings)
-// sa isang response, kahit ilang taon na ang naipon (isa o higit pa kada
-// araw kada cashier) — malaki ito sa mobile data usage at bumabagal ang
-// pag-render ng buong Shift History table sa mobile lalo na sa mahihinang
-// koneksyon. Ngayon, opsyonal na `limit`/`offset` query params (pagination)
-// — kung wala namang pinasang `limit`, pareho pa rin ang dating behavior
-// (ibinabalik lahat, plain array) para hindi masira ang ibang gumagamit
-// nito; kung may `limit`, bagong shape ang response para may "Load More".
 app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_management'), (req, res) => {
     const allShifts = readData(FILE_SHIFTS, []);
-
     const requester = req.authUser && req.authUser.username;
     const activeRole = req.authUser && req.authUser.role;
     const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
-
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).shiftreport_view_all;
     const scopedShifts = canViewAll
         ? allShifts
         : allShifts.filter(s => (s.closedBy ||'').toLowerCase() === (requester ||'').toLowerCase());
-
     const hasLimit = req.query.limit !== undefined && req.query.limit !== null && req.query.limit !=='';
     if (!hasLimit) {
         return res.json(scopedShifts);
     }
-
     const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 25));
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const page = scopedShifts.slice(offset, offset + limit);
-
     res.json({
         shifts: page,
         total: scopedShifts.length,
@@ -11689,14 +9141,11 @@ app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_m
         hasMore: offset + page.length < scopedShifts.length
     });
 });
-
 const isProduction = process.env.NODE_ENV ==='production';
 const HOST = isProduction ?'0.0.0.0' :'localhost';
 const PORT = process.env.PORT || 3000;
-
 const HTTPS_CERT_FILE = process.env.HTTPS_CERT_FILE || '';
 const HTTPS_KEY_FILE = process.env.HTTPS_KEY_FILE || '';
-
 let httpsOptions = null;
 if (HTTPS_CERT_FILE && HTTPS_KEY_FILE) {
     try {
@@ -11713,7 +9162,6 @@ if (HTTPS_CERT_FILE && HTTPS_KEY_FILE) {
         httpsOptions = null;
     }
 }
-
 app.get('/ca-cert.pem', (req, res) => {
     const caPath = process.env.HTTPS_CA_FILE || '';
     if (!caPath || !fs.existsSync(caPath)) {
@@ -11723,17 +9171,9 @@ app.get('/ca-cert.pem', (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="omnipos-lan-ca.pem"');
     res.sendFile(path.resolve(caPath));
 });
-
-// BUG FIX: sa Render Free plan, ephemeral ang buong disk kada deploy —
-// kaya bago tumanggap ng traffic, subukan munang i-restore ang
-// pinakahuling snapshot mula sa Postgres (cloud-snapshot.js) kung
-// mukhang bago/blangko ang lokal na SQLite. Kailangan itong async, kaya
-// nakabalot na ngayon sa isang startup function ang buong listen logic.
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
-
 async function startOmniposServer() {
     await restoreFromCloudIfNeeded();
-
     if (httpsOptions) {
         const https = require('https');
         https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
@@ -11750,24 +9190,6 @@ async function startOmniposServer() {
             });
         });
     } else {
-        // BUG FIX (root cause ng "hindi mag-run nang ayos" / crash-loop
-        // sa start.sh): dati, walang .on('error', ...) sa plain-HTTP
-        // app.listen() dito (may error handler na lang ang HTTPS branch
-        // sa itaas). Kapag may lumang/orphaned server.js pa ring
-        // nakabuhol sa PORT (halimbawa: nag-Stop o nag-Restart gamit
-        // ang widget pero hindi pa talaga natapos i-kill ang dating
-        // proseso bago mag-restart), ang listen() ay naglalabas ng
-        // EADDRINUSE na error na WALANG naghihintay na listener dito —
-        // nagiging isang unhandled 'error' event ito sa EventEmitter,
-        // na agad nagpapa-crash (uncaught exception) ng buong process.
-        // Ito ang eksaktong crash-loop na nakikita sa
-        // logs/supervisor.log (paulit-ulit na crash bawat ~5s, walang
-        // "Server running..." na sumusulpot sa pagitan) — dahil bawat
-        // pagsubok ng supervisor loop ay bumabangga rin agad sa parehong
-        // nakaharang na PORT.
-        // Ayos: hulihin ang 'error' event, ilabas nang malinaw kung ano
-        // talaga ang problema (lalo na EADDRINUSE), tapos mag-exit(1) sa
-        // paraang malinaw — sa halip na basta mag-crash nang tahimik.
         app.listen(PORT, HOST, () => {
             console.log(`Server running at http://${HOST}:${PORT}`);
             if (isProduction) {
@@ -11784,21 +9206,12 @@ async function startOmniposServer() {
             process.exit(1);
         });
     }
-
-    // BUG FIX: karagdagang proteksyon habang tumatakbo — regular na
-    // nag-p-push din ng snapshot papunta sa Postgres bawat 5 minuto,
-    // hindi lang umaasa sa SIGTERM sa oras ng deploy.
     setInterval(() => {
         pushSnapshotToCloud().catch((err) => {
             console.error('⚠️  [cloud-snapshot] Nabigo ang scheduled push:', err.message);
         });
     }, 5 * 60 * 1000);
 }
-
-// BUG FIX: nagpapadala ang Render ng SIGTERM sa lumang container BAGO
-// ito patayin sa susunod na deploy — gamitin ito bilang huling
-// pagkakataon para ma-save ang pinakabagong datos sa Postgres bago
-// mawala ang lokal na disk.
 async function handleShutdownSignal(signal) {
     console.log(`ℹ️  Natanggap ang ${signal} — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...`);
     try {
@@ -11811,5 +9224,4 @@ async function handleShutdownSignal(signal) {
 }
 process.on('SIGTERM', () => handleShutdownSignal('SIGTERM'));
 process.on('SIGINT', () => handleShutdownSignal('SIGINT'));
-
 startOmniposServer();
