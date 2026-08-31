@@ -1096,7 +1096,7 @@
                         <h3>Payment Method Breakdown (Open Shift)</h3>
                         <ul id="shift-payment-breakdown-list" style="margin-top:15px; padding-left:20px; line-height:2;"></ul>
                     </div>
-                    <div class="report-container" style="margin-top: 20px; padding: 20px;">
+                    <div class="report-container" style="margin-top: 20px; padding: 20px; margin-bottom: 20px;">
                         <h3><i class="fa-solid fa-cash-register"></i> Close Shift (Z-Reading)</h3>
                         <p class="recovery-desc">This closes the current shift and starts a new shift period. This action cannot be undone.</p>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin: 15px 0;">
@@ -1112,23 +1112,27 @@
                         <textarea id="shift-close-notes" placeholder="Optional notes..." style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-color); margin-bottom:12px;"></textarea>
                         <button class="btn-confirm-payment-action" onclick="closeCurrentShift()"><i class="fa-solid fa-lock"></i> Close Shift Now</button>
                     </div>
-                    <div class="report-container" id="shift-history-report-container" style="margin-top: 20px; padding: 20px;">
-                        <h3>Shift History</h3>
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Z-Reading ID</th>
-                                        <th>Closed By</th>
-                                        <th>Period</th>
-                                        <th>Tx Count</th>
-                                        <th>Net Sales</th>
-                                        <th>Cash Short/Over</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="shift-history-table-body"></tbody>
-                            </table>
-                        </div>
+                  <h2 style="margin-left: 7px;">Shift History</h2>
+                    <div class="table-container" style="margin-top: 4px;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Z-Reading ID</th>
+                                    <th>Closed By</th>
+                                    <th>Period</th>
+                                    <th>Tx Count</th>
+                                    <th>Net Sales</th>
+                                    <th>Cash Short/Over</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="shift-history-table-body"></tbody>
+                        </table>
+                    </div>
+                    <div style="text-align:center; margin-top:20px;">
+                        <button type="button" id="shift-history-load-more-btn" class="btn-action-outline" style="display:none; margin:0 auto;" onclick="loadMoreShiftHistory()">
+                            <i class="fa-solid fa-rotate"></i> Load More
+                        </button>
                     </div>
                 </section>
 

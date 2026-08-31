@@ -5356,7 +5356,11 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
 @media screen and (min-width: 1025px) {
     #view-products .table-container { overflow-x: hidden; }
     #view-products .data-table { table-layout: fixed; }
-    #view-products .data-table th,
+    #view-products .data-table th {
+        padding: 10px 10px;
+        font-size: 0.82rem;
+        white-space: nowrap;
+    }
     #view-products .data-table td {
         padding: 10px 10px;
         font-size: 0.82rem;
@@ -5626,6 +5630,15 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td.matri
 }
 
 .data-table tr:last-child td { border-bottom: none; }
+
+/* NOTE: Shift / Z-Reading — Shift History table used to be wrapped in an
+   extra #shift-history-report-container (.report-container) card. That
+   wrapper's own background/border/box-shadow (and its flex-grow on
+   mobile) was what caused a persistent empty-looking box below the last
+   row. The wrapper has been removed from index.html entirely — the
+   .table-container + Load More button are now plain direct children of
+   #view-shiftreport, so this table just behaves like every other simple
+   table (Customers, Debts, etc.) with no special-case CSS needed. */
 
 .th-label-wrap {
     display: inline-flex;
@@ -7012,12 +7025,26 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     #view-products.app-view:not(.terminal-theme),
     #view-customers.app-view:not(.terminal-theme),
     #view-debts.app-view:not(.terminal-theme),
-    #view-shiftreport.app-view:not(.terminal-theme),
     #view-reorder.app-view:not(.terminal-theme) {
         display: flex;
         flex-direction: column !important;
         height: calc(100vh - 69px - 70px) !important;
         min-height: 0 !important;
+    }
+    /* BUGFIX: #view-shiftreport ay dating kasama sa listahan sa itaas na
+       may FIXED "height: calc(...) !important" — pero hindi tulad ng ibang
+       views dito (maikli lang ang laman bago ang table), ang shiftreport
+       ay may METRICS GRID + PAYMENT BREAKDOWN + CLOSE-SHIFT FORM na lahat
+       nakastack BAGO ang Shift History table, at ang mga iyon lang, sa
+       mobile width (1 column ang metrics-grid dahil minmax(220px)), ay
+       madalas nang LUMALAGPAS sa buong calc(100vh - 69px - 70px) budget.
+       FIX: gawing MIN-HEIGHT na lang ang buong view (hindi na FIXED
+       height), para kung lumagpas ang laman sa itaas, ang BUONG PAHINA
+       ang mag-scroll pababa papunta sa history section. */
+    #view-shiftreport.app-view:not(.terminal-theme) {
+        display: flex;
+        flex-direction: column !important;
+        min-height: calc(100vh - 69px - 70px) !important;
     }
     #view-logs.app-view:not(.terminal-theme) .table-container,
     #view-barcode.app-view:not(.terminal-theme) .table-container,
@@ -7032,38 +7059,23 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
         margin-bottom: 18px !important;
     }
 
-    /* Shift History table sa loob ng #view-shiftreport — HINDI ito
-       basta pwedeng isama sa listahan sa itaas dahil iba ang istruktura
-       nito: maraming ibang section (metrics grid, payment breakdown,
-       close-shift form) ang nasa ITAAS ng Shift History table sa
-       parehong view, lahat sila naka-stack bilang normal (non-flex)
-       na .report-container blocks. Kung ganap na ipapalit ang buong
-       #view-shiftreport sa "fixed height" tulad ng ginawa sa mga simpleng
-       one-table view, mag-uunahan lang ang mga block na ito sa laki at
-       hindi mag-a-adjust nang tama ang Shift History table sa natitirang
-       espasyo. Kaya dito, ang buong view ay fixed-height (tulad ng iba),
-       pero ang mga section BAGO ang Shift History ay pinananatiling
-       natural ang laki (flex: none), at ang huling
-       #shift-history-report-container LANG ang bumubuo ng natitirang
-       espasyo (flex: 1) — saka pa lang lumalabas ang parehong
-       "naka-pin sa ilalim" na scrollbar ng table-container sa loob nito,
-       tulad ng Transactions. */
+    /* Shift History table sa loob ng #view-shiftreport — dating naka-wrap
+       ito sa isang extra #shift-history-report-container card na
+       binigyan pa ng sarili nitong flex:1/min-height/overflow-y para
+       "pumuno" sa natitirang espasyo (tulad ng ginawa sa Transactions).
+       Pero ang extra card na iyon (kasama ang background/border nito) ang
+       nagdudulot ng isang laging-nakikitang BLANK/EMPTY na kahon sa
+       ilalim ng huling row kapag kaunti lang ang laman (hindi sapat
+       para punuin ang espasyong pinilit i-fill). Ang card na iyon ay
+       INALIS na sa index.html — .table-container at ang Load More button
+       ay plain children na lang ngayon ng #view-shiftreport, kaya sila
+       na lang ang natural na lumalaki/sumusunod sa laman nila (walang
+       flex-grow), tulad ng ibang simpleng tables (Customers, Debts,
+       atbp.) — sinusunod na lang nila ang generic `.table-container`
+       mobile rule sa itaas (max-height, min-height, atbp.). */
     #view-shiftreport.app-view:not(.terminal-theme) > .metrics-grid,
     #view-shiftreport.app-view:not(.terminal-theme) > .report-container {
         flex: none;
-    }
-    #view-shiftreport.app-view:not(.terminal-theme) > #shift-history-report-container {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow-y: auto;
-    }
-    #view-shiftreport.app-view:not(.terminal-theme) > #shift-history-report-container .table-container {
-        flex: 1 !important;
-        min-height: 0 !important;
-        max-height: none !important;
-        margin-bottom: 0 !important;
     }
 
     /* Users tables (Users Management, Pending Requests, Roles & Permissions
@@ -10794,6 +10806,28 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):no
     .table-container::-webkit-scrollbar:horizontal,
     .table-container *::-webkit-scrollbar:horizontal {
         height: 10px !important;
+    }
+
+    /* Ito ang aktwal na dahilan kung bakit lumalabas pa rin ang gray na
+       vertical scrollbar sa ilang browser (hal. Products) kahit naka
+       width:0 na ang buong ::-webkit-scrollbar:vertical sa itaas —
+       generic/walang :vertical qualifier ang thumb/track color rules
+       sa ibaba, kaya kung hindi lubos na na-su-suppress ng browser ang
+       width:0 ng vertical scrollbar bar mismo, ang natitirang sliver ay
+       pinipinta pa rin ng generic thumb/track color. Dito, sinisiguro
+       nating transparent at 0-width talaga ang thumb AT track ng
+       VERTICAL scrollbar mismo, hiwalay sa generic (parehong-direction)
+       na styling sa ibaba — para talagang walang makikitang bakas. */
+    .table-container::-webkit-scrollbar-thumb:vertical,
+    .table-container *::-webkit-scrollbar-thumb:vertical {
+        background: transparent !important;
+        width: 0 !important;
+    }
+
+    .table-container::-webkit-scrollbar-track:vertical,
+    .table-container *::-webkit-scrollbar-track:vertical {
+        background: transparent !important;
+        width: 0 !important;
     }
 
     .table-container::-webkit-scrollbar-thumb,

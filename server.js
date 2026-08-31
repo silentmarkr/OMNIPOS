@@ -11556,6 +11556,14 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
     res.json({ success: true, shift: record });
 });
 
+// SUGGESTION: dating ibinabalik LAHAT ng naka-close na shift (Z-Readings)
+// sa isang response, kahit ilang taon na ang naipon (isa o higit pa kada
+// araw kada cashier) — malaki ito sa mobile data usage at bumabagal ang
+// pag-render ng buong Shift History table sa mobile lalo na sa mahihinang
+// koneksyon. Ngayon, opsyonal na `limit`/`offset` query params (pagination)
+// — kung wala namang pinasang `limit`, pareho pa rin ang dating behavior
+// (ibinabalik lahat, plain array) para hindi masira ang ibang gumagamit
+// nito; kung may `limit`, bagong shape ang response para may "Load More".
 app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_management'), (req, res) => {
     const allShifts = readData(FILE_SHIFTS, []);
 
@@ -11564,14 +11572,26 @@ app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_m
     const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
 
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).shiftreport_view_all;
-    if (canViewAll) {
-        return res.json(allShifts);
+    const scopedShifts = canViewAll
+        ? allShifts
+        : allShifts.filter(s => (s.closedBy ||'').toLowerCase() === (requester ||'').toLowerCase());
+
+    const hasLimit = req.query.limit !== undefined && req.query.limit !== null && req.query.limit !=='';
+    if (!hasLimit) {
+        return res.json(scopedShifts);
     }
 
-    const ownShifts = allShifts.filter(
-        s => (s.closedBy ||'').toLowerCase() === (requester ||'').toLowerCase()
-    );
-    res.json(ownShifts);
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 25));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const page = scopedShifts.slice(offset, offset + limit);
+
+    res.json({
+        shifts: page,
+        total: scopedShifts.length,
+        offset,
+        limit,
+        hasMore: offset + page.length < scopedShifts.length
+    });
 });
 
 const isProduction = process.env.NODE_ENV ==='production';

@@ -5004,6 +5004,16 @@ async function checkShiftOpeningCashGate() {
 
 let shiftControlSelectedCashier ='';
 
+// SUGGESTION: state para sa paginated Shift History (dating buong listahan
+// laging kinukuha/inirerender kada bisita sa page — mabagal at malaki sa
+// mobile data kung matagal nang gamit ang tindahan). SHIFT_HISTORY_PAGE_SIZE
+// shifts lang ang kinukuha kada request, may "Load More" pag may natitira pa.
+const SHIFT_HISTORY_PAGE_SIZE = 25;
+let shiftHistoryLoaded = [];   // mga shift record na na-load na sa memory (para sa "View" detail modal)
+let shiftHistoryOffset = 0;
+let shiftHistoryHasMore = false;
+let shiftHistoryLoadingMore = false;
+
 async function loadShiftOpenListPicker() {
     const selectEl = document.getElementById('shift-close-target-cashier');
     if (!selectEl) return;
@@ -5103,42 +5113,132 @@ async function loadShiftReportView() {
         console.warn('Could not fetch current shift summary:', e);
     }
 
-    try {
-        const resHist = await authFetch(`${API_URL}/shifts`);
-        if (resHist.ok) {
-            const history = await resHist.json();
+    shiftHistoryOffset = 0;
+    shiftHistoryLoaded = [];
+    shiftHistoryHasMore = false;
+    await fetchShiftHistoryPage({ reset: true });
+}
 
-            const tbody = document.getElementById('shift-history-table-body');
+// SUGGESTION: hiwalay na function para sa pagkuha ng isang "page" ng Shift
+// History (25 kada kuha, may Load More) — ginagamit ito ng loadShiftReportView
+// (unang load) at ng loadMoreShiftHistory (kapag pinindot ang Load More).
+async function fetchShiftHistoryPage({ reset } = {}) {
+    const tbody = document.getElementById('shift-history-table-body');
+    const loadMoreBtn = document.getElementById('shift-history-load-more-btn');
+    try {
+        const resHist = await authFetch(`${API_URL}/shifts?limit=${SHIFT_HISTORY_PAGE_SIZE}&offset=${shiftHistoryOffset}`);
+        if (resHist.ok) {
+            const data = await resHist.json();
+            const page = Array.isArray(data) ? data : (data.shifts || []);
+            shiftHistoryHasMore = Array.isArray(data) ? false : !!data.hasMore;
+
+            shiftHistoryLoaded = reset ? page : shiftHistoryLoaded.concat(page);
+            shiftHistoryOffset = shiftHistoryLoaded.length;
+
             if (tbody) {
-                tbody.innerHTML = history.length
-                    ? history.map(h => {
-                        let varianceCell ='<span style="color:#94a3b8;">—</span>';
-                        if (h.cashVariance !== null && h.cashVariance !== undefined) {
-                            const v = parseFloat(h.cashVariance) || 0;
-                            if (v < 0) varianceCell = `<span style="color:#dc2626; font-weight:600;">Short ₱${Math.abs(v).toFixed(2)}</span>`;
-                            else if (v > 0) varianceCell = `<span style="color:#16a34a; font-weight:600;">Over ₱${v.toFixed(2)}</span>`;
-                            else varianceCell = `<span style="color:#16a34a;">Exact</span>`;
-                        }
-                        const cashSalesVal = (parseFloat(h.cashSales) || 0).toFixed(2);
-                        const expectedVal = (parseFloat(h.expectedCash) || 0).toFixed(2);
-                        const beginVal = (parseFloat(h.beginningCash) || 0).toFixed(2);
-                        const endVal = h.endingCashCounted !== null && h.endingCashCounted !== undefined ? parseFloat(h.endingCashCounted).toFixed(2) :'—';
-                        return `
-                        <tr>
-                            <td>${escapeHtml(h.id)}</td>
-                            <td>${escapeHtml(h.closedBy)}</td>
-                            <td>${new Date(h.periodStart).toLocaleString()} - ${new Date(h.periodEnd).toLocaleString()}</td>
-                            <td class="num-cell">${h.transactionCount}${h.noSalesShift ? '<br><span style="font-size:0.72rem; color:#94a3b8;">(No Sales - Handover)</span>' :''}</td>
-                            <td class="num-cell">₱${(parseFloat(h.netSales) || 0).toFixed(2)}</td>
-                            <td class="num-cell" title="Begin ₱${beginVal} + Cash Sales ₱${cashSalesVal} = Expected ₱${expectedVal} | Counted ₱${endVal}">${varianceCell}</td>
-                        </tr>`;
-                    }).join('')
-                    : `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">No closed shifts yet.</td></tr>`;
+                tbody.innerHTML = shiftHistoryLoaded.length
+                    ? shiftHistoryLoaded.map(h => renderShiftHistoryRow(h)).join('')
+                    : `<tr><td colspan="7" style="text-align:center; padding:20px; color:#94a3b8;">No closed shifts yet.</td></tr>`;
             }
+            if (loadMoreBtn) loadMoreBtn.style.display = shiftHistoryHasMore ? 'flex' :'none';
         }
     } catch (e) {
         console.warn('Could not fetch shift history:', e);
     }
+}
+
+function renderShiftHistoryRow(h) {
+    let varianceCell ='<span style="color:#94a3b8;">—</span>';
+    if (h.cashVariance !== null && h.cashVariance !== undefined) {
+        const v = parseFloat(h.cashVariance) || 0;
+        if (v < 0) varianceCell = `<span style="color:#dc2626; font-weight:600;">Short ₱${Math.abs(v).toFixed(2)}</span>`;
+        else if (v > 0) varianceCell = `<span style="color:#16a34a; font-weight:600;">Over ₱${v.toFixed(2)}</span>`;
+        else varianceCell = `<span style="color:#16a34a;">Exact</span>`;
+    }
+    const cashSalesVal = (parseFloat(h.cashSales) || 0).toFixed(2);
+    const expectedVal = (parseFloat(h.expectedCash) || 0).toFixed(2);
+    const beginVal = (parseFloat(h.beginningCash) || 0).toFixed(2);
+    const endVal = h.endingCashCounted !== null && h.endingCashCounted !== undefined ? parseFloat(h.endingCashCounted).toFixed(2) :'—';
+    return `
+    <tr>
+        <td>${escapeHtml(h.id)}</td>
+        <td>${escapeHtml(h.closedBy)}</td>
+        <td>${new Date(h.periodStart).toLocaleString()} - ${new Date(h.periodEnd).toLocaleString()}</td>
+        <td class="num-cell">${h.transactionCount}${h.noSalesShift ? '<br><span style="font-size:0.72rem; color:#94a3b8;">(No Sales - Handover)</span>' :''}</td>
+        <td class="num-cell">₱${(parseFloat(h.netSales) || 0).toFixed(2)}</td>
+        <td class="num-cell" title="Begin ₱${beginVal} + Cash Sales ₱${cashSalesVal} = Expected ₱${expectedVal} | Counted ₱${endVal}">${varianceCell}</td>
+        <td><button type="button" class="btn-action-outline" style="padding:6px 12px; font-size:0.78rem;" onclick="viewShiftDetail('${escapeHtml(h.id)}')"><i class="fa-solid fa-eye"></i> View</button></td>
+    </tr>`;
+}
+
+async function loadMoreShiftHistory() {
+    if (shiftHistoryLoadingMore || !shiftHistoryHasMore) return;
+    shiftHistoryLoadingMore = true;
+    const loadMoreBtn = document.getElementById('shift-history-load-more-btn');
+    const originalLabel = loadMoreBtn ? loadMoreBtn.innerHTML :'';
+    if (loadMoreBtn) loadMoreBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+    try {
+        await fetchShiftHistoryPage({ reset: false });
+    } finally {
+        shiftHistoryLoadingMore = false;
+        if (loadMoreBtn && shiftHistoryHasMore) loadMoreBtn.innerHTML = originalLabel;
+    }
+}
+
+// SUGGESTION: bago — dating summary lang (ID, Closed By, Period, Tx Count,
+// Net Sales, Cash Short/Over) ang makikita sa Shift History; ang buong
+// detalye ng bawat naka-close na Z-Reading (gross, discount, payment
+// breakdown, void, beginning/ending cash, notes) ay TINATABUNAN na sa
+// server response pero HINDI dating naipapakita kahit saan sa UI. Ngayon,
+// may "View" button kada row na nagpapakita ng buong Z-Reading detail.
+function viewShiftDetail(shiftId) {
+    const h = shiftHistoryLoaded.find(s => String(s.id) === String(shiftId));
+    if (!h) return;
+
+    const beginVal = (parseFloat(h.beginningCash) || 0).toFixed(2);
+    const endVal = h.endingCashCounted !== null && h.endingCashCounted !== undefined ? parseFloat(h.endingCashCounted).toFixed(2) :'—';
+    const expectedVal = (parseFloat(h.expectedCash) || 0).toFixed(2);
+
+    let varianceLine ='<span style="color:#94a3b8;">—</span>';
+    if (h.cashVariance !== null && h.cashVariance !== undefined) {
+        const v = parseFloat(h.cashVariance) || 0;
+        if (v < 0) varianceLine = `<b style="color:#dc2626;">Short ₱${Math.abs(v).toFixed(2)}</b>`;
+        else if (v > 0) varianceLine = `<b style="color:#16a34a;">Over ₱${v.toFixed(2)}</b>`;
+        else varianceLine = `<b style="color:#16a34a;">Exact</b>`;
+    }
+
+    const methods = Object.keys(h.paymentBreakdown || {});
+    const breakdownHtml = methods.length
+        ? `<ul style="margin:6px 0 0; padding-left:18px; line-height:1.9;">${methods.map(m => `<li>${escapeHtml(m)}: ${h.paymentBreakdown[m].count} tx — ₱${(parseFloat(h.paymentBreakdown[m].total) || 0).toFixed(2)}</li>`).join('')}</ul>`
+        :'<p style="color:#94a3b8; margin:6px 0 0;">No transactions on this shift.</p>';
+
+    Swal.fire({
+        title: `Z-Reading: ${escapeHtml(h.id)}`,
+        html: `
+            <div style="text-align:left; font-size:0.9rem; line-height:1.7;">
+                <p><b>Closed By:</b> ${escapeHtml(h.closedBy)}${h.closedOnBehalfBy ? ` <span style="color:#94a3b8;">(closed by ${escapeHtml(h.closedOnBehalfBy)} — Admin/Supervisor Control)</span>` :''}</p>
+                <p><b>Period:</b> ${new Date(h.periodStart).toLocaleString()} – ${new Date(h.periodEnd).toLocaleString()}</p>
+                <hr>
+                <p><b>Gross Sales:</b> ₱${(parseFloat(h.grossSales) || 0).toFixed(2)}</p>
+                <p><b>Total Discount:</b> ₱${(parseFloat(h.totalDiscount) || 0).toFixed(2)}</p>
+                <p><b>Net Sales:</b> ₱${(parseFloat(h.netSales) || 0).toFixed(2)}</p>
+                <p><b>Transactions:</b> ${h.transactionCount}${h.noSalesShift ? ' (No Sales - Handover)' :''}</p>
+                <p><b>Voids:</b> ${h.voidCount || 0} — ₱${(parseFloat(h.voidedAmount) || 0).toFixed(2)}</p>
+                <hr>
+                <p><b>Beginning Cash:</b> ₱${beginVal}</p>
+                <p><b>Cash Sales:</b> ₱${(parseFloat(h.cashSales) || 0).toFixed(2)}</p>
+                <p><b>Expected Cash:</b> ₱${expectedVal}</p>
+                <p><b>Counted Cash:</b> ${endVal === '—' ? '—' : '₱' + endVal}</p>
+                <p><b>Variance:</b> ${varianceLine}</p>
+                <hr>
+                <p><b>Payment Breakdown:</b></p>
+                ${breakdownHtml}
+                ${h.notes ? `<hr><p><b>Notes:</b> ${escapeHtml(h.notes)}</p>` :''}
+            </div>
+        `,
+        width: '600px',
+        confirmButtonText:'Close'
+    });
 }
 
 async function closeCurrentShift() {
