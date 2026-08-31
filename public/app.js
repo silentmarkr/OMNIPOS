@@ -2095,13 +2095,14 @@ async function showUpgradeTiersModal() {
 async function requestBulkUnlock(featureIds, tierId) {
     if (blockIfOffline('Bundle unlock requests')) return;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) ||'Unknown';
+    let reqData;
     try {
         const reqRes = await authFetch(`${API_URL}/features/request-unlock-bulk`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ featureIds, tierId: tierId || null, username: requestingUsername })
         });
-        const reqData = await reqRes.json();
+        reqData = await reqRes.json();
         if (!reqData.success) {
             showUnlockRequestError(reqData,'The bundle unlock request failed.');
             return false;
@@ -2123,11 +2124,17 @@ async function requestBulkUnlock(featureIds, tierId) {
         Swal.fire('Error','Could not reach the server to send the unlock request.','error');
         return false;
     }
+    // RELAY stores the pending OTP keyed by the *still-locked* feature set it actually received
+    // (server.js filters out already-unlocked features before forwarding to RELAY). The confirm/cancel
+    // calls must use that same set, not the original selection, or the OTP key won't match on RELAY's side.
+    const confirmFeatureIds = (Array.isArray(reqData.featureIds) && reqData.featureIds.length)
+        ? reqData.featureIds
+        : featureIds;
     const otpModalResult = await showOtpVerificationModal({
         title: 'Verification Required',
-        descriptionHtml: `Enter the 6-digit verification code sent to the developer/store owner to activate <strong>${featureIds.length} feature(s)</strong>.`,
+        descriptionHtml: `Enter the 6-digit verification code sent to the developer/store owner to activate <strong>${confirmFeatureIds.length} feature(s)</strong>.`,
         verify: async (otp) => {
-            const confirmBody = { featureIds, otp, username: requestingUsername };
+            const confirmBody = { featureIds: confirmFeatureIds, otp, username: requestingUsername };
             const confirmRes = await authFetch(`${API_URL}/features/confirm-unlock-bulk`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2135,13 +2142,13 @@ async function requestBulkUnlock(featureIds, tierId) {
             });
             return confirmRes.json();
         },
-        onExpire: () => cancelPendingOtp({ featureIds })
+        onExpire: () => cancelPendingOtp({ featureIds: confirmFeatureIds })
     });
     if (!otpModalResult) return false;
     try {
         let confirmData = otpModalResult;
         if (confirmData.pending) {
-            const confirmBody = { featureIds, otp: confirmData._verifiedOtp, username: requestingUsername };
+            const confirmBody = { featureIds: confirmFeatureIds, otp: confirmData._verifiedOtp, username: requestingUsername };
             confirmData = await pollUntilApproved(`${API_URL}/features/confirm-unlock-bulk`, confirmBody);
         }
         if (confirmData.cancelled) return false;
@@ -2154,7 +2161,7 @@ async function requestBulkUnlock(featureIds, tierId) {
         }
         updateSidebarFeatureLocks();
         initDemoModeUI();
-        Swal.fire('Unlocked!', `${featureIds.length} feature(s) are now ready to use.`,'success');
+        Swal.fire('Unlocked!', `${confirmFeatureIds.length} feature(s) are now ready to use.`,'success');
         return true;
     } catch (e) {
         Swal.fire('Error','Could not reach the server to complete verification.','error');

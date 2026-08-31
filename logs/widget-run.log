@@ -1,17 +1,51 @@
-[2026-08-31 09:45:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
-[2026-08-31 09:45:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-08-31 21:29:57] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-08-31 21:29:57] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
-💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-31T01:44:24.728Z).
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-31T13:28:49.614Z).
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-./start.sh: line 138: 16116 Hangup                     node server.js
-[2026-08-31 09:45:35] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
+./start.sh: line 138: 15540 Hangup                     node server.js
+[2026-08-31 21:30:00] ⚠️  Lumabas ang server.js sa error (exit code: 129). 1 crash(es) sa loob ng huling 60s.
 🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
 ⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
-💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-31T01:45:34.057Z).
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-08-31T13:29:59.078Z).
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
-⚠️  Could not reach Relay for auto-restore check: the relay responded with HTTP 502.
+Omni product image select/fetch error (https://www.mobiledokan.com/media/apple-iphone-17-pro-max-white-official-image_1.webp): Error: Nagbalik ng HTTP 520 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:1765:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni product image select/fetch error (https://www.mobiledokan.com/media/apple-iphone-17-teal-official-image.webp): Error: Nagbalik ng HTTP 520 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:1765:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Mail Reset Failure Context: Error: Hindi maka-konekta sa Gmail SMTP mula sa server na ito (Detalye: ESOCKET). Dahil hindi ito Render (lokal na network/Termux ito), HINDI malamang na server hosting policy ang dahilan — malamang ito ay: (1) pansamantalang walang/unstable na internet connection ang device sa oras ng pagsubok, (2) bina-block ng mobile carrier/ISP mo ang outbound SMTP ports (25/465/587) sa network na ginagamit mo, o (3) pansamantalang hindi na-resolve ang smtp.gmail.com (DNS). HINDI ito problema sa iyong Gmail address o App Password (kung magkaiba ang error na ito sa isang "Invalid login"/535 error). Solusyon: (1) tiyaking may stable na WiFi/mobile data connection, (2) subukang lumipat ng network (WiFi ↔ mobile data) at ulitin, o (3) i-configure ang GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars bilang HTTPS fallback na hindi apektado ng SMTP port issues.
+    at sendMailSmart (/data/data/com.termux/files/home/OMNIPOS/mailer.js:255:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:7649:17 {
+  code: 'SMTP_BLOCKED_NO_FALLBACK'
+}
+Mail Reset Failure Context: Error: Hindi maka-konekta sa Gmail SMTP mula sa server na ito (Detalye: ETIMEDOUT). Dahil hindi ito Render (lokal na network/Termux ito), HINDI malamang na server hosting policy ang dahilan — malamang ito ay: (1) pansamantalang walang/unstable na internet connection ang device sa oras ng pagsubok, (2) bina-block ng mobile carrier/ISP mo ang outbound SMTP ports (25/465/587) sa network na ginagamit mo, o (3) pansamantalang hindi na-resolve ang smtp.gmail.com (DNS). HINDI ito problema sa iyong Gmail address o App Password (kung magkaiba ang error na ito sa isang "Invalid login"/535 error). Solusyon: (1) tiyaking may stable na WiFi/mobile data connection, (2) subukang lumipat ng network (WiFi ↔ mobile data) at ulitin, o (3) i-configure ang GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars bilang HTTPS fallback na hindi apektado ng SMTP port issues.
+    at sendMailSmart (/data/data/com.termux/files/home/OMNIPOS/mailer.js:255:26)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:7649:17 {
+  code: 'SMTP_BLOCKED_NO_FALLBACK'
+}
