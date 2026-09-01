@@ -1322,10 +1322,32 @@ const PREMIUM_FEATURE_FALLBACK = {
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
-    basic: { name:'Basic', tagline:'Once-a-day backup, 30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
-    standard: { name:'Standard', tagline:'Every 6 hours, 90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageQuotaMB: 1024 },
-    pro: { name:'Pro', tagline:'Near real-time (hourly), 365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageQuotaMB: 5120 }
+    basic: { name:'Basic', autoBackupIntervalMs: 24 * 60 * 60 * 1000, extra:'30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
+    standard: { name:'Standard', autoBackupIntervalMs: 6 * 60 * 60 * 1000, extra:'90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageQuotaMB: 1024 },
+    pro: { name:'Pro', autoBackupIntervalMs: 60 * 60 * 1000, extra:'365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageQuotaMB: 5120 }
 };
+// AYOS: dating naka-hardcode ang buong tagline (kasama ang "once every 24
+// hours" atbp.) kaya kahit magbago ang autoBackupIntervalMs sa RELAY
+// (admin override), hindi ito nababago sa modal na nakikita ng user. Ngayon,
+// ang bahagi ng tagline na tungkol sa "gaano kadalas mag-backup" ay
+// dynamic na — kinukuha mula sa live na autoBackupIntervalMs (kapag
+// available), at pinapalitan lang ang salita kung kailan pa ito huling
+// na-fetch mula RELAY (tingnan ang refreshCloudBackupPlansLive()).
+function formatAutoBackupIntervalPhrase(ms) {
+    if (!ms || !isFinite(ms) || ms <= 0) return 'Automatic cloud backup';
+    const hours = ms / (60 * 60 * 1000);
+    if (hours < 1) {
+        const mins = Math.round(ms / 60000);
+        return `Automatic cloud backup every ${mins} minute${mins === 1 ? '' : 's'}`;
+    }
+    if (hours === 1) return 'Automatic cloud backup every hour (near real-time)';
+    if (Number.isInteger(hours) && hours % 24 === 0) {
+        const days = hours / 24;
+        return days === 1 ? 'Once-a-day automatic cloud backup' : `Automatic cloud backup every ${days} days`;
+    }
+    const rounded = Math.round(hours * 100) / 100;
+    return `Automatic cloud backup every ${rounded} hours`;
+}
 let cloudBackupPlansLiveCache = null;
 async function refreshCloudBackupPlansLive() {
     try {
@@ -1346,9 +1368,13 @@ function getCloudBackupPlansMerged() {
     for (const tier of Object.keys(CLOUD_BACKUP_PLANS_UI)) {
         const staticInfo = CLOUD_BACKUP_PLANS_UI[tier];
         const live = cloudBackupPlansLiveCache && cloudBackupPlansLiveCache[tier];
+        const autoBackupIntervalMs = (live && typeof live.autoBackupIntervalMs === 'number')
+            ? live.autoBackupIntervalMs
+            : staticInfo.autoBackupIntervalMs;
         merged[tier] = {
             name: staticInfo.name,
-            tagline: staticInfo.tagline,
+            tagline: `${formatAutoBackupIntervalPhrase(autoBackupIntervalMs)}, ${staticInfo.extra}`,
+            autoBackupIntervalMs,
             price: (live && live.price) ? live.price : staticInfo.price,
             storageQuotaMB: (live && typeof live.storageQuotaMB === 'number') ? live.storageQuotaMB : staticInfo.storageQuotaMB
         };
@@ -1370,6 +1396,13 @@ const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } }
 };
+// Cloud Backup, RBAC, at Multi-Branch ay lahat "subscription-only" na features
+// (monthly/yearly ang billing, hindi one-time purchase). Ginagamit ito sa
+// "✨ Upgrade Options" bulk modal para: (1) hindi sila ma-checkbox nang
+// magkasama sa ibang item (dahil tinatanggihan ito ng server sa bulk
+// endpoint), at (2) para ma-route sila sa tamang monthly/yearly (at, para sa
+// Cloud Backup, tier) na subscription flow sa halip na sa bulk unlock.
+const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
 async function promptModuleSubscription(featureId) {
     if (blockIfOffline('Feature subscription')) return false;
     await refreshFeatureCatalogLive();
@@ -1957,8 +1990,9 @@ async function showUpgradeTiersModal() {
                     `<span style="flex:1;">` +
                         `<span class="uw-feature-name" style="display:block;">${escapeHtml(f.name)}</span>` +
                         (f.description ? `<span class="uw-feature-desc" style="display:block;font-size:0.72rem;margin-top:2px;line-height:1.4;">${escapeHtml(f.description)}</span>` :'') +
+                        (f.isSubscription ? `<span class="uw-feature-sub-note" style="display:block;font-size:0.68rem;margin-top:2px;font-style:italic;">Subscription — selects on its own, separate from other items</span>` : '') +
                     `</span>` +
-                    `<span class="uw-feature-price" style="flex-shrink:0;">₱${f.price}</span>` +
+                    `<span class="uw-feature-price" style="flex-shrink:0;">₱${f.price}${f.isSubscription ? '<span style="font-size:0.65rem;font-weight:400;">/mo</span>' :''}</span>` +
                 `</label>`
             )).join('');
             return (
@@ -2010,6 +2044,31 @@ async function showUpgradeTiersModal() {
                     totalEl.textContent ='₱' + total;
                 }
             }
+            // Cloud Backup / RBAC / Multi-Branch ay subscription-only (hindi
+            // puwedeng i-bundle sa ibang item — tinatanggihan ito ng server).
+            // Kapag naka-check ang isa sa tatlong ito, i-disable ang LAHAT ng
+            // ibang checkbox at ang tier cards, dahil isahan lang dapat ang
+            // pagpili sa mga ito. Naka-enable pa rin ang sarili nitong
+            // checkbox para puwede pa ring i-uncheck.
+            function applySubscriptionExclusivity() {
+                const checkedSubscriptionId = Array.from(selectedFeatureIds)
+                    .find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
+                featureChecks.forEach(c => {
+                    const featureId = c.getAttribute('data-feature-id');
+                    const isLocked = !!checkedSubscriptionId && featureId !== checkedSubscriptionId;
+                    c.disabled = isLocked;
+                    const row = c.closest('.uw-feature-row');
+                    if (row) {
+                        row.style.opacity = isLocked ? '0.45' : '';
+                        row.style.cursor = isLocked ? 'not-allowed' : 'pointer';
+                    }
+                });
+                tierButtons.forEach(b => {
+                    b.disabled = !!checkedSubscriptionId;
+                    b.style.opacity = checkedSubscriptionId ? '0.5' : '';
+                    b.style.pointerEvents = checkedSubscriptionId ? 'none' : '';
+                });
+            }
             tierButtons.forEach(btn => {
                 btn.addEventListener('click', () => {
                     const id = btn.getAttribute('data-tier-id');
@@ -2038,14 +2097,26 @@ async function showUpgradeTiersModal() {
                     const id = chk.getAttribute('data-feature-id');
                     if (chk.checked) {
                         selectedFeatureIds.add(id);
+                        if (ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id)) {
+                            // Isahan lang ang subscription — alisin ang anumang
+                            // dati nang naka-check (kung nauna itong na-check
+                            // bago ang subscription item), para hindi
+                            // mapagkamalang parte pa rin ito ng total/request.
+                            selectedFeatureIds = new Set([id]);
+                            featureChecks.forEach(other => {
+                                if (other !== chk) other.checked = false;
+                            });
+                        }
                     } else {
                         selectedFeatureIds.delete(id);
                     }
                     selectedTierId = null;
                     tierButtons.forEach(b => b.classList.remove('active'));
+                    applySubscriptionExclusivity();
                     renderTotal();
                 });
             });
+            applySubscriptionExclusivity();
             renderTotal();
         },
         preConfirm: () => {
@@ -2056,10 +2127,27 @@ async function showUpgradeTiersModal() {
                 Swal.showValidationMessage('Please select a package or at least one feature first.');
                 return false;
             }
-            return { featureIds, tierId: selectedTierId };
+            const subscriptionFeatureId = featureIds.find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
+            if (subscriptionFeatureId && featureIds.length > 1) {
+                // Safety net lang ito — hindi dapat marating dahil naka-disable
+                // na ang ibang checkbox/tier kapag naka-check na ang isang
+                // subscription item (see applySubscriptionExclusivity above).
+                Swal.showValidationMessage('Cloud Backup, RBAC, and Multi-Branch are subscriptions — please select one of them on its own, separate from other items.');
+                return false;
+            }
+            return { featureIds, tierId: selectedTierId, subscriptionFeatureId: subscriptionFeatureId || null };
         }
     });
     if (!result.isConfirmed || !result.value || !result.value.featureIds || result.value.featureIds.length === 0) return false;
+    if (result.value.subscriptionFeatureId) {
+        // Ang Cloud Backup/RBAC/Multi-Branch ay hindi puwedeng dumaan sa bulk
+        // unlock endpoint (tinatanggihan ito ng server dahil subscription
+        // sila) — kailangan dumaan sa kani-kanilang monthly/yearly (at, para
+        // sa Cloud Backup, tier) na subscription flow.
+        return result.value.subscriptionFeatureId === 'cloud_backup'
+            ? promptCloudBackupSubscription()
+            : promptModuleSubscription(result.value.subscriptionFeatureId);
+    }
     let demoWasActive = false;
     try {
         const demoStatusRes = await authFetch(`${API_URL}/features/demo-status`);

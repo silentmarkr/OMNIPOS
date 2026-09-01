@@ -2529,6 +2529,13 @@ function getCloudBackupPlanPrice(tier, billingCycle) {
 }
 const CLOUD_BACKUP_PRICING_CACHE_PATH = path.join(__dirname, 'cloud-backup-pricing-cache.json');
 const CLOUD_BACKUP_PRICING_REFRESH_MS = 30 * 60 * 1000; 
+// AYOS: parehong bounds gaya ng sa RELAY (server.js doon) — sanity check
+// lang bago tanggapin ang autoBackupIntervalMs na galing sa network, para
+// kahit anong maling override sa RELAY (o kung sino mang naka-intercept sa
+// response) ay hindi makapagpapatakbo ng auto-backup na sobrang bilis
+// (nakaka-overload sa RELAY/DB) o sobrang bagal (walang epekto).
+const CLOUD_BACKUP_MIN_AUTO_BACKUP_INTERVAL_MS = 15 * 60 * 1000;
+const CLOUD_BACKUP_MAX_AUTO_BACKUP_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 function applyCloudBackupPricingOverlay(remotePlans) {
     if (!remotePlans || typeof remotePlans !== 'object') return;
     const merged = {};
@@ -2539,10 +2546,15 @@ function applyCloudBackupPricingOverlay(remotePlans) {
             merged[tier] = CLOUD_BACKUP_PLANS[tier] || fallback;
             continue;
         }
+        const remoteIntervalMs = Number(remote.autoBackupIntervalMs);
+        const validRemoteInterval = isFinite(remoteIntervalMs)
+            && remoteIntervalMs >= CLOUD_BACKUP_MIN_AUTO_BACKUP_INTERVAL_MS
+            && remoteIntervalMs <= CLOUD_BACKUP_MAX_AUTO_BACKUP_INTERVAL_MS;
         merged[tier] = {
             ...fallback,
             name: typeof remote.name === 'string' && remote.name ? remote.name : fallback.name,
             storageQuotaMB: typeof remote.storageQuotaMB === 'number' ? remote.storageQuotaMB : fallback.storageQuotaMB,
+            autoBackupIntervalMs: validRemoteInterval ? remoteIntervalMs : fallback.autoBackupIntervalMs,
             price: {
                 monthly: (remote.price && typeof remote.price.monthly === 'number') ? remote.price.monthly : fallback.price.monthly,
                 yearly: (remote.price && typeof remote.price.yearly === 'number') ? remote.price.yearly : fallback.price.yearly
