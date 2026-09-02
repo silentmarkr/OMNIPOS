@@ -2390,6 +2390,31 @@
             </div>
         </div>
 
+        <div id="cloud-backup-cost-share-wrap" style="display:none; margin-bottom: 14px; padding: 14px 16px; border-radius: 10px; background: linear-gradient(135deg, rgba(37,99,235,0.07), rgba(16,185,129,0.07)); border: 1px solid var(--border-color);">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:8px; flex-wrap: wrap;">
+                <span style="font-size:0.75rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color: var(--text-muted);">
+                    <i class="fa-solid fa-chart-pie"></i> Your Cloud Infrastructure Cost Share
+                </span>
+                <span id="cloud-backup-cost-share-basis" style="font-size:0.68rem; padding:3px 9px; border-radius:999px; font-weight:600; white-space:nowrap;"></span>
+            </div>
+            <div id="cloud-backup-cost-share-warning" style="display:none; font-size:0.76rem; color:#b45309; background:rgba(217,119,6,0.08); border:1px solid rgba(217,119,6,0.25); border-radius:6px; padding:8px 10px; margin-bottom:10px; line-height:1.4;"></div>
+            <div style="display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; margin-bottom: 10px;">
+                <div>
+                    <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em;">Storage share</div>
+                    <div id="cloud-backup-cost-share-storage-pct" style="font-size:1.05rem; font-weight:700;">—</div>
+                </div>
+                <div>
+                    <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em;">Compute share</div>
+                    <div id="cloud-backup-cost-share-compute-pct" style="font-size:1.05rem; font-weight:700;">—</div>
+                </div>
+            </div>
+            <div style="border-top: 1px dashed var(--border-color); padding-top:10px; display:flex; flex-direction:column; gap:6px; font-size:0.83rem;">
+                <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Neon usage cost (your share)</span><span id="cloud-backup-cost-share-base" style="font-weight:600;">₱—</span></div>
+                <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Maintenance &amp; monitoring</span><span id="cloud-backup-cost-share-maintenance" style="font-weight:600;">₱—</span></div>
+                <div style="display:flex; justify-content:space-between; font-weight:700; font-size:0.98rem; border-top: 1px solid var(--border-color); padding-top:7px; margin-top:2px;"><span>Total this month</span><span id="cloud-backup-cost-share-total">₱—</span></div>
+            </div>
+        </div>
+
         <button id="cloud-backup-get-btn" onclick="getCloudBackupUpgrade()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-lock"></i> Get Cloud Backup — starting at ₱129/mo
         </button>

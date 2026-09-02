@@ -1459,8 +1459,10 @@ function updateCloudBackupLockState() {
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
     if (unlocked) {
         refreshCloudBackupSubscriptionBadge();
+        startCloudBackupCostShareAutoRefresh();
     } else if (getBtn) {
         updateCloudBackupGetButtonPrice(getBtn);
+        stopCloudBackupCostShareAutoRefresh();
     }
 }
 async function updateCloudBackupGetButtonPrice(getBtn) {
@@ -1479,8 +1481,13 @@ async function refreshCloudBackupSubscriptionBadge() {
         ]);
         const data = await res.json();
         const sub = data && data.subscription;
-        if (!sub || !sub.active) return;
+        if (!sub || !sub.active) {
+            const costShareWrap = document.getElementById('cloud-backup-cost-share-wrap');
+            if (costShareWrap) costShareWrap.style.display = 'none';
+            return;
+        }
         renderCloudBackupStorageBar(data && data.storageUsage);
+        refreshCloudBackupCostShare();
         if (sub.isLegacyLifetime) {
             statusBox.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: Lifetime (one-time purchase — no renewal needed).';
             return;
@@ -1526,6 +1533,107 @@ function formatBytesAuto(bytes) {
     if (typeof bytes !== 'number' || isNaN(bytes)) return '0 MB';
     const mb = bytes / (1024 * 1024);
     return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+}
+async function refreshCloudBackupCostShare() {
+    const wrap = document.getElementById('cloud-backup-cost-share-wrap');
+    if (!wrap) return;
+    try {
+        const res = await authFetch(`${API_URL}/cloud-backup/cost-share`);
+        const data = await res.json();
+        renderCloudBackupCostShare(data);
+    } catch (err) {
+        wrap.style.display = 'none';
+    }
+}
+// Kada 5 minuto lang nire-refresh (kasabay ng NEON_USAGE_CACHE_MS sa RELAY
+// server, na 5 minuto rin) — walang saysay na mas madalas pa dito dahil
+// hanggang 5 minuto pa rin ang pinakabagong Neon project-wide total cost
+// na available sa RELAY. Tumatakbo lang habang naka-unlock ang Cloud
+// Backup feature; awtomatikong huminto sa logout (tingnan ang
+// stopCloudBackupCostShareAutoRefresh() sa handleLogout).
+let cloudBackupCostShareRefreshTimer = null;
+const CLOUD_BACKUP_COST_SHARE_REFRESH_MS = 5 * 60 * 1000;
+function startCloudBackupCostShareAutoRefresh() {
+    if (cloudBackupCostShareRefreshTimer) return; // huwag magdoble ng timer
+    cloudBackupCostShareRefreshTimer = setInterval(() => {
+        // Huwag mag-fetch kung tago naman ang tab/window — iwas
+        // unnecessary Neon/RELAY calls habang naka-background.
+        if (document.hidden) return;
+        refreshCloudBackupCostShare();
+    }, CLOUD_BACKUP_COST_SHARE_REFRESH_MS);
+}
+function stopCloudBackupCostShareAutoRefresh() {
+    if (cloudBackupCostShareRefreshTimer) {
+        clearInterval(cloudBackupCostShareRefreshTimer);
+        cloudBackupCostShareRefreshTimer = null;
+    }
+}
+// Shared helper for any "icon + short message" notice box (warnings,
+// inline errors, keyboard hints, etc). Centralizing this in one place
+// means there's only ever ONE icon rendered per message, even if the
+// message text itself happens to arrive with its own leading emoji
+// (e.g. a backend string that wasn't fully cleaned up) — this strips
+// that off automatically instead of stacking a second icon next to
+// the FontAwesome one. Pass displayStyle to match the element's normal
+// CSS display value (e.g. 'block' or 'flex'); falsy message hides it.
+// Matches one or more leading emoji "clusters" — a symbol char optionally
+// followed by a variation selector (U+FE0E/FE0F, e.g. the invisible byte
+// that turns ⚠ into ⚠️) or a zero-width joiner, plus any surrounding
+// whitespace. The base regex alone would strip the visible ⚠ but leave the
+// invisible U+FE0F behind as a stray character before the message text —
+// this covers that case so nothing is left over.
+const LEADING_EMOJI_STRIP_REGEX = /^(?:[\s]*[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}][\u{FE0E}\u{FE0F}\u{200D}]?)+[\s]*/u;
+function renderIconMessage(el, message, iconClass, displayStyle) {
+    if (!el) return;
+    if (!message) {
+        el.style.display = 'none';
+        return;
+    }
+    const cleaned = String(message).replace(LEADING_EMOJI_STRIP_REGEX, '').trim();
+    el.innerHTML = `<i class="fa-solid ${iconClass}"></i> ${cleaned}`;
+    el.style.display = displayStyle || 'block';
+}
+function renderCloudBackupCostShare(data) {
+    const wrap = document.getElementById('cloud-backup-cost-share-wrap');
+    const basis = document.getElementById('cloud-backup-cost-share-basis');
+    const warningBox = document.getElementById('cloud-backup-cost-share-warning');
+    const storagePct = document.getElementById('cloud-backup-cost-share-storage-pct');
+    const computePct = document.getElementById('cloud-backup-cost-share-compute-pct');
+    const baseEl = document.getElementById('cloud-backup-cost-share-base');
+    const maintenanceEl = document.getElementById('cloud-backup-cost-share-maintenance');
+    const totalEl = document.getElementById('cloud-backup-cost-share-total');
+    if (!wrap || !basis || !warningBox || !storagePct || !computePct || !baseEl || !maintenanceEl || !totalEl) return;
+
+    // Hide entirely if the feature isn't reachable/configured, or if this
+    // installation has no recorded Cloud Backup usage yet this billing period.
+    if (!data || !data.success || !data.hasUsage || !data.yourShare) {
+        wrap.style.display = 'none';
+        return;
+    }
+    const share = data.yourShare;
+    const fmtPHP = (n) => (typeof n === 'number' && isFinite(n))
+        ? `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '₱—';
+
+    wrap.style.display = 'block';
+
+    if (data.costBasis === 'projected-full-period') {
+        basis.textContent = 'Stable monthly projection';
+        basis.style.background = 'rgba(37,99,235,0.12)';
+        basis.style.color = '#2563eb';
+    } else {
+        basis.textContent = 'Early sample — may change';
+        basis.style.background = 'rgba(217,119,6,0.12)';
+        basis.style.color = '#b45309';
+    }
+
+    renderIconMessage(warningBox, data.warning, 'fa-triangle-exclamation', 'block');
+
+    storagePct.textContent = typeof share.storageSharePercent === 'number' ? `${share.storageSharePercent}%` : '—';
+    computePct.textContent = typeof share.computeSharePercent === 'number' ? `${share.computeSharePercent}%` : '—';
+    baseEl.textContent = fmtPHP(share.baseCostPHP);
+    maintenanceEl.textContent = fmtPHP(share.maintenanceFeePHP);
+    totalEl.textContent = fmtPHP(share.finalPricePHP);
 }
 function formatElapsedShort(ms) {
     if (typeof ms !== 'number' || ms < 0) return '0s';
@@ -2793,6 +2901,7 @@ function switchView(viewKey, opts) {
     const topHeaderEl = document.getElementById('app-top-header');
     if (topHeaderEl) {
         topHeaderEl.classList.toggle('terminal-header-mode', viewKey ==='terminal');
+        topHeaderEl.classList.toggle('overview-header-mode', viewKey ==='overview');
     }
     const bottomNavEl = document.getElementById('app-bottom-nav');
     if (bottomNavEl) {
@@ -2855,7 +2964,8 @@ const MOBILE_HEADER_TITLE_MAP = {
     debts:        { text:'Debtors',             hideIds: ['page-title-debts'] },
     shiftreport:  { text:'Shift / Z-Reading',   hideIds: ['page-title-shiftreport'] },
     logs:         { text:'System Audit Logs',   hideIds: ['page-title-logs'] },
-    faq:          { text:'FAQ',                 hideIds: ['page-title-faq'] }
+    faq:          { text:'FAQ',                 hideIds: ['page-title-faq'] },
+    users:        { text:'Settings',            hideIds: [] }
 };
 function isMobileOrTabletScreen() {
     return window.innerWidth <= 1024;
@@ -5015,14 +5125,11 @@ function attachKeyboardStateWarning(inputId, warningId) {
             wrongLayout = true;
         }
         if (capsLockOn && wrongLayout) {
-            warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Caps Lock is ON and your keyboard layout may not be English';
-            warningEl.style.display ='flex';
+            renderIconMessage(warningEl, 'Caps Lock is ON and your keyboard layout may not be English', 'fa-triangle-exclamation', 'flex');
         } else if (capsLockOn) {
-            warningEl.innerHTML ='<i class="fa-solid fa-triangle-exclamation"></i> Caps Lock is ON';
-            warningEl.style.display ='flex';
+            renderIconMessage(warningEl, 'Caps Lock is ON', 'fa-triangle-exclamation', 'flex');
         } else if (wrongLayout) {
-            warningEl.innerHTML ='<i class="fa-solid fa-language"></i> Your keyboard layout doesn\'t appear to be English right now';
-            warningEl.style.display ='flex';
+            renderIconMessage(warningEl, 'Your keyboard layout doesn\'t appear to be English right now', 'fa-language', 'flex');
         } else {
             warningEl.style.display ='none';
         }
@@ -15245,6 +15352,7 @@ async function runCloudBackupSync() {
                 statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Successfully synced (${result.totalRecords ?? '—'} records, ${(result.moduleNames || []).length} modules${sizeLabel}) — ${new Date().toLocaleString()}`;
             }
             renderCloudBackupStorageBar({ sizeMB: result.sizeMB, quotaMB: result.quotaMB, percentUsed: result.percentUsed, tier: result.tier });
+            refreshCloudBackupCostShare();
             if (result.nearQuota) {
                 Swal.fire('Cloud Backup — Almost Full', `You're at ${result.percentUsed}% of your ${(CLOUD_BACKUP_PLANS_UI[result.tier] || {}).name || 'plan'}'s storage allowance. Consider upgrading your plan or freeing up space soon, or the next sync may be rejected.`, 'warning');
             } else {
@@ -16899,6 +17007,7 @@ async function handleLogout(type ='manual') {
     try { stopTerminalStockPolling(); } catch (e) {}
     try { stopInventoryStockPolling(); } catch (e) {}
     try { stopReorderPolling(); } catch (e) {}
+    try { stopCloudBackupCostShareAutoRefresh(); } catch (e) {}
     try {
         if (demoCountdownInterval) { clearInterval(demoCountdownInterval); demoCountdownInterval = null; }
         const demoWidget = document.getElementById('demo-mode-banner-container');

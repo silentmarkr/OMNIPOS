@@ -3566,6 +3566,29 @@ app.get('/api/cloud-backup/status', async (req, res) => {
         subscription
     });
 });
+// Ipinapakita dito sa admin panel ang SARILING share ng store na ito sa
+// TOTAL na aktwal na Neon consumption cost ng Cloud Backup project
+// (hinati ayon sa proporsyon ng laki ng data / dalas ng backup nito
+// kumpara sa lahat ng ibang client — HINDI basta total/bilang ng client),
+// dagdag ang maintenance fee, para malinaw kung magkano ang dapat
+// bayaran ngayong buwan. Kaparehong pattern ng /api/cloud-backup/status.
+app.get('/api/cloud-backup/cost-share', async (req, res) => {
+    if (!RELAY_API_KEY) {
+        return res.json({ success: false, message: 'RELAY_API_KEY is not configured.' });
+    }
+    try {
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const relayRes = await relayFetch(
+            `${RELAY_URL}/relay/cloud-backup/cost-allocation?installationId=${encodeURIComponent(installationId)}`,
+            { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }
+        );
+        const relayData = await parseRelayResponse(relayRes);
+        res.json(relayData || { success: false, message: 'No response from RELAY.' });
+    } catch (err) {
+        res.json({ success: false, message: 'Could not fetch the cost share: ' + err.message });
+    }
+});
 let cloudBackupUploadInFlight = false;
 const CLOUD_BACKUP_CHUNK_SIZE_BYTES = 100 * 1024;
 const CLOUD_BACKUP_CHUNK_TIERS = [

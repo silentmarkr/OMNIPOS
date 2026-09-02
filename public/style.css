@@ -1167,6 +1167,17 @@ body.dark-mode .header-desktop-logo-text {
     .header-desktop-logo {
         display: none !important;
     }
+    .top-header.overview-header-mode .header-desktop-logo {
+        display: flex !important;
+    }
+    .top-header.overview-header-mode .header-desktop-logo-text {
+        font-size: 1.28rem;
+    }
+}
+@media screen and (max-width: 380px) {
+    .top-header.overview-header-mode .header-desktop-logo-text {
+        font-size: 1.12rem;
+    }
 }
 .top-header.terminal-header-mode .header-desktop-logo {
     display: none !important;
