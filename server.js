@@ -576,6 +576,22 @@ function requirePermission(menuKey) {
     };
 }
 const FILE_RECEIPT_SETTINGS ='receiptSettings';
+// ===================================================================
+// CLOUD TOKENS ("diamonds") — admin/client-only na page (WALANG entry
+// sa RBAC/Roles & Permissions selection — Admin lang, palagi). Dito
+// naka-store lang ang LOCAL na preference (Auto-Sync toggle) ng device
+// na ito; ang TUNAY na token balance/ledger ay nasa RELAY (Neon
+// Postgres) — hindi ito ni-store dito para hindi ito ma-tamper.
+// ===================================================================
+const FILE_CLOUD_TOKEN_PREFS = 'cloudTokenPrefs';
+const DEFAULT_CLOUD_TOKEN_PREFS = { autoSyncEnabled: true };
+function getCloudTokenPrefs() {
+    const raw = readData(FILE_CLOUD_TOKEN_PREFS, DEFAULT_CLOUD_TOKEN_PREFS);
+    return { autoSyncEnabled: raw.autoSyncEnabled !== false };
+}
+function saveCloudTokenPrefs(prefs) {
+    writeData(FILE_CLOUD_TOKEN_PREFS, { autoSyncEnabled: prefs.autoSyncEnabled !== false });
+}
 const FREE_CUSTOMIZE_LIMIT = 2;
 const OTP_RECIPIENT_EMAIL = Buffer.from('cml2ZXJvbWFyazE3QGdtYWlsLmNvbQ==','base64').toString('utf8');
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -2535,6 +2551,76 @@ function getCloudBackupPlanPrice(tier, billingCycle) {
     if (!plan || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) return null;
     return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
 }
+// Kaparehong eksaktong formula ng sa RELAY (server.js doon,
+// getCloudTokenCostPerSync) — presyo (sa tokens, 1 token = ₱1) kada
+// ISANG successful sync ng tier na ito = (buwanang presyo) / (inaasahang
+// bilang ng auto-syncs kada buwan), pinapalago pataas, minimum 1 token.
+// Sinasadyang kinompyut LOCALLY (hindi hinihiling sa RELAY kada sync)
+// dahil parehong nag-refresh na ng CLOUD_BACKUP_PLANS mula RELAY na rin
+// (tingnan ang fetchCloudBackupPricing() sa itaas) — laging magkatugma.
+function getCloudTokenCostPerSync(tier) {
+    const plan = CLOUD_BACKUP_PLANS[tier] || CLOUD_BACKUP_PLANS.basic;
+    const monthlyPrice = plan.price.monthly;
+    const expectedSyncsPerMonth = Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / plan.autoBackupIntervalMs));
+    return Math.max(1, Math.ceil(monthlyPrice / expectedSyncsPerMonth));
+}
+// Kunin ang token wallet balance/ledger mula RELAY (source of truth) —
+// kailangan ng RELAY_API_KEY at internet; kung wala man, "unknown" ang
+// balance (hindi automatic na "insufficient" — iwas maling pagharang sa
+// sync/restore kung sandaling nawalan lang ng koneksyon sa RELAY).
+async function fetchCloudTokenWallet(installationId) {
+    if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
+    try {
+        const relayRes = await relayFetch(
+            `${RELAY_URL}/relay/cloud-tokens/wallet?installationId=${encodeURIComponent(installationId)}`,
+            { headers: { 'x-relay-key': RELAY_API_KEY } },
+            8000
+        );
+        const data = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !data.success) return { ok: false, reason: data.message || `HTTP ${relayRes.status}` };
+        return { ok: true, balanceTokens: data.balanceTokens, ledger: data.ledger || [], pendingPurchases: data.pendingPurchases || [] };
+    } catch (err) {
+        return { ok: false, reason: err.message };
+    }
+}
+async function fetchCloudTokenPackages() {
+    if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/packages`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+        const data = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !data.success) return { ok: false, reason: data.message || `HTTP ${relayRes.status}` };
+        // AYOS: dating GCash/Maya/Online Banking lang ang hard-coded dito.
+        // Ngayon, kung ano ang paymentMethods na ibinalik ng RELAY (batay
+        // sa naka-configure na env vars doon: PayMongo/Xendit/Stripe/
+        // PayPal/atbp.), iyon lang din ang ipapasa papunta sa front-end.
+        return { ok: true, packages: data.packages, tokenCostPerSync: data.tokenCostPerSync, paymentMethods: data.paymentMethods || [] };
+    } catch (err) {
+        return { ok: false, reason: err.message };
+    }
+}
+// Atomic check-and-deduct sa RELAY — TINATAWAG lang PAGKATAPOS ng isang
+// SUCCESSFUL upload (hindi bago), para hindi ma-charge ang client kung
+// nabigo pala ang sync. Kung sakaling walang koneksyon papuntang RELAY
+// dito (bihira, dahil kababalik lang mula sa isang successful upload
+// papunta rin sa RELAY), hindi ito hinaharang — log-lang ang error, at
+// mananatili ang esensyang "successful backup" ng client.
+async function consumeCloudTokensForSync(installationId, tokens, note) {
+    if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/check-and-consume`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, tokens, note })
+        }, 8000);
+        const data = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !data.success) {
+            return { ok: false, insufficient: !!data.insufficient, balanceTokens: data.balanceTokens, reason: data.message || `HTTP ${relayRes.status}` };
+        }
+        return { ok: true, balanceTokens: data.balanceTokens };
+    } catch (err) {
+        return { ok: false, reason: err.message };
+    }
+}
 const CLOUD_BACKUP_PRICING_CACHE_PATH = path.join(__dirname, 'cloud-backup-pricing-cache.json');
 const CLOUD_BACKUP_PRICING_REFRESH_MS = 30 * 60 * 1000; 
 // AYOS: parehong bounds gaya ng sa RELAY (server.js doon) — sanity check
@@ -3863,6 +3949,121 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupUploadInFlight = false;
     }
 }
+// ===================================================================
+// CLOUD TOKENS — Admin/Client-only page (WALANG entry sa RBAC/Roles &
+// Permissions matrix — hindi ito assignable sa ibang role, Admin lang
+// palagi). Laman: Google App Verification status (naka-sync sa parehong
+// setting ng Users > Receipt Customization — iisang Gmail/App Password
+// lang, hindi duplicate), at ang Token/Diamond wallet na ginagamit para
+// panatilihing active ang Cloud Backup auto-sync.
+// ===================================================================
+app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin privileges only can view this page.' });
+    }
+    const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const receiptPublic = getReceiptSettingsPublic(receiptSettings);
+    const subscription = getCloudBackupSubscriptionInfo();
+    const tier = subscription.tier || 'basic';
+    const tokenCostPerSync = getCloudTokenCostPerSync(tier);
+    const prefs = getCloudTokenPrefs();
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    const [walletResult, packagesResult] = await Promise.all([
+        fetchCloudTokenWallet(installationId),
+        fetchCloudTokenPackages()
+    ]);
+    const balanceTokens = walletResult.ok ? walletResult.balanceTokens : null;
+    const sufficientForSync = walletResult.ok ? (balanceTokens >= tokenCostPerSync) : null; 
+    res.json({
+        success: true,
+        googleAppVerification: {
+            configured: receiptPublic.otpSenderConfigured,
+            emailMasked: receiptPublic.otpSenderEmailMasked,
+            configureHint: 'Users > Receipt Customization > Google App Verification'
+        },
+        cloudBackup: {
+            active: subscription.active,
+            tier,
+            planName: (CLOUD_BACKUP_PLANS[tier] && CLOUD_BACKUP_PLANS[tier].name) || null,
+            tokenCostPerSync,
+            autoSyncEnabled: prefs.autoSyncEnabled
+        },
+        wallet: {
+            available: walletResult.ok,
+            balanceTokens,
+            sufficientForSync,
+            ledger: walletResult.ok ? walletResult.ledger : [],
+            pendingPurchases: walletResult.ok ? walletResult.pendingPurchases : [],
+            unavailableReason: walletResult.ok ? null : walletResult.reason
+        },
+        packages: {
+            available: packagesResult.ok,
+            items: packagesResult.ok ? packagesResult.packages : null,
+            // AYOS: listahan ng mga paraan ng bayad na TALAGANG naka-configure
+            // (env vars) sa RELAY ngayon — ito ang gagamitin ng front-end para
+            // buuin ang dropdown/select, kaya kung ano lang ang naka-set sa
+            // Render env ng RELAY, iyon lang ang lalabas dito.
+            paymentMethods: packagesResult.ok ? (packagesResult.paymentMethods || []) : [],
+            unavailableReason: packagesResult.ok ? null : packagesResult.reason
+        }
+    });
+});
+app.post('/api/admin/cloud-tokens/auto-sync-toggle', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin privileges only can change this setting.' });
+    }
+    const { enabled } = req.body || {};
+    const prefs = getCloudTokenPrefs();
+    prefs.autoSyncEnabled = !!enabled;
+    saveCloudTokenPrefs(prefs);
+    logAction(req.authUser.username, `${prefs.autoSyncEnabled ? 'Enabled' : 'Disabled'} Cloud Backup Auto-Sync (Cloud Tokens page)`);
+    res.json({ success: true, autoSyncEnabled: prefs.autoSyncEnabled, message: prefs.autoSyncEnabled ? 'Auto-Sync is now ON.' : 'Auto-Sync is now OFF — scheduled cloud backups will pause to save tokens. Manual backup/restore still works if you have enough tokens.' });
+});
+app.post('/api/admin/cloud-tokens/purchase', rateLimit('cloud-tokens-purchase', 10, 15 * 60 * 1000), async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin privileges only can buy Cloud Backup tokens.' });
+    }
+    const { packageId, customTokens, method } = req.body || {};
+    // AYOS: dating hard-coded lang dito sa OMNIPOS ang tatlong pinapayagang
+    // method (gcash/maya/online_banking, PayMongo lang). Ngayon, kahit
+    // anong method id ang pumasa dito (basta valid na string) ay ipapasa
+    // na lang papunta sa RELAY — ang RELAY (env-based na registry) ang
+    // huling humuhusga kung valid AT available ito ngayon, para hindi na
+    // kailangang i-sync ang listahan sa dalawang lugar.
+    if (typeof method !== 'string' || !method.trim()) {
+        return res.status(400).json({ success: false, message: 'Piliin ang paraan ng bayad.' });
+    }
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to buy Cloud Backup tokens.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
+    }
+    try {
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/purchase/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                packageId: packageId || null,
+                customTokens: typeof customTokens === 'number' ? customTokens : undefined,
+                method,
+                returnBaseUrl: RELAY_URL
+            })
+        }, 15000);
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the token purchase request.' });
+        }
+        logAction(req.authUser.username, `Started a Cloud Backup token purchase (${relayData.tokens} tokens, ₱${relayData.amountPHP}, via ${method})`);
+        res.json({ success: true, checkoutUrl: relayData.checkoutUrl, purchaseId: relayData.purchaseId, tokens: relayData.tokens, amountPHP: relayData.amountPHP });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach RELAY to start the purchase: ${err.message}` });
+    }
+});
 app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
     const { username, password } = req.body || {};
     const currentUsersForSync = readData(FILE_USERS, []);
@@ -3870,8 +4071,34 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
     if (!currentAdminForSync || !bcrypt.compareSync(password || '', currentAdminForSync.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Cloud backup was not authorized.' });
     }
+    // AYOS: Cloud Backup Tokens gate — kailangang may sapat na tokens
+    // ang wallet (tingnan ang Cloud Tokens admin page) bago tumakbo ang
+    // manual sync na ito. Kung hindi ma-verify ang balance (offline sa
+    // RELAY, walang RELAY_API_KEY, atbp.), HINDI ito hinaharang — iyon
+    // ang dating behavior bago idagdag ang tokens.
+    const subscriptionForSyncGate = getCloudBackupSubscriptionInfo();
+    const tokenTierForSync = subscriptionForSyncGate.tier || 'basic';
+    const tokenCostForSync = getCloudTokenCostPerSync(tokenTierForSync);
+    const featureDataForSync = readFeatureUnlocks();
+    const installationIdForSync = getOrCreateInstallationId(featureDataForSync);
+    const walletForSync = await fetchCloudTokenWallet(installationIdForSync);
+    if (walletForSync.ok && walletForSync.balanceTokens < tokenCostForSync) {
+        return res.status(402).json({
+            success: false,
+            insufficientTokens: true,
+            balanceTokens: walletForSync.balanceTokens,
+            tokenCostPerSync: tokenCostForSync,
+            message: `Insufficient Cloud Backup tokens (balance: ${walletForSync.balanceTokens}, kailangan: ${tokenCostForSync} kada sync). Bumili muna ng tokens sa Cloud Tokens page.`
+        });
+    }
     const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username);
     if (result.body) return res.status(result.status).json(result.body);
+    if (result.status >= 200 && result.status < 300) {
+        const consumeResult = await consumeCloudTokensForSync(installationIdForSync, tokenCostForSync, 'Manual cloud backup sync');
+        if (!consumeResult.ok && !consumeResult.insufficient) {
+            console.error('⚠️ CLOUD_TOKENS: could not deduct tokens after a successful manual sync (non-blocking):', consumeResult.reason);
+        }
+    }
     return res.status(result.status).json(result);
 });
 const AUTO_CLOUD_BACKUP_HEARTBEAT_MS = 15 * 60 * 1000;
@@ -3882,6 +4109,12 @@ async function maybeRunAutomaticCloudBackup() {
     if (!subscription.active) return; 
     if (getConnectivityMode() === 'offline') return;
     if (!(await isInternetLikelyUp())) return;
+    // AYOS: Cloud Tokens — Auto-Sync toggle (client preference, sa Cloud
+    // Tokens admin page). Kapag naka-OFF, laktawan ang scheduled auto
+    // backup na ito (nakakatipid ng tokens) — manual backup/restore pa
+    // rin ang gumagana basta sapat ang tokens.
+    const cloudTokenPrefs = getCloudTokenPrefs();
+    if (!cloudTokenPrefs.autoSyncEnabled) return;
     const plan = CLOUD_BACKUP_PLANS[subscription.tier] || CLOUD_BACKUP_PLANS.basic;
     const dueAt = (cloudBackupStatus.lastSuccessAt || 0) + plan.autoBackupIntervalMs;
     if (Date.now() < dueAt) return; 
@@ -3891,7 +4124,26 @@ async function maybeRunAutomaticCloudBackup() {
             : AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS;
         if (Date.now() - cloudBackupStatus.lastAttemptAt < cooldownMs) return; 
     }
-    await performCloudBackupUpload('automatic', null);
+    // AYOS: Cloud Tokens gate — kung hindi na sapat ang wallet balance
+    // para sa presyo (sa tokens) ng isang sync ng kasalukuyang tier,
+    // itigil ang auto-sync (hindi ito hinaharang kung basta hindi
+    // ma-verify ang balance — offline sa RELAY lang, hindi awtomatikong
+    // "insufficient").
+    const tokenCostForAuto = getCloudTokenCostPerSync(subscription.tier || 'basic');
+    const featureDataForAuto = readFeatureUnlocks();
+    const installationIdForAuto = getOrCreateInstallationId(featureDataForAuto);
+    const walletForAuto = await fetchCloudTokenWallet(installationIdForAuto);
+    if (walletForAuto.ok && walletForAuto.balanceTokens < tokenCostForAuto) {
+        console.warn(`⚠️ AUTO_CLOUD_BACKUP: skipped — insufficient Cloud Backup tokens (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}). Bumili ng tokens sa Cloud Tokens page.`);
+        return;
+    }
+    const uploadResult = await performCloudBackupUpload('automatic', null);
+    if (uploadResult && uploadResult.status >= 200 && uploadResult.status < 300) {
+        const consumeResult = await consumeCloudTokensForSync(installationIdForAuto, tokenCostForAuto, 'Automatic cloud backup sync');
+        if (!consumeResult.ok && !consumeResult.insufficient) {
+            console.error('⚠️ CLOUD_TOKENS: could not deduct tokens after a successful automatic sync (non-blocking):', consumeResult.reason);
+        }
+    }
 }
 if (!AUTO_BACKUP_DISABLED) {
     setTimeout(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, 2 * 60 * 1000);
@@ -3929,6 +4181,27 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
+    }
+    // AYOS: parehong Cloud Backup Tokens gate gaya ng sa manual sync sa
+    // itaas — hindi gumagana ang Restore button kung kulang ang tokens.
+    // Restore lang mismo ay HINDI nagko-consume ng tokens (isang beses
+    // lang ang deduction, kada successful SYNC, hindi kada restore).
+    {
+        const subscriptionForRestoreGate = getCloudBackupSubscriptionInfo();
+        const tokenTierForRestore = subscriptionForRestoreGate.tier || 'basic';
+        const tokenCostForRestore = getCloudTokenCostPerSync(tokenTierForRestore);
+        const featureDataForGate = readFeatureUnlocks();
+        const installationIdForGate = getOrCreateInstallationId(featureDataForGate);
+        const walletForRestore = await fetchCloudTokenWallet(installationIdForGate);
+        if (walletForRestore.ok && walletForRestore.balanceTokens < tokenCostForRestore) {
+            return res.status(402).json({
+                success: false,
+                insufficientTokens: true,
+                balanceTokens: walletForRestore.balanceTokens,
+                tokenCostPerSync: tokenCostForRestore,
+                message: `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, kailangan: ${tokenCostForRestore}). Bumili muna ng tokens sa Cloud Tokens page.`
+            });
+        }
     }
     try {
         const featureData = readFeatureUnlocks();

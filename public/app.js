@@ -2912,6 +2912,14 @@ function switchView(viewKey, opts) {
             viewKey ='overview';
         }
     }
+    // AYOS: Cloud Tokens — hindi ito bahagi ng currentPermissions/RBAC
+    // matrix kaya hindi masusukat ng check sa itaas (walang property na
+    // "cloudtokens" doon) — Admin lang palagi ang puwede rito, kahit
+    // anong role/permission ang naka-set sa Users & Roles.
+    if (viewKey === 'cloudtokens' && !isAdmin) {
+        console.warn(`[OmniPOS] Access denied to Cloud Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
+        viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
+    }
     const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
@@ -2989,6 +2997,7 @@ function switchView(viewKey, opts) {
     if (viewKey ==='debts') { loadDebtsView(); startDebtsCountdownRefresh(); } else { stopDebtsCountdownRefresh(); }
     if (viewKey ==='shiftreport') loadShiftReportView();
     if (viewKey ==='reorder') loadReorderView();
+    if (viewKey === 'cloudtokens') loadCloudTokensView();
     sessionStorage.setItem('currentView', viewKey);
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
@@ -5345,6 +5354,13 @@ function applyRoleBasedAccessControls(role) {
     resetElements.forEach(el => {
         el.style.setProperty('display', isAdmin ?'' :'none','important');
     });
+    // AYOS: Cloud Tokens — admin/client-only page. WALANG entry sa RBAC
+    // matrix (menuRegistry) sa itaas — palaging Admin lang ito, sa
+    // bawat device, kahit anong role ang binigay sa Users & Roles.
+    const cloudTokenElements = document.querySelectorAll('.admin-only-nav');
+    cloudTokenElements.forEach(el => {
+        el.style.setProperty('display', isAdmin ? '' : 'none', 'important');
+    });
     (menuRegistry || []).forEach(m => {
         const elId = MENU_ID_OVERRIDES[m.key] || `menu-${m.key}`;
         const el = document.getElementById(elId);
@@ -5358,6 +5374,190 @@ function applyRoleBasedAccessControls(role) {
         inventoryGroup.style.display = anyInventoryVisible ?'' :'none';
     }
     console.log(`[OmniPOS] Applied dynamic Permission Matrix for role: ${role ||'unknown'}`);
+}
+// ===================================================================
+// CLOUD TOKENS ("diamonds") — Admin/Client-only page. Google App
+// Verification status (naka-sync sa Users > Receipt Customization) +
+// ang Token/Diamond wallet na gamit sa pagpapanatili ng Cloud Backup
+// auto-sync na active.
+// ===================================================================
+let cloudTokensPollTimer = null;
+async function loadCloudTokensView() {
+    const walletCard = document.getElementById('ct-wallet-card');
+    const googleCard = document.getElementById('ct-google-app-card');
+    try {
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/overview`);
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            if (walletCard) walletCard.querySelector('.ct-card-body').innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data && data.message) || 'Could not load the Cloud Tokens page.'}</span></div>`;
+            return;
+        }
+        renderCloudTokensOverview(data);
+    } catch (e) {
+        console.warn('[OmniPOS] Failed to load Cloud Tokens overview:', e);
+        if (walletCard) {
+            const body = walletCard.querySelector('.ct-card-body');
+            if (body) body.innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>Could not reach the server. Please try again.</span></div>`;
+        }
+    }
+}
+function renderCloudTokensOverview(data) {
+    // Google App Verification status
+    const statusEl = document.getElementById('ct-google-app-status');
+    if (statusEl) {
+        if (data.googleAppVerification && data.googleAppVerification.configured) {
+            statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#22c55e;"></i> Verified — <strong>${data.googleAppVerification.emailMasked || 'configured'}</strong>`;
+        } else {
+            statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:#ef4444;"></i> Not yet configured`;
+        }
+    }
+    // Plan / cost-per-sync
+    const planNameEl = document.getElementById('ct-plan-name');
+    const costPerSyncEl = document.getElementById('ct-cost-per-sync');
+    if (planNameEl) planNameEl.textContent = (data.cloudBackup && data.cloudBackup.planName) || (data.cloudBackup && data.cloudBackup.active ? data.cloudBackup.tier : 'No active plan');
+    if (costPerSyncEl) costPerSyncEl.textContent = (data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--';
+    // Auto-sync toggle (reflect current state without re-firing onchange)
+    const toggleEl = document.getElementById('ct-autosync-toggle');
+    if (toggleEl) toggleEl.checked = !!(data.cloudBackup && data.cloudBackup.autoSyncEnabled);
+    // Wallet balance
+    const balanceEl = document.getElementById('ct-balance-number');
+    const banner = document.getElementById('ct-insufficient-banner');
+    if (data.wallet && data.wallet.available) {
+        if (balanceEl) balanceEl.textContent = data.wallet.balanceTokens;
+        if (banner) banner.style.display = data.wallet.sufficientForSync === false ? 'flex' : 'none';
+    } else {
+        if (balanceEl) balanceEl.textContent = '—';
+        if (banner) {
+            banner.style.display = 'flex';
+            banner.querySelector('span').textContent = (data.wallet && data.wallet.unavailableReason) || 'Could not check the token balance right now.';
+        }
+    }
+    // Recent activity / ledger
+    const ledgerListEl = document.getElementById('ct-ledger-list');
+    if (ledgerListEl) {
+        const ledger = (data.wallet && data.wallet.ledger) || [];
+        if (ledger.length === 0) {
+            ledgerListEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">No activity yet.</div>`;
+        } else {
+            ledgerListEl.innerHTML = ledger.map(entry => {
+                const tokens = Number(entry.tokens);
+                const isCredit = tokens > 0;
+                const dateStr = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
+                return `<div class="ct-ledger-row">
+                    <i class="fa-solid ${isCredit ? 'fa-circle-plus' : 'fa-circle-minus'}" style="color:${isCredit ? '#22c55e' : '#ef4444'};"></i>
+                    <div style="flex:1;">
+                        <div style="font-size:0.85rem;">${entry.note || (entry.type === 'purchase' ? 'Token purchase' : 'Cloud backup sync')}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${dateStr}</div>
+                    </div>
+                    <div style="font-weight:600; color:${isCredit ? '#22c55e' : '#ef4444'};">${isCredit ? '+' : ''}${tokens}</div>
+                </div>`;
+            }).join('');
+        }
+    }
+    // Payment methods — dating hard-coded (GCash/Maya/Online Banking) ang
+    // mga <option> dito. Ngayon, dynamic na ito, base sa listahan na
+    // ibinalik ng RELAY (data.packages.paymentMethods) — kung ano lang ang
+    // naka-configure na provider/env var doon (PayMongo/Xendit/Stripe/
+    // PayPal/atbp.), iyon lang ang lalabas bilang <option>.
+    const availableMethods = (data.packages && data.packages.paymentMethods) || [];
+    const paymentOptionsHtml = availableMethods.length
+        ? availableMethods.map(m => `<option value="${m.id}">${m.label}</option>`).join('')
+        : `<option value="" disabled selected>No payment method configured yet</option>`;
+    // Token packages
+    const packagesGrid = document.getElementById('ct-packages-grid');
+    if (packagesGrid) {
+        if (data.packages && data.packages.available && data.packages.items) {
+            const items = data.packages.items;
+            packagesGrid.innerHTML = Object.keys(items).map(tier => {
+                const pkg = items[tier];
+                return `<div class="ct-package-option">
+                    <div class="ct-package-name">${pkg.name || tier}</div>
+                    <div class="ct-package-tokens"><i class="fa-solid fa-gem"></i> ${pkg.tokens} tokens</div>
+                    <div class="ct-package-price">₱${pkg.amountPHP}</div>
+                    <div class="ct-package-tagline">${pkg.tagline || ''}</div>
+                    <select class="ct-payment-select" id="ct-method-${tier}" ${availableMethods.length ? '' : 'disabled'}>
+                        ${paymentOptionsHtml}
+                    </select>
+                    <button type="button" class="ct-btn ct-btn-primary" onclick="buyCloudTokensPackage('${tier}')" ${availableMethods.length ? '' : 'disabled'}>
+                        <i class="fa-solid fa-cart-shopping"></i> Buy
+                    </button>
+                </div>`;
+            }).join('');
+        } else {
+            packagesGrid.innerHTML = `<div class="ct-banner ct-banner-warn" style="display:flex;"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data.packages && data.packages.unavailableReason) || 'Could not load token packages.'}</span></div>`;
+        }
+    }
+    // Custom-amount na select — kaparehong dynamic na listahan ng payment
+    // methods (tingnan ang comment sa itaas).
+    const customMethodEl = document.getElementById('ct-custom-method');
+    if (customMethodEl) {
+        customMethodEl.innerHTML = paymentOptionsHtml;
+        customMethodEl.disabled = !availableMethods.length;
+    }
+}
+async function toggleCloudAutoSync(enabled) {
+    try {
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/auto-sync-toggle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: !!enabled })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            Swal.fire('Error', (data && data.message) || 'Could not update Auto-Sync.', 'error');
+            const toggleEl = document.getElementById('ct-autosync-toggle');
+            if (toggleEl) toggleEl.checked = !enabled; 
+            return;
+        }
+        Swal.fire({ title: enabled ? 'Auto-Sync Enabled' : 'Auto-Sync Disabled', text: data.message || 'Auto-Sync updated.', icon: 'success', timer: 2200, showConfirmButton: false });
+    } catch (e) {
+        Swal.fire('Error', 'Could not reach the server to update Auto-Sync.', 'error');
+    }
+}
+async function startCloudTokenPurchase(packageId, customTokens, method) {
+    try {
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/purchase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packageId: packageId || undefined, customTokens: typeof customTokens === 'number' ? customTokens : undefined, method })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            Swal.fire('Error', (data && data.message) || 'Could not start the token purchase.', 'error');
+            return;
+        }
+        if (data.checkoutUrl) {
+            Swal.fire({ title: 'Redirecting to checkout', text: `Complete the ${method.toUpperCase()} payment for ${data.tokens} tokens (₱${data.amountPHP}) in the new tab that just opened.`, icon: 'info', timer: 3000, showConfirmButton: false });
+            window.open(data.checkoutUrl, '_blank');
+            // Pagkatapos magbayad ang customer sa ibang tab/window, i-refresh
+            // ng ilang beses ang balance dito (ang webhook ang nagpapatunay
+            // ng aktwal na pagcredit ng tokens, hindi ito guaranteed agad).
+            let pollCount = 0;
+            clearInterval(cloudTokensPollTimer);
+            cloudTokensPollTimer = setInterval(() => {
+                pollCount += 1;
+                loadCloudTokensView();
+                if (pollCount >= 10) clearInterval(cloudTokensPollTimer);
+            }, 6000);
+        }
+    } catch (e) {
+        Swal.fire('Error', 'Could not reach the server to start the purchase.', 'error');
+    }
+}
+function buyCloudTokensPackage(tier) {
+    const methodEl = document.getElementById(`ct-method-${tier}`);
+    const method = methodEl ? methodEl.value : 'gcash';
+    startCloudTokenPurchase(tier, null, method);
+}
+function buyCloudTokensCustom() {
+    const amountEl = document.getElementById('ct-custom-tokens');
+    const methodEl = document.getElementById('ct-custom-method');
+    const amount = parseInt(amountEl && amountEl.value, 10);
+    if (!amount || amount < 50) {
+        Swal.fire('Invalid Amount', 'Please enter at least 50 tokens (₱50).', 'error');
+        return;
+    }
+    startCloudTokenPurchase(null, amount, methodEl ? methodEl.value : 'gcash');
 }
 async function refreshLowStockBadge() {
     const badge = document.getElementById('lowstock-bell-badge');
