@@ -2522,6 +2522,14 @@ const CLOUD_BACKUP_BILLING_CYCLES = {
     yearly: { label: 'Yearly', days: 365 }
 };
 let CLOUD_BACKUP_PLANS = JSON.parse(JSON.stringify(CLOUD_BACKUP_PLANS_FALLBACK));
+// AYOS/BAGO: tinanggal na ang hiwalay na "maintenance fee" cache/overlay
+// dito (cloudBackupMaintenanceFeePHP/StandardPHP/Paid/PaidUntil at ang
+// applyCloudBackupMaintenanceFeeOverlay()/applyCloudBackupMaintenanceFeeState()
+// functions) — wala nang hiwalay/flat na maintenance fee na pinag-uusapan.
+// Ang Monthly/Yearly presyo mismo ng bawat Cloud Backup tier sa itaas
+// (CLOUD_BACKUP_PLANS, na-overlay mula RELAY) ang siya nang "maintenance
+// fee" na makikita ng client — depende sa tier na kanyang sinubscribe —
+// sa cost-share widget at sa Client Cost Allocation admin sa RELAY.
 function getCloudBackupPlanPrice(tier, billingCycle) {
     const plan = CLOUD_BACKUP_PLANS[tier];
     if (!plan || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) return null;
@@ -2605,7 +2613,12 @@ async function fetchCloudBackupPricing() {
     if (!RELAY_API_KEY) return; 
     lastCloudBackupPricingFetchAt = Date.now();
     try {
-        const relayRes = await relayFetch(`${RELAY_URL}/relay/pricing`, {
+        // Ipinapasa pa rin ang installationId papuntang /relay/pricing kung
+        // sakaling kailanganin pa ito ng RELAY para sa ibang per-client na
+        // datos sa hinaharap — hindi na ito kailangan para sa maintenance
+        // fee (tingnan ang paliwanag sa CLOUD_BACKUP_PLANS sa itaas).
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/pricing?installationId=${encodeURIComponent(installationId)}`, {
             headers: { 'x-relay-key': RELAY_API_KEY }
         }, 15000);
         if (!relayRes.ok) {
@@ -2724,6 +2737,11 @@ const FEATURE_CATALOG = {
         isSubscription: true,
         get price() { return CLOUD_BACKUP_PLANS.basic.price.monthly; },
         get plans() { return CLOUD_BACKUP_PLANS; },
+        // AYOS/BAGO: wala nang hiwalay na "maintenance & monitoring" fee
+        // dito — ang Monthly/Yearly presyo mismo ng `plans` sa itaas ang
+        // siya nang "maintenance fee" na makikita ng client (sa cost-share
+        // widget at Client Cost Allocation admin sa RELAY), depende sa
+        // tier na kanyang sinubscribe.
         billingCycles: CLOUD_BACKUP_BILLING_CYCLES,
         description:'Sync the entire database — including user accounts (no passwords), unlocked features/Pro themes, and every other module — to secure cloud storage. Protects your data if the device breaks or is lost. Now offered as a Basic/Standard/Pro subscription (monthly or yearly) instead of a one-time purchase — pick a plan to see full pricing.'
     },

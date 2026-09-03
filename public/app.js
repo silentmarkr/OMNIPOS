@@ -1349,6 +1349,16 @@ function formatAutoBackupIntervalPhrase(ms) {
     return `Automatic cloud backup every ${rounded} hours`;
 }
 let cloudBackupPlansLiveCache = null;
+// AYOS/BAGO: tinanggal na ang hiwalay na maintenance-fee live cache dito
+// (cloudBackupMaintenanceFeeLiveCache/StandardLiveCache/PaidLiveCache/
+// PaidUntilLiveCache at ang mga getter nito) — ang tier modal
+// (promptCloudBackupSubscription) ay hindi na nagdadagdag ng hiwalay na
+// "maintenance fee" sa ibabaw ng presyo ng tier: ang Monthly/Yearly presyo
+// mismo ng tier (mula dito sa cloudBackupPlansLiveCache/CLOUD_BACKUP_PLANS_UI)
+// ang siya nang "maintenance fee" na makikita ng client pagkatapos
+// mag-subscribe, sa cost-share widget (renderCloudBackupCostShare, na
+// direktang kumukuha ng per-client/tier-aware na datos mula sa
+// /cloud-backup/cost-share) at sa Client Cost Allocation admin sa RELAY.
 async function refreshCloudBackupPlansLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
@@ -1632,7 +1642,33 @@ function renderCloudBackupCostShare(data) {
     storagePct.textContent = typeof share.storageSharePercent === 'number' ? `${share.storageSharePercent}%` : '—';
     computePct.textContent = typeof share.computeSharePercent === 'number' ? `${share.computeSharePercent}%` : '—';
     baseEl.textContent = fmtPHP(share.baseCostPHP);
-    maintenanceEl.textContent = fmtPHP(share.maintenanceFeePHP);
+    // AYOS/BAGO: hindi na flat na fee ang ipinapakita dito — ito na ang
+    // Monthly AT Yearly na presyo mismo ng Cloud Backup tier (Basic/
+    // Standard/Pro, mula sa Cloud Backup Pricing/pricing.html) na
+    // sinubscribe ng client na ito (share.cloudBackupTierName/
+    // maintenanceFeeMonthlyPHP/maintenanceFeeYearlyPHP — galing sa
+    // computeClientCostAllocation() sa RELAY). Kapag "paid"/active pa ang
+    // subscription niya ngayong billing period (o lifetime), "✓ Paid"/
+    // "✓ Lifetime" ang ipinapakita sa halip, dahil hindi na ito idinadagdag
+    // sa "Total this month" habang aktibo pa ito (0 na ang
+    // share.maintenanceFeePHP mismo, kaya tama rin ang totalEl sa ibaba).
+    if (share.cloudBackupIsLifetime) {
+        maintenanceEl.innerHTML = `<span style="color:#16a34a;">✓ Lifetime</span>`;
+        maintenanceEl.title = 'Covered by a one-time Lifetime Cloud Backup purchase — no recurring plan fee.';
+    } else if (share.maintenanceFeePaid) {
+        maintenanceEl.innerHTML = `<span style="color:#16a34a;">✓ Paid</span>`;
+        maintenanceEl.title = share.maintenanceFeePaidUntil
+            ? `Covered by your current Cloud Backup subscription until ${new Date(share.maintenanceFeePaidUntil).toLocaleDateString('en-PH')}.`
+            : 'Covered by your current Cloud Backup subscription.';
+    } else {
+        maintenanceEl.innerHTML = '';
+        maintenanceEl.title = '';
+        const monthly = typeof share.maintenanceFeeMonthlyPHP === 'number' ? share.maintenanceFeeMonthlyPHP : share.maintenanceFeePHP;
+        const yearly = share.maintenanceFeeYearlyPHP;
+        maintenanceEl.textContent = (typeof yearly === 'number')
+            ? `${fmtPHP(monthly)}/mo · ${fmtPHP(yearly)}/yr`
+            : fmtPHP(monthly);
+    }
     totalEl.textContent = fmtPHP(share.finalPricePHP);
 }
 function formatElapsedShort(ms) {
@@ -1986,6 +2022,14 @@ async function promptCloudBackupSubscription() {
     if (blockIfOffline('Cloud Backup subscription')) return false;
     await refreshCloudBackupPlansLive();
     const cloudBackupPlans = getCloudBackupPlansMerged();
+    // AYOS/BAGO: wala nang hiwalay na "maintenance & monitoring" na
+    // idinadagdag dito sa ibabaw ng tier price — ang Monthly/Yearly presyo
+    // ng bawat tier sa itaas MISMO ang "maintenance fee" na makikita sa
+    // cost-share widget at sa Client Cost Allocation admin pagkatapos
+    // mag-subscribe (tingnan ang computeClientCostAllocation() sa RELAY).
+    // Kaya ang tier modal na ito ay dapat na lang ipakita ang eksaktong
+    // parehong presyo na nasa Cloud Backup Pricing (pricing.html) —
+    // Monthly/Yearly per tier, walang extra na dagdag na linya.
     let selectedTier = 'standard';
     let selectedCycle = 'monthly';
     const tierKeys = Object.keys(cloudBackupPlans);
