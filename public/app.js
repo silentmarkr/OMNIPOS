@@ -1165,10 +1165,22 @@ async function promptUnlockTheme(theme) {
 'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>',
         icon:'info',
         showCancelButton: true,
+        showDenyButton: true,
         confirmButtonText:'Send Request',
+        denyButtonText: '💎 Activate Instantly with Omni Tokens',
         cancelButtonText:'Close',
         confirmButtonColor:'#2563eb',
+        denyButtonColor: '#7c3aed',
     });
+    if (confirmResult.isDenied) {
+        const activated = await runFeatureTokenActivationFlow({ featureIds: [theme.id], totalPrice: (typeof livePrice === 'number' ? livePrice : undefined), displayName: theme.name });
+        if (activated) {
+            applyTheme(theme.id);
+            renderThemeMenu();
+            initDemoModeUI();
+        }
+        return;
+    }
     if (!confirmResult.isConfirmed) return;
     try {
         const reqRes = await authFetch('/api/themes/request-unlock', {
@@ -1438,9 +1450,12 @@ async function promptModuleSubscription(featureId) {
         title: displayName,
         html: buildHtml(),
         showCancelButton: true,
+        showDenyButton: true,
         confirmButtonText: 'Send Request',
+        denyButtonText: '💎 Activate Instantly with Omni Tokens',
         cancelButtonText: 'Close',
         confirmButtonColor: '#2563eb',
+        denyButtonColor: '#7c3aed',
         didOpen: (popup) => {
             const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
             const attachHandlers = () => {
@@ -1451,8 +1466,11 @@ async function promptModuleSubscription(featureId) {
             attachHandlers();
         }
     });
-    if (!result.isConfirmed) return false;
     const planName = `${displayName} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
+    if (result.isDenied) {
+        return !!(await runFeatureTokenActivationFlow({ featureIds: [featureId], billingCycle: selectedCycle, displayName: planName }));
+    }
+    if (!result.isConfirmed) return false;
     return runUnlockFlow(featureId, planName, { billingCycle: selectedCycle });
 }
 function getCloudBackupUpgrade() {
@@ -1759,6 +1777,124 @@ async function pollUntilApproved(url, body) {
         });
     });
 }
+// ============================================================
+// GENERIC TOKEN-FUNDED SELF-SERVE ACTIVATION (front-end)
+//
+// Shared by: single à la carte feature unlock, bulk/tier bundle
+// purchases, Module Subscriptions (RBAC/Multi-Branch), and Pro Themes.
+// Cloud Backup keeps its own dedicated flow (promptCloudBackupTokenActivation)
+// since it also carries tier selection — everything else routes through
+// here. Asks for the requestor's Gmail, checks the Omni Token balance
+// (nothing charged yet), emails a verification code straight to that
+// Gmail, then only spends tokens once the code is confirmed.
+async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPrice, displayName }) {
+    if (blockIfOffline('Feature activation')) return null;
+    const emailResult = await Swal.fire({
+        title: '💎 Activate with Omni Tokens',
+        html: `<p style="font-size:0.85rem;margin:0 0 10px;text-align:left;">Enter the Gmail/email that should receive the verification code to activate <strong>${escapeHtml(displayName)}</strong>. Your tokens will only be deducted once the code is verified.</p>` +
+              `<input type="email" id="fx-token-requestor-email" class="swal2-input" placeholder="you@gmail.com" style="margin:0;width:100%;">`,
+        showCancelButton: true,
+        confirmButtonText: 'Send Verification Code',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#7c3aed',
+        focusConfirm: false,
+        preConfirm: () => {
+            const email = (document.getElementById('fx-token-requestor-email').value || '').trim();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                Swal.showValidationMessage('Please enter a valid Gmail/email address.');
+                return false;
+            }
+            return { email };
+        }
+    });
+    if (!emailResult.isConfirmed) return null;
+    const requestorEmail = emailResult.value.email;
+    const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) || 'Unknown';
+    let reqData;
+    try {
+        const reqRes = await authFetch(`${API_URL}/features/token-activate/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ featureIds, billingCycle: billingCycle || undefined, totalPrice: typeof totalPrice === 'number' ? totalPrice : undefined, requestorEmail, username: requestingUsername })
+        });
+        reqData = await reqRes.json();
+    } catch (e) {
+        Swal.fire('Error', 'Could not reach the server to check your Omni Tokens balance.', 'error');
+        return null;
+    }
+    if (!reqData.success) {
+        if (reqData.insufficient) {
+            const buyResult = await Swal.fire({
+                icon: 'info',
+                title: 'Not Enough Omni Tokens',
+                html: `You have <strong>${reqData.balanceTokens}</strong> token/s, but <strong>${reqData.requiredTokens}</strong> are needed for this purchase.`,
+                showCancelButton: true,
+                confirmButtonText: 'Buy Omni Tokens',
+                cancelButtonText: 'Not now',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (buyResult.isConfirmed) switchView('cloudtokens');
+            return null;
+        }
+        if (reqData.gmailNotVerified) {
+            const cfgResult = await Swal.fire({
+                icon: 'warning',
+                title: 'OTP Sender Email Not Set Up',
+                text: reqData.message || 'Please configure and verify an OTP Sender Email (Gmail App Password) first.',
+                showCancelButton: true,
+                confirmButtonText: 'Configure Now',
+                cancelButtonText: 'Not now',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (cfgResult.isConfirmed) {
+                switchView('users');
+                setTimeout(() => { const t = document.getElementById('receipt-custom-tab-btn'); if (t) t.click(); }, 50);
+            }
+            return null;
+        }
+        Swal.fire('Error', reqData.message || 'Could not send the verification code.', 'error');
+        return null;
+    }
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verify Your Gmail',
+        descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to activate <strong>${escapeHtml(displayName)}</strong>. Your tokens will only be deducted once this code is verified.`,
+        maxAttempts: 5,
+        verify: async (otp) => {
+            const confirmRes = await authFetch(`${API_URL}/features/token-activate/confirm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ otp, username: requestingUsername })
+            });
+            return confirmRes.json();
+        },
+        onExpire: () => authFetch(`${API_URL}/features/token-activate/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
+    });
+    if (!otpModalResult || !otpModalResult.success) {
+        if (otpModalResult && otpModalResult.insufficient) {
+            const buyResult = await Swal.fire({
+                icon: 'info',
+                title: 'Not Enough Omni Tokens',
+                html: `Your code was correct, but your token balance changed in the meantime — you now have <strong>${otpModalResult.balanceTokens}</strong>, needing <strong>${otpModalResult.requiredTokens}</strong>.`,
+                showCancelButton: true,
+                confirmButtonText: 'Buy Omni Tokens',
+                cancelButtonText: 'Close',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (buyResult.isConfirmed) switchView('cloudtokens');
+        }
+        return null;
+    }
+    if (Array.isArray(otpModalResult.unlockedFeatureIds)) {
+        unlockedFeatureIdsCache = otpModalResult.unlockedFeatureIds;
+    }
+    if (Array.isArray(otpModalResult.unlockedThemeIds)) {
+        localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(otpModalResult.unlockedThemeIds));
+    }
+    updateSidebarFeatureLocks();
+    initDemoModeUI();
+    Swal.fire('Activated!', otpModalResult.message || `${displayName} is ready to use.`, 'success');
+    return otpModalResult;
+}
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
     if (typeof price !== 'number') {
@@ -1781,10 +1917,16 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
 'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>',
         icon:'info',
         showCancelButton: true,
+        showDenyButton: true,
         confirmButtonText:'Send Request',
+        denyButtonText: '💎 Activate Instantly with Omni Tokens',
         cancelButtonText:'Close',
         confirmButtonColor:'#2563eb',
+        denyButtonColor: '#7c3aed',
     });
+    if (confirmResult.isDenied) {
+        return !!(await runFeatureTokenActivationFlow({ featureIds: [featureId], totalPrice: price, displayName }));
+    }
     if (!confirmResult.isConfirmed) return false;
     return runUnlockFlow(featureId, displayName, {});
 }
@@ -1891,6 +2033,23 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 statusEl.textContent = result.pending ? 'Code verified — waiting for approval' : 'Code verified';
                 statusEl.className = 'otp-verify-status is-success';
                 setTimeout(() => finish(Object.assign({}, result, { _verifiedOtp: code })), 650);
+                return;
+            }
+            // AYOS/BAGO: kung "insufficient" ang tugon (tama ang code, pero
+            // nagbago na ang token balance sa pagitan ng request at confirm
+            // — hal. na-spend na ng auto-sync), huwag ituring na "maling
+            // code" ito. Dating bumabagsak ito dito sa generic na
+            // "incorrect code" branch sa ibaba, kaya nauubos na lang ang
+            // attempts nang walang kwenta at kapag na-exhaust na, nawawala
+            // na lang ang buong result papunta sa caller (natatapon ang
+            // insufficient/balanceTokens/requiredTokens na kailangan para
+            // ipakita ang "Buy Omni Tokens" prompt). Dito, isara agad ang
+            // modal at ibalik ang buong result na 'yun papunta sa caller,
+            // nang hindi binabawasan ang attempts.
+            if (result && result.insufficient) {
+                statusEl.textContent = result.message || 'Insufficient balance.';
+                statusEl.className = 'otp-verify-status is-error';
+                setTimeout(() => finish(Object.assign({}, result, { _verifiedOtp: code })), 500);
                 return;
             }
             if (networkError) {
@@ -2057,9 +2216,12 @@ async function promptCloudBackupSubscription() {
         title: 'Cloud Backup Plans',
         html: buildHtml(),
         showCancelButton: true,
+        showDenyButton: true,
         confirmButtonText: 'Send Request',
+        denyButtonText: '💎 Activate Instantly with Omni Tokens',
         cancelButtonText: 'Close',
         confirmButtonColor: '#2563eb',
+        denyButtonColor: '#7c3aed',
         didOpen: (popup) => {
             const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
             const attachHandlers = () => {
@@ -2073,9 +2235,183 @@ async function promptCloudBackupSubscription() {
             attachHandlers();
         }
     });
+    // AYOS/BAGO: "Activate Instantly with Omni Tokens" — kung meron nang
+    // sapat na Omni Tokens (nabili na dati), hindi na kailangan pang
+    // maghintay ng manual OTP approval mula sa developer. Ang tier at
+    // billing cycle na huling napili sa modal na ito (selectedTier/
+    // selectedCycle) ay dinadala papunta sa bagong self-service flow.
+    if (result.isDenied) {
+        return promptCloudBackupTokenActivation(selectedTier, selectedCycle);
+    }
     if (!result.isConfirmed) return false;
     const planName = `Cloud Backup — ${cloudBackupPlans[selectedTier].name} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
     return runUnlockFlow('cloud_backup', planName, { tier: selectedTier, billingCycle: selectedCycle });
+}
+// ============================================================
+// TOKEN-FUNDED CLOUD BACKUP ACTIVATION (self-service, instant)
+//
+// Kaibahan sa runUnlockFlow('cloud_backup', ...) sa itaas: doon,
+// hinihintay ng requestor ang OTP na ipinadala sa DEVELOPER (kailangan
+// pang mag-Approve ang developer bago gumana ang code, dahil kailangan
+// niya pang i-verify ang proof-of-payment). Dito, kung meron nang sapat
+// na Omni Tokens ang installation na ito (nabili na dati sa Cloud
+// Tokens page), agad na ipinapadala ang OTP DIRETSO sa Gmail na ipinasok
+// ng requestor — walang hinihintay na approval, dahil ang "pambayad" ay
+// ang tokens mismo (ma-deduct lang kapag successful ang OTP).
+async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
+    if (blockIfOffline('Cloud Backup activation')) return false;
+    await refreshCloudBackupPlansLive();
+    const cloudBackupPlans = getCloudBackupPlansMerged();
+    let selectedTier = (initialTier && cloudBackupPlans[initialTier]) ? initialTier : 'standard';
+    let selectedCycle = (initialCycle === 'yearly') ? 'yearly' : 'monthly';
+    const tierKeys = Object.keys(cloudBackupPlans);
+    const requiredTokensFor = (tier, cycle) => cloudBackupPlans[tier].price[cycle];
+    const buildHtml = () => {
+        const tierButtons = tierKeys.map(key => {
+            const plan = cloudBackupPlans[key];
+            const active = key === selectedTier;
+            return `<button type="button" class="cb-tier-btn${active ? ' active' : ''}" data-tier="${key}" style="flex:1;text-align:left;border-radius:10px;padding:10px 12px;cursor:pointer;margin:0 4px;">` +
+                `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${plan.name}</div>` +
+                `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${plan.tagline}</div>` +
+                `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">💎 ${plan.price[selectedCycle]} token/s<span style="font-size:0.68rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+                `</button>`;
+        }).join('');
+        const cycleButtons = ['monthly','yearly'].map(cycle => {
+            const active = cycle === selectedCycle;
+            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+        }).join('');
+        return `<div style="text-align:left;">
+            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Pay with your Omni Tokens balance — pick a plan and billing cycle:</p>
+            <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
+            <div style="display:flex;margin-bottom:14px;">${tierButtons}</div>
+            <label style="font-size:0.78rem;font-weight:600;display:block;margin-bottom:4px;">Your Gmail (the verification code will be sent here)</label>
+            <input type="email" id="cb-token-requestor-email" class="swal2-input" placeholder="you@gmail.com" style="margin:0;width:100%;">
+        </div>`;
+    };
+    const result = await Swal.fire({
+        title: '💎 Activate with Omni Tokens',
+        html: buildHtml(),
+        showCancelButton: true,
+        confirmButtonText: 'Send Verification Code',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#7c3aed',
+        focusConfirm: false,
+        preConfirm: () => {
+            const email = (document.getElementById('cb-token-requestor-email').value || '').trim();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                Swal.showValidationMessage('Please enter a valid Gmail/email address.');
+                return false;
+            }
+            return { email };
+        },
+        didOpen: (popup) => {
+            const rerender = () => {
+                const emailInput = popup.querySelector('#cb-token-requestor-email');
+                const keepEmail = emailInput ? emailInput.value : '';
+                popup.querySelector('.swal2-html-container').innerHTML = buildHtml();
+                const newEmailInput = popup.querySelector('#cb-token-requestor-email');
+                if (newEmailInput) newEmailInput.value = keepEmail;
+                attachHandlers();
+            };
+            const attachHandlers = () => {
+                popup.querySelectorAll('.cb-tier-btn').forEach(btn => {
+                    btn.addEventListener('click', () => { selectedTier = btn.dataset.tier; rerender(); });
+                });
+                popup.querySelectorAll('.cb-cycle-btn').forEach(btn => {
+                    btn.addEventListener('click', () => { selectedCycle = btn.dataset.cycle; rerender(); });
+                });
+            };
+            attachHandlers();
+        }
+    });
+    if (!result.isConfirmed) return false;
+    const requestorEmail = result.value.email;
+    const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) || 'Unknown';
+    let reqData;
+    try {
+        const reqRes = await authFetch(`${API_URL}/cloud-backup/token-activate/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tier: selectedTier, billingCycle: selectedCycle, requestorEmail, username: requestingUsername })
+        });
+        reqData = await reqRes.json();
+    } catch (e) {
+        Swal.fire('Error', 'Could not reach the server to check your Omni Tokens balance.', 'error');
+        return false;
+    }
+    if (!reqData.success) {
+        if (reqData.insufficient) {
+            const buyResult = await Swal.fire({
+                icon: 'info',
+                title: 'Not Enough Omni Tokens',
+                html: `You have <strong>${reqData.balanceTokens}</strong> token/s, but <strong>${reqData.requiredTokens}</strong> are needed for this plan.`,
+                showCancelButton: true,
+                confirmButtonText: 'Buy Omni Tokens',
+                cancelButtonText: 'Not now',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (buyResult.isConfirmed) switchView('cloudtokens');
+            return false;
+        }
+        if (reqData.gmailNotVerified) {
+            const cfgResult = await Swal.fire({
+                icon: 'warning',
+                title: 'OTP Sender Email Not Set Up',
+                text: reqData.message || 'Please configure and verify an OTP Sender Email (Gmail App Password) first.',
+                showCancelButton: true,
+                confirmButtonText: 'Configure Now',
+                cancelButtonText: 'Not now',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (cfgResult.isConfirmed) {
+                switchView('users');
+                setTimeout(() => { const t = document.getElementById('receipt-custom-tab-btn'); if (t) t.click(); }, 50);
+            }
+            return false;
+        }
+        Swal.fire('Error', reqData.message || 'Could not send the verification code.', 'error');
+        return false;
+    }
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verify Your Gmail',
+        descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to activate Cloud Backup — <strong>${cloudBackupPlans[selectedTier].name}</strong> (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'}). Your ${requiredTokensFor(selectedTier, selectedCycle)} token/s will only be deducted once this code is verified.`,
+        // AYOS/BAGO: itinugma sa CLOUD_BACKUP_TOKEN_OTP_MAX_ATTEMPTS (5) sa
+        // server — dati default 3 na lang ang modal kahit 5 attempts ang
+        // pinapayagan ng backend bago mag-expire ang challenge.
+        maxAttempts: 5,
+        verify: async (otp) => {
+            const confirmRes = await authFetch(`${API_URL}/cloud-backup/token-activate/confirm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ otp, username: requestingUsername })
+            });
+            return confirmRes.json();
+        },
+        onExpire: () => authFetch(`${API_URL}/cloud-backup/token-activate/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
+    });
+    if (!otpModalResult || !otpModalResult.success) {
+        if (otpModalResult && otpModalResult.insufficient) {
+            const buyResult = await Swal.fire({
+                icon: 'info',
+                title: 'Not Enough Omni Tokens',
+                html: `Your code was correct, but your token balance changed in the meantime — you now have <strong>${otpModalResult.balanceTokens}</strong>, needing <strong>${otpModalResult.requiredTokens}</strong>.`,
+                showCancelButton: true,
+                confirmButtonText: 'Buy Omni Tokens',
+                cancelButtonText: 'Close',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (buyResult.isConfirmed) switchView('cloudtokens');
+        }
+        return false;
+    }
+    if (Array.isArray(otpModalResult.unlockedFeatureIds)) {
+        unlockedFeatureIdsCache = otpModalResult.unlockedFeatureIds;
+    }
+    updateSidebarFeatureLocks();
+    initDemoModeUI();
+    updateCloudBackupLockState();
+    Swal.fire('Activated!', otpModalResult.message || 'Cloud Backup is ready to use.', 'success');
+    return true;
 }
 async function showUpgradeTiersModal() {
     let catalog;
@@ -2177,9 +2513,12 @@ async function showUpgradeTiersModal() {
                 `<span id="uw-total-price" style="font-size:1.1rem;font-weight:700;">₱0</span>` +
             `</div>`,
         showCancelButton: true,
+        showDenyButton: true,
         confirmButtonText:'Upgrade Now',
+        denyButtonText: '💎 Activate Instantly with Omni Tokens',
         cancelButtonText:'Not Now',
         confirmButtonColor:'#2563eb',
+        denyButtonColor: '#7c3aed',
         didOpen: () => {
             const totalEl = document.getElementById('uw-total-price');
             const tierButtons = Array.from(document.querySelectorAll('.uw-tier-card'));
@@ -2290,6 +2629,41 @@ async function showUpgradeTiersModal() {
             return { featureIds, tierId: selectedTierId, subscriptionFeatureId: subscriptionFeatureId || null };
         }
     });
+    if (result.isDenied) {
+        // AYOS: hindi tumatakbo ang preConfirm para sa deny button, kaya
+        // dito muling kinukuha (parehong logic ng preConfirm sa itaas)
+        // ang kasalukuyang napiling tier/features mula sa closure
+        // variables (selectedTierId/selectedFeatureIds) mismo.
+        const deniedFeatureIds = selectedTierId
+            ? tiers.find(t => t.id === selectedTierId).featureIds
+            : Array.from(selectedFeatureIds);
+        if (deniedFeatureIds.length === 0) {
+            Swal.fire('Nothing Selected', 'Please select a package or at least one feature first.', 'info');
+            return false;
+        }
+        const deniedSubscriptionId = deniedFeatureIds.find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
+        if (deniedSubscriptionId && deniedFeatureIds.length > 1) {
+            Swal.fire('Error', 'Cloud Backup, RBAC, and Multi-Branch are subscriptions — please select one of them on its own, separate from other items.', 'error');
+            return false;
+        }
+        if (deniedSubscriptionId) {
+            return deniedSubscriptionId === 'cloud_backup'
+                ? promptCloudBackupSubscription()
+                : promptModuleSubscription(deniedSubscriptionId);
+        }
+        let deniedTotalPrice;
+        if (selectedTierId) {
+            const t = tiers.find(x => x.id === selectedTierId);
+            deniedTotalPrice = t ? ((typeof t.effectiveBundlePrice === 'number') ? t.effectiveBundlePrice : t.bundlePrice) : undefined;
+        } else {
+            deniedTotalPrice = features.filter(f => deniedFeatureIds.includes(f.id)).reduce((sum, f) => sum + f.price, 0);
+        }
+        const deniedNames = deniedFeatureIds.map(id => {
+            const f = features.find(x => x.id === id);
+            return f ? f.name : id;
+        }).join(', ');
+        return !!(await runFeatureTokenActivationFlow({ featureIds: deniedFeatureIds, totalPrice: deniedTotalPrice, displayName: deniedNames }));
+    }
     if (!result.isConfirmed || !result.value || !result.value.featureIds || result.value.featureIds.length === 0) return false;
     if (result.value.subscriptionFeatureId) {
         // Ang Cloud Backup/RBAC/Multi-Branch ay hindi puwedeng dumaan sa bulk
@@ -2912,12 +3286,12 @@ function switchView(viewKey, opts) {
             viewKey ='overview';
         }
     }
-    // AYOS: Cloud Tokens — hindi ito bahagi ng currentPermissions/RBAC
+    // AYOS: Omni Tokens — hindi ito bahagi ng currentPermissions/RBAC
     // matrix kaya hindi masusukat ng check sa itaas (walang property na
     // "cloudtokens" doon) — Admin lang palagi ang puwede rito, kahit
     // anong role/permission ang naka-set sa Users & Roles.
     if (viewKey === 'cloudtokens' && !isAdmin) {
-        console.warn(`[OmniPOS] Access denied to Cloud Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
+        console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
     }
     const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders' };
@@ -5354,7 +5728,7 @@ function applyRoleBasedAccessControls(role) {
     resetElements.forEach(el => {
         el.style.setProperty('display', isAdmin ?'' :'none','important');
     });
-    // AYOS: Cloud Tokens — admin/client-only page. WALANG entry sa RBAC
+    // AYOS: Omni Tokens — admin/client-only page. WALANG entry sa RBAC
     // matrix (menuRegistry) sa itaas — palaging Admin lang ito, sa
     // bawat device, kahit anong role ang binigay sa Users & Roles.
     const cloudTokenElements = document.querySelectorAll('.admin-only-nav');
@@ -5389,12 +5763,12 @@ async function loadCloudTokensView() {
         const res = await authFetch(`${API_URL}/admin/cloud-tokens/overview`);
         const data = await res.json();
         if (!res.ok || !data.success) {
-            if (walletCard) walletCard.querySelector('.ct-card-body').innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data && data.message) || 'Could not load the Cloud Tokens page.'}</span></div>`;
+            if (walletCard) walletCard.querySelector('.ct-card-body').innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data && data.message) || 'Could not load the Omni Tokens page.'}</span></div>`;
             return;
         }
         renderCloudTokensOverview(data);
     } catch (e) {
-        console.warn('[OmniPOS] Failed to load Cloud Tokens overview:', e);
+        console.warn('[OmniPOS] Failed to load Omni Tokens overview:', e);
         if (walletCard) {
             const body = walletCard.querySelector('.ct-card-body');
             if (body) body.innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>Could not reach the server. Please try again.</span></div>`;
@@ -5415,7 +5789,14 @@ function renderCloudTokensOverview(data) {
     const planNameEl = document.getElementById('ct-plan-name');
     const costPerSyncEl = document.getElementById('ct-cost-per-sync');
     if (planNameEl) planNameEl.textContent = (data.cloudBackup && data.cloudBackup.planName) || (data.cloudBackup && data.cloudBackup.active ? data.cloudBackup.tier : 'No active plan');
-    if (costPerSyncEl) costPerSyncEl.textContent = (data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--';
+    // AYOS: ipinapakita na ngayon ang EKSAKTONG/totoong average na presyo
+    // kada sync (tokenCostPerSyncExact, galing sa live na RELAY pricing ng
+    // kasalukuyang tier) sa halip na yung dati — palaging paitaas-rounded
+    // (ceil) na estimate lang (tokenCostPerSync).
+    if (costPerSyncEl) {
+        const exact = data.cloudBackup && data.cloudBackup.tokenCostPerSyncExact;
+        costPerSyncEl.textContent = (typeof exact === 'number') ? exact : ((data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--');
+    }
     // Auto-sync toggle (reflect current state without re-firing onchange)
     const toggleEl = document.getElementById('ct-autosync-toggle');
     if (toggleEl) toggleEl.checked = !!(data.cloudBackup && data.cloudBackup.autoSyncEnabled);
@@ -5425,12 +5806,21 @@ function renderCloudTokensOverview(data) {
     if (data.wallet && data.wallet.available) {
         if (balanceEl) balanceEl.textContent = data.wallet.balanceTokens;
         if (banner) banner.style.display = data.wallet.sufficientForSync === false ? 'flex' : 'none';
+        // AYOS: kung kulang na ang balance, i-disable mismo ang checkbox
+        // (hindi lang basta i-reject sa backend) — para hindi na ito
+        // ma-toggle-ON sa UI habang zero/kulang ang balance. Kapag
+        // sapat na ulit ang balance sa susunod na refresh/poll, awtomatiko
+        // itong bumalik na click-able.
+        if (toggleEl) toggleEl.disabled = data.wallet.sufficientForSync === false;
     } else {
         if (balanceEl) balanceEl.textContent = '—';
         if (banner) {
             banner.style.display = 'flex';
             banner.querySelector('span').textContent = (data.wallet && data.wallet.unavailableReason) || 'Could not check the token balance right now.';
         }
+        // Hindi ma-verify ang balance (offline sa RELAY, atbp.) — huwag
+        // harangan ang toggle dito, pareho ng ibang gate sa buong system.
+        if (toggleEl) toggleEl.disabled = false;
     }
     // Recent activity / ledger
     const ledgerListEl = document.getElementById('ct-ledger-list');
@@ -5446,7 +5836,7 @@ function renderCloudTokensOverview(data) {
                 return `<div class="ct-ledger-row">
                     <i class="fa-solid ${isCredit ? 'fa-circle-plus' : 'fa-circle-minus'}" style="color:${isCredit ? '#22c55e' : '#ef4444'};"></i>
                     <div style="flex:1;">
-                        <div style="font-size:0.85rem;">${entry.note || (entry.type === 'purchase' ? 'Token purchase' : 'Cloud backup sync')}</div>
+                        <div style="font-size:0.85rem;">${entry.note || (entry.type === 'purchase' ? 'Omni Token purchase' : 'Cloud backup sync')}</div>
                         <div style="font-size:0.75rem; color:var(--text-muted);">${dateStr}</div>
                     </div>
                     <div style="font-weight:600; color:${isCredit ? '#22c55e' : '#ef4444'};">${isCredit ? '+' : ''}${tokens}</div>
@@ -5554,7 +5944,7 @@ function buyCloudTokensCustom() {
     const methodEl = document.getElementById('ct-custom-method');
     const amount = parseInt(amountEl && amountEl.value, 10);
     if (!amount || amount < 50) {
-        Swal.fire('Invalid Amount', 'Please enter at least 50 tokens (₱50).', 'error');
+        Swal.fire('Invalid Amount', 'Please enter at least 50 Omni Tokens (₱50).', 'error');
         return;
     }
     startCloudTokenPurchase(null, amount, methodEl ? methodEl.value : 'gcash');
@@ -15576,8 +15966,27 @@ async function runCloudBackupSync() {
             return;
         }
         if (response.status === 402) {
-            if (statusBox) {
-                statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
+            // AYOS: dating pareho ang message kahit ano pa ang totoong dahilan
+            // (parehong 402 status ang ginagamit ng server para sa 2 magkaibang
+            // kaso — see /api/cloud-backup/sync sa server.js). Ngayon, tinitignan
+            // muna kung `insufficientTokens` (naka-unlock na ang plan, kulang lang
+            // sa Omni Tokens balance) bago ipakita ang "still locked" (na dapat
+            // lang lumabas kung `featureLocked` — walang active subscription).
+            if (result.insufficientTokens) {
+                // AYOS: ginagamit na ang tokenCostPerSyncExact (average) sa halip
+                // na tokenCostPerSync (ceil) — para tumugma ito sa "Cost per sync
+                // (avg.)" na makikita sa Omni Tokens page, at binuo mismo dito
+                // (English) sa halip na umasa sa result.message.
+                const neededDisplay = (typeof result.tokenCostPerSyncExact === 'number') ? result.tokenCostPerSyncExact : result.tokenCostPerSync;
+                const msg = `Insufficient Omni Tokens (balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync on average). Please buy more Omni Tokens.`;
+                if (statusBox) {
+                    statusBox.innerHTML = `<i class="fa-solid fa-gem" style="color:#f59e0b;"></i> Out of Omni Tokens — balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync. Please buy more Omni Tokens.`;
+                }
+                Swal.fire('Out of Omni Tokens', msg, 'warning');
+            } else {
+                if (statusBox) {
+                    statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
+                }
             }
             return;
         }
@@ -15668,7 +16077,17 @@ async function runCloudBackupRestore() {
         });
         const result = await response.json();
         if (response.status === 402) {
-            if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
+            // AYOS: parehong ayos gaya ng sa runCloudBackupSync() sa itaas —
+            // huwag ipakita ang "still locked" kung ang totoong dahilan pala
+            // ay `insufficientTokens` (naka-unlock na, kulang lang sa tokens).
+            if (result.insufficientTokens) {
+                const neededDisplay = (typeof result.tokenCostPerSyncExact === 'number') ? result.tokenCostPerSyncExact : result.tokenCostPerSync;
+                const msg = `Insufficient Omni Tokens (balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync on average). Please buy more Omni Tokens.`;
+                if (statusBox) statusBox.innerHTML = `<i class="fa-solid fa-gem" style="color:#f59e0b;"></i> Out of Omni Tokens — balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync. Please buy more Omni Tokens.`;
+                Swal.fire('Out of Omni Tokens', msg, 'warning');
+            } else {
+                if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
+            }
             return;
         }
         if (response.status === 403 && result.code === 'WRONG_ADMIN_PASSWORD') {

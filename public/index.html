@@ -341,7 +341,7 @@
                 <a href="#" class="menu-item" id="menu-users" onclick="switchView('users')"><i class="fa-solid fa-gear"></i> Settings</a>
 
                 <span class="menu-section-label admin-only-nav" id="menu-section-admin" style="display:none;">Admin</span>
-                <a href="#" class="menu-item admin-only-nav" id="menu-cloudtokens" onclick="switchView('cloudtokens')" style="display:none;" title="Admin only — not part of Roles &amp; Permissions"><i class="fa-solid fa-gem"></i> Cloud Tokens</a>
+                <a href="#" class="menu-item admin-only-nav" id="menu-cloudtokens" onclick="switchView('cloudtokens')" style="display:none;" title="Admin only — not part of Roles &amp; Permissions"><i class="fa-solid fa-gem"></i> Omni Tokens</a>
 
                 <span class="menu-section-label">Support</span>
                 <a href="#" class="menu-item" id="menu-faq" onclick="switchView('faq')"><i class="fa-solid fa-circle-question"></i> FAQ</a>
@@ -2458,7 +2458,7 @@
 
                 <section id="view-cloudtokens" class="app-view" style="display:none;">
                     <div style="max-width:980px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom: 18px;">
-                        <h2 style="margin:0;"><i class="fa-solid fa-gem" style="color:#7c3aed;"></i> Cloud Tokens</h2>
+                        <h2 style="margin:0;"><i class="fa-solid fa-gem" style="color:#7c3aed;"></i> Omni Tokens</h2>
                     </div>
                     <div style="max-width:980px; color: var(--text-muted); font-size:0.9rem; margin-top:-10px; margin-bottom:18px;">
                         Admin-only page. Not part of Roles &amp; Permissions — always Admin-only, on every device.
@@ -2494,19 +2494,19 @@
                         <div class="ct-card-body">
                             <div id="ct-insufficient-banner" class="ct-banner ct-banner-warn" style="display:none;">
                                 <i class="fa-solid fa-triangle-exclamation"></i>
-                                <span>Insufficient tokens — Auto-Sync, Manual Backup, and Restore are currently disabled. Buy more tokens below to reactivate.</span>
+                                <span>Insufficient Omni Tokens — Auto-Sync, Manual Backup, and Restore are currently disabled. Buy more Omni Tokens below to reactivate.</span>
                             </div>
                             <div class="ct-balance-row">
                                 <div class="ct-balance-display">
                                     <i class="fa-solid fa-gem ct-diamond-icon"></i>
                                     <div>
                                         <div class="ct-balance-number" id="ct-balance-number">--</div>
-                                        <div class="ct-balance-label">tokens available</div>
+                                        <div class="ct-balance-label">Omni Tokens available</div>
                                     </div>
                                 </div>
                                 <div class="ct-plan-info">
                                     <div><strong>Current plan:</strong> <span id="ct-plan-name">--</span></div>
-                                    <div><strong>Cost per sync:</strong> <span id="ct-cost-per-sync">--</span> token(s)</div>
+                                    <div><strong>Cost per sync (avg.):</strong> <span id="ct-cost-per-sync">--</span> token(s)</div>
                                 </div>
                             </div>
 
@@ -2521,13 +2521,13 @@
                                 </div>
                             </div>
 
-                            <h3 style="margin:22px 0 10px; font-size:1rem;">Buy Tokens</h3>
+                            <h3 style="margin:22px 0 10px; font-size:1rem;">Buy Omni Tokens</h3>
                             <div class="ct-packages-grid" id="ct-packages-grid">
                                 <div style="color:var(--text-muted); font-size:0.85rem;"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading packages...</div>
                             </div>
 
                             <div class="ct-custom-purchase">
-                                <label for="ct-custom-tokens" style="font-size:0.85rem; font-weight:600;">Or enter a custom amount (₱1 = 1 token, min. 50):</label>
+                                <label for="ct-custom-tokens" style="font-size:0.85rem; font-weight:600;">Or enter a custom amount (₱1 = 1 Omni Token, min. 50):</label>
                                 <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
                                     <input type="number" id="ct-custom-tokens" min="50" step="1" placeholder="e.g. 200" style="max-width:160px;">
                                     <select id="ct-custom-method" class="ct-payment-select" disabled>

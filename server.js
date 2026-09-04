@@ -2564,6 +2564,20 @@ function getCloudTokenCostPerSync(tier) {
     const expectedSyncsPerMonth = Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / plan.autoBackupIntervalMs));
     return Math.max(1, Math.ceil(monthlyPrice / expectedSyncsPerMonth));
 }
+// AYOS: EKSAKTONG (fractional, hindi pinapalago/ceil) na presyo kada isang
+// sync — kaparehong-kapareho ng getCloudTokenCostPerSyncExact() sa RELAY
+// (parehong CLOUD_BACKUP_PLANS na galing RELAY ang pinagbabatayan dito, kaya
+// laging magkatugma). Ang tokenCostPerSync (ceil) sa itaas ay isang SAFE
+// UPPER-BOUND na estimate lang (ginagamit pa rin bilang gating/threshold
+// para sa "sufficient balance" check) — ito naman ang totoong AVERAGE na
+// presyo kada sync na binabayaran ng customer sa paglipas ng panahon, at
+// ito na ang dapat ipakita sa kanya bilang tunay na "Cost per sync".
+function getCloudTokenCostPerSyncExact(tier) {
+    const plan = CLOUD_BACKUP_PLANS[tier] || CLOUD_BACKUP_PLANS.basic;
+    const monthlyPrice = plan.price.monthly;
+    const expectedSyncsPerMonth = Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / plan.autoBackupIntervalMs));
+    return monthlyPrice / expectedSyncsPerMonth;
+}
 // Kunin ang token wallet balance/ledger mula RELAY (source of truth) —
 // kailangan ng RELAY_API_KEY at internet; kung wala man, "unknown" ang
 // balance (hindi automatic na "insufficient" — iwas maling pagharang sa
@@ -2604,19 +2618,32 @@ async function fetchCloudTokenPackages() {
 // dito (bihira, dahil kababalik lang mula sa isang successful upload
 // papunta rin sa RELAY), hindi ito hinaharang — log-lang ang error, at
 // mananatili ang esensyang "successful backup" ng client.
-async function consumeCloudTokensForSync(installationId, tokens, note) {
+// AYOS/BUGFIX: dating pinapasa dito ang isang PRE-COMPUTED na tokens
+// (Math.ceil na, tingnan ang getCloudTokenCostPerSync) — ngayon `tier`
+// na lang ang ipinapasa, at ang RELAY (source of truth ng presyo) mismo
+// ang nagko-kwenta ng EKSAKTONG (fractional, hindi na palaging pataas)
+// na presyo kada sync — tingnan ang comment sa RELAY server.js
+// (consumeCloudTokensForSyncExact) para sa buong paliwanag.
+// AYOS/SECURITY FIX: DEPRECATED — hindi na ito tinatawag kahit saan.
+// Ang atomic na Omni Token charge para sa cloud backup sync ay
+// nangyayari na ngayon sa RELAY mismo (sa loob ng /relay/cloud-backup/
+// upload/finish), kaagad bago ang totoong pagsulat sa Neon — hindi na
+// dapat sa OMNIPOS (client-controlled) pa ito gawin, dahil doon
+// nagmula ang dating bypass. Iniwan na lang ito rito (hindi tinanggal)
+// bilang reference/hindi na ginagamit — huwag na itong tawagin ulit.
+async function consumeCloudTokensForSync(installationId, tier, note) {
     if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/check-and-consume`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, tokens, note })
+            body: JSON.stringify({ installationId, tier, note })
         }, 8000);
         const data = await parseRelayResponse(relayRes);
         if (!relayRes.ok || !data.success) {
             return { ok: false, insufficient: !!data.insufficient, balanceTokens: data.balanceTokens, reason: data.message || `HTTP ${relayRes.status}` };
         }
-        return { ok: true, balanceTokens: data.balanceTokens };
+        return { ok: true, balanceTokens: data.balanceTokens, tokensCharged: data.tokensCharged };
     } catch (err) {
         return { ok: false, reason: err.message };
     }
@@ -3781,6 +3808,11 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             return res;
         });
         const startData = await parseRelayResponse(startRes);
+        if (startRes.status === 402 && startData.insufficientTokens) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = startData.message || 'Insufficient Cloud Backup (Omni Tokens) balance.';
+            return { success: false, status: 402, insufficientTokens: true, balanceTokens: startData.balanceTokens, body: startData };
+        }
         if (startRes.status === 402 || startData.featureLocked) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = startData.message || 'The Cloud Backup subscription is still locked/expired.';
@@ -3883,6 +3915,15 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             return res;
         });
         const relayData = await parseRelayResponse(finishRes);
+        if (finishRes.status === 402 && relayData.insufficientTokens) {
+            // AYOS/SECURITY FIX: ito na ang authoritative na "insufficient
+            // Omni Tokens" response — galing mismo sa atomic gate sa RELAY
+            // (upload/finish), HINDI na basta sa lokal na pre-check dito sa
+            // OMNIPOS. Walang na-sulat sa Neon.
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'Insufficient Cloud Backup (Omni Tokens) balance.';
+            return { success: false, status: 402, insufficientTokens: true, balanceTokens: relayData.balanceTokens, body: relayData };
+        }
         if (finishRes.status === 402 || relayData.featureLocked) {
             cloudBackupStatus.state = 'error';
             cloudBackupStatus.lastError = relayData.message || 'The Cloud Backup subscription is still locked/expired.';
@@ -3966,6 +4007,11 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
     const subscription = getCloudBackupSubscriptionInfo();
     const tier = subscription.tier || 'basic';
     const tokenCostPerSync = getCloudTokenCostPerSync(tier);
+    // AYOS: totoong (average, fractional) presyo kada sync ng kasalukuyang
+    // tier, direkta mula sa live na CLOUD_BACKUP_PLANS (na naka-overlay na
+    // mula RELAY) — hindi na basta rounded-up estimate lang ang ipapakita
+    // sa customer. 1 decimal place lang ang ipinapakita (hal. "4.3").
+    const tokenCostPerSyncExact = Math.round(getCloudTokenCostPerSyncExact(tier) * 10) / 10;
     const prefs = getCloudTokenPrefs();
     const featureData = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(featureData);
@@ -3974,7 +4020,18 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
         fetchCloudTokenPackages()
     ]);
     const balanceTokens = walletResult.ok ? walletResult.balanceTokens : null;
-    const sufficientForSync = walletResult.ok ? (balanceTokens >= tokenCostPerSync) : null; 
+    const sufficientForSync = walletResult.ok ? (balanceTokens >= tokenCostPerSync) : null;
+    // AYOS: self-heal — kung nakabukas pa rin ang Auto-Sync toggle sa
+    // lokal na prefs pero alam na nating kulang na ang balance (hal.
+    // naubos sa pagitan ng mga heartbeat, bago pa man makapag-run ulit
+    // ang scheduler), i-off at i-persist na kaagad dito, para tumpak
+    // agad ang makikita ng admin sa Omni Tokens page (hindi na
+    // maghihintay pa ng susunod na scheduled na check).
+    if (sufficientForSync === false && prefs.autoSyncEnabled) {
+        prefs.autoSyncEnabled = false;
+        saveCloudTokenPrefs(prefs);
+        logAction('System', `Auto-disabled Cloud Backup Auto-Sync — Omni Tokens balance is insufficient (balance: ${balanceTokens}, kailangan: ${tokenCostPerSync}).`);
+    }
     res.json({
         success: true,
         googleAppVerification: {
@@ -3987,6 +4044,7 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
             tier,
             planName: (CLOUD_BACKUP_PLANS[tier] && CLOUD_BACKUP_PLANS[tier].name) || null,
             tokenCostPerSync,
+            tokenCostPerSyncExact,
             autoSyncEnabled: prefs.autoSyncEnabled
         },
         wallet: {
@@ -4009,15 +4067,39 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
         }
     });
 });
-app.post('/api/admin/cloud-tokens/auto-sync-toggle', (req, res) => {
+app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin privileges only can change this setting.' });
     }
     const { enabled } = req.body || {};
     const prefs = getCloudTokenPrefs();
+    // AYOS: kung sinusubukang i-ON ang Auto-Sync, kailangan munang
+    // i-verify na may sapat na Omni Tokens balance — hindi dapat
+    // magpapa-on ito kapag zero (o kulang) ang balance. Kung hindi
+    // ma-verify ang balance (offline sa RELAY, walang RELAY_API_KEY),
+    // HINDI ito hinaharang — pareho sa ibang gate dito, iwas maling
+    // pagharang kung sandaling walang koneksyon lang.
+    if (!!enabled && !prefs.autoSyncEnabled) {
+        const subscriptionForToggle = getCloudBackupSubscriptionInfo();
+        const tierForToggle = subscriptionForToggle.tier || 'basic';
+        const tokenCostForToggle = getCloudTokenCostPerSync(tierForToggle);
+        const featureDataForToggle = readFeatureUnlocks();
+        const installationIdForToggle = getOrCreateInstallationId(featureDataForToggle);
+        const walletForToggle = await fetchCloudTokenWallet(installationIdForToggle);
+        if (walletForToggle.ok && walletForToggle.balanceTokens < tokenCostForToggle) {
+            return res.status(402).json({
+                success: false,
+                insufficientTokens: true,
+                balanceTokens: walletForToggle.balanceTokens,
+                tokenCostPerSync: tokenCostForToggle,
+                autoSyncEnabled: prefs.autoSyncEnabled,
+                message: `Cannot turn Auto-Sync ON — insufficient Cloud Backup tokens (balance: ${walletForToggle.balanceTokens}, kailangan: ${tokenCostForToggle} kada sync). Bumili muna ng tokens sa Omni Tokens page.`
+            });
+        }
+    }
     prefs.autoSyncEnabled = !!enabled;
     saveCloudTokenPrefs(prefs);
-    logAction(req.authUser.username, `${prefs.autoSyncEnabled ? 'Enabled' : 'Disabled'} Cloud Backup Auto-Sync (Cloud Tokens page)`);
+    logAction(req.authUser.username, `${prefs.autoSyncEnabled ? 'Enabled' : 'Disabled'} Cloud Backup Auto-Sync (Omni Tokens page)`);
     res.json({ success: true, autoSyncEnabled: prefs.autoSyncEnabled, message: prefs.autoSyncEnabled ? 'Auto-Sync is now ON.' : 'Auto-Sync is now OFF — scheduled cloud backups will pause to save tokens. Manual backup/restore still works if you have enough tokens.' });
 });
 app.post('/api/admin/cloud-tokens/purchase', rateLimit('cloud-tokens-purchase', 10, 15 * 60 * 1000), async (req, res) => {
@@ -4072,13 +4154,22 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Cloud backup was not authorized.' });
     }
     // AYOS: Cloud Backup Tokens gate — kailangang may sapat na tokens
-    // ang wallet (tingnan ang Cloud Tokens admin page) bago tumakbo ang
+    // ang wallet (tingnan ang Omni Tokens admin page) bago tumakbo ang
     // manual sync na ito. Kung hindi ma-verify ang balance (offline sa
     // RELAY, walang RELAY_API_KEY, atbp.), HINDI ito hinaharang — iyon
-    // ang dating behavior bago idagdag ang tokens.
+    // ang dating behavior bago idagdag ang tokens. NOTE: `tokenCostForSync`
+    // dito ay ESTIMATE lang (Math.ceil na) para sa mabilis na UI message
+    // (iwas mag-aksaya ng oras/bandwidth kung malinaw namang kulang) —
+    // ang TUNAY/ATOMIC na gate (exact/fractional na charge) ay nasa RELAY
+    // mismo (upload/finish), kaya kahit ma-bypass ang check na ito, hindi
+    // pa rin makakapag-sync nang walang bayad.
     const subscriptionForSyncGate = getCloudBackupSubscriptionInfo();
     const tokenTierForSync = subscriptionForSyncGate.tier || 'basic';
     const tokenCostForSync = getCloudTokenCostPerSync(tokenTierForSync);
+    // AYOS: ipinapasa na rin ang exact/average value (kaparehong-kapareho ng
+    // ipinapakita sa "Cost per sync (avg.)" sa Omni Tokens page) para hindi
+    // magkaiba/nakakalito ang numerong makikita ng customer sa dalawang lugar.
+    const tokenCostForSyncExact = Math.round(getCloudTokenCostPerSyncExact(tokenTierForSync) * 10) / 10;
     const featureDataForSync = readFeatureUnlocks();
     const installationIdForSync = getOrCreateInstallationId(featureDataForSync);
     const walletForSync = await fetchCloudTokenWallet(installationIdForSync);
@@ -4088,17 +4179,16 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
             insufficientTokens: true,
             balanceTokens: walletForSync.balanceTokens,
             tokenCostPerSync: tokenCostForSync,
-            message: `Insufficient Cloud Backup tokens (balance: ${walletForSync.balanceTokens}, kailangan: ${tokenCostForSync} kada sync). Bumili muna ng tokens sa Cloud Tokens page.`
+            tokenCostPerSyncExact: tokenCostForSyncExact,
+            message: `Insufficient Cloud Backup tokens (balance: ${walletForSync.balanceTokens}, needed: ~${tokenCostForSyncExact} per sync on average). Please buy more Omni Tokens on the Omni Tokens page.`
         });
     }
     const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username);
+    // AYOS/SECURITY FIX: hindi na dito nagko-consume ng tokens. Ang
+    // atomic na pag-charge ay nangyayari na ngayon sa RELAY mismo
+    // (upload/finish), kaagad bago ang totoong pagsulat sa Neon — kaya
+    // hindi na kailangan (at hindi na dapat) i-double-charge dito.
     if (result.body) return res.status(result.status).json(result.body);
-    if (result.status >= 200 && result.status < 300) {
-        const consumeResult = await consumeCloudTokensForSync(installationIdForSync, tokenCostForSync, 'Manual cloud backup sync');
-        if (!consumeResult.ok && !consumeResult.insufficient) {
-            console.error('⚠️ CLOUD_TOKENS: could not deduct tokens after a successful manual sync (non-blocking):', consumeResult.reason);
-        }
-    }
     return res.status(result.status).json(result);
 });
 const AUTO_CLOUD_BACKUP_HEARTBEAT_MS = 15 * 60 * 1000;
@@ -4109,7 +4199,7 @@ async function maybeRunAutomaticCloudBackup() {
     if (!subscription.active) return; 
     if (getConnectivityMode() === 'offline') return;
     if (!(await isInternetLikelyUp())) return;
-    // AYOS: Cloud Tokens — Auto-Sync toggle (client preference, sa Cloud
+    // AYOS: Omni Tokens — Auto-Sync toggle (client preference, sa Cloud
     // Tokens admin page). Kapag naka-OFF, laktawan ang scheduled auto
     // backup na ito (nakakatipid ng tokens) — manual backup/restore pa
     // rin ang gumagana basta sapat ang tokens.
@@ -4124,7 +4214,7 @@ async function maybeRunAutomaticCloudBackup() {
             : AUTO_RETRY_COOLDOWN_AFTER_FAILURE_MS;
         if (Date.now() - cloudBackupStatus.lastAttemptAt < cooldownMs) return; 
     }
-    // AYOS: Cloud Tokens gate — kung hindi na sapat ang wallet balance
+    // AYOS: Omni Tokens gate — kung hindi na sapat ang wallet balance
     // para sa presyo (sa tokens) ng isang sync ng kasalukuyang tier,
     // itigil ang auto-sync (hindi ito hinaharang kung basta hindi
     // ma-verify ang balance — offline sa RELAY lang, hindi awtomatikong
@@ -4134,14 +4224,32 @@ async function maybeRunAutomaticCloudBackup() {
     const installationIdForAuto = getOrCreateInstallationId(featureDataForAuto);
     const walletForAuto = await fetchCloudTokenWallet(installationIdForAuto);
     if (walletForAuto.ok && walletForAuto.balanceTokens < tokenCostForAuto) {
-        console.warn(`⚠️ AUTO_CLOUD_BACKUP: skipped — insufficient Cloud Backup tokens (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}). Bumili ng tokens sa Cloud Tokens page.`);
+        console.warn(`⚠️ AUTO_CLOUD_BACKUP: skipped — insufficient Cloud Backup tokens (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}). Bumili ng tokens sa Omni Tokens page.`);
+        // AYOS: hindi lang basta i-skip ang cycle na ito — talagang i-off
+        // at i-persist ang Auto-Sync toggle mismo, para makita talaga ng
+        // admin (Omni Tokens page) na naka-OFF na ito, hindi lang tahimik
+        // na sina-skip sa background hanggang bumili ulit sila ng tokens.
+        const prefsToForceOff = getCloudTokenPrefs();
+        if (prefsToForceOff.autoSyncEnabled) {
+            prefsToForceOff.autoSyncEnabled = false;
+            saveCloudTokenPrefs(prefsToForceOff);
+            logAction('System (auto-backup)', `Auto-disabled Cloud Backup Auto-Sync — Omni Tokens balance ran out (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}).`);
+        }
         return;
     }
     const uploadResult = await performCloudBackupUpload('automatic', null);
-    if (uploadResult && uploadResult.status >= 200 && uploadResult.status < 300) {
-        const consumeResult = await consumeCloudTokensForSync(installationIdForAuto, tokenCostForAuto, 'Automatic cloud backup sync');
-        if (!consumeResult.ok && !consumeResult.insufficient) {
-            console.error('⚠️ CLOUD_TOKENS: could not deduct tokens after a successful automatic sync (non-blocking):', consumeResult.reason);
+    // AYOS/SECURITY FIX: hindi na dito nagko-consume ng tokens — atomic na
+    // ang pag-charge sa RELAY mismo (upload/finish), kaya wala nang
+    // separate na consume step dito (iwas double-charge).
+    if (uploadResult && uploadResult.status === 402 && uploadResult.insufficientTokens) {
+        // Nangyari ang race: umubos ang balance sa pagitan ng pre-check sa
+        // itaas at ng totoong pagsulat sa RELAY (hal. sabay-sabay na
+        // manual sync). I-off at i-persist din ang toggle dito.
+        const prefsToForceOff = getCloudTokenPrefs();
+        if (prefsToForceOff.autoSyncEnabled) {
+            prefsToForceOff.autoSyncEnabled = false;
+            saveCloudTokenPrefs(prefsToForceOff);
+            logAction('System (auto-backup)', 'Auto-disabled Cloud Backup Auto-Sync — Omni Tokens balance ran out mid-sync.');
         }
     }
 }
@@ -4190,6 +4298,7 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
         const subscriptionForRestoreGate = getCloudBackupSubscriptionInfo();
         const tokenTierForRestore = subscriptionForRestoreGate.tier || 'basic';
         const tokenCostForRestore = getCloudTokenCostPerSync(tokenTierForRestore);
+        const tokenCostForRestoreExact = Math.round(getCloudTokenCostPerSyncExact(tokenTierForRestore) * 10) / 10;
         const featureDataForGate = readFeatureUnlocks();
         const installationIdForGate = getOrCreateInstallationId(featureDataForGate);
         const walletForRestore = await fetchCloudTokenWallet(installationIdForGate);
@@ -4199,7 +4308,8 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
                 insufficientTokens: true,
                 balanceTokens: walletForRestore.balanceTokens,
                 tokenCostPerSync: tokenCostForRestore,
-                message: `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, kailangan: ${tokenCostForRestore}). Bumili muna ng tokens sa Cloud Tokens page.`
+                tokenCostPerSyncExact: tokenCostForRestoreExact,
+                message: `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, needed: ~${tokenCostForRestoreExact} per sync on average). Please buy more Omni Tokens on the Omni Tokens page.`
             });
         }
     }
@@ -5015,6 +5125,420 @@ app.post('/api/features/cancel-otp', rateLimit('feature-cancel-otp', 30, 10 * 60
         console.error('Could not reach the Unlock Relay (cancel-otp):', err);
         res.json({ success: false, message: `Could not reach the unlock relay: ${err.message}` });
     }
+});
+// ============================================================
+// TOKEN-FUNDED CLOUD BACKUP ACTIVATION (self-service, instant)
+//
+// Bagong alternative flow para mag-activate/mag-renew ng Cloud Backup
+// gamit ang Omni Tokens na binili na — WALANG kinakailangang manual
+// approval mula sa developer (kaiba sa /api/features/request-unlock +
+// /api/features/confirm-unlock sa itaas, na para sa cash/manual na
+// pagbabayad na kailangan pang i-verify ng developer). Dito, ang
+// "proof-of-payment" ay ang token balance mismo — kaya ang OTP dito ay
+// para lang patunayan na pag-aari ng requestor ang Gmail address na
+// ipinasok niya, at ipinapadala DIRETSO papunta doon (hindi papunta sa
+// developer) gamit ang sariling naka-verify na "OTP Sender Email"
+// (Gmail App Password, tingnan ang getOtpMailCredentials()) ng
+// installation na ito.
+//
+// Flow:
+//   1) POST token-activate/request  — piliin ang plan, ilagay ang
+//      Gmail ng requestor. Tinitignan muna ang balance ng Cloud
+//      Tokens (kay RELAY) BAGO magpadala ng kahit anong OTP:
+//        - Kulang ang tokens  -> "insufficient" (client redirects sa
+//          Omni Tokens purchase page, WALANG na-deduct na kahit ano).
+//        - Sapat ang tokens + naka-verify na OTP Sender Email -> agad
+//          na ipinapadala ang OTP papunta mismo sa Gmail ng requestor.
+//   2) POST token-activate/confirm  — kapag TAMA ang OTP (na-verify
+//      LOCALLY dito, hindi sa RELAY), saka pa lang tinatawag ang RELAY
+//      para sa ATOMIC na check-and-deduct ng tokens + pag-isyu ng
+//      naka-sign na activation token — kaya hindi kailanman
+//      nade-deduct ang tokens sa hakbang #1 (request pa lang) — sa
+//      successful OTP verification + atomic deduction lang ito
+//      nangyayari, laban sa abandoned/failed na mga request.
+const CLOUD_BACKUP_TOKEN_OTP_TTL_MS = 10 * 60 * 1000;
+const CLOUD_BACKUP_TOKEN_OTP_MAX_ATTEMPTS = 5;
+const cloudBackupTokenOtpChallenges = new Map(); // installationId -> { code, expiresAt, tier, billingCycle, requestorEmail, requestedBy, attempts }
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of cloudBackupTokenOtpChallenges.entries()) {
+        if (now > v.expiresAt) cloudBackupTokenOtpChallenges.delete(k);
+    }
+}, 60 * 1000).unref();
+app.post('/api/cloud-backup/token-activate/request', requirePermission('relay_unlock_request'), rateLimit('cloud-backup-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+    const { tier, billingCycle, requestorEmail, username } = req.body;
+    if (!CLOUD_BACKUP_PLANS[tier] || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) {
+        return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = String(requestorEmail || '').trim();
+    if (!emailPattern.test(cleanEmail)) {
+        return res.status(400).json({ success: false, message: 'Please enter a valid Gmail/email address to receive the verification code.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    // AYOS: tinitignan muna ang balance NANG HINDI pa nagde-deduct ng
+    // kahit ano — ang aktwal, ATOMIC na deduction ay nasa /confirm lang,
+    // pagkatapos ng successful OTP. Kaya kung kanselahin/i-abandon ng
+    // requestor ang request na ito (hindi tuluyang i-verify ang OTP),
+    // walang na-charge sa kanya.
+    const requiredTokens = getCloudBackupPlanPrice(tier, billingCycle);
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const wallet = await fetchCloudTokenWallet(installationId);
+    if (!wallet.ok) {
+        return res.status(502).json({ success: false, message: `Could not reach the Omni Tokens service to check your balance: ${wallet.reason}` });
+    }
+    if (wallet.balanceTokens < requiredTokens) {
+        return res.status(402).json({
+            success: false,
+            insufficient: true,
+            balanceTokens: wallet.balanceTokens,
+            requiredTokens,
+            message: `Insufficient Omni Tokens for this plan. You have ${wallet.balanceTokens}, but ${requiredTokens} tokens are needed. Please buy more Omni Tokens first.`
+        });
+    }
+    const otpMailCreds = getOtpMailCredentials();
+    if (!otpMailCreds) {
+        return res.status(400).json({
+            success: false,
+            gmailNotVerified: true,
+            message: 'No verified OTP Sender Email (Gmail App) is configured yet. Please configure and verify one first in Receipt Customization > OTP Sender Email.'
+        });
+    }
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    cloudBackupTokenOtpChallenges.set(installationId, {
+        code: otpCode,
+        expiresAt: Date.now() + CLOUD_BACKUP_TOKEN_OTP_TTL_MS,
+        tier,
+        billingCycle,
+        requestorEmail: cleanEmail,
+        requestedBy: username || 'Unknown',
+        attempts: 0,
+        // AYOS/BAGO: isang matatag na id na ginawa DITO (server-side, hindi
+        // client-generated) at pareho itong gagamitin sa BAWAT confirm
+        // attempt ng challenge na ito — kahit ilang beses pang subukan (hal.
+        // dahil sa network retry/timeout PAGKATAPOS na matagumpay na
+        // naiproseso ito ng RELAY), makikilala ito ng RELAY bilang parehong
+        // request at hindi na muling magbabawas ng tokens. Tingnan ang
+        // idempotency cache sa RELAY /relay/cloud-tokens/activate-cloud-backup.
+        activationRequestId: crypto.randomUUID()
+    });
+    try {
+        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
+            from: `"OmniPOS Cloud Backup" <${otpMailCreds.user}>`,
+            to: cleanEmail,
+            subject: `🔐 OmniPOS Cloud Backup Activation — Verification Code`,
+            text: `Verification code to activate your Cloud Backup plan (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}):\n\n` +
+                  `OTP Code: ${otpCode}\n\n` +
+                  `This code will expire in 10 minutes.\n` +
+                  `Cost: ${requiredTokens} Omni Token/s (will only be deducted after you successfully enter this code).\n\n` +
+                  `If you did not request this, you can safely ignore this email — nothing has been charged yet.`
+        });
+    } catch (mailErr) {
+        cloudBackupTokenOtpChallenges.delete(installationId);
+        console.error('Cloud Backup token-activation OTP send failure:', mailErr.message);
+        return res.status(500).json({ success: false, message: `Failed to send the verification code: ${mailErr.message}` });
+    }
+    logAction(username || 'Unknown', `Requested a Cloud Backup activation OTP via Omni Tokens (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}) sent to ${maskEmail(cleanEmail)}`);
+    res.json({ success: true, message: `A verification code has been sent to ${maskEmail(cleanEmail)}. Enter it to finish activating Cloud Backup.` });
+});
+app.post('/api/cloud-backup/token-activate/confirm', rateLimit('cloud-backup-token-activate-confirm', 30, 10 * 60 * 1000), async (req, res) => {
+    const { otp, username } = req.body;
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message: 'The OTP code is required.' });
+    }
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const pending = cloudBackupTokenOtpChallenges.get(installationId);
+    if (!pending) {
+        return res.status(400).json({ success: false, message: 'No active Cloud Backup activation request found. Please request a new code first.' });
+    }
+    if (Date.now() > pending.expiresAt) {
+        cloudBackupTokenOtpChallenges.delete(installationId);
+        return res.status(400).json({ success: false, message: 'The code has expired. Please request a new one.' });
+    }
+    if (String(otp).trim() !== pending.code) {
+        pending.attempts = (pending.attempts || 0) + 1;
+        if (pending.attempts >= CLOUD_BACKUP_TOKEN_OTP_MAX_ATTEMPTS) {
+            cloudBackupTokenOtpChallenges.delete(installationId);
+            return res.status(400).json({ success: false, message: 'Too many incorrect attempts. This request has been cancelled — please request a new code.' });
+        }
+        return res.status(400).json({ success: false, message: 'Incorrect code.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    // Ngayon lang, PAGKATAPOS ng tamang OTP, tinatawag ang RELAY para sa
+    // ATOMIC na check-and-deduct ng tokens + pag-isyu ng activation
+    // token — kaya sigurado tayong hindi na-charge ang requestor
+    // hanggat hindi niya na-verify ang pag-aari niya sa email na ito.
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-cloud-backup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                tier: pending.tier,
+                billingCycle: pending.billingCycle,
+                requestorEmail: pending.requestorEmail,
+                clientRequestId: pending.activationRequestId
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            // Kung sakaling na-spend na ang tokens sa ibang lugar (hal.
+            // auto-sync) sa pagitan ng /request at ngayon, huwag i-delete
+            // ang challenge kaagad — hayaan pang subukan ulit ng
+            // requestor kung magdagdag siya ng tokens nang mabilis, basta
+            // hindi pa lumagpas sa TTL/max attempts nito.
+            if (relayData.insufficient) {
+                return res.status(402).json({
+                    success: false,
+                    insufficient: true,
+                    balanceTokens: relayData.balanceTokens,
+                    requiredTokens: relayData.requiredTokens,
+                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again with the same code before it expires.'
+                });
+            }
+            return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate Cloud Backup.' });
+        }
+        if (!verifyUnlockToken(relayData.token, installationId, CLOUD_BACKUP_FEATURE_ID)) {
+            console.error('⚠️ Natanggap ang isang cloud-backup activation token mula sa relay pero HINDI valid ang signature nito.');
+            return res.status(500).json({ success: false, message: 'The activation token received is not valid. Please contact the developer.' });
+        }
+        data.tokens[CLOUD_BACKUP_FEATURE_ID] = relayData.token;
+        const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : pending.tier;
+        const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : pending.billingCycle;
+        data.cloudBackupPlan = { tier: confirmedTier || null, billingCycle: confirmedCycle || null, activatedAt: Date.now() };
+        writeData(FILE_FEATURE_UNLOCKS, data);
+        cloudBackupTokenOtpChallenges.delete(installationId);
+        logAction((username || pending.requestedBy || 'Unknown'), `Activated/renewed the Cloud Backup subscription using Omni Tokens (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle}, verified via ${maskEmail(pending.requestorEmail)})`);
+        res.json({
+            success: true,
+            message: `${CLOUD_BACKUP_PLANS[data.cloudBackupPlan.tier].name} has been activated!`,
+            unlockedFeatureIds: getUnlockedFeatureIds(),
+            balanceTokens: relayData.balanceTokens
+        });
+    } catch (err) {
+        console.error('Could not reach the Unlock Relay (token-activate/confirm):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+app.post('/api/cloud-backup/token-activate/cancel', rateLimit('cloud-backup-token-activate-cancel', 30, 10 * 60 * 1000), (req, res) => {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    cloudBackupTokenOtpChallenges.delete(installationId);
+    res.json({ success: true, message: 'Cancelled.' });
+});
+// ============================================================
+// GENERIC TOKEN-FUNDED SELF-SERVE ACTIVATION — everything else
+// (Module Subscriptions, single à la carte features, bundle/à la carte
+// bulk purchases, and Pro Themes) that is NOT Cloud Backup. Same
+// division of responsibility and same guarantees as the Cloud Backup
+// token-activate flow above:
+//   - OMNIPOS verifies the requestor's Gmail (generates + emails the
+//     OTP straight to them via the store's own verified OTP Sender
+//     Email, and checks it LOCALLY — the raw OTP never has to travel
+//     through RELAY).
+//   - RELAY owns the Omni Token wallet, so it performs the actual
+//     atomic check-and-deduct + issues the signed unlock token(s),
+//     only once OMNIPOS confirms the OTP was correct.
+//   - Nothing is ever deducted for an abandoned/expired/failed
+//     request — only a successful /confirm call spends tokens, and a
+//     stable clientRequestId protects against double-spending on a
+//     retried confirm call.
+// ============================================================
+const FEATURE_TOKEN_OTP_TTL_MS = 10 * 60 * 1000;
+const FEATURE_TOKEN_OTP_MAX_ATTEMPTS = 5;
+const featureTokenOtpChallenges = new Map(); // installationId -> { code, expiresAt, featureIds, billingCycle, totalPrice, requestorEmail, requestedBy, attempts, activationRequestId }
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of featureTokenOtpChallenges.entries()) {
+        if (now > v.expiresAt) featureTokenOtpChallenges.delete(k);
+    }
+}, 60 * 1000).unref();
+app.post('/api/features/token-activate/request', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+    const { featureIds, billingCycle, totalPrice, requestorEmail, username } = req.body;
+    if (!Array.isArray(featureIds) || featureIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'Missing featureIds.' });
+    }
+    if (featureIds.includes(CLOUD_BACKUP_FEATURE_ID)) {
+        return res.status(400).json({ success: false, message: 'Please use the Cloud Backup subscription flow for Cloud Backup.' });
+    }
+    const unknownIds = featureIds.filter(id => !FEATURE_CATALOG[id]);
+    if (unknownIds.length) {
+        return res.status(400).json({ success: false, message: `Unknown feature(s): ${unknownIds.join(', ')}.` });
+    }
+    const moduleSubIds = featureIds.filter(id => isModuleSubscriptionFeature(id));
+    if (moduleSubIds.length > 1 || (moduleSubIds.length === 1 && featureIds.length > 1)) {
+        return res.status(400).json({ success: false, message: 'A subscription module must be activated on its own, separate from other items.' });
+    }
+    const isModuleSubscriptionPurchase = moduleSubIds.length === 1;
+    let requiredTokens;
+    if (isModuleSubscriptionPurchase) {
+        if (!MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle]) {
+            return res.status(400).json({ success: false, message: 'Please choose a valid billing cycle (Monthly/Yearly).' });
+        }
+        requiredTokens = getModuleSubscriptionPrice(moduleSubIds[0], billingCycle);
+        if (requiredTokens === null) {
+            return res.status(400).json({ success: false, message: 'Invalid subscription module.' });
+        }
+    } else {
+        const alaCarteTotal = featureIds.reduce((sum, id) => sum + (FEATURE_CATALOG[id].price || 0), 0);
+        requiredTokens = (typeof totalPrice === 'number' && totalPrice >= 0) ? Math.round(totalPrice) : alaCarteTotal;
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = String(requestorEmail || '').trim();
+    if (!emailPattern.test(cleanEmail)) {
+        return res.status(400).json({ success: false, message: 'Please enter a valid Gmail/email address to receive the verification code.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const wallet = await fetchCloudTokenWallet(installationId);
+    if (!wallet.ok) {
+        return res.status(502).json({ success: false, message: `Could not reach the Omni Tokens service to check your balance: ${wallet.reason}` });
+    }
+    if (wallet.balanceTokens < requiredTokens) {
+        return res.status(402).json({
+            success: false,
+            insufficient: true,
+            balanceTokens: wallet.balanceTokens,
+            requiredTokens,
+            message: `Insufficient Omni Tokens for this purchase. You have ${wallet.balanceTokens}, but ${requiredTokens} tokens are needed. Please buy more Omni Tokens first.`
+        });
+    }
+    const otpMailCreds = getOtpMailCredentials();
+    if (!otpMailCreds) {
+        return res.status(400).json({
+            success: false,
+            gmailNotVerified: true,
+            message: 'No verified OTP Sender Email (Gmail App) is configured yet. Please configure and verify one first in Receipt Customization > OTP Sender Email.'
+        });
+    }
+    const featureNames = featureIds.map(id => FEATURE_CATALOG[id].name);
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    featureTokenOtpChallenges.set(installationId, {
+        code: otpCode,
+        expiresAt: Date.now() + FEATURE_TOKEN_OTP_TTL_MS,
+        featureIds,
+        billingCycle: isModuleSubscriptionPurchase ? billingCycle : null,
+        totalPrice: requiredTokens,
+        requestorEmail: cleanEmail,
+        requestedBy: username || 'Unknown',
+        attempts: 0,
+        activationRequestId: crypto.randomUUID()
+    });
+    try {
+        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
+            from: `"OmniPOS" <${otpMailCreds.user}>`,
+            to: cleanEmail,
+            subject: `🔐 OmniPOS Activation — Verification Code`,
+            text: `Verification code to activate ${featureNames.join(', ')}:\n\n` +
+                  `OTP Code: ${otpCode}\n\n` +
+                  `This code will expire in 10 minutes.\n` +
+                  `Cost: ${requiredTokens} Omni Token/s (will only be deducted after you successfully enter this code).\n\n` +
+                  `If you did not request this, you can safely ignore this email — nothing has been charged yet.`
+        });
+    } catch (mailErr) {
+        featureTokenOtpChallenges.delete(installationId);
+        console.error('Feature token-activation OTP send failure:', mailErr.message);
+        return res.status(500).json({ success: false, message: `Failed to send the verification code: ${mailErr.message}` });
+    }
+    logAction(username || 'Unknown', `Requested an activation OTP via Omni Tokens for ${featureNames.join(', ')} sent to ${maskEmail(cleanEmail)}`);
+    res.json({ success: true, message: `A verification code has been sent to ${maskEmail(cleanEmail)}. Enter it to finish activating.` });
+});
+app.post('/api/features/token-activate/confirm', rateLimit('feature-token-activate-confirm', 30, 10 * 60 * 1000), async (req, res) => {
+    const { otp, username } = req.body;
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message: 'The OTP code is required.' });
+    }
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const pending = featureTokenOtpChallenges.get(installationId);
+    if (!pending) {
+        return res.status(400).json({ success: false, message: 'No active activation request found. Please request a new code first.' });
+    }
+    if (Date.now() > pending.expiresAt) {
+        featureTokenOtpChallenges.delete(installationId);
+        return res.status(400).json({ success: false, message: 'The code has expired. Please request a new one.' });
+    }
+    if (String(otp).trim() !== pending.code) {
+        pending.attempts = (pending.attempts || 0) + 1;
+        if (pending.attempts >= FEATURE_TOKEN_OTP_MAX_ATTEMPTS) {
+            featureTokenOtpChallenges.delete(installationId);
+            return res.status(400).json({ success: false, message: 'Too many incorrect attempts. This request has been cancelled — please request a new code.' });
+        }
+        return res.status(400).json({ success: false, message: 'Incorrect code.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-purchase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                featureIds: pending.featureIds,
+                billingCycle: pending.billingCycle || undefined,
+                totalPrice: pending.totalPrice,
+                clientRequestId: pending.activationRequestId
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            if (relayData.insufficient) {
+                return res.status(402).json({
+                    success: false,
+                    insufficient: true,
+                    balanceTokens: relayData.balanceTokens,
+                    requiredTokens: relayData.requiredTokens,
+                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again with the same code before it expires.'
+                });
+            }
+            return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate.' });
+        }
+        const isModuleSubscriptionPurchase = pending.featureIds.length === 1 && isModuleSubscriptionFeature(pending.featureIds[0]);
+        for (const featureId of pending.featureIds) {
+            const token = relayData.tokens && relayData.tokens[featureId];
+            if (!token || !verifyUnlockToken(token, installationId, featureId)) {
+                console.error('⚠️ Received an activation token from the relay, but it is missing or has an INVALID signature for', featureId);
+                return res.status(500).json({ success: false, message: 'One of the activation tokens received is not valid. Please contact the developer.' });
+            }
+            data.tokens[featureId] = token;
+        }
+        if (isModuleSubscriptionPurchase) {
+            const confirmedCycle = (relayData.billingCycle && MODULE_SUBSCRIPTION_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : pending.billingCycle;
+            data.moduleSubscriptions = data.moduleSubscriptions || {};
+            data.moduleSubscriptions[pending.featureIds[0]] = { billingCycle: confirmedCycle || null, activatedAt: Date.now() };
+        }
+        writeData(FILE_FEATURE_UNLOCKS, data);
+        featureTokenOtpChallenges.delete(installationId);
+        const featureNames = pending.featureIds.map(id => FEATURE_CATALOG[id].name);
+        logAction((username || pending.requestedBy || 'Unknown'), `Activated ${featureNames.join(', ')} using Omni Tokens (verified via ${maskEmail(pending.requestorEmail)})`);
+        const unlockedFeatureIds = getUnlockedFeatureIds();
+        res.json({
+            success: true,
+            message: `${featureNames.join(', ')} ${featureNames.length > 1 ? 'are' : 'is'} now ready to use!`,
+            unlockedFeatureIds,
+            unlockedThemeIds: unlockedFeatureIds.filter(id => FEATURE_CATALOG[id] && FEATURE_CATALOG[id].category === 'theme'),
+            balanceTokens: relayData.balanceTokens
+        });
+    } catch (err) {
+        console.error('Could not reach the Unlock Relay (features token-activate/confirm):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+app.post('/api/features/token-activate/cancel', rateLimit('feature-token-activate-cancel', 30, 10 * 60 * 1000), (req, res) => {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    featureTokenOtpChallenges.delete(installationId);
+    res.json({ success: true, message: 'Cancelled.' });
 });
 app.get('/api/themes/status', (req, res) => {
     const unlockedFeatureIds = getUnlockedFeatureIds();
