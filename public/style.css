@@ -528,6 +528,22 @@ body:not(.dark-mode) .sidebar {
     border-radius: 50%;
     object-fit: cover;
 }
+.user-initial-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    color: #ffffff;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-family: inherit;
+}
+.user-widget-avatar .user-initial-avatar {
+    font-size: 1.7rem;
+}
 .brand-i-wrap {
     position: relative;
     display: inline-block;
@@ -978,6 +994,9 @@ body.dark-mode .feature-locked-overlay-title {
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+.uw-au-avatar .user-initial-avatar {
+    font-size: 0.95rem;
 }
 .uw-au-body {
     flex: 1;
@@ -9440,6 +9459,14 @@ body.dark-mode .header-icon-btn.btn-bulk-imgsearch-minimized .lowstock-bell-badg
     height: 100%;
     object-fit: cover;
     border-radius: 50%;
+}
+.header-user-avatar .user-initial-avatar {
+    font-size: 1rem;
+}
+@media screen and (max-width: 480px) {
+    .header-user-avatar .user-initial-avatar {
+        font-size: 0.9rem;
+    }
 }
 .header-user-caret {
     position: absolute;

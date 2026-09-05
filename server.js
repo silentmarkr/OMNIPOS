@@ -4141,7 +4141,13 @@ app.post('/api/admin/cloud-tokens/purchase', rateLimit('cloud-tokens-purchase', 
             return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the token purchase request.' });
         }
         logAction(req.authUser.username, `Started a Cloud Backup token purchase (${relayData.tokens} tokens, ₱${relayData.amountPHP}, via ${method})`);
-        res.json({ success: true, checkoutUrl: relayData.checkoutUrl, purchaseId: relayData.purchaseId, tokens: relayData.tokens, amountPHP: relayData.amountPHP });
+        // BUGFIX: dating hindi ipinapasa dito ang qrCodeImageUrl/expiresAt na
+        // galing sa RELAY, kaya kahit tama ang sagot ng RELAY para sa QR Ph
+        // (GCash/Maya scan-to-pay — walang checkoutUrl, QR image lang), nawawala
+        // ito dito sa OMNIPOS proxy response at nakikita ng frontend na parehong
+        // wala ang checkoutUrl AT qrCodeImageUrl -> "No checkout URL or QR code
+        // was returned by the server." error kahit successful naman ang RELAY.
+        res.json({ success: true, checkoutUrl: relayData.checkoutUrl, qrCodeImageUrl: relayData.qrCodeImageUrl, expiresAt: relayData.expiresAt, purchaseId: relayData.purchaseId, tokens: relayData.tokens, amountPHP: relayData.amountPHP });
     } catch (err) {
         res.status(502).json({ success: false, message: `Could not reach RELAY to start the purchase: ${err.message}` });
     }
@@ -4513,10 +4519,27 @@ async function attemptRelayRestore() {
         if (!relayData.success || !relayData.tokens) {
             return { attempted: true, restoredCount: 0, restoredFeatureIds: [] };
         }
+        const subscriptionMeta = (relayData.subscriptionMeta && typeof relayData.subscriptionMeta === 'object')
+            ? relayData.subscriptionMeta
+            : {};
         let restoredCount = 0;
+        let metaChanged = false;
         const restoredFeatureIds = [];
         for (const [featureId, token] of Object.entries(relayData.tokens)) {
-            if (data.tokens[featureId] && verifyUnlockToken(data.tokens[featureId], installationId, featureId)) {
+            const localToken = data.tokens[featureId];
+            const localTokenValid = !!(localToken && verifyUnlockToken(localToken, installationId, featureId));
+            // AYOS/BUGFIX: dati, kapag "valid pa" ang LOKAL na token
+            // (hindi pa ito na-e-expire), nilalaktawan na agad ito sa
+            // ibaba nang hindi tinitignan kung may bago palang na-isyu
+            // na token mula sa RELAY (hal. dahil nag-renew na ang admin
+            // habang aktibo pa ang lumang subscription — Basic -> Pro
+            // bago pa mag-expire). Ngayon, ang basehan ay kung MAGKAIBA
+            // ang signature ng lokal laban sa bagong galing sa RELAY —
+            // hindi lang kung "valid pa" ang luma — para agad masalo ang
+            // bagong tier/expiry sa susunod na sync (~30s) sa halip na
+            // maghintay munang mag-expire ang luma.
+            const isDifferentFromLocal = !localToken || localToken.signature !== token.signature;
+            if (localTokenValid && !isDifferentFromLocal) {
                 continue;
             }
             if (!verifyUnlockToken(token, installationId, featureId)) continue;
@@ -4524,9 +4547,47 @@ async function attemptRelayRestore() {
             restoredCount++;
             restoredFeatureIds.push(featureId);
         }
-        if (restoredCount > 0) {
+        // AYOS/BUGFIX: hiwalay sa pag-restore ng token mismo — anumang
+        // subscription feature na may kasamang subscriptionMeta mula sa
+        // RELAY ay dapat palaging i-sync ang lokal na cache nito
+        // (cloudBackupPlan para sa Cloud Backup, moduleSubscriptions
+        // para sa RBAC/Multi-Branch) tuwing may pagkakaiba sa
+        // naka-store na — ito mismo ang naayos na dating bug kung saan
+        // "expiry lang nagbabago pero hindi ang tier/plan" pagkatapos
+        // mag-renew (hal. Basic -> Pro) mula sa RELAY admin panel.
+        for (const [featureId, meta] of Object.entries(subscriptionMeta)) {
+            const currentToken = data.tokens[featureId];
+            if (!currentToken || !verifyUnlockToken(currentToken, installationId, featureId)) continue;
+            if (featureId === CLOUD_BACKUP_FEATURE_ID) {
+                const currentPlan = data.cloudBackupPlan || null;
+                if (!currentPlan || currentPlan.tier !== meta.tier || currentPlan.billingCycle !== meta.billingCycle) {
+                    data.cloudBackupPlan = {
+                        tier: meta.tier || null,
+                        billingCycle: meta.billingCycle || null,
+                        activatedAt: (currentPlan && currentPlan.activatedAt) || Date.now()
+                    };
+                    metaChanged = true;
+                }
+            } else if (isModuleSubscriptionFeature(featureId)) {
+                data.moduleSubscriptions = data.moduleSubscriptions || {};
+                const currentSub = data.moduleSubscriptions[featureId] || null;
+                if (!currentSub || currentSub.billingCycle !== meta.billingCycle) {
+                    data.moduleSubscriptions[featureId] = {
+                        billingCycle: meta.billingCycle || null,
+                        activatedAt: (currentSub && currentSub.activatedAt) || Date.now()
+                    };
+                    metaChanged = true;
+                }
+            }
+        }
+        if (restoredCount > 0 || metaChanged) {
             writeData(FILE_FEATURE_UNLOCKS, data);
-            logAction('System', `Automatically restored ${restoredCount} feature(s) from Relay (post-reset check-in).`);
+            if (restoredCount > 0) {
+                logAction('System', `Automatically restored ${restoredCount} feature(s) from Relay (post-reset check-in).`);
+            }
+            if (metaChanged) {
+                logAction('System', 'Automatically synced subscription plan details from Relay (e.g. Cloud Backup plan tier or a module subscription billing cycle changed after a renewal).');
+            }
         }
         return { attempted: true, restoredCount, restoredFeatureIds };
     } catch (err) {

@@ -1167,7 +1167,7 @@ async function promptUnlockTheme(theme) {
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText:'Send Request',
-        denyButtonText: '💎 Activate Instantly with Omni Tokens',
+        denyButtonText: '💎 Activate via Omni Tokens',
         cancelButtonText:'Close',
         confirmButtonColor:'#2563eb',
         denyButtonColor: '#7c3aed',
@@ -1452,7 +1452,7 @@ async function promptModuleSubscription(featureId) {
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText: 'Send Request',
-        denyButtonText: '💎 Activate Instantly with Omni Tokens',
+        denyButtonText: '💎 Activate via Omni Tokens',
         cancelButtonText: 'Close',
         confirmButtonColor: '#2563eb',
         denyButtonColor: '#7c3aed',
@@ -1919,7 +1919,7 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText:'Send Request',
-        denyButtonText: '💎 Activate Instantly with Omni Tokens',
+        denyButtonText: '💎 Activate via Omni Tokens',
         cancelButtonText:'Close',
         confirmButtonColor:'#2563eb',
         denyButtonColor: '#7c3aed',
@@ -2218,7 +2218,7 @@ async function promptCloudBackupSubscription() {
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText: 'Send Request',
-        denyButtonText: '💎 Activate Instantly with Omni Tokens',
+        denyButtonText: '💎 Activate via Omni Tokens',
         cancelButtonText: 'Close',
         confirmButtonColor: '#2563eb',
         denyButtonColor: '#7c3aed',
@@ -2235,7 +2235,7 @@ async function promptCloudBackupSubscription() {
             attachHandlers();
         }
     });
-    // AYOS/BAGO: "Activate Instantly with Omni Tokens" — kung meron nang
+    // AYOS/BAGO: "Activate via Omni Tokens" — kung meron nang
     // sapat na Omni Tokens (nabili na dati), hindi na kailangan pang
     // maghintay ng manual OTP approval mula sa developer. Ang tier at
     // billing cycle na huling napili sa modal na ito (selectedTier/
@@ -2515,7 +2515,7 @@ async function showUpgradeTiersModal() {
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText:'Upgrade Now',
-        denyButtonText: '💎 Activate Instantly with Omni Tokens',
+        denyButtonText: '💎 Activate via Omni Tokens',
         cancelButtonText:'Not Now',
         confirmButtonColor:'#2563eb',
         denyButtonColor: '#7c3aed',
@@ -2638,8 +2638,13 @@ async function showUpgradeTiersModal() {
             ? tiers.find(t => t.id === selectedTierId).featureIds
             : Array.from(selectedFeatureIds);
         if (deniedFeatureIds.length === 0) {
-            Swal.fire('Nothing Selected', 'Please select a package or at least one feature first.', 'info');
-            return false;
+            // BUGFIX: dating hindi hinihintay (await) ang alert na ito bago
+            // agad mag-`return false`, kaya nasasarado rin ang buong Upgrade
+            // Options modal kasabay nito — hindi na ito bumabalik pagkatapos
+            // i-OK ang "Nothing Selected". Ngayon, hinihintay muna ang OK sa
+            // alert bago muling buksan (ulit) ang Upgrade Options modal.
+            await Swal.fire('Nothing Selected', 'Please select a package or at least one feature first.', 'info');
+            return showUpgradeTiersModal();
         }
         const deniedSubscriptionId = deniedFeatureIds.find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
         if (deniedSubscriptionId && deniedFeatureIds.length > 1) {
@@ -3392,6 +3397,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     shiftreport:  { text:'Shift / Z-Reading',   hideIds: ['page-title-shiftreport'] },
     logs:         { text:'System Audit Logs',   hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 hideIds: ['page-title-faq'] },
+    cloudtokens:  { text:'💎 Omni Tokens',       hideIds: ['page-title-cloudtokens'] },
     users:        { text:'Settings',            hideIds: [] }
 };
 function isMobileOrTabletScreen() {
@@ -5286,6 +5292,29 @@ document.addEventListener('click', (e) => {
         }
     }, { passive: true });
 })();
+// AYOS/BAGO: colored initial-letter avatar (parang Slack/Gmail/PayMongo-style
+// "MR" circle) bilang fallback kapag walang na-upload na profile photo ang
+// user — mas "pro" ang tingnan kaysa sa generic gray person icon. Consistent
+// ang kulay per-user (hash ng username/displayName), hindi random kada render.
+const AVATAR_COLOR_PALETTE = ['#2563eb', '#7c3aed', '#0d9488', '#dc2626', '#ea580c', '#16a34a', '#0891b2', '#c026d3', '#4f46e5', '#65a30d'];
+function getUserAvatarColor(seed) {
+    const str = String(seed || '');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+    }
+    return AVATAR_COLOR_PALETTE[hash % AVATAR_COLOR_PALETTE.length];
+}
+function getUserInitial(user) {
+    const source = (user && (user.displayName || user.username)) || '?';
+    const trimmed = String(source).trim();
+    return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
+}
+function renderUserInitialAvatarHtml(user) {
+    const initial = getUserInitial(user);
+    const color = getUserAvatarColor((user && (user.username || user.displayName)) || 'user');
+    return `<span class="user-initial-avatar" style="background-color:${color};">${escapeHtml(initial)}</span>`;
+}
 function renderSidebarUserWidget() {
     if (!currentUser) return;
     const nameEl = document.getElementById('session-username');
@@ -5296,14 +5325,14 @@ function renderSidebarUserWidget() {
     if (avatarEl) {
         avatarEl.innerHTML = (currentUser.avatar
             ? `<img src="${currentUser.avatar}" alt="">`
-            : `<i class="fa-solid fa-user"></i>`)
+            : renderUserInitialAvatarHtml(currentUser))
             + `<span class="user-widget-caret"><i class="fa-solid fa-chevron-down"></i></span>`;
     }
     const headerAvatarEl = document.getElementById('header-user-avatar');
     if (headerAvatarEl) {
         headerAvatarEl.innerHTML = currentUser.avatar
             ? `<img src="${currentUser.avatar}" alt="">`
-            : `<i class="fa-solid fa-user"></i>`;
+            : renderUserInitialAvatarHtml(currentUser);
     }
     renderHeaderUserDropdownInfo();
     updateActiveUsersBadge();
@@ -5388,7 +5417,7 @@ async function loadActiveUsers() {
                 : (rawIp ==='unknown' ?'' :'<span class="uw-au-wifi-badge uw-au-wifi-diff"><i class="fa-solid fa-globe"></i></span>');
             const avatarInner = u.avatar
                 ? `<img src="${escapeHtml(u.avatar)}" alt="">`
-                : `<i class="fa-solid fa-user"></i>`;
+                : renderUserInitialAvatarHtml(u);
             return `<div class="uw-au-row">
                 <span class="uw-au-avatar">${avatarInner}</span>
                 <div class="uw-au-body">
@@ -5929,6 +5958,40 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
                 loadCloudTokensView();
                 if (pollCount >= 10) clearInterval(cloudTokensPollTimer);
             }, 6000);
+        } else if (data.qrCodeImageUrl) {
+            // AYOS: QR Ph — walang checkout tab na binubuksan dito, sa halip
+            // ipinapakita ang QR code image mismo sa loob ng modal na ito
+            // para ma-scan gamit ang GCash/Maya/kahit anong QR Ph-supported
+            // banking app.
+            // BUGFIX: dating 2 minuto (20 x 6s) lang ang polling window dito
+            // — mas maikli pa kaysa sa aktwal na bisa ng QR code mismo (15
+            // minuto, tingnan ang RELAY/server.js QRPH_EXPIRY_SECONDS), kaya
+            // kung 3-5 minuto ang inabot ng customer bago mag-scan/magbayad,
+            // hindi na ito automatic na mare-refresh at parang "tumigil" ang
+            // balance kahit successful na ang bayad. Ngayon, 15 minuto (90 x
+            // 10s = 900s) na ito, tugma sa QR code expiry — 90 calls/15 min
+            // ay ligtas pa rin sa 120/hour na rate limit ng
+            // /relay/cloud-tokens/wallet.
+            const expiresNote = data.expiresAt
+                ? ` Valid until <b>${new Date(data.expiresAt).toLocaleTimeString()}</b>.`
+                : '';
+            Swal.fire({
+                title: 'Scan the QR Ph code',
+                html: `<p>Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to pay <b>₱${data.amountPHP}</b> for ${data.tokens} tokens.${expiresNote}</p>
+                       <img src="${data.qrCodeImageUrl}" alt="QR Ph code" style="max-width:260px; width:100%; margin:12px auto; display:block; background:#fff; padding:8px; border-radius:8px;" />
+                       <p style="font-size:0.8rem; color:var(--text-muted);">This will update automatically once the payment is confirmed — no need to keep this window open.</p>`,
+                showConfirmButton: true,
+                confirmButtonText: 'Close'
+            });
+            let pollCount = 0;
+            clearInterval(cloudTokensPollTimer);
+            cloudTokensPollTimer = setInterval(() => {
+                pollCount += 1;
+                loadCloudTokensView();
+                if (pollCount >= 90) clearInterval(cloudTokensPollTimer);
+            }, 10000);
+        } else {
+            Swal.fire('Error', 'No checkout URL or QR code was returned by the server.', 'error');
         }
     } catch (e) {
         Swal.fire('Error', 'Could not reach the server to start the purchase.', 'error');
