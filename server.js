@@ -9,6 +9,16 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const { promisify } = require('util');
+// AYOS/BAGO: async (thread-pool) na bersyon ng gzip sa halip na
+// zlib.gzipSync — pareho sa ginawang ayos sa RELAY. Iisang store lang
+// naman ang pinagsisilbihan ng OMNIPOS sa isang pagkakataon, pero kung
+// malaki ang backup (maraming records/photos), ang gzipSync ay
+// naka-block pa rin sa main thread ng LOKAL na Node server habang
+// nagko-compress — ibig sabihin puwedeng magka-delay ang ibang kasabay
+// na request sa POS mismo (hal. bagong transaksyon) habang
+// nagko-compress ang backup sa background. Parehong output/logic pa rin.
+const gzipAsync = promisify(zlib.gzip);
 const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
@@ -3856,7 +3866,7 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         // mas lumang RELAY version ang tumatanggap nito na hindi pa alam
         // ang flag na ito, hindi apektado ang default (uncompressed) na
         // behavior nila para sa ibang client.
-        const backupBodyBuffer = zlib.gzipSync(backupJsonBuffer);
+        const backupBodyBuffer = await gzipAsync(backupJsonBuffer);
         const uncompressedSizeBytes = backupJsonBuffer.length;
         cloudBackupStatus.uploadStartedAt = Date.now();
         cloudBackupStatus.uploadedBytes = 0;
