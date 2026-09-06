@@ -6011,7 +6011,11 @@ function renderCloudTokensOverview(data) {
     // (ceil) na estimate lang (tokenCostPerSync).
     if (costPerSyncEl) {
         const exact = data.cloudBackup && data.cloudBackup.tokenCostPerSyncExact;
-        costPerSyncEl.textContent = (typeof exact === 'number') ? exact : ((data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--');
+        // AYOS/BUGFIX: gamitin ang toFixed(3) — 3 decimal places, kagaya ng
+        // dami ng digit na ginagamit ni Neon sa sarili nilang published
+        // rates (hal. 0.106/0.222) — para hindi maputol pabalik sa "0" ang
+        // totoong maliliit na presyo kada sync sa display.
+        costPerSyncEl.textContent = (typeof exact === 'number') ? exact.toFixed(3) : ((data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--');
     }
     // AYOS/BAGO: buwanang breakdown — ipinapakita rito nang malinaw na ang
     // maintenance fee (babawasin agad sa activation/renewal) ay HIWALAY sa

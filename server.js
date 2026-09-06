@@ -4072,11 +4072,18 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
     const tokenCostPerSync = (walletResult.ok && typeof walletResult.realSyncCostTokens === 'number')
         ? walletResult.realSyncCostTokens
         : getCloudTokenCostPerSync(tier);
+    // AYOS/BUGFIX: dating Math.round(x*10)/10 — 1 decimal place lang, kaya
+    // ang totoong maliliit na presyo kada sync (hal. 0.006 token) ay
+    // na-round-down papuntang 0 bago pa man ma-display, mapanlinlang
+    // itong nagpapakitang parang "0 token(s)" ang totoong presyo. Ngayon
+    // 3 decimal places (kagaya ng dami ng digit na ginagamit ni Neon sa
+    // sarili nilang published rates, hal. 0.106/0.222) — makikita na ang
+    // totoong maliit na presyo sa halip na basta maging 0.
     const tokenCostPerSyncExact = Math.round(
         ((walletResult.ok && typeof walletResult.realSyncCostTokensExact === 'number')
             ? walletResult.realSyncCostTokensExact
-            : getCloudTokenCostPerSyncExact(tier)) * 10
-    ) / 10;
+            : getCloudTokenCostPerSyncExact(tier)) * 1000
+    ) / 1000;
     const balanceTokens = walletResult.ok ? walletResult.balanceTokens : null;
     const sufficientForSync = walletResult.ok ? (balanceTokens >= tokenCostPerSync) : null;
     // AYOS: self-heal — kung nakabukas pa rin ang Auto-Sync toggle sa
@@ -4299,11 +4306,15 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
     const tokenCostForSync = (walletForSync.ok && typeof walletForSync.realSyncCostTokens === 'number')
         ? walletForSync.realSyncCostTokens
         : getCloudTokenCostPerSync(tokenTierForSync);
+    // AYOS/BUGFIX: 3 decimal places na rin dito (kagaya ng fix sa
+    // tokenCostPerSyncExact sa itaas) — dating 1 decimal lang (Math.round
+    // (x*10)/10), kaya pareho itong nagpapakita ng "0" kahit may totoong
+    // maliit na presyo kada sync.
     const tokenCostForSyncExact = Math.round(
         ((walletForSync.ok && typeof walletForSync.realSyncCostTokensExact === 'number')
             ? walletForSync.realSyncCostTokensExact
-            : getCloudTokenCostPerSyncExact(tokenTierForSync)) * 10
-    ) / 10;
+            : getCloudTokenCostPerSyncExact(tokenTierForSync)) * 1000
+    ) / 1000;
     if (walletForSync.ok && walletForSync.balanceTokens < tokenCostForSync) {
         return res.status(402).json({
             success: false,
@@ -4444,11 +4455,13 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
         const tokenCostForRestore = (walletForRestore.ok && typeof walletForRestore.realSyncCostTokens === 'number')
             ? walletForRestore.realSyncCostTokens
             : getCloudTokenCostPerSync(tokenTierForRestore);
+        // AYOS/BUGFIX: 3 decimal places na rin dito, kagaya ng ibang fix —
+        // dating 1 decimal lang (Math.round(x*10)/10).
         const tokenCostForRestoreExact = Math.round(
             ((walletForRestore.ok && typeof walletForRestore.realSyncCostTokensExact === 'number')
                 ? walletForRestore.realSyncCostTokensExact
-                : getCloudTokenCostPerSyncExact(tokenTierForRestore)) * 10
-        ) / 10;
+                : getCloudTokenCostPerSyncExact(tokenTierForRestore)) * 1000
+        ) / 1000;
         if (walletForRestore.ok && walletForRestore.balanceTokens < tokenCostForRestore) {
             return res.status(402).json({
                 success: false,
