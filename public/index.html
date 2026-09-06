@@ -1252,6 +1252,7 @@
             and cannot be edited here. Newly added system menus will appear automatically.
             Use the ◀ ▶ controls above each column to reorder roles.
         </p>
+        <div id="rbac-subscription-status" class="rr-status-box" style="display:none; margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);"></div>
         <div class="roles-permissions-matrix-wrap" id="roles-permissions-matrix-wrap">
             <div class="table-container permission-matrix-scroll" style="margin-top: 15px;">
                 <table class="data-table" id="permission-matrix-table">
@@ -1975,6 +1976,7 @@
             <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
                 Kung may 2 o higit pang branch/lokasyon ang parehong negosyo (magkaibang device/network), ilagay ang PAREHONG "Business Group Code" sa Store &amp; Sales Settings ng BAWAT branch para makita ang combined sales sa "All Branches" sa Overview page. Pwede mo nang i-set ang mga field sa ibaba anumang oras — pero kailangan munang ma-unlock ang feature (subscription, monthly o yearly) bago aktibo ang actual na pag-sync at pagsama ng data.
             </p>
+            <div id="multi-branch-subscription-status" class="rr-status-box" style="display:none; margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);"></div>
             <div class="input-field-group">
                 <label>Branch Name <small style="font-weight:normal;color:#64748b;">(ipapakita sa ibang branch, hal. "Main Branch", "Branch 2 - Cubao")</small></label>
                 <input type="text" id="ss-branch-name" maxlength="60" placeholder="e.g. Main Branch" autocomplete="off">
@@ -2458,19 +2460,22 @@
 
                 <section id="view-cloudtokens" class="app-view" style="display:none;">
                     <div style="max-width:980px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom: 18px;">
-                        <h2 id="page-title-cloudtokens" style="margin:0;"><i class="fa-solid fa-gem" style="color:#7c3aed;"></i> Omni Tokens</h2>
+                        <h2 id="page-title-cloudtokens" style="margin:0;"><i class="fa-solid fa-gem ct-icon-accent"></i> Omni Tokens</h2>
                     </div>
                     <div style="max-width:980px; color: var(--text-muted); font-size:0.9rem; margin-top:-10px; margin-bottom:18px;">
                         Admin-only page. Not part of Roles &amp; Permissions — always Admin-only, on every device.
                     </div>
 
-                    <!-- Google App Verification (synced sa Users > Receipt Customization) -->
+                    <!-- Google App Verification (synced with Users > Receipt Customization) -->
                     <div class="ct-card" id="ct-google-app-card" style="max-width:980px;">
-                        <div class="ct-card-header">
-                            <i class="fa-brands fa-google" style="color:#4285F4;"></i>
-                            <span>Google App Verification</span>
+                        <div class="ct-card-header" id="ct-google-app-heading" onclick="toggleCtGoogleAppBox()" style="cursor:pointer; justify-content:space-between;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <i class="fa-brands fa-google" style="color:#4285F4;"></i>
+                                <span id="ct-google-app-heading-text">Google App Verification</span>
+                            </div>
+                            <i class="fa-solid fa-chevron-down" id="ct-google-app-chevron" style="font-size:0.8rem; display:none;"></i>
                         </div>
-                        <div class="ct-card-body">
+                        <div class="ct-card-body" id="ct-google-app-body">
                             <div id="ct-google-app-status" class="ct-google-status">
                                 <i class="fa-solid fa-circle-notch fa-spin"></i> Checking status...
                             </div>
@@ -2488,7 +2493,7 @@
                     <!-- Token / Diamond Wallet -->
                     <div class="ct-card" id="ct-wallet-card" style="max-width:980px;">
                         <div class="ct-card-header">
-                            <i class="fa-solid fa-gem" style="color:#7c3aed;"></i>
+                            <i class="fa-solid fa-gem ct-icon-accent"></i>
                             <span>Cloud Backup Token Wallet</span>
                         </div>
                         <div class="ct-card-body">
@@ -2510,13 +2515,29 @@
                                 </div>
                             </div>
 
+                            <div class="ct-monthly-estimate" id="ct-monthly-estimate" style="display:none;">
+                                <div class="ct-monthly-estimate-title"><i class="fa-solid fa-circle-info"></i> Current Plan — Monthly Breakdown</div>
+                                <div class="ct-monthly-estimate-row"><span>Maintenance fee (activation/renewal)</span><span id="ct-est-maintenance">--</span></div>
+                                <div class="ct-monthly-estimate-row"><span>Est. sync cost (typical monthly frequency)</span><span id="ct-est-sync">--</span></div>
+                                <div class="ct-monthly-estimate-row ct-monthly-estimate-total"><span>Est. Total Required Monthly</span><span id="ct-est-total">--</span></div>
+                                <div class="ct-monthly-estimate-note" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">Approximate estimate based on your current backup size and typical sync frequency — not a guaranteed final cost. Recommended extra balance to keep on top of the maintenance fee: <span id="ct-est-extra-month">--</span> token(s)/month.</div>
+                            </div>
+
+                            <div class="ct-monthly-estimate" id="ct-yearly-estimate" style="display:none;">
+                                <div class="ct-monthly-estimate-title"><i class="fa-solid fa-circle-info"></i> Current Plan — Yearly Breakdown</div>
+                                <div class="ct-monthly-estimate-row"><span>Maintenance fee (yearly, discounted)</span><span id="ct-est-maintenance-year">--</span></div>
+                                <div class="ct-monthly-estimate-row"><span>Est. sync cost (typical yearly frequency)</span><span id="ct-est-sync-year">--</span></div>
+                                <div class="ct-monthly-estimate-row ct-monthly-estimate-total"><span>Est. Total Required Yearly</span><span id="ct-est-total-year">--</span></div>
+                                <div class="ct-monthly-estimate-note" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">Approximate estimate based on your current backup size and typical sync frequency — not a guaranteed final cost. Recommended extra balance to keep on top of the maintenance fee: <span id="ct-est-extra-year">--</span> token(s)/year.</div>
+                            </div>
+
                             <div class="ct-toggle-row">
                                 <label class="ct-switch">
                                     <input type="checkbox" id="ct-autosync-toggle" onchange="toggleCloudAutoSync(this.checked)">
                                     <span class="ct-switch-slider"></span>
                                 </label>
                                 <div>
-                                    <div style="font-weight:600;">Auto-Sync</div>
+                                    <div class="ct-toggle-title">Auto-Sync</div>
                                     <div style="font-size:0.8rem; color:var(--text-muted);">Turn OFF to save tokens (Neon compute cost depends on how often it syncs) — manual backup/restore still works if you have enough tokens.</div>
                                 </div>
                             </div>
@@ -2529,7 +2550,7 @@
                             <div class="ct-custom-purchase">
                                 <label for="ct-custom-tokens" style="font-size:0.85rem; font-weight:600;">Or enter a custom amount (₱1 = 1 Omni Token, min. 50):</label>
                                 <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
-                                    <input type="number" id="ct-custom-tokens" min="50" step="1" placeholder="e.g. 200" style="max-width:160px;">
+                                    <input type="number" id="ct-custom-tokens" class="ct-custom-tokens-input" min="50" step="1" placeholder="e.g. 200" style="max-width:160px;">
                                     <select id="ct-custom-method" class="ct-payment-select" disabled>
                                         <option value="">Loading payment methods…</option>
                                     </select>

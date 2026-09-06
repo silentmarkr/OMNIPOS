@@ -713,6 +713,59 @@ const THEME_CATALOG = [
     { id:'galaxyambient', name:'Galaxy Ambient Pro', icon:'fa-circle-half-stroke', pro: true },
 ];
 let featureCatalogLiveCache = null;
+// BAGO: kill-switch flags mula RELAY (tingnan ang ACTIVATION_FLAGS sa
+// RELAY server.js at ang bagong "⚙️ System Controls" card sa RELAY admin
+// Home tab) — kapag na-disable ng developer ang "Send Request" (manual
+// OTP approval) o ang "Activate via Omni Tokens", ipinapakita ito dito
+// bago pa man i-submit ng user ang request (hindi na kailangang antayin
+// pang mag-error mula sa server). Fail-open ang default (both true) para
+// hindi ma-brick ang UI kung hindi pa na-refresh ang cache.
+let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
+function getActivationFlags() {
+    return activationFlagsCache || { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
+}
+// Nagbabalik ng maikling paalala (HTML) kapag may naka-disable — ilalagay
+// ito sa ilalim ng presyo/description sa bawat modal. Walang laman kung
+// pareho namang bukas ang dalawa (walang dapat ipaalala).
+function buildActivationNoteHtml() {
+    const flags = getActivationFlags();
+    const otpOn = flags.otpRequestsEnabled !== false;
+    const tokensOn = flags.omniTokenActivationEnabled !== false;
+    if (otpOn && tokensOn) return '';
+    if (!otpOn && !tokensOn) {
+        return '<p style="font-size:0.78rem;color:#dc2626;margin:8px 0 0;font-weight:600;">⚠️ Unlock requests are temporarily unavailable (both "Send Request" and "Activate via Omni Tokens" are disabled). Please try again later.</p>';
+    }
+    if (!otpOn) {
+        return '<p style="font-size:0.78rem;color:#d97706;margin:8px 0 0;">⚠️ "Send Request" (manual approval) is temporarily unavailable — only "Activate via Omni Tokens" is open right now.</p>';
+    }
+    return '<p style="font-size:0.78rem;color:#d97706;margin:8px 0 0;">⚠️ "Activate via Omni Tokens" is temporarily unavailable (maintenance) — only "Send Request" is open right now.</p>';
+}
+// Ibinabalik ang mga Swal.fire option na dapat i-spread papalit sa
+// showCancelButton/showDenyButton/confirmButtonText/denyButtonText na
+// dating laging pareho sa lahat ng unlock modal — para awtomatikong
+// itago ang alinmang opsyon na naka-disable sa halip na hayaang mag-error
+// pagkatapos i-click. Kung PAREHONG naka-disable, `bothDisabled: true`
+// ang isasauli para malaman ng caller na dapat na lang mag-info modal.
+function getUnlockModalButtonOptions() {
+    const flags = getActivationFlags();
+    const otpOn = flags.otpRequestsEnabled !== false;
+    const tokensOn = flags.omniTokenActivationEnabled !== false;
+    return {
+        bothDisabled: !otpOn && !tokensOn,
+        otpOn,
+        tokensOn,
+        swalOptions: {
+            showCancelButton: true,
+            showConfirmButton: otpOn,
+            showDenyButton: tokensOn,
+            confirmButtonText:'Send Request',
+            denyButtonText: '💎 Activate via Omni Tokens',
+            cancelButtonText:'Close',
+            confirmButtonColor:'#2563eb',
+            denyButtonColor: '#7c3aed',
+        }
+    };
+}
 async function refreshFeatureCatalogLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
@@ -721,6 +774,12 @@ async function refreshFeatureCatalogLive() {
             const map = {};
             data.features.forEach((f) => { map[f.id] = f; });
             featureCatalogLiveCache = map;
+        }
+        if (data && data.success && data.activationFlags) {
+            activationFlagsCache = {
+                otpRequestsEnabled: data.activationFlags.otpRequestsEnabled !== false,
+                omniTokenActivationEnabled: data.activationFlags.omniTokenActivationEnabled !== false
+            };
         }
     } catch (e) {
     }
@@ -1148,7 +1207,7 @@ function resetCustomTheme() {
     applyCustomTheme(CT_DEFAULTS);
     initCustomTheme();
     if (typeof Swal !=='undefined') {
-        Swal.fire({ title:'Reset na', text:'Bumalik sa default appearance ang device na ito.', icon:'success', timer: 1800, showConfirmButton: false });
+        Swal.fire({ title:'Reset Complete', text:'This device has been restored to its default appearance.', icon:'success', timer: 1800, showConfirmButton: false });
     }
 }
 async function promptUnlockTheme(theme) {
@@ -1157,20 +1216,20 @@ async function promptUnlockTheme(theme) {
     await refreshFeatureCatalogLive();
     const livePrice = getThemeLivePrice(theme.id);
     const priceLabel = (typeof livePrice ==='number') ?'₱' + livePrice : null;
+    const unlockButtons = getUnlockModalButtonOptions();
+    if (unlockButtons.bothDisabled) {
+        await Swal.fire({ title:'Unlock Temporarily Unavailable', html: buildActivationNoteHtml(), icon:'warning', confirmButtonText:'OK' });
+        return;
+    }
     const confirmResult = await Swal.fire({
         title:'Unlock ' + theme.name,
         html:
 '<p style="margin:0 0 8px;">This is a premium theme' + (priceLabel ?' — <strong>' + priceLabel +'</strong>' :'') +'.</p>' +
 '<p style="font-size:0.82rem;color:#94a3b8;margin:0;">An unlock request will be sent to the developer/store owner. ' +
-'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>',
+'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>' +
+buildActivationNoteHtml(),
         icon:'info',
-        showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText:'Send Request',
-        denyButtonText: '💎 Activate via Omni Tokens',
-        cancelButtonText:'Close',
-        confirmButtonColor:'#2563eb',
-        denyButtonColor: '#7c3aed',
+        ...unlockButtons.swalOptions,
     });
     if (confirmResult.isDenied) {
         const activated = await runFeatureTokenActivationFlow({ featureIds: [theme.id], totalPrice: (typeof livePrice === 'number' ? livePrice : undefined), displayName: theme.name });
@@ -1321,6 +1380,59 @@ function updateSidebarFeatureLocks() {
     });
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
+    updateModuleSubscriptionBadges();
+}
+// BAGO: parehong "renews/expires in X day(s)" na badge tulad ng Cloud
+// Backup (refreshCloudBackupSubscriptionBadge) pero para sa RBAC at
+// Multi-Branch subscriptions — para ganap nang "same treatment" ang
+// tatlo. Iisang fetch lang sa /api/module-subscriptions/status (hindi na
+// hiwalay per-feature) dahil magkasabay naman silang ipinapakita.
+async function updateModuleSubscriptionBadges() {
+    const rbacBox = document.getElementById('rbac-subscription-status');
+    const multiBranchBox = document.getElementById('multi-branch-subscription-status');
+    const rbacUnlocked = isFeatureUnlockedCached('rbac_management');
+    const multiBranchUnlocked = isFeatureUnlockedCached('multi_branch');
+    if (rbacBox && !rbacUnlocked) rbacBox.style.display = 'none';
+    if (multiBranchBox && !multiBranchUnlocked) multiBranchBox.style.display = 'none';
+    if (!rbacUnlocked && !multiBranchUnlocked) return;
+    try {
+        const res = await authFetch(`${API_URL}/module-subscriptions/status`);
+        const data = await res.json();
+        if (!data || !data.success || !data.subscriptions) return;
+        if (rbacUnlocked && rbacBox) {
+            renderModuleSubscriptionBadge(rbacBox, 'Roles &amp; Permissions (RBAC)', data.subscriptions.rbac_management);
+        }
+        if (multiBranchUnlocked && multiBranchBox) {
+            renderModuleSubscriptionBadge(multiBranchBox, 'Multi-Branch Dashboard', data.subscriptions.multi_branch);
+        }
+    } catch (err) {
+    }
+}
+function renderModuleSubscriptionBadge(box, displayName, sub) {
+    if (!sub || !sub.active) {
+        box.style.display = 'none';
+        return;
+    }
+    box.style.display = 'block';
+    const cycleLabel = sub.billingCycle === 'yearly' ? 'Yearly' : (sub.billingCycle === 'monthly' ? 'Monthly' : '');
+    let expiryText = '';
+    if (typeof sub.expiresAt === 'number') {
+        const daysLeft = Math.ceil((sub.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+        const expiryDate = new Date(sub.expiresAt).toLocaleDateString();
+        if (daysLeft <= 0) {
+            // AYOS: kapag lampas na sa expiresAt pero naka-grace-period pa
+            // (MODULE_SUBSCRIPTION_GRACE_PERIOD_MS sa server), "negative
+            // days" ang lalabas kung basta ipa-Math.ceil lang — hindi ito
+            // maganda/malinaw sa user. Ipinapakita na lang na "expired,
+            // renew now" sa halip.
+            expiryText = ` — <span style="color:#dc2626;font-weight:600;">expired (${expiryDate}) — renew now to avoid losing access</span>`;
+        } else if (daysLeft <= 7) {
+            expiryText = ` — <span style="color:#dc2626;font-weight:600;">renews/expires in ${daysLeft} day(s) (${expiryDate})</span>`;
+        } else {
+            expiryText = ` — renews/expires on ${expiryDate}`;
+        }
+    }
+    box.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> ${displayName}: <strong>Active</strong>${cycleLabel ? ` (${cycleLabel})` : ''}${expiryText}`;
 }
 function isBadgeAllowedForFeature(featureId) {
     return isFeatureUnlockedCached(featureId);
@@ -1381,6 +1493,12 @@ async function refreshCloudBackupPlansLive() {
         if (cbFeature && cbFeature.plans) {
             cloudBackupPlansLiveCache = cbFeature.plans;
         }
+        if (data && data.success && data.activationFlags) {
+            activationFlagsCache = {
+                otpRequestsEnabled: data.activationFlags.otpRequestsEnabled !== false,
+                omniTokenActivationEnabled: data.activationFlags.omniTokenActivationEnabled !== false
+            };
+        }
     } catch (e) {
     }
     return cloudBackupPlansLiveCache;
@@ -1418,12 +1536,12 @@ const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } }
 };
-// Cloud Backup, RBAC, at Multi-Branch ay lahat "subscription-only" na features
-// (monthly/yearly ang billing, hindi one-time purchase). Ginagamit ito sa
-// "✨ Upgrade Options" bulk modal para: (1) hindi sila ma-checkbox nang
-// magkasama sa ibang item (dahil tinatanggihan ito ng server sa bulk
-// endpoint), at (2) para ma-route sila sa tamang monthly/yearly (at, para sa
-// Cloud Backup, tier) na subscription flow sa halip na sa bulk unlock.
+// Cloud Backup, RBAC, and Multi-Branch are all "subscription-only" features
+// (monthly/yearly billing, not a one-time purchase). Used in the
+// "✨ Upgrade Options" bulk modal to: (1) prevent them from being
+// checked alongside other items (the bulk endpoint rejects that), and
+// (2) route them to the correct monthly/yearly (and, for Cloud Backup,
+// tier) subscription flow instead of the bulk unlock.
 const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
 async function promptModuleSubscription(featureId) {
     if (blockIfOffline('Feature subscription')) return false;
@@ -1431,31 +1549,41 @@ async function promptModuleSubscription(featureId) {
     const live = getFeatureLiveInfo(featureId);
     const staticInfo = MODULE_SUBSCRIPTION_PLANS_UI[featureId] || {};
     const displayName = (live && live.name) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].name) || featureId;
-    const description = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || '';
+    const tagline = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || staticInfo.tagline || '';
     const price = (live && live.subscriptionPrice) ? live.subscriptionPrice : staticInfo.price;
+    // Same modal layout as promptCloudBackupSubscription below — cycle
+    // buttons row, then a plan card row using the identical cb-tier-*
+    // classes. RBAC/Multi-Branch only have one plan (no tier choice), so
+    // the card row has a single non-clickable entry instead of several
+    // selectable tier buttons, but it must look and read the same as the
+    // Cloud Backup modal in every other respect.
     let selectedCycle = 'monthly';
     const buildHtml = () => {
         const cycleButtons = ['monthly', 'yearly'].map(cycle => {
             const active = cycle === selectedCycle;
             return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
+        const planCard = `<div class="cb-tier-btn active" style="flex:1;text-align:left;border-radius:10px;padding:10px 12px;margin:0 4px;">` +
+            `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${displayName}</div>` +
+            `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${tagline}</div>` +
+            `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${price[selectedCycle]}<span style="font-size:0.68rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+            `</div>`;
         return `<div style="text-align:left;">
-            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 8px;">${description}</p>
-            <p style="font-size:0.8rem;margin:0 0 10px;">This is a subscription. Pick a billing cycle:</p>
+            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">${displayName} is now a subscription. Pick a billing cycle:</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
-            <div style="text-align:center;font-size:1.1rem;font-weight:700;">₱${price[selectedCycle]}<span style="font-size:0.72rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>
+            <div style="display:flex;">${planCard}</div>
+            ${buildActivationNoteHtml()}
         </div>`;
     };
+    const unlockButtons = getUnlockModalButtonOptions();
+    if (unlockButtons.bothDisabled) {
+        await Swal.fire({ title:'Unlock Temporarily Unavailable', html: buildActivationNoteHtml(), icon:'warning', confirmButtonText:'OK' });
+        return false;
+    }
     const result = await Swal.fire({
-        title: displayName,
+        title: `${displayName} Plans`,
         html: buildHtml(),
-        showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText: 'Send Request',
-        denyButtonText: '💎 Activate via Omni Tokens',
-        cancelButtonText: 'Close',
-        confirmButtonColor: '#2563eb',
-        denyButtonColor: '#7c3aed',
+        ...unlockButtons.swalOptions,
         didOpen: (popup) => {
             const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
             const attachHandlers = () => {
@@ -1897,8 +2025,12 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
 }
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
+    // AYOS: laging tinatawag na ngayon ang refreshFeatureCatalogLive()
+    // (hindi na naka-kondisyon sa "typeof price !== 'number'" lang) para
+    // laging sariwa ang activationFlagsCache bago ipakita ang modal na ito,
+    // kahit pumasa na ang caller ng price.
+    await refreshFeatureCatalogLive();
     if (typeof price !== 'number') {
-        await refreshFeatureCatalogLive();
         const live = getFeatureLiveInfo(featureId);
         if (live) {
             featureName = live.name || featureName;
@@ -1908,21 +2040,21 @@ async function promptUnlockFeature(featureId, featureName, price, description) {
     }
     const displayName = featureName || featureId;
     const priceText = (typeof price === 'number' && price > 0) ? `₱${price}` : null;
+    const unlockButtons = getUnlockModalButtonOptions();
+    if (unlockButtons.bothDisabled) {
+        await Swal.fire({ title:'Unlock Temporarily Unavailable', html: buildActivationNoteHtml(), icon:'warning', confirmButtonText:'OK' });
+        return false;
+    }
     const confirmResult = await Swal.fire({
         title:'Locked: ' + displayName,
         html:
 '<p style="margin:0 0 8px;">This is a premium feature' + (priceText ?' — <strong>' + priceText +'</strong>' :'') +'.</p>' +
 (description ? '<p style="font-size:0.82rem;color:#334155;margin:0 0 8px;">' + description + '</p>' :'') +
 '<p style="font-size:0.82rem;color:#94a3b8;margin:0;">An unlock request will be sent to the developer/store owner. ' +
-'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>',
+'Once payment has been verified, you will receive a 6-digit code to enter in the next step.</p>' +
+buildActivationNoteHtml(),
         icon:'info',
-        showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText:'Send Request',
-        denyButtonText: '💎 Activate via Omni Tokens',
-        cancelButtonText:'Close',
-        confirmButtonColor:'#2563eb',
-        denyButtonColor: '#7c3aed',
+        ...unlockButtons.swalOptions,
     });
     if (confirmResult.isDenied) {
         return !!(await runFeatureTokenActivationFlow({ featureIds: [featureId], totalPrice: price, displayName }));
@@ -2210,18 +2342,18 @@ async function promptCloudBackupSubscription() {
             <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Cloud Backup is now a subscription. Pick a plan and billing cycle:</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
             <div style="display:flex;">${tierButtons}</div>
+            ${buildActivationNoteHtml()}
         </div>`;
     };
+    const unlockButtons = getUnlockModalButtonOptions();
+    if (unlockButtons.bothDisabled) {
+        await Swal.fire({ title:'Subscription Requests Temporarily Unavailable', html: buildActivationNoteHtml(), icon:'warning', confirmButtonText:'OK' });
+        return false;
+    }
     const result = await Swal.fire({
         title: 'Cloud Backup Plans',
         html: buildHtml(),
-        showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText: 'Send Request',
-        denyButtonText: '💎 Activate via Omni Tokens',
-        cancelButtonText: 'Close',
-        confirmButtonColor: '#2563eb',
-        denyButtonColor: '#7c3aed',
+        ...unlockButtons.swalOptions,
         didOpen: (popup) => {
             const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
             const attachHandlers = () => {
@@ -2326,6 +2458,36 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
     });
     if (!result.isConfirmed) return false;
     const requestorEmail = result.value.email;
+    // NEW: final confirmation step before activation. This is scoped to
+    // this token-funded self-service flow only (it does NOT touch
+    // runUnlockFlow, which is shared with other paid features such as
+    // themes/modules) — it simply restates the maintenance-fee
+    // computation and the monthly auto-sync-to-cloud-backup notice so
+    // the requestor confirms the recurring cost before tokens are spent.
+    const planLabel = cloudBackupPlans[selectedTier].name;
+    const cycleLabel = selectedCycle === 'monthly' ? 'Monthly' : 'Yearly';
+    const feeTokens = requiredTokensFor(selectedTier, selectedCycle);
+    const feeConfirm = await Swal.fire({
+        icon: 'question',
+        title: 'Confirm Cloud Backup Activation',
+        html: `<div style="text-align:left;font-size:0.85rem;">
+            <p style="margin:0 0 8px;">You are about to activate:</p>
+            <p style="margin:0 0 10px;"><strong>${planLabel}</strong> — ${cycleLabel} billing</p>
+            <div style="border-radius:8px;padding:10px 12px;margin-bottom:10px;background:rgba(124,58,237,0.08);">
+                <div style="display:flex;justify-content:space-between;font-weight:600;">
+                    <span>Maintenance fee</span>
+                    <span>💎 ${feeTokens} token/s</span>
+                </div>
+                <div style="font-size:0.72rem;margin-top:4px;">Charged from your Omni Tokens balance every ${selectedCycle === 'monthly' ? 'month' : 'year'}.</div>
+            </div>
+            <p style="font-size:0.78rem;margin:0;">Cloud Backup auto-synchronizes your data to the cloud every month. Your Omni Tokens balance will be checked and deducted automatically on each sync — keep enough tokens to avoid an interruption.</p>
+        </div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Confirm & Send Verification Code',
+        cancelButtonText: 'Go Back',
+        confirmButtonColor: '#7c3aed'
+    });
+    if (!feeConfirm.isConfirmed) return false;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) || 'Unknown';
     let reqData;
     try {
@@ -2426,6 +2588,12 @@ async function showUpgradeTiersModal() {
         Swal.fire('Error','Could not load the upgrade options.','error');
         return false;
     }
+    if (catalog.activationFlags) {
+        activationFlagsCache = {
+            otpRequestsEnabled: catalog.activationFlags.otpRequestsEnabled !== false,
+            omniTokenActivationEnabled: catalog.activationFlags.omniTokenActivationEnabled !== false
+        };
+    }
     await refreshUnlockedFeaturesFromServer();
     const purchased = Array.isArray(purchasedFeatureIdsCache) ? purchasedFeatureIdsCache : [];
     const features = catalog.features.filter(f => !purchased.includes(f.id));
@@ -2435,6 +2603,11 @@ async function showUpgradeTiersModal() {
     if (features.length === 0) {
         Swal.fire('Unlocked!','All available features are now unlocked on this installation.','success');
         return true;
+    }
+    const unlockButtons = getUnlockModalButtonOptions();
+    if (unlockButtons.bothDisabled) {
+        await Swal.fire({ title:'Upgrade Requests Temporarily Unavailable', html: buildActivationNoteHtml(), icon:'warning', confirmButtonText:'OK' });
+        return false;
     }
     let selectedTierId = null;
     let selectedFeatureIds = new Set();
@@ -2511,14 +2684,11 @@ async function showUpgradeTiersModal() {
             `<div class="uw-modal-footer" style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;">` +
                 `<span class="uw-modal-footer-label" style="font-size:0.85rem;">Total:</span>` +
                 `<span id="uw-total-price" style="font-size:1.1rem;font-weight:700;">₱0</span>` +
-            `</div>`,
-        showCancelButton: true,
-        showDenyButton: true,
+            `</div>` +
+            buildActivationNoteHtml(),
+        ...unlockButtons.swalOptions,
         confirmButtonText:'Upgrade Now',
-        denyButtonText: '💎 Activate via Omni Tokens',
         cancelButtonText:'Not Now',
-        confirmButtonColor:'#2563eb',
-        denyButtonColor: '#7c3aed',
         didOpen: () => {
             const totalEl = document.getElementById('uw-total-price');
             const tierButtons = Array.from(document.querySelectorAll('.uw-tier-card'));
@@ -2535,12 +2705,12 @@ async function showUpgradeTiersModal() {
                     totalEl.textContent ='₱' + total;
                 }
             }
-            // Cloud Backup / RBAC / Multi-Branch ay subscription-only (hindi
-            // puwedeng i-bundle sa ibang item — tinatanggihan ito ng server).
-            // Kapag naka-check ang isa sa tatlong ito, i-disable ang LAHAT ng
-            // ibang checkbox at ang tier cards, dahil isahan lang dapat ang
-            // pagpili sa mga ito. Naka-enable pa rin ang sarili nitong
-            // checkbox para puwede pa ring i-uncheck.
+            // Cloud Backup / RBAC / Multi-Branch are subscription-only
+            // (cannot be bundled with other items — the server rejects
+            // that). When one of these three is checked, disable ALL other
+            // checkboxes and the tier cards, since only one of these can be
+            // selected at a time. Its own checkbox stays enabled so it can
+            // still be unchecked.
             function applySubscriptionExclusivity() {
                 const checkedSubscriptionId = Array.from(selectedFeatureIds)
                     .find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
@@ -2589,10 +2759,11 @@ async function showUpgradeTiersModal() {
                     if (chk.checked) {
                         selectedFeatureIds.add(id);
                         if (ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id)) {
-                            // Isahan lang ang subscription — alisin ang anumang
-                            // dati nang naka-check (kung nauna itong na-check
-                            // bago ang subscription item), para hindi
-                            // mapagkamalang parte pa rin ito ng total/request.
+                            // Only one subscription at a time — clear anything
+                            // that was already checked (if it was checked
+                            // before the subscription item), so it isn't
+                            // mistakenly still counted as part of the
+                            // total/request.
                             selectedFeatureIds = new Set([id]);
                             featureChecks.forEach(other => {
                                 if (other !== chk) other.checked = false;
@@ -2630,10 +2801,10 @@ async function showUpgradeTiersModal() {
         }
     });
     if (result.isDenied) {
-        // AYOS: hindi tumatakbo ang preConfirm para sa deny button, kaya
-        // dito muling kinukuha (parehong logic ng preConfirm sa itaas)
-        // ang kasalukuyang napiling tier/features mula sa closure
-        // variables (selectedTierId/selectedFeatureIds) mismo.
+        // NOTE: preConfirm does not run for the deny button, so here we
+        // re-derive (same logic as preConfirm above) the currently
+        // selected tier/features directly from the closure variables
+        // (selectedTierId/selectedFeatureIds).
         const deniedFeatureIds = selectedTierId
             ? tiers.find(t => t.id === selectedTierId).featureIds
             : Array.from(selectedFeatureIds);
@@ -2671,10 +2842,10 @@ async function showUpgradeTiersModal() {
     }
     if (!result.isConfirmed || !result.value || !result.value.featureIds || result.value.featureIds.length === 0) return false;
     if (result.value.subscriptionFeatureId) {
-        // Ang Cloud Backup/RBAC/Multi-Branch ay hindi puwedeng dumaan sa bulk
-        // unlock endpoint (tinatanggihan ito ng server dahil subscription
-        // sila) — kailangan dumaan sa kani-kanilang monthly/yearly (at, para
-        // sa Cloud Backup, tier) na subscription flow.
+        // Cloud Backup/RBAC/Multi-Branch cannot go through the bulk unlock
+        // endpoint (the server rejects them since they're subscriptions) —
+        // they must go through their own monthly/yearly (and, for Cloud
+        // Backup, tier) subscription flow.
         return result.value.subscriptionFeatureId === 'cloud_backup'
             ? promptCloudBackupSubscription()
             : promptModuleSubscription(result.value.subscriptionFeatureId);
@@ -3573,7 +3744,7 @@ async function openEditCustomerForm(id) {
     const { value: formValues } = await Swal.fire({
         title:'Edit Customer',
         html: `
-            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Buong Pangalan" value="${escapeHtml(cust.name)}">
+            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Full Name" value="${escapeHtml(cust.name)}">
             <input type="text" id="swal-cust-phone" class="swal2-input" placeholder="Phone Number" value="${escapeHtml(cust.phone ||'')}">
             <input type="email" id="swal-cust-email" class="swal2-input" placeholder="Email" value="${escapeHtml(cust.email ||'')}">
         `,
@@ -4438,11 +4609,11 @@ function openLoyaltyCardManageModal(customerId) {
              Mode: <b>${card.mode ==='static' ?'Static (Physical Card)' :'Rotating QR (Advanced/Auto-Refresh)'}</b><br>
              Status: <b style="color:${card.revoked ?'#ef4444':'#22c55e'};">${card.revoked ?'Revoked':'Active'}</b><br>
              Issued: ${new Date(card.issuedAt).toLocaleString()} by ${escapeHtml(card.issuedBy ||'—')}</p>`
-        :`<p style="color:#94a3b8;">Wala pang naka-issue na Loyalty Card/QR ang customer na ito.</p>`;
+        :`<p style="color:#94a3b8;">No Loyalty Card/QR has been issued for this customer yet.</p>`;
     if (!canManage) {
         Swal.fire({
             title: `Loyalty Card — ${escapeHtml(cust.name)}`,
-            html: statusHtml + `<p style="color:#f59e0b;font-size:0.85rem;">Kailangan ng "Issue/Regenerate Loyalty Card" permission para mag-issue, mag-regenerate, o mag-revoke.</p>`,
+            html: statusHtml + `<p style="color:#f59e0b;font-size:0.85rem;">The "Issue/Regenerate Loyalty Card" permission is required to issue, regenerate, or revoke.</p>`,
             icon:'info'
         });
         return;
@@ -4499,7 +4670,7 @@ async function issueOrRegenerateLoyaltyCard(cust, mode) {
 async function revokeLoyaltyCard(cust) {
     const confirmResult = await Swal.fire({
         title:'Revoke Loyalty Card/QR?',
-        text: `Hindi na magagamit ang kasalukuyang card/QR ni ${cust.name} pagkatapos nito.`,
+        text: `${cust.name}'s current card/QR will become unusable after this.`,
         icon:'warning',
         showCancelButton: true,
         confirmButtonText:'Yes, revoke',
@@ -5222,7 +5393,7 @@ function copySidebarNetworkInfo(event) {
 function showServerIpQrModal(event) {
     if (event) event.stopPropagation();
     if (!lastKnownServerNetworkAddress) {
-        Swal.fire('Not Available','Wala pang na-detect na Server IP. Siguraduhing naka-LAN mode at konektado sa WiFi/LAN ang device na ito, pagkatapos subukan ulit.','warning');
+        Swal.fire('Not Available','No Server IP has been detected yet. Please make sure this device is in LAN mode and connected to the WiFi/LAN, then try again.','warning');
         return;
     }
     const serverUrl = `http://${lastKnownServerNetworkAddress}`;
@@ -5234,7 +5405,7 @@ function showServerIpQrModal(event) {
             <div style="display:inline-block;background:#ffffff;padding:18px;border-radius:14px;box-shadow:0 0 0 1px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.25);">
                 <div id="${containerId}" style="display:flex;justify-content:center;align-items:center;line-height:0;"></div>
             </div>
-            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">I-scan gamit ang camera/QR scanner ng ibang device (PAREHONG WiFi/LAN) para direktang mabuksan ang OmniPOS.</p>
+            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">Scan with the camera/QR scanner on another device (on the SAME WiFi/LAN) to open OmniPOS directly.</p>
         `,
         confirmButtonText:'Close',
         showCancelButton: false,
@@ -5674,7 +5845,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 async function promptLoginOtp(loginToken, errorBanner) {
     const { value: otpCode, isDismissed } = await Swal.fire({
         title: '🔐 Admin Login OTP',
-        html: 'Naipadala ang isang 6-digit na OTP code sa naka-configure na email para sa Two-Factor Authentication. Ilagay ito para makumpleto ang login:',
+        html: 'A 6-digit OTP code has been sent to the configured email for Two-Factor Authentication. Enter it to complete login:',
         input: 'text',
         inputPlaceholder: '000000',
         showCancelButton: true,
@@ -5696,13 +5867,13 @@ async function promptLoginOtp(loginToken, errorBanner) {
             return;
         }
         if (verifyData.code === 'OTP_EXPIRED') {
-            Swal.fire('Expired na ang OTP', verifyData.message || 'Mag-login ulit para makahingi ng bagong OTP.', 'error');
+            Swal.fire('OTP Expired', verifyData.message || 'Please log in again to request a new OTP.', 'error');
             return;
         }
         const retry = await Swal.fire({
             icon: 'error',
-            title: 'Maling OTP',
-            text: verifyData.message || 'Maling OTP code. Subukan ulit.',
+            title: 'Incorrect OTP',
+            text: verifyData.message || 'Incorrect OTP code. Please try again.',
             showCancelButton: true,
             confirmButtonText: 'Try Again',
             cancelButtonText: 'Cancel'
@@ -5807,12 +5978,28 @@ async function loadCloudTokensView() {
 function renderCloudTokensOverview(data) {
     // Google App Verification status
     const statusEl = document.getElementById('ct-google-app-status');
+    const googleAppHeadingText = document.getElementById('ct-google-app-heading-text');
+    const googleAppChevron = document.getElementById('ct-google-app-chevron');
+    const googleAppBody = document.getElementById('ct-google-app-body');
+    const isGoogleAppConfigured = !!(data.googleAppVerification && data.googleAppVerification.configured);
     if (statusEl) {
-        if (data.googleAppVerification && data.googleAppVerification.configured) {
+        if (isGoogleAppConfigured) {
             statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#22c55e;"></i> Verified — <strong>${data.googleAppVerification.emailMasked || 'configured'}</strong>`;
         } else {
             statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:#ef4444;"></i> Not yet configured`;
         }
+    }
+    // Collapse the card by default once verified (matches the Receipt
+    // Customization page's Google App Verification behavior); keep it
+    // expanded with no chevron when not yet configured.
+    if (isGoogleAppConfigured) {
+        if (googleAppHeadingText) googleAppHeadingText.textContent = 'Google App Verified';
+        if (googleAppChevron) { googleAppChevron.style.display = 'inline-block'; googleAppChevron.classList.remove('fa-chevron-up'); googleAppChevron.classList.add('fa-chevron-down'); }
+        if (googleAppBody) googleAppBody.style.display = 'none';
+    } else {
+        if (googleAppHeadingText) googleAppHeadingText.textContent = 'Google App Verification';
+        if (googleAppChevron) googleAppChevron.style.display = 'none';
+        if (googleAppBody) googleAppBody.style.display = 'block';
     }
     // Plan / cost-per-sync
     const planNameEl = document.getElementById('ct-plan-name');
@@ -5825,6 +6012,55 @@ function renderCloudTokensOverview(data) {
     if (costPerSyncEl) {
         const exact = data.cloudBackup && data.cloudBackup.tokenCostPerSyncExact;
         costPerSyncEl.textContent = (typeof exact === 'number') ? exact : ((data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--');
+    }
+    // AYOS/BAGO: buwanang breakdown — ipinapakita rito nang malinaw na ang
+    // maintenance fee (babawasin agad sa activation/renewal) ay HIWALAY sa
+    // tokens na kakailanganin para sa aktwal na auto-sync, at ang
+    // tinatayang TOTAL na kailangan bawat buwan (~2x ng maintenance fee sa
+    // normal na dalas) — para hindi na magulat ang admin sa dulo ng buwan.
+    const estBox = document.getElementById('ct-monthly-estimate');
+    if (estBox) {
+        const maintFee = data.cloudBackup && data.cloudBackup.maintenanceFeeTokens;
+        const estTotal = data.cloudBackup && data.cloudBackup.estTotalMonthlyTokens;
+        // NEW: estSyncTokensPerMonth now comes explicitly from the server
+        // instead of being derived here as (estTotal - maintFee).
+        const estSyncServerValue = data.cloudBackup && data.cloudBackup.estSyncTokensPerMonth;
+        if (typeof maintFee === 'number' && typeof estTotal === 'number') {
+            const estSync = (typeof estSyncServerValue === 'number') ? estSyncServerValue : (estTotal - maintFee);
+            document.getElementById('ct-est-maintenance').textContent = `${maintFee} token(s)`;
+            document.getElementById('ct-est-sync').textContent = `~${estSync} token(s)`;
+            document.getElementById('ct-est-total').textContent = `~${estTotal} token(s)`;
+            const extraMonthEl = document.getElementById('ct-est-extra-month');
+            if (extraMonthEl) extraMonthEl.textContent = `~${estSync}`;
+            estBox.style.display = 'flex';
+        } else {
+            estBox.style.display = 'none';
+        }
+    }
+    // NEW: yearly breakdown box — same idea as the monthly box above, but
+    // for a full year (12 maintenance renewals + 12 months of syncs), so
+    // the customer can plan ahead for how much extra balance to buy at
+    // once instead of topping up every month. Approximate estimate only.
+    const estYearBox = document.getElementById('ct-yearly-estimate');
+    if (estYearBox) {
+        // FIX: the yearly maintenance fee is the tier's actual discounted
+        // yearly price from RELAY (maintenanceFeeTokensYearly), NOT
+        // maintenanceFeeTokens * 12 — the RELAY yearly price already has a
+        // discount built in (e.g. ~2 months off vs. 12 monthly renewals),
+        // so multiplying the monthly fee by 12 here would overstate it.
+        const maintFeeYear = data.cloudBackup && data.cloudBackup.maintenanceFeeTokensYearly;
+        const estSyncYear = data.cloudBackup && data.cloudBackup.estSyncTokensPerYear;
+        const estTotalYear = data.cloudBackup && data.cloudBackup.estTotalYearlyTokens;
+        if (typeof maintFeeYear === 'number' && typeof estSyncYear === 'number' && typeof estTotalYear === 'number') {
+            document.getElementById('ct-est-maintenance-year').textContent = `${maintFeeYear} token(s)`;
+            document.getElementById('ct-est-sync-year').textContent = `~${estSyncYear} token(s)`;
+            document.getElementById('ct-est-total-year').textContent = `~${estTotalYear} token(s)`;
+            const extraYearEl = document.getElementById('ct-est-extra-year');
+            if (extraYearEl) extraYearEl.textContent = `~${estSyncYear}`;
+            estYearBox.style.display = 'flex';
+        } else {
+            estYearBox.style.display = 'none';
+        }
     }
     // Auto-sync toggle (reflect current state without re-firing onchange)
     const toggleEl = document.getElementById('ct-autosync-toggle');
@@ -5887,13 +6123,45 @@ function renderCloudTokensOverview(data) {
     if (packagesGrid) {
         if (data.packages && data.packages.available && data.packages.items) {
             const items = data.packages.items;
-            packagesGrid.innerHTML = Object.keys(items).map(tier => {
+            // UPDATE: only show the "Starter Bundle" packages (isBundle: true,
+            // the ones with the "Covers a full month" badge). The plain
+            // per-tier cards (maintenance-fee-only, no badge) are no longer
+            // shown as separate buyable cards — their breakdown numbers are
+            // still visible inside each bundle card, and a bare maintenance
+            // -fee-only purchase invites the exact insufficient-balance
+            // problem the bundles exist to avoid.
+            packagesGrid.innerHTML = Object.keys(items).filter(tier => items[tier].isBundle).map(tier => {
                 const pkg = items[tier];
-                return `<div class="ct-package-option">
+                const bundleBadge = pkg.isBundle ? `<div class="ct-package-badge"><i class="fa-solid fa-circle-check"></i> Covers a full month</div>` : '';
+                const hasBreakdown = typeof pkg.maintenanceFeeTokens === 'number' && typeof pkg.estSyncTokensPerMonth === 'number';
+                // NEW: Est. sync cost (1 mo.) is now a real, data-size-based
+                // estimate (decoupled from the maintenance fee — it no longer
+                // just copies the price), plus a yearly row and a plain
+                // "recommended extra balance" line so customers know roughly
+                // how much extra (on top of the maintenance fee) to buy for
+                // a full month or a full year. These are approximate
+                // estimates, not guaranteed final costs.
+                const hasYearlyBreakdown = typeof pkg.estSyncTokensPerYear === 'number' && typeof pkg.estTotalYearlyTokens === 'number';
+                // FIX: maintenanceFeeTokensYearly is the tier's actual
+                // discounted yearly price from RELAY (NOT maintenanceFeeTokens
+                // * 12) — shown explicitly here so the yearly discount is
+                // visible, consistent with the Current Plan yearly box.
+                const breakdown = hasBreakdown ? `<div class="ct-package-breakdown">
+                        <div><span>Maintenance fee</span><span>${pkg.maintenanceFeeTokens} tokens</span></div>
+                        <div><span>Est. sync cost (1 mo.)</span><span>~${pkg.estSyncTokensPerMonth} tokens</span></div>
+                        <div class="ct-package-breakdown-total"><span>Est. total needed/mo.</span><span>~${pkg.estTotalMonthlyTokens} tokens</span></div>
+                        ${hasYearlyBreakdown ? `<div><span>Maintenance fee (yearly, discounted)</span><span>${pkg.maintenanceFeeTokensYearly} tokens</span></div>
+                        <div><span>Est. sync cost (1 yr.)</span><span>~${pkg.estSyncTokensPerYear} tokens</span></div>
+                        <div class="ct-package-breakdown-total"><span>Est. total needed/yr.</span><span>~${pkg.estTotalYearlyTokens} tokens</span></div>` : ''}
+                        <div class="ct-package-breakdown-note" style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem;">Approximate estimate, not a guaranteed final cost. Recommended extra balance on top of the maintenance fee: ~${pkg.estSyncTokensPerMonth} token(s)/mo., ~${pkg.estSyncTokensPerYear || pkg.estSyncTokensPerMonth * 12} token(s)/yr.</div>
+                    </div>` : '';
+                return `<div class="ct-package-option ${pkg.isBundle ? 'ct-package-bundle' : ''}">
+                    ${bundleBadge}
                     <div class="ct-package-name">${pkg.name || tier}</div>
                     <div class="ct-package-tokens"><i class="fa-solid fa-gem"></i> ${pkg.tokens} tokens</div>
                     <div class="ct-package-price">₱${pkg.amountPHP}</div>
                     <div class="ct-package-tagline">${pkg.tagline || ''}</div>
+                    ${breakdown}
                     <select class="ct-payment-select" id="ct-method-${tier}" ${availableMethods.length ? '' : 'disabled'}>
                         ${paymentOptionsHtml}
                     </select>
@@ -7419,6 +7687,14 @@ async function loadBranchesWidget() {
         if (res.status === 402) {
             const locked = await res.json();
             card.style.display = '';
+            // Multi-Branch is a subscription feature (like Cloud Backup), so
+            // `locked.price` is always null here — the real price lives in
+            // `locked.subscriptionPrice.monthly`. Match Cloud Backup's own
+            // unlock button wording ("starting at ₱X/mo") instead of the
+            // one-time-purchase phrasing this used to have.
+            const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number'
+                ? locked.subscriptionPrice.monthly
+                : locked.price;
             body.innerHTML = `
                 <div style="text-align:center; padding:10px 4px;">
                     <p style="font-size:0.85rem;color:#64748b;margin:6px 0 10px;line-height:1.5;">
@@ -7426,7 +7702,7 @@ async function loadBranchesWidget() {
                         See combined sales across all your branches in one view.
                     </p>
                     <button type="button" id="branches-widget-unlock-btn" class="btn-action-outline">
-                        <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — ₱${locked.price}
+                        <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — starting at ₱${monthlyPrice}/mo
                     </button>
                 </div>`;
             const unlockBtn = document.getElementById('branches-widget-unlock-btn');
@@ -8756,7 +9032,7 @@ function applyLoyaltyPointsFromScan() {
 function applyLoyaltyPointsToCart() {
     if (guardPremiumFeature('customer_crm')) return;
     if (!selectedCartCustomer) {
-        Swal.fire('No Customer Selected','Pumili muna ng customer para makagamit ng loyalty points.','warning');
+        Swal.fire('No Customer Selected','Please select a customer first to use loyalty points.','warning');
         return;
     }
     const input = document.getElementById('cart-loyalty-input');
@@ -8764,7 +9040,7 @@ function applyLoyaltyPointsToCart() {
     let pts = parseInt(input ? input.value : 0) || 0;
     const available = selectedCartCustomer.points || 0;
     if (pts <= 0) {
-        Swal.fire('Invalid Amount','Maglagay ng bilang ng points na gagamitin.','warning');
+        Swal.fire('Invalid Amount','Please enter the number of points to redeem.','warning');
         return;
     }
     if (pts > available) pts = available;
@@ -8870,12 +9146,12 @@ async function promptCreditDebtDraft() {
     const { value: formValues } = await Swal.fire({
         title:'Add Debt (Customer Credit)',
         html: `
-            <p style="text-align:left;color:#94a3b8;font-size:0.85rem;margin:0 0 8px;">Ang bentang ito ay ipapasok sa <b>Debtors</b> sa halip na cash/e-wallet/card.</p>
+            <p style="text-align:left;color:#94a3b8;font-size:0.85rem;margin:0 0 8px;">This sale will be recorded under <b>Debtors</b> instead of cash/e-wallet/card.</p>
             <input type="text" id="swal-credit-name" class="swal2-input" placeholder="Debtor's Full Name" value="${escapeHtml(nameVal)}" ${nameLocked ? 'readonly style="background:#f1f5f9;"' : ''}>
             <input type="text" id="swal-credit-phone" class="swal2-input" placeholder="Phone Number (optional)" value="${escapeHtml(phoneVal)}">
             <input type="text" class="swal2-input" value="₱${dueAmount.toFixed(2)}" readonly style="background:#f1f5f9;" title="Amount owed = sale total">
-            <textarea id="swal-credit-note" class="swal2-textarea" placeholder="Note (hal. dahilan, kailan babayaran, atbp.)"></textarea>
-            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time (kailan babayaran):</label>
+            <textarea id="swal-credit-note" class="swal2-textarea" placeholder="Note (e.g. reason, when it will be paid, etc.)"></textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time (when payment is due):</label>
             <input type="datetime-local" id="swal-credit-due" class="swal2-input">
         `,
         focusConfirm: false,
@@ -8886,7 +9162,7 @@ async function promptCreditDebtDraft() {
         preConfirm: () => {
             const name = document.getElementById('swal-credit-name').value.trim();
             if (!name) {
-                Swal.showValidationMessage("Kailangan ng pangalan ng debtor.");
+                Swal.showValidationMessage("The debtor's name is required.");
                 return false;
             }
             return {
@@ -9089,7 +9365,7 @@ async function submitFinalPaymentTransactionInner() {
     let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱',''));
     let received, change, paymentMethodLabel, payments = null;
     if (!splitPaymentMode && selectedPaymentMethod ==='CCREDIT' && !pendingCreditDebtDraft) {
-        Swal.fire('Kailangan ng Debt Info','Punan muna ang detalye ng utang bago magpatuloy.','warning');
+        Swal.fire('Debt Info Required','Please fill in the debt details first before proceeding.','warning');
         return;
     }
     if (splitPaymentMode) {
@@ -9175,7 +9451,7 @@ async function submitFinalPaymentTransactionInner() {
     if (cartDiscountType ==='LOYALTY' && cartLoyaltyPointsRedeemed > 0 && !cartLoyaltyCardToken) {
         const { value: lpw } = await Swal.fire({
             title:'🔒 Manual Loyalty Redemption Authorization',
-            html: `Walang na-scan na Loyalty Card/QR. Kailangan ng Admin o Supervisor password para paunahan ang manual na pag-redeem ng <b>${cartLoyaltyPointsRedeemed} pts</b>:`,
+            html: `No Loyalty Card/QR was scanned. An Admin or Supervisor password is required to authorize manually redeeming <b>${cartLoyaltyPointsRedeemed} pts</b>:`,
             input:'password',
             inputPlaceholder:'Password',
             showCancelButton: true,
@@ -9736,6 +10012,17 @@ async function loadSystemResetPanel() {
 function toggleOtpSenderBox() {
     const body = document.getElementById('rc-otp-sender-body');
     const chevron = document.getElementById('rc-otp-sender-toggle-chevron');
+    if (!body) return;
+    const isHidden = body.style.display ==='none' || !body.style.display;
+    body.style.display = isHidden ?'block' :'none';
+    if (chevron) {
+        chevron.classList.toggle('fa-chevron-down', !isHidden);
+        chevron.classList.toggle('fa-chevron-up', isHidden);
+    }
+}
+function toggleCtGoogleAppBox() {
+    const body = document.getElementById('ct-google-app-body');
+    const chevron = document.getElementById('ct-google-app-chevron');
     if (!body) return;
     const isHidden = body.style.display ==='none' || !body.style.display;
     body.style.display = isHidden ?'block' :'none';
@@ -11765,10 +12052,10 @@ function renderTransactionsRows(transactions) {
  style="color: var(--primary-blue); padding: 4px 8px; font-size: 0.9rem;">
                     <i class="fa-solid fa-eye"></i> View
                 </button>
-                <button class="btn-clear" onclick="handleVoidTransaction('${tx.id}')" style="color: #ef4444; padding: 4px 8px; font-size: 0.9rem; margin-left: 5px;" ${totalRefunded > 0 ? 'disabled title="May naitalang refund na sa transaksyong ito — hindi na puwedeng i-void, gamitin na lang ang Refund para sa natitirang balanse"' : ''}>
+                <button class="btn-clear" onclick="handleVoidTransaction('${tx.id}')" style="color: #ef4444; padding: 4px 8px; font-size: 0.9rem; margin-left: 5px;" ${totalRefunded > 0 ? 'disabled title="This transaction already has a recorded refund — it can no longer be voided. Use Refund instead for the remaining balance."' : ''}>
         <i class="fa-solid fa-ban"></i> Void
  </button>
-                <button class="btn-clear" onclick="handleRefundTransaction('${tx.id}')" style="color: #f59e0b; padding: 4px 8px; font-size: 0.9rem; margin-left: 5px;" ${isFullyRefunded ? 'disabled title="Naka-full refund na ang transaksyong ito"' : ''}>
+                <button class="btn-clear" onclick="handleRefundTransaction('${tx.id}')" style="color: #f59e0b; padding: 4px 8px; font-size: 0.9rem; margin-left: 5px;" ${isFullyRefunded ? 'disabled title="This transaction has already been fully refunded"' : ''}>
         <i class="fa-solid fa-rotate-left"></i> Refund
  </button>
             </td>
@@ -12188,7 +12475,7 @@ function openProductSpecsModal() {
         applyState(draft.description, draft.specs);
         Swal.fire({
             toast: true, position:'top-end', icon:'info',
-            title:'May na-restore na draft mula sa hindi na-save na sesyon.',
+            title:'A draft from an unsaved session has been restored.',
             showConfirmButton: false, timer: 2500, timerProgressBar: true
         });
     } else {
@@ -12226,18 +12513,18 @@ function openCopySpecsFromProductModal() {
     const pool = (cachedInventoryProducts && cachedInventoryProducts.length) ? cachedInventoryProducts : (globalProducts || []);
     const candidates = pool.filter(p => p.code !== currentCode && ((p.description && p.description.trim()) || (Array.isArray(p.specs) && p.specs.length)));
     if (!candidates.length) {
-        Swal.fire('Walang Available','Wala pang ibang produkto na may naka-save na Specs/Description.','info');
+        Swal.fire('None Available','No other product has saved Specs/Description yet.','info');
         return;
     }
     Swal.fire({
-        title:'Copy Specs mula sa Ibang Produkto',
+        title:'Copy Specs from Another Product',
         html: `
-            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Maghanap ng produkto (code o pangalan)..." autocomplete="off">
+            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Search for a product (code or name)..." autocomplete="off">
             <div id="copy-specs-list" style="max-height:260px;overflow-y:auto;text-align:left;border:1px solid #e2e8f0;border-radius:8px;margin-top:8px;"></div>
         `,
         showConfirmButton: false,
         showCancelButton: true,
-        cancelButtonText:'Isara',
+        cancelButtonText:'Close',
         didOpen: () => {
             const renderList = (query) => {
                 const q = (query ||'').trim().toLowerCase();
@@ -12715,11 +13002,11 @@ function openBulkSpecsImportModal() {
         title:'Bulk Import Specs',
         html: `
             <p style="font-size:0.85rem;color:#64748b;text-align:left;">
-                Mag-upload ng CSV file na may 2 column: <b>Code</b> at <b>Description</b>.<br>
-                Ang unang row dapat ang header. Ang mga Product Code na wala sa system ay iski-skip.
+                Upload a CSV file with 2 columns: <b>Code</b> and <b>Description</b>.<br>
+                The first row must be the header. Product Codes not found in the system will be skipped.
             </p>
         `,
-        confirmButtonText:'Piliin ang CSV File',
+        confirmButtonText:'Choose CSV File',
         showCancelButton: true,
         cancelButtonText:'Cancel'
     }).then(result => {
@@ -12763,37 +13050,37 @@ async function handleBulkSpecsImportFile(event) {
     try {
         text = await file.text();
     } catch (e) {
-        Swal.fire('Error','Hindi ma-basa ang file.','error');
+        Swal.fire('Error','Could not read the file.','error');
         return;
     }
     const rows = parseSimpleCsv(text);
     if (rows.length < 2) {
-        Swal.fire('Walang Laman','Walang mahanap na laman sa CSV file.','warning');
+        Swal.fire('Empty File','No content was found in the CSV file.','warning');
         return;
     }
     const header = rows[0].map(h => h.trim().toLowerCase());
     const codeIdx = header.indexOf('code');
     const descIdx = header.indexOf('description');
     if (codeIdx === -1 || descIdx === -1) {
-        Swal.fire('Maling Format','Kailangan ng "Code" at "Description" column sa CSV file.','error');
+        Swal.fire('Invalid Format','The CSV file must have "Code" and "Description" columns.','error');
         return;
     }
     const dataRows = rows.slice(1).filter(r => (r[codeIdx] ||'').trim());
     if (!dataRows.length) {
-        Swal.fire('Walang Laman','Walang valid na Code na nahanap sa file.','warning');
+        Swal.fire('Empty File','No valid Code was found in the file.','warning');
         return;
     }
     const confirmResult = await Swal.fire({
-        title: `I-import ang ${dataRows.length} specs/description?`,
-        text:'Ipapalit nito ang Description ng mga tumutugmang Product Code.',
+        title: `Import ${dataRows.length} specs/description?`,
+        text:'This will replace the Description of matching Product Codes.',
         icon:'question',
         showCancelButton: true,
-        confirmButtonText:'Oo, i-import',
+        confirmButtonText:'Yes, import',
         cancelButtonText:'Cancel'
     });
     if (!confirmResult.isConfirmed) return;
     Swal.fire({
-        title:'Iniimport...',
+        title:'Importing...',
         allowOutsideClick: false,
         allowEscapeKey: false,
         showConfirmButton: false,
@@ -12820,7 +13107,7 @@ async function handleBulkSpecsImportFile(event) {
     if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
     Swal.fire({
         title:'Import Complete',
-        html: `<p>✅ Na-update: <b>${updated}</b></p><p>⏭️ Na-skip (walang tugmang code): <b>${skipped}</b></p>${failed ? `<p>❌ Nabigo: <b>${failed}</b></p>` :''}`,
+        html: `<p>✅ Updated: <b>${updated}</b></p><p>⏭️ Skipped (no matching code): <b>${skipped}</b></p>${failed ? `<p>❌ Failed: <b>${failed}</b></p>` :''}`,
         icon:'success'
     });
 }
@@ -13979,7 +14266,7 @@ async function generateSelectedBarcodePreview() {
             });
             const data = await response.json();
             if (!data.success) {
-                Swal.fire('Access Denied', data.message ||'Maling Admin password.','error');
+                Swal.fire('Access Denied', data.message ||'Incorrect Admin password.','error');
                 return;
             }
             authMethod ="PASSWORD_VERIFIED";
@@ -15103,7 +15390,7 @@ async function handleUserFormSubmit(e) {
                     });
                     const pwData = await pwRes.json();
                     if (!(pwRes.ok && pwData.success)) {
-                        Swal.fire('Partially Saved', SYSTEM_CONFIG.getErrorMessage(pwData.message ||"Na-save ang ibang changes pero hindi na-reset ang password."),'warning');
+                        Swal.fire('Partially Saved', SYSTEM_CONFIG.getErrorMessage(pwData.message ||"Other changes were saved but the password could not be reset."),'warning');
                         closeModal('user-modal');
                         if (typeof loadUsersTable ==='function') loadUsersTable();
                         return;
@@ -15119,7 +15406,7 @@ async function handleUserFormSubmit(e) {
                     if (typeof renderSidebarUserWidget ==='function') renderSidebarUserWidget();
                     if (typeof renderOverviewGreeting ==='function') renderOverviewGreeting();
                 }
-                Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage("Na-update na ang user account."),'success');
+                Swal.fire('Saved', SYSTEM_CONFIG.getSuccessMessage("The user account has been updated."),'success');
                 closeModal('user-modal');
                 if (typeof loadUsersTable ==='function') loadUsersTable();
                 if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
@@ -15541,7 +15828,7 @@ async function executeSystemHardReset() {
         }
         if (!startResult.success || !startResult.jobId) {
             window.__logoutInProgress = false;
-            Swal.fire('Process Failed', startResult.message || 'Hindi na-start ang reset job.', 'error');
+            Swal.fire('Process Failed', startResult.message || 'The reset job could not be started.', 'error');
             return;
         }
         const jobId = startResult.jobId;
@@ -17296,7 +17583,7 @@ async function toggleAppFullscreen() {
         if (typeof showInstallAppBanner === 'function') {
             showInstallAppBanner({ mode: isIOS ? 'ios' : 'android' });
         } else if (typeof Swal !== 'undefined') {
-            Swal.fire('Fullscreen Not Available', 'Hindi sinusuportahan ng browser na ito ang Fullscreen mode. Subukang i-install ang OmniPOS sa Home Screen para sa full-screen na view.', 'info');
+            Swal.fire('Fullscreen Not Available', 'This browser does not support Fullscreen mode. Try installing OmniPOS to your Home Screen for a full-screen view.', 'info');
         }
         return;
     }
@@ -17596,7 +17883,7 @@ function triggerSystemRestore() {
                     if (err instanceof TypeError) {
                         Swal.fire('Server Connection Error','There was a problem connecting to the server. Make sure server.js is running.','error');
                     } else {
-                        Swal.fire('Restore Failed', err.message ||'May problema sa pag-restore. Subukan ulit.','error');
+                        Swal.fire('Restore Failed', err.message ||'There was a problem restoring. Please try again.','error');
                     }
                 });
             } catch (err) {
@@ -17985,13 +18272,13 @@ async function handleVoidTransaction(transactionId) {
         }
     } catch (err) {
         console.error("Void Error:", err);
-        Swal.fire('Error','May problema sa connection sa server.','error');
+        Swal.fire('Error','There was a problem connecting to the server.','error');
     }
 }
 async function handleRefundTransaction(transactionId) {
     const tx = (localTransactionsList || []).find(t => t.id === transactionId);
     if (!tx) {
-        Swal.fire('Not Found', 'Hindi mahanap ang transaksyong ito sa kasalukuyang listahan. I-refresh muna ang Transactions tab.', 'error');
+        Swal.fire('Not Found', 'This transaction could not be found in the current list. Please refresh the Transactions tab first.', 'error');
         return;
     }
     const refundedQtyMap = tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
@@ -18001,18 +18288,18 @@ async function handleRefundTransaction(transactionId) {
         return { ...item, alreadyRefunded, maxRefundable };
     });
     if (refundableItems.every(it => it.maxRefundable <= 0)) {
-        Swal.fire('Wala nang Matitira', 'Naka-full refund na ang lahat ng items sa transaksyong ito.', 'info');
+        Swal.fire('Nothing Left to Refund', 'All items in this transaction have already been fully refunded.', 'info');
         return;
     }
     const itemRowsHtml = refundableItems.map((item, idx) => {
         const disabled = item.maxRefundable <= 0 ? 'disabled' : '';
-        const alreadyNote = item.alreadyRefunded > 0 ? ` <span style="color:#f59e0b;">(${item.alreadyRefunded} na na-refund dati)</span>` : '';
+        const alreadyNote = item.alreadyRefunded > 0 ? ` <span style="color:#f59e0b;">(${item.alreadyRefunded} already refunded previously)</span>` : '';
         return `
             <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:left;">
                 <input type="checkbox" class="refund-item-check" data-idx="${idx}" ${disabled} style="width:auto;">
                 <div style="flex:1;">
                     <div style="font-size:0.85rem; font-weight:600;">${escapeHtml(item.name)}${alreadyNote}</div>
-                    <div style="font-size:0.75rem; color:#64748b;">₱${parseFloat(item.price).toFixed(2)} each — natitirang pwedeng i-refund: ${item.maxRefundable}</div>
+                    <div style="font-size:0.75rem; color:#64748b;">₱${parseFloat(item.price).toFixed(2)} each — remaining refundable: ${item.maxRefundable}</div>
                 </div>
                 <input type="number" class="refund-item-qty" data-idx="${idx}" min="0" max="${item.maxRefundable}" value="${item.maxRefundable > 0 ? item.maxRefundable : 0}" ${disabled} style="width:60px; padding:4px;">
             </div>
@@ -18022,10 +18309,10 @@ async function handleRefundTransaction(transactionId) {
         title: '↩️ Refund Items',
         html: `
             <div style="max-height:280px; overflow-y:auto; margin-bottom:10px;">${itemRowsHtml}</div>
-            <textarea id="refund-reason-input" placeholder="Dahilan ng refund (e.g. sirang produkto, mali ang binili, atbp.)" style="width:100%; min-height:60px; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-family:inherit;"></textarea>
+            <textarea id="refund-reason-input" placeholder="Reason for refund (e.g. defective product, wrong item purchased, etc.)" style="width:100%; min-height:60px; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-family:inherit;"></textarea>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Magpatuloy',
+        confirmButtonText: 'Continue',
         confirmButtonColor: '#f59e0b',
         cancelButtonColor: '#64748b',
         width: 480,
@@ -18040,13 +18327,13 @@ async function handleRefundTransaction(transactionId) {
                 const item = refundableItems[idx];
                 if (qty <= 0) return;
                 if (qty > item.maxRefundable) {
-                    Swal.showValidationMessage(`Sobra ang quantity para sa ${item.name} (max: ${item.maxRefundable})`);
+                    Swal.showValidationMessage(`Quantity exceeds the available amount for ${item.name} (max: ${item.maxRefundable})`);
                     return;
                 }
                 items.push({ code: item.code, quantity: qty });
             });
             if (items.length === 0) {
-                Swal.showValidationMessage('Pumili ng kahit isang item na i-re-refund (checkbox + quantity).');
+                Swal.showValidationMessage('Please select at least one item to refund (checkbox + quantity).');
                 return;
             }
             const reason = (document.getElementById('refund-reason-input').value || '').trim();
@@ -18080,14 +18367,14 @@ async function handleRefundTransaction(transactionId) {
         });
         const result = await response.json();
         if (result.success) {
-            Swal.fire('Success', result.message || 'Na-process ang refund at naibalik ang stock!', 'success');
+            Swal.fire('Success', result.message || 'Refund processed and stock restored!', 'success');
             location.reload();
         } else {
-            Swal.fire('Error', result.message || 'Hindi ma-process ang refund.', 'error');
+            Swal.fire('Error', result.message || 'Could not process the refund.', 'error');
         }
     } catch (err) {
         console.error('Refund Error:', err);
-        Swal.fire('Error', 'May problema sa connection sa server.', 'error');
+        Swal.fire('Error', 'There was a problem connecting to the server.', 'error');
     }
 }
 function searchInsideBackupFile() {
@@ -18123,21 +18410,21 @@ function searchInsideBackupFile() {
                     (t.id && String(t.id) === searchId) ||
                     (t.transactionId && String(t.transactionId) === searchId)
                 );
-                if (hit) foundSection ='Transactions (Benta)';
+                if (hit) foundSection ='Transactions (Sales)';
             }
             if (!hit && backupData.userlogs && Array.isArray(backupData.userlogs)) {
                 hit = backupData.userlogs.find(log =>
                     (log.id && String(log.id) === searchId) ||
                     (log.action && log.action.includes(searchId))
                 );
-                if (hit) foundSection ='User Logs (Kasaysayan)';
+                if (hit) foundSection ='User Logs (History)';
             }
             if (!hit && backupData.products && Array.isArray(backupData.products)) {
                 hit = backupData.products.find(p =>
                     (p.code && String(p.code) === searchId) ||
                     (p.name && p.name.toLowerCase().includes(searchId.toLowerCase()))
                 );
-                if (hit) foundSection ='Products (Imbentaryo)';
+                if (hit) foundSection ='Products (Inventory)';
             }
             if (hit) {
                 let tableRowsHtml ='';
@@ -18430,7 +18717,7 @@ async function handleHardwareScanTerminal(scannedCode) {
         if (typeof playScanBeep ==='function') playScanBeep();
         Swal.fire({
             toast: true, position:'top-end', icon:'success',
-            title: `Naidagdag sa cart: ${product.name}`,
+            title: `Added to cart: ${product.name}`,
             showConfirmButton: false, timer: 800, timerProgressBar: true,
             customClass: { popup:'scan-fast-toast' },
             showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
@@ -18480,7 +18767,7 @@ function handleHardwareScanInventory(scannedCode) {
         highlightInventoryRow(product.code);
         Swal.fire({
             toast: true, position:'top-end', icon:'success',
-            title: `Nakita: ${product.name}`,
+            title: `Found: ${product.name}`,
             showConfirmButton: false, timer: 1500, timerProgressBar: true
         });
     } else {
@@ -18548,40 +18835,40 @@ document.addEventListener('DOMContentLoaded', function () {
     async function openAdminResetModal() {
         const confirm = await Swal.fire({
             title: 'Reset Admin Password',
-            text: 'Magpapadala ito ng reset request papunta sa developer. Kailangan mo ng OTP mula sa kanila para magpatuloy.',
+            text: 'This will send a reset request to the developer. You will need an OTP from them to continue.',
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonText: 'Magpadala ng Request'
+            confirmButtonText: 'Send Request'
         });
         if (!confirm.isConfirmed) return;
         try {
             const reqRes = await fetch('/api/admin/request-password-reset', { method: 'POST' });
             const reqData = await reqRes.json();
             if (!reqData.success) {
-                Swal.fire('Hindi Naipadala', reqData.message || 'Nabigo ang request.', 'error');
+                Swal.fire('Not Sent', reqData.message || 'The request failed.', 'error');
                 return;
             }
         } catch (err) {
-            Swal.fire('Error', `Hindi ma-reach ang server: ${err.message}`, 'error');
+            Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
             return;
         }
         const { value: formValues } = await Swal.fire({
-            title: 'Ilagay ang OTP + Bagong Password',
+            title: 'Enter OTP + New Password',
             html:
                 '<input id="swal-otp" class="swal2-input" placeholder="6-digit OTP" maxlength="6">' +
-                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="Bagong Password (min 8 chars)">',
+                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="New Password (min 8 chars)">',
             focusConfirm: false,
             showCancelButton: true,
-            confirmButtonText: 'I-reset ang Password',
+            confirmButtonText: 'Reset Password',
             preConfirm: () => {
                 const otp = document.getElementById('swal-otp').value.trim();
                 const newPassword = document.getElementById('swal-new-pw').value.trim();
                 if (!otp || otp.length !== 6) {
-                    Swal.showValidationMessage('Ilagay ang 6-digit OTP.');
+                    Swal.showValidationMessage('Please enter the 6-digit OTP.');
                     return false;
                 }
                 if (!newPassword || newPassword.length < 8) {
-                    Swal.showValidationMessage('Dapat hindi bababa sa 8 characters ang bagong password.');
+                    Swal.showValidationMessage('The new password must be at least 8 characters.');
                     return false;
                 }
                 return { otp, newPassword };
@@ -18600,12 +18887,12 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             if (confirmData.cancelled) return;
             if (!confirmData.success) {
-                Swal.fire('Hindi Na-reset', confirmData.message || 'Nabigo ang pag-reset.', 'error');
+                Swal.fire('Not Reset', confirmData.message || 'The reset failed.', 'error');
                 return;
             }
-            Swal.fire('Tagumpay!', 'Na-update na ang Admin password. Puwede ka nang mag-login gamit ang bago.', 'success');
+            Swal.fire('Success!', 'The Admin password has been updated. You can now log in using the new one.', 'success');
         } catch (err) {
-            Swal.fire('Error', `Hindi ma-reach ang server: ${err.message}`, 'error');
+            Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
         }
     }
 })();

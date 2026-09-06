@@ -10262,6 +10262,36 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     flex-direction: column;
     gap: 4px;
 }
+.ct-monthly-estimate {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border: 1px dashed var(--border-color);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    font-size: 0.82rem;
+}
+.ct-monthly-estimate-title {
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+.ct-monthly-estimate-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-muted);
+}
+.ct-monthly-estimate-total {
+    font-weight: 700;
+    color: var(--text-primary);
+    padding-top: 6px;
+    border-top: 1px dashed var(--border-color);
+}
 .ct-toggle-row {
     display: flex;
     align-items: center;
@@ -10347,6 +10377,43 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     color: var(--text-muted);
     flex: 1;
 }
+.ct-package-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: var(--accent-blue-light, #eff6ff);
+    color: var(--primary-blue);
+}
+.ct-package-bundle {
+    border-color: var(--primary-blue);
+    border-width: 2px;
+}
+.ct-package-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(124, 58, 237, 0.06);
+    font-size: 0.75rem;
+}
+.ct-package-breakdown > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-muted);
+}
+.ct-package-breakdown-total {
+    font-weight: 700;
+    color: var(--text-primary) !important;
+    padding-top: 4px;
+    border-top: 1px dashed var(--border-color);
+}
 .ct-custom-purchase {
     border-top: 1px dashed var(--border-color);
     padding-top: 16px;
@@ -10397,4 +10464,84 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     padding: 10px 12px;
     border: 1px solid var(--border-color);
     border-radius: 8px;
+}
+.ct-icon-accent {
+    color: #7c3aed;
+}
+.ct-toggle-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.ct-custom-tokens-input {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    background: var(--top-header-bg, #ffffff);
+    color: var(--text-primary);
+}
+
+/* ===================================================================
+   CLOUD TOKENS — Dark / Pro theme readability pass.
+   Naka-scope lang sa #view-cloudtokens (walang epekto sa ibang page).
+   Ginagamit dito ang parehong --dm-* variables na ginagamit na ng
+   ibang parte ng app (tingnan ang mga theme-*.css sa css/themes/),
+   kaya awtomatiko itong "sumusunod" sa KAHIT ANONG naka-activate na
+   tema — Dark, Ocean, Emerald, Sunset, Rose Gold, Cyber, Coffee Noir,
+   Mint Frost, Liquid Glass, Galaxy Ambient — dahil iisa lang ang
+   `body.dark-mode` class na dinadagdag ng JS (applyTheme()) sa lahat
+   ng temang ito maliban sa "Day". Kapag may bagong tema sa hinaharap
+   na may sarili ring --dm-* set, awtomatiko na rin itong masasakop
+   nang walang karagdagang code dito.
+=================================================================== */
+body.dark-mode #view-cloudtokens {
+    --text-primary: var(--dm-text-primary);
+    --text-muted: var(--dm-text-secondary);
+    --border-color: var(--dm-border);
+    --primary-blue: var(--dm-accent);
+    --primary-blue-hover: var(--dm-accent-hover);
+    --accent-blue-light: var(--dm-accent-soft);
+    --top-header-bg: var(--dm-surface);
+}
+body.dark-mode #view-cloudtokens h3,
+body.dark-mode .ct-card-header,
+body.dark-mode #page-title-cloudtokens,
+body.dark-mode .ct-toggle-title,
+body.dark-mode .ct-package-name,
+body.dark-mode .ct-package-price {
+    color: var(--dm-text-primary);
+}
+body.dark-mode .ct-icon-accent,
+body.dark-mode .ct-diamond-icon,
+body.dark-mode .ct-package-tokens,
+body.dark-mode .ct-balance-number {
+    color: var(--dm-accent);
+}
+body.dark-mode .ct-diamond-icon {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+}
+body.dark-mode .ct-card {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+body.dark-mode .ct-balance-row {
+    background: linear-gradient(135deg, var(--dm-surface-alt), var(--dm-surface));
+    border: 1px solid var(--dm-border);
+}
+body.dark-mode .ct-package-option:hover {
+    border-color: var(--dm-accent);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+body.dark-mode .ct-switch-slider {
+    background-color: var(--dm-border);
+}
+body.dark-mode .ct-switch input:checked + .ct-switch-slider {
+    background-color: var(--dm-accent);
+}
+body.dark-mode .ct-banner-warn {
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    color: #fbbf24;
+}
+body.dark-mode .ct-package-breakdown {
+    background: var(--dm-accent-soft);
 }

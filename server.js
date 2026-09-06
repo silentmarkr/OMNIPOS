@@ -2551,27 +2551,27 @@ function getCloudBackupPlanPrice(tier, billingCycle) {
     if (!plan || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) return null;
     return typeof plan.price[billingCycle] === 'number' ? plan.price[billingCycle] : null;
 }
-// Kaparehong eksaktong formula ng sa RELAY (server.js doon,
-// getCloudTokenCostPerSync) — presyo (sa tokens, 1 token = ₱1) kada
-// ISANG successful sync ng tier na ito = (buwanang presyo) / (inaasahang
-// bilang ng auto-syncs kada buwan), pinapalago pataas, minimum 1 token.
-// Sinasadyang kinompyut LOCALLY (hindi hinihiling sa RELAY kada sync)
-// dahil parehong nag-refresh na ng CLOUD_BACKUP_PLANS mula RELAY na rin
-// (tingnan ang fetchCloudBackupPricing() sa itaas) — laging magkatugma.
+// AYOS/BUGFIX: dating ito ay "kaparehong eksaktong formula ng sa RELAY" —
+// (buwanang presyo/maintenance fee ng tier) / (inaasahang bilang ng
+// auto-syncs kada buwan). Ngayon, hiwalay na ang totoong presyo kada sync
+// sa RELAY sa maintenance fee (batay na ito sa AKTWAL na laki ng datos ng
+// customer at sa totoong Neon storage rate — tingnan ang
+// getCloudTokenCostPerSyncExact() sa RELAY server.js), kaya HINDI na ito
+// (function na ito) "kaparehong-kapareho" ng RELAY — huwag nang umasa dito
+// bilang pangunahing pinagmumulan ng "Cost per sync"/"Est. sync cost" na
+// ipinapakita sa customer. Ang totoong presyo (realSyncCostTokens/
+// realSyncCostTokensExact, mula sa aktwal na laki ng huling backup ng
+// installation na ito) ay kinukuha na ngayon sa RELAY mismo sa pamamagitan
+// ng fetchCloudTokenWallet() sa ibaba. Ang mga function na ito sa ibaba ay
+// FALLBACK LANG kapag hindi ma-reach ang RELAY (walang internet, atbp.) —
+// isang APPROXIMATE na upper-bound estimate lang, HINDI na dapat gamitin
+// bilang "totoong" presyo kapag available naman ang RELAY.
 function getCloudTokenCostPerSync(tier) {
     const plan = CLOUD_BACKUP_PLANS[tier] || CLOUD_BACKUP_PLANS.basic;
     const monthlyPrice = plan.price.monthly;
     const expectedSyncsPerMonth = Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / plan.autoBackupIntervalMs));
     return Math.max(1, Math.ceil(monthlyPrice / expectedSyncsPerMonth));
 }
-// AYOS: EKSAKTONG (fractional, hindi pinapalago/ceil) na presyo kada isang
-// sync — kaparehong-kapareho ng getCloudTokenCostPerSyncExact() sa RELAY
-// (parehong CLOUD_BACKUP_PLANS na galing RELAY ang pinagbabatayan dito, kaya
-// laging magkatugma). Ang tokenCostPerSync (ceil) sa itaas ay isang SAFE
-// UPPER-BOUND na estimate lang (ginagamit pa rin bilang gating/threshold
-// para sa "sufficient balance" check) — ito naman ang totoong AVERAGE na
-// presyo kada sync na binabayaran ng customer sa paglipas ng panahon, at
-// ito na ang dapat ipakita sa kanya bilang tunay na "Cost per sync".
 function getCloudTokenCostPerSyncExact(tier) {
     const plan = CLOUD_BACKUP_PLANS[tier] || CLOUD_BACKUP_PLANS.basic;
     const monthlyPrice = plan.price.monthly;
@@ -2582,6 +2582,11 @@ function getCloudTokenCostPerSyncExact(tier) {
 // kailangan ng RELAY_API_KEY at internet; kung wala man, "unknown" ang
 // balance (hindi automatic na "insufficient" — iwas maling pagharang sa
 // sync/restore kung sandaling nawalan lang ng koneksyon sa RELAY).
+// AYOS/BUGFIX: idinagdag ang realSyncCostTokens/realSyncCostTokensExact —
+// ang TOTOONG presyo kada sync ng installation na ito, batay sa kanyang
+// AKTWAL na laki ng datos (hindi na sa maintenance fee ng tier). Tingnan
+// ang comment sa RELAY server.js (getCloudTokenCostPerSyncExact) para sa
+// buong paliwanag.
 async function fetchCloudTokenWallet(installationId) {
     if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
     try {
@@ -2592,7 +2597,15 @@ async function fetchCloudTokenWallet(installationId) {
         );
         const data = await parseRelayResponse(relayRes);
         if (!relayRes.ok || !data.success) return { ok: false, reason: data.message || `HTTP ${relayRes.status}` };
-        return { ok: true, balanceTokens: data.balanceTokens, ledger: data.ledger || [], pendingPurchases: data.pendingPurchases || [] };
+        return {
+            ok: true,
+            balanceTokens: data.balanceTokens,
+            ledger: data.ledger || [],
+            pendingPurchases: data.pendingPurchases || [],
+            realSyncCostTokens: typeof data.realSyncCostTokens === 'number' ? data.realSyncCostTokens : null,
+            realSyncCostTokensExact: typeof data.realSyncCostTokensExact === 'number' ? data.realSyncCostTokensExact : null,
+            realSyncCostBasedOnKnownSize: !!data.realSyncCostBasedOnKnownSize
+        };
     } catch (err) {
         return { ok: false, reason: err.message };
     }
@@ -2694,6 +2707,23 @@ function applyUpgradeTierPricingOverlay(remoteUpgradeTiers) {
     if (!remoteUpgradeTiers || typeof remoteUpgradeTiers !== 'object') return;
     upgradeTierPricingOverlay = remoteUpgradeTiers;
 }
+// BAGO: "kill switch" mula sa RELAY para sa "Send Request" (manual OTP
+// approval) at "Activate via Omni Tokens" (self-service token
+// activation) — tingnan ang ACTIVATION_FLAGS sa RELAY server.js.
+// Fail-open ang default (true/true) kung offline pa o hindi pa na-reach
+// ang RELAY, para hindi ma-brick ang mga existing na client kapag
+// walang connectivity — pero kapag successful ang fetch mula RELAY,
+// ang sinasabi nito ang susundin (kasama ang server-side enforcement sa
+// mismong /api/features/request-unlock, /api/themes/request-unlock, at
+// /api/*/token-activate/request sa ibaba).
+let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
+function applyActivationFlagsOverlay(remoteFlags) {
+    if (!remoteFlags || typeof remoteFlags !== 'object') return;
+    activationFlagsCache = {
+        otpRequestsEnabled: remoteFlags.otpRequestsEnabled !== false,
+        omniTokenActivationEnabled: remoteFlags.omniTokenActivationEnabled !== false
+    };
+}
 function loadCloudBackupPricingCache() {
     try {
         const cached = JSON.parse(fs.readFileSync(CLOUD_BACKUP_PRICING_CACHE_PATH, 'utf8'));
@@ -2709,6 +2739,9 @@ function loadCloudBackupPricingCache() {
         }
         if (cached && cached.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(cached.moduleSubscriptions);
+        }
+        if (cached && cached.activationFlags) {
+            applyActivationFlagsOverlay(cached.activationFlags);
         }
     } catch (err) {
     }
@@ -2751,6 +2784,9 @@ async function fetchCloudBackupPricing() {
         }
         if (data && data.success && data.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(data.moduleSubscriptions);
+        }
+        if (data && data.success && data.activationFlags) {
+            applyActivationFlagsOverlay(data.activationFlags);
         }
     } catch (err) {
         console.warn('⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback:', err.message);
@@ -4002,16 +4038,21 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin privileges only can view this page.' });
     }
+    try {
+    // FIX: this endpoint used to read straight from the local, periodically
+    // -refreshed CLOUD_BACKUP_PLANS cache (auto-refreshed only every 30
+    // minutes), so "Maintenance fee (activation/renewal)" here could lag
+    // behind the live price shown on the Buy Omni Tokens cards (which are
+    // always fetched fresh from RELAY per request) for up to 30 minutes
+    // after a price change in the RELAY pricing admin. Forcing an on-demand
+    // refresh here (rate-limited to at most once every 60s, with a 4s
+    // timeout so this page never hangs waiting on RELAY) keeps it in sync
+    // with the same live figure as the package cards.
+    await refreshCloudBackupPricingIfStale();
     const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const receiptPublic = getReceiptSettingsPublic(receiptSettings);
     const subscription = getCloudBackupSubscriptionInfo();
     const tier = subscription.tier || 'basic';
-    const tokenCostPerSync = getCloudTokenCostPerSync(tier);
-    // AYOS: totoong (average, fractional) presyo kada sync ng kasalukuyang
-    // tier, direkta mula sa live na CLOUD_BACKUP_PLANS (na naka-overlay na
-    // mula RELAY) — hindi na basta rounded-up estimate lang ang ipapakita
-    // sa customer. 1 decimal place lang ang ipinapakita (hal. "4.3").
-    const tokenCostPerSyncExact = Math.round(getCloudTokenCostPerSyncExact(tier) * 10) / 10;
     const prefs = getCloudTokenPrefs();
     const featureData = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(featureData);
@@ -4019,6 +4060,23 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
         fetchCloudTokenWallet(installationId),
         fetchCloudTokenPackages()
     ]);
+    // AYOS/BUGFIX: dating ang "Cost per sync"/"Est. sync cost" na ipinapakita
+    // dito ay basta kinukwenta mula sa maintenance fee ng tier
+    // (getCloudTokenCostPerSync/Exact(tier)) — kaya kapag binago lang ang
+    // maintenance fee sa RELAY pricing, kasabay nagbabago ito kahit hindi
+    // naman talaga nagbago ang laki ng datos ng customer. Ngayon, gamitin
+    // ang TOTOONG presyo mula sa RELAY (realSyncCostTokens/Exact — batay sa
+    // AKTWAL na laki ng huling backup ng installation na ito, hindi na sa
+    // maintenance fee). Ang lokal na getCloudTokenCostPerSync/Exact(tier) ay
+    // FALLBACK LANG kapag hindi ma-reach ang RELAY.
+    const tokenCostPerSync = (walletResult.ok && typeof walletResult.realSyncCostTokens === 'number')
+        ? walletResult.realSyncCostTokens
+        : getCloudTokenCostPerSync(tier);
+    const tokenCostPerSyncExact = Math.round(
+        ((walletResult.ok && typeof walletResult.realSyncCostTokensExact === 'number')
+            ? walletResult.realSyncCostTokensExact
+            : getCloudTokenCostPerSyncExact(tier)) * 10
+    ) / 10;
     const balanceTokens = walletResult.ok ? walletResult.balanceTokens : null;
     const sufficientForSync = walletResult.ok ? (balanceTokens >= tokenCostPerSync) : null;
     // AYOS: self-heal — kung nakabukas pa rin ang Auto-Sync toggle sa
@@ -4030,7 +4088,7 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
     if (sufficientForSync === false && prefs.autoSyncEnabled) {
         prefs.autoSyncEnabled = false;
         saveCloudTokenPrefs(prefs);
-        logAction('System', `Auto-disabled Cloud Backup Auto-Sync — Omni Tokens balance is insufficient (balance: ${balanceTokens}, kailangan: ${tokenCostPerSync}).`);
+        logAction('System', `Auto-disabled Cloud Backup Auto-Sync — Omni Tokens balance is insufficient (balance: ${balanceTokens}, needed: ${tokenCostPerSync}).`);
     }
     res.json({
         success: true,
@@ -4045,6 +4103,56 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
             planName: (CLOUD_BACKUP_PLANS[tier] && CLOUD_BACKUP_PLANS[tier].name) || null,
             tokenCostPerSync,
             tokenCostPerSyncExact,
+            // AYOS/BAGO: idinagdag para sa breakdown sa Omni Tokens page —
+            // ang buwanang presyo ng kasalukuyang tier ang siya ring
+            // MAINTENANCE FEE na babawasin sa activation/renewal (tingnan
+            // ang comment sa CLOUD_BACKUP_PLANS sa itaas).
+            // AYOS/BUGFIX: dating ang "estimated total kada buwan" ay basta
+            // 2x ng maintenance fee (heuristic lang, HINDI totoo) — kaya
+            // kasabay nagbabago sa maintenance fee. Ngayon, TOTOONG kwenta
+            // ito: maintenance fee + (totoong presyo kada sync × inaasahang
+            // bilang ng auto-syncs bawat buwan ng tier na ito) — ang totoong
+            // presyo kada sync mismo ay batay na sa aktwal na laki ng datos
+            // ng customer (tokenCostPerSyncExact sa itaas), hindi na sa
+            // maintenance fee.
+            maintenanceFeeTokens: (CLOUD_BACKUP_PLANS[tier] && CLOUD_BACKUP_PLANS[tier].price.monthly) || null,
+            // NEW: expectedSyncsPerMonth and estSyncTokensPerMonth are now sent
+            // explicitly (instead of only being derivable client-side as
+            // estTotalMonthlyTokens - maintenanceFeeTokens), plus a yearly
+            // version of the same estimate (12 monthly maintenance renewals +
+            // 12 months of syncs) — this is what tells the customer roughly
+            // how much EXTRA balance (on top of the maintenance fee) they
+            // should keep on hand to avoid Auto-Sync/manual backup pausing due
+            // to insufficient balance. These are approximate estimates based
+            // on the account's known/assumed backup size and typical sync
+            // frequency for this tier — not a guaranteed final cost.
+            estSyncTokensPerMonth: (CLOUD_BACKUP_PLANS[tier] && typeof tokenCostPerSyncExact === 'number')
+                ? Math.max(1, Math.ceil(tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs))))
+                : null,
+            estSyncTokensPerYear: (CLOUD_BACKUP_PLANS[tier] && typeof tokenCostPerSyncExact === 'number')
+                ? Math.max(1, Math.ceil(tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs)) * 12))
+                : null,
+            estTotalMonthlyTokens: (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number')
+                ? Math.round((CLOUD_BACKUP_PLANS[tier].price.monthly + (tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs)))) * 10) / 10
+                : null,
+            // FIX: the yearly maintenance fee is NOT 12 monthly renewals —
+            // CLOUD_BACKUP_PLANS[tier].price.yearly is the tier's actual
+            // configured yearly price in the RELAY pricing admin, which is
+            // already discounted (e.g. ~2 months off vs. paying monthly 12
+            // times). Multiplying price.monthly * 12 overstated the yearly
+            // maintenance cost and ignored that discount. maintenanceFeeTokensYearly
+            // is sent separately so the front-end no longer has to derive it
+            // (and potentially get it wrong) as maintenanceFeeTokens * 12.
+            maintenanceFeeTokensYearly: (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.yearly === 'number')
+                ? CLOUD_BACKUP_PLANS[tier].price.yearly
+                : ((CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number') ? CLOUD_BACKUP_PLANS[tier].price.monthly * 12 : null),
+            estTotalYearlyTokens: (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number')
+                ? Math.round((
+                    ((typeof CLOUD_BACKUP_PLANS[tier].price.yearly === 'number') ? CLOUD_BACKUP_PLANS[tier].price.yearly : (CLOUD_BACKUP_PLANS[tier].price.monthly * 12))
+                    + (tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs)) * 12)
+                ) * 10) / 10
+                : null,
+            estimateDisclaimer: 'Monthly and yearly totals are approximate estimates based on your current backup size and typical sync frequency — not a guaranteed final cost.',
             autoSyncEnabled: prefs.autoSyncEnabled
         },
         wallet: {
@@ -4066,6 +4174,10 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
             unavailableReason: packagesResult.ok ? null : packagesResult.reason
         }
     });
+    } catch (err) {
+        console.error('[OmniPOS] /api/admin/cloud-tokens/overview failed:', err);
+        return res.status(500).json({ success: false, message: 'Failed to load the Omni Tokens overview. Please try again.' });
+    }
 });
 app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
@@ -4082,10 +4194,16 @@ app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
     if (!!enabled && !prefs.autoSyncEnabled) {
         const subscriptionForToggle = getCloudBackupSubscriptionInfo();
         const tierForToggle = subscriptionForToggle.tier || 'basic';
-        const tokenCostForToggle = getCloudTokenCostPerSync(tierForToggle);
         const featureDataForToggle = readFeatureUnlocks();
         const installationIdForToggle = getOrCreateInstallationId(featureDataForToggle);
         const walletForToggle = await fetchCloudTokenWallet(installationIdForToggle);
+        // AYOS/BUGFIX: gamitin ang TOTOONG presyo kada sync ng installation
+        // na ito (batay sa aktwal na laki ng datos, mula sa RELAY) — hindi
+        // na ang maintenance-fee-based na tier estimate. Fallback lang sa
+        // lokal na estimate kapag hindi ma-verify ang wallet mula RELAY.
+        const tokenCostForToggle = (walletForToggle.ok && typeof walletForToggle.realSyncCostTokens === 'number')
+            ? walletForToggle.realSyncCostTokens
+            : getCloudTokenCostPerSync(tierForToggle);
         if (walletForToggle.ok && walletForToggle.balanceTokens < tokenCostForToggle) {
             return res.status(402).json({
                 success: false,
@@ -4093,7 +4211,7 @@ app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
                 balanceTokens: walletForToggle.balanceTokens,
                 tokenCostPerSync: tokenCostForToggle,
                 autoSyncEnabled: prefs.autoSyncEnabled,
-                message: `Cannot turn Auto-Sync ON — insufficient Cloud Backup tokens (balance: ${walletForToggle.balanceTokens}, kailangan: ${tokenCostForToggle} kada sync). Bumili muna ng tokens sa Omni Tokens page.`
+                message: `Cannot turn Auto-Sync ON — insufficient Cloud Backup tokens (balance: ${walletForToggle.balanceTokens}, needed: ${tokenCostForToggle} per sync). Please buy more tokens on the Omni Tokens page first.`
             });
         }
     }
@@ -4171,14 +4289,21 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
     // pa rin makakapag-sync nang walang bayad.
     const subscriptionForSyncGate = getCloudBackupSubscriptionInfo();
     const tokenTierForSync = subscriptionForSyncGate.tier || 'basic';
-    const tokenCostForSync = getCloudTokenCostPerSync(tokenTierForSync);
-    // AYOS: ipinapasa na rin ang exact/average value (kaparehong-kapareho ng
-    // ipinapakita sa "Cost per sync (avg.)" sa Omni Tokens page) para hindi
-    // magkaiba/nakakalito ang numerong makikita ng customer sa dalawang lugar.
-    const tokenCostForSyncExact = Math.round(getCloudTokenCostPerSyncExact(tokenTierForSync) * 10) / 10;
     const featureDataForSync = readFeatureUnlocks();
     const installationIdForSync = getOrCreateInstallationId(featureDataForSync);
     const walletForSync = await fetchCloudTokenWallet(installationIdForSync);
+    // AYOS/BUGFIX: gamitin ang TOTOONG presyo kada sync ng installation na
+    // ito (batay sa aktwal na laki ng datos, mula sa RELAY) — hindi na ang
+    // maintenance-fee-based na tier estimate. Fallback lang sa lokal na
+    // estimate kapag hindi ma-verify ang wallet mula RELAY.
+    const tokenCostForSync = (walletForSync.ok && typeof walletForSync.realSyncCostTokens === 'number')
+        ? walletForSync.realSyncCostTokens
+        : getCloudTokenCostPerSync(tokenTierForSync);
+    const tokenCostForSyncExact = Math.round(
+        ((walletForSync.ok && typeof walletForSync.realSyncCostTokensExact === 'number')
+            ? walletForSync.realSyncCostTokensExact
+            : getCloudTokenCostPerSyncExact(tokenTierForSync)) * 10
+    ) / 10;
     if (walletForSync.ok && walletForSync.balanceTokens < tokenCostForSync) {
         return res.status(402).json({
             success: false,
@@ -4225,10 +4350,16 @@ async function maybeRunAutomaticCloudBackup() {
     // itigil ang auto-sync (hindi ito hinaharang kung basta hindi
     // ma-verify ang balance — offline sa RELAY lang, hindi awtomatikong
     // "insufficient").
-    const tokenCostForAuto = getCloudTokenCostPerSync(subscription.tier || 'basic');
     const featureDataForAuto = readFeatureUnlocks();
     const installationIdForAuto = getOrCreateInstallationId(featureDataForAuto);
     const walletForAuto = await fetchCloudTokenWallet(installationIdForAuto);
+    // AYOS/BUGFIX: gamitin ang TOTOONG presyo kada sync ng installation na
+    // ito (batay sa aktwal na laki ng datos, mula sa RELAY) — hindi na ang
+    // maintenance-fee-based na tier estimate. Fallback lang sa lokal na
+    // estimate kapag hindi ma-verify ang wallet mula RELAY.
+    const tokenCostForAuto = (walletForAuto.ok && typeof walletForAuto.realSyncCostTokens === 'number')
+        ? walletForAuto.realSyncCostTokens
+        : getCloudTokenCostPerSync(subscription.tier || 'basic');
     if (walletForAuto.ok && walletForAuto.balanceTokens < tokenCostForAuto) {
         console.warn(`⚠️ AUTO_CLOUD_BACKUP: skipped — insufficient Cloud Backup tokens (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}). Bumili ng tokens sa Omni Tokens page.`);
         // AYOS: hindi lang basta i-skip ang cycle na ito — talagang i-off
@@ -4303,11 +4434,21 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
     {
         const subscriptionForRestoreGate = getCloudBackupSubscriptionInfo();
         const tokenTierForRestore = subscriptionForRestoreGate.tier || 'basic';
-        const tokenCostForRestore = getCloudTokenCostPerSync(tokenTierForRestore);
-        const tokenCostForRestoreExact = Math.round(getCloudTokenCostPerSyncExact(tokenTierForRestore) * 10) / 10;
         const featureDataForGate = readFeatureUnlocks();
         const installationIdForGate = getOrCreateInstallationId(featureDataForGate);
         const walletForRestore = await fetchCloudTokenWallet(installationIdForGate);
+        // AYOS/BUGFIX: gamitin ang TOTOONG presyo kada sync ng installation
+        // na ito (batay sa aktwal na laki ng datos, mula sa RELAY) — hindi
+        // na ang maintenance-fee-based na tier estimate. Fallback lang sa
+        // lokal na estimate kapag hindi ma-verify ang wallet mula RELAY.
+        const tokenCostForRestore = (walletForRestore.ok && typeof walletForRestore.realSyncCostTokens === 'number')
+            ? walletForRestore.realSyncCostTokens
+            : getCloudTokenCostPerSync(tokenTierForRestore);
+        const tokenCostForRestoreExact = Math.round(
+            ((walletForRestore.ok && typeof walletForRestore.realSyncCostTokensExact === 'number')
+                ? walletForRestore.realSyncCostTokensExact
+                : getCloudTokenCostPerSyncExact(tokenTierForRestore)) * 10
+        ) / 10;
         if (walletForRestore.ok && walletForRestore.balanceTokens < tokenCostForRestore) {
             return res.status(402).json({
                 success: false,
@@ -4684,6 +4825,34 @@ app.get('/api/features/status', (req, res) => {
         subscriptionGraceWarnings: getModuleSubscriptionGraceWarnings()
     });
 });
+// BAGO: parehong "renews/expires in X day(s)" badge tulad ng Cloud Backup
+// (refreshCloudBackupSubscriptionBadge sa app.js) pero para sa RBAC at
+// Multi-Branch module subscriptions. Dating wala pang endpoint na
+// nagbibigay ng expiresAt/billingCycle ng mga ito sa client (ang
+// /api/features/status ay unlocked/purchased IDs lang, walang per-feature
+// na expiry info); ang getModuleSubscriptionGraceWarnings() naman ay
+// grace-period warnings lang (pop-up toast), hindi ito ang parehong
+// "laging bisible" na status box na nasa Cloud Backup card.
+function getModuleSubscriptionInfo(featureId) {
+    const data = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(data);
+    const token = data.tokens[featureId];
+    const status = verifyModuleSubscriptionToken(token, installationId, featureId);
+    const sub = (data.moduleSubscriptions && data.moduleSubscriptions[featureId]) || null;
+    return {
+        active: status.active,
+        inGracePeriod: status.inGracePeriod,
+        expiresAt: status.expiresAt,
+        billingCycle: sub ? (sub.billingCycle || null) : null
+    };
+}
+app.get('/api/module-subscriptions/status', (req, res) => {
+    const subscriptions = {};
+    for (const featureId of MODULE_SUBSCRIPTION_FEATURE_IDS) {
+        subscriptions[featureId] = getModuleSubscriptionInfo(featureId);
+    }
+    res.json({ success: true, subscriptions });
+});
 async function parseRelayResponse(relayRes) {
     const rawText = await relayRes.text();
     let parsed;
@@ -4712,6 +4881,9 @@ function relayRejectionResponse(res, relayData, fallbackMessage) {
     return res.status(502).json({ success: false, message: (relayData && relayData.message) || fallbackMessage });
 }
 app.post('/api/features/request-unlock', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.otpRequestsEnabled) {
+        return res.status(503).json({ success: false, message: 'Manual unlock requests ("Send Request") are temporarily disabled by the developer. Please try "Activate via Omni Tokens" instead, or try again later.' });
+    }
     const { featureId, username, photo, tier, billingCycle } = req.body;
     const feature = FEATURE_CATALOG[featureId];
     if (!feature) {
@@ -5057,9 +5229,12 @@ app.get('/api/features/upgrade-catalog', async (req, res) => {
             effectiveBundlePrice: effectivePrice
         };
     });
-    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount });
+    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount, activationFlags: activationFlagsCache });
 });
 app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-bulk-request', 3, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.otpRequestsEnabled) {
+        return res.status(503).json({ success: false, message: 'Manual unlock requests ("Send Request") are temporarily disabled by the developer. Please try "Activate via Omni Tokens" instead, or try again later.' });
+    }
     const { featureIds, tierId, username, photo } = req.body;
     if (!Array.isArray(featureIds) || featureIds.length === 0) {
         return res.status(400).json({ success: false, message:'featureIds must be a non-empty array.' });
@@ -5227,6 +5402,9 @@ setInterval(() => {
     }
 }, 60 * 1000).unref();
 app.post('/api/cloud-backup/token-activate/request', requirePermission('relay_unlock_request'), rateLimit('cloud-backup-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.omniTokenActivationEnabled) {
+        return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
+    }
     const { tier, billingCycle, requestorEmail, username } = req.body;
     if (!CLOUD_BACKUP_PLANS[tier] || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) {
         return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
@@ -5421,6 +5599,9 @@ setInterval(() => {
     }
 }, 60 * 1000).unref();
 app.post('/api/features/token-activate/request', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.omniTokenActivationEnabled) {
+        return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
+    }
     const { featureIds, billingCycle, totalPrice, requestorEmail, username } = req.body;
     if (!Array.isArray(featureIds) || featureIds.length === 0) {
         return res.status(400).json({ success: false, message: 'Missing featureIds.' });
@@ -5607,6 +5788,9 @@ app.get('/api/themes/status', (req, res) => {
     res.json({ success: true, unlockedThemeIds });
 });
 app.post('/api/themes/request-unlock', requirePermission('relay_unlock_request'), rateLimit('theme-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.otpRequestsEnabled) {
+        return res.status(503).json({ success: false, message: 'Manual unlock requests ("Send Request") are temporarily disabled by the developer. Please try "Activate via Omni Tokens" instead, or try again later.' });
+    }
     const { themeId, username, photo } = req.body;
     const theme = FEATURE_CATALOG[themeId];
     if (!theme || theme.category !=='theme') {
