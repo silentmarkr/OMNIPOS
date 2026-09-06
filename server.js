@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
@@ -3837,7 +3838,7 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         const installationId = getOrCreateInstallationId(featureData);
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         const backupPayload = getCloudBackupPayload();
-        const backupBodyBuffer = Buffer.from(JSON.stringify({
+        const backupJsonBuffer = Buffer.from(JSON.stringify({
             installationId,
             storeName: (receiptSettings && receiptSettings.storeName) || null,
             modules: backupPayload.modules,
@@ -3845,6 +3846,18 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             totalRecords: backupPayload.totalRecords,
             generatedAt: backupPayload.generatedAt
         }), 'utf8');
+        // AYOS/BAGO: i-gzip ang buong JSON bago ipadala sa RELAY — POS JSON
+        // (paulit-ulit na keys/strings) ay lubos na compressible (~5-10x),
+        // kaya malaking bawas ito sa RELAY->Neon at Render outbound
+        // bandwidth kada sync. Ang RELAY ang mag-de-decompress bago
+        // i-JSON.parse (tingnan ang cloud-backup/upload/finish sa RELAY).
+        // Ipinapasa ang `compressed: true` sa upload/start (sa ibaba) para
+        // malinaw na sinabi kung anong format ang dumarating — kung
+        // mas lumang RELAY version ang tumatanggap nito na hindi pa alam
+        // ang flag na ito, hindi apektado ang default (uncompressed) na
+        // behavior nila para sa ibang client.
+        const backupBodyBuffer = zlib.gzipSync(backupJsonBuffer);
+        const uncompressedSizeBytes = backupJsonBuffer.length;
         cloudBackupStatus.uploadStartedAt = Date.now();
         cloudBackupStatus.uploadedBytes = 0;
         cloudBackupStatus.uploadTotalBytes = backupBodyBuffer.length;
@@ -3876,7 +3889,12 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload/start`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-                body: JSON.stringify({ installationId, totalBytes: backupBodyBuffer.length })
+                body: JSON.stringify({
+                    installationId,
+                    totalBytes: backupBodyBuffer.length,
+                    uncompressedSizeBytes,
+                    compressed: true
+                })
             }, 30000);
             throwIfRateLimited(res);
             return res;
