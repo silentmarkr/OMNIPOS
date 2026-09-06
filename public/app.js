@@ -5975,6 +5975,129 @@ async function loadCloudTokensView() {
         }
     }
 }
+// ===================================================================
+// AYOS/BAGO: Transaction History modal — buong history (hindi lang ang 5
+// latest na makikita sa "Recent Activity" widget), may filter (category
+// dropdown, populated dynamically from RELAY's single source of truth)
+// at date range, plus "Load more" pagination. Bawat category ay may
+// sariling malinaw/hindi-nagtatapat na icon+color, para organized at
+// madaling makilala kaagad kung anong klase ng entry ang tinitingnan.
+// ===================================================================
+const CT_CATEGORY_META = {
+    TOKEN_PURCHASE: { icon: 'fa-circle-plus', color: '#22c55e' },   // green — totoong pera papasok
+    FEATURE_UNLOCK: { icon: 'fa-unlock', color: '#ef4444' },        // red — malaking one-time charge
+    ADDON_PURCHASE: { icon: 'fa-puzzle-piece', color: '#ef4444' },  // red — karagdagang charge
+    SYNC_CHARGE: { icon: 'fa-cloud-arrow-up', color: '#ef4444' },   // red — whole-token na charge
+    SYNC_FRACTION: { icon: 'fa-clock', color: '#9ca3af' },          // gray/neutral — WALANG totoong balance change pa
+    RESTORE_CHARGE: { icon: 'fa-cloud-arrow-down', color: '#ef4444' }, // red — charge mula sa cloud restore (auto o manual admin charge)
+    REFUND: { icon: 'fa-rotate-left', color: '#22c55e' }            // green — ibinalik na tokens
+};
+let ctHistoryState = { offset: 0, limit: 20, category: 'ALL', dateFrom: '', dateTo: '', loading: false };
+function openTransactionHistoryModal() {
+    const modal = document.getElementById('ct-history-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    if (!ctHistoryState.categoriesLoaded) {
+        loadTransactionCategoriesIntoDropdown();
+    }
+    reloadTransactionHistory();
+}
+function closeTransactionHistoryModal() {
+    const modal = document.getElementById('ct-history-modal');
+    if (modal) modal.style.display = 'none';
+}
+async function loadTransactionCategoriesIntoDropdown() {
+    const select = document.getElementById('ct-history-filter-category');
+    if (!select) return;
+    try {
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/transaction-categories`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.categories)) {
+            select.innerHTML = `<option value="ALL">All categories</option>` +
+                data.categories.map(c => `<option value="${c.value}">${c.label}</option>`).join('');
+            ctHistoryState.categoriesLoaded = true;
+        }
+    } catch (e) {
+        console.warn('[OmniPOS] Failed to load transaction categories:', e);
+    }
+}
+function reloadTransactionHistory() {
+    const categorySel = document.getElementById('ct-history-filter-category');
+    const dateFromEl = document.getElementById('ct-history-filter-date-from');
+    const dateToEl = document.getElementById('ct-history-filter-date-to');
+    ctHistoryState.category = categorySel ? categorySel.value : 'ALL';
+    ctHistoryState.dateFrom = dateFromEl ? dateFromEl.value : '';
+    ctHistoryState.dateTo = dateToEl ? dateToEl.value : '';
+    ctHistoryState.offset = 0;
+    fetchTransactionHistoryPage(false);
+}
+function loadMoreTransactionHistory() {
+    fetchTransactionHistoryPage(true);
+}
+async function fetchTransactionHistoryPage(append) {
+    if (ctHistoryState.loading) return;
+    ctHistoryState.loading = true;
+    const listEl = document.getElementById('ct-history-list');
+    const loadMoreBtn = document.getElementById('ct-history-load-more');
+    if (!append && listEl) listEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">Loading…</div>`;
+    try {
+        const qs = new URLSearchParams({
+            category: ctHistoryState.category || 'ALL',
+            limit: ctHistoryState.limit,
+            offset: ctHistoryState.offset
+        });
+        if (ctHistoryState.dateFrom) qs.set('dateFrom', ctHistoryState.dateFrom);
+        if (ctHistoryState.dateTo) qs.set('dateTo', `${ctHistoryState.dateTo}T23:59:59`); // end-of-day inclusive
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/transaction-history?${qs.toString()}`);
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            if (listEl && !append) listEl.innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data && data.message) || 'Could not load transaction history.'}</span></div>`;
+            return;
+        }
+        renderTransactionHistoryRows(data.transactions || [], append);
+        ctHistoryState.offset += (data.transactions || []).length;
+        if (loadMoreBtn) loadMoreBtn.style.display = data.hasMore ? 'inline-block' : 'none';
+    } catch (e) {
+        console.warn('[OmniPOS] Failed to load transaction history:', e);
+        if (listEl && !append) listEl.innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>Could not reach the server. Please try again.</span></div>`;
+    } finally {
+        ctHistoryState.loading = false;
+    }
+}
+function renderTransactionHistoryRows(rows, append) {
+    const listEl = document.getElementById('ct-history-list');
+    if (!listEl) return;
+    if (rows.length === 0 && !append) {
+        listEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">No activity found for this filter.</div>`;
+        return;
+    }
+    const html = rows.map(entry => {
+        const tokens = Number(entry.tokens);
+        const isCredit = tokens > 0;
+        const meta = CT_CATEGORY_META[entry.category] || { icon: isCredit ? 'fa-circle-plus' : 'fa-circle-minus', color: isCredit ? '#22c55e' : '#ef4444' };
+        const dateStr = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
+        const triggerLabel = entry.trigger_type ? ` (${entry.trigger_type === 'automatic' ? 'Auto' : 'Manual'})` : '';
+        // AYOS/BAGO: sign lang para sa SYNC_FRACTION (walang totoong balance
+        // change, kaya wala itong "+"/"-" — pero makikita pa rin ang tunay
+        // na maliit na presyo, hanggang 3 decimal places).
+        const amountDisplay = entry.category === 'SYNC_FRACTION'
+            ? `~${Math.abs(tokens).toFixed(3)}`
+            : `${isCredit ? '+' : ''}${tokens}`;
+        return `<div class="ct-ledger-row">
+            <i class="fa-solid ${meta.icon}" style="color:${meta.color};"></i>
+            <div style="flex:1;">
+                <div style="font-size:0.85rem;">${entry.note || entry.category}${triggerLabel}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">${dateStr}</div>
+            </div>
+            <div style="font-weight:600; color:${meta.color};">${amountDisplay}</div>
+        </div>`;
+    }).join('');
+    if (append) {
+        listEl.insertAdjacentHTML('beforeend', html);
+    } else {
+        listEl.innerHTML = html;
+    }
+}
 function renderCloudTokensOverview(data) {
     // Google App Verification status
     const statusEl = document.getElementById('ct-google-app-status');
@@ -6036,6 +6159,15 @@ function renderCloudTokensOverview(data) {
             document.getElementById('ct-est-total').textContent = `~${estTotal} token(s)`;
             const extraMonthEl = document.getElementById('ct-est-extra-month');
             if (extraMonthEl) extraMonthEl.textContent = `~${estSync}`;
+            // AYOS/BAGO: restore-cost reference row (kung available ang
+            // elements sa markup) — hiwalay sa Est. total needed/mo. sa
+            // itaas, "just in case" reference lang.
+            const restoreCostEl = document.getElementById('ct-est-restore-cost');
+            const restoreTotalEl = document.getElementById('ct-est-total-with-restore');
+            const restoreCost = data.cloudBackup && data.cloudBackup.tokenCostPerRestore;
+            const totalWithRestore = data.cloudBackup && data.cloudBackup.estTotalMonthlyTokensWithOneRestore;
+            if (restoreCostEl && typeof restoreCost === 'number') restoreCostEl.textContent = `~${restoreCost} token(s)`;
+            if (restoreTotalEl && typeof totalWithRestore === 'number') restoreTotalEl.textContent = `~${totalWithRestore} token(s)`;
             estBox.style.display = 'flex';
         } else {
             estBox.style.display = 'none';
@@ -6061,6 +6193,14 @@ function renderCloudTokensOverview(data) {
             document.getElementById('ct-est-total-year').textContent = `~${estTotalYear} token(s)`;
             const extraYearEl = document.getElementById('ct-est-extra-year');
             if (extraYearEl) extraYearEl.textContent = `~${estSyncYear}`;
+            // AYOS/BAGO: restore-cost reference row para sa yearly box —
+            // parehong pattern gaya ng monthly box sa itaas.
+            const restoreCostYearEl = document.getElementById('ct-est-restore-cost-year');
+            const restoreTotalYearEl = document.getElementById('ct-est-total-with-restore-year');
+            const restoreCostYear = data.cloudBackup && data.cloudBackup.tokenCostPerRestore;
+            const totalWithRestoreYear = data.cloudBackup && data.cloudBackup.estTotalYearlyTokensWithOneRestore;
+            if (restoreCostYearEl && typeof restoreCostYear === 'number') restoreCostYearEl.textContent = `~${restoreCostYear} token(s)`;
+            if (restoreTotalYearEl && typeof totalWithRestoreYear === 'number') restoreTotalYearEl.textContent = `~${totalWithRestoreYear} token(s)`;
             estYearBox.style.display = 'flex';
         } else {
             estYearBox.style.display = 'none';
@@ -6091,26 +6231,17 @@ function renderCloudTokensOverview(data) {
         // harangan ang toggle dito, pareho ng ibang gate sa buong system.
         if (toggleEl) toggleEl.disabled = false;
     }
-    // Recent activity / ledger
+    // Recent activity / ledger — AYOS/BAGO: ginagamit na ngayon ang parehong
+    // renderTransactionHistoryRows() na ginagamit ng Transaction History
+    // modal, para magkatugma ang icon/color/format ng dalawa (single source
+    // of truth), sa halip na dalawang hiwalay na paraan ng pag-render.
     const ledgerListEl = document.getElementById('ct-ledger-list');
     if (ledgerListEl) {
         const ledger = (data.wallet && data.wallet.ledger) || [];
         if (ledger.length === 0) {
             ledgerListEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">No activity yet.</div>`;
         } else {
-            ledgerListEl.innerHTML = ledger.map(entry => {
-                const tokens = Number(entry.tokens);
-                const isCredit = tokens > 0;
-                const dateStr = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
-                return `<div class="ct-ledger-row">
-                    <i class="fa-solid ${isCredit ? 'fa-circle-plus' : 'fa-circle-minus'}" style="color:${isCredit ? '#22c55e' : '#ef4444'};"></i>
-                    <div style="flex:1;">
-                        <div style="font-size:0.85rem;">${entry.note || (entry.type === 'purchase' ? 'Omni Token purchase' : 'Cloud backup sync')}</div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${dateStr}</div>
-                    </div>
-                    <div style="font-weight:600; color:${isCredit ? '#22c55e' : '#ef4444'};">${isCredit ? '+' : ''}${tokens}</div>
-                </div>`;
-            }).join('');
+            renderTransactionHistoryRows(ledger, false);
         }
     }
     // Payment methods — dating hard-coded (GCash/Maya/Online Banking) ang
@@ -6150,6 +6281,17 @@ function renderCloudTokensOverview(data) {
                 // discounted yearly price from RELAY (NOT maintenanceFeeTokens
                 // * 12) — shown explicitly here so the yearly discount is
                 // visible, consistent with the Current Plan yearly box.
+                // AYOS/BAGO: idinagdag ang restore-cost reference row (mula sa
+                // RELAY's estRestoreTokensPerRestore/estTotal...WithOneRestore
+                // — tingnan ang /relay/cloud-tokens/packages) sa parehong
+                // monthly/yearly breakdown na ito. Ito ay reference/"just in
+                // case" na bilang lang — hindi kasama sa Est. total needed/mo.
+                // o /yr. sa itaas (restore ay hindi naka-schedule/recurring
+                // gaya ng sync), kaya hiwalay itong linya, malinaw na naka-
+                // label bilang "if a restore is needed" — para makita ng
+                // customer, kahit sa Starter Bundle card pa lang, na may
+                // hiwalay na cost ang restore bukod sa sync.
+                const hasRestoreRef = typeof pkg.estRestoreTokensPerRestore === 'number';
                 const breakdown = hasBreakdown ? `<div class="ct-package-breakdown">
                         <div><span>Maintenance fee</span><span>${pkg.maintenanceFeeTokens} tokens</span></div>
                         <div><span>Est. sync cost (1 mo.)</span><span>~${pkg.estSyncTokensPerMonth} tokens</span></div>
@@ -6157,7 +6299,10 @@ function renderCloudTokensOverview(data) {
                         ${hasYearlyBreakdown ? `<div><span>Maintenance fee (yearly, discounted)</span><span>${pkg.maintenanceFeeTokensYearly} tokens</span></div>
                         <div><span>Est. sync cost (1 yr.)</span><span>~${pkg.estSyncTokensPerYear} tokens</span></div>
                         <div class="ct-package-breakdown-total"><span>Est. total needed/yr.</span><span>~${pkg.estTotalYearlyTokens} tokens</span></div>` : ''}
-                        <div class="ct-package-breakdown-note" style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem;">Approximate estimate, not a guaranteed final cost. Recommended extra balance on top of the maintenance fee: ~${pkg.estSyncTokensPerMonth} token(s)/mo., ~${pkg.estSyncTokensPerYear || pkg.estSyncTokensPerMonth * 12} token(s)/yr.</div>
+                        ${hasRestoreRef ? `<div style="margin-top:0.35rem;padding-top:0.35rem;border-top:1px dashed var(--border-color, #444);"><span>Est. cost per restore</span><span>~${pkg.estRestoreTokensPerRestore} token(s)</span></div>
+                        <div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/mo.</span><span>~${pkg.estTotalMonthlyTokensWithOneRestore} tokens</span></div>
+                        ${hasYearlyBreakdown ? `<div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/yr.</span><span>~${pkg.estTotalYearlyTokensWithOneRestore} tokens</span></div>` : ''}` : ''}
+                        <div class="ct-package-breakdown-note" style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem;">Approximate estimate, not a guaranteed final cost. Recommended extra balance on top of the maintenance fee: ~${pkg.estSyncTokensPerMonth} token(s)/mo., ~${pkg.estSyncTokensPerYear || pkg.estSyncTokensPerMonth * 12} token(s)/yr. Restore cost is a reference only — restores are rare/unscheduled, so it is not included in the totals above unless noted.</div>
                     </div>` : '';
                 return `<div class="ct-package-option ${pkg.isBundle ? 'ct-package-bundle' : ''}">
                     ${bundleBadge}
@@ -16435,9 +16580,12 @@ async function runCloudBackupRestore() {
             // huwag ipakita ang "still locked" kung ang totoong dahilan pala
             // ay `insufficientTokens` (naka-unlock na, kulang lang sa tokens).
             if (result.insufficientTokens) {
-                const neededDisplay = (typeof result.tokenCostPerSyncExact === 'number') ? result.tokenCostPerSyncExact : result.tokenCostPerSync;
-                const msg = `Insufficient Omni Tokens (balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync on average). Please buy more Omni Tokens.`;
-                if (statusBox) statusBox.innerHTML = `<i class="fa-solid fa-gem" style="color:#f59e0b;"></i> Out of Omni Tokens — balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync. Please buy more Omni Tokens.`;
+                // AYOS/BAGO: restore-specific na field names na ngayon
+                // (tokenCostPerRestore/Exact) — restore ay may sarili nang
+                // proportional-to-size na charge, hindi na basta sync cost.
+                const neededDisplay = (typeof result.tokenCostPerRestoreExact === 'number') ? result.tokenCostPerRestoreExact : result.tokenCostPerRestore;
+                const msg = `Insufficient Omni Tokens (balance: ${result.balanceTokens}, needed: ~${neededDisplay} for this restore). Please buy more Omni Tokens.`;
+                if (statusBox) statusBox.innerHTML = `<i class="fa-solid fa-gem" style="color:#f59e0b;"></i> Out of Omni Tokens — balance: ${result.balanceTokens}, needed: ~${neededDisplay} for this restore. Please buy more Omni Tokens.`;
                 Swal.fire('Out of Omni Tokens', msg, 'warning');
             } else {
                 if (statusBox) statusBox.innerHTML = '<i class="fa-solid fa-lock"></i> The Cloud Backup feature is still locked.';
@@ -16456,6 +16604,12 @@ async function runCloudBackupRestore() {
             let extraNote = '';
             if (result.accountsNeedingPasswordReset && result.accountsNeedingPasswordReset.length > 0) {
                 extraNote = `<br><br><strong>Note:</strong> the following accounts were just restored (no password was included in the backup) — the Admin must reset their passwords in User Management before they can log in: <br>${result.accountsNeedingPasswordReset.join(', ')}`;
+            }
+            // AYOS/BAGO: restore ngayon ay may proportional-to-size na token
+            // charge — ipinapakita dito kung ilan ang na-deduct at ang bagong
+            // balance, para malinaw sa Admin.
+            if (typeof result.tokensCharged === 'number') {
+                extraNote += `<br><br><span style="color:#6b7280;">Charged ${result.tokensCharged} Omni Token(s) for this restore — new balance: ${result.balanceTokens ?? '—'}.</span>`;
             }
             Swal.fire({
                 title: 'Restored!',

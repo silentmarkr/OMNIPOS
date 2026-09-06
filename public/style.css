@@ -10437,10 +10437,22 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    transition: filter 0.15s;
+    transition: filter 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
 }
 .ct-btn:hover {
     filter: brightness(0.95);
+}
+/* AYOS/BAGO: yung mga plain .ct-btn na walang .ct-btn-primary/.ct-btn-secondary
+   (hal. "View All / Transaction History" at "Load more") ay dating walang
+   background/color/border kaya default browser button lang ang lumalabas
+   at hindi sumusunod sa theme. Ngayon, sumusunod na ito sa parehong
+   --top-header-bg/--text-primary/--border-color na ginagamit ng ibang
+   parte ng Cloud Tokens page (at ng modal, tingnan ang scoped block sa
+   ibaba), kaya readable at tama ang kulay sa lahat ng tema. */
+.ct-btn:not(.ct-btn-primary):not(.ct-btn-secondary) {
+    background: var(--top-header-bg, #ffffff);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 .ct-btn-primary {
     background: #7c3aed;
@@ -10493,8 +10505,19 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
    ng temang ito maliban sa "Day". Kapag may bagong tema sa hinaharap
    na may sarili ring --dm-* set, awtomatiko na rin itong masasakop
    nang walang karagdagang code dito.
+
+   AYOS/BAGO: kasama na rin dito ang #ct-history-modal. Ang Transaction
+   History modal ay nasa LABAS ng <section id="view-cloudtokens"> sa
+   markup (fixed-position overlay na idineklara pagkatapos ng closing
+   </section> tag), kaya hindi ito nasasakop ng dating selector na
+   "body.dark-mode #view-cloudtokens" lang — dati, palagi itong bumabalik
+   sa light-theme na kulay (o sa hardcoded dark background) kahit anong
+   tema ang naka-active, kaya unreadable ang text/icons sa maraming tema.
+   Idinagdag ang #ct-history-modal dito para sumunod din ito (at ang
+   laman nito) sa currently-active na tema.
 =================================================================== */
-body.dark-mode #view-cloudtokens {
+body.dark-mode #view-cloudtokens,
+body.dark-mode #ct-history-modal {
     --text-primary: var(--dm-text-primary);
     --text-muted: var(--dm-text-secondary);
     --border-color: var(--dm-border);
@@ -10502,6 +10525,15 @@ body.dark-mode #view-cloudtokens {
     --primary-blue-hover: var(--dm-accent-hover);
     --accent-blue-light: var(--dm-accent-soft);
     --top-header-bg: var(--dm-surface);
+}
+/* Native <select> dropdown-list items (ang popup list mismo, hal. ang
+   "All categories" dropdown) ay hindi sumusunod sa CSS variable
+   inheritance — kailangan explicit na background-color/color sa
+   mismong <option>, gaya ng ginagawa na rin ng .input-field-group
+   select option sa ibang bahagi ng app. */
+body.dark-mode .ct-payment-select option {
+    background-color: var(--dm-surface);
+    color: var(--dm-text-primary);
 }
 body.dark-mode #view-cloudtokens h3,
 body.dark-mode .ct-card-header,

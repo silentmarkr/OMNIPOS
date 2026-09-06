@@ -2520,7 +2520,9 @@
                                 <div class="ct-monthly-estimate-row"><span>Maintenance fee (activation/renewal)</span><span id="ct-est-maintenance">--</span></div>
                                 <div class="ct-monthly-estimate-row"><span>Est. sync cost (typical monthly frequency)</span><span id="ct-est-sync">--</span></div>
                                 <div class="ct-monthly-estimate-row ct-monthly-estimate-total"><span>Est. Total Required Monthly</span><span id="ct-est-total">--</span></div>
-                                <div class="ct-monthly-estimate-note" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">Approximate estimate based on your current backup size and typical sync frequency — not a guaranteed final cost. Recommended extra balance to keep on top of the maintenance fee: <span id="ct-est-extra-month">--</span> token(s)/month.</div>
+                                <div class="ct-monthly-estimate-row" style="border-top:1px dashed var(--border-color); padding-top:0.35rem; margin-top:0.2rem;"><span>Est. cost per restore (if needed)</span><span id="ct-est-restore-cost">--</span></div>
+                                <div class="ct-monthly-estimate-row" style="font-size:0.75rem; color:var(--text-muted);"><span>If a restore is needed this month</span><span id="ct-est-total-with-restore">--</span></div>
+                                <div class="ct-monthly-estimate-note" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">Approximate estimate based on your current backup size and typical sync frequency — not a guaranteed final cost. Recommended extra balance to keep on top of the maintenance fee: <span id="ct-est-extra-month">--</span> token(s)/month. Restore cost is a reference only — restores are rare/unscheduled, so it is not included in the total above.</div>
                             </div>
 
                             <div class="ct-monthly-estimate" id="ct-yearly-estimate" style="display:none;">
@@ -2528,7 +2530,9 @@
                                 <div class="ct-monthly-estimate-row"><span>Maintenance fee (yearly, discounted)</span><span id="ct-est-maintenance-year">--</span></div>
                                 <div class="ct-monthly-estimate-row"><span>Est. sync cost (typical yearly frequency)</span><span id="ct-est-sync-year">--</span></div>
                                 <div class="ct-monthly-estimate-row ct-monthly-estimate-total"><span>Est. Total Required Yearly</span><span id="ct-est-total-year">--</span></div>
-                                <div class="ct-monthly-estimate-note" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">Approximate estimate based on your current backup size and typical sync frequency — not a guaranteed final cost. Recommended extra balance to keep on top of the maintenance fee: <span id="ct-est-extra-year">--</span> token(s)/year.</div>
+                                <div class="ct-monthly-estimate-row" style="border-top:1px dashed var(--border-color); padding-top:0.35rem; margin-top:0.2rem;"><span>Est. cost per restore (if needed)</span><span id="ct-est-restore-cost-year">--</span></div>
+                                <div class="ct-monthly-estimate-row" style="font-size:0.75rem; color:var(--text-muted);"><span>If a restore is needed this year</span><span id="ct-est-total-with-restore-year">--</span></div>
+                                <div class="ct-monthly-estimate-note" style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">Approximate estimate based on your current backup size and typical sync frequency — not a guaranteed final cost. Recommended extra balance to keep on top of the maintenance fee: <span id="ct-est-extra-year">--</span> token(s)/year. Restore cost is a reference only — restores are rare/unscheduled, so it is not included in the total above.</div>
                             </div>
 
                             <div class="ct-toggle-row">
@@ -2560,13 +2564,67 @@
                                 </div>
                             </div>
 
-                            <h3 style="margin:22px 0 10px; font-size:1rem;">Recent Activity</h3>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin:22px 0 10px; flex-wrap:wrap; gap:8px;">
+                                <h3 style="margin:0; font-size:1rem;">Recent Activity</h3>
+                                <button type="button" class="ct-btn" style="font-size:0.8rem; padding:6px 12px;" onclick="openTransactionHistoryModal()">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> View All / Transaction History
+                                </button>
+                            </div>
                             <div id="ct-ledger-list" class="ct-ledger-list">
                                 <div style="color:var(--text-muted); font-size:0.85rem;">No activity yet.</div>
                             </div>
                         </div>
                     </div>
                 </section>
+
+                <!-- AYOS/BAGO: Transaction History modal — buong history (hindi
+                     lang 5 latest), may filter (category dropdown + date-from/
+                     date-to) at "Load more" pagination. Ang category dropdown
+                     ay dynamic, pinopopulate mula sa
+                     /relay/cloud-tokens/transaction-categories (single source
+                     of truth), para hindi mag-mismatch sa mga category na
+                     talagang ginagamit sa RELAY. -->
+                <div id="ct-history-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.6); align-items:flex-start; justify-content:center; padding:24px 12px; overflow-y:auto;">
+                    <div style="background:var(--top-header-bg, #ffffff); color:var(--text-primary); border:1px solid var(--border-color); border-radius:12px; max-width:640px; width:100%; padding:20px; margin-top:20px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+                            <h3 style="margin:0; font-size:1.05rem; color:var(--text-primary);"><i class="fa-solid fa-clock-rotate-left"></i> Transaction History</h3>
+                            <button type="button" onclick="closeTransactionHistoryModal()" style="background:none; border:none; color:var(--text-muted); font-size:1.2rem; cursor:pointer;">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <!-- AYOS/BAGO: date-from/date-to muna sa itaas, "All categories"
+                             dropdown sa ilalim nila (dating nasa itaas ito, ngayon
+                             pinagpalit na ang pwesto per request). -->
+                        <!-- AYOS/BAGO: dinagdagan ng visible na label ("From date" /
+                             "To date") sa itaas ng bawat date input — hindi kasi
+                             sinusuportahan ng native <input type="date"> ang
+                             placeholder text, kaya blangko/walang laman ang
+                             hitsura kapag wala pang napiling petsa. -->
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                            <div style="flex:1; min-width:130px;">
+                                <label for="ct-history-filter-date-from" style="display:block; font-size:0.72rem; font-weight:600; color:var(--text-muted); margin-bottom:4px;">From date</label>
+                                <input type="date" id="ct-history-filter-date-from" class="ct-payment-select" style="width:100%;" onchange="reloadTransactionHistory()" title="From date">
+                            </div>
+                            <div style="flex:1; min-width:130px;">
+                                <label for="ct-history-filter-date-to" style="display:block; font-size:0.72rem; font-weight:600; color:var(--text-muted); margin-bottom:4px;">To date</label>
+                                <input type="date" id="ct-history-filter-date-to" class="ct-payment-select" style="width:100%;" onchange="reloadTransactionHistory()" title="To date">
+                            </div>
+                        </div>
+                        <div style="margin-bottom:12px;">
+                            <select id="ct-history-filter-category" class="ct-payment-select" style="width:100%;" onchange="reloadTransactionHistory()">
+                                <option value="ALL">All categories</option>
+                            </select>
+                        </div>
+                        <div id="ct-history-list" class="ct-ledger-list" style="max-height:55vh; overflow-y:auto;">
+                            <div style="color:var(--text-muted); font-size:0.85rem;">Loading…</div>
+                        </div>
+                        <div style="text-align:center; margin-top:12px;">
+                            <button type="button" id="ct-history-load-more" class="ct-btn" style="display:none;" onclick="loadMoreTransactionHistory()">
+                                Load more
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
               
                 <section id="view-faq" class="app-view" style="display:none;">

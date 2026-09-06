@@ -2578,6 +2578,31 @@ function getCloudTokenCostPerSyncExact(tier) {
     const expectedSyncsPerMonth = Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / plan.autoBackupIntervalMs));
     return monthlyPrice / expectedSyncsPerMonth;
 }
+// BUGFIX: dating ang restore pre-check (sa /api/cloud-backup/restore sa
+// ibaba) ay bumabalik sa getCloudTokenCostPerSync(Exact)() — ang SYNC
+// formula — tuwing hindi ma-verify ang wallet mula RELAY (e.g. sandaling
+// connectivity hiccup), kahit "tokenCostForRestore" ang pangalan ng
+// variable doon. Mali ito: magkaiba ang pricing model ng restore
+// (Instant Restore rate, hindi pinapatong sa "syncs per month" — tingnan
+// ang computeRealCloudBackupRestoreCostPHP() sa RELAY server.js) kaysa
+// sync (prorated storage+compute kada auto-sync interval). Idinagdag dito
+// ang sarili nitong RESTORE fallback — walang access ang OMNIPOS dito sa
+// totoong Neon rate/aktwal na laki ng backup (offline/local lang ito),
+// kaya CONSERVATIVE lang ang ginagamit: ang buong buwanang presyo ng tier
+// (monthlyPrice), HINDI na hinahati pa sa bilang ng syncs kada buwan —
+// mas malapit ito sa realistikong magnitude ng isang buong-backup na
+// restore kumpara sa isang incremental na sync. Ito ay PRE-CHECK/
+// DISPLAY LANG (offline fallback) — ang totoong/eksaktong charge ay laging
+// nasa RELAY (/relay/cloud-backup/restore), gamit ang aktwal na laki ng
+// backup at totoong Neon rate.
+function getCloudTokenCostPerRestore(tier) {
+    const plan = CLOUD_BACKUP_PLANS[tier] || CLOUD_BACKUP_PLANS.basic;
+    return Math.max(1, Math.ceil(plan.price.monthly));
+}
+function getCloudTokenCostPerRestoreExact(tier) {
+    const plan = CLOUD_BACKUP_PLANS[tier] || CLOUD_BACKUP_PLANS.basic;
+    return plan.price.monthly;
+}
 // Kunin ang token wallet balance/ledger mula RELAY (source of truth) —
 // kailangan ng RELAY_API_KEY at internet; kung wala man, "unknown" ang
 // balance (hindi automatic na "insufficient" — iwas maling pagharang sa
@@ -2604,7 +2629,20 @@ async function fetchCloudTokenWallet(installationId) {
             pendingPurchases: data.pendingPurchases || [],
             realSyncCostTokens: typeof data.realSyncCostTokens === 'number' ? data.realSyncCostTokens : null,
             realSyncCostTokensExact: typeof data.realSyncCostTokensExact === 'number' ? data.realSyncCostTokensExact : null,
-            realSyncCostBasedOnKnownSize: !!data.realSyncCostBasedOnKnownSize
+            realSyncCostBasedOnKnownSize: !!data.realSyncCostBasedOnKnownSize,
+            // BUGFIX: ang RELAY's /relay/cloud-tokens/wallet ay nagbabalik na
+            // ng realRestoreCostTokens/Exact (mula pa noong idinagdag ang
+            // proportional restore charge), pero HINDI pa ito dating
+            // ipinapasa dito (whitelist lang ang function na ito ng fields
+            // na babalik) — kaya sa /api/cloud-backup/restore sa ibaba,
+            // ang "walletForRestore.realRestoreCostTokens" ay LAGING
+            // undefined, at LAGING bumabagsak sa lokal na fallback formula
+            // sa halip na gamitin ang TOTOONG, size-based na presyo mula sa
+            // RELAY para sa installation na ito — kahit online at maayos
+            // ang koneksyon sa RELAY. Idinagdag na ito rito.
+            realRestoreCostTokens: typeof data.realRestoreCostTokens === 'number' ? data.realRestoreCostTokens : null,
+            realRestoreCostTokensExact: typeof data.realRestoreCostTokensExact === 'number' ? data.realRestoreCostTokensExact : null,
+            realRestoreCostBasedOnKnownSize: !!data.realRestoreCostBasedOnKnownSize
         };
     } catch (err) {
         return { ok: false, reason: err.message };
@@ -3945,7 +3983,10 @@ async function performCloudBackupUpload(trigger, actorUsername) {
             const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/upload/finish`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-                body: JSON.stringify({ uploadId, installationId })
+                // AYOS/BAGO: ipinapasa na ang `trigger` (manual/automatic)
+                // papunta sa RELAY, para tama ang pag-tag ng Transaction
+                // History entry (Manual vs Auto-sync).
+                body: JSON.stringify({ uploadId, installationId, trigger: trigger === 'automatic' ? 'automatic' : 'manual' })
             }, 120000);
             throwIfRateLimited(res);
             return res;
@@ -4084,6 +4125,34 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
             ? walletResult.realSyncCostTokensExact
             : getCloudTokenCostPerSyncExact(tier)) * 1000
     ) / 1000;
+    // AYOS/BAGO: parehong TOTOONG (size-based) na presyo, pero para sa
+    // RESTORE — para makita sa Omni Tokens page ("Current Plan" breakdown)
+    // kung magkano ang dapat i-reserve kung sakaling kailanganin ng restore,
+    // katabi ng monthly/yearly sync breakdown. Fallback sa lokal na
+    // getCloudTokenCostPerRestore(Exact)(tier) kapag hindi ma-verify ang
+    // wallet mula RELAY.
+    const tokenCostPerRestore = (walletResult.ok && typeof walletResult.realRestoreCostTokens === 'number')
+        ? walletResult.realRestoreCostTokens
+        : getCloudTokenCostPerRestore(tier);
+    const tokenCostPerRestoreExact = Math.round(
+        ((walletResult.ok && typeof walletResult.realRestoreCostTokensExact === 'number')
+            ? walletResult.realRestoreCostTokensExact
+            : getCloudTokenCostPerRestoreExact(tier)) * 1000
+    ) / 1000;
+    // Hoisted so the restore-reference fields below (estTotal...WithOneRestore)
+    // can reuse them without re-deriving/duplicating the same formula.
+    const expectedSyncsPerMonthForTier = (CLOUD_BACKUP_PLANS[tier])
+        ? Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs))
+        : null;
+    const estTotalMonthlyTokensComputed = (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number')
+        ? Math.round((CLOUD_BACKUP_PLANS[tier].price.monthly + (tokenCostPerSyncExact * expectedSyncsPerMonthForTier)) * 10) / 10
+        : null;
+    const estTotalYearlyTokensComputed = (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number')
+        ? Math.round((
+            ((typeof CLOUD_BACKUP_PLANS[tier].price.yearly === 'number') ? CLOUD_BACKUP_PLANS[tier].price.yearly : (CLOUD_BACKUP_PLANS[tier].price.monthly * 12))
+            + (tokenCostPerSyncExact * expectedSyncsPerMonthForTier * 12)
+        ) * 10) / 10
+        : null;
     const balanceTokens = walletResult.ok ? walletResult.balanceTokens : null;
     const sufficientForSync = walletResult.ok ? (balanceTokens >= tokenCostPerSync) : null;
     // AYOS: self-heal — kung nakabukas pa rin ang Auto-Sync toggle sa
@@ -4139,9 +4208,7 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
             estSyncTokensPerYear: (CLOUD_BACKUP_PLANS[tier] && typeof tokenCostPerSyncExact === 'number')
                 ? Math.max(1, Math.ceil(tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs)) * 12))
                 : null,
-            estTotalMonthlyTokens: (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number')
-                ? Math.round((CLOUD_BACKUP_PLANS[tier].price.monthly + (tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs)))) * 10) / 10
-                : null,
+            estTotalMonthlyTokens: estTotalMonthlyTokensComputed,
             // FIX: the yearly maintenance fee is NOT 12 monthly renewals —
             // CLOUD_BACKUP_PLANS[tier].price.yearly is the tier's actual
             // configured yearly price in the RELAY pricing admin, which is
@@ -4153,13 +4220,24 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
             maintenanceFeeTokensYearly: (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.yearly === 'number')
                 ? CLOUD_BACKUP_PLANS[tier].price.yearly
                 : ((CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number') ? CLOUD_BACKUP_PLANS[tier].price.monthly * 12 : null),
-            estTotalYearlyTokens: (CLOUD_BACKUP_PLANS[tier] && typeof CLOUD_BACKUP_PLANS[tier].price.monthly === 'number')
-                ? Math.round((
-                    ((typeof CLOUD_BACKUP_PLANS[tier].price.yearly === 'number') ? CLOUD_BACKUP_PLANS[tier].price.yearly : (CLOUD_BACKUP_PLANS[tier].price.monthly * 12))
-                    + (tokenCostPerSyncExact * Math.max(1, Math.round((30 * 24 * 60 * 60 * 1000) / CLOUD_BACKUP_PLANS[tier].autoBackupIntervalMs)) * 12)
-                ) * 10) / 10
+            estTotalYearlyTokens: estTotalYearlyTokensComputed,
+            // AYOS/BAGO: restore-cost reference — hiwalay sa monthly/yearly
+            // sync totals sa itaas (restore ay hindi naka-schedule/
+            // recurring), pero kasama pa rin dito bilang "just in case" na
+            // reference, kasabay ng ...WithOneRestore variants na parehong
+            // pattern gaya ng ginawa sa RELAY packages catalog — makikita ito
+            // sa Omni Tokens page ("Current Plan" breakdown), katabi ng
+            // monthly/yearly sync totals, HINDI kasama sa mismong
+            // estTotalMonthlyTokens/estTotalYearlyTokens sa itaas.
+            tokenCostPerRestore,
+            tokenCostPerRestoreExact,
+            estTotalMonthlyTokensWithOneRestore: (typeof estTotalMonthlyTokensComputed === 'number')
+                ? Math.round((estTotalMonthlyTokensComputed + tokenCostPerRestore) * 10) / 10
                 : null,
-            estimateDisclaimer: 'Monthly and yearly totals are approximate estimates based on your current backup size and typical sync frequency — not a guaranteed final cost.',
+            estTotalYearlyTokensWithOneRestore: (typeof estTotalYearlyTokensComputed === 'number')
+                ? Math.round((estTotalYearlyTokensComputed + tokenCostPerRestore) * 10) / 10
+                : null,
+            estimateDisclaimer: 'Monthly and yearly totals are approximate estimates based on your current backup size and typical sync frequency — not a guaranteed final cost. Restore cost is a reference only (restores are rare/unscheduled), shown separately from the monthly/yearly sync totals.',
             autoSyncEnabled: prefs.autoSyncEnabled
         },
         wallet: {
@@ -4184,6 +4262,41 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
     } catch (err) {
         console.error('[OmniPOS] /api/admin/cloud-tokens/overview failed:', err);
         return res.status(500).json({ success: false, message: 'Failed to load the Omni Tokens overview. Please try again.' });
+    }
+});
+// AYOS/BAGO: proxy endpoints para sa Transaction History modal. Kagaya ng
+// ibang RELAY calls dito, hindi direktang tumatawag ang browser sa RELAY
+// (ang RELAY_API_KEY ay dapat manatiling server-side secret) — dumadaan
+// muna ito sa OMNIPOS server, na siyang may hawak ng key.
+app.get('/api/admin/cloud-tokens/transaction-categories', async (req, res) => {
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Cloud Backup / Omni Tokens is not configured on this device.' });
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/transaction-categories`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+        const data = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !data.success) return res.status(502).json({ success: false, message: data.message || 'Could not load transaction categories.' });
+        res.json({ success: true, categories: data.categories || [] });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+app.get('/api/admin/cloud-tokens/transaction-history', async (req, res) => {
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Cloud Backup / Omni Tokens is not configured on this device.' });
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    const { category, dateFrom, dateTo, limit, offset } = req.query;
+    const qs = new URLSearchParams({ installationId });
+    if (category) qs.set('category', String(category));
+    if (dateFrom) qs.set('dateFrom', String(dateFrom));
+    if (dateTo) qs.set('dateTo', String(dateTo));
+    if (limit) qs.set('limit', String(limit));
+    if (offset) qs.set('offset', String(offset));
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/transaction-history?${qs.toString()}`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+        const data = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !data.success) return res.status(502).json({ success: false, message: data.message || 'Could not load transaction history.' });
+        res.json({ success: true, transactions: data.transactions || [], hasMore: !!data.hasMore, limit: data.limit, offset: data.offset });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
@@ -4438,38 +4551,47 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
     }
-    // AYOS: parehong Cloud Backup Tokens gate gaya ng sa manual sync sa
+    // AYOS/BAGO: parehong Cloud Backup Tokens gate gaya ng sa manual sync sa
     // itaas — hindi gumagana ang Restore button kung kulang ang tokens.
-    // Restore lang mismo ay HINDI nagko-consume ng tokens (isang beses
-    // lang ang deduction, kada successful SYNC, hindi kada restore).
+    // Restore NGAYON ay NAGKO-CONSUME na ng tokens (proportional sa laki ng
+    // backup — tingnan ang computeRealCloudBackupRestoreCostPHP() sa RELAY
+    // server.js) — hindi na tulad ng dati na "isang beses lang ang deduction,
+    // kada successful SYNC, hindi kada restore". Ang check na ito dito ay
+    // APPROXIMATE/fail-fast lang (iwas mag-aksaya ng round-trip kung alam na
+    // agad na kulang ang balance) — ang AKTWAL/atomic na charge (at ang huling
+    // pasya kung sapat ang balance) ay nasa RELAY mismo, sa loob ng
+    // /relay/cloud-backup/restore, kaagad bago ibalik ang backup data.
     {
         const subscriptionForRestoreGate = getCloudBackupSubscriptionInfo();
         const tokenTierForRestore = subscriptionForRestoreGate.tier || 'basic';
         const featureDataForGate = readFeatureUnlocks();
         const installationIdForGate = getOrCreateInstallationId(featureDataForGate);
         const walletForRestore = await fetchCloudTokenWallet(installationIdForGate);
-        // AYOS/BUGFIX: gamitin ang TOTOONG presyo kada sync ng installation
-        // na ito (batay sa aktwal na laki ng datos, mula sa RELAY) — hindi
-        // na ang maintenance-fee-based na tier estimate. Fallback lang sa
-        // lokal na estimate kapag hindi ma-verify ang wallet mula RELAY.
-        const tokenCostForRestore = (walletForRestore.ok && typeof walletForRestore.realSyncCostTokens === 'number')
-            ? walletForRestore.realSyncCostTokens
-            : getCloudTokenCostPerSync(tokenTierForRestore);
-        // AYOS/BUGFIX: 3 decimal places na rin dito, kagaya ng ibang fix —
-        // dating 1 decimal lang (Math.round(x*10)/10).
+        // AYOS/BAGO: gamitin ang TOTOONG presyo ng RESTORE (hindi sync) ng
+        // installation na ito (batay sa aktwal na laki ng datos, mula sa
+        // RELAY) — tingnan ang realRestoreCostTokens(Exact) sa RELAY's
+        // /relay/cloud-tokens/wallet. Fallback lang sa lokal na estimate
+        // kapag hindi ma-verify ang wallet mula RELAY.
+        // BUGFIX: ginagamit na ngayon ang RESTORE-specific fallback
+        // (getCloudTokenCostPerRestore/Exact) sa halip na ang SYNC formula
+        // — tingnan ang comment sa mga function na iyon (malapit sa
+        // getCloudTokenCostPerSyncExact) para sa buong paliwanag.
+        const tokenCostForRestore = (walletForRestore.ok && typeof walletForRestore.realRestoreCostTokens === 'number')
+            ? walletForRestore.realRestoreCostTokens
+            : getCloudTokenCostPerRestore(tokenTierForRestore);
         const tokenCostForRestoreExact = Math.round(
-            ((walletForRestore.ok && typeof walletForRestore.realSyncCostTokensExact === 'number')
-                ? walletForRestore.realSyncCostTokensExact
-                : getCloudTokenCostPerSyncExact(tokenTierForRestore)) * 1000
+            ((walletForRestore.ok && typeof walletForRestore.realRestoreCostTokensExact === 'number')
+                ? walletForRestore.realRestoreCostTokensExact
+                : getCloudTokenCostPerRestoreExact(tokenTierForRestore)) * 1000
         ) / 1000;
         if (walletForRestore.ok && walletForRestore.balanceTokens < tokenCostForRestore) {
             return res.status(402).json({
                 success: false,
                 insufficientTokens: true,
                 balanceTokens: walletForRestore.balanceTokens,
-                tokenCostPerSync: tokenCostForRestore,
-                tokenCostPerSyncExact: tokenCostForRestoreExact,
-                message: `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, needed: ~${tokenCostForRestoreExact} per sync on average). Please buy more Omni Tokens on the Omni Tokens page.`
+                tokenCostPerRestore: tokenCostForRestore,
+                tokenCostPerRestoreExact: tokenCostForRestoreExact,
+                message: `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, needed: ~${tokenCostForRestoreExact} for this restore). Please buy more Omni Tokens on the Omni Tokens page.`
             });
         }
     }
@@ -4540,7 +4662,12 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
             message: `Successfully restored ${restoredCount} module(s) from Cloud Backup.`,
             restoredCount,
             moduleNames: Object.keys(modules),
-            accountsNeedingPasswordReset
+            accountsNeedingPasswordReset,
+            // AYOS/BAGO: ipinapasa na rin ang aktwal na na-charge na tokens
+            // (mula RELAY) at ang bagong balance — para maipakita sa UI kung
+            // ilang token ang nagastos sa restore na ito.
+            tokensCharged: relayData.tokensCharged,
+            balanceTokens: relayData.balanceTokens
         });
     } catch (err) {
         const reasonCode = err.code || err.name || 'ERR';

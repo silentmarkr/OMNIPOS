@@ -1257,3 +1257,13 @@
 [2026-09-06 20:36:28] ⚠️  May natirang lock file mula sa dating session (PID 16100, hindi na tumatakbo) — nililinis.
 [2026-09-06 20:36:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
 [2026-09-06 20:36:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-09-07 02:22:05] ⚠️  May natirang lock file mula sa dating session (PID 11844, hindi na tumatakbo) — nililinis.
+[2026-09-07 02:22:06] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-07 02:22:09] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-09-07 02:56:06] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-07 02:56:08] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-07 02:56:11] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+[2026-09-07 04:12:44] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-07 04:15:02] ⚠️  May natirang lock file mula sa dating session (PID 29768, hindi na tumatakbo) — nililinis.
+[2026-09-07 04:15:02] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-07 04:15:05] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
