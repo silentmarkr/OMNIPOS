@@ -395,6 +395,18 @@
     const box = document.getElementById('faq-ai-suggestions');
     if (!box) return;
 
+    // BAGO: ang "matching questions" dropdown ay para lang sa classic
+    // Keyword Search mode. Sa AI Chatbot mode, may sarili nang typing
+    // affordance ang composer (send button + Enter para magtanong), kaya
+    // nakakaligalig at nagiging masikip ang dropdown na ito kapag pinilit
+    // ding ipinapakita doon — lalo na sa mobile (see style.css .faq-suggest-box).
+    if (effectiveAiMode() === 'ai') {
+      box.innerHTML = '';
+      box.style.display = 'none';
+      activeSuggestIndex = -1;
+      return;
+    }
+
     const tokens = expandTokens(tokenize(query));
     const matches = suggest(query, 8);
     activeSuggestIndex = -1;
@@ -705,6 +717,80 @@
       </div>`;
   }
 
+  // BAGO: sa AI Chatbot (fullchat) mode sa mobile, ang composer dock ay
+  // dati `position: sticky; bottom: 0` lamang — hindi ito sumusunod nang
+  // tama sa aktwal na taas ng on-screen keyboard sa maraming Android/iOS
+  // browsers (parehong isyu tulad ng na-encounter na noon sa Login screen,
+  // see setupAuthMobileKeyboardHandling sa app.js), kaya minsan naitatago
+  // ng keyboard ang input, o na-o-overlap ito ng bottom nav bar
+  // (#app-bottom-nav). Dito, ginagaya ang parehong `visualViewport`
+  // approach: habang naka-focus sa #faq-ai-input, kino-compute ang
+  // overlap ng keyboard at itinatakda bilang CSS var (--faq-kb-offset) na
+  // nagbibigay ng extra padding sa ilalim ng composer para lumutang ito
+  // nang tama sa ibabaw ng keyboard. Itinatago rin ang bottom nav habang
+  // nagta-type (gamit ang parehong .bottom-nav-hidden na ginagamit na sa
+  // Terminal view) para hindi ito masamang ka-overlap ng composer.
+  let faqKbHandlingWired = false;
+  function setupFaqComposerKeyboardHandling() {
+    if (faqKbHandlingWired) return;
+    faqKbHandlingWired = true;
+
+    const MOBILE_NAV_BREAKPOINT = 1024; // dapat tugma sa .bottom-nav breakpoint sa style.css
+
+    function isMobileNavWidth() {
+      return window.innerWidth <= MOBILE_NAV_BREAKPOINT;
+    }
+    function isComposerFocused() {
+      return !!document.activeElement && document.activeElement.id === 'faq-ai-input';
+    }
+    function isFullchatActive() {
+      const view = document.getElementById('view-faq');
+      return !!view && view.classList.contains('faq-fullchat-mode');
+    }
+
+    function updateKeyboardOffset() {
+      if (!isComposerFocused() || !isFullchatActive() || !isMobileNavWidth() || !window.visualViewport) return;
+      const view = document.getElementById('view-faq');
+      const vv = window.visualViewport;
+      const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      view.style.setProperty('--faq-kb-offset', `${overlap}px`);
+    }
+
+    function restoreBottomNavIfNeeded() {
+      const bottomNavEl = document.getElementById('app-bottom-nav');
+      if (!bottomNavEl) return;
+      // Huwag ibalik kung ang Terminal view mismo ang dahilan kung bakit
+      // dapat nakatago ang bottom nav (may sarili itong logic sa switchView).
+      const activeItem = document.querySelector('.bottom-nav-item.active');
+      const isTerminalView = !!activeItem && activeItem.id === 'bn-terminal';
+      if (!isTerminalView) bottomNavEl.classList.remove('bottom-nav-hidden');
+    }
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateKeyboardOffset);
+      window.visualViewport.addEventListener('scroll', updateKeyboardOffset);
+    }
+
+    document.addEventListener('focusin', (ev) => {
+      if (!ev.target || ev.target.id !== 'faq-ai-input') return;
+      if (!isFullchatActive() || !isMobileNavWidth()) return;
+      const bottomNavEl = document.getElementById('app-bottom-nav');
+      if (bottomNavEl) bottomNavEl.classList.add('bottom-nav-hidden');
+      setTimeout(updateKeyboardOffset, 250);
+      setTimeout(updateKeyboardOffset, 500);
+    });
+
+    document.addEventListener('focusout', (ev) => {
+      if (!ev.target || ev.target.id !== 'faq-ai-input') return;
+      setTimeout(() => {
+        if (isComposerFocused()) return;
+        const view = document.getElementById('view-faq');
+        if (view) view.style.removeProperty('--faq-kb-offset');
+        restoreBottomNavIfNeeded();
+      }, 150);
+    });
+  }
+
   let slashShortcutWired = false;
   function setupSlashShortcut() {
     if (slashShortcutWired) return;
@@ -938,7 +1024,17 @@
         const res = await authFetch(`${API_URL}/ai-assistant/usage`);
         return res.ok ? res.json() : null;
       })();
-      if (!data || data.success === false) { pill.style.display = 'none'; return; }
+      // NOTE: kapag preloaded (galing sa 402 creditsExhausted response ng
+      // /ai-assistant/ask), `data.success` ay laging false kahit valid at
+      // kumpleto naman ang remaining/limit fields nito — kaya HINDI dapat
+      // ibase ang pagtago ng pill sa `success` field, kundi sa aktwal na
+      // pagkakaroon ng usable na remaining/limit numbers. Dating bug: dahil
+      // sa success===false check, natatago ang credit pill sa halip na
+      // ipakita bilang "exhausted" — kabaligtaran ng sinasadya.
+      if (!data || typeof data.remaining !== 'number' || typeof data.limit !== 'number') {
+        pill.style.display = 'none';
+        return;
+      }
       const remaining = data.remaining;
       const limit = data.limit;
       pill.style.display = 'inline-flex';
@@ -1263,6 +1359,7 @@
     renderFullList();
     renderAiModeToggle();
     setupSlashShortcut();
+    setupFaqComposerKeyboardHandling();
     const ticketBackdrop = document.getElementById('faq-ticket-modal-backdrop');
     if (ticketBackdrop) {
       ticketBackdrop.addEventListener('click', (ev) => {

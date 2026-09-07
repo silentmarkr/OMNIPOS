@@ -7881,7 +7881,12 @@ body.dark-mode .faq-cat-heading, .dark .faq-cat-heading { color: #9a9ba8; }
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  max-width: calc(100% - 130px);
+  /* BAGO: ang dropdown na ito ay Search (Keyword) mode na lang ang
+     gamit — hindi na ito kailaresan sa AI Chatbot composer's send
+     button, kaya hindi na kailangang mag-iwan ng malaking reserved
+     space sa kanan. Mas malapad na ito ngayon para hindi na pinuputol
+     ang mga tanong (dating "How d…" sa maliliit na screen). */
+  max-width: 100%;
   background: var(--bg-card, #fff);
   border: 1px solid var(--border-color, #cbd5e1);
   border-radius: 10px;
@@ -8417,6 +8422,12 @@ body.dark-mode .faq-composer-icon-btn, .dark .faq-composer-icon-btn { background
   bottom: 0;
   padding: 12px 0 4px;
   background: linear-gradient(to top, var(--bg-page, #f8fafc) 65%, transparent);
+  /* BAGO: itinutulak pataas ang composer sa ibabaw ng on-screen keyboard sa
+     mobile gamit ang --faq-kb-offset (itinatakda ng JS via visualViewport
+     sa setupFaqComposerKeyboardHandling, faq-engine.js). 0px kapag walang
+     keyboard/desktop, kaya walang epekto doon. */
+  padding-bottom: calc(4px + var(--faq-kb-offset, 0px));
+  transition: padding-bottom 0.15s ease;
 }
 body.dark-mode #view-faq.faq-fullchat-mode .faq-composer-dock,
 .dark #view-faq.faq-fullchat-mode .faq-composer-dock {

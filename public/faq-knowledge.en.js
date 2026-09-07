@@ -42,6 +42,32 @@ window.OMNIPOS_FAQ_KB_EN = [
   answer: `<p>While the system is in LAN mode (devices on the same network/WiFi), a <strong>"Server IP QR Code"</strong> is available in the system — it shows a QR code encoding the server's network address.</p>
   <p>Just scan it with the camera or QR scanner of another device (as long as it's on the same WiFi/LAN) to open OmniPOS directly there, without needing to manually type the IP address.</p>`
 },
+{
+  id: 'overview-install-app',
+  category: 'Overview',
+  question: 'How do I install OmniPOS as an app (Add to Home Screen)?',
+  keywords: ['install omnipos', 'add to home screen', 'install the app', 'pwa', 'download the app', 'install app banner', 'full screen no browser bar'],
+  verdict: 'yes',
+  answer: `<p>Yes — no Play Store or App Store needed. OmniPOS is an installable web app (<strong>PWA</strong>), so it can be added to your phone/tablet's home screen to run like a normal app — <strong>full-screen, no browser address bar, and a faster launch</strong>.</p>
+  <ul>
+    <li><strong>On Android/Chrome:</strong> an install banner appears at the bottom of the screen (if not installed yet) with an <em>"Install"</em> button — tap it and confirm the browser's native prompt.</li>
+    <li><strong>On iPhone/iPad (iOS Safari):</strong> there's no automatic install button due to an iOS limitation — tap the <strong>Share</strong> icon in Safari, then choose <strong>"Add to Home Screen"</strong>.</li>
+  </ul>
+  <p>If the install banner is dismissed, it won't reappear for <strong>7 days</strong>. It also won't show once the app is already installed (running as a standalone app).</p>`
+},
+{
+  id: 'overview-connectivity-mode',
+  category: 'Overview',
+  question: 'What is the Online/Offline Connectivity Mode button in the user menu?',
+  keywords: ['connectivity mode', 'online offline toggle', 'wifi icon header', 'checking connection', 'manual offline mode', 'connectivity mode button'],
+  answer: `<p>This is found in the <strong>user/profile menu</strong> at the top (next to the Fullscreen and Dark Mode toggles) as a pill/button with a WiFi icon — it shows the current status: <strong>Online</strong>, <strong>Offline</strong>, or <strong>"Checking…"</strong> while it confirms whether there's internet.</p>
+  <ul>
+    <li>It automatically checks every time you log in — if there's internet, it's painted <strong>Online</strong>; if not, it's painted <strong>Offline</strong>.</li>
+    <li>You can also tap it manually to switch: forcing it to <strong>Offline</strong> stops the system from proactively contacting the Relay server (e.g. auto cloud backup, update-check) — but the POS itself (checkout, inventory, etc.) keeps working normally, since it really only needs the local network.</li>
+    <li>If you try to switch back to <strong>Online</strong> while there's no real internet connection, a warning appears and it won't switch until a connection is confirmed.</li>
+  </ul>
+  <p>In short: this doesn't control whether the POS works or not (it works fine as long as it's on the LAN) — it only controls when the system will try to talk to the internet/Relay.</p>`
+},
 
 {
   id: 'login-how',
