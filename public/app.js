@@ -1390,11 +1390,16 @@ function updateSidebarFeatureLocks() {
 async function updateModuleSubscriptionBadges() {
     const rbacBox = document.getElementById('rbac-subscription-status');
     const multiBranchBox = document.getElementById('multi-branch-subscription-status');
+    const aiAssistantBox = document.getElementById('ai-assistant-subscription-status');
     const rbacUnlocked = isFeatureUnlockedCached('rbac_management');
     const multiBranchUnlocked = isFeatureUnlockedCached('multi_branch');
+    const aiAssistantUnlocked = isFeatureUnlockedCached('ai_assistant');
     if (rbacBox && !rbacUnlocked) rbacBox.style.display = 'none';
     if (multiBranchBox && !multiBranchUnlocked) multiBranchBox.style.display = 'none';
-    if (!rbacUnlocked && !multiBranchUnlocked) return;
+    if (aiAssistantBox && !aiAssistantUnlocked) aiAssistantBox.style.display = 'none';
+    const faqAiUpsell = document.getElementById('faq-ai-upsell');
+    if (faqAiUpsell) faqAiUpsell.style.display = aiAssistantUnlocked ? 'none' : 'block';
+    if (!rbacUnlocked && !multiBranchUnlocked && !aiAssistantUnlocked) return;
     try {
         const res = await authFetch(`${API_URL}/module-subscriptions/status`);
         const data = await res.json();
@@ -1404,6 +1409,9 @@ async function updateModuleSubscriptionBadges() {
         }
         if (multiBranchUnlocked && multiBranchBox) {
             renderModuleSubscriptionBadge(multiBranchBox, 'Multi-Branch Dashboard', data.subscriptions.multi_branch);
+        }
+        if (aiAssistantUnlocked && aiAssistantBox) {
+            renderModuleSubscriptionBadge(aiAssistantBox, 'OmniPOS AI Assistant', data.subscriptions.ai_assistant);
         }
     } catch (err) {
     }
@@ -1444,6 +1452,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
+    ai_assistant: { name:'OmniPOS AI Assistant', description:'An advanced AI-powered assistant, embedded in the FAQ page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
     basic: { name:'Basic', autoBackupIntervalMs: 24 * 60 * 60 * 1000, extra:'30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
@@ -1531,10 +1540,11 @@ function guardPremiumFeature(featureId) {
     promptUnlockFeature(featureId, fallback.name, undefined, fallback.description);
     return true;
 }
-const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant'];
 const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
-    multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } }
+    multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } },
+    ai_assistant: { tagline: 'AI-powered help assistant on the FAQ page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } }
 };
 // Cloud Backup, RBAC, and Multi-Branch are all "subscription-only" features
 // (monthly/yearly billing, not a one-time purchase). Used in the

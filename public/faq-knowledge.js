@@ -34,6 +34,14 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li>Cloud Backup at Multi-Branch Dashboard — ang pag-sync ng data papunta sa online storage o sa ibang branch</li>
   </ul>`
 },
+{
+  id: 'overview-lan-qr-access',
+  category: 'Overview',
+  question: 'Paano buksan ang OmniPOS gamit ang QR code sa ibang device (LAN)?',
+  keywords: ['qr code open device', 'scan para makapasok', 'server ip qr', 'ibang device lan', 'connect ibang cellphone'],
+  answer: `<p>Kapag naka-LAN mode ang system (parehong network/WiFi ang mga device), may available na <strong>"Server IP QR Code"</strong> na makikita sa system — nagpapakita ito ng QR code na naka-encode sa network address ng server.</p>
+  <p>I-scan lang ito gamit ang camera o QR scanner ng ibang device (basta pareho ang WiFi/LAN) para direktang mabuksan ang OmniPOS doon, nang hindi na kailangang i-type nang manu-mano ang IP address.</p>`
+},
 
 {
   id: 'login-how',
@@ -65,6 +73,19 @@ window.OMNIPOS_FAQ_KB_TL = [
   question: 'Paano mag-logout?',
   keywords: ['logout', 'mag logout', 'sign out'],
   answer: `<p>May Logout button sa profile/sidebar menu. Kapag na-click ito, agad na hindi na magagamit ulit ang naunang session mo — kahit pa may makakuha ng lumang link o device na dati mong ginamit.</p>`
+},
+{
+  id: 'login-biometric',
+  category: 'Login & Sessions',
+  question: 'Paano mag-enable ng Fingerprint/Biometric Login?',
+  keywords: ['fingerprint login', 'biometric login', 'webauthn', 'face id', 'passkey', 'walang password login', 'touch id'],
+  answer: `<p>Ang <strong>Fingerprint Login</strong> (gamit ang WebAuthn — fingerprint, Face ID, o PIN ng device) ay opsyonal na paraan para mag-login nang hindi na kailangang i-type ang password sa parehong device.</p>
+  <ol>
+    <li>Mag-login muna gamit ang normal na username/password.</li>
+    <li>Sa profile settings, i-click ang opsyong i-enable ang Fingerprint Login sa device na ginagamit — susundin nito ang built-in na fingerprint/Face ID/PIN ng iyong phone, tablet, o laptop.</li>
+    <li>Sa susunod na pagbukas ng Login page sa parehong device, lalabas na ang opsyong "Login with Fingerprint" — pindutin ito sa halip na mag-type ng password.</li>
+  </ol>
+  <p>Bawat na-enable na device ay may sariling listahan sa profile settings, at puwede itong tanggalin (remove) nang isa-isa kung gusto mong i-disable ito sa isang partikular na device.</p>`
 },
 
 {
@@ -176,6 +197,14 @@ window.OMNIPOS_FAQ_KB_TL = [
   keywords: ['split payment', 'dalawang payment', 'cash and gcash', 'multiple payment method'],
   verdict: 'oo',
   answer: `<p>Oo — sinusuportahan ang <strong>split o maraming payment method</strong> sa iisang transaksyon (hal. bahagi Cash, bahagi GCash). Awtomatikong tama pa rin ang pagbilang ng cash sa Z-Reading dahil hiwalay itong itinatala kada payment method.</p>`
+},
+{
+  id: 'pos-bluetooth-printer',
+  category: 'POS Terminal',
+  question: 'Paano gamitin ang Bluetooth printer sa POS Terminal?',
+  keywords: ['bluetooth printer', 'wireless printer', 'thermal printer bluetooth', 'cash drawer bluetooth', 'i-connect printer'],
+  answer: `<p>Sinusuportahan ang pag-print ng resibo at pagbukas ng cash drawer sa pamamagitan ng <strong>Bluetooth thermal printer</strong> — kapag napili ang "Bluetooth" bilang paraan ng pag-print sa settings, dumidiretso na ang resibo sa naka-pair na Bluetooth printer sa halip na ipakita lang sa screen o i-print gamit ang regular na browser print.</p>
+  <p>Kung may compatible na Bluetooth cash drawer naman na naka-konekta sa printer, awtomatiko rin itong bubuksan sa tuwing may bagong benta/refund na naka-cash.</p>`
 },
 
 {
@@ -367,6 +396,18 @@ window.OMNIPOS_FAQ_KB_TL = [
   </ul>
   <p>Kapag na-regenerate ang card ng isang customer, awtomatikong nade-deactivate ang dating QR — ang bago na lang ang gagana. Maaari ring i-revoke (kanselahin) ang isang card kung nawala o na-abuso. Ang pag-issue/regenerate ay nangangailangan ng espesyal na access — hindi lahat ng role ay awtomatikong may ganitong kakayahan.</p>`
 },
+{
+  id: 'customers-debtors',
+  category: 'Customers',
+  question: 'Ano ang Debtors at paano ito ginagamit?',
+  keywords: ['debtors', 'utang', 'utang ng customer', 'debtors ledger', 'due date utang', 'bayaran ng customer'],
+  answer: `<p>Ang <strong>Debtors</strong> ay isang ledger na sumusubaybay sa mga customer na may <strong>utang</strong> (hal. pautang na benta) — kasama ang halaga, petsa ng benta, at due date.</p>
+  <ul>
+    <li>Makikita rito ang lahat ng may aktibong utang, at kung sino ang lagpas na sa due date.</li>
+    <li>Puwedeng magtala ng bayad (buo o bahagi lang) laban sa isang utang, at awtomatikong nagba-bawas ito sa natitirang balanse.</li>
+    <li>Bahagi ito ng Customer Profiles, Loyalty & Debtors premium module — kasabay na naka-unlock kapag nabili ito.</li>
+  </ul>`
+},
 
 {
   id: 'receipt-customize',
@@ -454,8 +495,9 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'Premium Features',
   question: 'Anong mga premium module meron sa OmniPOS?',
   keywords: ['premium features', 'paid modules', 'bayad na module', 'unlock feature', 'gembang icon', 'pro badge'],
-  answer: `<p>Bukod sa Pro Themes, may mga buong modyul din ng OmniPOS na naka-lock bilang premium feature hangga't hindi pa ito naka-unlock: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Roles & Permissions (RBAC) Management, at Multi-Branch Dashboard.</p>
-  <p>Kapag sinubukang gamitin ang isang naka-lock na feature, lalabas ang detalye nito (pangalan, presyo, maikling paliwanag) at ang opsyong mag-request ng unlock.</p>`
+  answer: `<p>Bukod sa Pro Themes, may mga buong modyul din ng OmniPOS na naka-lock bilang premium feature hangga't hindi pa ito naka-unlock: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at ang bagong <strong>OmniPOS AI Assistant</strong>.</p>
+  <p>Kapag sinubukang gamitin ang isang naka-lock na feature, lalabas ang detalye nito (pangalan, presyo, maikling paliwanag) at ang opsyong mag-request ng unlock.</p>
+  <p><strong>Paalala:</strong> apat dito ang <strong>subscription na (buwanan o taunan)</strong> sa halip na isang beses lang bayaran — Cloud Backup, RBAC Management, Multi-Branch Dashboard, at AI Assistant. Ang iba pang module/theme ay isang beses lang bayaran, permanente nang naka-unlock. Tingnan ang hiwalay na FAQ tungkol sa mga subscription module para sa detalye.</p>`
 },
 {
   id: 'premium-bundle-tiers',
@@ -467,7 +509,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   <ul>
     <li><strong>Basic Upgrade</strong> — Sales Analytics & Advanced Reports + Promo Codes Module.</li>
     <li><strong>Standard Upgrade</strong> — lahat sa Basic, plus Customer Profiles & Loyalty at Multi-Cashier Shift Oversight.</li>
-    <li><strong>Pro Upgrade (Complete)</strong> — LAHAT ng module, LAHAT ng Pro Theme, AT Cloud Backup — walang matitirang naka-lock.</li>
+    <li><strong>Pro Upgrade (Complete)</strong> — LAHAT ng ibang module AT LAHAT ng Pro Theme — walang matitirang naka-lock, <strong>MALIBAN</strong> sa Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at AI Assistant, dahil hiwalay na itong bina-bill bilang sarili nilang subscription (buwanan/taunan), hindi kasama sa mga bundle/upgrade tier na ito.</li>
   </ul>
   <p>Kung mayroon ka nang nabili dati sa mga indibidwal na feature na kasama sa isang tier, awtomatikong bababa ang presyo ng bundle na iyon para hindi ka na muling magbayad para sa parehong feature.</p>`
 },
@@ -490,7 +532,41 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'Premium Features',
   question: 'Ano ang Cloud Backup at magkano ito?',
   keywords: ['cloud backup', 'online backup', 'postgres backup', 'backup sa cloud'],
-  answer: `<p>Ang Cloud Backup ay hiwalay na premium feature (isang beses lang bayaran) na nagsi-sync ng buong database — lahat ng modyul, kasama ang user accounts (pero HINDI kasama ang passwords) — papunta sa secure na online storage, para protektado ang datos kung masira o mawala ang device. Pagkatapos ma-unlock, may button para mag-backup nang manu-mano at para mag-restore mula sa huling cloud backup.</p>`
+  answer: `<p>Ang Cloud Backup ay ngayon ay isang <strong>subscription module</strong> (buwanan o taunan, HINDI na isang beses lang bayaran) na nagsi-sync ng buong database — lahat ng modyul, kasama ang user accounts (pero HINDI kasama ang passwords) — papunta sa secure na online storage, para protektado ang datos kung masira o mawala ang device.</p>
+  <p>May tatlong tier: <strong>Basic, Standard, at Pro</strong> — nagkakaiba ang presyo depende sa piniling tier at billing cycle (buwanan/taunan). Pagkatapos ma-subscribe, may button para mag-backup nang manu-mano at para mag-restore mula sa huling cloud backup. Gumagamit din ito ng <strong>Cloud Tokens</strong> para sa bawat aktwal na sync/restore — tingnan ang hiwalay na FAQ tungkol sa Cloud Tokens.</p>`
+},
+{
+  id: 'premium-module-subscriptions',
+  category: 'Premium Features',
+  question: 'Paano gumagana ang subscription para sa RBAC, Multi-Branch, at AI Assistant?',
+  keywords: ['module subscription', 'buwanang bayad', 'monthly yearly subscription', 'rbac subscription', 'multi branch subscription', 'grace period', 'nag expire subscription'],
+  answer: `<p>Ang <strong>Roles & Permissions (RBAC) Management</strong>, <strong>Multi-Branch Dashboard</strong>, at <strong>OmniPOS AI Assistant</strong> ay hindi na isang beses lang bayaran — <strong>subscription</strong> na ito, na pwedeng buwanan o taunan (mas mura kada buwan kung taunan ang piliin).</p>
+  <ul>
+    <li>Habang aktibo ang subscription, magagamit ang buong feature.</li>
+    <li>Kapag nag-expire nang hindi na-renew, may <strong>7 araw na grace period</strong> muna bago i-lock ulit ang feature — sapat na oras para makapag-renew nang hindi biglaang natitigil ang paggamit.</li>
+    <li>Pagkalampas ng grace period, ma-lo-lock ulit ang feature hanggang sa ma-renew.</li>
+  </ul>
+  <p>Hiwalay ito sa mga one-time na module/theme (Purchase Orders, Promo Codes, Customer CRM, atbp.) — permanente na ang mga iyon pagkatapos mabili.</p>`
+},
+{
+  id: 'premium-ai-assistant',
+  category: 'Premium Features',
+  question: 'Ano ang OmniPOS AI Assistant at paano ito naiiba sa dating FAQ search?',
+  keywords: ['ai assistant', 'artificial intelligence', 'ai chatbot', 'cloudflare workers ai', 'smart faq', 'ai sa faq'],
+  answer: `<p>Ang <strong>OmniPOS AI Assistant</strong> ay isang advanced na help assistant na nakapaloob sa loob mismo ng FAQ page. Sa halip na basta maghanap ng eksaktong tugmang keyword tulad ng dating search, binabasa at inuunawa ng isang tunay na AI model ang tanong mo, tapos sasagot ito sa natural na Tagalog/English batay sa OmniPOS FAQ Knowledge Base.</p>
+  <ul>
+    <li>Ang TANGING pinagbabatayan ng sagot nito ay ang FAQ Knowledge Base ng system — hindi ito free-roaming chatbot na sasagot ng kahit anong tanong.</li>
+    <li>Kailangan itong "i-unlock" muna bilang subscription module (buwanan/taunan) bago ito gumana.</li>
+    <li>Kung naka-lock pa, o kung nag-timeout/nag-fail ang AI request, awtomatikong babalik ito sa dating keyword-based na FAQ search — walang matitigil na paggamit ng FAQ page.</li>
+  </ul>`
+},
+{
+  id: 'premium-multi-branch-usage',
+  category: 'Premium Features',
+  question: 'Paano gumagana ang Multi-Branch Dashboard sa Overview page?',
+  keywords: ['all branches', 'multi branch dashboard usage', 'ibang branch data', 'business group code', 'branch name setup', 'combine branches'],
+  answer: `<p>Kapag naka-unlock na ang <strong>Multi-Branch Dashboard</strong>, may lalabas na "All Branches" section sa Overview page na pinagsasama-sama ang benta, bilang ng transaksyon, at low-stock snapshot mula sa LAHAT ng branch ng negosyo (magkakaibang device/lokasyon) — halos real-time, na-a-update kada ilang minuto sa pamamagitan ng Relay.</p>
+  <p>Para gumana ito, kailangang i-set up muna sa Store Settings ang <strong>Branch Name</strong> (hal. "Main Branch", "Branch 2 - Cubao") at ang <strong>Business Group Code</strong> — parehong Business Group Code ang ilalagay sa BAWAT branch na gusto mong pagsamahin sa isang combined view.</p>`
 },
 
 {
@@ -556,6 +632,26 @@ window.OMNIPOS_FAQ_KB_TL = [
   question: 'Saan naka-store ang data ng OmniPOS?',
   keywords: ['saan naka store data', 'database file', 'nasaan ang datos'],
   answer: `<p>Ligtas at maayos na naka-imbak ang lahat ng datos (users, products, transactions, logs, requests, categories, customers, promo codes, shifts, purchase orders, atbp.) sa iisang lugar sa loob ng system. Kaya naman simple lang ang paggawa ng backup — iisang file lang ang kailangang i-save.</p>`
+},
+{
+  id: 'security-2fa',
+  category: 'Security',
+  question: 'Ano ang Two-Factor Authentication (2FA) sa login?',
+  keywords: ['2fa', 'two factor authentication', 'otp sa login', 'dagdag na security login', 'email otp login'],
+  answer: `<p>Kapag na-enable sa Settings → Advanced Settings, hihilingin ang isang <strong>6-digit na OTP code</strong> (ipapadala sa naka-configure na email) bawat magla-login — hindi lang username at password na, may karagdagang hakbang bago makapasok.</p>
+  <p>Opt-in ito — desisyon ng Admin kung ie-enable at saang email na address ipapadala ang mga OTP code.</p>`
+},
+{
+  id: 'security-fraud-detection',
+  category: 'Security',
+  question: 'Ano ang Fraud & Anomaly Detection?',
+  keywords: ['fraud detection', 'anomaly alert', 'fraud alerts', 'kaduda-dudang transaksyon', 'fraud sensitivity'],
+  answer: `<p>Kapag na-enable sa Settings → Advanced Settings, awtomatikong minomonitor ng system ang mga kaduda-dudang pattern ng aktibidad (hal. sunud-sunod na void/refund sa maikling panahon) at gumagawa ng <strong>Fraud & Anomaly Alert</strong> kapag napansin ito.</p>
+  <ul>
+    <li>May "sensitivity" setting (mababa/katamtaman/mataas) na nagtatakda kung gaano kabilis mag-trigger ng alert.</li>
+    <li>May opsyon din na mag-email agad ng notification sa naka-configure na address kapag may bagong alert.</li>
+    <li>Makikita ang lahat ng alert sa Fraud Alerts table sa loob ng Settings/Users tab (Admin access).</li>
+  </ul>`
 },
 
 {
@@ -627,6 +723,94 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li><strong>Sa PC o Laptop</strong> (malaking screen), nananatili ang bawat pamagat sa ORIHINAL nitong pwesto — sa loob ng page/view mismo, hindi sa Header — gaya ng dati.</li>
   </ul>
   <p>Awtomatiko itong nag-aadjust din kapag binago ang laki ng browser window o kapag i-rotate ang tablet/cellphone (portrait/landscape).</p>`
+},
+
+{
+  id: 'cloud-tokens-what',
+  category: 'Cloud Tokens & Payments',
+  question: 'Ano ang Cloud Tokens at para saan ito ginagamit?',
+  keywords: ['cloud tokens', 'ano ang tokens', 'token wallet', 'bumili ng tokens', 'sync token', 'restore token'],
+  answer: `<p>Ang <strong>Cloud Tokens</strong> ay parang "load" o e-wallet balance na ginagamit para bayaran ang bawat aktwal na <strong>Cloud Backup sync o restore</strong> — sa halip na maghintay ng buwanang bill, kaltas kada beses gamitin ang feature, base sa Cloud Backup tier mo (Basic/Standard/Pro).</p>
+  <ul>
+    <li>Bumibili ka ng package ng tokens (halimbawa sa pamamagitan ng GCash/Maya/card, depende sa naka-configure na payment method), tapos idinadagdag ito sa wallet mo.</li>
+    <li>Makikita sa Cloud Backup section ang kasalukuyang balance ng tokens, at kung magkano ang gagastusin bawat sync/restore.</li>
+    <li>Kung maubos ang tokens, hindi na maisasagawa ang susunod na sync/restore hangga't hindi ka bumibili ulit ng tokens.</li>
+  </ul>`
+},
+{
+  id: 'payment-methods',
+  category: 'Cloud Tokens & Payments',
+  question: 'Anong paraan ng pagbabayad ang tinatanggap sa pagbili ng feature/tokens?',
+  keywords: ['paano magbayad', 'gcash', 'maya', 'paymaya', 'credit card', 'debit card', 'paypal', 'online banking', 'over the counter', 'payment options', 'bayad'],
+  verdict: 'depende',
+  answer: `<p>Depende ito sa kung anong payment provider ang naka-configure ng developer/may-ari ng system mo — awtomatikong lalabas lang bilang opsyon ang paraan ng bayad na aktwal na naka-set up (hindi lahat ay laging available):</p>
+  <ul>
+    <li><strong>GCash / Maya / Online Banking</strong> (QR Ph) — sa pamamagitan ng PayMongo o Xendit.</li>
+    <li><strong>GrabPay at Bank Transfer</strong> — sa pamamagitan ng Xendit.</li>
+    <li><strong>Credit/Debit Card (international)</strong> — sa pamamagitan ng Stripe.</li>
+    <li><strong>PayPal</strong> — direktang PayPal account.</li>
+    <li><strong>Over-the-Counter</strong> (7-Eleven, Cebuana Lhuillier, LBC, atbp.) at InstaPay/PESONet Bank Transfer — sa pamamagitan ng Dragonpay.</li>
+  </ul>
+  <p>Kapag walang anumang provider na naka-configure, walang lalabas na opsyon ng online payment — sa ganitong kaso, direkta na lang sa developer/may-ari makipag-ayos para sa unlock request.</p>`
+},
+
+{
+  id: 'advanced-customer-display',
+  category: 'Advanced Settings',
+  question: 'Ano ang Customer-Facing Display at paano ito buksan?',
+  keywords: ['customer display', 'second screen', 'pantalya ng customer', 'monitor ng customer', 'facing screen', 'ikalawang screen'],
+  answer: `<p>Ang <strong>Customer-Facing Display</strong> ay ikalawang screen (monitor o tablet na nakaharap sa customer) na live na nagpapakita ng laman ng cart habang nagti-tanan ang cashier, at may thank-you screen pagkatapos ng bawat benta.</p>
+  <ol>
+    <li>Sa Settings → Advanced Settings, i-enable ang "Customer-Facing Display".</li>
+    <li>Pwede ring itakda ang "compact threshold" — kapag lumagpas ang bilang ng linya sa cart sa itinakdang numerong ito, awtomatikong pinapaliit ang mga row ng display para makasya pa rin lahat kasama ang Total, kahit walang pag-scroll.</li>
+    <li>I-click ang "Open Customer Display" — bubukas ito bilang bagong window/tab na pwedeng ilipat sa ikalawang monitor o kabilang tablet.</li>
+  </ol>`
+},
+{
+  id: 'advanced-idle-lock',
+  category: 'Advanced Settings',
+  question: 'Ano ang Idle-Session Auto-Lock?',
+  keywords: ['idle lock', 'auto lock', 'awtomatikong lock', 'walang galaw lock', 'auto lock minutes'],
+  answer: `<p>Kapag na-enable sa Settings → Advanced Settings, awtomatikong nag-i-lock ang session (kailangan mo munang mag-verify ulit para makabalik) kapag walang aktibidad (walang click/type/touch) sa loob ng itinakdang bilang ng minuto. Naitatakda mo ang eksaktong bilang ng minuto bago mag-lock.</p>
+  <p>Ito ay opt-in lang — hindi ito nagbabago sa 8-oras na session timeout ng buong login; hiwalay itong proteksyon laban sa taong makakakita ng bukas at naka-login na screen habang walang bantay.</p>`
+},
+{
+  id: 'advanced-sale-webhook',
+  category: 'Advanced Settings',
+  question: 'Ano ang Sale Webhook at para saan ito?',
+  keywords: ['sale webhook', 'webhook', 'zapier', 'make integration', 'accounting integration', 'i-connect sa ibang app'],
+  answer: `<p>Ang <strong>Sale Webhook</strong> ay opt-in na integration na awtomatikong nagpapadala ng detalye ng bawat kumpletong benta papunta sa ibang tool sa labas ng OmniPOS — hal. Zapier, Make, o software ng accounting — sa pamamagitan ng isang webhook URL.</p>
+  <p>Sa Settings → Advanced Settings, i-enable ang Sale Webhook, tapos ilagay ang buong <code>http://</code> o <code>https://</code> URL na ibinigay ng ibang app/tool mo. Hindi tatanggapin ang setting kung walang valid na URL na nakalagay bago i-enable.</p>`
+},
+
+{
+  id: 'settings-store-sales',
+  category: 'Store & Appearance Settings',
+  question: 'Ano ang mababago sa Store & Sales Settings?',
+  keywords: ['store settings', 'sales settings', 'currency', 'tax setting', 'senior citizen discount', 'pwd discount', 'loyalty earn rate', 'accepted payment methods'],
+  answer: `<p>Sa Settings → Store & Sales, maaaring i-configure ang:</p>
+  <ul>
+    <li><strong>Currency</strong> at <strong>Tax</strong> (i-enable/i-disable, tax label, tax rate %, kung kasama na ba sa presyo ng produkto ang tax).</li>
+    <li><strong>Accepted Payment Methods</strong> na lalabas bilang opsyon sa POS Terminal checkout (Cash, GCash, Maya, Card, Bank Transfer) — hiwalay ito sa mga payment provider (PayMongo/Xendit/atbp.) na ginagamit para sa pagbili ng premium feature/Cloud Tokens.</li>
+    <li><strong>GCash/Maya QR codes</strong> na ipapakita sa customer sa Payment modal para ma-scan.</li>
+    <li><strong>Senior Citizen / PWD Discount</strong> (i-enable at itakda ang discount rate).</li>
+    <li><strong>Loyalty Points</strong> — i-enable ang earn/redeem, itakda ang earn rate (₱ kada 1 point) at redeem value (₱ discount kada 1 point).</li>
+    <li><strong>Branch Name</strong> at <strong>Business Group Code</strong> — para sa Multi-Branch Dashboard (tingnan ang hiwalay na FAQ).</li>
+  </ul>`
+},
+{
+  id: 'settings-appearance-ux',
+  category: 'Store & Appearance Settings',
+  question: 'Ano ang mababago sa Appearance & UX Settings?',
+  keywords: ['appearance settings', 'ux settings', 'dark mode', 'low stock threshold', 'scanner sound', 'dashboard widgets', 'swap terminal layout'],
+  answer: `<p>Sa Settings → Appearance & UX, maaaring i-configure (bawat setting dito ay <strong>per-device</strong>, hindi pareho sa lahat):</p>
+  <ul>
+    <li><strong>Dark Mode</strong> bilang default sa device na ito.</li>
+    <li><strong>Low-Stock Alert Threshold</strong> (bilang ng units bago mag-alert bilang mababa na ang stock).</li>
+    <li><strong>Barcode Scanner Sound Feedback</strong> — tunog kapag matagumpay na na-scan.</li>
+    <li><strong>Swap Order Cart / Product List Position</strong> sa POS Terminal (Desktop lang, sa device na ito lang) — puwede ring i-drag mismo ang "Order" header papuntang kanan bilang alternatibong paraan.</li>
+    <li><strong>Dashboard Widgets</strong> na ipapakita — Sales Today, Low Stock, Top Products, Recent Transactions.</li>
+  </ul>`
 },
 
 ];

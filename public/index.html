@@ -2642,6 +2642,8 @@
                     </div>
                     <p class="faq-intro-text">Choose a question below, or search above, to learn how to use OmniPOS.</p>
 
+                    <div id="ai-assistant-subscription-status" class="rr-status-box" style="display:none; max-width:800px; margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);"></div>
+
                     <div class="faq-ai-box" style="max-width: 800px;">
                         <label for="faq-ai-input" style="display:block; font-weight:600; margin-bottom:6px;">
                             <i class="fa-solid fa-circle-question"></i> <span id="faq-ai-label-text">Ask about OmniPOS</span>
@@ -2660,6 +2662,11 @@
                             <div id="faq-ai-suggestions" class="faq-suggest-box" style="display:none;"></div>
                         </div>
                         <div id="faq-ai-result" style="margin-top:16px;"></div>
+                        <div id="faq-ai-upsell" style="display:none; margin-top:10px; font-size:0.78rem;">
+                            <a href="#" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');" style="color:var(--primary-blue,#2563eb); text-decoration:none; font-weight:600;">
+                                <i class="fa-solid fa-robot"></i> <span id="faq-ai-upsell-text">Unlock the AI Assistant for smarter, more natural answers based on this FAQ</span>
+                            </a>
+                        </div>
                     </div>
 
                     <h3 id="faq-common-heading" style="max-width:800px; margin-top:28px;">Common Questions</h3>

@@ -2421,7 +2421,7 @@ function isVersionNewer(candidate, current) {
     return false;
 }
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
-const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant'];
 function isModuleSubscriptionFeature(featureId) {
     return MODULE_SUBSCRIPTION_FEATURE_IDS.includes(featureId);
 }
@@ -2440,6 +2440,12 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
         name: 'Multi-Branch Dashboard',
         description: 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay.',
         price: { monthly: 199, yearly: 1990 }
+    },
+    ai_assistant: {
+        id: 'ai_assistant',
+        name: 'OmniPOS AI Assistant',
+        description: 'An advanced AI-powered assistant, embedded right inside the FAQ page, that reads/understands the store\'s OmniPOS FAQ Knowledge Base and answers Admin/user questions about how to use the system in natural language (Tagalog/English).',
+        price: { monthly: 179, yearly: 1790 }
     }
 };
 const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
@@ -2928,6 +2934,15 @@ const FEATURE_CATALOG = {
         get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.multi_branch.price; },
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
         description: 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay. Now offered as a monthly or yearly subscription instead of a one-time purchase.'
+    },
+    ai_assistant: {
+        name: 'OmniPOS AI Assistant',
+        category: 'module',
+        isSubscription: true,
+        get price() { return MODULE_SUBSCRIPTION_PLANS.ai_assistant.price.monthly; },
+        get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.ai_assistant.price; },
+        billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
+        description: 'An advanced AI-powered assistant embedded in the FAQ page. It answers Admin/user questions about the system\'s flow/features in natural language, grounded on the OmniPOS FAQ Knowledge Base. Billed as a monthly or yearly subscription.'
     },
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
@@ -5020,6 +5035,113 @@ app.get('/api/module-subscriptions/status', (req, res) => {
         subscriptions[featureId] = getModuleSubscriptionInfo(featureId);
     }
     res.json({ success: true, subscriptions });
+});
+// ===================================================================
+// AI ASSISTANT (module subscription: "ai_assistant")
+// ===================================================================
+// Advanced, natural-language help assistant embedded sa loob ng FAQ
+// page (public/faq-engine.js). Hindi ito free-roaming chatbot — ang
+// TANGING kaalaman nito ay ang OmniPOS FAQ Knowledge Base
+// (public/faq-knowledge.js / faq-knowledge.en.js), na ipinapadala ng
+// client (faq-engine.js, gamit ang existing keyword search() nito)
+// bilang "context" kasabay ng tanong. Ang server dito ay basta
+// nagre-relay lang ng kahilingan patungo sa isang AI provider (default:
+// Cloudflare Workers AI, gamit ang parehong Cloudflare account na
+// ginagamit para sa domain — tingnan ang .env: CF_ACCOUNT_ID /
+// CF_AI_API_TOKEN / CF_AI_MODEL) at ibinabalik ang sagot.
+//
+// Bakit hindi na-duplicate/parse-ulit dito ang FAQ knowledge base mula
+// sa mga .js file sa public/: iisang pinagmumulan lang (single source
+// of truth) ang gusto nating panatilihin — ang laman ng
+// faq-knowledge*.js — kaya ang RAG "retrieval" step ay ginagawa pa rin
+// ng existing na faq-engine.js sa browser (search()), at dito lang sa
+// backend ginagawa ang "generation" step (pagtawag sa AI model).
+function isAiAssistantConfigured() {
+    return !!(process.env.CF_ACCOUNT_ID && process.env.CF_AI_API_TOKEN);
+}
+function buildAiAssistantSystemPrompt(lang) {
+    const isTagalog = lang === 'tl';
+    return [
+        'You are the "OmniPOS AI Assistant", an in-app help assistant embedded in the OmniPOS Point-of-Sale system.',
+        'Your ONLY job is to help the logged-in Admin/user understand how to use OmniPOS (menus, features, system flow) — nothing else.',
+        'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as your context. Base your answer ONLY on that context.',
+        'If the context does not contain enough information to answer confidently, say so honestly, and suggest the user browse the full FAQ list on this page or contact their OmniPOS developer/admin — do NOT invent system behavior that is not in the context.',
+        'Keep answers short and practical (ideally under 120 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps.',
+        `Reply in ${isTagalog ? 'Tagalog/Taglish (the same casual mix used in the FAQ entries)' : 'English'}, matching the user\'s question.`,
+        'Never reveal API keys, tokens, passwords, source code, or internal server details. Never claim to be able to take actions (like editing data) yourself — you can only explain/guide.'
+    ].join(' ');
+}
+async function callCloudflareWorkersAI(messages) {
+    const accountId = process.env.CF_ACCOUNT_ID;
+    const apiToken = process.env.CF_AI_API_TOKEN;
+    const model = process.env.CF_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+        const cfRes = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ model, messages, max_tokens: 500, temperature: 0.3 }),
+            signal: controller.signal
+        });
+        const raw = await cfRes.text();
+        let data;
+        try { data = JSON.parse(raw); } catch (e) { data = null; }
+        if (!cfRes.ok || !data) {
+            const errMsg = (data && data.errors && data.errors[0] && data.errors[0].message) || `Cloudflare AI request failed (HTTP ${cfRes.status}).`;
+            return { success: false, message: errMsg };
+        }
+        const answer = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+        if (!answer || !answer.trim()) {
+            return { success: false, message: 'Empty response from AI provider.' };
+        }
+        return { success: true, answer: answer.trim() };
+    } catch (err) {
+        return { success: false, message: err.name === 'AbortError' ? 'AI request timed out.' : (err.message || 'AI request failed.') };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) => {
+    res.json({ success: true, configured: isAiAssistantConfigured() });
+});
+app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa AI Assistant. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
+    if (!isAiAssistantConfigured()) {
+        return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang AI Assistant sa server na ito (kailangan ng CF_ACCOUNT_ID at CF_AI_API_TOKEN sa .env). Kontakin ang developer/admin.' });
+    }
+    const question = typeof req.body?.question === 'string' ? req.body.question.trim().slice(0, 800) : '';
+    const lang = req.body?.lang === 'tl' ? 'tl' : 'en';
+    const rawContext = Array.isArray(req.body?.context) ? req.body.context : [];
+    if (!question) {
+        return res.status(400).json({ success: false, message: 'Missing question.' });
+    }
+    const context = rawContext.slice(0, 8).map((c) => ({
+        question: typeof c?.question === 'string' ? c.question.slice(0, 300) : '',
+        answer: typeof c?.answer === 'string' ? c.answer.slice(0, 1200) : ''
+    })).filter((c) => c.question || c.answer);
+    const contextText = context.length
+        ? context.map((c, i) => `[${i + 1}] Q: ${c.question}\nA: ${c.answer}`).join('\n\n')
+        : '(No matching FAQ entries were found for this question.)';
+    const rawHistory = Array.isArray(req.body?.history) ? req.body.history : [];
+    const history = rawHistory.slice(-6).map((h) => ({
+        role: h && h.role === 'assistant' ? 'assistant' : 'user',
+        content: typeof h?.text === 'string' ? h.text.slice(0, 500) : ''
+    })).filter((h) => h.content);
+    const messages = [
+        { role: 'system', content: buildAiAssistantSystemPrompt(lang) },
+        { role: 'system', content: `OmniPOS FAQ Knowledge Base entries relevant to this question:\n\n${contextText}` },
+        ...history,
+        { role: 'user', content: question }
+    ];
+    const result = await callCloudflareWorkersAI(messages);
+    if (!result.success) {
+        return res.status(502).json({ success: false, message: result.message });
+    }
+    res.json({ success: true, answer: result.answer });
 });
 async function parseRelayResponse(relayRes) {
     const rawText = await relayRes.text();

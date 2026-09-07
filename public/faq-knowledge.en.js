@@ -34,6 +34,14 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li>Cloud Backup and Multi-Branch Dashboard — syncing data to online storage or to another branch</li>
   </ul>`
 },
+{
+  id: 'overview-lan-qr-access',
+  category: 'Overview',
+  question: 'How do I open OmniPOS using a QR code on another device (LAN)?',
+  keywords: ['qr code open device', 'scan para makapasok', 'server ip qr', 'ibang device lan', 'connect ibang cellphone'],
+  answer: `<p>While the system is in LAN mode (devices on the same network/WiFi), a <strong>"Server IP QR Code"</strong> is available in the system — it shows a QR code encoding the server's network address.</p>
+  <p>Just scan it with the camera or QR scanner of another device (as long as it's on the same WiFi/LAN) to open OmniPOS directly there, without needing to manually type the IP address.</p>`
+},
 
 {
   id: 'login-how',
@@ -65,6 +73,19 @@ window.OMNIPOS_FAQ_KB_EN = [
   question: 'How do I log out?',
   keywords: ['logout', 'mag logout', 'sign out'],
   answer: `<p>There's a Logout button in the profile/sidebar menu. Once clicked, your previous session is immediately invalidated — even if someone gets hold of an old link or the device you used before.</p>`
+},
+{
+  id: 'login-biometric',
+  category: 'Login & Sessions',
+  question: 'How do I enable Fingerprint/Biometric Login?',
+  keywords: ['fingerprint login', 'biometric login', 'webauthn', 'face id', 'passkey', 'walang password login', 'touch id'],
+  answer: `<p><strong>Fingerprint Login</strong> (using WebAuthn — fingerprint, Face ID, or device PIN) is an optional way to log in without typing your password, on the same device.</p>
+  <ol>
+    <li>First log in normally with your username/password.</li>
+    <li>In profile settings, click the option to enable Fingerprint Login on the device you're using — it will use your phone, tablet, or laptop's built-in fingerprint/Face ID/PIN.</li>
+    <li>Next time you open the Login page on the same device, a "Login with Fingerprint" option will appear — tap it instead of typing your password.</li>
+  </ol>
+  <p>Each enabled device shows up in its own list in profile settings, and you can remove them individually if you want to disable it on a particular device.</p>`
 },
 
 {
@@ -176,6 +197,14 @@ window.OMNIPOS_FAQ_KB_EN = [
   keywords: ['split payment', 'dalawang payment', 'cash and gcash', 'multiple payment method'],
   verdict: 'oo',
   answer: `<p>Yes — <strong>split or multiple payment methods</strong> in a single transaction are supported (e.g. part Cash, part GCash). Cash counting in Z-Reading still stays accurate since each payment method is recorded separately.</p>`
+},
+{
+  id: 'pos-bluetooth-printer',
+  category: 'POS Terminal',
+  question: 'How do I use a Bluetooth printer with the POS Terminal?',
+  keywords: ['bluetooth printer', 'wireless printer', 'thermal printer bluetooth', 'cash drawer bluetooth', 'i-connect printer'],
+  answer: `<p>Printing receipts and opening the cash drawer via a <strong>Bluetooth thermal printer</strong> is supported — once "Bluetooth" is selected as the print method in settings, receipts go straight to the paired Bluetooth printer instead of just showing on screen or using the regular browser print.</p>
+  <p>If a compatible Bluetooth cash drawer is also connected to the printer, it will automatically open on every new cash sale/refund as well.</p>`
 },
 
 {
@@ -367,6 +396,18 @@ window.OMNIPOS_FAQ_KB_EN = [
   </ul>
   <p>Once a customer's card is regenerated, the old QR is automatically deactivated — only the new one will work. A card can also be revoked (cancelled) if it's lost or misused. Issuing/regenerating requires special access — not every role automatically has this ability.</p>`
 },
+{
+  id: 'customers-debtors',
+  category: 'Customers',
+  question: 'What is Debtors and how is it used?',
+  keywords: ['debtors', 'utang', 'utang ng customer', 'debtors ledger', 'due date utang', 'bayaran ng customer'],
+  answer: `<p><strong>Debtors</strong> is a ledger that tracks customers who have a <strong>balance owed</strong> (e.g. credit sales) — including the amount, sale date, and due date.</p>
+  <ul>
+    <li>Shows everyone with an active balance, and who's past their due date.</li>
+    <li>Payments (full or partial) can be recorded against a debt, automatically reducing the remaining balance.</li>
+    <li>Part of the Customer Profiles, Loyalty & Debtors premium module — unlocked together when that's purchased.</li>
+  </ul>`
+},
 
 {
   id: 'receipt-customize',
@@ -454,8 +495,9 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'Premium Features',
   question: 'What premium modules does OmniPOS have?',
   keywords: ['premium features', 'paid modules', 'bayad na module', 'unlock feature', 'gembang icon', 'pro badge'],
-  answer: `<p>Besides Pro Themes, OmniPOS also has full modules locked as premium features until unlocked: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Roles & Permissions (RBAC) Management, and Multi-Branch Dashboard.</p>
-  <p>When you try to use a locked feature, its details (name, price, short explanation) appear along with the option to request an unlock.</p>`
+  answer: `<p>Besides Pro Themes, OmniPOS also has full modules locked as premium features until unlocked: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and the new <strong>OmniPOS AI Assistant</strong>.</p>
+  <p>When you try to use a locked feature, its details (name, price, short explanation) appear along with the option to request an unlock.</p>
+  <p><strong>Note:</strong> four of these are now <strong>subscriptions (monthly or yearly)</strong> instead of a one-time purchase — Cloud Backup, RBAC Management, Multi-Branch Dashboard, and AI Assistant. The rest of the modules/themes are still one-time purchases, permanently unlocked. See the dedicated FAQ on subscription modules for details.</p>`
 },
 {
   id: 'premium-bundle-tiers',
@@ -467,7 +509,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   <ul>
     <li><strong>Basic Upgrade</strong> — Sales Analytics & Advanced Reports + Promo Codes Module.</li>
     <li><strong>Standard Upgrade</strong> — everything in Basic, plus Customer Profiles & Loyalty and Multi-Cashier Shift Oversight.</li>
-    <li><strong>Pro Upgrade (Complete)</strong> — EVERY module, EVERY Pro Theme, AND Cloud Backup — nothing left locked.</li>
+    <li><strong>Pro Upgrade (Complete)</strong> — EVERY other module AND EVERY Pro Theme — nothing left locked, <strong>EXCEPT</strong> Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and AI Assistant, since these are billed separately as their own subscription (monthly/yearly) and are not included in these bundle/upgrade tiers.</li>
   </ul>
   <p>If you've already purchased individual features that are included in a tier, the price of that bundle is automatically reduced so you don't pay again for the same feature.</p>`
 },
@@ -490,7 +532,41 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'Premium Features',
   question: 'What is Cloud Backup and how much does it cost?',
   keywords: ['cloud backup', 'online backup', 'postgres backup', 'backup sa cloud'],
-  answer: `<p>Cloud Backup is a separate premium feature (a one-time purchase) that syncs the entire database — all modules, including user accounts (but NOT passwords) — to secure online storage, to protect your data in case the device is damaged or lost. Once unlocked, there's a button to back up manually and to restore from the latest cloud backup.</p>`
+  answer: `<p>Cloud Backup is now a <strong>subscription module</strong> (monthly or yearly, NOT a one-time purchase anymore) that syncs the entire database — all modules, including user accounts (but NOT passwords) — to secure online storage, to protect your data in case the device is damaged or lost.</p>
+  <p>There are three tiers: <strong>Basic, Standard, and Pro</strong> — pricing varies depending on the tier and billing cycle (monthly/yearly) you choose. Once subscribed, there's a button to back up manually and to restore from the latest cloud backup. It also uses <strong>Cloud Tokens</strong> for each actual sync/restore — see the dedicated FAQ on Cloud Tokens.</p>`
+},
+{
+  id: 'premium-module-subscriptions',
+  category: 'Premium Features',
+  question: 'How does the subscription for RBAC, Multi-Branch, and AI Assistant work?',
+  keywords: ['module subscription', 'buwanang bayad', 'monthly yearly subscription', 'rbac subscription', 'multi branch subscription', 'grace period', 'nag expire subscription'],
+  answer: `<p><strong>Roles & Permissions (RBAC) Management</strong>, <strong>Multi-Branch Dashboard</strong>, and <strong>OmniPOS AI Assistant</strong> are no longer one-time purchases — they're <strong>subscriptions</strong> now, billed monthly or yearly (yearly is cheaper per month).</p>
+  <ul>
+    <li>While the subscription is active, the full feature is available.</li>
+    <li>If it expires without renewal, there's a <strong>7-day grace period</strong> before the feature is locked again — enough time to renew without an abrupt interruption.</li>
+    <li>After the grace period passes, the feature locks again until renewed.</li>
+  </ul>
+  <p>This is separate from the one-time modules/themes (Purchase Orders, Promo Codes, Customer CRM, etc.) — those remain permanently unlocked once purchased.</p>`
+},
+{
+  id: 'premium-ai-assistant',
+  category: 'Premium Features',
+  question: 'What is the OmniPOS AI Assistant and how is it different from the old FAQ search?',
+  keywords: ['ai assistant', 'artificial intelligence', 'ai chatbot', 'cloudflare workers ai', 'smart faq', 'ai sa faq'],
+  answer: `<p>The <strong>OmniPOS AI Assistant</strong> is an advanced help assistant embedded right inside the FAQ page. Instead of just matching exact keywords like the old search, a real AI model reads and understands your question, then answers in natural Tagalog/English based on the OmniPOS FAQ Knowledge Base.</p>
+  <ul>
+    <li>Its ONLY source of answers is the system's FAQ Knowledge Base — it's not a free-roaming chatbot that answers anything.</li>
+    <li>It needs to be unlocked first as a subscription module (monthly/yearly) before it works.</li>
+    <li>If it's still locked, or if the AI request times out/fails, it automatically falls back to the old keyword-based FAQ search — the FAQ page never stops working.</li>
+  </ul>`
+},
+{
+  id: 'premium-multi-branch-usage',
+  category: 'Premium Features',
+  question: 'How does the Multi-Branch Dashboard on the Overview page work?',
+  keywords: ['all branches', 'multi branch dashboard usage', 'ibang branch data', 'business group code', 'branch name setup', 'combine branches'],
+  answer: `<p>Once <strong>Multi-Branch Dashboard</strong> is unlocked, an "All Branches" section appears on the Overview page that combines sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) — near real-time, updated every few minutes via Relay.</p>
+  <p>For this to work, you first need to set the <strong>Branch Name</strong> (e.g. "Main Branch", "Branch 2 - Cubao") and the <strong>Business Group Code</strong> in Store Settings — use the SAME Business Group Code on EVERY branch you want combined into one view.</p>`
 },
 
 {
@@ -556,6 +632,26 @@ window.OMNIPOS_FAQ_KB_EN = [
   question: 'Where is OmniPOS\'s data stored?',
   keywords: ['saan naka store data', 'database file', 'nasaan ang datos'],
   answer: `<p>All data (users, products, transactions, logs, requests, categories, customers, promo codes, shifts, purchase orders, etc.) is safely and properly stored in one place within the system. That's why making a backup is simple — only one file needs to be saved.</p>`
+},
+{
+  id: 'security-2fa',
+  category: 'Security',
+  question: 'What is Two-Factor Authentication (2FA) for login?',
+  keywords: ['2fa', 'two factor authentication', 'otp sa login', 'dagdag na security login', 'email otp login'],
+  answer: `<p>When enabled in Settings → Advanced Settings, a <strong>6-digit OTP code</strong> (sent to a configured email) will be required every time someone logs in — not just username and password, there's an extra step before getting in.</p>
+  <p>This is opt-in — the Admin decides whether to enable it and which email address the OTP codes are sent to.</p>`
+},
+{
+  id: 'security-fraud-detection',
+  category: 'Security',
+  question: 'What is Fraud & Anomaly Detection?',
+  keywords: ['fraud detection', 'anomaly alert', 'fraud alerts', 'kaduda-dudang transaksyon', 'fraud sensitivity'],
+  answer: `<p>When enabled in Settings → Advanced Settings, the system automatically monitors for suspicious activity patterns (e.g. rapid, repeated voids/refunds in a short time) and creates a <strong>Fraud & Anomaly Alert</strong> when one is detected.</p>
+  <ul>
+    <li>There's a "sensitivity" setting (low/medium/high) that determines how quickly it triggers an alert.</li>
+    <li>There's also an option to immediately email a notification to a configured address when a new alert comes in.</li>
+    <li>All alerts can be viewed in the Fraud Alerts table inside the Settings/Users tab (Admin access).</li>
+  </ul>`
 },
 
 {
@@ -627,6 +723,94 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li><strong>On PC or Laptop</strong> (large screen), each title stays in its ORIGINAL place — inside the page/view itself, not the Header — as before.</li>
   </ul>
   <p>This also automatically adjusts when you resize the browser window or rotate the tablet/phone (portrait/landscape).</p>`
+},
+
+{
+  id: 'cloud-tokens-what',
+  category: 'Cloud Tokens & Payments',
+  question: 'What are Cloud Tokens and what are they used for?',
+  keywords: ['cloud tokens', 'ano ang tokens', 'token wallet', 'bumili ng tokens', 'sync token', 'restore token'],
+  answer: `<p><strong>Cloud Tokens</strong> work like "load" or an e-wallet balance used to pay for each actual <strong>Cloud Backup sync or restore</strong> — instead of waiting for a monthly bill, tokens are deducted each time the feature is used, based on your Cloud Backup tier (Basic/Standard/Pro).</p>
+  <ul>
+    <li>You buy a package of tokens (e.g. via GCash/Maya/card, depending on the configured payment method), which is added to your wallet.</li>
+    <li>The Cloud Backup section shows your current token balance and how much each sync/restore will cost.</li>
+    <li>If tokens run out, the next sync/restore can't be performed until you buy more tokens.</li>
+  </ul>`
+},
+{
+  id: 'payment-methods',
+  category: 'Cloud Tokens & Payments',
+  question: 'What payment methods are accepted for buying a feature/tokens?',
+  keywords: ['paano magbayad', 'gcash', 'maya', 'paymaya', 'credit card', 'debit card', 'paypal', 'online banking', 'over the counter', 'payment options', 'bayad'],
+  verdict: 'depende',
+  answer: `<p>This depends on which payment provider your developer/system owner has configured — only the payment methods that are actually set up will automatically appear as options (not all of these are always available):</p>
+  <ul>
+    <li><strong>GCash / Maya / Online Banking</strong> (QR Ph) — via PayMongo or Xendit.</li>
+    <li><strong>GrabPay and Bank Transfer</strong> — via Xendit.</li>
+    <li><strong>Credit/Debit Card (international)</strong> — via Stripe.</li>
+    <li><strong>PayPal</strong> — direct PayPal account.</li>
+    <li><strong>Over-the-Counter</strong> (7-Eleven, Cebuana Lhuillier, LBC, etc.) and InstaPay/PESONet Bank Transfer — via Dragonpay.</li>
+  </ul>
+  <p>If no provider is configured at all, no online payment option will appear — in that case, reach out directly to the developer/system owner to arrange the unlock request.</p>`
+},
+
+{
+  id: 'advanced-customer-display',
+  category: 'Advanced Settings',
+  question: 'What is the Customer-Facing Display and how do I open it?',
+  keywords: ['customer display', 'second screen', 'pantalya ng customer', 'monitor ng customer', 'facing screen', 'ikalawang screen'],
+  answer: `<p>The <strong>Customer-Facing Display</strong> is a second screen (monitor or tablet facing the customer) that live-mirrors the cart as the cashier rings up items, and shows a thank-you screen after each sale.</p>
+  <ol>
+    <li>In Settings → Advanced Settings, enable "Customer-Facing Display".</li>
+    <li>You can also set a "compact threshold" — once the cart has more line items than this number, the display automatically shrinks the rows so everything, including the Total, still fits without needing to scroll.</li>
+    <li>Click "Open Customer Display" — this opens a new window/tab that you can move to a second monitor or a separate tablet.</li>
+  </ol>`
+},
+{
+  id: 'advanced-idle-lock',
+  category: 'Advanced Settings',
+  question: 'What is Idle-Session Auto-Lock?',
+  keywords: ['idle lock', 'auto lock', 'awtomatikong lock', 'walang galaw lock', 'auto lock minutes'],
+  answer: `<p>When enabled in Settings → Advanced Settings, the session automatically locks (you'll need to verify again to get back in) after there's no activity (no click/type/touch) for a set number of minutes, which you configure yourself.</p>
+  <p>This is opt-in only — it doesn't change the 8-hour session timeout for the whole login; it's a separate protection against someone seeing an unattended, logged-in screen.</p>`
+},
+{
+  id: 'advanced-sale-webhook',
+  category: 'Advanced Settings',
+  question: 'What is the Sale Webhook and what is it for?',
+  keywords: ['sale webhook', 'webhook', 'zapier', 'make integration', 'accounting integration', 'i-connect sa ibang app'],
+  answer: `<p>The <strong>Sale Webhook</strong> is an opt-in integration that automatically sends the details of every completed sale to another tool outside OmniPOS — e.g. Zapier, Make, or accounting software — via a webhook URL.</p>
+  <p>In Settings → Advanced Settings, enable the Sale Webhook, then enter the full <code>http://</code> or <code>https://</code> URL provided by the other app/tool. The setting won't be accepted if there's no valid URL entered before enabling.</p>`
+},
+
+{
+  id: 'settings-store-sales',
+  category: 'Store & Appearance Settings',
+  question: 'What can be configured in Store & Sales Settings?',
+  keywords: ['store settings', 'sales settings', 'currency', 'tax setting', 'senior citizen discount', 'pwd discount', 'loyalty earn rate', 'accepted payment methods'],
+  answer: `<p>In Settings → Store & Sales, you can configure:</p>
+  <ul>
+    <li><strong>Currency</strong> and <strong>Tax</strong> (enable/disable, tax label, tax rate %, whether tax is already included in product prices).</li>
+    <li><strong>Accepted Payment Methods</strong> that appear as options at POS Terminal checkout (Cash, GCash, Maya, Card, Bank Transfer) — separate from the payment providers (PayMongo/Xendit/etc.) used for buying premium features/Cloud Tokens.</li>
+    <li><strong>GCash/Maya QR codes</strong> shown to the customer in the Payment modal for scanning.</li>
+    <li><strong>Senior Citizen / PWD Discount</strong> (enable and set the discount rate).</li>
+    <li><strong>Loyalty Points</strong> — enable earn/redeem, set the earn rate (₱ spent per 1 point) and redeem value (₱ discount per 1 point).</li>
+    <li><strong>Branch Name</strong> and <strong>Business Group Code</strong> — for the Multi-Branch Dashboard (see the dedicated FAQ).</li>
+  </ul>`
+},
+{
+  id: 'settings-appearance-ux',
+  category: 'Store & Appearance Settings',
+  question: 'What can be configured in Appearance & UX Settings?',
+  keywords: ['appearance settings', 'ux settings', 'dark mode', 'low stock threshold', 'scanner sound', 'dashboard widgets', 'swap terminal layout'],
+  answer: `<p>In Settings → Appearance & UX, you can configure (each of these settings is <strong>per-device</strong>, not the same across every device):</p>
+  <ul>
+    <li><strong>Dark Mode</strong> as the default for this device.</li>
+    <li><strong>Low-Stock Alert Threshold</strong> (number of units before it's flagged as low stock).</li>
+    <li><strong>Barcode Scanner Sound Feedback</strong> — a sound when a scan succeeds.</li>
+    <li><strong>Swap Order Cart / Product List Position</strong> at the POS Terminal (Desktop only, this device only) — you can also drag the "Order" header to the right as an alternative way to do this.</li>
+    <li><strong>Dashboard Widgets</strong> to show — Sales Today, Low Stock, Top Products, Recent Transactions.</li>
+  </ul>`
 },
 
 ];

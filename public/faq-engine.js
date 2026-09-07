@@ -424,18 +424,98 @@
     container.innerHTML = html;
   }
 
+  // ===================================================================
+  // AI ASSISTANT (premium module: "ai_assistant")
+  // ===================================================================
+  // Kapag naka-unlock ang "ai_assistant" module subscription (tingnan sa
+  // app.js: isFeatureUnlockedCached/guardPremiumFeature), sinusubukan
+  // munang sagutin ng tunay na AI model (via /api/ai-assistant/ask sa
+  // server, na tumatawag sa Cloudflare Workers AI) ang tanong ng user,
+  // gamit bilang context ang pinaka-tugmang entries mula sa parehong
+  // FAQ Knowledge Base (search() sa taas — hindi ito duplicate na
+  // knowledge base, kundi retrieval lang bago i-generate ng AI ang
+  // sagot). Kung naka-lock, o kung nag-fail/timeout ang AI request,
+  // babalik lang ito sa dating keyword-based na renderAnswer() sa
+  // ibaba — walang epekto sa mga hindi pa nag-a-upgrade.
+  function aiAssistantUnlocked() {
+    try {
+      return typeof isFeatureUnlockedCached === 'function' && !!isFeatureUnlockedCached('ai_assistant');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function renderAiTextAsHtml(text) {
+    return '<p>' + escapeHtml(text)
+      .replace(/\n{2,}/g, '</p><p>')
+      .replace(/\n/g, '<br>') + '</p>';
+  }
+
+  async function askAIAssistant(query, container) {
+    const lang = currentLang();
+    container.innerHTML = `
+      <div class="faq-ai-answer faq-ai-loading">
+        <div class="faq-ai-badge"><i class="fa-solid fa-robot fa-spin"></i> ${lang === 'tl' ? 'Iniisip ng AI Assistant ang sagot...' : 'AI Assistant is thinking...'}</div>
+      </div>`;
+
+    const candidates = search(query, 6).map(r => ({
+      question: r.entry.question,
+      answer: stripHtml(r.entry.answer).slice(0, 900)
+    }));
+
+    try {
+      const res = await authFetch(`${API_URL}/ai-assistant/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: query, lang, context: candidates })
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data || data.success === false) {
+        if (data && data.featureLocked && typeof guardPremiumFeature === 'function') {
+          guardPremiumFeature('ai_assistant');
+        }
+        return false; 
+      }
+
+      const answerText = (data.answer || '').trim();
+      if (!answerText) return false;
+
+      const badgeLabel = lang === 'tl'
+        ? 'Sagot ng AI Assistant — batay sa OmniPOS FAQ Knowledge Base'
+        : 'AI Assistant answer — based on the OmniPOS FAQ Knowledge Base';
+
+      container.innerHTML = `
+        <div class="faq-ai-answer faq-ai-generated">
+          <div class="faq-ai-badge"><i class="fa-solid fa-robot"></i> ${badgeLabel}</div>
+          <div class="faq-ai-body">${renderAiTextAsHtml(answerText)}</div>
+        </div>`;
+      return true;
+    } catch (err) {
+      return false; 
+    }
+  }
+
   window.OmniFAQ = {
-    ask: function (query) {
+    ask: async function (query) {
       const input = document.getElementById('faq-ai-input');
       const resultBox = document.getElementById('faq-ai-result');
       if (!resultBox) return;
       if (input) input.value = query;
       hideSuggestions();
-      if (!query || !query.trim()) {
+      const q = (query || '').trim();
+      if (!q) {
         resultBox.innerHTML = '';
         return;
       }
-      renderAnswer(query.trim(), resultBox);
+      if (aiAssistantUnlocked()) {
+        const handled = await askAIAssistant(q, resultBox);
+        if (handled) {
+          resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          return;
+        }
+      }
+      renderAnswer(q, resultBox);
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     },
     goTo: goTo,
