@@ -2628,50 +2628,96 @@
 
               
                 <section id="view-faq" class="app-view" style="display:none;">
-                    <div style="max-width:800px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
-                        <h2 id="page-title-faq" style="margin:0;">Frequently Asked Questions (FAQ)</h2>
+                    <div id="faq-classic-header">
+                        <h2 id="page-title-faq" style="margin:0 0 10px;">Frequently Asked Questions (FAQ)</h2>
+                    </div>
 
+                    <div class="faq-top-bar" id="faq-top-bar">
                         <div class="faq-lang-toggle" id="faq-lang-toggle" data-active="en" role="group" aria-label="FAQ language">
                             <button type="button" class="faq-lang-option" data-lang="en" aria-pressed="true" onclick="OmniFAQLang.set('en')">
-                                <i class="fa-solid fa-globe"></i> English
+                                <i class="fa-solid fa-globe"></i> Eng
                             </button>
                             <button type="button" class="faq-lang-option" data-lang="tl" aria-pressed="false" onclick="OmniFAQLang.set('tl')">
-                                <i class="fa-solid fa-globe"></i> Tagalog
+                                <i class="fa-solid fa-globe"></i> Tag
                             </button>
                         </div>
-                    </div>
-                    <p class="faq-intro-text">Choose a question below, or search above, to learn how to use OmniPOS.</p>
-
-                    <div id="ai-assistant-subscription-status" class="rr-status-box" style="display:none; max-width:800px; margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);"></div>
-
-                    <div class="faq-ai-box" style="max-width: 800px;">
-                        <label for="faq-ai-input" style="display:block; font-weight:600; margin-bottom:6px;">
-                            <i class="fa-solid fa-circle-question"></i> <span id="faq-ai-label-text">Ask about OmniPOS</span>
-                        </label>
-                        <div style="display:flex; gap:8px; position:relative;">
-                            <input type="text" id="faq-ai-input" placeholder="e.g. how to void a transaction, what is a shift, how to use a promo code..."
-                                   style="flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--border-color, #cbd5e1);"
-                                   autocomplete="off"
-                                   oninput="OmniFAQ.onInput(this.value)"
-                                   onkeydown="OmniFAQ.onKeyDown(event)"
-                                   onfocus="OmniFAQ.onInput(this.value)"
-                                   onblur="setTimeout(OmniFAQ.hideSuggestions, 150)">
-                            <button type="button" class="btn btn-primary" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
-                                <i class="fa-solid fa-magnifying-glass"></i> <span id="faq-ai-btn-text">Search</span>
-                            </button>
-                            <div id="faq-ai-suggestions" class="faq-suggest-box" style="display:none;"></div>
-                        </div>
-                        <div id="faq-ai-result" style="margin-top:16px;"></div>
-                        <div id="faq-ai-upsell" style="display:none; margin-top:10px; font-size:0.78rem;">
-                            <a href="#" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');" style="color:var(--primary-blue,#2563eb); text-decoration:none; font-weight:600;">
-                                <i class="fa-solid fa-robot"></i> <span id="faq-ai-upsell-text">Unlock the AI Assistant for smarter, more natural answers based on this FAQ</span>
-                            </a>
-                        </div>
+                        <div id="faq-ai-mode-toggle" class="faq-mode-toggle-wrap"></div>
+                        <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="AI Assistant monthly credits"></div>
+                        <button type="button" id="faq-ticket-btn" class="faq-toolbar-btn faq-ticket-btn" style="display:none;" onclick="OmniFAQ.openTicketModal()">
+                            <i class="fa-solid fa-life-ring"></i> <span id="faq-ticket-btn-text">Support Ticket</span>
+                        </button>
+                        <button type="button" class="faq-toolbar-btn" onclick="OmniFAQ.newConversation()">
+                            <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
+                        </button>
                     </div>
 
-                    <h3 id="faq-common-heading" style="max-width:800px; margin-top:28px;">Common Questions</h3>
-                    
-                    <div class="faq-container" id="faq-common-list" style="max-width: 800px;"></div>
+                    <div id="faq-classic-subheader">
+                        <p class="faq-intro-text">Choose a question below, or search above, to learn how to use OmniPOS.</p>
+                        <div id="ai-assistant-subscription-status" class="rr-status-box" style="display:none; max-width:800px; margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);"></div>
+                    </div>
+
+                    <div class="faq-ai-box" id="faq-ai-box">
+                        <div id="faq-ai-result" class="faq-ai-result-box"></div>
+
+                        <div class="faq-composer-dock" id="faq-composer-dock">
+                            <div id="faq-quick-actions" class="faq-quick-actions"></div>
+
+                            <div id="faq-image-preview-wrap" class="faq-image-preview-wrap" style="display:none;">
+                                <img id="faq-image-preview" alt="Attached screenshot preview">
+                                <button type="button" id="faq-image-remove-btn" title="Remove attachment" onclick="OmniFAQ.clearImage()"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+
+                            <div class="faq-composer" id="faq-composer">
+                                <button type="button" class="faq-composer-icon-btn" id="faq-attach-btn" title="Attach a screenshot" onclick="OmniFAQ.triggerAttach()">
+                                    <i class="fa-solid fa-paperclip"></i>
+                                </button>
+                                <input type="file" id="faq-ai-image-input" accept="image/*" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
+                                <div class="faq-composer-input-wrap">
+                                    <input type="text" id="faq-ai-input" placeholder="e.g. how to void a transaction, what is a shift, how to use a promo code..."
+                                           autocomplete="off"
+                                           oninput="OmniFAQ.onInput(this.value)"
+                                           onkeydown="OmniFAQ.onKeyDown(event)"
+                                           onfocus="OmniFAQ.onInput(this.value)"
+                                           onblur="setTimeout(OmniFAQ.hideSuggestions, 150)">
+                                    <div id="faq-ai-suggestions" class="faq-suggest-box" style="display:none;"></div>
+                                </div>
+                                <button type="button" class="faq-composer-send-btn" id="faq-send-btn" title="Send" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
+                                    <i class="fa-solid fa-arrow-up"></i>
+                                </button>
+                            </div>
+                            <div id="faq-ai-upsell" style="display:none;">
+                                <a href="#" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
+                                    <i class="fa-solid fa-robot"></i> <span id="faq-ai-upsell-text">Unlock the AI Assistant for smarter, more natural answers based on this FAQ</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="faq-classic-list">
+                        <h3 id="faq-common-heading" style="max-width:800px; margin-top:28px;">Common Questions</h3>
+                        <div id="faq-list-toolbar" class="faq-list-toolbar" style="max-width:800px;"></div>
+                        <div class="faq-container" id="faq-common-list" style="max-width: 800px;"></div>
+                    </div>
+
+                    <div id="faq-ticket-modal-backdrop" class="faq-ticket-modal-backdrop" style="display:none;">
+                        <div class="faq-ticket-modal">
+                            <div class="faq-ticket-modal-header">
+                                <h3><i class="fa-solid fa-life-ring"></i> <span id="faq-ticket-modal-title">Create Support Ticket</span></h3>
+                                <button type="button" onclick="OmniFAQ.closeTicketModal()"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="faq-ticket-modal-body">
+                                <label id="faq-ticket-subject-label" for="faq-ticket-subject">Subject</label>
+                                <input type="text" id="faq-ticket-subject" maxlength="150" placeholder="Short summary of the issue">
+                                <label id="faq-ticket-message-label" for="faq-ticket-message">Describe the issue</label>
+                                <textarea id="faq-ticket-message" rows="4" maxlength="4000" placeholder="What happened, and what did you try already?"></textarea>
+                                <p id="faq-ticket-hint" class="faq-ticket-hint">Your current AI conversation and basic device info will be attached automatically to help the developer/admin troubleshoot faster.</p>
+                            </div>
+                            <div class="faq-ticket-modal-footer">
+                                <button type="button" class="faq-toolbar-btn" onclick="OmniFAQ.closeTicketModal()"><span id="faq-ticket-cancel-text">Cancel</span></button>
+                                <button type="button" class="btn btn-primary" id="faq-ticket-submit-btn" onclick="OmniFAQ.submitTicket()"><span id="faq-ticket-submit-text">Submit Ticket</span></button>
+                            </div>
+                        </div>
+                    </div>
                </section>
 
                <style>
@@ -2691,16 +2737,17 @@
                        z-index: 1;
                        display: inline-flex;
                        align-items: center;
-                       gap: 6px;
-                       padding: 7px 16px;
+                       gap: 5px;
+                       padding: 6px 12px;
                        border: none;
                        background: transparent;
                        border-radius: 999px;
-                       font-size: 0.85rem;
+                       font-size: 0.82rem;
                        font-weight: 600;
                        letter-spacing: 0.01em;
                        color: var(--text-secondary, #64748b);
                        cursor: pointer;
+                       white-space: nowrap;
                        transition: color 0.2s ease, background 0.25s ease, box-shadow 0.25s ease;
                    }
                    .faq-lang-option i { font-size: 0.8rem; opacity: 0.85; }

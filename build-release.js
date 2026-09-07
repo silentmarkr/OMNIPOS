@@ -79,6 +79,8 @@ const CLIENT_TARGETS = new Set([
   path.join("public", "bt-printer.js"),
   path.join("public", "faq-engine.js"),
   path.join("public", "faq-knowledge.js"),
+  path.join("public", "faq-knowledge.en.js"),
+  path.join("public", "faq-lang.js"),
 ]);
 
 const THIRD_PARTY_JS = new Set([

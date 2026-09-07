@@ -181,14 +181,16 @@ window.OMNIPOS_FAQ_KB_EN = [
   id: 'pos-customer-loyalty',
   category: 'POS Terminal',
   question: 'How does Customer Loyalty Points work?',
-  keywords: ['loyalty points', 'customer points', 'rewards', 'redeem points', 'select customer'],
+  keywords: ['loyalty points', 'customer points', 'rewards', 'redeem points', 'select customer', 'loyalty program', 'earn rate', 'loyalty card', 'loyalty qr'],
   answer: `<p>In the POS Terminal, there's a "Select Customer" option to attach a registered customer to the transaction. Once checked out:</p>
   <ul>
-    <li>The customer earns <strong>1 point for every ₱100</strong> spent.</li>
-    <li>If the customer is redeeming points, those are deducted first before the newly earned points are added.</li>
+    <li>The customer earns points based on the configured earn rate under Settings → Store &amp; Sales (default: <strong>1 point for every ₱100</strong> spent).</li>
+    <li>If the customer is redeeming points, those are deducted first (as a discount, based on the configured "₱ value per point") before the newly earned points are added.</li>
     <li>The customer's record (total amount spent and visit count) is automatically updated.</li>
     <li>The points earned and the new balance appear right on the receipt.</li>
-  </ul>`
+    <li>A customer can also earn points when a <strong>Debtors (C-Credit)</strong> record is fully paid — not only on direct cash/e-wallet sales.</li>
+  </ul>
+  <p>You can also issue a digital <strong>Loyalty Card/QR</strong> to a customer (rotating or static mode) that can be scanned at checkout to identify/use their points right away — it can be revoked and re-issued if lost or misused.</p>`
 },
 {
   id: 'pos-split-payment',
@@ -400,13 +402,15 @@ window.OMNIPOS_FAQ_KB_EN = [
   id: 'customers-debtors',
   category: 'Customers',
   question: 'What is Debtors and how is it used?',
-  keywords: ['debtors', 'utang', 'utang ng customer', 'debtors ledger', 'due date utang', 'bayaran ng customer'],
-  answer: `<p><strong>Debtors</strong> is a ledger that tracks customers who have a <strong>balance owed</strong> (e.g. credit sales) — including the amount, sale date, and due date.</p>
+  keywords: ['debtors', 'utang', 'debtors ledger', 'due date', 'balance owed', 'c-credit', 'credit sale', 'partial payment'],
+  answer: `<p><strong>Debtors</strong> is a ledger that tracks customers who have a <strong>balance owed</strong> — including the amount, sale date, and due date. It's part of the <strong>Customer Profiles, Loyalty &amp; Debtors</strong> premium module — unlocked together when that's purchased.</p>
+  <p>It's usually entered in two ways:</p>
   <ul>
-    <li>Shows everyone with an active balance, and who's past their due date.</li>
-    <li>Payments (full or partial) can be recorded against a debt, automatically reducing the remaining balance.</li>
-    <li>Part of the Customer Profiles, Loyalty & Debtors premium module — unlocked together when that's purchased.</li>
-  </ul>`
+    <li>Via <strong>C-Credit</strong> as the payment method at POS Terminal checkout (this isn't actually paid yet — it automatically creates a new debt entry)</li>
+    <li>Via the "Add Debt" form directly on the Debtors page</li>
+  </ul>
+  <p>Each debt record has the debtor's name (required), phone number, note, amount owed, and an optional due date. Its status is <strong>Unpaid</strong>, <strong>Partial</strong> (partially paid), or <strong>Paid</strong> — you can record partial payments until it's fully paid, and this automatically reduces the remaining balance.</p>
+  <p>Once a debt is fully paid, the customer automatically earns loyalty points (if Loyalty is enabled). You also can't void a C-Credit transaction if a payment has already been recorded on its linked debt — the debt record needs to be fixed first.</p>`
 },
 
 {
@@ -811,6 +815,110 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li><strong>Swap Order Cart / Product List Position</strong> at the POS Terminal (Desktop only, this device only) — you can also drag the "Order" header to the right as an alternative way to do this.</li>
     <li><strong>Dashboard Widgets</strong> to show — Sales Today, Low Stock, Top Products, Recent Transactions.</li>
   </ul>`
+},
+
+{
+  id: 'inventory-supplier',
+  category: 'Inventory',
+  question: 'How do I use the Supplier field on a product?',
+  keywords: ['supplier', 'distributor', 'purchase order', 'reorder'],
+  answer: `<p><strong>Supplier</strong> is an optional text field on each product (in Products/Inventory) — it isn't a separate "Suppliers" master list, just a free-text field you type in (e.g. the distributor or supplier's name).</p>
+  <p>It's used to:</p>
+  <ul>
+    <li>Show which supplier a product came from right in the Inventory list and in CSV export/import</li>
+    <li>Pre-fill the "Supplier" field when creating a <strong>Purchase Order</strong> (part of the Purchase Orders premium module) — low-stock products are automatically suggested for reorder</li>
+  </ul>
+  <p>You can leave it blank if you don't track a specific supplier.</p>`
+},
+{
+  id: 'roles-cashier-account',
+  category: 'Roles & Permissions',
+  question: 'What access does a Cashier account have?',
+  keywords: ['cashier account', 'cashier role', 'cashier access', 'staff account', 'default role', 'cashier permissions', 'what can a cashier do'],
+  answer: `<p><strong>Cashier</strong> is one of the 3 default roles (along with Admin and Staff) that comes built into the system automatically. Its default access is the <strong>most restricted</strong> — access to only:</p>
+  <ul>
+    <li><strong>POS Terminal</strong> (checkout/sales)</li>
+  </ul>
+  <p>It has no access to the Dashboard, Products/Inventory, Reports, Users, Logs, Customers, shift report amounts, or Settings — so cashiers can't see sensitive things like sales totals or profit.</p>
+  <p>If the <strong>Roles &amp; Permissions (RBAC)</strong> premium module is unlocked, you can customize the exact permissions of the Cashier role (or create a new custom role) under Users → Roles &amp; Permissions.</p>`
+},
+{
+  id: 'inventory-valuation',
+  category: 'Inventory',
+  question: 'Is there an inventory valuation report (total value of stock on hand)?',
+  keywords: ['inventory valuation', 'stock value', 'total cost of stock', 'value of inventory'],
+  verdict: 'hindi',
+  answer: `<p>There's no dedicated "Inventory Valuation Report" yet that directly gives you the total value (₱) of all stock currently on hand.</p>
+  <p>What is available:</p>
+  <ul>
+    <li>Every product has a <strong>Cost Price</strong> and <strong>Stock</strong> field, visible in the Inventory list and exportable via CSV — you can multiply (Cost × Stock) in the export to get a manual valuation</li>
+    <li><strong>Reports</strong> gives you estimated profit (Revenue − Cost of Goods Sold) based on items already SOLD, not on total stock on hand</li>
+  </ul>
+  <p>If you need this as a built-in report, we'd suggest raising it with your developer/admin as a feature request.</p>`
+},
+{
+  id: 'inventory-product-variants',
+  category: 'Inventory',
+  question: 'Are product variants supported (e.g. different sizes or colors of one product)?',
+  keywords: ['product variants', 'size variant', 'color variant', 'variant'],
+  verdict: 'hindi',
+  answer: `<p>OmniPOS doesn't have a built-in "variant" system yet (one parent product with multiple size/color/flavor options).</p>
+  <p>The workaround most users use: create a <strong>separate product code</strong> for each variant (e.g. "Shirt-Red-M", "Shirt-Red-L", "Shirt-Blue-M"), each with its own barcode, price, and stock count. You can use the same <strong>Category</strong> to keep them grouped together in the Inventory list and reports.</p>`
+},
+{
+  id: 'transactions-discounts-promo',
+  category: 'Discounts & Promo Codes',
+  question: 'What kinds of discounts are supported at checkout?',
+  keywords: ['discount', 'promo code', 'senior discount', 'pwd discount', 'manual discount', 'loyalty discount'],
+  answer: `<p>There are 4 kinds of discounts at POS Terminal checkout:</p>
+  <ul>
+    <li><strong>Senior Citizen / PWD Discount</strong> — requires a valid Senior/PWD ID Number; the percentage is configured in Store &amp; Sales Settings</li>
+    <li><strong>Promo Code</strong> (premium module) — a percent (%) or fixed (₱) discount, can have an expiry date and minimum spend requirement, and can be enabled/disabled anytime without deleting it</li>
+    <li><strong>Manual Discount</strong> — a direct amount (₱) entered by the cashier/admin on the cart</li>
+    <li><strong>Loyalty Points Redemption</strong> — uses the customer's accumulated points as a discount, based on the configured "₱ value per point" in Settings</li>
+  </ul>
+  <p>Only one of these can be used per transaction (they can't be combined), separate from per-item discounts which can also be applied to individual products in the cart.</p>`
+},
+{
+  id: 'roles-employee-management',
+  category: 'Roles & Permissions',
+  question: 'How do I manage employee/staff accounts?',
+  keywords: ['employee management', 'staff management', 'add employee', 'manage users', 'add staff'],
+  answer: `<p>This is done on the <strong>Users</strong> page (requires the "users_manage" permission):</p>
+  <ul>
+    <li><strong>Add Account</strong> — create a new user, set the username/password, and assign a role (Admin, Staff, Cashier, or a custom role if RBAC is unlocked)</li>
+    <li><strong>Users Management Tab</strong> — view/edit existing accounts</li>
+    <li><strong>Pending Requests Tab</strong> — for actions that need approval from a higher-access user (depending on permissions)</li>
+    <li><strong>Roles &amp; Permissions Tab</strong> (RBAC premium) — to customize the access matrix per role</li>
+    <li><strong>User Logs</strong> — shows a history of each user's actions (login/logout, sales, void, etc.)</li>
+  </ul>
+  <p>OmniPOS doesn't have a separate "HR" module (payroll, etc.) — its scope is access management only.</p>`
+},
+{
+  id: 'shift-time-clock-attendance',
+  category: 'Shift / Z-Reading',
+  question: 'Does OmniPOS have time clock or attendance tracking?',
+  keywords: ['time clock', 'attendance', 'time in time out', 'employee attendance'],
+  verdict: 'hindi',
+  answer: `<p>There's no dedicated "Time Clock / Attendance" feature yet (for HR purposes) in OmniPOS.</p>
+  <p>The closest things to it:</p>
+  <ul>
+    <li><strong>Shift / Z-Reading</strong> — tracks when a cashier opens and closes a shift, along with cash reconciliation — this isn't for attendance/payroll, it's for cash accountability per shift</li>
+    <li><strong>User Logs</strong> — records login/logout timestamps per user, which can be used as a rough reference for time in/out</li>
+  </ul>`
+},
+{
+  id: 'multibranch-management',
+  category: 'Multi-Branch',
+  question: 'How does Multi-Branch Management/Dashboard work?',
+  keywords: ['multi branch', 'multiple branches', 'branch dashboard', 'business group code'],
+  answer: `<p>The <strong>Multi-Branch Dashboard</strong> (premium module) shows a <strong>combined summary</strong> from every branch linked to the same business:</p>
+  <ul>
+    <li>First, set the same <strong>Business Group Code</strong> under Settings → Store &amp; Sales on every branch — this is what groups them together</li>
+    <li>Each branch automatically sends a summary (today's gross sales, transaction count, low-stock count, active shifts) to the Relay server every few minutes — this requires an internet connection</li>
+    <li>The <strong>Overview → "All Branches" widget</strong> shows the combined data from every branch, if you have the "branches_view" permission</li>
+  </ul>
+  <p>This is not real-time syncing of inventory/products between branches — it's summary/reporting only.</p>`
 },
 
 ];

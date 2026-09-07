@@ -1381,6 +1381,17 @@ function updateSidebarFeatureLocks() {
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
     updateModuleSubscriptionBadges();
+    // AYOS: ang FAQ page's AI vs Keyword Search toggle (OmniFAQ.renderAiModeToggle,
+    // sa faq-engine.js) ay naka-render na noong DOMContentLoaded — bago pa
+    // matapos ang async fetchUnlockedFeatures() dito. Kaya kung "ai_assistant"
+    // pala ang na-unlock, naiiwan itong naka-stuck sa dating "locked" na
+    // hitsura (may lock icon sa "AI Assistant" option) kahit unlocked na
+    // pala talaga ang subscription — hindi tugma sa status box sa itaas nito
+    // na tama namang nag-a-update ("Active"). I-refresh din ito dito kada
+    // pag-update ng unlock status.
+    if (window.OmniFAQ && typeof window.OmniFAQ.renderAiModeToggle === 'function') {
+        window.OmniFAQ.renderAiModeToggle();
+    }
 }
 // BAGO: parehong "renews/expires in X day(s)" na badge tulad ng Cloud
 // Backup (refreshCloudBackupSubscriptionBadge) pero para sa RBAC at

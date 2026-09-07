@@ -31,7 +31,9 @@
       askLabel: 'Ask about OmniPOS',
       placeholder: 'e.g. how to void a transaction, what is a shift, how to use a promo code...',
       searchBtn: 'Search',
-      commonQuestions: 'Common Questions'
+      commonQuestions: 'Common Questions',
+      newConvo: 'New conversation',
+      aiUpsell: 'Unlock the AI Assistant for smarter, more natural answers based on this FAQ'
     },
     tl: {
       pageTitle: 'Mga Madalas Itanong (FAQ)',
@@ -39,7 +41,9 @@
       askLabel: 'Magtanong tungkol sa OmniPOS',
       placeholder: 'hal. paano mag-void ng transaction, ano ang shift, paano gumamit ng promo code...',
       searchBtn: 'Hanapin',
-      commonQuestions: 'Mga Karaniwang Tanong'
+      commonQuestions: 'Mga Karaniwang Tanong',
+      newConvo: 'Bagong usapan',
+      aiUpsell: 'I-unlock ang AI Assistant para sa mas matalino at natural na sagot batay sa FAQ na ito'
     }
   };
 
@@ -63,6 +67,12 @@
 
     const commonHeading = document.getElementById('faq-common-heading');
     if (commonHeading) commonHeading.textContent = t.commonQuestions;
+
+    const newConvoText = document.getElementById('faq-new-convo-text');
+    if (newConvoText) newConvoText.textContent = t.newConvo;
+
+    const aiUpsellText = document.getElementById('faq-ai-upsell-text');
+    if (aiUpsellText) aiUpsellText.textContent = t.aiUpsell;
   }
 
   function updateToggleUI(lang) {
@@ -83,8 +93,14 @@
     const result = document.getElementById('faq-ai-result');
     if (input) input.value = '';
     if (result) result.innerHTML = '';
+    if (window.OmniFAQ && typeof window.OmniFAQ.clearImage === 'function') {
+      window.OmniFAQ.clearImage();
+    }
     if (window.OmniFAQ && typeof window.OmniFAQ.renderFullList === 'function') {
       window.OmniFAQ.renderFullList();
+    }
+    if (window.OmniFAQ && typeof window.OmniFAQ.renderAiModeToggle === 'function') {
+      window.OmniFAQ.renderAiModeToggle();
     }
   }
 

@@ -5066,7 +5066,8 @@ function buildAiAssistantSystemPrompt(lang) {
         'Your ONLY job is to help the logged-in Admin/user understand how to use OmniPOS (menus, features, system flow) — nothing else.',
         'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as your context. Base your answer ONLY on that context.',
         'If the context does not contain enough information to answer confidently, say so honestly, and suggest the user browse the full FAQ list on this page or contact their OmniPOS developer/admin — do NOT invent system behavior that is not in the context.',
-        'Keep answers short and practical (ideally under 120 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps.',
+        'You may also receive the last few turns of this conversation as prior messages. Use them to understand follow-up questions (e.g. "what about for a cashier account?" right after a question about admin accounts) and avoid repeating an answer you already gave — without breaking the "only answer from context" rule above.',
+        'Keep answers short and practical (ideally under 130 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps, and a brief closing offer to help with a related follow-up when it naturally fits.',
         `Reply in ${isTagalog ? 'Tagalog/Taglish (the same casual mix used in the FAQ entries)' : 'English'}, matching the user\'s question.`,
         'Never reveal API keys, tokens, passwords, source code, or internal server details. Never claim to be able to take actions (like editing data) yourself — you can only explain/guide.'
     ].join(' ');
@@ -5085,7 +5086,7 @@ async function callCloudflareWorkersAI(messages) {
                 'Authorization': `Bearer ${apiToken}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ model, messages, max_tokens: 500, temperature: 0.3 }),
+            body: JSON.stringify({ model, messages, max_tokens: 650, temperature: 0.3 }),
             signal: controller.signal
         });
         const raw = await cfRes.text();
@@ -5107,7 +5108,162 @@ async function callCloudflareWorkersAI(messages) {
     }
 }
 app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) => {
-    res.json({ success: true, configured: isAiAssistantConfigured() });
+    res.json({ success: true, configured: isAiAssistantConfigured(), visionConfigured: isAiAssistantVisionConfigured() });
+});
+
+// ===================================================================
+// AI SUPPORT AGENT — "advanced" layer on top of the base AI Assistant:
+//   - AI credit/billing system (monthly quota, tracked server-side)
+//   - AI analytics (every question logged for the admin to review)
+//   - Diagnostic assistant / error explainer (client sends a small
+//     diagnostic snapshot + recent JS errors, folded into the prompt)
+//   - Screenshot/image assistant (vision-capable model, optional)
+//   - Safe AI action assistant (the AI may only ever *suggest*
+//     navigating to an existing in-app page — it can never trigger a
+//     data-changing action on its own)
+//   - Support-ticket assistant (escalation path when the AI can't help)
+// All of this still respects the same subscription gate
+// (requireFeature('ai_assistant')) as before — "subscription-aware".
+// ===================================================================
+const FILE_AI_ASSISTANT_USAGE = 'aiAssistantUsage';
+const FILE_AI_ASSISTANT_LOGS = 'aiAssistantLogs';
+const FILE_AI_SUPPORT_TICKETS = 'aiSupportTickets';
+const AI_ASSISTANT_MONTHLY_CREDIT_LIMIT = parseInt(process.env.AI_ASSISTANT_MONTHLY_CREDITS, 10) || 300;
+const AI_ASSISTANT_IMAGE_CREDIT_COST = 3;
+const AI_ASSISTANT_TEXT_CREDIT_COST = 1;
+const AI_ASSISTANT_LOG_CAP = 1000;
+const AI_ASSISTANT_TICKET_CAP = 500;
+
+function currentUsageMonthKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function getAiAssistantUsage() {
+    const month = currentUsageMonthKey();
+    const data = readData(FILE_AI_ASSISTANT_USAGE, { month, used: 0 });
+    if (!data || data.month !== month) {
+        const reset = { month, used: 0 };
+        writeData(FILE_AI_ASSISTANT_USAGE, reset);
+        return reset;
+    }
+    return { month: data.month, used: Number(data.used) || 0 };
+}
+function getAiAssistantCreditStatus() {
+    const usage = getAiAssistantUsage();
+    const limit = AI_ASSISTANT_MONTHLY_CREDIT_LIMIT;
+    return {
+        month: usage.month,
+        used: usage.used,
+        limit,
+        remaining: Math.max(0, limit - usage.used)
+    };
+}
+function consumeAiAssistantCredits(cost) {
+    const usage = getAiAssistantUsage();
+    usage.used += cost;
+    writeData(FILE_AI_ASSISTANT_USAGE, usage);
+    return getAiAssistantCreditStatus();
+}
+function logAiAssistantInteraction(entry) {
+    try {
+        const logs = readData(FILE_AI_ASSISTANT_LOGS, []);
+        logs.unshift({
+            id: Date.now() + Math.random().toString(36).slice(2, 7),
+            timestamp: new Date().toISOString(),
+            ...entry
+        });
+        writeData(FILE_AI_ASSISTANT_LOGS, logs.slice(0, AI_ASSISTANT_LOG_CAP));
+    } catch (err) {
+        console.error('⚠️ Hindi na-log ang AI Assistant interaction:', err);
+    }
+}
+// Safe, read-only "action assistant": maps a few common topics to an
+// existing in-app view. The AI never receives permission to call this
+// itself — the server does simple keyword matching over the question +
+// the FAQ context titles, and only ever returns a *view name* the
+// client already knows how to switchView() to. No data is changed.
+const AI_ASSISTANT_VIEW_SUGGESTIONS = [
+    { keywords: ['void', 'refund', 'cancel transaction'], view: 'transactions', label: 'Open Transactions' },
+    { keywords: ['inventory', 'stock', 'product', 'reorder'], view: 'products', label: 'Open Products' },
+    { keywords: ['shift', 'z-reading', 'zreading', 'cash count'], view: 'shiftreport', label: 'Open Shift Report' },
+    { keywords: ['user', 'cashier', 'employee', 'account', 'role', 'permission'], view: 'users', label: 'Open Users' },
+    { keywords: ['customer', 'loyalty', 'points'], view: 'customers', label: 'Open Customers' },
+    { keywords: ['debt', 'utang'], view: 'debts', label: 'Open Debts' },
+    { keywords: ['report', 'sales report'], view: 'reports', label: 'Open Reports' },
+    { keywords: ['log', 'audit', 'history'], view: 'logs', label: 'Open System Logs' },
+    { keywords: ['barcode'], view: 'barcode', label: 'Open Barcode Tools' }
+];
+function computeSuggestedActions(question, answerText) {
+    const haystack = `${question} ${answerText}`.toLowerCase();
+    const matches = [];
+    for (const entry of AI_ASSISTANT_VIEW_SUGGESTIONS) {
+        if (entry.keywords.some((kw) => haystack.includes(kw))) {
+            matches.push({ view: entry.view, label: entry.label });
+            if (matches.length >= 2) break;
+        }
+    }
+    return matches;
+}
+function isAiAssistantVisionConfigured() {
+    return isAiAssistantConfigured();
+}
+async function callCloudflareWorkersVisionAI(messages) {
+    const accountId = process.env.CF_ACCOUNT_ID;
+    const apiToken = process.env.CF_AI_API_TOKEN;
+    const model = process.env.CF_AI_VISION_MODEL || '@cf/meta/llama-3.2-11b-vision-instruct';
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+        const cfRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, messages, max_tokens: 650, temperature: 0.3 }),
+            signal: controller.signal
+        });
+        const raw = await cfRes.text();
+        let data;
+        try { data = JSON.parse(raw); } catch (e) { data = null; }
+        if (!cfRes.ok || !data) {
+            const errMsg = (data && data.errors && data.errors[0] && data.errors[0].message) || `Cloudflare Vision AI request failed (HTTP ${cfRes.status}).`;
+            return { success: false, message: errMsg };
+        }
+        const answer = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+        if (!answer || !answer.trim()) {
+            return { success: false, message: 'Empty response from vision AI provider.' };
+        }
+        return { success: true, answer: answer.trim() };
+    } catch (err) {
+        return { success: false, message: err.name === 'AbortError' ? 'AI image analysis timed out.' : (err.message || 'AI image analysis failed.') };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+function buildDiagnosticSystemMessage(diagnostics, clientErrors) {
+    const parts = [];
+    if (diagnostics && typeof diagnostics === 'object') {
+        const safe = {
+            currentView: typeof diagnostics.currentView === 'string' ? diagnostics.currentView.slice(0, 60) : undefined,
+            appVersion: typeof diagnostics.appVersion === 'string' ? diagnostics.appVersion.slice(0, 40) : undefined,
+            userAgent: typeof diagnostics.userAgent === 'string' ? diagnostics.userAgent.slice(0, 200) : undefined,
+            online: typeof diagnostics.online === 'boolean' ? diagnostics.online : undefined,
+            viewport: typeof diagnostics.viewport === 'string' ? diagnostics.viewport.slice(0, 30) : undefined,
+            localTime: typeof diagnostics.localTime === 'string' ? diagnostics.localTime.slice(0, 40) : undefined
+        };
+        parts.push(`Client diagnostic snapshot: ${JSON.stringify(safe)}`);
+    }
+    if (Array.isArray(clientErrors) && clientErrors.length) {
+        const errText = clientErrors.slice(0, 5).map((e) => String(e).slice(0, 300)).join('\n');
+        parts.push(`Recent JavaScript errors captured in the user's browser (for troubleshooting/explanation only — do not assume root cause beyond what is shown):\n${errText}`);
+    }
+    if (!parts.length) return null;
+    return {
+        role: 'system',
+        content: `${parts.join('\n\n')}\n\nIf this diagnostic data is relevant to the question, use it to explain the likely cause in plain language and suggest a safe next step (e.g. reload the page, check internet connection, contact the developer). Never claim you fixed anything yourself — you can only explain and guide.`
+    };
+}
+app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), (req, res) => {
+    res.json({ success: true, ...getAiAssistantCreditStatus() });
 });
 app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa AI Assistant. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
@@ -5118,6 +5274,21 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     const rawContext = Array.isArray(req.body?.context) ? req.body.context : [];
     if (!question) {
         return res.status(400).json({ success: false, message: 'Missing question.' });
+    }
+    // AI credit/billing check — before spending any tokens on a call.
+    const imageDataUrl = typeof req.body?.image === 'string' && req.body.image.startsWith('data:image/') ? req.body.image : null;
+    if (imageDataUrl && imageDataUrl.length > 6 * 1024 * 1024) {
+        return res.status(413).json({ success: false, message: 'Ang naka-attach na screenshot ay masyadong malaki. Subukan mag-attach ng mas maliit (max ~4MB).' });
+    }
+    const creditCost = imageDataUrl ? AI_ASSISTANT_IMAGE_CREDIT_COST : AI_ASSISTANT_TEXT_CREDIT_COST;
+    const creditStatusBefore = getAiAssistantCreditStatus();
+    if (creditStatusBefore.remaining < creditCost) {
+        return res.status(402).json({
+            success: false,
+            creditsExhausted: true,
+            message: `Naubos na ang buwanang AI credits ng store na ito (${creditStatusBefore.used}/${creditStatusBefore.limit}). Mare-reset ito sa susunod na buwan.`,
+            ...creditStatusBefore
+        });
     }
     const context = rawContext.slice(0, 8).map((c) => ({
         question: typeof c?.question === 'string' ? c.question.slice(0, 300) : '',
@@ -5131,17 +5302,143 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
         role: h && h.role === 'assistant' ? 'assistant' : 'user',
         content: typeof h?.text === 'string' ? h.text.slice(0, 500) : ''
     })).filter((h) => h.content);
-    const messages = [
+    const diagnosticMsg = buildDiagnosticSystemMessage(req.body?.diagnostics, req.body?.clientErrors);
+    const baseMessages = [
         { role: 'system', content: buildAiAssistantSystemPrompt(lang) },
         { role: 'system', content: `OmniPOS FAQ Knowledge Base entries relevant to this question:\n\n${contextText}` },
-        ...history,
-        { role: 'user', content: question }
+        ...(diagnosticMsg ? [diagnosticMsg] : []),
+        ...history
     ];
-    const result = await callCloudflareWorkersAI(messages);
+    const startedAt = Date.now();
+    const username = (req.authUser && req.authUser.username) || 'Unknown';
+
+    let result;
+    if (imageDataUrl) {
+        const visionMessages = [
+            ...baseMessages,
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: question || (lang === 'tl' ? 'Ano ang nasa larawang ito at paano ito related sa OmniPOS?' : 'What is shown in this screenshot and how does it relate to OmniPOS?') },
+                    { type: 'image_url', image_url: { url: imageDataUrl } }
+                ]
+            }
+        ];
+        result = await callCloudflareWorkersVisionAI(visionMessages);
+        if (!result.success) {
+            // Vision model unavailable/not configured — fall back to a
+            // text-only answer so the user still gets *something* useful.
+            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but it could not be analyzed by the image model. Let them know you can't view images right now and ask them to describe what they see instead.)` }]);
+        }
+    } else {
+        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }]);
+    }
+
+    const tookMs = Date.now() - startedAt;
     if (!result.success) {
+        logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, answered: false, tookMs, error: result.message });
         return res.status(502).json({ success: false, message: result.message });
     }
-    res.json({ success: true, answer: result.answer });
+
+    const creditStatusAfter = consumeAiAssistantCredits(creditCost);
+    const suggestedActions = computeSuggestedActions(question, result.answer);
+    logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, answered: true, tookMs, creditCost });
+
+    res.json({
+        success: true,
+        answer: result.answer,
+        suggestedActions,
+        credits: creditStatusAfter
+    });
+});
+// ---- AI analytics: lets an Admin see how the AI Support Agent is
+// actually being used (top questions, answer rate, volume over time). ----
+app.get('/api/ai-assistant/analytics', (req, res) => {
+    if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+    const logs = readData(FILE_AI_ASSISTANT_LOGS, []);
+    const totalQuestions = logs.length;
+    const answered = logs.filter((l) => l.answered).length;
+    const withImage = logs.filter((l) => l.hasImage).length;
+    const avgTookMs = totalQuestions ? Math.round(logs.reduce((sum, l) => sum + (l.tookMs || 0), 0) / totalQuestions) : 0;
+    const questionCounts = {};
+    logs.forEach((l) => {
+        const key = (l.question || '').trim().toLowerCase();
+        if (!key) return;
+        questionCounts[key] = (questionCounts[key] || 0) + 1;
+    });
+    const topQuestions = Object.entries(questionCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([question, count]) => ({ question, count }));
+    res.json({
+        success: true,
+        totalQuestions,
+        answered,
+        answerRate: totalQuestions ? Math.round((answered / totalQuestions) * 100) : 0,
+        withImage,
+        avgTookMs,
+        topQuestions,
+        recent: logs.slice(0, 50),
+        credits: getAiAssistantCreditStatus()
+    });
+});
+// ---- Support-ticket assistant: escalation path when the AI genuinely
+// can't help. Created from the FAQ chat UI, includes the conversation
+// transcript + optional diagnostics so a human doesn't start from zero. ----
+app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('support-ticket-create', 5, 15 * 60 * 1000, (retryAfterSec) => `Sobra na sa allowed na support tickets. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), (req, res) => {
+    const username = (req.authUser && req.authUser.username) || 'Unknown';
+    const subject = (typeof req.body?.subject === 'string' ? req.body.subject.trim() : '').slice(0, 150) || 'AI Assistant support request';
+    const message = (typeof req.body?.message === 'string' ? req.body.message.trim() : '').slice(0, 4000);
+    const transcript = Array.isArray(req.body?.transcript)
+        ? req.body.transcript.slice(-20).map((t) => ({
+            role: t && t.role === 'assistant' ? 'assistant' : 'user',
+            text: (typeof t?.text === 'string' ? t.text : '').slice(0, 800)
+        })).filter((t) => t.text)
+        : [];
+    const diagnostics = (req.body?.diagnostics && typeof req.body.diagnostics === 'object') ? req.body.diagnostics : null;
+    if (!message && !transcript.length) {
+        return res.status(400).json({ success: false, message: 'Please describe the issue before submitting a ticket.' });
+    }
+    const tickets = readData(FILE_AI_SUPPORT_TICKETS, []);
+    const ticket = {
+        id: Date.now(),
+        username,
+        subject,
+        message,
+        transcript,
+        diagnostics,
+        status: 'open',
+        createdAt: new Date().toISOString()
+    };
+    tickets.unshift(ticket);
+    writeData(FILE_AI_SUPPORT_TICKETS, tickets.slice(0, AI_ASSISTANT_TICKET_CAP));
+    logAction(username, `Created an AI Assistant support ticket: "${subject}"`);
+    res.json({ success: true, ticket });
+});
+app.get('/api/support-tickets', (req, res) => {
+    if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+    res.json({ success: true, tickets: readData(FILE_AI_SUPPORT_TICKETS, []) });
+});
+app.patch('/api/support-tickets/:id', (req, res) => {
+    if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+    const id = Number(req.params.id);
+    const tickets = readData(FILE_AI_SUPPORT_TICKETS, []);
+    const idx = tickets.findIndex((t) => t.id === id);
+    if (idx === -1) {
+        return res.status(404).json({ success: false, message: 'Ticket not found.' });
+    }
+    const allowedStatuses = ['open', 'in_progress', 'resolved', 'closed'];
+    const status = allowedStatuses.includes(req.body?.status) ? req.body.status : tickets[idx].status;
+    tickets[idx] = { ...tickets[idx], status, updatedAt: new Date().toISOString() };
+    writeData(FILE_AI_SUPPORT_TICKETS, tickets);
+    logAction(req.authUser.username, `Updated AI Assistant support ticket #${id} to "${status}"`);
+    res.json({ success: true, ticket: tickets[idx] });
 });
 async function parseRelayResponse(relayRes) {
     const rawText = await relayRes.text();

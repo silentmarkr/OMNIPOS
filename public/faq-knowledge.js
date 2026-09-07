@@ -181,14 +181,16 @@ window.OMNIPOS_FAQ_KB_TL = [
   id: 'pos-customer-loyalty',
   category: 'POS Terminal',
   question: 'Paano gumagana ang Customer Loyalty Points?',
-  keywords: ['loyalty points', 'customer points', 'rewards', 'redeem points', 'select customer'],
+  keywords: ['loyalty points', 'customer points', 'rewards', 'redeem points', 'select customer', 'loyalty program', 'earn rate', 'loyalty card', 'loyalty qr'],
   answer: `<p>Sa POS Terminal, may "Select Customer" option para i-attach ang isang registered customer sa transaksyon. Kapag na-checkout:</p>
   <ul>
-    <li>Kumikita ang customer ng <strong>1 point kada ₱100</strong> ng benta.</li>
-    <li>Kung may pini-redeem na points ang customer, ibinabawas muna ito bago idagdag ang bagong kinita.</li>
+    <li>Kumikita ang customer ng points base sa naka-configure na earn rate sa Settings → Store &amp; Sales (default: <strong>1 point kada ₱100</strong> ng benta).</li>
+    <li>Kung may pini-redeem na points ang customer, ibinabawas muna ito (bilang discount, base sa naka-configure na "₱ value kada point") bago idagdag ang bagong kinita.</li>
     <li>Awtomatikong na-a-update ang record ng customer (total na nagastos at bilang ng bisita).</li>
     <li>Makikita agad sa resibo ang points na kinita at ang bagong balance.</li>
-  </ul>`
+    <li>Puwede ring mag-earn ng points ang customer kapag nabayaran nang buo ang isang <strong>Debtors (C-Credit)</strong> record — hindi lang sa direktang cash/e-wallet na benta.</li>
+  </ul>
+  <p>Bukod dito, puwedeng mag-issue ng digital <strong>Loyalty Card/QR</strong> sa isang customer (rotating o static mode) na ma-scan sa checkout para makilala/gamitin agad ang points nila — puwede itong i-revoke at mag-issue ulit kung nawala o na-abuso.</p>`
 },
 {
   id: 'pos-split-payment',
@@ -400,13 +402,15 @@ window.OMNIPOS_FAQ_KB_TL = [
   id: 'customers-debtors',
   category: 'Customers',
   question: 'Ano ang Debtors at paano ito ginagamit?',
-  keywords: ['debtors', 'utang', 'utang ng customer', 'debtors ledger', 'due date utang', 'bayaran ng customer'],
-  answer: `<p>Ang <strong>Debtors</strong> ay isang ledger na sumusubaybay sa mga customer na may <strong>utang</strong> (hal. pautang na benta) — kasama ang halaga, petsa ng benta, at due date.</p>
+  keywords: ['debtors', 'utang', 'utang ng customer', 'debtors ledger', 'due date utang', 'bayaran ng customer', 'c-credit', 'credit sale', 'partial payment'],
+  answer: `<p>Ang <strong>Debtors</strong> ay isang ledger na sumusubaybay sa mga customer na may <strong>utang</strong> — kasama ang halaga, petsa ng benta, at due date. Bahagi ito ng <strong>Customer Profiles, Loyalty &amp; Debtors</strong> premium module — kasabay na naka-unlock kapag nabili ito.</p>
+  <p>Karaniwang pinapasukan ito sa dalawang paraan:</p>
   <ul>
-    <li>Makikita rito ang lahat ng may aktibong utang, at kung sino ang lagpas na sa due date.</li>
-    <li>Puwedeng magtala ng bayad (buo o bahagi lang) laban sa isang utang, at awtomatikong nagba-bawas ito sa natitirang balanse.</li>
-    <li>Bahagi ito ng Customer Profiles, Loyalty & Debtors premium module — kasabay na naka-unlock kapag nabili ito.</li>
-  </ul>`
+    <li>Sa pamamagitan ng <strong>C-Credit</strong> bilang paraan ng bayad sa POS Terminal checkout (hindi ito totoong bayad kaagad — awtomatiko itong gumagawa ng bagong debt entry)</li>
+    <li>Sa pamamagitan ng "Add Debt" form nang direkta sa Debtors page</li>
+  </ul>
+  <p>Bawat debt record ay may pangalan ng debtor (required), phone number, note, halagang inutang, at optional na due date. Ang status nito ay <strong>Unpaid</strong>, <strong>Partial</strong> (may bahagyang bayad na), o <strong>Paid</strong> — puwedeng magtala ng partial payments hanggang mabayaran nang buo, at awtomatikong nagba-bawas ito sa natitirang balanse.</p>
+  <p>Kapag nabayaran na ng buo ang isang debt, awtomatikong naka-earn ang customer ng loyalty points (kung naka-enable ang Loyalty). Hindi rin puwedeng i-void ang isang C-Credit na transaksyon kung may naitala nang bayad sa kaugnay na debt — kailangan munang ayusin ang debt record.</p>`
 },
 
 {
@@ -811,6 +815,110 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li><strong>Swap Order Cart / Product List Position</strong> sa POS Terminal (Desktop lang, sa device na ito lang) — puwede ring i-drag mismo ang "Order" header papuntang kanan bilang alternatibong paraan.</li>
     <li><strong>Dashboard Widgets</strong> na ipapakita — Sales Today, Low Stock, Top Products, Recent Transactions.</li>
   </ul>`
+},
+
+{
+  id: 'inventory-supplier',
+  category: 'Inventory',
+  question: 'Paano gamitin ang Supplier field ng produkto?',
+  keywords: ['supplier', 'tagapagtustos', 'purchase order', 'reorder', 'distributor'],
+  answer: `<p>Ang <strong>Supplier</strong> ay optional na text field kada produkto (sa Products/Inventory) — hindi ito hiwalay na "Suppliers" master list, kundi field lang na tina-type mo (hal. pangalan ng distributor o supplier).</p>
+  <p>Ginagamit ito para:</p>
+  <ul>
+    <li>Makita agad kung sino ang supplier ng isang produkto sa Inventory list at sa CSV export/import</li>
+    <li>Awtomatikong mapunan ang "Supplier" field kapag gumagawa ng <strong>Purchase Order</strong> (Purchase Orders premium module) — nasusuggest ang mga produktong kailangang i-reorder base sa low-stock threshold</li>
+  </ul>
+  <p>Puwede itong iwanang blangko kung wala kang partikular na supplier na nire-record.</p>`
+},
+{
+  id: 'roles-cashier-account',
+  category: 'Roles & Permissions',
+  question: 'Ano ang access ng Cashier account?',
+  keywords: ['cashier account', 'cashier role', 'cashier access', 'staff account', 'default role', 'cashier permissions', 'ano ang magagawa ng cashier'],
+  answer: `<p>Ang <strong>Cashier</strong> ay isa sa 3 default na role (kasama ng Admin at Staff) na awtomatikong nasa system. Ang default na access nito ay <strong>pinaka-restricted</strong> — access lang sa:</p>
+  <ul>
+    <li><strong>POS Terminal</strong> (checkout/pagbenta)</li>
+  </ul>
+  <p>Wala itong access sa Dashboard, Products/Inventory, Reports, Users, Logs, Customers, shift report amounts, o Settings — kaya't hindi nila makikita ang mga sensitibong bagay tulad ng sales totals o profit.</p>
+  <p>Kung na-unlock ang <strong>Roles &amp; Permissions (RBAC)</strong> premium module, puwedeng i-customize ang eksaktong permissions ng Cashier role (o gumawa ng bagong custom role) sa Users → Roles &amp; Permissions tab.</p>`
+},
+{
+  id: 'inventory-valuation',
+  category: 'Inventory',
+  question: 'May inventory valuation report ba (kabuuang halaga ng stock)?',
+  keywords: ['inventory valuation', 'stock value', 'value ng imbentaryo', 'total cost ng stock'],
+  verdict: 'hindi',
+  answer: `<p>Wala pang dedikadong "Inventory Valuation Report" ang OmniPOS na direktang nagbibigay ng kabuuang halaga (₱) ng lahat ng stock on-hand.</p>
+  <p>Ang mayroon:</p>
+  <ul>
+    <li>Bawat produkto ay may <strong>Cost Price</strong> at <strong>Stock</strong> field, na makikita sa Inventory list at ma-e-export via CSV — puwedeng i-multiply (Cost × Stock) sa export para makuha ang manual valuation</li>
+    <li>Ang <strong>Reports</strong> ay nagbibigay ng estimated profit (Revenue − Cost of Goods Sold) base sa mga NAIBENTA na, hindi sa buong stock on-hand</li>
+  </ul>
+  <p>Kung kailangan mo ito bilang built-in na report, i-suggest namin itong i-request sa developer/admin bilang feature request.</p>`
+},
+{
+  id: 'inventory-product-variants',
+  category: 'Inventory',
+  question: 'Suportado ba ang product variants (hal. iba\'t ibang size o kulay ng isang produkto)?',
+  keywords: ['product variants', 'size variant', 'color variant', 'variant ng produkto'],
+  verdict: 'hindi',
+  answer: `<p>Wala pang built-in na "variant" system (isang parent product na may multiple size/kulay/flavor options) ang OmniPOS.</p>
+  <p>Ang workaround na ginagamit ng mga user: gumawa ng <strong>hiwalay na product code</strong> para sa bawat variant (hal. "Shirt-Red-M", "Shirt-Red-L", "Shirt-Blue-M"), bawat isa ay may sariling barcode, presyo, at stock count. Puwede mong gamitin ang parehong <strong>Category</strong> para magkasama-sama sila sa Inventory list at reports.</p>`
+},
+{
+  id: 'transactions-discounts-promo',
+  category: 'Discounts & Promo Codes',
+  question: 'Anong mga klase ng discount ang suportado sa checkout?',
+  keywords: ['discount', 'promo code', 'senior discount', 'pwd discount', 'manual discount', 'loyalty discount'],
+  answer: `<p>May 4 na klase ng discount sa POS Terminal checkout:</p>
+  <ul>
+    <li><strong>Senior Citizen / PWD Discount</strong> — nangangailangan ng valid na Senior/PWD ID Number; naka-configure ang percentage sa Store &amp; Sales Settings</li>
+    <li><strong>Promo Code</strong> (premium module) — percent (%) o fixed (₱) na discount, puwedeng may expiry date, minimum spend requirement, at puwedeng i-disable/enable anumang oras nang hindi ito binubura</li>
+    <li><strong>Manual Discount</strong> — direktang halaga (₱) na ipinapasok ng cashier/admin sa cart</li>
+    <li><strong>Loyalty Points Redemption</strong> — ginagamit ang natipong points ng customer bilang discount, base sa naka-configure na "₱ value kada point" sa Settings</li>
+  </ul>
+  <p>Isa lang sa mga ito ang puwedeng gamitin kada transaksyon (hindi puwedeng pagsabayin), hiwalay ito sa per-item discounts na puwede ring ilapat sa individual na produkto sa cart.</p>`
+},
+{
+  id: 'roles-employee-management',
+  category: 'Roles & Permissions',
+  question: 'Paano mag-manage ng employees/staff accounts?',
+  keywords: ['employee management', 'staff management', 'magdagdag ng empleyado', 'add employee', 'manage users'],
+  answer: `<p>Ginagawa ito sa <strong>Users</strong> page (kailangan ng "users_manage" permission):</p>
+  <ul>
+    <li><strong>Add Account</strong> — gumawa ng bagong user, itakda ang username/password, at i-assign ang role (Admin, Staff, Cashier, o custom role kung naka-unlock ang RBAC)</li>
+    <li><strong>Users Management Tab</strong> — view/edit ng existing accounts</li>
+    <li><strong>Pending Requests Tab</strong> — kapag may mga aksyon na nangangailangan ng approval ng higher-access na user (depende sa permissions)</li>
+    <li><strong>Roles &amp; Permissions Tab</strong> (RBAC premium) — para i-customize ang access matrix per role</li>
+    <li><strong>User Logs</strong> — nagpapakita ng history ng mga aksyon kada user (login/logout, sales, void, atbp.)</li>
+  </ul>
+  <p>Walang hiwalay na "HR" module (payroll, atbp.) ang OmniPOS — access-management lang ang saklaw nito.</p>`
+},
+{
+  id: 'shift-time-clock-attendance',
+  category: 'Shift / Z-Reading',
+  question: 'May time clock o attendance tracking ba ang OmniPOS?',
+  keywords: ['time clock', 'attendance', 'time in time out', 'pasok labas ng empleyado'],
+  verdict: 'hindi',
+  answer: `<p>Wala pang dedikadong "Time Clock / Attendance" feature (para sa HR purposes) ang OmniPOS.</p>
+  <p>Ang pinaka-malapit dito:</p>
+  <ul>
+    <li><strong>Shift / Z-Reading</strong> — tina-track nito ang oras ng pagbukas at pagsara ng shift ng isang cashier, kasama ang cash reconciliation — hindi ito para sa attendance/payroll, kundi para sa cash accountability kada shift</li>
+    <li><strong>User Logs</strong> — nagre-record ng login/logout timestamps kada user, na puwedeng magamit bilang rough na reference ng oras ng pasok/labas</li>
+  </ul>`
+},
+{
+  id: 'multibranch-management',
+  category: 'Multi-Branch',
+  question: 'Paano gumagana ang Multi-Branch Management/Dashboard?',
+  keywords: ['multi branch', 'maramihang branch', 'branch dashboard', 'business group code'],
+  answer: `<p>Ang <strong>Multi-Branch Dashboard</strong> (premium module) ay nagpapakita ng <strong>combined na summary</strong> mula sa lahat ng branch na naka-link sa parehong negosyo:</p>
+  <ul>
+    <li>Itakda muna ang parehong <strong>Business Group Code</strong> sa Settings → Store &amp; Sales ng bawat branch — ito ang naglalagay sa kanila sa iisang grupo</li>
+    <li>Awtomatikong nagse-send ng summary (gross sales ngayong araw, bilang ng transaksyon, low-stock count, active shifts) ang bawat branch papunta sa Relay server kada ilang minuto — kailangan ito ng internet connection</li>
+    <li>Makikita sa <strong>Overview → "All Branches" widget</strong> ang pinagsama-samang datos mula sa lahat ng branch, kung meron kang "branches_view" permission</li>
+  </ul>
+  <p>Hindi ito real-time syncing ng inventory/products sa pagitan ng branches — summary/reporting lang ang ginagawa nito.</p>`
 },
 
 ];
