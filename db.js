@@ -473,9 +473,21 @@ const AI_ASSISTANT_LIMITED_ROLE_MODULES = new Set(['products', 'categories', 'pr
 // para dalawang layer ng proteksyon laban sa sobrang laking context.
 const AI_ASSISTANT_MAX_RECORDS_PER_MODULE = 30;
 
-function getAiKnowledgeSnapshot(scope) {
+function getAiKnowledgeSnapshot(scope, focusModules) {
     const isFull = scope === 'full';
-    const moduleNames = getAllModuleNames().filter((m) => !AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES.has(m));
+    const allModuleNames = getAllModuleNames().filter((m) => !AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES.has(m));
+    const allowedSet = isFull ? new Set(allModuleNames) : new Set(allModuleNames.filter((m) => AI_ASSISTANT_LIMITED_ROLE_MODULES.has(m)));
+
+    // AI context routing: kapag may explicit na listahan ng relevant modules,
+    // huwag nang isama ang buong database. Mas maraming useful records ang
+    // kasya sa maliit na model context window at mas mababa ang chance na
+    // maputol/ma-omit ang mismong data na tinatanong ng user.
+    const requested = Array.isArray(focusModules)
+        ? focusModules.filter((m) => typeof m === 'string' && allowedSet.has(m))
+        : [];
+    const moduleNames = requested.length
+        ? Array.from(new Set(requested))
+        : allModuleNames.filter((m) => allowedSet.has(m));
     const allowedModules = isFull ? moduleNames : moduleNames.filter((m) => AI_ASSISTANT_LIMITED_ROLE_MODULES.has(m));
     const modules = {};
     const truncatedModules = [];
@@ -500,6 +512,8 @@ function getAiKnowledgeSnapshot(scope) {
         scope: isFull ? 'full' : 'limited',
         modules,
         moduleNames: allowedModules,
+        focused: requested.length > 0,
+        focusedModules: requested,
         totalRecords,
         truncatedModules,
         recordCapPerModule: AI_ASSISTANT_MAX_RECORDS_PER_MODULE,

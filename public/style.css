@@ -8158,7 +8158,7 @@ body.dark-mode .faq-category summary, .dark .faq-category summary { color: var(-
    habang ang lang toggle naman ay nasa KALIWANG gilid — kapwa sila
    dapat umaabot hanggang sa tunay na gilid ng chatbox (see
    .faq-fullchat-mode .faq-top-bar sa ibaba para sa width match). */
-.faq-mode-toggle-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; margin-left: auto; }
+.faq-mode-toggle-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; margin-left: 0; }
 .faq-mode-toggle {
   position: relative;
   display: flex;
@@ -11253,3 +11253,39 @@ body.dark-mode .ct-banner-warn {
 body.dark-mode .ct-package-breakdown {
     background: var(--dm-accent-soft);
 }
+
+/* AI FAQ voice input - V1 only */
+.faq-voice-btn.is-listening { color: var(--primary-blue, #2563eb); border-color: var(--primary-blue, #2563eb); background: rgba(37, 99, 235, 0.10); }
+.faq-voice-btn.is-listening i { animation: faqVoicePulse 1s ease-in-out infinite; }
+.faq-voice-btn.unsupported { opacity: 0.45; cursor: not-allowed; }
+@keyframes faqVoicePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .faq-voice-btn.is-listening i { animation: none; } }
+
+/* Desktop: keep the language control on the left, AI/Search toggle truly
+   centered, and the remaining FAQ actions on the right. */
+@media (min-width: 769px) {
+  .faq-top-bar {
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
+    align-items: center;
+    column-gap: 10px;
+  }
+  #faq-lang-toggle { grid-column: 1; justify-self: start; }
+  #faq-ai-mode-toggle {
+    grid-column: 2;
+    width: auto;
+    display: flex;
+    justify-content: center;
+    justify-self: center;
+  }
+  #faq-ai-mode-toggle .faq-mode-toggle-wrap { margin-left: 0; margin-right: 0; }
+  #ai-assistant-credit-pill,
+  #ai-assistant-subscription-status,
+  #faq-ticket-btn,
+  #faq-top-bar > .faq-toolbar-btn {
+    justify-self: end;
+  }
+}
+

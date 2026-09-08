@@ -92,6 +92,11 @@
       copyAnswer: 'Copy',
       copied: 'Copied!',
       regenerate: 'Try again',
+      voiceInput: 'Voice input',
+      voiceListening: 'Listening… tap the microphone again to stop.',
+      voiceUnsupported: 'Voice input is not supported by this browser.',
+      voicePermissionDenied: 'Microphone access was denied. Allow microphone access in your browser settings and try again.',
+      voiceError: 'Voice input could not start. Please try again.',
       aiThinking: 'AI Assistant is thinking...',
       aiGeneratedBadge: 'AI Assistant answer — based on the OmniPOS FAQ Knowledge Base',
       aiFallbackNotice: 'The AI Assistant is unavailable right now — showing knowledge base search results instead.',
@@ -778,7 +783,23 @@
 
     box.querySelectorAll('.faq-mode-option[data-mode]').forEach(btn => {
       btn.addEventListener('click', () => {
-        storeAiModePref(btn.dataset.mode);
+        const nextMode = btn.dataset.mode === 'kb' ? 'kb' : 'ai';
+        const currentMode = effectiveAiMode();
+        if (nextMode === currentMode) return;
+
+        storeAiModePref(nextMode);
+
+        // FIX: clear mode-specific UI when switching modes.
+        // Otherwise an AI chat thread could remain visible in Search mode
+        // (or a previous keyword result could remain behind the AI chat).
+        const resultBox = document.getElementById('faq-ai-result');
+        const input = document.getElementById('faq-ai-input');
+        const suggestions = document.getElementById('faq-ai-suggestions');
+        if (resultBox) resultBox.innerHTML = '';
+        if (suggestions) suggestions.style.display = 'none';
+        activeSuggestIndex = -1;
+        if (nextMode === 'kb' && input) input.value = '';
+
         renderAiModeToggle();
       });
     });
@@ -1617,7 +1638,10 @@
       if (data.credits) refreshAiCreditPill(data.credits);
 
       const bubbleInner = loadingBubble.querySelector('.faq-chat-bubble');
-      bubbleInner.innerHTML = `<div class="faq-ai-badge"><i class="fa-solid fa-robot"></i> ${s.aiGeneratedBadge}</div>`;
+      const contextBadge = data.aiContext && data.aiContext.liveStoreData
+        ? `<span class="faq-ai-live-context" title="Gumamit ang AI ng relevant live OmniPOS store data"><i class="fa-solid fa-database"></i> Live data</span>`
+        : '';
+      bubbleInner.innerHTML = `<div class="faq-ai-badge"><i class="fa-solid fa-robot"></i> ${s.aiGeneratedBadge} ${contextBadge}</div>`;
       const bodyEl = document.createElement('div');
       bodyEl.className = 'faq-ai-body';
       bubbleInner.appendChild(bodyEl);
@@ -1780,11 +1804,67 @@
     initFullListAndDeepLink();
   }
 
+  function setupFaqVoiceInput() {
+    const btn = document.getElementById('faq-voice-btn');
+    const input = document.getElementById('faq-ai-input');
+    if (!btn || !input || btn.dataset.voiceReady === '1') return;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    btn.dataset.voiceReady = '1';
+    if (!Recognition) {
+      btn.classList.add('unsupported');
+      btn.title = STRINGS_BY_LANG[currentLang()]?.voiceUnsupported || 'Voice input is not supported by this browser.';
+      btn.setAttribute('aria-disabled', 'true');
+      return;
+    }
+    let recognition = null;
+    let listening = false;
+    let baseText = '';
+    const setListening = (active) => {
+      listening = active;
+      btn.classList.toggle('is-listening', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.setAttribute('aria-label', active ? (STRINGS_BY_LANG[currentLang()]?.voiceListening || 'Listening… tap the microphone again to stop.') : (STRINGS_BY_LANG[currentLang()]?.voiceInput || 'Voice input'));
+      btn.title = active ? (STRINGS_BY_LANG[currentLang()]?.voiceListening || 'Listening… tap the microphone again to stop.') : (STRINGS_BY_LANG[currentLang()]?.voiceInput || 'Voice input');
+      const icon = btn.querySelector('i');
+      if (icon) icon.className = active ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
+    };
+    const showVoiceError = (message) => {
+      if (typeof window.Swal !== 'undefined' && typeof Swal.fire === 'function') Swal.fire({ toast: true, position: 'top', icon: 'warning', title: message, showConfirmButton: false, timer: 3000 });
+    };
+    btn.addEventListener('click', () => {
+      if (listening) { try { recognition?.stop(); } catch (_) {} return; }
+      recognition = new Recognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = currentLang() === 'tl' ? 'fil-PH' : 'en-US';
+      baseText = input.value.trim();
+      recognition.onstart = () => { setListening(true); input.focus(); };
+      recognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;
+        transcript = transcript.trim();
+        if (!transcript) return;
+        input.value = baseText ? `${baseText} ${transcript}` : transcript;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        if (typeof window.OmniFAQ?.onInput === 'function') window.OmniFAQ.onInput(input.value);
+      };
+      recognition.onerror = (event) => {
+        const lang = STRINGS_BY_LANG[currentLang()] || STRINGS_BY_LANG.en;
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') showVoiceError(lang.voicePermissionDenied);
+        else if (event.error !== 'aborted' && event.error !== 'no-speech') showVoiceError(lang.voiceError);
+      };
+      recognition.onend = () => { setListening(false); recognition = null; };
+      try { recognition.start(); } catch (_) { setListening(false); recognition = null; showVoiceError((STRINGS_BY_LANG[currentLang()] || STRINGS_BY_LANG.en).voiceError); }
+    });
+  }
+
   function initFullListAndDeepLink() {
     renderFullList();
     renderAiModeToggle();
     setupSlashShortcut();
     setupFaqComposerKeyboardHandling();
+    setupFaqVoiceInput();
     const ticketBackdrop = document.getElementById('faq-ticket-modal-backdrop');
     if (ticketBackdrop) {
       ticketBackdrop.addEventListener('click', (ev) => {

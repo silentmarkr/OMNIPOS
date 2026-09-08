@@ -5106,7 +5106,7 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
 // database (hindi lang FAQ), naka-gate base sa role ng naka-login na
 // user. Tingnan ang db.getAiKnowledgeSnapshot() para sa aktwal na
 // pag-filter/pag-truncate ng data.
-function buildAiDatabaseContextMessage(role) {
+function buildAiDatabaseContextMessage(role, question = '') {
     const isAdminRole = (role || '').toLowerCase() === 'admin';
     let snapshot;
     try {
@@ -5137,7 +5137,38 @@ function buildAiDatabaseContextMessage(role) {
     const includedModules = {};
     const omittedForSize = [];
     let usedChars = 2; // "{}" braces
-    for (const moduleName of snapshot.moduleNames) {
+
+    // Prefer modules that are semantically related to the current question.
+    // This does not expose any new data; it only changes which already-safe
+    // modules win the small context budget when the snapshot is larger than
+    // the model input budget.
+    const q = String(question || '').toLowerCase();
+    const moduleHints = {
+        products: ['product','produkto','item','sku','stock','inventory','imbentaryo','price','presyo'],
+        categories: ['category','categories','kategorya','product group'],
+        promocodes: ['promo','promocode','discount','discount code','voucher'],
+        transactions: ['sale','sales','benta','transaction','transactions','checkout','receipt','resibo'],
+        customers: ['customer','customers','client','buyer','suki'],
+        users: ['user','users','cashier','staff','employee','empleyado','account'],
+        roles: ['role','roles','permission','access','pahintulot'],
+        debts: ['debt','utang','credit','receivable'],
+        settings: ['setting','settings','configuration','config'],
+        storeSettings: ['store','business','branch','address','pangalan ng store'],
+        reports: ['report','reports','analytics','profit','sales report'],
+        shifts: ['shift','z-reading','z reading','cashier shift','close shift']
+    };
+    const scoreModule = (name) => {
+        const hints = moduleHints[name] || [];
+        let score = 0;
+        for (const hint of hints) if (q.includes(hint)) score += hint.length > 5 ? 2 : 1;
+        return score;
+    };
+    const orderedModuleNames = [...snapshot.moduleNames].sort((a, b) => {
+        const diff = scoreModule(b) - scoreModule(a);
+        return diff || snapshot.moduleNames.indexOf(a) - snapshot.moduleNames.indexOf(b);
+    });
+
+    for (const moduleName of orderedModuleNames) {
         let moduleJson;
         try {
             moduleJson = JSON.stringify(snapshot.modules[moduleName]);
@@ -5187,7 +5218,7 @@ function buildAiDatabaseContextMessage(role) {
 // (/relay/ai-assistant/complete) gamit ang parehong
 // RELAY_URL/RELAY_API_KEY na ginagamit na rin ng ibang relay features —
 // hindi na kailangan (o puwedeng) makita ng kliyente ang mismong token.
-async function callRelayAiAssistant(messages, vision) {
+async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null) {
     if (!RELAY_API_KEY) {
         return { success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
     }
@@ -5196,19 +5227,19 @@ async function callRelayAiAssistant(messages, vision) {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ messages, vision: !!vision, installationId })
+            body: JSON.stringify({ messages, vision: !!vision, installationId, attachmentType: attachmentType || null, requestId: requestId || null })
         }, vision ? 32000 : 22000);
         const data = await relayRes.json().catch(() => null);
         if (!relayRes.ok || !data) {
-            return { success: false, message: (data && data.message) || `AI relay request failed (HTTP ${relayRes.status}).` };
+            return { success: false, statusCode: relayRes.status || 502, ...(data || {}), message: (data && data.message) || `AI relay request failed (HTTP ${relayRes.status}).` };
         }
         if (!data.success) {
-            return { success: false, message: data.message || 'AI relay request failed.' };
+            return { success: false, statusCode: relayRes.status || 502, ...data, message: data.message || 'AI relay request failed.' };
         }
         if (!data.answer || !data.answer.trim()) {
             return { success: false, message: `Empty response from ${vision ? 'vision ' : ''}AI provider.` };
         }
-        return { success: true, answer: data.answer.trim() };
+        return { success: true, answer: data.answer.trim(), credits: data.credits || null, creditCost: Number(data.creditCost) || 0 };
     } catch (err) {
         if (err && err.code === 'NO_INTERNET') {
             return { success: false, message: 'Walang internet connection na na-detect sa device na ito — kailangan ito ng AI Assistant.' };
@@ -5221,8 +5252,8 @@ async function callRelayAiAssistant(messages, vision) {
         };
     }
 }
-async function callCloudflareWorkersAI(messages) {
-    return callRelayAiAssistant(messages, false);
+async function callCloudflareWorkersAI(messages, attachmentType = null, requestId = null) {
+    return callRelayAiAssistant(messages, false, attachmentType, requestId);
 }
 app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) => {
     res.json({ success: true, configured: isAiAssistantConfigured(), visionConfigured: isAiAssistantVisionConfigured() });
@@ -5242,46 +5273,6 @@ app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) =
 // All of this still respects the same subscription gate
 // (requireFeature('ai_assistant')) as before — "subscription-aware".
 // ===================================================================
-const FILE_AI_ASSISTANT_USAGE = 'aiAssistantUsage';
-const FILE_AI_ASSISTANT_LOGS = 'aiAssistantLogs';
-const FILE_AI_SUPPORT_TICKETS = 'aiSupportTickets';
-const AI_ASSISTANT_MONTHLY_CREDIT_LIMIT = parseInt(process.env.AI_ASSISTANT_MONTHLY_CREDITS, 10) || 300;
-const AI_ASSISTANT_IMAGE_CREDIT_COST = 3;
-const AI_ASSISTANT_FILE_CREDIT_COST = 2;
-const AI_ASSISTANT_TEXT_CREDIT_COST = 1;
-const AI_ASSISTANT_LOG_CAP = 1000;
-const AI_ASSISTANT_TICKET_CAP = 500;
-
-function currentUsageMonthKey() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function getAiAssistantUsage() {
-    const month = currentUsageMonthKey();
-    const data = readData(FILE_AI_ASSISTANT_USAGE, { month, used: 0 });
-    if (!data || data.month !== month) {
-        const reset = { month, used: 0 };
-        writeData(FILE_AI_ASSISTANT_USAGE, reset);
-        return reset;
-    }
-    return { month: data.month, used: Number(data.used) || 0 };
-}
-function getAiAssistantCreditStatus() {
-    const usage = getAiAssistantUsage();
-    const limit = AI_ASSISTANT_MONTHLY_CREDIT_LIMIT;
-    return {
-        month: usage.month,
-        used: usage.used,
-        limit,
-        remaining: Math.max(0, limit - usage.used)
-    };
-}
-function consumeAiAssistantCredits(cost) {
-    const usage = getAiAssistantUsage();
-    usage.used += cost;
-    writeData(FILE_AI_ASSISTANT_USAGE, usage);
-    return getAiAssistantCreditStatus();
-}
 function logAiAssistantInteraction(entry) {
     try {
         const logs = readData(FILE_AI_ASSISTANT_LOGS, []);
@@ -5369,8 +5360,8 @@ function computeSuggestedActions(question, answerText) {
 function isAiAssistantVisionConfigured() {
     return isAiAssistantConfigured();
 }
-async function callCloudflareWorkersVisionAI(messages) {
-    return callRelayAiAssistant(messages, true);
+async function callCloudflareWorkersVisionAI(messages, requestId = null) {
+    return callRelayAiAssistant(messages, true, 'image', requestId);
 }
 // ---- Document attachment reading (PDF / DOCX / TXT / CSV) -------------
 // Katulad ng screenshot/image attach sa itaas, pero para sa mga
@@ -5472,8 +5463,17 @@ function buildDiagnosticSystemMessage(diagnostics, clientErrors) {
         content: `${parts.join('\n\n')}\n\nIf this diagnostic data is relevant to the question, use it to explain the likely cause in plain language and suggest a safe next step (e.g. reload the page, check internet connection, contact the developer). Never claim you fixed anything yourself — you can only explain and guide.`
     };
 }
-app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), (req, res) => {
-    res.json({ success: true, ...getAiAssistantCreditStatus() });
+app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), async (req, res) => {
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' });
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/usage?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 10000);
+        const data = await relayRes.json().catch(() => null);
+        if (!relayRes.ok || !data) return res.status(relayRes.status || 502).json(data || { success: false, message: 'AI credit relay request failed.' });
+        return res.json(data);
+    } catch (err) {
+        return res.status(502).json({ success: false, message: err.message || 'Hindi makuha ang AI credit status mula sa RELAY.' });
+    }
 });
 app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa AI Assistant. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
@@ -5485,7 +5485,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     if (!question) {
         return res.status(400).json({ success: false, message: 'Missing question.' });
     }
-    // AI credit/billing check — before spending any tokens on a call.
+    // AI credits are authoritative on RELAY. The local .env value is never used as a security gate.
     const imageDataUrl = typeof req.body?.image === 'string' && req.body.image.startsWith('data:image/') ? req.body.image : null;
     if (imageDataUrl && imageDataUrl.length > 6 * 1024 * 1024) {
         return res.status(413).json({ success: false, message: 'Ang naka-attach na screenshot ay masyadong malaki. Subukan mag-attach ng mas maliit (max ~4MB).' });
@@ -5495,20 +5495,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     // attach sa itaas na direktang pinapasa sa vision model.
     const fileDataUrl = typeof req.body?.file === 'string' && req.body.file.startsWith('data:') ? req.body.file : null;
     const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.slice(0, 200) : '';
-    // Tsekin muna ang credits BAGO gawin ang (potentially mabigat na)
-    // PDF/DOCX text extraction — para hindi na-sasayang ang CPU time sa
-    // pag-parse ng file kung malamang na ma-block naman agad dahil ubos
-    // na ang buwanang AI credits ng store.
-    const creditCost = imageDataUrl ? AI_ASSISTANT_IMAGE_CREDIT_COST : (fileDataUrl ? AI_ASSISTANT_FILE_CREDIT_COST : AI_ASSISTANT_TEXT_CREDIT_COST);
-    const creditStatusBefore = getAiAssistantCreditStatus();
-    if (creditStatusBefore.remaining < creditCost) {
-        return res.status(402).json({
-            success: false,
-            creditsExhausted: true,
-            message: `Naubos na ang buwanang AI credits ng store na ito (${creditStatusBefore.used}/${creditStatusBefore.limit}). Mare-reset ito sa susunod na buwan.`,
-            ...creditStatusBefore
-        });
-    }
+    // Credit authority is entirely on RELAY; do not trust local .env/local usage.
     let fileContextMsg = null;
     if (fileDataUrl) {
         const extraction = await extractTextFromAttachedDocument(fileDataUrl, fileName);
@@ -5535,7 +5522,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     const diagnosticMsg = buildDiagnosticSystemMessage(req.body?.diagnostics, req.body?.clientErrors);
     const userRole = req.authUser && req.authUser.role;
     const isAdminRole = (userRole || '').toLowerCase() === 'admin';
-    const dbContextMsg = buildAiDatabaseContextMessage(userRole);
+    const dbContextMsg = buildAiDatabaseContextMessage(userRole, question);
     const baseMessages = [
         { role: 'system', content: buildAiAssistantSystemPrompt(lang, isAdminRole) },
         { role: 'system', content: `OmniPOS FAQ Knowledge Base entries relevant to this question:\n\n${contextText}` },
@@ -5546,6 +5533,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     ];
     const startedAt = Date.now();
     const username = (req.authUser && req.authUser.username) || 'Unknown';
+    const requestId = crypto.randomUUID();
 
     let result;
     let visionFailureReason = null;
@@ -5560,7 +5548,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
                 ]
             }
         ];
-        result = await callCloudflareWorkersVisionAI(visionMessages);
+        result = await callCloudflareWorkersVisionAI(visionMessages, requestId);
         if (!result.success) {
             // BUG FIX: dating basta itinatapon ang result.message dito —
             // kaya kahit paulit-ulit na nabigo ang vision model (hal.
@@ -5577,21 +5565,21 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
             console.error(`⚠️ AI Assistant vision call failed (falling back to text-only): ${visionFailureReason}`);
             // Vision model unavailable/not configured — fall back to a
             // text-only answer so the user still gets *something* useful.
-            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but it could not be analyzed by the image model. Let them know you can't view images right now and ask them to describe what they see instead.)` }]);
+            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but it could not be analyzed by the image model. Let them know you can't view images right now and ask them to describe what they see instead.)` }], 'image', requestId);
         }
     } else {
-        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }]);
+        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }], fileDataUrl ? 'file' : null, requestId);
     }
 
     const tookMs = Date.now() - startedAt;
     if (!result.success) {
         logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, hasFile: !!fileDataUrl, answered: false, tookMs, error: result.message, visionError: visionFailureReason || undefined });
-        return res.status(502).json({ success: false, message: result.message });
+        return res.status(result.statusCode || 502).json({ success: false, ...result, message: result.message });
     }
 
-    const creditStatusAfter = consumeAiAssistantCredits(creditCost);
+    const creditStatusAfter = result.credits || null;
     const suggestedActions = computeSuggestedActions(question, result.answer);
-    logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, hasFile: !!fileDataUrl, answered: true, tookMs, creditCost, visionError: visionFailureReason || undefined });
+    logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, hasFile: !!fileDataUrl, answered: true, tookMs, creditCost: result.creditCost || 0, visionError: visionFailureReason || undefined });
 
     res.json({
         success: true,
@@ -5602,7 +5590,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
 });
 // ---- AI analytics: lets an Admin see how the AI Support Agent is
 // actually being used (top questions, answer rate, volume over time). ----
-app.get('/api/ai-assistant/analytics', (req, res) => {
+app.get('/api/ai-assistant/analytics', async (req, res) => {
     if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin access required.' });
     }
@@ -5621,6 +5609,15 @@ app.get('/api/ai-assistant/analytics', (req, res) => {
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10)
         .map(([question, count]) => ({ question, count }));
+    let relayCredits = null;
+    try {
+        if (RELAY_API_KEY) {
+            const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+            const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/usage?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 10000);
+            const relayData = await relayRes.json().catch(() => null);
+            if (relayRes.ok && relayData?.success) relayCredits = relayData;
+        }
+    } catch (_) {}
     res.json({
         success: true,
         totalQuestions,
@@ -5630,7 +5627,7 @@ app.get('/api/ai-assistant/analytics', (req, res) => {
         avgTookMs,
         topQuestions,
         recent: logs.slice(0, 50),
-        credits: getAiAssistantCreditStatus()
+        credits: relayCredits
     });
 });
 // ---- Support-ticket assistant: escalation path when the AI genuinely
