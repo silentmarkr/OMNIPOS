@@ -2673,21 +2673,10 @@
                             </button>
                         </div>
                         <div id="faq-ai-mode-toggle" class="faq-mode-toggle-wrap"></div>
-                        <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="AI Assistant monthly credits"></div>
-                        <button type="button" id="faq-ticket-btn" class="faq-toolbar-btn faq-ticket-btn" style="display:none;" onclick="OmniFAQ.openTicketModal()">
-                            <i class="fa-solid fa-life-ring"></i> <span id="faq-ticket-btn-text">Support Ticket</span>
-                        </button>
-                        <button type="button" class="faq-toolbar-btn" onclick="OmniFAQ.newConversation()">
-                            <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
-                        </button>
-                        <!-- BAGO: inilipat dito mula sa dating #faq-classic-subheader
-                             (na tinanggal na) — compact na "Expires on: <date>" na label
-                             na lang, sunod sa refresh/"New conversation" button, at
-                             AI Chatbot (fullchat) mode LANG ito ipinapakita (see
-                             style.css: #view-faq:not(.faq-fullchat-mode)
-                             #ai-assistant-subscription-status). Hindi na LNG ito
-                             ipinapakita sa Search (kb) mode. -->
-                        <div id="ai-assistant-subscription-status" class="faq-subscription-compact" style="display:none;"></div>
+                        <div id="ai-assistant-credit-expiry" class="ai-credit-expiry-group" aria-label="AI Credits and expiration">
+                            <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="AI Assistant monthly credits"></div>
+                            <div id="ai-assistant-subscription-status" class="faq-subscription-compact" style="display:none;"></div>
+                        </div>
                     </div>
 
                     <div class="faq-ai-box" id="faq-ai-box">
@@ -2742,6 +2731,11 @@
                                 </div>
                                 <button type="button" class="faq-composer-send-btn" id="faq-send-btn" title="Send" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
                                     <i class="fa-solid fa-arrow-up"></i>
+                                </button>
+                            </div>
+                            <div class="faq-new-conversation-row">
+                                <button type="button" id="faq-new-conversation-bottom" class="faq-new-conversation-btn" onclick="OmniFAQ.newConversation()" title="Start a new conversation">
+                                    <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
                                 </button>
                             </div>
                             <div id="faq-ai-upsell" style="display:none;">
