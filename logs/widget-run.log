@@ -811,3 +811,43 @@ Server running at http://0.0.0.0:3000
 MODE: Production (Public/Online Access Enabled)
 ⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
 ⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+[2026-09-08 00:23:54] ⚠️  May natirang lock file mula sa dating session (PID 26955, hindi na tumatakbo) — nililinis.
+[2026-09-08 00:23:55] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-08 00:23:58] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-07T14:59:29.971Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-08 05:28:09] ⚠️  May natirang lock file mula sa dating session (PID 30771, hindi na tumatakbo) — nililinis.
+[2026-09-08 05:28:10] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-08 05:28:13] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-07T17:31:12.821Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-08 07:42:19] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-08 07:42:22] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-07T21:29:17.693Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-08 08:15:58] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-08 08:16:00] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-08 08:16:03] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-07T23:47:00.756Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

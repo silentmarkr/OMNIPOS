@@ -426,7 +426,7 @@ window.OMNIPOS_FAQ_KB_TL = [
 },
 {
   id: 'customers-debtors',
-  category: 'Customers',
+  category: 'Debtors',
   question: 'Ano ang Debtors at paano ito ginagamit?',
   keywords: ['debtors', 'utang', 'utang ng customer', 'debtors ledger', 'due date utang', 'bayaran ng customer', 'c-credit', 'credit sale', 'partial payment'],
   answer: `<p>Ang <strong>Debtors</strong> ay isang ledger na sumusubaybay sa mga customer na may <strong>utang</strong> — kasama ang halaga, petsa ng benta, at due date. Bahagi ito ng <strong>Customer Profiles, Loyalty &amp; Debtors</strong> premium module — kasabay na naka-unlock kapag nabili ito.</p>
@@ -437,6 +437,104 @@ window.OMNIPOS_FAQ_KB_TL = [
   </ul>
   <p>Bawat debt record ay may pangalan ng debtor (required), phone number, note, halagang inutang, at optional na due date. Ang status nito ay <strong>Unpaid</strong>, <strong>Partial</strong> (may bahagyang bayad na), o <strong>Paid</strong> — puwedeng magtala ng partial payments hanggang mabayaran nang buo, at awtomatikong nagba-bawas ito sa natitirang balanse.</p>
   <p>Kapag nabayaran na ng buo ang isang debt, awtomatikong naka-earn ang customer ng loyalty points (kung naka-enable ang Loyalty). Hindi rin puwedeng i-void ang isang C-Credit na transaksyon kung may naitala nang bayad sa kaugnay na debt — kailangan munang ayusin ang debt record.</p>`
+},
+{
+  id: 'debtors-open-page',
+  category: 'Debtors',
+  question: 'Saan makikita ang Debtors page at sino ang pwedeng bumisita rito?',
+  keywords: ['saan debtors', 'buksan debtors', 'debtors menu', 'debtors page', 'debtors tab', 'pumunta sa debtors'],
+  answer: `<p>Makikita ang <strong>Debtors</strong> bilang sarili nitong item sa sidebar menu (may icon na kamay na may pera). Bahagi ito ng <strong>Customer Profiles, Loyalty &amp; Debtors</strong> premium module — kung naka-lock pa ito (may gray na lock icon sa tabi ng menu), kailangan munang i-unlock/bilhin ang module bago ito magamit.</p>
+  <p>Kapag naka-unlock na, ang access dito ay depende pa rin sa <strong>Roles &amp; Permissions</strong> ng account — kailangan ng "customers" permission ang role para makapasok sa Debtors, kaya hindi lahat ng cashier/staff ay awtomatikong may access dito maliban kung binigyan ng ganitong pahintulot.</p>`
+},
+{
+  id: 'debtors-add-manual',
+  category: 'Debtors',
+  question: 'Paano magdagdag ng bagong utang/debt nang manual?',
+  keywords: ['add debt', 'magdagdag ng utang', 'bagong debt', 'gumawa ng debt record', 'manual na utang', 'idagdag ang debtor'],
+  answer: `<p>Sa Debtors page, i-click ang <strong>"Add Debt"</strong> button, tapos punan ang form:</p>
+  <ul>
+    <li><strong>Debtor's Full Name</strong> — required</li>
+    <li><strong>Phone Number</strong> — optional</li>
+    <li><strong>Amount Owed (₱)</strong> — required, dapat higit sa 0</li>
+    <li><strong>Note</strong> — optional (hal. dahilan, kailan hiniram, atbp.)</li>
+    <li><strong>Due Date/Time</strong> — optional, kung kailan dapat mabayaran</li>
+  </ul>
+  <p>Pagkatapos i-save, magsisimula ang bagong record sa status na <strong>Unpaid</strong> na may ₱0 na naibayad, at agad itong lalabas sa itaas ng listahan ng Debtors.</p>`
+},
+{
+  id: 'debtors-record-payment',
+  category: 'Debtors',
+  question: 'Paano magtala ng bayad sa isang utang (Record Payment)?',
+  keywords: ['record payment', 'magbayad ng utang', 'ibayad ang debt', 'partial payment debt', 'magtala ng bayad', 'bayaran ang debtor'],
+  answer: `<p>Sa listahan ng Debtors, i-click ang <strong>green na money icon</strong> (Record a payment) sa tabi ng debt na gusto mong bayaran — makikita ito lang kung hindi pa <strong>Paid</strong> ang status. Ilagay ang halagang binayad, tapos i-confirm.</p>
+  <ul>
+    <li>Hindi puwedeng lumampas ang binayad sa <strong>natitirang balanse</strong> — may babalang error kung sobra ang inilagay.</li>
+    <li>Kapag partial pa lang ang bayad, magiging <strong>Partial</strong> ang status.</li>
+    <li>Kapag buo na ang nabayaran, agad itong magiging <strong>Paid</strong>, mata-tatak ang petsa ng pagkabayad (Paid At), at awtomatikong naka-earn ang customer ng <strong>loyalty points</strong> kung naka-enable ang Loyalty module.</li>
+  </ul>
+  <p>Bawat bayad na naitala ay nade-dagdag sa <strong>Payment Breakdown/History</strong> ng debt record (petsa, halaga, at kung sino ang nag-record) — makikita ito sa "View" ng bawat debt.</p>`
+},
+{
+  id: 'debtors-edit-delete',
+  category: 'Debtors',
+  question: 'Paano i-edit o i-delete ang isang debt record?',
+  keywords: ['edit debt', 'i-edit ang utang', 'delete debt', 'burahin ang utang', 'tanggalin ang debtor', 'palitan ang pangalan ng debtor'],
+  answer: `<p><strong>I-edit:</strong> i-click ang pencil/edit icon sa tabi ng debt record — puwedeng baguhin ang pangalan, phone number, halaga, note, at due date. Kapag binago ang halaga at ito ay katumbas na o mas mababa sa nabayaran na, awtomatikong nagre-recalculate ang status (Unpaid/Partial/Paid).</p>
+  <p><strong>I-delete:</strong> i-click ang trash/delete icon — may kumpirmasyon muna bago tuluyang mabura, dahil <strong>hindi na ito mababawi</strong> kapag natanggal na.</p>`
+},
+{
+  id: 'debtors-status-duedate',
+  category: 'Debtors',
+  question: 'Ano ang ibig sabihin ng Unpaid/Partial/Paid, at paano mag-search o mag-filter sa Debtors?',
+  keywords: ['unpaid partial paid', 'status ng debt', 'overdue', 'due date countdown', 'search debtor', 'filter debtors', 'i-search ang debtor'],
+  answer: `<p>May tatlong status ang bawat debt record:</p>
+  <ul>
+    <li><strong>Unpaid</strong> — wala pang naibabayad</li>
+    <li><strong>Partial</strong> — may bahagyang bayad na pero may natitira pa</li>
+    <li><strong>Paid</strong> — nabayaran na nang buo</li>
+  </ul>
+  <p>Kung may due date ang isang debt, may nakikitang <strong>live countdown</strong> (hal. "3d 2h remaining" o "Overdue by 5h 10m" kapag lampas na sa due date) na awtomatikong nag-uupdate kada 30 segundo habang bukas ang Debtors page.</p>
+  <p>Sa itaas ng listahan, may <strong>search box</strong> (maghahanap batay sa pangalan o phone number) at <strong>status filter</strong> (All, Unpaid, Partial, Paid, at Overdue — ipapakita ng "Overdue" filter ang mga hindi pa Paid na lampas na sa due date nila).</p>`
+},
+{
+  id: 'debtors-ccredit-checkout',
+  category: 'Debtors',
+  question: 'Paano gumagana ang C-Credit bilang paraan ng bayad sa POS Terminal?',
+  keywords: ['c-credit', 'credit sale checkout', 'bayad na utang sa pos', 'paano mag c-credit', 'benta na utang'],
+  answer: `<p>Sa checkout ng POS Terminal, ang <strong>C-Credit</strong> ay isang opsyon sa paraan ng bayad — hindi ito totoong pera na natatanggap kaagad, kundi awtomatikong gumagawa ito ng bagong <strong>Debtors</strong> record para sa transaksyong iyon.</p>
+  <ul>
+    <li>Kailangan munang ilagay ang <strong>Debtor's Full Name</strong> bago maproseso ang benta — required ito sa C-Credit sale.</li>
+    <li>Awtomatikong naitatala sa bagong debt record ang halaga ng benta, ang mga produktong binili, at ang Transaction ID na kaugnay nito.</li>
+    <li>Hindi puwedeng mag-link ng dalawang magkaibang debt record sa iisang Transaction ID — isang beses lang ito magagawa kada transaksyon.</li>
+  </ul>
+  <p>Makikita agad ang bagong record na ito sa Debtors page pagkatapos ng checkout, at puwede nang tratuhin nang normal (magtala ng bayad, i-edit, atbp.) tulad ng manual na idinagdag na debt.</p>`
+},
+{
+  id: 'debtors-void-restriction',
+  category: 'Debtors',
+  question: 'Bakit hindi ko ma-void ang isang C-Credit na transaksyon?',
+  keywords: ['bakit hindi ma void', 'void c-credit', 'hindi puwedeng i-void', 'void restriction debt', 'error void debt'],
+  verdict: 'depende',
+  answer: `<p>Kapag ang isang transaksyon ay binayaran gamit ang <strong>C-Credit</strong> at may naitala na ring <strong>bayad</strong> (partial man o buo) sa kaugnay na debt record nito, hindi na ito puwedeng i-void nang basta-basta — may babalang mensahe na sasabihin kung magkano ang naitalang bayad at kaninong debt record ito.</p>
+  <p>Kailangan mo munang ayusin ang <strong>debt record</strong> sa Debtors page (hal. bawiin/i-adjust ang mga naitalang bayad sa pamamagitan ng edit, o kausapin ang admin) bago maaaring ituloy ang pag-void ng orihinal na transaksyon — layunin nito na maiwasan ang hindi pagkakatugma sa pagitan ng mga sales record at ng utang na naitala na.</p>`
+},
+{
+  id: 'debtors-receipt-share',
+  category: 'Debtors',
+  question: 'Paano mag-print, mag-email, o mag-share ng resibo ng isang debt?',
+  keywords: ['print debt receipt', 'email debt receipt', 'e-receipt debtor', 'i-download ang resibo ng utang', 'i-share ang resibo'],
+  answer: `<p>Buksan ang <strong>"View"</strong> ng isang debt record para makita ang buong detalye nito, kung saan may dalawang opsyon sa ibaba:</p>
+  <ul>
+    <li><strong>Print Receipt</strong> — direktang magpi-print ng resibo (kasama ang detalye ng utang, payment history, at mga item na binili).</li>
+    <li><strong>E-Receipt</strong> — magbubukas ng preview na puwedeng:
+      <ul>
+        <li><strong>i-email</strong> nang direkta sa isang email address (kailangan ng aktibong internet para dito),</li>
+        <li><strong>i-download</strong> bilang larawan (image), o</li>
+        <li><strong>i-share</strong> gamit ang built-in na share menu ng device.</li>
+      </ul>
+    </li>
+  </ul>
+  <p>Awtomatikong sumusunod ang E-Receipt sa kasalukuyang light/dark theme ng device kapag i-preview, at ganoon din ang lalabas kapag na-download o na-share bilang larawan.</p>`
 },
 
 {

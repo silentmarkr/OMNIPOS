@@ -120,7 +120,9 @@
       ticketSuccess: 'Support ticket submitted! The store admin/developer will follow up.',
       ticketError: 'Could not submit the ticket. Please try again.',
       ticketMissingMessage: 'Please describe the issue first.',
-      imageTooLarge: 'That image is too large. Please attach a smaller screenshot (max ~4MB).'
+      imageTooLarge: 'That image is too large. Please attach a smaller screenshot (max ~4MB).',
+      backToCommon: 'Back to common questions',
+      newSearch: 'New search'
     },
     tl: {
       badge: 'Sagot batay sa OmniPOS System Knowledge Base',
@@ -171,7 +173,9 @@
       ticketSuccess: 'Naisumite ang support ticket! Susundan ka ng store admin/developer.',
       ticketError: 'Hindi naisumite ang ticket. Subukan ulit.',
       ticketMissingMessage: 'Pakilarawan muna ang problema.',
-      imageTooLarge: 'Masyadong malaki ang larawan. Mag-attach ng mas maliit (max ~4MB).'
+      imageTooLarge: 'Masyadong malaki ang larawan. Mag-attach ng mas maliit (max ~4MB).',
+      backToCommon: 'Bumalik sa mga karaniwang tanong',
+      newSearch: 'Bagong paghahanap'
     }
   };
 
@@ -267,16 +271,77 @@
     return 'faq-cat-' + normalize(cat).replace(/\s+/g, '-');
   }
 
+  // BAGO: typo-tolerant search — sinusukat nito kung gaano "kalapit"
+  // (bilang ng insert/delete/substitute na "edits") ang dalawang salita,
+  // para makatugma pa rin ang mga typo tulad ng "trasaction" vs
+  // "transaction" o "viod" vs "void" sa keyword search (kb mode).
+  function levenshtein(a, b) {
+    a = a || ''; b = b || '';
+    const alen = a.length, blen = b.length;
+    if (alen === 0) return blen;
+    if (blen === 0) return alen;
+    let prevRow = new Array(blen + 1);
+    for (let j = 0; j <= blen; j++) prevRow[j] = j;
+    for (let i = 1; i <= alen; i++) {
+      const currRow = new Array(blen + 1);
+      currRow[0] = i;
+      for (let j = 1; j <= blen; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        currRow[j] = Math.min(
+          prevRow[j] + 1,       // deletion
+          currRow[j - 1] + 1,   // insertion
+          prevRow[j - 1] + cost // substitution
+        );
+      }
+      prevRow = currRow;
+    }
+    return prevRow[blen];
+  }
+
+  // Mas maluwag ang tolerance para sa mas mahahabang salita (mas
+  // maraming letra = mas maraming pagkakataong magkamali), pero
+  // huwag i-fuzzy ang napaikling salita dahil madaling magka-false
+  // positive doon (hal. "pos" na tumutugma sa "pot").
+  function fuzzyTolerance(len) {
+    if (len <= 4) return 1;
+    if (len <= 8) return 2;
+    return 3;
+  }
+
+  function isFuzzyMatch(tokenA, tokenB) {
+    if (!tokenA || !tokenB || tokenA === tokenB) return false;
+    if (Math.max(tokenA.length, tokenB.length) < 4) return false;
+    const tolerance = Math.min(fuzzyTolerance(tokenA.length), fuzzyTolerance(tokenB.length));
+    return levenshtein(tokenA, tokenB) <= tolerance;
+  }
+
   function scoreEntry(entry, queryTokens) {
     const kwText = normalize(entry.keywords.join(' '));
     const qText = normalize(entry.question);
     const aText = normalize(stripHtml(entry.answer));
 
+    // BAGO: mga token mula sa keywords/question ng entry na ito,
+    // gamit sa fuzzy fallback sa ibaba kapag walang eksaktong
+    // substring match ang isang query token (posibleng typo).
+    const kwTokens = tokenize(entry.keywords.join(' '));
+    const qTokens = tokenize(entry.question);
+
     let score = 0;
     queryTokens.forEach(tok => {
-      if (kwText.includes(tok)) score += 3;      
-      if (qText.includes(tok)) score += 2;       
-      if (aText.includes(tok)) score += 0.5;     
+      let exactHit = false;
+      if (kwText.includes(tok)) { score += 3; exactHit = true; }
+      if (qText.includes(tok)) { score += 2; exactHit = true; }
+      if (aText.includes(tok)) { score += 0.5; exactHit = true; }
+
+      // BAGO: typo tolerance — kapag walang eksaktong tugma ang query
+      // token na ito, subukang tumugma nang malapit (fuzzy) sa mga
+      // salita ng entry. Mas mababa ang idinagdag na score kumpara sa
+      // eksaktong tugma, para huwag itong mangibabaw sa tunay na
+      // tumpak na resulta — pantulong lang ito kapag walang exact hit.
+      if (!exactHit && tok.length >= 4) {
+        if (kwTokens.some(kt => isFuzzyMatch(tok, kt))) score += 1.5;
+        else if (qTokens.some(qt => isFuzzyMatch(tok, qt))) score += 1;
+      }
     });
 
     
@@ -373,13 +438,26 @@
   // link/suggestion should just show that one answer, not join the chat
   // thread). Also clears/resets the chat thread + conversation memory,
   // since navigating away from a chat is effectively starting fresh.
-  function renderAnswer(query, container) {
+  //
+  // BAGO: bagong `opts.showBackLink` — kapag totoo ito (at hindi tayo sa
+  // AI Chatbot mode), nagdaragdag ng maliit na "Bumalik sa mga
+  // karaniwang tanong" na buton sa itaas ng sagot, para may malinaw at
+  // madaling paraan bumalik sa shortcuts/Common Questions na itinatago
+  // habang may ipinapakitang resulta (see OmniFAQ.ask() sa ibaba).
+  function renderAnswer(query, container, opts) {
+    opts = opts || {};
     const s = STRINGS();
     const results = search(query, 5);
     const noResult = results.length === 0;
 
+    const backLinkHtml = (opts.showBackLink && effectiveAiMode() !== 'ai') ? `
+      <button type="button" class="faq-chip faq-back-to-common-btn" id="faq-back-to-common-btn">
+        <i class="fa-solid fa-arrow-left"></i> ${escapeHtml(s.backToCommon)}
+      </button>` : '';
+
     container.innerHTML = `
       <div class="faq-ai-answer ${noResult ? 'faq-ai-noresult' : ''}">
+        ${backLinkHtml}
         <div class="faq-ai-badge"><i class="fa-solid fa-wand-magic-sparkles"></i> ${s.badge}</div>
         ${buildKbAnswerInnerHtml(query)}
       </div>`;
@@ -387,6 +465,16 @@
     container.querySelectorAll('a[data-faq-id]').forEach(a => {
       a.addEventListener('click', (ev) => goTo(a.dataset.faqId, a.dataset.faqQ, ev));
     });
+
+    const backBtn = container.querySelector('#faq-back-to-common-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        const input = document.getElementById('faq-ai-input');
+        if (input) { input.value = ''; input.focus(); }
+        container.innerHTML = '';
+        setKbShortcutsVisible(true);
+      });
+    }
   }
 
   let activeSuggestIndex = -1;
@@ -487,8 +575,16 @@
     const input = document.getElementById('faq-ai-input');
     const resultBox = document.getElementById('faq-ai-result');
     if (input) input.value = question;
+    // BUGFIX: dati, hindi tinatawag dito ang setKbShortcutsVisible(false)
+    // (kumpara sa OmniFAQ.ask() sa ibaba) — kaya kapag pumindot ng isang
+    // shortcut/"Common Questions" card, sabay na nakikita ang sagot NG
+    // card na iyon AT ang buong listahan pa rin ng ibang shortcut sa
+    // ilalim/paligid nito. Isa lang dapat makita nang sabay (ang card
+    // mismong pinindot) — kaya itinatago na rin dito ang shortcuts, at
+    // idinagdag ang showBackLink para may malinaw na paraan bumalik.
+    if (effectiveAiMode() !== 'ai') setKbShortcutsVisible(false);
     if (resultBox) {
-      renderAnswer(question, resultBox);
+      renderAnswer(question, resultBox, { showBackLink: true });
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -699,7 +795,23 @@
     if (!view) return;
     const fullchat = effectiveAiMode() === 'ai';
     view.classList.toggle('faq-fullchat-mode', fullchat);
+    if (fullchat) restoreChatThreadIfNeeded();
     renderChatEmptyStateIfNeeded();
+    updateNewConvoButtonLabel();
+    // BAGO: ang shortcuts (Common Questions) ay para lang sa Search
+    // mode — palaging nakatago sa AI Chatbot mode. Kapag lumipat
+    // papuntang Search mode (o unang beses na nag-load sa mode na ito)
+    // nang wala pang aktibong resulta, ipakita ang mga shortcut bilang
+    // default na laman ng box.
+    if (fullchat) {
+      setKbShortcutsVisible(false);
+    } else {
+      const resultBox = document.getElementById('faq-ai-result');
+      const hasActiveResult = !!(resultBox && resultBox.innerHTML.trim());
+      setKbShortcutsVisible(!hasActiveResult);
+    }
+    wireFaqBoxMinHeightSync();
+    syncFaqBoxMinHeight();
   }
 
   function renderChatEmptyStateIfNeeded() {
@@ -717,12 +829,42 @@
       </div>`;
   }
 
-  // BAGO: sa AI Chatbot (fullchat) mode sa mobile, ang composer dock ay
-  // dati `position: sticky; bottom: 0` lamang — hindi ito sumusunod nang
-  // tama sa aktwal na taas ng on-screen keyboard sa maraming Android/iOS
-  // browsers (parehong isyu tulad ng na-encounter na noon sa Login screen,
-  // see setupAuthMobileKeyboardHandling sa app.js), kaya minsan naitatago
-  // ng keyboard ang input, o na-o-overlap ito ng bottom nav bar
+  // BAGO: kapag pumasok sa AI Chatbot (fullchat) mode at may naka-save
+  // nang usapan mula sa localStorage (chatHistory) pero wala pang
+  // ginawang thread ang kasalukuyang page load (hal. bagong refresh),
+  // itinatayo ulit dito ang mga bubble mula sa naka-save na usapan sa
+  // halip na basta magpakita ng blangkong "empty state". Simpleng
+  // teksto lang ang naibabalik (walang badge/feedback buttons/image
+  // thumbnail na tulad ng orihinal na sagot) — sapat na ito para
+  // makita ng user ang dati niyang tinanong/nasagot habang tuloy pa
+  // rin ang follow-up memory (chatHistory mismo ang direktang
+  // pinapadala sa AI bilang context).
+  function restoreChatThreadIfNeeded() {
+    const resultBox = document.getElementById('faq-ai-result');
+    if (!resultBox) return;
+    if (resultBox.querySelector('#faq-chat-thread')) return;
+    if (!chatHistory.length) return;
+    const s = STRINGS();
+    const thread = ensureThread(resultBox);
+    chatHistory.forEach(h => {
+      if (h.role === 'user') {
+        appendUserBubble(thread, h.text);
+      } else {
+        appendAssistantBubble(thread, `
+          <div class="faq-ai-badge"><i class="fa-solid fa-robot"></i> ${s.aiGeneratedBadge}</div>
+          <div class="faq-ai-body" style="white-space:pre-wrap;">${escapeHtml(h.text)}</div>`);
+      }
+    });
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  // BAGO: sa FAQ (parehong AI Chatbot/fullchat AT Search/kb mode) sa
+  // mobile, ang composer dock ay dati `position: sticky; bottom: 0`
+  // lamang — hindi ito sumusunod nang tama sa aktwal na taas ng
+  // on-screen keyboard sa maraming Android/iOS browsers (parehong isyu
+  // tulad ng na-encounter na noon sa Login screen, see
+  // setupAuthMobileKeyboardHandling sa app.js), kaya minsan naitatago ng
+  // keyboard ang input, o na-o-overlap ito ng bottom nav bar
   // (#app-bottom-nav). Dito, ginagaya ang parehong `visualViewport`
   // approach: habang naka-focus sa #faq-ai-input, kino-compute ang
   // overlap ng keyboard at itinatakda bilang CSS var (--faq-kb-offset) na
@@ -730,6 +872,12 @@
   // nang tama sa ibabaw ng keyboard. Itinatago rin ang bottom nav habang
   // nagta-type (gamit ang parehong .bottom-nav-hidden na ginagamit na sa
   // Terminal view) para hindi ito masamang ka-overlap ng composer.
+  //
+  // BUGFIX: dati, may `isFullchatActive()` gate dito kaya sa Search (kb)
+  // mode lang, kahit iisang #faq-composer-dock ang ginagamit sa
+  // dalawang mode, hindi na-a-apply ang keyboard offset — nananatiling
+  // naitatago ng keyboard ang search box sa mobile. Inalis na ang gate
+  // na ito para gumana ito sa parehong mode.
   let faqKbHandlingWired = false;
   function setupFaqComposerKeyboardHandling() {
     if (faqKbHandlingWired) return;
@@ -743,17 +891,42 @@
     function isComposerFocused() {
       return !!document.activeElement && document.activeElement.id === 'faq-ai-input';
     }
-    function isFullchatActive() {
-      const view = document.getElementById('view-faq');
-      return !!view && view.classList.contains('faq-fullchat-mode');
-    }
 
     function updateKeyboardOffset() {
-      if (!isComposerFocused() || !isFullchatActive() || !isMobileNavWidth() || !window.visualViewport) return;
       const view = document.getElementById('view-faq');
+      if (!view || !window.visualViewport) return;
+      // BUGFIX: dati, dito lang (habang naka-focus pa rin ang input)
+      // itinatakda ang --faq-kb-offset — pero ang pag-alis ng
+      // 'bottom-nav-hidden'/'faq-kb-active' ay nakadepende LANG sa
+      // 'focusout' event sa ibaba. Sa Android, ang pag-dismiss ng
+      // on-screen keyboard gamit ang back button/gesture ay HINDI
+      // laging nagpapa-fire ng blur/focusout sa input (nananatiling
+      // "focused" pa rin ito sa DOM kahit nawala na ang keyboard sa
+      // screen) — resulta, hindi na kailanman naibabalik ang bottom
+      // nav button (permanenteng nawawala ito, ang na-report na bug).
+      // Ang visualViewport resize/scroll event, sa kabilang banda, ay
+      // laging tumatak nang tama sa AKTWAL na sukat ng keyboard,
+      // kahit paano ito isinara — kaya ginagawa itong DITO (hindi sa
+      // focusout) ang tunay na pinagbabatayan kung dapat bang itago o
+      // ibalik ang bottom nav/offset.
+      if (!isMobileNavWidth()) {
+        view.style.removeProperty('--faq-kb-offset');
+        view.classList.remove('faq-kb-active');
+        return;
+      }
       const vv = window.visualViewport;
       const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      view.style.setProperty('--faq-kb-offset', `${overlap}px`);
+      const keyboardOpen = overlap > 40 && isComposerFocused();
+      if (keyboardOpen) {
+        view.style.setProperty('--faq-kb-offset', `${overlap}px`);
+        view.classList.add('faq-kb-active');
+        const bottomNavEl = document.getElementById('app-bottom-nav');
+        if (bottomNavEl) bottomNavEl.classList.add('bottom-nav-hidden');
+      } else {
+        view.style.removeProperty('--faq-kb-offset');
+        view.classList.remove('faq-kb-active');
+        restoreBottomNavIfNeeded();
+      }
     }
 
     function restoreBottomNavIfNeeded() {
@@ -773,9 +946,19 @@
 
     document.addEventListener('focusin', (ev) => {
       if (!ev.target || ev.target.id !== 'faq-ai-input') return;
-      if (!isFullchatActive() || !isMobileNavWidth()) return;
+      if (!isMobileNavWidth()) return;
       const bottomNavEl = document.getElementById('app-bottom-nav');
       if (bottomNavEl) bottomNavEl.classList.add('bottom-nav-hidden');
+      // BUGFIX: dating naiiwan ang +70px na reserved space ng
+      // .faq-composer-dock (para sa bottom nav) kahit nakatago na ang
+      // bottom nav habang naka-focus ang keyboard — nagreresulta ito sa
+      // malaking "patay na puwang" sa pagitan ng search box at ng
+      // keyboard (tila lumulutang nang malayo ang composer). Idinaragdag
+      // ang klase na ito sa #view-faq para ma-override ng CSS ang
+      // bottom offset papuntang 3px lang (tulad ng Fullchat mode) habang
+      // aktibo ang keyboard — see style.css .faq-kb-active.
+      const view = document.getElementById('view-faq');
+      if (view) view.classList.add('faq-kb-active');
       setTimeout(updateKeyboardOffset, 250);
       setTimeout(updateKeyboardOffset, 500);
     });
@@ -785,10 +968,59 @@
       setTimeout(() => {
         if (isComposerFocused()) return;
         const view = document.getElementById('view-faq');
-        if (view) view.style.removeProperty('--faq-kb-offset');
+        if (view) {
+          view.style.removeProperty('--faq-kb-offset');
+          view.classList.remove('faq-kb-active');
+        }
         restoreBottomNavIfNeeded();
       }, 150);
     });
+  }
+
+  // BUGFIX: sa Search (kb) mode, dating umaasa lang sa position:sticky
+  // ang .faq-composer-dock para "pumako" sa ilalim ng screen — pero
+  // hindi ito gumagana kapag mas maikli ang laman ng .faq-ai-box kaysa
+  // sa buong natitirang taas ng viewport (hal. walang pang resulta,
+  // "Common Questions" lang, o unang beses na lumipat mula AI Chatbot
+  // papuntang Search mode). Sa ganitong sitwasyon, agad na lang
+  // natatapat ang search box sa ibaba ng maikling laman na iyon —
+  // malaking patay na puwang ang natitira sa ibaba (ito ang
+  // na-report na bug). Dito, sinusukat ng JS ang available na taas
+  // mula sa itaas ng .faq-ai-box hanggang sa tunay na ilalim ng
+  // viewport, at itinatakda bilang min-height ng box (kasabay ng
+  // display:flex sa style.css) para laging maabot ng composer-dock
+  // ang tunay na ibaba.
+  function syncFaqBoxMinHeight() {
+    const view = document.getElementById('view-faq');
+    const box = document.getElementById('faq-ai-box');
+    if (!view || !box) return;
+    if (view.style.display === 'none' || view.classList.contains('faq-fullchat-mode')) {
+      box.style.removeProperty('min-height');
+      return;
+    }
+    if (box.offsetParent === null) return; // hindi pa talaga nakikita
+    const top = box.getBoundingClientRect().top;
+    // tugma sa reserved bottom offset na ginagamit na ng .faq-composer-dock
+    // mismo (see @media max-width:1024px sa itaas), plus maliit na buffer.
+    const bottomReserve = window.innerWidth <= 1024 ? 76 : 6;
+    const available = Math.round(window.innerHeight - top - bottomReserve);
+    box.style.minHeight = available > 0 ? `${available}px` : '';
+  }
+
+  let faqBoxMinHeightWired = false;
+  function wireFaqBoxMinHeightSync() {
+    if (faqBoxMinHeightWired) return;
+    faqBoxMinHeightWired = true;
+    window.addEventListener('resize', syncFaqBoxMinHeight);
+    window.addEventListener('orientationchange', syncFaqBoxMinHeight);
+    if (typeof window.switchView === 'function') {
+      const originalSwitchView = window.switchView;
+      window.switchView = function (viewKey, opts) {
+        const result = originalSwitchView.apply(this, arguments);
+        setTimeout(syncFaqBoxMinHeight, 0);
+        return result;
+      };
+    }
   }
 
   let slashShortcutWired = false;
@@ -809,15 +1041,74 @@
 
   // ---- conversational memory + chat-thread rendering ------------------
 
-  let chatHistory = [];   // [{role:'user'|'assistant', text}] — sent to the
-                           // server as short-term context for follow-ups.
+  // BAGO: persisted chat history — dating naka-memory lang sa variable
+  // na ito ang buong usapan (nawawala pag na-refresh ang page). Ngayon,
+  // naka-save din ito sa localStorage kaya pag bumalik ang user sa FAQ
+  // (AI Chatbot mode) matapos mag-refresh o muling magbukas ng app,
+  // ipinapakita pa rin ang dating usapan sa halip na basta magsisimula
+  // sa blangkong estado — see saveChatHistory() / restoreChatThreadIfNeeded()
+  // sa ibaba.
+  const CHAT_HISTORY_KEY = 'omnipos_faq_chat_history';
+  const CHAT_HISTORY_MAX = 40; // limitahan ang laki ng na-se-save sa localStorage
+
+  function loadStoredChatHistory() {
+    try {
+      const raw = localStorage.getItem(CHAT_HISTORY_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(h => h && (h.role === 'user' || h.role === 'assistant') && typeof h.text === 'string');
+    } catch (e) { return []; }
+  }
+
+  function saveChatHistory() {
+    try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(chatHistory.slice(-CHAT_HISTORY_MAX))); } catch (e) {}
+  }
+
+  function clearStoredChatHistory() {
+    try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch (e) {}
+  }
+
+  let chatHistory = loadStoredChatHistory();   // [{role:'user'|'assistant', text}] —
+                           // sent to the server as short-term context for
+                           // follow-ups, at naka-save din sa localStorage.
+
+  // ---- "Common Questions" shortcuts panel (Search/kb mode only) --------
+  // BAGO: sa Search mode, ang mga shortcut/karaniwang tanong ay
+  // nakatira na sa LOOB mismo ng .faq-ai-box (see index.html:
+  // #faq-kb-shortcuts) — ipinapakita ito bilang default, at itinatago
+  // habang may aktibong resulta na ipinapakita mula sa isang
+  // tinanong/hinanap na query (see OmniFAQ.ask()). Palaging nakatago
+  // ito sa AI Chatbot (fullchat) mode — see style.css.
+  function setKbShortcutsVisible(visible) {
+    const shortcuts = document.getElementById('faq-kb-shortcuts');
+    if (shortcuts) shortcuts.style.display = visible ? '' : 'none';
+  }
+
+  function updateNewConvoButtonLabel() {
+    const textEl = document.getElementById('faq-new-convo-text');
+    if (!textEl) return;
+    const s = STRINGS();
+    textEl.textContent = effectiveAiMode() === 'ai' ? s.newConversation : s.newSearch;
+  }
 
   function resetConversation() {
     chatHistory = [];
+    clearStoredChatHistory();
     const resultBox = document.getElementById('faq-ai-result');
     if (resultBox) resultBox.innerHTML = '';
     clearImage();
     renderChatEmptyStateIfNeeded();
+    // BAGO: sa Search (kb) mode, ang "bagong usapan/search" ay ibig
+    // sabihin lang ay ibalik ang mga shortcut/Common Questions sa loob
+    // ng box at i-clear ang laman ng search field — walang "chat
+    // thread" na kailangang panatilihin dahil single-turn lang talaga
+    // ang keyword search (hindi ito multi-turn na kausap-ang-AI).
+    if (effectiveAiMode() !== 'ai') {
+      const input = document.getElementById('faq-ai-input');
+      if (input) input.value = '';
+      setKbShortcutsVisible(true);
+    }
   }
 
   function ensureThread(container) {
@@ -854,13 +1145,50 @@
   function appendKbAnswerBubble(query, thread, wasAiAttempted) {
     const s = STRINGS();
     const html = `
-      ${wasAiAttempted ? `<div class="faq-ai-fallback-notice"><i class="fa-solid fa-triangle-exclamation"></i> ${s.aiFallbackNotice}</div>` : ''}
+      ${wasAiAttempted ? `
+        <div class="faq-ai-fallback-notice">
+          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${s.aiFallbackNotice}</div>
+          <button type="button" class="faq-chip faq-retry-ai-btn" data-action="retry-ai">
+            <i class="fa-solid fa-arrow-rotate-right"></i> ${s.regenerate}
+          </button>
+        </div>` : ''}
       <div class="faq-ai-badge"><i class="fa-solid fa-wand-magic-sparkles"></i> ${s.badge}</div>
       ${buildKbAnswerInnerHtml(query)}`;
     const bubble = appendAssistantBubble(thread, html);
     wireBubbleFaqLinks(bubble);
     chatHistory.push({ role: 'assistant', text: stripHtml(buildKbAnswerInnerHtml(query)).slice(0, 500) });
+    saveChatHistory();
+    // BAGO: "Try again" button — kapag nag-fail ang AI Assistant at
+    // bumalik na lang sa keyword-based na sagot, dating tahimik lang
+    // itong tinatanggap; ngayon, may malinaw na buton para subukan
+    // ulit ang AI (hindi lang basta tanggapin ang KB fallback).
+    if (wasAiAttempted) wireKbFallbackRetryAction(bubble, query, thread);
     return bubble;
+  }
+
+  function wireKbFallbackRetryAction(bubble, query, thread) {
+    const bubbleInner = bubble.querySelector('.faq-chat-bubble');
+    const retryBtn = bubbleInner && bubbleInner.querySelector('[data-action="retry-ai"]');
+    if (!retryBtn) return;
+    retryBtn.addEventListener('click', async () => {
+      // Alisin ang stale na KB-fallback na assistant turn bago subukan
+      // ulit ang AI — parehong approach sa "Try again"/regenerate
+      // button ng matagumpay na AI answers (see wireAiBubbleActions).
+      if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'assistant') {
+        chatHistory.pop();
+      }
+      saveChatHistory();
+      bubble.remove();
+      setSendButtonLoading(true);
+      try {
+        const handled = await askAIAssistantChat(query, thread);
+        if (!handled) appendKbAnswerBubble(query, thread, true);
+      } finally {
+        setSendButtonLoading(false);
+      }
+      saveChatHistory();
+      thread.scrollTop = thread.scrollHeight;
+    });
   }
 
   function wireAiBubbleActions(bubble, query, answerText, thread) {
@@ -887,8 +1215,9 @@
         if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'assistant') {
           chatHistory.pop();
         }
+        saveChatHistory();
         bubble.remove();
-        askAIAssistantChat(query, thread);
+        askAIAssistantChat(query, thread).then(saveChatHistory);
       });
     }
 
@@ -1070,7 +1399,10 @@
 
   function refreshTicketButtonVisibility() {
     const btn = document.getElementById('faq-ticket-btn');
-    if (btn) btn.style.display = aiAssistantUnlocked() ? 'inline-flex' : 'none';
+    // BAGO: naka-tali ang Support Ticket sa "kasalukuyang AI
+    // conversation" (see ticketHint), kaya walang saysay ipakita ito sa
+    // Search (kb) mode kung saan wala namang multi-turn na usapan.
+    if (btn) btn.style.display = (aiAssistantUnlocked() && effectiveAiMode() === 'ai') ? 'inline-flex' : 'none';
   }
 
   // ---- suggested "safe action" chips (navigate only, never a
@@ -1283,6 +1615,25 @@
     }
   }
 
+  // BAGO: habang nag-lo-load ang AI (fullchat) response, pinapalitan ang
+  // arrow-up icon ng send button ng umiikot na AI/robot icon, para
+  // malinaw sa user na aktibong ginagana ang AI — bumabalik sa dati
+  // (arrow-up) at naka-enable ulit ang buton pagkatapos, tagumpay man
+  // o nag-fail ang request (see try/finally sa OmniFAQ.ask()).
+  function setSendButtonLoading(loading) {
+    const btn = document.getElementById('faq-send-btn');
+    if (!btn) return;
+    const icon = btn.querySelector('i');
+    if (!icon) return;
+    if (loading) {
+      icon.className = 'fa-solid fa-robot fa-spin';
+      btn.disabled = true;
+    } else {
+      icon.className = 'fa-solid fa-arrow-up';
+      btn.disabled = false;
+    }
+  }
+
   window.OmniFAQ = {
     ask: async function (query) {
       const input = document.getElementById('faq-ai-input');
@@ -1292,6 +1643,31 @@
       hideSuggestions();
       const q = (query || '').trim();
       if (!q) return;
+
+      // BAGO: laging binubura ang laman ng text box sa bawat successful
+      // na send — dati, naiiwan ang huling pinadalang tanong sa loob ng
+      // input (o kahit anong natira doon mula sa suggestion click),
+      // kaya kailangan pang i-manual clear ito bago makapag-type ulit.
+      // Gumagana ito sa parehong AI Chatbot at Search mode dahil iisang
+      // ask() function ito ang tinatawag ng dalawa.
+      if (input) input.value = '';
+
+      const mode = effectiveAiMode();
+
+      // BAGO: sa Search (kb) mode, isang beses lang dapat magpakita ng
+      // SINGLE na sagot (parang search result) — hindi na ito
+      // idinadagdag sa isang paulit-ulit na "chat thread" ng magkakasunod
+      // na bubble, dahil single-turn lang talaga ang keyword search
+      // (walang follow-up memory/context gaya ng AI Chatbot). Itinatago
+      // rin ang mga shortcut/Common Questions habang may ipinapakitang
+      // resulta, may "Bumalik sa mga karaniwang tanong" na link.
+      if (mode !== 'ai') {
+        clearImage();
+        setKbShortcutsVisible(false);
+        renderAnswer(q, resultBox, { showBackLink: true });
+        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
 
       const thread = ensureThread(resultBox);
       const userBubble = appendUserBubble(thread, q);
@@ -1306,17 +1682,20 @@
         }
       }
       chatHistory.push({ role: 'user', text: q });
+      saveChatHistory();
 
-      const mode = effectiveAiMode();
-      let handled = false;
-      if (mode === 'ai') {
-        handled = await askAIAssistantChat(q, thread);
-      } else {
-        clearImage();
-      }
+      const handled = await (async () => {
+        setSendButtonLoading(true);
+        try {
+          return await askAIAssistantChat(q, thread);
+        } finally {
+          setSendButtonLoading(false);
+        }
+      })();
       if (!handled) {
-        appendKbAnswerBubble(q, thread, mode === 'ai');
+        appendKbAnswerBubble(q, thread, true);
       }
+      saveChatHistory();
 
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       thread.scrollTop = thread.scrollHeight;
@@ -1327,7 +1706,18 @@
     renderAiModeToggle: renderAiModeToggle,
     search: search,
     suggest: suggest,
-    onInput: function (value) { renderSuggestions(value); },
+    onInput: function (value) {
+      renderSuggestions(value);
+      // BAGO: sa Search (kb) mode, kapag na-clear/binura ang laman ng
+      // search box (bagong paghahanap), ibalik ang mga shortcut/Common
+      // Questions at alisin ang natitirang sagot — hindi na kailangang
+      // manual na i-click pa ang "Bumalik" na link sa ganitong sitwasyon.
+      if (effectiveAiMode() !== 'ai' && !(value || '').trim()) {
+        const resultBox = document.getElementById('faq-ai-result');
+        if (resultBox) resultBox.innerHTML = '';
+        setKbShortcutsVisible(true);
+      }
+    },
     onKeyDown: function (event) {
       if (event.key === 'ArrowDown') { event.preventDefault(); moveSuggestion(1); return; }
       if (event.key === 'ArrowUp') { event.preventDefault(); moveSuggestion(-1); return; }

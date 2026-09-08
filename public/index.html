@@ -2649,14 +2649,35 @@
                         <button type="button" class="faq-toolbar-btn" onclick="OmniFAQ.newConversation()">
                             <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
                         </button>
-                    </div>
-
-                    <div id="faq-classic-subheader">
-                        <p class="faq-intro-text">Choose a question below, or search above, to learn how to use OmniPOS.</p>
-                        <div id="ai-assistant-subscription-status" class="rr-status-box" style="display:none; max-width:800px; margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);"></div>
+                        <!-- BAGO: inilipat dito mula sa dating #faq-classic-subheader
+                             (na tinanggal na) — compact na "Expires on: <date>" na label
+                             na lang, sunod sa refresh/"New conversation" button, at
+                             AI Chatbot (fullchat) mode LANG ito ipinapakita (see
+                             style.css: #view-faq:not(.faq-fullchat-mode)
+                             #ai-assistant-subscription-status). Hindi na LNG ito
+                             ipinapakita sa Search (kb) mode. -->
+                        <div id="ai-assistant-subscription-status" class="faq-subscription-compact" style="display:none;"></div>
                     </div>
 
                     <div class="faq-ai-box" id="faq-ai-box">
+                        <!-- BAGO: inilipat dito mula sa labas ng box ang dating
+                             "#faq-classic-list" (pinangalanang muli bilang
+                             "#faq-kb-shortcuts") — layunin nitong maging parang
+                             laman ng isang chat box pa rin ang mga karaniwang
+                             tanong/shortcut sa Search mode (hindi AI Chatbot),
+                             sa halip na hiwalay na section sa ibaba ng buong
+                             pahina. Ipinapakita ito bilang default kapag walang
+                             aktibong resulta, at itinatago habang may
+                             ipinapakitang sagot — see faq-engine.js:
+                             setKbShortcutsVisible(). Palaging nakatago ito sa
+                             AI Chatbot mode (see style.css
+                             #view-faq.faq-fullchat-mode #faq-kb-shortcuts). -->
+                        <div id="faq-kb-shortcuts">
+                            <h3 id="faq-common-heading" style="margin-top:4px;">Common Questions</h3>
+                            <div id="faq-list-toolbar" class="faq-list-toolbar"></div>
+                            <div class="faq-container" id="faq-common-list"></div>
+                        </div>
+
                         <div id="faq-ai-result" class="faq-ai-result-box"></div>
 
                         <div class="faq-composer-dock" id="faq-composer-dock">
@@ -2691,12 +2712,6 @@
                                 </a>
                             </div>
                         </div>
-                    </div>
-
-                    <div id="faq-classic-list">
-                        <h3 id="faq-common-heading" style="max-width:800px; margin-top:28px;">Common Questions</h3>
-                        <div id="faq-list-toolbar" class="faq-list-toolbar" style="max-width:800px;"></div>
-                        <div class="faq-container" id="faq-common-list" style="max-width: 800px;"></div>
                     </div>
 
                     <div id="faq-ticket-modal-backdrop" class="faq-ticket-modal-backdrop" style="display:none;">

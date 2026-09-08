@@ -1422,10 +1422,43 @@ async function updateModuleSubscriptionBadges() {
             renderModuleSubscriptionBadge(multiBranchBox, 'Multi-Branch Dashboard', data.subscriptions.multi_branch);
         }
         if (aiAssistantUnlocked && aiAssistantBox) {
-            renderModuleSubscriptionBadge(aiAssistantBox, 'OmniPOS AI Assistant', data.subscriptions.ai_assistant);
+            // BAGO: dating ginagamit dito ang parehong
+            // renderModuleSubscriptionBadge() (buong "OmniPOS AI
+            // Assistant: Active (Monthly) — renews/expires on ..." na
+            // text) tulad ng RBAC/Multi-Branch. Ngayon, compact na
+            // "Expires on: <date>" na lang ito (hiniling ng user) —
+            // hiwalay na function para hindi maapektuhan ang
+            // RBAC/Multi-Branch na parehong function pa rin ang gamit
+            // (renderModuleSubscriptionBadge, di ginalaw). Ang box na
+            // ito ay AI Chatbot mode lang ipinapakita sa FAQ page —
+            // see style.css #ai-assistant-subscription-status /
+            // .faq-subscription-compact.
+            renderAiAssistantCompactExpiry(aiAssistantBox, data.subscriptions.ai_assistant);
         }
     } catch (err) {
     }
+}
+function renderAiAssistantCompactExpiry(box, sub) {
+    if (!sub || !sub.active) {
+        box.style.display = 'none';
+        return;
+    }
+    if (typeof sub.expiresAt !== 'number') {
+        box.style.display = 'none';
+        return;
+    }
+    const daysLeft = Math.ceil((sub.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+    const expiryDate = new Date(sub.expiresAt).toLocaleDateString();
+    let text;
+    if (daysLeft <= 0) {
+        text = `<span style="color:#dc2626;font-weight:700;">Expired (${expiryDate})</span>`;
+    } else if (daysLeft <= 7) {
+        text = `<span style="color:#dc2626;font-weight:700;">Expires in ${daysLeft}d (${expiryDate})</span>`;
+    } else {
+        text = `Expires on: ${expiryDate}`;
+    }
+    box.style.display = 'inline-flex';
+    box.innerHTML = text;
 }
 function renderModuleSubscriptionBadge(box, displayName, sub) {
     if (!sub || !sub.active) {

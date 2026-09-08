@@ -5046,9 +5046,14 @@ app.get('/api/module-subscriptions/status', (req, res) => {
 // client (faq-engine.js, gamit ang existing keyword search() nito)
 // bilang "context" kasabay ng tanong. Ang server dito ay basta
 // nagre-relay lang ng kahilingan patungo sa isang AI provider (default:
-// Cloudflare Workers AI, gamit ang parehong Cloudflare account na
-// ginagamit para sa domain — tingnan ang .env: CF_ACCOUNT_ID /
-// CF_AI_API_TOKEN / CF_AI_MODEL) at ibinabalik ang sagot.
+// Cloudflare Workers AI) at ibinabalik ang sagot.
+//
+// BAGO: ang mismong Cloudflare credentials (CF_ACCOUNT_ID /
+// CF_AI_API_TOKEN / CF_AI_MODEL) ay HINDI na dito (.env ng client) —
+// nasa RELAY/.env na lang sila (server ng developer). Ang function sa
+// itaas na `callCloudflareWorkersAI` ay tumatawag na lang sa RELAY
+// (/relay/ai-assistant/complete) sa halip na diretso sa Cloudflare —
+// tingnan ang callRelayAiAssistant() sa itaas.
 //
 // Bakit hindi na-duplicate/parse-ulit dito ang FAQ knowledge base mula
 // sa mga .js file sa public/: iisang pinagmumulan lang (single source
@@ -5057,7 +5062,13 @@ app.get('/api/module-subscriptions/status', (req, res) => {
 // ng existing na faq-engine.js sa browser (search()), at dito lang sa
 // backend ginagawa ang "generation" step (pagtawag sa AI model).
 function isAiAssistantConfigured() {
-    return !!(process.env.CF_ACCOUNT_ID && process.env.CF_AI_API_TOKEN);
+    // Hindi na natin ma-check dito nang diretso (walang access) kung
+    // naka-configure ba talaga ang CF_ACCOUNT_ID/CF_AI_API_TOKEN sa
+    // RELAY — ang matatanong lang natin dito kung SET UP na ang
+    // connection papunta sa relay mismo (RELAY_API_KEY). Kung tama ito
+    // pero hindi pa naka-configure sa RELAY side, malinaw namang lalabas
+    // ang 503 na sagot ng RELAY (see /api/ai-assistant/ask sa ibaba).
+    return !!RELAY_API_KEY;
 }
 function buildAiAssistantSystemPrompt(lang) {
     const isTagalog = lang === 'tl';
@@ -5072,40 +5083,52 @@ function buildAiAssistantSystemPrompt(lang) {
         'Never reveal API keys, tokens, passwords, source code, or internal server details. Never claim to be able to take actions (like editing data) yourself — you can only explain/guide.'
     ].join(' ');
 }
-async function callCloudflareWorkersAI(messages) {
-    const accountId = process.env.CF_ACCOUNT_ID;
-    const apiToken = process.env.CF_AI_API_TOKEN;
-    const model = process.env.CF_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    try {
-        const cfRes = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ model, messages, max_tokens: 650, temperature: 0.3 }),
-            signal: controller.signal
-        });
-        const raw = await cfRes.text();
-        let data;
-        try { data = JSON.parse(raw); } catch (e) { data = null; }
-        if (!cfRes.ok || !data) {
-            const errMsg = (data && data.errors && data.errors[0] && data.errors[0].message) || `Cloudflare AI request failed (HTTP ${cfRes.status}).`;
-            return { success: false, message: errMsg };
-        }
-        const answer = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-        if (!answer || !answer.trim()) {
-            return { success: false, message: 'Empty response from AI provider.' };
-        }
-        return { success: true, answer: answer.trim() };
-    } catch (err) {
-        return { success: false, message: err.name === 'AbortError' ? 'AI request timed out.' : (err.message || 'AI request failed.') };
-    } finally {
-        clearTimeout(timeout);
+// BAGO: dating direktang tumatawag ito sa Cloudflare Workers AI gamit ang
+// CF_ACCOUNT_ID/CF_AI_API_TOKEN na naka-embed sa .env ng client mismo
+// (naka-encrypt man sa loob ng omnipos-client.zip, kasama pa rin doon ang
+// decryption key nito — kaya madaling ma-access ng end customer ang
+// mismong Cloudflare token ng developer). Ngayon, ang parehong
+// credentials ay nasa RELAY/.env na lang (server ng developer), at
+// tumatawag na lang ang OMNIPOS client dito sa isang proxy endpoint
+// (/relay/ai-assistant/complete) gamit ang parehong
+// RELAY_URL/RELAY_API_KEY na ginagamit na rin ng ibang relay features —
+// hindi na kailangan (o puwedeng) makita ng kliyente ang mismong token.
+async function callRelayAiAssistant(messages, vision) {
+    if (!RELAY_API_KEY) {
+        return { success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
     }
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ messages, vision: !!vision, installationId })
+        }, vision ? 32000 : 22000);
+        const data = await relayRes.json().catch(() => null);
+        if (!relayRes.ok || !data) {
+            return { success: false, message: (data && data.message) || `AI relay request failed (HTTP ${relayRes.status}).` };
+        }
+        if (!data.success) {
+            return { success: false, message: data.message || 'AI relay request failed.' };
+        }
+        if (!data.answer || !data.answer.trim()) {
+            return { success: false, message: `Empty response from ${vision ? 'vision ' : ''}AI provider.` };
+        }
+        return { success: true, answer: data.answer.trim() };
+    } catch (err) {
+        if (err && err.code === 'NO_INTERNET') {
+            return { success: false, message: 'Walang internet connection na na-detect sa device na ito — kailangan ito ng AI Assistant.' };
+        }
+        return {
+            success: false,
+            message: err.name === 'AbortError'
+                ? (vision ? 'AI image analysis timed out.' : 'AI request timed out.')
+                : (err.message || (vision ? 'AI image analysis failed.' : 'AI request failed.'))
+        };
+    }
+}
+async function callCloudflareWorkersAI(messages) {
+    return callRelayAiAssistant(messages, false);
 }
 app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) => {
     res.json({ success: true, configured: isAiAssistantConfigured(), visionConfigured: isAiAssistantVisionConfigured() });
@@ -5179,65 +5202,80 @@ function logAiAssistantInteraction(entry) {
 }
 // Safe, read-only "action assistant": maps a few common topics to an
 // existing in-app view. The AI never receives permission to call this
-// itself — the server does simple keyword matching over the question +
-// the FAQ context titles, and only ever returns a *view name* the
-// client already knows how to switchView() to. No data is changed.
+// itself — the server does keyword matching over the question + the
+// FAQ context titles, and only ever returns a *view name* the client
+// already knows how to switchView() to. No data is changed.
+//
+// BUGFIX: dati, ang matching ay simpleng `.includes()` (substring) sa
+// buong "question + answerText" — kaya (a) maling nakaka-match ang mga
+// generic/maiksing keyword tulad ng 'log' o 'user' kahit bahagi lang
+// sila ng ibang salita (hal. "log" sa loob ng "catalog"/"login"), at
+// (b) kahit incidental lang na pagbanggit ng isang salita kahit saan sa
+// MAHABANG sagot ng AI (na madalas tumatalakay ng maraming related na
+// paksa) ay sapat na para magmungkahi ng button — kaya lumalabas ang
+// mga suggestion button na malayo sa aktwal na tanong/topic (hal.
+// "Open System Logs" kahit hindi naman talaga tungkol dito ang tanong).
+// Ngayon: (1) word-boundary matching sa halip na basta substring, (2)
+// mas malaki ang bigat/weight ng match kapag nasa TANONG mismo ng user
+// (malinaw na senyales ng intensyon) kumpara sa match na nasa loob lang
+// ng sagot (mahina/incidental na senyales), at (3) may minimum na
+// threshold bago isama sa suggestions — kaya't hindi na sapat ang isa
+// lang incidental na banggit sa sagot para lumabas ang isang button.
 const AI_ASSISTANT_VIEW_SUGGESTIONS = [
-    { keywords: ['void', 'refund', 'cancel transaction'], view: 'transactions', label: 'Open Transactions' },
-    { keywords: ['inventory', 'stock', 'product', 'reorder'], view: 'products', label: 'Open Products' },
-    { keywords: ['shift', 'z-reading', 'zreading', 'cash count'], view: 'shiftreport', label: 'Open Shift Report' },
-    { keywords: ['user', 'cashier', 'employee', 'account', 'role', 'permission'], view: 'users', label: 'Open Users' },
-    { keywords: ['customer', 'loyalty', 'points'], view: 'customers', label: 'Open Customers' },
-    { keywords: ['debt', 'utang'], view: 'debts', label: 'Open Debts' },
-    { keywords: ['report', 'sales report'], view: 'reports', label: 'Open Reports' },
-    { keywords: ['log', 'audit', 'history'], view: 'logs', label: 'Open System Logs' },
-    { keywords: ['barcode'], view: 'barcode', label: 'Open Barcode Tools' }
+    { keywords: ['void', 'refund', 'cancel(l)?ed? transaction', 'kanselahin ang transaksyon'], view: 'transactions', label: 'Open Transactions' },
+    { keywords: ['inventory', 'stocks?', 'products?', 'reorder', 'purchase orders?', 'imbentaryo', 'produkto'], view: 'products', label: 'Open Products' },
+    { keywords: ['shifts?', 'z-readings?', 'zreadings?', 'cash count', 'kaban'], view: 'shiftreport', label: 'Open Shift Report' },
+    { keywords: ['cashiers?', 'employees?', 'user accounts?', 'roles?', 'permissions?', 'empleyado', 'pahintulot'], view: 'users', label: 'Open Users' },
+    { keywords: ['customers?', 'loyalty', 'points?', 'kustomer'], view: 'customers', label: 'Open Customers' },
+    { keywords: ['debts?', 'debtors?', 'utang', 'c-credit'], view: 'debts', label: 'Open Debtors' },
+    { keywords: ['sales? reports?', 'benta.{0,3}report', 'ulat ng benta'], view: 'reports', label: 'Open Reports' },
+    { keywords: ['(user|system|activity) logs?', 'audit trail', 'login history', 'aksyon ng user'], view: 'logs', label: 'Open User Logs' },
+    { keywords: ['barcodes?'], view: 'barcode', label: 'Open Barcode Tools' }
 ];
+// Kailangang tumama sa TANONG mismo (hindi lang sa sagot) para maisama
+// sa suggestions — kaya hindi na sapat ang isang incidental na banggit
+// sa mahabang sagot ng AI para magmungkahi ng maling/di-related button.
+const SUGGESTED_ACTION_QUESTION_WEIGHT = 3;
+const SUGGESTED_ACTION_ANSWER_WEIGHT = 1;
+const SUGGESTED_ACTION_MIN_SCORE = 3;
+const SUGGESTED_ACTION_MAX_RESULTS = 2;
+// NOTE: ang mga keyword sa itaas ay maliliit na regex fragment na
+// (optional plurals gamit ang "s?", ilang alternation gamit ang "(a|b)")
+// — sadyang HINDI ito literal string na kailangang i-escape; direkta
+// itong binabalot sa \b...\b word-boundary sa ibaba.
 function computeSuggestedActions(question, answerText) {
-    const haystack = `${question} ${answerText}`.toLowerCase();
-    const matches = [];
+    const q = String(question || '').toLowerCase();
+    const a = String(answerText || '').toLowerCase();
+    const scored = [];
     for (const entry of AI_ASSISTANT_VIEW_SUGGESTIONS) {
-        if (entry.keywords.some((kw) => haystack.includes(kw))) {
-            matches.push({ view: entry.view, label: entry.label });
-            if (matches.length >= 2) break;
+        let score = 0;
+        for (const kw of entry.keywords) {
+            // Word-boundary phrase match (hindi basta substring) para
+            // hindi mali ang pagkakatugma sa hindi kaugnay na salita
+            // (hal. "log" ay hindi na matu-tugma sa loob ng "catalog"
+            // o "login").
+            let re;
+            try {
+                re = new RegExp(`\\b${kw}\\b`, 'i');
+            } catch (e) {
+                continue; // malformed pattern — huwag isali sa scoring
+            }
+            if (re.test(q)) score += SUGGESTED_ACTION_QUESTION_WEIGHT;
+            else if (re.test(a)) score += SUGGESTED_ACTION_ANSWER_WEIGHT;
         }
+        if (score > 0) scored.push({ view: entry.view, label: entry.label, score });
     }
-    return matches;
+    scored.sort((x, y) => y.score - x.score);
+    return scored
+        .filter((s) => s.score >= SUGGESTED_ACTION_MIN_SCORE)
+        .slice(0, SUGGESTED_ACTION_MAX_RESULTS)
+        .map(({ view, label }) => ({ view, label }));
 }
 function isAiAssistantVisionConfigured() {
     return isAiAssistantConfigured();
 }
 async function callCloudflareWorkersVisionAI(messages) {
-    const accountId = process.env.CF_ACCOUNT_ID;
-    const apiToken = process.env.CF_AI_API_TOKEN;
-    const model = process.env.CF_AI_VISION_MODEL || '@cf/meta/llama-3.2-11b-vision-instruct';
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    try {
-        const cfRes = await fetch(url, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model, messages, max_tokens: 650, temperature: 0.3 }),
-            signal: controller.signal
-        });
-        const raw = await cfRes.text();
-        let data;
-        try { data = JSON.parse(raw); } catch (e) { data = null; }
-        if (!cfRes.ok || !data) {
-            const errMsg = (data && data.errors && data.errors[0] && data.errors[0].message) || `Cloudflare Vision AI request failed (HTTP ${cfRes.status}).`;
-            return { success: false, message: errMsg };
-        }
-        const answer = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-        if (!answer || !answer.trim()) {
-            return { success: false, message: 'Empty response from vision AI provider.' };
-        }
-        return { success: true, answer: answer.trim() };
-    } catch (err) {
-        return { success: false, message: err.name === 'AbortError' ? 'AI image analysis timed out.' : (err.message || 'AI image analysis failed.') };
-    } finally {
-        clearTimeout(timeout);
-    }
+    return callRelayAiAssistant(messages, true);
 }
 function buildDiagnosticSystemMessage(diagnostics, clientErrors) {
     const parts = [];
@@ -5267,7 +5305,7 @@ app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), (req, res) =>
 });
 app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa AI Assistant. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
-        return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang AI Assistant sa server na ito (kailangan ng CF_ACCOUNT_ID at CF_AI_API_TOKEN sa .env). Kontakin ang developer/admin.' });
+        return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang AI Assistant sa server na ito (kailangan ng RELAY_API_KEY sa .env, at CF_ACCOUNT_ID/CF_AI_API_TOKEN sa RELAY/.env ng developer). Kontakin ang developer/admin.' });
     }
     const question = typeof req.body?.question === 'string' ? req.body.question.trim().slice(0, 800) : '';
     const lang = req.body?.lang === 'tl' ? 'tl' : 'en';

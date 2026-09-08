@@ -426,7 +426,7 @@ window.OMNIPOS_FAQ_KB_EN = [
 },
 {
   id: 'customers-debtors',
-  category: 'Customers',
+  category: 'Debtors',
   question: 'What is Debtors and how is it used?',
   keywords: ['debtors', 'utang', 'debtors ledger', 'due date', 'balance owed', 'c-credit', 'credit sale', 'partial payment'],
   answer: `<p><strong>Debtors</strong> is a ledger that tracks customers who have a <strong>balance owed</strong> — including the amount, sale date, and due date. It's part of the <strong>Customer Profiles, Loyalty &amp; Debtors</strong> premium module — unlocked together when that's purchased.</p>
@@ -437,6 +437,104 @@ window.OMNIPOS_FAQ_KB_EN = [
   </ul>
   <p>Each debt record has the debtor's name (required), phone number, note, amount owed, and an optional due date. Its status is <strong>Unpaid</strong>, <strong>Partial</strong> (partially paid), or <strong>Paid</strong> — you can record partial payments until it's fully paid, and this automatically reduces the remaining balance.</p>
   <p>Once a debt is fully paid, the customer automatically earns loyalty points (if Loyalty is enabled). You also can't void a C-Credit transaction if a payment has already been recorded on its linked debt — the debt record needs to be fixed first.</p>`
+},
+{
+  id: 'debtors-open-page',
+  category: 'Debtors',
+  question: 'Where do I find the Debtors page, and who can access it?',
+  keywords: ['where is debtors', 'open debtors', 'debtors menu', 'debtors page', 'debtors tab', 'go to debtors'],
+  answer: `<p>You'll find <strong>Debtors</strong> as its own item in the sidebar menu (with a hand-holding-money icon). It's part of the <strong>Customer Profiles, Loyalty &amp; Debtors</strong> premium module — if it's still locked (shown with a gray lock icon next to the menu), the module needs to be unlocked/purchased first before it can be used.</p>
+  <p>Once unlocked, access still depends on the account's <strong>Roles &amp; Permissions</strong> — the role needs the "customers" permission to open Debtors, so not every cashier/staff account automatically has access unless it's been granted.</p>`
+},
+{
+  id: 'debtors-add-manual',
+  category: 'Debtors',
+  question: 'How do I manually add a new debt record?',
+  keywords: ['add debt', 'add a debt', 'new debt record', 'create debt record', 'manual debt entry', 'add debtor'],
+  answer: `<p>On the Debtors page, click <strong>"Add Debt"</strong>, then fill in the form:</p>
+  <ul>
+    <li><strong>Debtor's Full Name</strong> — required</li>
+    <li><strong>Phone Number</strong> — optional</li>
+    <li><strong>Amount Owed (₱)</strong> — required, must be greater than 0</li>
+    <li><strong>Note</strong> — optional (e.g. reason, when it was borrowed, etc.)</li>
+    <li><strong>Due Date/Time</strong> — optional, when payment is expected</li>
+  </ul>
+  <p>Once saved, the new record starts with a status of <strong>Unpaid</strong> and ₱0 paid so far, and immediately appears at the top of the Debtors list.</p>`
+},
+{
+  id: 'debtors-record-payment',
+  category: 'Debtors',
+  question: 'How do I record a payment on a debt?',
+  keywords: ['record payment', 'pay off debt', 'partial payment debt', 'record a payment', 'pay debtor'],
+  answer: `<p>In the Debtors list, click the <strong>green money icon</strong> (Record a payment) next to the debt you want to pay — this only shows up while the status isn't already <strong>Paid</strong>. Enter the amount paid, then confirm.</p>
+  <ul>
+    <li>The amount paid can't exceed the <strong>remaining balance</strong> — you'll get an error if you enter too much.</li>
+    <li>If it's only a partial payment, the status becomes <strong>Partial</strong>.</li>
+    <li>Once it's fully paid off, the status immediately becomes <strong>Paid</strong>, the paid date is recorded, and the customer automatically earns <strong>loyalty points</strong> if the Loyalty module is enabled.</li>
+  </ul>
+  <p>Every payment recorded is added to the debt's <strong>Payment Breakdown/History</strong> (date, amount, and who recorded it) — visible from the "View" button on each debt.</p>`
+},
+{
+  id: 'debtors-edit-delete',
+  category: 'Debtors',
+  question: 'How do I edit or delete a debt record?',
+  keywords: ['edit debt', 'delete debt', 'remove debt record', 'update debtor name', 'delete debtor'],
+  answer: `<p><strong>To edit:</strong> click the pencil/edit icon next to the debt record — you can change the name, phone number, amount, note, and due date. If you change the amount to something equal to or less than what's already been paid, the status (Unpaid/Partial/Paid) automatically recalculates.</p>
+  <p><strong>To delete:</strong> click the trash/delete icon — there's a confirmation step first since <strong>this can't be undone</strong> once deleted.</p>`
+},
+{
+  id: 'debtors-status-duedate',
+  category: 'Debtors',
+  question: 'What do Unpaid/Partial/Paid mean, and how do I search or filter Debtors?',
+  keywords: ['unpaid partial paid', 'debt status', 'overdue', 'due date countdown', 'search debtor', 'filter debtors'],
+  answer: `<p>Every debt record has one of three statuses:</p>
+  <ul>
+    <li><strong>Unpaid</strong> — nothing has been paid yet</li>
+    <li><strong>Partial</strong> — partially paid, with a remaining balance</li>
+    <li><strong>Paid</strong> — fully paid off</li>
+  </ul>
+  <p>If a debt has a due date, you'll see a <strong>live countdown</strong> (e.g. "3d 2h remaining" or "Overdue by 5h 10m" once past the due date) that automatically refreshes every 30 seconds while the Debtors page is open.</p>
+  <p>Above the list, there's a <strong>search box</strong> (searches by name or phone number) and a <strong>status filter</strong> (All, Unpaid, Partial, Paid, and Overdue — the "Overdue" filter shows anything not yet Paid that's already past its due date).</p>`
+},
+{
+  id: 'debtors-ccredit-checkout',
+  category: 'Debtors',
+  question: 'How does C-Credit work as a payment method at the POS Terminal?',
+  keywords: ['c-credit', 'credit sale checkout', 'pay on credit at pos', 'how to c-credit', 'sale on credit'],
+  answer: `<p>At POS Terminal checkout, <strong>C-Credit</strong> is a payment method option — it isn't actual cash received right away; instead it automatically creates a new <strong>Debtors</strong> record for that sale.</p>
+  <ul>
+    <li>The <strong>Debtor's Full Name</strong> must be entered before the sale can be processed — it's required for a C-Credit sale.</li>
+    <li>The new debt record automatically captures the sale amount, the items purchased, and the linked Transaction ID.</li>
+    <li>Two different debt records can't be linked to the same Transaction ID — this can only happen once per transaction.</li>
+  </ul>
+  <p>The new record shows up on the Debtors page right after checkout, and from there it can be treated just like any manually-added debt (recording payments, editing, etc.).</p>`
+},
+{
+  id: 'debtors-void-restriction',
+  category: 'Debtors',
+  question: "Why can't I void a C-Credit transaction?",
+  keywords: ['why cant void', 'void c-credit', 'cannot void', 'void restriction debt', 'error voiding debt'],
+  verdict: 'depende',
+  answer: `<p>If a transaction was paid using <strong>C-Credit</strong> and a <strong>payment</strong> (partial or full) has already been recorded against its linked debt, it can no longer be voided directly — you'll get a warning message stating how much has been paid and which debt record it's linked to.</p>
+  <p>You'll need to fix the <strong>debt record</strong> on the Debtors page first (e.g. adjusting the recorded payments via edit, or checking with the admin) before the original transaction can be voided — this is meant to prevent mismatches between sales records and the debt that's already been logged.</p>`
+},
+{
+  id: 'debtors-receipt-share',
+  category: 'Debtors',
+  question: 'How do I print, email, or share a receipt for a debt?',
+  keywords: ['print debt receipt', 'email debt receipt', 'e-receipt debtor', 'download debt receipt', 'share debt receipt'],
+  answer: `<p>Open the <strong>"View"</strong> button on a debt record to see its full details, where there are two options at the bottom:</p>
+  <ul>
+    <li><strong>Print Receipt</strong> — prints a receipt directly (including the debt details, payment history, and items purchased).</li>
+    <li><strong>E-Receipt</strong> — opens a preview that can be:
+      <ul>
+        <li><strong>emailed</strong> directly to an email address (requires an active internet connection),</li>
+        <li><strong>downloaded</strong> as an image, or</li>
+        <li><strong>shared</strong> using the device's built-in share menu.</li>
+      </ul>
+    </li>
+  </ul>
+  <p>The E-Receipt automatically follows the device's current light/dark theme when previewed, and it's downloaded/shared as an image with whichever colors are showing at that moment.</p>`
 },
 
 {
