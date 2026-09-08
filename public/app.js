@@ -1455,7 +1455,7 @@ function renderAiAssistantCompactExpiry(box, sub) {
     } else if (daysLeft <= 7) {
         text = `<span style="color:#dc2626;font-weight:700;">Expires in ${daysLeft}d (${expiryDate})</span>`;
     } else {
-        text = `Expires on: ${expiryDate}`;
+        text = `Expires: ${expiryDate}`;
     }
     box.style.display = 'inline-flex';
     box.innerHTML = text;

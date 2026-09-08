@@ -1414,9 +1414,9 @@
     if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; return; }
     const s = STRINGS();
     box.innerHTML = `
-      <button type="button" class="faq-quick-action-chip" data-quick="diagnostics"><i class="fa-solid fa-stethoscope"></i> ${escapeHtml(s.quickDiagnostics)}</button>
-      <button type="button" class="faq-quick-action-chip" data-quick="explain-error"><i class="fa-solid fa-bug"></i> ${escapeHtml(s.quickExplainError)}</button>
-      <button type="button" class="faq-quick-action-chip" data-quick="ticket"><i class="fa-solid fa-life-ring"></i> ${escapeHtml(s.quickTicket)}</button>`;
+      <button type="button" class="faq-quick-action-chip" data-quick="diagnostics" title="${escapeHtml(s.quickDiagnostics)}" aria-label="${escapeHtml(s.quickDiagnostics)}"><i class="fa-solid fa-stethoscope"></i></button>
+      <button type="button" class="faq-quick-action-chip" data-quick="explain-error" title="${escapeHtml(s.quickExplainError)}" aria-label="${escapeHtml(s.quickExplainError)}"><i class="fa-solid fa-bug"></i></button>
+      <button type="button" class="faq-quick-action-chip" data-quick="ticket" title="${escapeHtml(s.quickTicket)}" aria-label="${escapeHtml(s.quickTicket)}"><i class="fa-solid fa-life-ring"></i></button>`;
     box.querySelectorAll('[data-quick]').forEach(btn => {
       btn.addEventListener('click', () => {
         const kind = btn.dataset.quick;

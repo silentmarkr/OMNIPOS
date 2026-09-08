@@ -361,6 +361,30 @@ function mirrorBackupToDownloads() {
 // bawat device/server ng client.
 const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
+// BUG FIX: dating ginagamit ng AI Assistant database snapshot (see
+// getAiKnowledgeSnapshot() sa ibaba) ang PAREHONG
+// REDACTED_FIELDS_BY_MODULE/stripRedactedFields na para sa cloud
+// backup — pero magkaiba ang pangangailangan ng dalawa: kailangan ng
+// buong fidelity (kasama ang webauthnCredentials/webauthnUserHandle)
+// ng cloud backup para hindi mawala ang fingerprint/biometric login
+// setup pagkatapos mag-restore, samantalang ang AI snapshot ay hindi
+// dapat maglaman ng ANUMANG authentication material — kahit hindi ito
+// literal na "password" — dahil ipinapadala ito papunta sa isang
+// third-party AI provider (Cloudflare Workers AI). Kaya hiwalay na
+// listahan ito, dagdag lang sa REDACTED_FIELDS_BY_MODULE sa itaas, at
+// GINAGAMIT LANG sa AI snapshot path — hindi nito naaapektuhan ang
+// cloud backup.
+const AI_SNAPSHOT_EXTRA_REDACTED_FIELDS_BY_MODULE = { users: ['webauthnCredentials', 'webauthnUserHandle'] };
+function stripFieldsForAiSnapshot(moduleName, data) {
+    const extraFields = AI_SNAPSHOT_EXTRA_REDACTED_FIELDS_BY_MODULE[moduleName];
+    if (!extraFields || !Array.isArray(data)) return data;
+    return data.map((record) => {
+        if (!record || typeof record !== 'object') return record;
+        const clone = { ...record };
+        extraFields.forEach((field) => { delete clone[field]; });
+        return clone;
+    });
+}
 
 function getAllModuleNames() {
     const blobModules = db.prepare('SELECT DISTINCT module FROM store').all().map((r) => r.module);
@@ -459,6 +483,7 @@ function getAiKnowledgeSnapshot(scope) {
 
     for (const moduleName of allowedModules) {
         let data = stripRedactedFields(moduleName, readData(moduleName, []));
+        data = stripFieldsForAiSnapshot(moduleName, data);
         if (Array.isArray(data)) {
             totalRecords += data.length;
             if (data.length > AI_ASSISTANT_MAX_RECORDS_PER_MODULE) {
