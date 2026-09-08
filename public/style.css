@@ -11289,3 +11289,17 @@ body.dark-mode .ct-package-breakdown {
   }
 }
 
+
+
+/* AI CHAT DESKTOP: restore compact original top controls layout */
+@media (min-width: 769px) {
+  #faq-ai-mode-toggle,
+  .faq-ai-mode-toggle,
+  .faq-mode-toggle {
+    display: flex !important;
+    grid-template-columns: none !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+}

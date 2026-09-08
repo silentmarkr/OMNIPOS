@@ -213,6 +213,71 @@ function writeData(moduleName, data) {
     }
 }
 
+/**
+ * Execute a group of module writes inside one real SQLite transaction.
+ * This is used by multi-module financial operations (VOID/REFUND/stock-return)
+ * so either every module is committed or SQLite rolls the entire operation back.
+ *
+ * IMPORTANT: this function intentionally bypasses writeData() because some
+ * modules use row_store, whose normal writer opens its own transaction.
+ */
+function writeDataDirectInTransaction(moduleName, data, now) {
+    if (ROW_NORMALIZED_MODULES.has(moduleName)) {
+        const list = Array.isArray(data) ? data : [];
+        const existingIds = new Set(rowSelectIdsStmt.all(moduleName).map((r) => r.record_id));
+        const incomingIds = new Set();
+        const baseSeq = (rowMaxSeqStmt.get(moduleName) || { maxSeq: 0 }).maxSeq;
+
+        list.forEach((item, index) => {
+            const recordId = item && item.id != null
+                ? String(item.id)
+                : `__noid_${Date.now()}_${index}`;
+            incomingIds.add(recordId);
+            const candidateSeq = baseSeq + (list.length - index);
+            rowUpsertStmt.run(moduleName, recordId, candidateSeq, JSON.stringify(item), now);
+        });
+
+        for (const oldId of existingIds) {
+            if (!incomingIds.has(oldId)) rowDeleteStmt.run(moduleName, oldId);
+        }
+        return JSON.stringify(list);
+    }
+
+    const json = JSON.stringify(data);
+    upsertStmt.run(moduleName, json, now);
+    return json;
+}
+
+/**
+ * Atomically replace multiple logical data modules in the same SQLite
+ * transaction. The callback receives a small transaction writer so callers
+ * can prepare all new module states first and then commit them together.
+ */
+function runDatabaseTransaction(changes) {
+    const list = Array.isArray(changes) ? changes.filter(c => c && c.module) : [];
+    if (!list.length) return true;
+
+    const now = new Date().toISOString();
+    const cacheUpdates = new Map();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        for (const change of list) {
+            const json = writeDataDirectInTransaction(change.module, change.data, now);
+            cacheUpdates.set(change.module, json);
+        }
+        db.exec('COMMIT');
+        for (const [moduleName, json] of cacheUpdates.entries()) {
+            if (!ROW_NORMALIZED_MODULES.has(moduleName)) blobStringCache.set(moduleName, json);
+        }
+        return true;
+    } catch (error) {
+        try { db.exec('ROLLBACK'); } catch (rollbackError) {
+            console.error('[DB-TRANSACTION] SQLite rollback failed:', rollbackError);
+        }
+        throw error;
+    }
+}
+
 function vacuumDatabase() {
     try {
         db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
@@ -521,7 +586,7 @@ function getAiKnowledgeSnapshot(scope, focusModules) {
     };
 }
 
-module.exports = { db, readData, writeData, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
+module.exports = { db, readData, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

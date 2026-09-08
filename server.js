@@ -25,7 +25,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { readData, writeData, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
+const { readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
 const webauthn = require('./webauthn');
 try {
     require('./env-loader')();
@@ -391,6 +391,7 @@ const FILE_SHIFTS ='shifts';
 const FILE_SHIFT_META ='shiftMeta';
 const FILE_PURCHASE_ORDERS ='purchaseOrders';
 const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
+const FILE_STOCK_RETURNS ='stockReturns';
 const MENU_REGISTRY = [
     { key:'overview',     label:'Overview / Home Dashboard (Landing Page After Login)', group:'Core' },
     { key:'terminal',     label:'POS Terminal', group:'Core' },
@@ -415,6 +416,7 @@ const MENU_REGISTRY = [
     { key:'shift_close_own_password', label:'Shift / Z-Reading — Pwedeng Mag-authorize ng Close gamit ang Sariling Password (Hindi na kailangan ng Admin Password)', group:'Shift / Z-Reading' },
     { key:'reorder', label:'Reorder Alerts / Purchase Orders', group:'Reorder / Purchase Orders' },
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)', group:'Reorder / Purchase Orders' },
+    { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
     { key:'branches_view', label:'Overview — "All Branches" Widget (View Combined Sales ng Ibang Branch, Premium Feature)', group:'Multi-Branch' },
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
@@ -9220,7 +9222,7 @@ function logRefundAction(username, transactionId, refundAmount, itemsLabel, reas
     logs.unshift({
         id: Date.now(),
         username: username,
-        action: `REFUNDED ₱${refundAmount.toFixed(2)} sa Transaction ID: ${transactionId} — Items: ${itemsLabel}. Dahilan: ${reason || '(walang isinulat)'} (${authMethodLabel})`,
+        action: `REFUNDED ₱${refundAmount.toFixed(2)} for Transaction ID: ${transactionId} — Items: ${itemsLabel}. Reason: ${reason || '(no reason provided)'} (${authMethodLabel})`,
         timestamp: new Date().toLocaleString('en-US', { timeZone:'Asia/Manila' }),
         refundedAmount: Math.round((parseFloat(refundAmount) || 0) * 100) / 100,
         refundedTransactionId: transactionId
@@ -9715,6 +9717,118 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
         res.status(500).json({ success: false, message: `An error occurred while writing the extracted data: ${e.message}` });
     }
 });
+
+function createStockReturnRecord({ sourceType, transactionId, requester, items, reason = '' }) {
+    const now = new Date().toISOString();
+    const record = {
+        id: 'SRET-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'),
+        sourceType,
+        transactionId,
+        requester: requester || 'Unknown',
+        reason: String(reason || '').trim(),
+        status: 'pending_inspection',
+        createdAt: now,
+        inspectedAt: null,
+        inspectedBy: null,
+        inspectionReason: '',
+        items: (Array.isArray(items) ? items : []).map((item, index) => ({
+            lineId: String(item.lineId || `${transactionId}:${index}`),
+            code: String(item.code || '').trim(),
+            name: String(item.name || '').trim(),
+            quantity: Math.max(0, parseInt(item.quantity, 10) || 0),
+            restockedQty: 0,
+            damagedQty: 0
+        })).filter(item => item.code && item.quantity > 0)
+    };
+    if (!record.items.length) return null;
+    return record;
+}
+
+// Multi-module VOID/REFUND/stock-return commits use a real SQLite transaction.
+// The database layer guarantees all module writes commit together or all roll back.
+function commitDataModules(changes) {
+    return runDatabaseTransaction(changes);
+}
+
+app.get('/api/stock-returns', requirePermission('stock_return_inspection'), (req, res) => {
+    const status = String(req.query.status || 'pending_inspection').trim().toLowerCase();
+    const returns = readData(FILE_STOCK_RETURNS, []);
+    const filtered = status === 'all' ? returns : returns.filter(r => String(r.status || '').toLowerCase() === status);
+    res.json({ success: true, returns: filtered });
+});
+
+app.post('/api/stock-returns/:id/inspect', requirePermission('stock_return_inspection'), rateLimit('stock-return-inspection', 60, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processStockReturnInspection(req, res));
+});
+
+async function processStockReturnInspection(req, res) {
+    const id = String(req.params.id || '').trim();
+    const submittedItems = Array.isArray(req.body.items) ? req.body.items : [];
+    const inspectionReason = String(req.body.reason || '').trim();
+    if (!id || !submittedItems.length) {
+        return res.status(400).json({ success: false, message: 'An inspection result is required for every returned item.' });
+    }
+    const returns = readData(FILE_STOCK_RETURNS, []);
+    const index = returns.findIndex(r => String(r.id) === id);
+    if (index === -1) return res.status(404).json({ success: false, message: 'Pending stock return not found.' });
+    const record = returns[index];
+    if (record.status !== 'pending_inspection') {
+        return res.status(409).json({ success: false, message: 'This stock return has already been inspected and cannot be processed again.' });
+    }
+    const byLine = new Map(submittedItems.map(item => [String(item.lineId || ''), item]));
+    if (byLine.size !== record.items.length) {
+        return res.status(400).json({ success: false, message: 'Inspection data is incomplete. All returned items must be reviewed.' });
+    }
+    const products = readData(FILE_PRODUCTS, []);
+    const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    const normalized = [];
+    for (const item of record.items) {
+        const submitted = byLine.get(item.lineId);
+        if (!submitted) return res.status(400).json({ success: false, message: `Missing inspection result for ${item.name || item.code}.` });
+        const restockedQty = Math.max(0, parseInt(submitted.restockedQty, 10) || 0);
+        const damagedQty = Math.max(0, parseInt(submitted.damagedQty, 10) || 0);
+        if (restockedQty + damagedQty !== item.quantity) {
+            return res.status(400).json({ success: false, message: `${item.name || item.code}: Restock + Damaged must equal exactly ${item.quantity}.` });
+        }
+        if (restockedQty > 0 && !productByCode.has(String(item.code).toLowerCase())) {
+            return res.status(400).json({ success: false, message: `Product ${item.code} could not be found in inventory. No stock will be added until the product is restored to the catalog.` });
+        }
+        normalized.push({ ...item, restockedQty, damagedQty });
+    }
+    for (const item of normalized) {
+        if (item.restockedQty > 0) {
+            const prod = productByCode.get(String(item.code).toLowerCase());
+            prod.stock = (parseInt(prod.stock) || 0) + item.restockedQty;
+        }
+    }
+    const totalQty = normalized.reduce((sum, i) => sum + i.quantity, 0);
+    const totalRestocked = normalized.reduce((sum, i) => sum + i.restockedQty, 0);
+    const totalDamaged = normalized.reduce((sum, i) => sum + i.damagedQty, 0);
+    record.items = normalized;
+    record.status = totalRestocked === totalQty ? 'restocked' : (totalRestocked === 0 ? 'rejected' : 'partially_restocked');
+    record.inspectedAt = new Date().toISOString();
+    record.inspectedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    record.inspectionReason = inspectionReason;
+    returns[index] = record;
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_STOCK_RETURNS, data: returns }
+        ]);
+    } catch (error) {
+        console.error('Stock return inspection commit failed:', error);
+        return res.status(500).json({ success: false, message: 'The inspection could not be saved completely. No permanent stock-return change should remain; please try again.' });
+    }
+    logAction(record.inspectedBy, `STOCK RETURN INSPECTION ${record.status.toUpperCase()}: ${record.sourceType} ${record.transactionId} — restocked ${totalRestocked}, damaged/not restocked ${totalDamaged}`);
+    res.json({
+        success: true,
+        message: totalDamaged > 0
+            ? `Inspection completed. ${totalRestocked} item(s) returned to sellable stock; ${totalDamaged} item(s) were not restocked.`
+            : `Inspection completed. ${totalRestocked} item(s) returned to sellable stock.`,
+        returnRecord: record
+    });
+}
+
 app.post('/api/transactions/:transactionId/void', rateLimit('void-transaction', 8, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processVoidTransaction(req, res));
 });
@@ -9722,7 +9836,7 @@ async function processVoidTransaction(req, res) {
     const { transactionId } = req.params;
     const { requester, adminPassword } = req.body;
     if (!adminPassword) {
-        return res.status(400).json({ success: false, message:'Kailangan ng password para mag-void.' });
+        return res.status(400).json({ success: false, message:'A password is required to void this transaction.' });
     }
     const users = readData(FILE_USERS);
     const authResult = await findVoidAuthorizer(users, adminPassword);
@@ -9730,14 +9844,13 @@ async function processVoidTransaction(req, res) {
         return res.status(403).json({
             success: false,
             code:'WRONG_ADMIN_PASSWORD',
-            message:'Maling password. Hindi pinahintulutan ang void.'
+            message:'Incorrect password. The void was not authorized.'
         });
     }
     let transactions = readData(FILE_TRANSACTIONS);
-    let products = readData(FILE_PRODUCTS);
     const txIndex = transactions.findIndex(t => t.id === transactionId);
     if (txIndex === -1) {
-        return res.status(404).json({ success: false, message:'Hindi nahanap ang Transaksyon ID.' });
+        return res.status(404).json({ success: false, message:'Transaction ID not found.' });
     }
     const targetTx = transactions[txIndex];
     const voidedAmount = parseFloat(targetTx.total) || 0;
@@ -9746,7 +9859,7 @@ async function processVoidTransaction(req, res) {
         return res.status(400).json({
             success: false,
             code: 'ALREADY_REFUNDED',
-            message: `Hindi na puwedeng i-void ang transaksyong ito dahil may naitalang refund na (₱${alreadyRefundedForVoid.toFixed(2)}). Gamitin na lang ang Refund para sa natitirang balanse.`
+            message: `This transaction cannot be voided because a refund of ₱${alreadyRefundedForVoid.toFixed(2)} has already been recorded. Use Refund for the remaining balance.`
         });
     }
     const debts = readData(FILE_DEBTS, []);
@@ -9758,40 +9871,53 @@ async function processVoidTransaction(req, res) {
             return res.status(400).json({
                 success: false,
                 code: 'DEBT_HAS_PAYMENT',
-                message: `Hindi puwedeng i-void ang transaksyong ito dahil may naitalang bayad na (₱${linkedDebtPaid.toFixed(2)}) sa kaugnay na debt ni ${linkedDebt.customerName}. Ayusin muna ang debt record (Debtors) bago mag-void.`
+                message: `This transaction cannot be voided because a payment of ₱${linkedDebtPaid.toFixed(2)} has already been recorded against the related debt for ${linkedDebt.customerName}. Update the debt record (Debtors) before voiding.`
             });
         }
     }
-    targetTx.items.forEach(item => {
-        let prod = products.find(p => p.code === item.code || p.name === item.name);
-        if (prod) {
-            prod.stock = (parseInt(prod.stock) || 0) + parseInt(item.quantity);
-        }
+    const stockReturns = readData(FILE_STOCK_RETURNS, []);
+    const stockReturn = createStockReturnRecord({
+        sourceType: 'void',
+        transactionId,
+        requester,
+        items: (targetTx.items || []).map((item, index) => ({ ...item, lineId: `${transactionId}:${index}` }))
     });
+    if (!stockReturn) {
+        return res.status(400).json({ success: false, message: 'There are no valid items to move to stock-return inspection.' });
+    }
     if (linkedDebtIndex !== -1) {
         debts.splice(linkedDebtIndex, 1);
-        writeData(FILE_DEBTS, debts);
-        logAction(requester, `Naalis ang kaugnay na debt record dahil na-void ang Transaction ID: ${transactionId}`);
     }
-    if (targetTx.customerId) {
-        const customers = readData(FILE_CUSTOMERS, []);
-        const cust = customers.find(c => c.id === targetTx.customerId);
-        if (cust) {
-            const earned = Math.max(0, parseInt(targetTx.loyaltyPointsEarned) || 0);
-            const redeemed = Math.max(0, parseInt(targetTx.loyaltyPointsRedeemed) || 0);
-            cust.points = Math.max(0, (cust.points || 0) - earned) + redeemed;
-            cust.totalSpent = Math.round((((cust.totalSpent || 0) - voidedAmount)) * 100) / 100;
-            if (cust.totalSpent < 0) cust.totalSpent = 0;
-            cust.visits = Math.max(0, (cust.visits || 0) - 1);
-            writeData(FILE_CUSTOMERS, customers);
-        }
+    const customers = targetTx.customerId ? readData(FILE_CUSTOMERS, []) : null;
+    const cust = customers && customers.find(c => c.id === targetTx.customerId);
+    if (cust) {
+        const earned = Math.max(0, parseInt(targetTx.loyaltyPointsEarned) || 0);
+        const redeemed = Math.max(0, parseInt(targetTx.loyaltyPointsRedeemed) || 0);
+        cust.points = Math.max(0, (cust.points || 0) - earned) + redeemed;
+        cust.totalSpent = Math.round((((cust.totalSpent || 0) - voidedAmount)) * 100) / 100;
+        if (cust.totalSpent < 0) cust.totalSpent = 0;
+        cust.visits = Math.max(0, (cust.visits || 0) - 1);
     }
     transactions = transactions.filter(t => t.id !== transactionId);
-    writeData(FILE_TRANSACTIONS, transactions);
-    writeData(FILE_PRODUCTS, products);
+    stockReturns.unshift(stockReturn);
+    try {
+        const changes = [
+            { module: FILE_STOCK_RETURNS, data: stockReturns },
+            { module: FILE_DEBTS, data: debts }
+        ];
+        if (customers) changes.push({ module: FILE_CUSTOMERS, data: customers });
+        changes.push({ module: FILE_TRANSACTIONS, data: transactions });
+        commitDataModules(changes);
+    } catch (error) {
+        console.error('VOID commit failed:', error);
+        return res.status(500).json({ success: false, message: 'The VOID could not be saved completely. No permanent change should remain; please try again.' });
+    }
+    if (linkedDebtIndex !== -1) {
+        logAction(requester, `The related debt record was removed because Transaction ID ${transactionId} was voided.`);
+    }
     logVoidAction(requester, transactionId, voidedAmount, authResult.isAdmin ?'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`);
     runFraudChecks('void', { cashier: requester, transactionId, voidedAmount });
-    res.json({ success: true, message: `Matagumpay na na-void ang transaksyon ${transactionId} at naibalik ang mga stock!` });
+    res.json({ success: true, message: `Transaction ${transactionId} was voided successfully. The returned items were placed in Pending Stock Return Inspection and have not been added back to sellable stock yet.`, stockReturnId: stockReturn.id });
 }
 app.post('/api/transactions/:transactionId/refund', rateLimit('refund-transaction', 12, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processRefundTransaction(req, res));
@@ -9801,7 +9927,7 @@ async function processRefundTransaction(req, res) {
     const { requester, adminPassword, reason } = req.body;
     const requestedItems = Array.isArray(req.body.items) ? req.body.items : null;
     if (!adminPassword) {
-        return res.status(400).json({ success: false, message: 'Kailangan ng password para mag-refund.' });
+        return res.status(400).json({ success: false, message: 'A password is required to process a refund.' });
     }
     const users = readData(FILE_USERS);
     const authResult = await findRefundAuthorizer(users, adminPassword);
@@ -9809,21 +9935,28 @@ async function processRefundTransaction(req, res) {
         return res.status(403).json({
             success: false,
             code: 'WRONG_ADMIN_PASSWORD',
-            message: 'Maling password. Hindi pinahintulutan ang refund.'
+            message: 'Incorrect password. The refund was not authorized.'
         });
     }
     let transactions = readData(FILE_TRANSACTIONS);
-    let products = readData(FILE_PRODUCTS);
     const txIndex = transactions.findIndex(t => t.id === transactionId);
     if (txIndex === -1) {
-        return res.status(404).json({ success: false, message: 'Hindi nahanap ang Transaksyon ID.' });
+        return res.status(404).json({ success: false, message: 'Transaction ID not found.' });
     }
     const targetTx = transactions[txIndex];
     const grandTotal = parseFloat(targetTx.total) || 0;
+    if (requestedItems) {
+        const requestedCodes = requestedItems
+            .map(item => String(item && item.code || '').trim().toLowerCase())
+            .filter(Boolean);
+        if (new Set(requestedCodes).size !== requestedCodes.length) {
+            return res.status(400).json({ success: false, message: 'The refund request contains duplicate product codes. Each product code may only be submitted once.' });
+        }
+    }
     const alreadyRefunded = Math.min(grandTotal, parseFloat(targetTx.totalRefunded) || 0);
     const refundedQtyMap = targetTx.refundedQty && typeof targetTx.refundedQty === 'object' ? { ...targetTx.refundedQty } : {};
     if (alreadyRefunded >= grandTotal - 0.01) {
-        return res.status(400).json({ success: false, message: 'Naka-full refund na ang transaksyong ito — wala nang matitirang matirang halaga na pwedeng i-refund.' });
+        return res.status(400).json({ success: false, message: 'This transaction has already been fully refunded; there is no remaining refundable amount.' });
     }
     const lineGross = (item) => {
         const qty = parseInt(item.quantity, 10) || 0;
@@ -9843,7 +9976,7 @@ async function processRefundTransaction(req, res) {
             qtyToRefund = parseInt(requested.quantity, 10) || 0;
             if (qtyToRefund <= 0) continue;
             if (qtyToRefund > maxRefundableQty) {
-                rejectedRefundItems.push(`${item.name} (hiniling: ${qtyToRefund}, natitirang pwedeng i-refund: ${maxRefundableQty})`);
+                rejectedRefundItems.push(`${item.name} (requested: ${qtyToRefund}, remaining refundable: ${maxRefundableQty})`);
                 continue;
             }
         } else {
@@ -9860,11 +9993,11 @@ async function processRefundTransaction(req, res) {
     if (rejectedRefundItems.length > 0) {
         return res.status(400).json({
             success: false,
-            message: `Hindi maaaring i-refund ang mga sumusunod: ${rejectedRefundItems.join('; ')}`
+            message: `The following items cannot be refunded: ${rejectedRefundItems.join('; ')}`
         });
     }
     if (refundLines.length === 0) {
-        return res.status(400).json({ success: false, message: 'Walang napiling item na may natitirang balanseng pwedeng i-refund.' });
+        return res.status(400).json({ success: false, message: 'No selected item has a remaining refundable quantity.' });
     }
     let sumRefundGross = 0;
     for (const line of refundLines) {
@@ -9877,21 +10010,28 @@ async function processRefundTransaction(req, res) {
     const remainingRefundable = Math.round((grandTotal - alreadyRefunded) * 100) / 100;
     if (refundAmount > remainingRefundable) refundAmount = remainingRefundable;
     if (refundAmount <= 0) {
-        return res.status(400).json({ success: false, message: 'Zero ang na-compute na refund amount — walang matitirang halagang pwedeng i-refund.' });
+        return res.status(400).json({ success: false, message: 'The calculated refund amount is zero; there is no remaining refundable amount.' });
+    }
+    const stockReturns = readData(FILE_STOCK_RETURNS, []);
+    const stockReturn = createStockReturnRecord({
+        sourceType: 'refund',
+        transactionId,
+        requester: requester || 'Unknown',
+        reason,
+        items: refundLines.map((line, index) => ({ ...line, lineId: `${transactionId}:refund:${Date.now()}:${index}` }))
+    });
+    if (!stockReturn) {
+        return res.status(400).json({ success: false, message: 'There are no valid items to move to stock-return inspection.' });
     }
     refundLines.forEach(line => {
-        const prod = products.find(p => p.code === line.code);
-        if (prod) {
-            prod.stock = (parseInt(prod.stock) || 0) + line.quantity;
-        }
         refundedQtyMap[line.code] = (parseInt(refundedQtyMap[line.code], 10) || 0) + line.quantity;
     });
     const newTotalRefunded = Math.round((alreadyRefunded + refundAmount) * 100) / 100;
     targetTx.refundedQty = refundedQtyMap;
     targetTx.totalRefunded = newTotalRefunded;
     targetTx.refundStatus = newTotalRefunded >= grandTotal - 0.01 ? 'full' : 'partial';
+    const customers = targetTx.customerId ? readData(FILE_CUSTOMERS, []) : null;
     if (targetTx.customerId) {
-        const customers = readData(FILE_CUSTOMERS, []);
         const cust = customers.find(c => c.id === targetTx.customerId);
         if (cust) {
             const earnedOriginally = Math.max(0, parseInt(targetTx.loyaltyPointsEarned) || 0);
@@ -9899,11 +10039,11 @@ async function processRefundTransaction(req, res) {
             cust.points = Math.max(0, (cust.points || 0) - pointsToReverse);
             cust.totalSpent = Math.round(((cust.totalSpent || 0) - refundAmount) * 100) / 100;
             if (cust.totalSpent < 0) cust.totalSpent = 0;
-            writeData(FILE_CUSTOMERS, customers);
         }
     }
     const debts = readData(FILE_DEBTS, []);
     const linkedDebtIndex = debts.findIndex(d => d.transactionId === transactionId);
+    let shouldAwardDebtLoyalty = false;
     if (linkedDebtIndex !== -1) {
         const linkedDebt = debts[linkedDebtIndex];
         const paidSoFar = parseFloat(linkedDebt.amountPaid) || 0;
@@ -9915,19 +10055,15 @@ async function processRefundTransaction(req, res) {
             linkedDebt.status = 'paid';
             if (!linkedDebt.paidAt) linkedDebt.paidAt = new Date().toISOString();
             if (paidSoFar > 0 && paidSoFar >= linkedDebt.amount) {
-                awardLoyaltyPointsForPaidDebt(linkedDebt, requester || 'system');
+                shouldAwardDebtLoyalty = true;
             }
         } else if (paidSoFar > 0) {
             linkedDebt.status = 'partial';
         } else {
             linkedDebt.status = 'unpaid';
         }
-        writeData(FILE_DEBTS, debts);
-        logAction(requester || 'Unknown', `Na-adjust ang kaugnay na debt ni ${linkedDebt.customerName} dahil sa refund — natitirang utang ngayon: ₱${linkedDebt.amount.toFixed(2)} (Transaction ${transactionId})`);
     }
     transactions[txIndex] = targetTx;
-    writeData(FILE_TRANSACTIONS, transactions);
-    writeData(FILE_PRODUCTS, products);
     const refundRecord = {
         id: 'RFD-' + Date.now(),
         transactionId,
@@ -9937,11 +10073,40 @@ async function processRefundTransaction(req, res) {
         refundedBy: requester || 'Unknown',
         authorizedBy: authResult.isAdmin ? 'Admin' : `${authResult.user.username} (RBAC — refund_own_password)`,
         isFullRefund: targetTx.refundStatus === 'full',
+        stockReturnId: stockReturn.id,
+        stockReturnStatus: 'pending_inspection',
         timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' })
     };
     let refunds = readData(FILE_REFUNDS, []);
     refunds.unshift(refundRecord);
-    writeData(FILE_REFUNDS, refunds);
+    stockReturns.unshift(stockReturn);
+    try {
+        const changes = [
+            { module: FILE_STOCK_RETURNS, data: stockReturns }
+        ];
+        if (targetTx.customerId && customers) changes.push({ module: FILE_CUSTOMERS, data: customers });
+        changes.push(
+            { module: FILE_DEBTS, data: debts },
+            { module: FILE_TRANSACTIONS, data: transactions },
+            { module: FILE_REFUNDS, data: refunds }
+        );
+        commitDataModules(changes);
+    } catch (error) {
+        console.error('REFUND commit failed:', error);
+        return res.status(500).json({ success: false, message: 'The REFUND could not be saved completely. No permanent change should remain; please try again.' });
+    }
+    if (shouldAwardDebtLoyalty && linkedDebtIndex !== -1) {
+        try {
+            awardLoyaltyPointsForPaidDebt(debts[linkedDebtIndex], requester || 'system');
+            writeData(FILE_DEBTS, debts);
+        } catch (loyaltyError) {
+            console.error('Post-refund debt loyalty update failed:', loyaltyError);
+        }
+    }
+    if (linkedDebtIndex !== -1) {
+        const linkedDebt = debts[linkedDebtIndex];
+        logAction(requester || 'Unknown', `The related debt for ${linkedDebt.customerName} was adjusted due to the refund — remaining balance: ₱${linkedDebt.amount.toFixed(2)} (Transaction ${transactionId})`);
+    }
     const itemsLabel = refundLines.map(l => `${l.name} x${l.quantity}`).join(', ');
     logRefundAction(
         requester || 'Unknown',
@@ -9954,7 +10119,7 @@ async function processRefundTransaction(req, res) {
     runFraudChecks('refund', { cashier: requester || 'Unknown', transactionId, refundAmount });
     res.json({
         success: true,
-        message: `Matagumpay na na-refund ang ₱${refundAmount.toFixed(2)} (${itemsLabel}) at naibalik ang mga stock!`,
+        message: `Refund of ₱${refundAmount.toFixed(2)} (${itemsLabel}) was processed successfully. The returned items were placed in Pending Stock Return Inspection and have not been added back to sellable stock yet.`,
         refund: refundRecord,
         transaction: targetTx
     });

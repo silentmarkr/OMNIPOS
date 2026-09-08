@@ -3585,7 +3585,8 @@ function switchView(viewKey, opts) {
         document.body.removeAttribute('data-terminal-theme');
     }
     if (typeof updateHeaderDayDarkModeUI ==='function') updateHeaderDayDarkModeUI();
-    if (viewKey ==='products') loadInventoryProductsTable();
+    if (viewKey ==='products') { loadInventoryProductsTable(); }
+    if (viewKey ==='stock_return_inspection') { loadPendingStockReturns(); }
     if (viewKey ==='barcode') loadBarcodeGeneratorModule();
     if (viewKey ==='reports') {
         loadSalesAnalyticsReport();
@@ -3622,6 +3623,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     shiftreport:  { text:'Shift / Z-Reading',   hideIds: ['page-title-shiftreport'] },
     logs:         { text:'System Audit Logs',   hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 hideIds: ['page-title-faq'] },
+    stock_return_inspection: { text:'Void / Refund', hideIds: ['page-title-stock_return_inspection'] },
     cloudtokens:  { text:'💎 Omni Tokens',       hideIds: ['page-title-cloudtokens'] },
     users:        { text:'Settings',            hideIds: [] }
 };
@@ -5998,7 +6000,7 @@ function applyRoleBasedAccessControls(role) {
     });
     const inventoryGroup = document.getElementById('menu-inventory-group');
     if (inventoryGroup) {
-        const anyInventoryVisible = isAdmin || currentPermissions.dashboard || currentPermissions.products || currentPermissions.barcode;
+        const anyInventoryVisible = isAdmin || currentPermissions.dashboard || currentPermissions.products || currentPermissions.barcode || currentPermissions.stock_return_inspection;
         inventoryGroup.style.display = anyInventoryVisible ?'' :'none';
     }
     console.log(`[OmniPOS] Applied dynamic Permission Matrix for role: ${role ||'unknown'}`);
@@ -12397,6 +12399,115 @@ function closeColumnFilterDropdownOnOutsideClick(evt) {
     if (evt.target.closest && evt.target.closest('.col-filter-btn')) return;
     closeColumnFilterDropdown();
 }
+
+let cachedPendingStockReturns = [];
+function canInspectStockReturns() {
+    const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
+    return isAdmin || !!(currentPermissions && currentPermissions.stock_return_inspection);
+}
+async function loadPendingStockReturns() {
+    const page = document.getElementById('view-stock_return_inspection');
+    if (!page) return;
+    if (!canInspectStockReturns()) {
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_URL}/stock-returns?status=pending_inspection`);
+        const data = await res.json();
+        cachedPendingStockReturns = data && data.success && Array.isArray(data.returns) ? data.returns : [];
+    } catch (e) {
+        console.error('Failed to load pending stock returns:', e);
+        cachedPendingStockReturns = [];
+    }
+    renderPendingStockReturns();
+}
+function renderPendingStockReturns() {
+    const tbody = document.getElementById('stock-return-pending-body');
+    if (!tbody) return;
+    if (!cachedPendingStockReturns.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#64748b;padding:18px;">No pending returned/void items are waiting for inspection.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = cachedPendingStockReturns.map(r => {
+        const source = String(r.sourceType || '').toLowerCase() === 'void' ? 'VOID' : 'REFUND';
+        const sourceClass = source === 'VOID' ? 'pending' : 'pending';
+        const itemCount = (r.items || []).reduce((sum, i) => sum + (parseInt(i.quantity, 10) || 0), 0);
+        const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '—';
+        return `<tr>
+            <td class="font-bold">${escapeHtml(r.id || '—')}</td>
+            <td><span class="stock-return-status ${sourceClass}">${source}</span></td>
+            <td>${escapeHtml(r.transactionId || '—')}</td>
+            <td>${itemCount} unit(s)</td>
+            <td>${escapeHtml(r.requester || 'Unknown')}</td>
+            <td>${escapeHtml(date)}</td>
+            <td><span class="stock-return-status pending">Pending Inspection</span></td>
+            <td><button class="btn-clear" onclick="inspectStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#2563eb;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-clipboard-check"></i> Inspect</button></td>
+        </tr>`;
+    }).join('');
+}
+async function inspectStockReturn(returnId) {
+    const record = cachedPendingStockReturns.find(r => String(r.id) === String(returnId));
+    if (!record) {
+        await loadPendingStockReturns();
+        return;
+    }
+    const rows = (record.items || []).map((item, idx) => `
+        <div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:10px 0;">
+            <div style="font-weight:700;margin-bottom:4px;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
+            <div style="font-size:.78rem;color:#64748b;margin-bottom:7px;">Returned quantity: <b>${item.quantity}</b></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <label style="font-size:.78rem;">Sellable / Restock
+                    <input type="number" class="sret-restock" data-idx="${idx}" min="0" max="${item.quantity}" value="${item.quantity}" style="width:100%;padding:6px;box-sizing:border-box;">
+                </label>
+                <label style="font-size:.78rem;">Damaged / Do not restock
+                    <input type="number" class="sret-damaged" data-idx="${idx}" min="0" max="${item.quantity}" value="0" style="width:100%;padding:6px;box-sizing:border-box;">
+                </label>
+            </div>
+        </div>`).join('');
+    const { value } = await Swal.fire({
+        title: '📦 Inspect Returned Items',
+        html: `<div style="text-align:left;margin-bottom:8px;color:#475569;font-size:.82rem;">Source: <b>${escapeHtml(String(record.sourceType || '').toUpperCase())}</b> — Transaction: <b>${escapeHtml(record.transactionId || '—')}</b></div>
+               <div style="max-height:380px;overflow-y:auto;">${rows}</div>
+               <textarea id="stock-return-inspection-reason" placeholder="Optional inspection note (e.g. sealed, opened, damaged packaging, defective)" style="width:100%;min-height:65px;margin-top:10px;padding:8px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;"></textarea>`,
+        showCancelButton:true,
+        confirmButtonText:'Complete Inspection',
+        confirmButtonColor:'#2563eb',
+        cancelButtonColor:'#64748b',
+        width:560,
+        preConfirm:() => {
+            const items = [];
+            let invalid = false;
+            (record.items || []).forEach((item, idx) => {
+                const restock = Math.max(0, parseInt(document.querySelector(`.sret-restock[data-idx="${idx}"]`)?.value,10) || 0);
+                const damaged = Math.max(0, parseInt(document.querySelector(`.sret-damaged[data-idx="${idx}"]`)?.value,10) || 0);
+                if (restock + damaged !== item.quantity) invalid = true;
+                items.push({ lineId:item.lineId, restockedQty:restock, damagedQty:damaged });
+            });
+            if (invalid) {
+                Swal.showValidationMessage('For each item, Restock + Damaged must exactly equal the Returned quantity.');
+                return false;
+            }
+            return { items, reason:(document.getElementById('stock-return-inspection-reason')?.value || '').trim() };
+        }
+    });
+    if (!value) return;
+    try {
+        const response = await authFetch(`${API_URL}/stock-returns/${encodeURIComponent(returnId)}/inspect`, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(value)
+        });
+        const result = await response.json();
+        if (!result.success) {
+            Swal.fire('Inspection Failed', result.message || 'The inspection could not be processed.', 'error');
+            return;
+        }
+        await Swal.fire('Completed', result.message || 'The inspection was completed.', 'success');
+        await loadPendingStockReturns();
+        await loadInventoryProductsTable();
+    } catch (err) {
+        console.error('Stock Return Inspection Error:', err);
+        Swal.fire('Error', 'There was a connection problem while inspecting the returned items.', 'error');
+    }
+}
 async function loadInventoryProductsTable() {
     try {
         const res = await authFetch(`${API_URL}/products`);
@@ -18457,8 +18568,8 @@ async function handleVoidTransaction(transactionId) {
     const { value: adminPassword } = await Swal.fire({
         title: isAdmin ?'🔒 Admin Authorization Required' :'🔒 Void Authorization Required',
         html: isAdmin
-            ?'Admin password is required to void this transaction. This will return the stock to inventory.'
-            :'Admin or authorized Supervisor/Manager password is required to void this transaction. This will return the stock to inventory.',
+            ?'Admin password is required to void this transaction. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.'
+            :'Admin or authorized Supervisor/Manager password is required to void this transaction. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.',
         input:'password',
         inputPlaceholder: isAdmin ?'Enter Admin password' :'Admin/Supervisor password',
         showCancelButton: true,
@@ -18477,7 +18588,7 @@ async function handleVoidTransaction(transactionId) {
         });
         const result = await response.json();
         if (result.success) {
-            Swal.fire('Success', result.message ||'Transaction voided and stock restored!','success');
+            Swal.fire('Success', result.message ||'Transaction voided. Items are pending stock inspection.','success');
             location.reload();
         } else {
             Swal.fire('Error', result.message ||'Could not void the transaction.','error');
@@ -18557,8 +18668,8 @@ async function handleRefundTransaction(transactionId) {
     const { value: refundAdminPassword } = await Swal.fire({
         title: isAdminForRefund ? '🔒 Admin Authorization Required' : '🔒 Refund Authorization Required',
         html: isAdminForRefund
-            ? 'Admin password is required to process this refund. This will restore the stock to inventory.'
-            : 'Admin or authorized Supervisor/Manager password is required to process this refund. This will restore the stock to inventory.',
+            ? 'Admin password is required to process this refund. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.'
+            : 'Admin or authorized Supervisor/Manager password is required to process this refund. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.',
         input: 'password',
         inputPlaceholder: isAdminForRefund ? 'Enter Admin password' : 'Admin/Supervisor password',
         showCancelButton: true,
@@ -18579,7 +18690,7 @@ async function handleRefundTransaction(transactionId) {
         });
         const result = await response.json();
         if (result.success) {
-            Swal.fire('Success', result.message || 'Refund processed and stock restored!', 'success');
+            Swal.fire('Success', result.message || 'Refund processed. Items are pending stock inspection.', 'success');
             location.reload();
         } else {
             Swal.fire('Error', result.message || 'Could not process the refund.', 'error');
