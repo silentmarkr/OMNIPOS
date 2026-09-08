@@ -2672,11 +2672,11 @@
                                 <i class="fa-solid fa-globe"></i> Tag
                             </button>
                         </div>
-                        <div id="faq-ai-mode-toggle" class="faq-mode-toggle-wrap"></div>
                         <div id="ai-assistant-credit-expiry" class="ai-credit-expiry-group" aria-label="AI Credits and expiration">
                             <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="AI Assistant monthly credits"></div>
                             <div id="ai-assistant-subscription-status" class="faq-subscription-compact" style="display:none;"></div>
                         </div>
+                        <div id="faq-ai-mode-toggle" class="faq-mode-toggle-wrap"></div>
                     </div>
 
                     <div class="faq-ai-box" id="faq-ai-box">
@@ -2701,7 +2701,12 @@
                         <div id="faq-ai-result" class="faq-ai-result-box"></div>
 
                         <div class="faq-composer-dock" id="faq-composer-dock">
-                            <div id="faq-quick-actions" class="faq-quick-actions"></div>
+                            <div class="faq-quick-actions-row" id="faq-quick-actions-row">
+                                <div id="faq-quick-actions" class="faq-quick-actions"></div>
+                                <button type="button" id="faq-new-conversation-bottom" class="faq-new-conversation-btn" onclick="OmniFAQ.newConversation()" title="Start a new conversation">
+                                    <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
+                                </button>
+                            </div>
 
                             <div id="faq-image-preview-wrap" class="faq-image-preview-wrap" style="display:none;">
                                 <img id="faq-image-preview" alt="Attached screenshot preview" style="display:none;">
@@ -2731,11 +2736,6 @@
                                 </div>
                                 <button type="button" class="faq-composer-send-btn" id="faq-send-btn" title="Send" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
                                     <i class="fa-solid fa-arrow-up"></i>
-                                </button>
-                            </div>
-                            <div class="faq-new-conversation-row">
-                                <button type="button" id="faq-new-conversation-bottom" class="faq-new-conversation-btn" onclick="OmniFAQ.newConversation()" title="Start a new conversation">
-                                    <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
                                 </button>
                             </div>
                             <div id="faq-ai-upsell" style="display:none;">
