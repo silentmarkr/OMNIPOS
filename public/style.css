@@ -8400,6 +8400,13 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
   cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center;
 }
 .faq-chat-image-thumb { max-width: 220px; border-radius: 10px; margin-top: 8px; display: block; }
+.faq-file-preview-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 160px; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--border-color, #cbd5e1); background: var(--card-bg, #f1f5f9);
+  font-size: 0.78rem; color: var(--text-color, #1e293b);
+}
+.faq-file-preview-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- composer bar: pill input + circular arrow-up send button,
        like a modern AI chat app --- */

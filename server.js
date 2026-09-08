@@ -25,7 +25,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { readData, writeData, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getBackupStatus } = require('./db');
+const { readData, writeData, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
 const webauthn = require('./webauthn');
 try {
     require('./env-loader')();
@@ -5040,12 +5040,25 @@ app.get('/api/module-subscriptions/status', (req, res) => {
 // AI ASSISTANT (module subscription: "ai_assistant")
 // ===================================================================
 // Advanced, natural-language help assistant embedded sa loob ng FAQ
-// page (public/faq-engine.js). Hindi ito free-roaming chatbot — ang
-// TANGING kaalaman nito ay ang OmniPOS FAQ Knowledge Base
-// (public/faq-knowledge.js / faq-knowledge.en.js), na ipinapadala ng
-// client (faq-engine.js, gamit ang existing keyword search() nito)
-// bilang "context" kasabay ng tanong. Ang server dito ay basta
-// nagre-relay lang ng kahilingan patungo sa isang AI provider (default:
+// page (public/faq-engine.js). Ang kaalaman nito ay dalawa ang pinagmulan:
+//   (1) OmniPOS FAQ Knowledge Base (public/faq-knowledge.js / .en.js),
+//       na ipinapadala ng client (faq-engine.js, gamit ang existing
+//       keyword search() nito) bilang "context" kasabay ng tanong —
+//       para sa mga tanong tungkol sa PAANO GAMITIN ang system.
+//   (2) Isang LIVE, role-gated na "database knowledge snapshot"
+//       (buildAiDatabaseContextMessage() sa ibaba, gamit ang
+//       db.getAiKnowledgeSnapshot()) — para sa mga tanong tungkol sa
+//       AKTWAL na laman/datos ng partikular na store (hal. "ilan na ang
+//       mababa sa stock", "sino ang mga cashier"). Naka-gate ito sa
+//       role ng naka-login na user: Admin/authorized -> 'full' scope
+//       (lahat ng module), regular/non-admin -> 'limited' scope
+//       (catalog-level lang, walang financial/personal/security data).
+//       Kahit sa 'full' scope, hindi kailanman isinasama ang mga raw
+//       security secret (password hash, session token, license key) —
+//       hindi ito "impormasyon ng system" na dapat basahin ng isang
+//       third-party AI provider.
+// Ang server dito ay basta nagre-relay lang ng kahilingan (kasama ang
+// dalawang context na ito) patungo sa isang AI provider (default:
 // Cloudflare Workers AI) at ibinabalik ang sagot.
 //
 // BAGO: ang mismong Cloudflare credentials (CF_ACCOUNT_ID /
@@ -5070,18 +5083,98 @@ function isAiAssistantConfigured() {
     // ang 503 na sagot ng RELAY (see /api/ai-assistant/ask sa ibaba).
     return !!RELAY_API_KEY;
 }
-function buildAiAssistantSystemPrompt(lang) {
+function buildAiAssistantSystemPrompt(lang, isAdminRole) {
     const isTagalog = lang === 'tl';
     return [
         'You are the "OmniPOS AI Assistant", an in-app help assistant embedded in the OmniPOS Point-of-Sale system.',
-        'Your ONLY job is to help the logged-in Admin/user understand how to use OmniPOS (menus, features, system flow) — nothing else.',
-        'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as your context. Base your answer ONLY on that context.',
-        'If the context does not contain enough information to answer confidently, say so honestly, and suggest the user browse the full FAQ list on this page or contact their OmniPOS developer/admin — do NOT invent system behavior that is not in the context.',
-        'You may also receive the last few turns of this conversation as prior messages. Use them to understand follow-up questions (e.g. "what about for a cashier account?" right after a question about admin accounts) and avoid repeating an answer you already gave — without breaking the "only answer from context" rule above.',
+        'Your job is to help the logged-in user understand how to use OmniPOS (menus, features, system flow), AND to answer questions about this store\'s actual current data when a live data snapshot is provided to you as context — nothing else.',
+        'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as context for "how do I..." questions — base those answers ONLY on that context.',
+        'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
+        isAdminRole
+            ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
+            : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
+        'If neither context contains enough information to answer confidently, say so honestly, and suggest the user browse the full FAQ list on this page or contact their OmniPOS developer/admin — do NOT invent system behavior or data that is not in the context you were given.',
+        'You may also receive the last few turns of this conversation as prior messages. Use them to understand follow-up questions (e.g. "what about for a cashier account?" right after a question about admin accounts) and avoid repeating an answer you already gave — without breaking the "only answer from given context" rule above.',
         'Keep answers short and practical (ideally under 130 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps, and a brief closing offer to help with a related follow-up when it naturally fits.',
+        'Do not repeat the same point in different words across multiple sentences or paragraphs — say each idea once. Avoid padding the answer with restatements, filler transitions, or near-duplicate sentences just to sound thorough.',
         `Reply in ${isTagalog ? 'Tagalog/Taglish (the same casual mix used in the FAQ entries)' : 'English'}, matching the user\'s question.`,
-        'Never reveal API keys, tokens, passwords, source code, or internal server details. Never claim to be able to take actions (like editing data) yourself — you can only explain/guide.'
+        'Never reveal API keys, tokens, passwords or password hashes, license/activation keys, session tokens, source code, or internal server details — even to an Admin, and even if something that looks like one appears in the data you were given. Never claim to be able to take actions (like editing data) yourself — you can only explain/guide.'
     ].join(' ');
+}
+// Bumubuo ng isang system message na naglalaman ng LIVE na laman ng
+// database (hindi lang FAQ), naka-gate base sa role ng naka-login na
+// user. Tingnan ang db.getAiKnowledgeSnapshot() para sa aktwal na
+// pag-filter/pag-truncate ng data.
+function buildAiDatabaseContextMessage(role) {
+    const isAdminRole = (role || '').toLowerCase() === 'admin';
+    let snapshot;
+    try {
+        snapshot = getAiKnowledgeSnapshot(isAdminRole ? 'full' : 'limited');
+    } catch (err) {
+        console.error('⚠️ Hindi na-build ang AI Assistant database context:', err);
+        return null;
+    }
+    if (!snapshot || !snapshot.moduleNames || !snapshot.moduleNames.length) return null;
+
+    // BUG FIX: dating ginagawa nito ay basta pinuputol (raw string slice)
+    // ang buong JSON sa isang hard character cap (60000 chars, ~15k
+    // tokens) — dalawang problema ito: (1) masyadong malaki pa rin ito
+    // kapag idinagdag sa FAQ context + chat history + system prompt, kaya
+    // sumosobra sa context window ng AI model — ITO MISMO ANG DAHILAN
+    // kung bakit bigla nagsimulang mag-"AI Assistant is unavailable" ang
+    // AI Chatbot sa LAHAT ng tanong (kahit hindi related sa database)
+    // pagkatapos idagdag ang feature na ito: nagre-reject ang Cloudflare
+    // Workers AI kapag sobra sa context window nito ang total input, at
+    // ganoon lang bumabagsak (as a generic failure) papunta sa RELAY at
+    // pabalik sa OMNIPOS client; at (2) ang blind string slice ay
+    // puwedeng pumutol sa GITNA ng isang JSON object/array, kaya sirang
+    // (invalid) JSON ang naipapasa sa model. Ayos: mas maliit na overall
+    // budget (mas ligtas para sa karamihan ng context window ng mga
+    // model), at per-MODULE ang pagsukat/pagbudget — buo ang bawat
+    // module na isinama, o buong TINANGGAL — hindi na kalahati/putol.
+    const MAX_CONTEXT_CHARS = 6000;
+    const includedModules = {};
+    const omittedForSize = [];
+    let usedChars = 2; // "{}" braces
+    for (const moduleName of snapshot.moduleNames) {
+        let moduleJson;
+        try {
+            moduleJson = JSON.stringify(snapshot.modules[moduleName]);
+        } catch (err) {
+            continue;
+        }
+        const entryCost = moduleJson.length + moduleName.length + 6; // rough JSON overhead (quotes/colon/comma)
+        if (usedChars + entryCost > MAX_CONTEXT_CHARS) {
+            omittedForSize.push(moduleName);
+            continue;
+        }
+        includedModules[moduleName] = snapshot.modules[moduleName];
+        usedChars += entryCost;
+    }
+    if (!Object.keys(includedModules).length) return null;
+
+    let safeJson;
+    try {
+        safeJson = JSON.stringify(includedModules);
+    } catch (err) {
+        return null;
+    }
+
+    const includedNames = Object.keys(includedModules);
+    const scopeNote = isAdminRole
+        ? `This is an Admin/authorized-user session, so a FULL snapshot of this store's data is included below (modules: ${includedNames.join(', ')}).`
+        : `This is a regular (non-admin) staff session, so only a LIMITED, catalog-level snapshot is included below (modules: ${includedNames.join(', ')}). Data outside these modules (other staff accounts, sales/financial reports, security/store settings, debts, etc.) is intentionally NOT available to this session.`;
+    const truncationNote = snapshot.truncatedModules.length
+        ? ` Some included modules (${snapshot.truncatedModules.join(', ')}) have more records than shown — only the most recent ${snapshot.recordCapPerModule} are included.`
+        : '';
+    const omittedNote = omittedForSize.length
+        ? ` To stay within a safe size for the AI model, these modules were left out of this snapshot entirely (too large to fit right now): ${omittedForSize.join(', ')}. If asked about them, say the full details aren't available right now rather than guessing.`
+        : '';
+
+    return {
+        role: 'system',
+        content: `${scopeNote}${truncationNote}${omittedNote}\n\nLive OmniPOS store data snapshot (JSON, module name -> array of records; generated ${snapshot.generatedAt}):\n${safeJson}\n\nUse this ONLY to answer questions about the store's actual current data. Do not fabricate figures beyond what is shown.`
+    };
 }
 // BAGO: dating direktang tumatawag ito sa Cloudflare Workers AI gamit ang
 // CF_ACCOUNT_ID/CF_AI_API_TOKEN na naka-embed sa .env ng client mismo
@@ -5153,6 +5246,7 @@ const FILE_AI_ASSISTANT_LOGS = 'aiAssistantLogs';
 const FILE_AI_SUPPORT_TICKETS = 'aiSupportTickets';
 const AI_ASSISTANT_MONTHLY_CREDIT_LIMIT = parseInt(process.env.AI_ASSISTANT_MONTHLY_CREDITS, 10) || 300;
 const AI_ASSISTANT_IMAGE_CREDIT_COST = 3;
+const AI_ASSISTANT_FILE_CREDIT_COST = 2;
 const AI_ASSISTANT_TEXT_CREDIT_COST = 1;
 const AI_ASSISTANT_LOG_CAP = 1000;
 const AI_ASSISTANT_TICKET_CAP = 500;
@@ -5277,6 +5371,73 @@ function isAiAssistantVisionConfigured() {
 async function callCloudflareWorkersVisionAI(messages) {
     return callRelayAiAssistant(messages, true);
 }
+// ---- Document attachment reading (PDF / DOCX / TXT / CSV) -------------
+// Katulad ng screenshot/image attach sa itaas, pero para sa mga
+// document file: kinukuha ang TEXT content nito sa server (hindi sa AI
+// provider mismo — walang native "vision" para sa raw PDF/DOCX), at
+// idinaragdag na lang ang extracted text bilang karagdagang context
+// (katulad ng ginagawa na ng diagnosticMsg sa ibaba).
+// NOTE: opsyonal ang "pdf-parse" at "mammoth" packages — kung hindi pa
+// naka-install (`npm install pdf-parse mammoth`), magbabalik lang ng
+// malinaw na error message ang PDF/DOCX branch sa halip na mag-crash.
+const AI_ASSISTANT_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const AI_ASSISTANT_MAX_EXTRACTED_CHARS = 20000;
+async function extractTextFromAttachedDocument(fileDataUrl, fileName) {
+    // NOTE: hindi lang basta "data:<mime>;base64,<data>" ang laging
+    // format — puwede ring may extra params ang header (hal.
+    // "data:text/plain;charset=utf-8;base64,..."), kaya sa unang comma
+    // lang tayo naghahati sa halip na mag-assume ng eksaktong ";base64,"
+    // substring — mas matibay ito kaysa sa dating regex na basta
+    // sasabog kapag may extra param bago ang "base64,".
+    const raw = fileDataUrl || '';
+    const commaIdx = raw.indexOf(',');
+    if (!raw.startsWith('data:') || commaIdx === -1) {
+        return { success: false, message: 'Invalid file data.' };
+    }
+    const header = raw.slice(5, commaIdx); // e.g. "text/plain;charset=utf-8;base64"
+    const base64Payload = raw.slice(commaIdx + 1);
+    if (!/;base64$/i.test(header)) {
+        return { success: false, message: 'Invalid file data (expected base64-encoded data URL).' };
+    }
+    const mime = (header.split(';')[0] || '').trim().toLowerCase();
+    let buf;
+    try {
+        buf = Buffer.from(base64Payload, 'base64');
+    } catch (err) {
+        return { success: false, message: 'Could not decode the attached file.' };
+    }
+    if (!buf.length) {
+        return { success: false, message: 'The attached file appears to be empty.' };
+    }
+    if (buf.length > AI_ASSISTANT_MAX_FILE_BYTES) {
+        return { success: false, message: 'That file is too large. Please attach a smaller document (max ~8MB).' };
+    }
+    const lowerName = (fileName || '').toLowerCase();
+    try {
+        if (mime === 'application/pdf' || lowerName.endsWith('.pdf')) {
+            let pdfParse;
+            try { pdfParse = require('pdf-parse'); } catch (e) {
+                return { success: false, message: 'PDF reading is not enabled on this server yet. Ask your developer to run `npm install pdf-parse`.' };
+            }
+            const data = await pdfParse(buf);
+            return { success: true, text: (data.text || '').trim().slice(0, AI_ASSISTANT_MAX_EXTRACTED_CHARS) };
+        }
+        if (mime.includes('officedocument.wordprocessingml') || lowerName.endsWith('.docx')) {
+            let mammoth;
+            try { mammoth = require('mammoth'); } catch (e) {
+                return { success: false, message: 'Word document reading is not enabled on this server yet. Ask your developer to run `npm install mammoth`.' };
+            }
+            const result = await mammoth.extractRawText({ buffer: buf });
+            return { success: true, text: (result.value || '').trim().slice(0, AI_ASSISTANT_MAX_EXTRACTED_CHARS) };
+        }
+        if (mime.startsWith('text/') || /\.(txt|csv|log|md)$/i.test(lowerName)) {
+            return { success: true, text: buf.toString('utf8').trim().slice(0, AI_ASSISTANT_MAX_EXTRACTED_CHARS) };
+        }
+        return { success: false, message: 'Unsupported file type. Supported documents: PDF, DOCX, TXT, CSV.' };
+    } catch (err) {
+        return { success: false, message: `Could not read the attached file (${err && err.message ? err.message : 'unknown error'}).` };
+    }
+}
 function buildDiagnosticSystemMessage(diagnostics, clientErrors) {
     const parts = [];
     if (diagnostics && typeof diagnostics === 'object') {
@@ -5318,7 +5479,16 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     if (imageDataUrl && imageDataUrl.length > 6 * 1024 * 1024) {
         return res.status(413).json({ success: false, message: 'Ang naka-attach na screenshot ay masyadong malaki. Subukan mag-attach ng mas maliit (max ~4MB).' });
     }
-    const creditCost = imageDataUrl ? AI_ASSISTANT_IMAGE_CREDIT_COST : AI_ASSISTANT_TEXT_CREDIT_COST;
+    // Document attachment (PDF/DOCX/TXT/CSV) — text ang kinukuha dito sa
+    // server (see extractTextFromAttachedDocument()), hiwalay sa image
+    // attach sa itaas na direktang pinapasa sa vision model.
+    const fileDataUrl = typeof req.body?.file === 'string' && req.body.file.startsWith('data:') ? req.body.file : null;
+    const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.slice(0, 200) : '';
+    // Tsekin muna ang credits BAGO gawin ang (potentially mabigat na)
+    // PDF/DOCX text extraction — para hindi na-sasayang ang CPU time sa
+    // pag-parse ng file kung malamang na ma-block naman agad dahil ubos
+    // na ang buwanang AI credits ng store.
+    const creditCost = imageDataUrl ? AI_ASSISTANT_IMAGE_CREDIT_COST : (fileDataUrl ? AI_ASSISTANT_FILE_CREDIT_COST : AI_ASSISTANT_TEXT_CREDIT_COST);
     const creditStatusBefore = getAiAssistantCreditStatus();
     if (creditStatusBefore.remaining < creditCost) {
         return res.status(402).json({
@@ -5327,6 +5497,17 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
             message: `Naubos na ang buwanang AI credits ng store na ito (${creditStatusBefore.used}/${creditStatusBefore.limit}). Mare-reset ito sa susunod na buwan.`,
             ...creditStatusBefore
         });
+    }
+    let fileContextMsg = null;
+    if (fileDataUrl) {
+        const extraction = await extractTextFromAttachedDocument(fileDataUrl, fileName);
+        if (!extraction.success) {
+            return res.status(422).json({ success: false, message: extraction.message });
+        }
+        fileContextMsg = {
+            role: 'system',
+            content: `The user attached a document named "${fileName || 'attachment'}". Extracted text content (may be partial/truncated):\n\n${extraction.text || '(No readable text found in the document.)'}\n\nUse this only if relevant to the question; do not assume anything about the document beyond this extracted text.`
+        };
     }
     const context = rawContext.slice(0, 8).map((c) => ({
         question: typeof c?.question === 'string' ? c.question.slice(0, 300) : '',
@@ -5341,9 +5522,14 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
         content: typeof h?.text === 'string' ? h.text.slice(0, 500) : ''
     })).filter((h) => h.content);
     const diagnosticMsg = buildDiagnosticSystemMessage(req.body?.diagnostics, req.body?.clientErrors);
+    const userRole = req.authUser && req.authUser.role;
+    const isAdminRole = (userRole || '').toLowerCase() === 'admin';
+    const dbContextMsg = buildAiDatabaseContextMessage(userRole);
     const baseMessages = [
-        { role: 'system', content: buildAiAssistantSystemPrompt(lang) },
+        { role: 'system', content: buildAiAssistantSystemPrompt(lang, isAdminRole) },
         { role: 'system', content: `OmniPOS FAQ Knowledge Base entries relevant to this question:\n\n${contextText}` },
+        ...(dbContextMsg ? [dbContextMsg] : []),
+        ...(fileContextMsg ? [fileContextMsg] : []),
         ...(diagnosticMsg ? [diagnosticMsg] : []),
         ...history
     ];
@@ -5351,6 +5537,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     const username = (req.authUser && req.authUser.username) || 'Unknown';
 
     let result;
+    let visionFailureReason = null;
     if (imageDataUrl) {
         const visionMessages = [
             ...baseMessages,
@@ -5364,6 +5551,19 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
         ];
         result = await callCloudflareWorkersVisionAI(visionMessages);
         if (!result.success) {
+            // BUG FIX: dating basta itinatapon ang result.message dito —
+            // kaya kahit paulit-ulit na nabigo ang vision model (hal.
+            // kailangan pang i-"agree" ang Meta License ng
+            // @cf/meta/llama-3.2-11b-vision-instruct sa Cloudflare
+            // dashboard bago ito gumana), walang bakas kahit saan (server
+            // console man o AI Analytics) kung ano talaga ang dahilan —
+            // ang nakikita lang ng user ay ang generic na "can't view
+            // images" na sagot mismo ng AI. I-log muna ito bago mag-
+            // fallback sa text-only, para makita ng developer/admin sa
+            // server logs at sa AI Analytics (visionError field) ang
+            // totoong sanhi.
+            visionFailureReason = result.message || 'Unknown vision error.';
+            console.error(`⚠️ AI Assistant vision call failed (falling back to text-only): ${visionFailureReason}`);
             // Vision model unavailable/not configured — fall back to a
             // text-only answer so the user still gets *something* useful.
             result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but it could not be analyzed by the image model. Let them know you can't view images right now and ask them to describe what they see instead.)` }]);
@@ -5374,13 +5574,13 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
 
     const tookMs = Date.now() - startedAt;
     if (!result.success) {
-        logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, answered: false, tookMs, error: result.message });
+        logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, hasFile: !!fileDataUrl, answered: false, tookMs, error: result.message, visionError: visionFailureReason || undefined });
         return res.status(502).json({ success: false, message: result.message });
     }
 
     const creditStatusAfter = consumeAiAssistantCredits(creditCost);
     const suggestedActions = computeSuggestedActions(question, result.answer);
-    logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, answered: true, tookMs, creditCost });
+    logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, hasFile: !!fileDataUrl, answered: true, tookMs, creditCost, visionError: visionFailureReason || undefined });
 
     res.json({
         success: true,

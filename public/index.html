@@ -2684,15 +2684,19 @@
                             <div id="faq-quick-actions" class="faq-quick-actions"></div>
 
                             <div id="faq-image-preview-wrap" class="faq-image-preview-wrap" style="display:none;">
-                                <img id="faq-image-preview" alt="Attached screenshot preview">
+                                <img id="faq-image-preview" alt="Attached screenshot preview" style="display:none;">
+                                <span id="faq-file-preview-chip" class="faq-file-preview-chip" style="display:none;">
+                                    <i class="fa-solid fa-file-lines"></i>
+                                    <span id="faq-file-preview-name"></span>
+                                </span>
                                 <button type="button" id="faq-image-remove-btn" title="Remove attachment" onclick="OmniFAQ.clearImage()"><i class="fa-solid fa-xmark"></i></button>
                             </div>
 
                             <div class="faq-composer" id="faq-composer">
-                                <button type="button" class="faq-composer-icon-btn" id="faq-attach-btn" title="Attach a screenshot" onclick="OmniFAQ.triggerAttach()">
+                                <button type="button" class="faq-composer-icon-btn" id="faq-attach-btn" title="Attach a screenshot, PDF, Word doc, or text/CSV file" onclick="OmniFAQ.triggerAttach()">
                                     <i class="fa-solid fa-paperclip"></i>
                                 </button>
-                                <input type="file" id="faq-ai-image-input" accept="image/*" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
+                                <input type="file" id="faq-ai-image-input" accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
                                 <div class="faq-composer-input-wrap">
                                     <input type="text" id="faq-ai-input" placeholder="e.g. how to void a transaction, what is a shift, how to use a promo code..."
                                            autocomplete="off"

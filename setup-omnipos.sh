@@ -2,7 +2,15 @@ ZIP_NAME="omnipos-client.zip"
 
 set -e
 
-SCRIPT_PATH="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
+# NOTE: this script is no longer necessarily run as a real file with a
+# meaningful $0 — omnipos-installer.sh extracts it from inside the zip
+# into a temp dir, reads it into memory, and runs it via
+# `bash -c "$SCRIPT_CONTENT"`. In that mode $0 is just the literal
+# string "bash", not a real path, so a former "SCRIPT_PATH=...$0..."
+# self-cleanup here would silently target a nonexistent file. The
+# actual leftover file worth cleaning up after a successful install is
+# the omnipos-installer.sh the user downloaded to their Downloads
+# folder (see INSTALLER_SCRIPT_PATH cleanup near the end of this file).
 
 if [ -n "$TERMUX_VERSION" ] || [ -d "/data/data/com.termux" ] || command -v termux-setup-storage >/dev/null 2>&1; then
     PLATFORM="termux"
@@ -500,6 +508,21 @@ rm -rf node_modules package-lock.json
 npm install
 chmod +x start.sh 2>/dev/null || true
 
+# Safety net: the AI Assistant's document-reading feature (PDF/DOCX
+# attachments) needs "pdf-parse" and "mammoth". These SHOULD already be
+# listed in package.json and get installed by the plain `npm install`
+# above — but if this client.zip happens to have been built from an
+# older package.json (before these were added), or the install above
+# was interrupted/partial, make sure they're present anyway so the
+# feature actually works instead of silently telling users it's "not
+# enabled on this server yet".
+for pkg in pdf-parse mammoth; do
+    if [ ! -d "node_modules/$pkg" ]; then
+        echo "📥 Installing additional dependency: $pkg (needed for AI Assistant PDF/DOCX reading)..."
+        npm install "$pkg" --save || echo "⚠️  Could not install $pkg — PDF/DOCX reading in the AI Assistant will stay disabled until this is installed manually."
+    fi
+done
+
 echo "🔨 Patching start.sh..."
 
 if grep -q "^\s*termux-notification --id omnipos-supervisor" start.sh 2>/dev/null; then
@@ -913,8 +936,8 @@ echo "The .env is ready (RELAY_URL/RELAY_API_KEY are already baked in"
 echo "from the RELAY build) — no need to set this up manually anymore."
 echo ""
 
-echo "🧹 Cleaning up the installer file (setup-omnipos.sh) from Downloads..."
-rm -f "$SCRIPT_PATH" 2>/dev/null || true
+echo "🧹 Cleaning up the installer file (omnipos-installer.sh) from Downloads..."
+rm -f "$DOWNLOADS_DIR/omnipos-installer.sh" 2>/dev/null || true
 
 if [ "$PLATFORM" = "termux" ]; then
     echo ""

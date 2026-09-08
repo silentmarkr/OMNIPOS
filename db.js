@@ -348,7 +348,18 @@ function mirrorBackupToDownloads() {
     }
 }
 
-const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions']);
+// BUG FIX / COST FIX: dating 'sessions' lang ang naka-exclude dito.
+// Idinagdag ang 'aiAssistantLogs' at 'aiAssistantUsage' — operational
+// telemetry lang ito ng AI Assistant feature (mga tanong, timing,
+// error, buwanang credit usage), WALANG halaga bilang "backup" ng
+// negosyo ng client, pero patuloy itong lumalaki (hanggang 1000 entries,
+// kasama ang buong text ng bawat tanong) at kasama pa rin sa Cloud
+// Backup snapshot kung hindi dito i-exclude — ibig sabihin dagdag na
+// storage sa Neon Postgres ng developer (shared cloud-backup database
+// sa maraming client) kada successful sync, nang walang benepisyo sa
+// client. Sa halip, hayaan na lang itong manatiling lokal (SQLite) sa
+// bawat device/server ng client.
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 
 function getAllModuleNames() {
@@ -408,7 +419,70 @@ function getFullDatabaseSnapshot() {
     };
 }
 
-module.exports = { db, readData, writeData, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
+// ===================================================================
+// AI ASSISTANT KNOWLEDGE SNAPSHOT
+// ===================================================================
+// Ginagamit ito ng /api/ai-assistant/ask (server.js) para bigyan ang AI
+// Assistant ng kaalaman tungkol sa AKTWAL na laman ng database (hindi
+// lang FAQ knowledge base) — pero naka-gate pa rin base sa role ng
+// naka-login na user:
+//   - scope 'full'    (Admin / authorized user) -> LAHAT ng modules
+//   - scope 'limited' (regular/non-admin user)   -> catalog-level lang
+// Kahit 'full' scope, laging tinatanggal ang mga field na walang saysay
+// (o mapanganib) na ipadala sa isang third-party AI provider — hindi ito
+// "impormasyon tungkol sa system" na kailangan ng tao, kundi raw na
+// security secret (password hash, session token, license/activation key).
+const AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES = new Set([
+    'sessions', 'featureUnlocks', 'cloudTokenPrefs',
+    'aiAssistantLogs', 'aiAssistantUsage', 'aiSupportTickets'
+]);
+// Kapag hindi Admin/authorized ang naka-login, ito lang ang mga module na
+// isasama — basic catalog/store info, walang financial totals, walang
+// data ng ibang user, walang debts/fraud/security config.
+const AI_ASSISTANT_LIMITED_ROLE_MODULES = new Set(['products', 'categories', 'promocodes', 'storeSettings', 'roles']);
+// BUG FIX: dating 300 ang cap na ito — masyadong marami kapag pinagsama-
+// samang mga module (lalo na ang mabibigat gaya ng transactions), kaya
+// isa sa mga naging dahilan kung bakit palaging na-e-exceed ang context
+// budget ng AI model (see buildAiDatabaseContextMessage() sa server.js).
+// Mas maliit na cap dito, at ang FINAL na safety ay ang per-module size
+// budget sa buildAiDatabaseContextMessage() — pareho itong ginagawa
+// para dalawang layer ng proteksyon laban sa sobrang laking context.
+const AI_ASSISTANT_MAX_RECORDS_PER_MODULE = 30;
+
+function getAiKnowledgeSnapshot(scope) {
+    const isFull = scope === 'full';
+    const moduleNames = getAllModuleNames().filter((m) => !AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES.has(m));
+    const allowedModules = isFull ? moduleNames : moduleNames.filter((m) => AI_ASSISTANT_LIMITED_ROLE_MODULES.has(m));
+    const modules = {};
+    const truncatedModules = [];
+    let totalRecords = 0;
+
+    for (const moduleName of allowedModules) {
+        let data = stripRedactedFields(moduleName, readData(moduleName, []));
+        if (Array.isArray(data)) {
+            totalRecords += data.length;
+            if (data.length > AI_ASSISTANT_MAX_RECORDS_PER_MODULE) {
+                truncatedModules.push(moduleName);
+                // Panatilihin ang PINAKABAGONG records (mas kapaki-pakinabang
+                // sa karaniwang tanong kaysa sa pinakauna).
+                data = data.slice(-AI_ASSISTANT_MAX_RECORDS_PER_MODULE);
+            }
+        }
+        modules[moduleName] = data;
+    }
+
+    return {
+        scope: isFull ? 'full' : 'limited',
+        modules,
+        moduleNames: allowedModules,
+        totalRecords,
+        truncatedModules,
+        recordCapPerModule: AI_ASSISTANT_MAX_RECORDS_PER_MODULE,
+        generatedAt: new Date().toISOString()
+    };
+}
+
+module.exports = { db, readData, writeData, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

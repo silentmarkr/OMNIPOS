@@ -121,6 +121,8 @@
       ticketError: 'Could not submit the ticket. Please try again.',
       ticketMissingMessage: 'Please describe the issue first.',
       imageTooLarge: 'That image is too large. Please attach a smaller screenshot (max ~4MB).',
+      fileTooLarge: 'That file is too large. Please attach a smaller document (max ~8MB).',
+      fileUnsupported: 'Unsupported file type. Supported: images, PDF, DOCX, TXT, CSV.',
       backToCommon: 'Back to common questions',
       newSearch: 'New search'
     },
@@ -174,6 +176,8 @@
       ticketError: 'Hindi naisumite ang ticket. Subukan ulit.',
       ticketMissingMessage: 'Pakilarawan muna ang problema.',
       imageTooLarge: 'Masyadong malaki ang larawan. Mag-attach ng mas maliit (max ~4MB).',
+      fileTooLarge: 'Masyadong malaki ang file. Mag-attach ng mas maliit na dokumento (max ~8MB).',
+      fileUnsupported: 'Hindi suportadong file type. Suportado: larawan, PDF, DOCX, TXT, CSV.',
       backToCommon: 'Bumalik sa mga karaniwang tanong',
       newSearch: 'Bagong paghahanap'
     }
@@ -1310,8 +1314,11 @@
     };
   }
 
-  // ---- image attachment (screenshot assistant) -------------------------
+  // ---- attachment: screenshot (image) OR document (pdf/docx/txt/csv) ----
   let pendingImageDataUrl = null;
+  let pendingFileDataUrl = null;
+  let pendingFileName = null;
+  const DOC_EXT_RE = /\.(pdf|docx|txt|csv|md|log)$/i;
   function triggerAttach() {
     document.getElementById('faq-ai-image-input')?.click();
   }
@@ -1320,16 +1327,38 @@
     event.target.value = '';
     if (!file) return;
     const s = STRINGS();
-    if (file.size > 4.5 * 1024 * 1024) {
-      alert(s.imageTooLarge);
+    const isImage = file.type.startsWith('image/');
+    const maxBytes = isImage ? 4.5 * 1024 * 1024 : 8 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      alert(isImage ? s.imageTooLarge : (s.fileTooLarge || 'That file is too large (max ~8MB).'));
+      return;
+    }
+    if (!isImage && !DOC_EXT_RE.test(file.name || '') && file.type !== 'application/pdf' &&
+        file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' &&
+        !file.type.startsWith('text/')) {
+      alert(s.fileUnsupported || 'Unsupported file type. Supported: images, PDF, DOCX, TXT, CSV.');
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
-      pendingImageDataUrl = reader.result;
       const wrap = document.getElementById('faq-image-preview-wrap');
       const img = document.getElementById('faq-image-preview');
-      if (img) img.src = pendingImageDataUrl;
+      const fileChip = document.getElementById('faq-file-preview-chip');
+      const fileNameEl = document.getElementById('faq-file-preview-name');
+      if (isImage) {
+        pendingImageDataUrl = reader.result;
+        pendingFileDataUrl = null;
+        pendingFileName = null;
+        if (img) { img.src = pendingImageDataUrl; img.style.display = ''; }
+        if (fileChip) fileChip.style.display = 'none';
+      } else {
+        pendingFileDataUrl = reader.result;
+        pendingFileName = file.name || 'attachment';
+        pendingImageDataUrl = null;
+        if (fileNameEl) fileNameEl.textContent = pendingFileName;
+        if (fileChip) fileChip.style.display = '';
+        if (img) { img.style.display = 'none'; img.removeAttribute('src'); }
+      }
       if (wrap) wrap.style.display = 'inline-block';
       document.getElementById('faq-attach-btn')?.classList.add('has-attachment');
     };
@@ -1337,6 +1366,8 @@
   }
   function clearImage() {
     pendingImageDataUrl = null;
+    pendingFileDataUrl = null;
+    pendingFileName = null;
     const wrap = document.getElementById('faq-image-preview-wrap');
     if (wrap) wrap.style.display = 'none';
     document.getElementById('faq-attach-btn')?.classList.remove('has-attachment');
@@ -1508,6 +1539,8 @@
     const historyPayload = chatHistory.slice(0, -1).slice(-8).map(h => ({ role: h.role, text: h.text }));
 
     const imageToSend = pendingImageDataUrl;
+    const fileToSend = pendingFileDataUrl;
+    const fileNameToSend = pendingFileName;
     const wantsDiagnostics = pendingDiagnosticsRequested;
     pendingDiagnosticsRequested = false;
     clearImage();
@@ -1522,6 +1555,8 @@
           context: candidates,
           history: historyPayload,
           image: imageToSend || undefined,
+          file: fileToSend || undefined,
+          fileName: fileToSend ? fileNameToSend : undefined,
           diagnostics: wantsDiagnostics ? gatherDiagnostics() : undefined,
           clientErrors: wantsDiagnostics ? (CAPTURED_ERRORS.length ? CAPTURED_ERRORS : [s.noErrorsCaptured]) : undefined
         }),
