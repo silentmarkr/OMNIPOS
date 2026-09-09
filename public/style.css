@@ -8330,14 +8330,14 @@ body.dark-mode .faq-cat-chip, .dark .faq-cat-chip {
   max-width: 800px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 3px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 3px;
 }
 .ai-credit-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   padding: 5px 12px;
   border-radius: 999px;
   font-size: 0.75rem;
