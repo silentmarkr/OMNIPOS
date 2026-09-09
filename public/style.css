@@ -11851,12 +11851,12 @@ body.dark-mode .ct-package-breakdown {
     display: flex;
     flex-direction: column !important;
     margin: -30px !important;
-    height: calc(100vh - 69px - 70px) !important; /* 69px header + 70px bottom nav */
+    height: calc(100vh - 69px - 60px) !important; /* 69px header + 70px bottom nav */
     /* BUGFIX: hiling ng user — i-expand din ang chatbox sa mobile
        Search (kb) mode. Dating 12px pantay sa lahat ng gilid — dito,
        6px na lang sa itaas/ibaba (mas malapit sa header, mas malaki
        ang natitirang taas), pero pinapanatili ang 12px sa gilid. */
-    padding: 6px 12px !important;
+    padding: 6px 3px !important;
     box-sizing: border-box !important;
     overflow: hidden !important;
   }
@@ -11873,7 +11873,7 @@ body.dark-mode .ct-package-breakdown {
     flex: 1 !important;
     min-height: 0 !important;
     overflow: hidden !important;
-    padding: 10px !important;
+    padding: 8px !important;
   }
   #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
   #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box {
@@ -11955,7 +11955,7 @@ body.dark-mode .ct-package-breakdown {
     display: flex !important;
     flex-wrap: wrap !important;
     align-items: center !important;
-    gap: 8px 10px !important;
+    gap: 8px 8px !important;
     max-width: 100% !important;
   }
   #view-faq #faq-lang-toggle {
@@ -11991,9 +11991,9 @@ body.dark-mode .ct-package-breakdown {
     align-items: center !important;
     justify-content: center !important;
     gap: 0 !important;
-    min-height: 30px !important;
+    min-height: 10px !important;
     max-width: 100% !important;
-    padding: 3px 6px !important;
+    padding: 3px 3px !important;
     border: 1px solid var(--border-color, #cbd5e1) !important;
     border-radius: 999px !important;
     background: rgba(37, 99, 235, 0.06) !important;
@@ -12004,7 +12004,7 @@ body.dark-mode .ct-package-breakdown {
     border: 0 !important;
     background: transparent !important;
     margin: 0 !important;
-    padding: 3px 7px !important;
+    padding: 3px 10px !important;
     min-height: 0 !important;
   }
   body.dark-mode #view-faq #ai-assistant-credit-expiry,
@@ -12024,8 +12024,8 @@ body.dark-mode .ct-package-breakdown {
     align-items: center !important;
     justify-content: space-between !important;
     flex-wrap: nowrap !important;
-    gap: 8px !important;
-    margin: 0 0 10px !important;
+    gap: 3px !important;
+    margin: 0 0 3px !important;
   }
   /* BUGFIX: hiling ng user — dapat "sagad"/flush ang AI Chatbot (fullchat)
      na chat thread papunta sa quick-action icons row sa ibaba (~1px na
@@ -12055,7 +12055,7 @@ body.dark-mode .ct-package-breakdown {
     background: rgba(100,116,139,0.06) !important;
     color: var(--text-secondary, #64748b) !important;
     border-radius: 999px !important;
-    padding: 6px 12px !important;
+    padding: 6px 6px !important;
     font-size: 0.76rem !important;
     font-weight: 600 !important;
   }
@@ -12071,3 +12071,219 @@ body.dark-mode .ct-package-breakdown {
     color: var(--dm-text-secondary, #9a9ba8) !important;
   }
 }
+
+/* =====================================================================
+   Desktop/tablet terminal product grid — fixed card size
+   Mobile (<=768px) keeps its original responsive minmax(128px, 1fr)
+   behavior untouched. From 769px up, the auto-fill + 1fr track was
+   letting each .t-product-card stretch or shrink to fill the row,
+   so cards changed size depending on window/pane width instead of
+   staying the same size as the mobile design. Locking the column
+   track to a fixed width keeps every card the same physical size on
+   any desktop/tablet width; the grid simply wraps more cards per row
+   (or fewer) and keeps scrolling via the grid's existing
+   overflow-y: auto — no card ever grows or shrinks.
+   ===================================================================== */
+@media screen and (min-width: 769px) {
+    /* Desktop grid uses the same product-card layout as mobile grid view.
+       Only the grid track is fixed so cards never stretch or collapse. */
+    .terminal-products-grid {
+        grid-template-columns: repeat(auto-fill, 175px) !important;
+        grid-auto-rows: max-content;
+        justify-content: start;
+        align-content: start;
+        gap: 12px;
+    }
+
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card {
+        display: grid !important;
+        width: 175px;
+        min-width: 175px;
+        max-width: 175px;
+        height: auto;
+        min-height: 0;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "image"
+            "name"
+            "price"
+            "stock";
+        align-items: center;
+        row-gap: 4px;
+        column-gap: 6px;
+        padding: 0 0 10px;
+        text-align: left;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-icon {
+        width: 175px;
+        max-width: 175px;
+        height: 100px;
+        min-height: 100px;
+        margin: 0 0 8px;
+        border-radius: 16px 16px 0 0;
+        font-size: 2.5rem;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card h4 {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0 10px;
+        margin-bottom: 2px;
+        font-size: 0.8rem;
+        line-height: 1.25;
+        height: auto;
+        min-height: 2.5em;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-price {
+        width: 100%;
+        box-sizing: border-box;
+        padding-left: 10px;
+        margin: 0;
+        font-size: 0.9rem;
+        text-align: left;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        min-width: 0;
+    }
+
+    .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-prod-stock {
+        justify-self: start;
+        width: fit-content;
+        max-width: calc(100% - 20px);
+        margin: 0 0 0 10px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        text-align: right;
+        background: #2e3038;
+        white-space: nowrap;
+        box-sizing: border-box;
+    }
+}
+/* Desktop-only quick navigation for Transaction Database Records.
+   Mobile/tablet keeps the existing responsive header untouched. */
+.transactions-page-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.transactions-page-title-row h2 {
+    margin: 0;
+    order: 1;
+}
+
+.transactions-void-refund-shortcut {
+    order: 2;
+    margin-left: auto;
+  margin-bottom: 3px;
+}
+@media screen and (min-width: 1025px) {
+    .transactions-void-refund-shortcut {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        flex: 0 0 auto;
+        min-height: 34px;
+        padding: 7px 12px;
+        border: 1px solid rgba(245, 158, 11, 0.45);
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.16), rgba(245, 158, 11, 0.12));
+        color: #f59e0b;
+        font-size: 0.8rem;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: transform 0.16s ease, filter 0.16s ease, border-color 0.16s ease;
+    }
+    .transactions-void-refund-shortcut:hover {
+        filter: brightness(1.12);
+        border-color: rgba(245, 158, 11, 0.75);
+        transform: translateY(-1px);
+    }
+    .transactions-void-refund-shortcut:active {
+        transform: translateY(0);
+    }
+}
+.transactions-void-refund-shortcut {
+    display: none !important;
+}
+
+
+
+@media screen and (min-width: 1025px) {
+    .transactions-void-refund-shortcut {
+        display: inline-flex !important;
+    }
+}
+.void-refund-transaction-shortcut {
+    display: none;
+}
+
+@media screen and (min-width: 1025px) {
+    .void-refund-transaction-shortcut {
+        display: inline-flex;
+        align-items: right;
+        justify-content: center;
+        gap: 6px;
+        margin-right: 15px;
+    }
+}
+
+.void-refund-transaction-shortcut {
+    display: none !important;
+}
+
+@media screen and (min-width: 1025px) {
+    .void-refund-transaction-shortcut {
+        display: inline-flex !important;
+        align-items: right;
+        justify-content: center;
+        gap: 7px;
+        min-height: 34px;
+        padding: 7px 12px;
+        margin: 0 15px 0 0;
+        border: 1px solid rgba(245, 158, 11, 0.45);
+        border-radius: 8px;
+        background: linear-gradient(
+            135deg,
+            rgba(239, 68, 68, 0.16),
+            rgba(245, 158, 11, 0.12)
+        );
+        color: #f59e0b;
+        font-size: 0.8rem;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        white-space: nowrap;
+        transition:
+            transform 0.16s ease,
+            filter 0.16s ease,
+            border-color 0.16s ease;
+    }
+
+    .void-refund-transaction-shortcut:hover {
+        filter: brightness(1.12);
+        border-color: rgba(245, 158, 11, 0.75);
+        transform: translateY(-1px);
+    }
+
+    .void-refund-transaction-shortcut:active {
+        transform: translateY(0);
+    }
+}
+
+

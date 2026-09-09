@@ -19367,3 +19367,4 @@ if ('serviceWorker' in navigator) {
         });
     });
 }
+

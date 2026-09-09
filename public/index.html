@@ -892,6 +892,13 @@
                             <h2 id="page-title-stock_return_inspection">Voided/Refunded</h2>
                             <p style="margin:4px 0 0;color:#64748b;font-size:.85rem;">Returned items from voided or refunded transactions awaiting stock inspection.</p>
                         </div>
+                      <button type="button"
+        class="void-refund-transaction-shortcut"
+        onclick="switchView('transactions')"
+        title="Open Transaction Database Records">
+    <i class="fa-solid fa-receipt"></i>
+    <span>Transactions</span>
+                      </button>
                         <div class="header-action-group">
                             <button type="button" class="btn-action-outline" onclick="loadPendingStockReturns()"><i class="fa-solid fa-rotate"></i><span class="btn-action-label"> Refresh</span></button>
                         </div>
@@ -1171,7 +1178,13 @@
                 </section>
 
                                 <section id="view-transactions" class="app-view" style="display:none;">
-                    <h2 id="page-title-transactions">Transaction Database Records</h2>
+                    <div class="transactions-page-title-row">
+                        <button type="button" class="transactions-void-refund-shortcut" onclick="switchView('stock_return_inspection')" title="Open Void / Refund">
+                            <i class="fa-solid fa-rotate-left"></i>
+                            <span>Void / Refund</span>
+                        </button>
+                        <h2 id="page-title-transactions">Transaction Database Records</h2>
+                    </div>
 
                     <div class="tx-search-card">
                         <div class="recovery-section">
