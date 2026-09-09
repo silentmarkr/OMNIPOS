@@ -684,7 +684,7 @@
     categories.forEach((cat, idx) => {
       const entries = byCategory.get(cat);
       html += `
-        <details class="faq-category" id="${slugCat(cat)}" ${idx === 0 ? 'open' : ''}>
+        <details class="faq-category" id="${slugCat(cat)}">
           <summary>
             <span class="faq-category-title">${escapeHtml(cat)}</span>
             <span class="faq-category-count">${entries.length}</span>
@@ -767,6 +767,9 @@
             <i class="fa-solid fa-lock"></i> ${s.aiModeAi}
           </span>
         </div>`;
+      const lockedPill = document.getElementById('ai-assistant-credit-pill');
+      if (lockedPill) lockedPill.style.display = 'none';
+      if (typeof window.syncAiCreditExpiryWrapper === 'function') window.syncAiCreditExpiryWrapper();
       return;
     }
 
@@ -1019,7 +1022,7 @@
     const view = document.getElementById('view-faq');
     const box = document.getElementById('faq-ai-box');
     if (!view || !box) return;
-    if (view.style.display === 'none' || view.classList.contains('faq-fullchat-mode')) {
+    if (view.style.display === 'none' || view.classList.contains('faq-fullchat-mode') || window.innerWidth >= 1025) {
       box.style.removeProperty('min-height');
       return;
     }
@@ -1398,7 +1401,11 @@
   async function refreshAiCreditPill(preloaded) {
     const pill = document.getElementById('ai-assistant-credit-pill');
     if (!pill) return;
-    if (!aiAssistantUnlocked()) { pill.style.display = 'none'; return; }
+    const syncWrap = () => { if (typeof window.syncAiCreditExpiryWrapper === 'function') window.syncAiCreditExpiryWrapper(); };
+    // BAGO: hiling ng user — walang dapat makikitang AI credit/expiration
+    // pill maliban sa AI Chatbot mode mismo (hindi sa Search/kb mode, at
+    // hindi rin kapag naka-lock/hindi pa na-unlock ang AI Assistant).
+    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { pill.style.display = 'none'; syncWrap(); return; }
     const s = STRINGS();
     try {
       const data = preloaded || await (async () => {
@@ -1414,6 +1421,7 @@
       // ipakita bilang "exhausted" — kabaligtaran ng sinasadya.
       if (!data || typeof data.remaining !== 'number' || typeof data.limit !== 'number') {
         pill.style.display = 'none';
+        syncWrap();
         return;
       }
       const remaining = data.remaining;
@@ -1422,8 +1430,10 @@
       pill.classList.toggle('low', limit > 0 && remaining / limit <= 0.15 && remaining > 0);
       pill.classList.toggle('exhausted', remaining <= 0);
       pill.innerHTML = `<i class="fa-solid fa-bolt"></i> ${escapeHtml(s.creditsLabel)}: ${remaining}/${limit}`;
+      syncWrap();
     } catch (e) {
       pill.style.display = 'none';
+      syncWrap();
     }
   }
 

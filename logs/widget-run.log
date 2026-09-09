@@ -1105,3 +1105,389 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 07:46:26] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 07:46:29] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 07:46:32] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-08T23:36:20.596Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 07:52:24] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 07:52:26] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 07:52:29] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-08T23:52:12.424Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+[2026-09-09 08:30:25] ⚠️  May natirang lock file mula sa dating session (PID 7348, hindi na tumatakbo) — nililinis.
+[2026-09-09 08:30:26] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 08:30:29] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-08T23:55:38.628Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 09:17:10] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 09:17:12] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 09:17:15] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T01:15:21.111Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[2026-09-09 10:44:17] ⚠️  May natirang lock file mula sa dating session (PID 5200, hindi na tumatakbo) — nililinis.
+[2026-09-09 10:44:18] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 10:44:21] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T02:39:31.551Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 10:56:27] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 10:56:29] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 10:56:32] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T02:53:10.605Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 15:06:52] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 15:06:54] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 15:06:57] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T07:06:33.319Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[2026-09-09 15:48:58] ⚠️  May natirang lock file mula sa dating session (PID 17957, hindi na tumatakbo) — nililinis.
+[2026-09-09 15:48:59] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 15:49:02] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T07:09:32.705Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+[2026-09-09 15:49:58] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 15:50:01] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T07:09:32.705Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 16:45:07] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 16:45:10] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 16:45:13] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T08:44:13.677Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 18:16:48] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 18:16:50] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 18:16:53] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T10:16:40.117Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 18:37:37] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 18:37:40] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 18:37:43] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T10:36:35.029Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-09 18:52:57] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-09 18:52:59] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 18:53:02] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T10:52:44.027Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[2026-09-09 20:04:40] ⚠️  May natirang lock file mula sa dating session (PID 13877, hindi na tumatakbo) — nililinis.
+[2026-09-09 20:04:41] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-09 20:04:44] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-09T12:03:11.865Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

@@ -1398,6 +1398,28 @@ function updateSidebarFeatureLocks() {
 // Multi-Branch subscriptions — para ganap nang "same treatment" ang
 // tatlo. Iisang fetch lang sa /api/module-subscriptions/status (hindi na
 // hiwalay per-feature) dahil magkasabay naman silang ipinapakita.
+// BUGFIX: ang #ai-assistant-credit-expiry na wrapper (may sariling
+// border/background/pill shape mula sa mobile/desktop na CSS) ay
+// walang default hidden state — kaya kahit walang laman ang DALAWA
+// nitong anak na elemento (#ai-assistant-credit-pill at
+// #ai-assistant-subscription-status, hal. sa Search/Keyword FAQ mode
+// kung saan force-hidden ang subscription-status), nananatiling
+// bisible ang WRAPPER mismo bilang isang walang-lamang "ghost" na
+// pill — lumalabas itong parang naliligtaang black/di-tema-sunod na
+// hugis (ito ang na-report na bug sa FAQ page screenshot). Tinatawag
+// ito kada pagbabago ng alinman sa dalawang anak (see faq-engine.js:
+// refreshAiCreditPill, at renderAiAssistantCompactExpiry sa ibaba) —
+// getComputedStyle ang ginamit (sa halip na .style.display lang) para
+// tamang nasusunod pati ang CSS !important rules (hal. ang
+// force-hide ng subscription-status sa Search mode).
+function syncAiCreditExpiryWrapper() {
+    const wrap = document.getElementById('ai-assistant-credit-expiry');
+    if (!wrap) return;
+    const pill = document.getElementById('ai-assistant-credit-pill');
+    const status = document.getElementById('ai-assistant-subscription-status');
+    const isVisible = (el) => !!el && getComputedStyle(el).display !== 'none';
+    wrap.style.display = (isVisible(pill) || isVisible(status)) ? '' : 'none';
+}
 async function updateModuleSubscriptionBadges() {
     const rbacBox = document.getElementById('rbac-subscription-status');
     const multiBranchBox = document.getElementById('multi-branch-subscription-status');
@@ -1407,7 +1429,7 @@ async function updateModuleSubscriptionBadges() {
     const aiAssistantUnlocked = isFeatureUnlockedCached('ai_assistant');
     if (rbacBox && !rbacUnlocked) rbacBox.style.display = 'none';
     if (multiBranchBox && !multiBranchUnlocked) multiBranchBox.style.display = 'none';
-    if (aiAssistantBox && !aiAssistantUnlocked) aiAssistantBox.style.display = 'none';
+    if (aiAssistantBox && !aiAssistantUnlocked) { aiAssistantBox.style.display = 'none'; syncAiCreditExpiryWrapper(); }
     const faqAiUpsell = document.getElementById('faq-ai-upsell');
     if (faqAiUpsell) faqAiUpsell.style.display = aiAssistantUnlocked ? 'none' : 'block';
     if (!rbacUnlocked && !multiBranchUnlocked && !aiAssistantUnlocked) return;
@@ -1441,10 +1463,12 @@ async function updateModuleSubscriptionBadges() {
 function renderAiAssistantCompactExpiry(box, sub) {
     if (!sub || !sub.active) {
         box.style.display = 'none';
+        syncAiCreditExpiryWrapper();
         return;
     }
     if (typeof sub.expiresAt !== 'number') {
         box.style.display = 'none';
+        syncAiCreditExpiryWrapper();
         return;
     }
     const daysLeft = Math.ceil((sub.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
@@ -1459,6 +1483,7 @@ function renderAiAssistantCompactExpiry(box, sub) {
     }
     box.style.display = 'inline-flex';
     box.innerHTML = text;
+    syncAiCreditExpiryWrapper();
 }
 function renderModuleSubscriptionBadge(box, displayName, sub) {
     if (!sub || !sub.active) {
@@ -5028,6 +5053,7 @@ function viewShiftDetail(shiftId) {
                 <p><b>Net Sales:</b> ₱${(parseFloat(h.netSales) || 0).toFixed(2)}</p>
                 <p><b>Transactions:</b> ${h.transactionCount}${h.noSalesShift ? ' (No Sales - Handover)' :''}</p>
                 <p><b>Voids:</b> ${h.voidCount || 0} — ₱${(parseFloat(h.voidedAmount) || 0).toFixed(2)}</p>
+                <p><b>Refunds:</b> ${h.refundCount || 0} — ₱${(parseFloat(h.refundedAmount) || 0).toFixed(2)}</p>
                 <hr>
                 <p><b>Beginning Cash:</b> ₱${beginVal}</p>
                 <p><b>Cash Sales:</b> ₱${(parseFloat(h.cashSales) || 0).toFixed(2)}</p>

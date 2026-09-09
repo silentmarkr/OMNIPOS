@@ -171,7 +171,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260908-1">
+    <link rel="stylesheet" href="style.css?v=20260909-2">
     
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -2672,7 +2672,7 @@
                                 <i class="fa-solid fa-globe"></i> Tag
                             </button>
                         </div>
-                        <div id="ai-assistant-credit-expiry" class="ai-credit-expiry-group" aria-label="AI Credits and expiration">
+                        <div id="ai-assistant-credit-expiry" class="ai-credit-expiry-group" style="display:none;" aria-label="AI Credits and expiration">
                             <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="AI Assistant monthly credits"></div>
                             <div id="ai-assistant-subscription-status" class="faq-subscription-compact" style="display:none;"></div>
                         </div>
@@ -2805,6 +2805,20 @@
                        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
                    }
                    .faq-lang-option.active:hover { color: #fff; }
+                   /* BUGFIX: walang dating dark-mode override ang .faq-lang-toggle
+                      kahit saan (kaiba sa katabing .faq-mode-toggle sa style.css na
+                      may sariling dark override) — kaya ang halos-transparent na
+                      light-gray gradient background nito ay nawawala/nagmumukhang
+                      SOLID BLACK sa ibabaw ng malapit-sa-itim na dark theme page
+                      background, sa halip na sumunod sa tema kagaya ng ibang toggle.
+                      Ganito rin sa border at sa hindi-aktibong label text (parehong
+                      walang dark variant dati). Idinagdag dito ang tatlong ito. */
+                   body.dark-mode .faq-lang-toggle, .dark .faq-lang-toggle {
+                       background: rgba(255,255,255,0.05);
+                       border-color: var(--dm-border, rgba(255,255,255,0.12));
+                   }
+                   body.dark-mode .faq-lang-option, .dark .faq-lang-option { color: var(--dm-text-secondary, #9a9ba8); }
+                   body.dark-mode .faq-lang-option.active, .dark .faq-lang-option.active { color: #fff; }
                </style>
 
                 <section id="view-logs" class="app-view" style="display:none;">

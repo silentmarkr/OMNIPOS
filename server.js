@@ -10989,7 +10989,19 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
     let grossSales = 0, totalDiscount = 0, netSales = 0;
     txs.forEach(t => {
         const disc = parseFloat(t.discount || 0) || 0;
-        const net = parseFloat(t.total || 0) || 0;
+        /* BUGFIX: dati, ang buong t.total (orihinal na benta) ang laging
+           ginagamit dito kahit may naibalik na (refund) sa transaction na
+           ito — kaya kahit ma-refund (hal. cash refund) ang isang benta,
+           hindi ito nababawas sa grossSales/netSales/paymentBreakdown, at
+           dahil dito ay mali/sobra ang "Cash Sales" -> "Expected Cash" sa
+           Z-Reading (VOID ay tama dahil buong-buo na tinatanggal ang
+           transaction record nito; REFUND naman ay pinapanatili ang
+           record kaya kailangang tanggalin dito ang naibalik na halaga
+           bago ito ibilang). Gamit ang totalRefunded (na-store na sa
+           transaction record ng processRefundTransaction) para makuha
+           ang tunay na natitirang net ng benta. */
+        const refundedForTx = Math.min(parseFloat(t.total || 0) || 0, parseFloat(t.totalRefunded || 0) || 0);
+        const net = Math.max(0, (parseFloat(t.total || 0) || 0) - refundedForTx);
         totalDiscount += disc;
         netSales += net;
         grossSales += net + disc;
@@ -11015,6 +11027,15 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
         && (!cashierKey || (l.username ||'').toLowerCase() === cashierKey));
     const voidCount = voidLogs.length;
     const voidedAmount = Math.round(voidLogs.reduce((sum, l) => sum + (parseFloat(l.voidedAmount) || 0), 0) * 100) / 100;
+    /* BAGO: kagaya ng void tracking sa itaas — para sa transparency/audit
+       sa Z-Reading (see logRefundAction, action string na "REFUNDED ...").
+       Ito ay informational lang (hiwalay na sa itaas na bugfix kung saan
+       binabawas na mismo ang refunded amount sa netSales/cashSales), para
+       makita kung magkano at ilang beses nag-refund sa loob ng shift. */
+    const refundLogs = logs.filter(l => l.action && l.action.indexOf('REFUNDED') === 0 && l.id > start && l.id <= end
+        && (!cashierKey || (l.username ||'').toLowerCase() === cashierKey));
+    const refundCount = refundLogs.length;
+    const refundedAmount = Math.round(refundLogs.reduce((sum, l) => sum + (parseFloat(l.refundedAmount) || 0), 0) * 100) / 100;
     return {
         periodStart: new Date(start).toISOString(),
         periodEnd: new Date(end).toISOString(),
@@ -11024,7 +11045,9 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
         netSales: Math.round(netSales * 100) / 100,
         paymentBreakdown,
         voidCount,
-        voidedAmount
+        voidedAmount,
+        refundCount,
+        refundedAmount
     };
 }
 function readShiftMetaStore() {
@@ -11074,6 +11097,7 @@ app.get('/api/shift/current', (req, res) => {
         delete summary.totalDiscount;
         delete summary.netSales;
         delete summary.voidedAmount;
+        delete summary.refundedAmount;
         delete summary.paymentBreakdown;
     }
     res.json({
@@ -11167,7 +11191,7 @@ app.post('/api/shift/close', rateLimit('shift-close', 20, 10 * 60 * 1000), async
     const periodStart = meta.lastCloseAt || new Date(0).toISOString();
     const periodEnd = new Date().toISOString();
     const summary = computeShiftSummary(periodStart, periodEnd, targetCashier);
-    const isZeroActivityClose = summary.transactionCount === 0 && summary.voidCount === 0;
+    const isZeroActivityClose = summary.transactionCount === 0 && summary.voidCount === 0 && summary.refundCount === 0;
     if (isZeroActivityClose && !targetHasOpenShift) {
         return res.json({ success: false, message: `Walang bukas na shift at walang bagong transaksyon o void para kay ${closedOnBehalf ? targetCashier :'sa iyo'}. Wala pang kailangang i-close.` });
     }
