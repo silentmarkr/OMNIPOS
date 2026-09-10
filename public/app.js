@@ -818,13 +818,49 @@ async function refreshUnlockedThemesFromServer() {
         console.warn('Could not fetch theme unlock status from the server, using cache instead.', e);
     }
 }
+function getStatusBarSourceElement() {
+    // Kung nakikita pa rin ang login/auth screen (hindi pa naka-sign in),
+    // ang dapat kunan ng kulay ay ang itaas na bahagi ng login screen mismo
+    // (.auth-sidebar), hindi ang #app-top-header — dahil nakatago pa lang
+    // ito noon at may sarili namang disenyo/kulay ang login screen na
+    // hiwalay sa currently-selected app theme.
+    const authView = document.getElementById('auth-view');
+    const authVisible = authView && getComputedStyle(authView).display !== 'none';
+    if (authVisible) {
+        const authSidebar = document.querySelector('#auth-view .auth-sidebar.sync-sidebar') || authView;
+        return authSidebar;
+    }
+    return document.getElementById('app-top-header');
+}
 function updateMetaThemeColor() {
-    const header = document.getElementById('app-top-header');
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-    if (!header || !metaThemeColor) return;
-    const bg = getComputedStyle(header).backgroundColor;
+    const source = getStatusBarSourceElement();
+    if (!source || !metaThemeColor) return;
+    let bg = getComputedStyle(source).backgroundColor;
+    if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+        // Fallback: ilang custom header style (hal. "Gradient") ay gumagamit
+        // ng background-image lang kaya "transparent" ang nababasa sa
+        // background-color. Sa halip na iwan ang lumang/mali na kulay,
+        // subukang kunin ang unang solid na kulay mula sa background-image
+        // (linear-gradient/radial-gradient) para may makuha pa ring
+        // makatuwirang kulay.
+        const bgImage = getComputedStyle(source).backgroundImage;
+        const colorMatch = bgImage && bgImage.match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}/);
+        if (colorMatch) {
+            bg = colorMatch[0];
+        }
+    }
     if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-        metaThemeColor.setAttribute('content', bg);
+        if (metaThemeColor.getAttribute('content') === bg) return;
+        // Sa ilang bersyon ng Chrome for Android, hindi agad nire-repaint
+        // ng OS status bar ang bagong kulay kapag "content" attribute lang
+        // ng EXISTING na <meta> ang binago (setAttribute). Mas maaasahan
+        // kapag talagang binago/pinalitan ang buong <meta> node — kaya
+        // ginagawa itong bago araw-araw sa halip na i-mutate lang.
+        var freshMeta = document.createElement('meta');
+        freshMeta.setAttribute('name', 'theme-color');
+        freshMeta.setAttribute('content', bg);
+        metaThemeColor.parentNode.replaceChild(freshMeta, metaThemeColor);
     }
 }
 function initDynamicThemeColor() {
@@ -836,6 +872,13 @@ function initDynamicThemeColor() {
     if (header) {
         new MutationObserver(updateMetaThemeColor).observe(header, { attributes: true, attributeFilter: ['class', 'data-terminal-theme'] });
     }
+    const authView = document.getElementById('auth-view');
+    if (authView) {
+        new MutationObserver(updateMetaThemeColor).observe(authView, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
+    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach((evt) => {
+        document.addEventListener(evt, updateMetaThemeColor);
+    });
     window.addEventListener('load', updateMetaThemeColor);
 }
 function initDarkMode() {
@@ -6001,6 +6044,7 @@ function showAuthenticationInterface() {
     document.documentElement.removeAttribute('data-preload-view');
     document.getElementById('auth-view').style.display ='flex';
     document.getElementById('main-view').style.display ='none';
+    if (typeof updateMetaThemeColor ==='function') updateMetaThemeColor();
 }
 const MENU_ID_OVERRIDES = { dashboard:'menu-inventory-dashboard' };
 function applyRoleBasedAccessControls(role) {
@@ -9982,7 +10026,7 @@ function applyReceiptBranding() {
     applyReceiptAdvancedStyleToElement(document.getElementById('printable-receipt-area'), s.advancedSettings);
     const previewPaper = document.querySelector('#receipt-preview-modal .receipt-paper-layout');
     if (previewPaper) applyReceiptAdvancedStyleToElement(previewPaper, s.advancedSettings);
-    applyTaiwanTemplateWidthToElement(document.getElementById('printable-receipt-area'), s.taiwanTemplateSettings);
+    applyModernTemplateWidthToElement(document.getElementById('printable-receipt-area'), s.modernTemplateSettings);
 }
 const DEFAULT_ADVANCED_RECEIPT_SETTINGS = {
     fontSize:'normal', divider:'dashed', accentColor:'#000000',
@@ -10140,10 +10184,10 @@ async function loadReceiptCustomizationPanel() {
     setLoyaltyQrPosition(qset.position,  true);
     setLoyaltyQrPrinterTarget(qset.printOn,  true);
     updateLoyaltyQrSettingsPreview();
-    const twset = Object.assign({}, DEFAULT_TAIWAN_TEMPLATE_SETTINGS, s.taiwanTemplateSettings || {});
+    const twset = Object.assign({}, DEFAULT_MODERN_TEMPLATE_SETTINGS, s.modernTemplateSettings || {});
     setChecked('twset-enabled', twset.enabled);
     setRange('twset-widthmm', twset.widthMm);
-    updateTaiwanTemplateSettingsPreview();
+    updateModernTemplateSettingsPreview();
     const tidset = Object.assign({}, DEFAULT_TRANSACTION_ID_SETTINGS, s.transactionIdSettings || {});
     setVal('rc-form-txnid-format', tidset.format);
     updateTransactionIdFormatPreview();
@@ -10697,56 +10741,56 @@ async function saveLoyaltyQrSettings() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
-const DEFAULT_TAIWAN_TEMPLATE_SETTINGS = { enabled: false, widthMm: 57 };
-function collectTaiwanTemplateSettingsFromForm() {
+const DEFAULT_MODERN_TEMPLATE_SETTINGS = { enabled: false, widthMm: 57 };
+function collectModernTemplateSettingsFromForm() {
     const enabledEl = document.getElementById('twset-enabled');
     const widthEl = document.getElementById('twset-widthmm');
     return {
-        enabled: enabledEl ? !!enabledEl.checked : DEFAULT_TAIWAN_TEMPLATE_SETTINGS.enabled,
-        widthMm: widthEl ? Number(widthEl.value) : DEFAULT_TAIWAN_TEMPLATE_SETTINGS.widthMm
+        enabled: enabledEl ? !!enabledEl.checked : DEFAULT_MODERN_TEMPLATE_SETTINGS.enabled,
+        widthMm: widthEl ? Number(widthEl.value) : DEFAULT_MODERN_TEMPLATE_SETTINGS.widthMm
     };
 }
-function updateTaiwanTemplateSettingsPreview() {
-    const settings = collectTaiwanTemplateSettingsFromForm();
+function updateModernTemplateSettingsPreview() {
+    const settings = collectModernTemplateSettingsFromForm();
     const fieldsWrap = document.getElementById('twset-fields-wrap');
     if (fieldsWrap) fieldsWrap.style.opacity = settings.enabled ?'1' :'0.4';
     const label = document.getElementById('twset-widthmm-val');
     if (label) label.textContent = `(${settings.widthMm}mm)`;
 }
-function applyTaiwanTemplateWidthToElement(paperEl, taiwanSettings, forceActive) {
+function applyModernTemplateWidthToElement(paperEl, modernSettings, forceActive) {
     if (!paperEl) return false;
-    const st = Object.assign({}, DEFAULT_TAIWAN_TEMPLATE_SETTINGS, taiwanSettings || {});
+    const st = Object.assign({}, DEFAULT_MODERN_TEMPLATE_SETTINGS, modernSettings || {});
     const active = (forceActive === undefined || forceActive === null) ? !!st.enabled : !!forceActive;
-    const widthMm = Number.isFinite(Number(st.widthMm)) ? Number(st.widthMm) : DEFAULT_TAIWAN_TEMPLATE_SETTINGS.widthMm;
+    const widthMm = Number.isFinite(Number(st.widthMm)) ? Number(st.widthMm) : DEFAULT_MODERN_TEMPLATE_SETTINGS.widthMm;
     if (active) {
         paperEl.style.setProperty('max-width', `${widthMm}mm`,'important');
         paperEl.style.setProperty('margin','0 auto','important');
-        paperEl.classList.add('taiwan-template-active-paper');
+        paperEl.classList.add('modern-template-active-paper');
     } else {
         paperEl.style.removeProperty('max-width');
         paperEl.style.removeProperty('margin');
-        paperEl.classList.remove('taiwan-template-active-paper');
+        paperEl.classList.remove('modern-template-active-paper');
     }
     return active;
 }
-async function saveTaiwanTemplateSettings() {
-    const taiwanTemplateSettings = collectTaiwanTemplateSettingsFromForm();
+async function saveModernTemplateSettings() {
+    const modernTemplateSettings = collectModernTemplateSettingsFromForm();
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
     try {
-        const res = await authFetch(`${API_URL}/receipt-settings/taiwan-template`, {
+        const res = await authFetch(`${API_URL}/receipt-settings/modern-template`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ taiwanTemplateSettings, username })
+            body: JSON.stringify({ modernTemplateSettings, username })
         });
         const data = await res.json();
         if (data.success && data.pending) {
-            Swal.fire('Submitted for Approval', data.message ||'The Taiwan Receipt Template request has been submitted for Admin approval.','info');
+            Swal.fire('Submitted for Approval', data.message ||'The Modern Receipt Template request has been submitted for Admin approval.','info');
         } else if (data.success) {
-            Swal.fire('Saved!','The Taiwan Receipt Template settings have been updated.','success');
+            Swal.fire('Saved!','The Modern Receipt Template settings have been updated.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
             applyReceiptBranding();
         } else {
-            Swal.fire('Error', data.message ||'Failed to save the Taiwan Receipt Template settings.','error');
+            Swal.fire('Error', data.message ||'Failed to save the Modern Receipt Template settings.','error');
         }
     } catch (err) {
         console.error(err);
@@ -10820,10 +10864,10 @@ function buildLiveReceiptSettingsPreviewObject(baseSettings) {
         barcodeSettings: collectReceiptBarcodeSettingsFromForm(),
         advancedSettings: collectReceiptAdvancedSettingsFromForm(),
         loyaltyQrSettings: collectLoyaltyQrSettingsFromForm(),
-        taiwanTemplateSettings: collectTaiwanTemplateSettingsFromForm()
+        modernTemplateSettings: collectModernTemplateSettingsFromForm()
     });
 }
-async function previewCustomizationReceipt(useTaiwanTemplate) {
+async function previewCustomizationReceipt(useModernTemplate) {
     if (!receiptSettingsCache && receiptSettingsPromise) {
         await receiptSettingsPromise;
     }
@@ -10852,10 +10896,10 @@ async function previewCustomizationReceipt(useTaiwanTemplate) {
             taxAmount: 0
         };
         await renderInvoiceReceipt(sampleTx, true);
-        applyTaiwanTemplateWidthToElement(
+        applyModernTemplateWidthToElement(
             document.getElementById('printable-receipt-area'),
-            (receiptSettingsCache && receiptSettingsCache.taiwanTemplateSettings) || DEFAULT_TAIWAN_TEMPLATE_SETTINGS,
-            useTaiwanTemplate
+            (receiptSettingsCache && receiptSettingsCache.modernTemplateSettings) || DEFAULT_MODERN_TEMPLATE_SETTINGS,
+            useModernTemplate
         );
         const qset = Object.assign({}, DEFAULT_LOYALTY_QR_SETTINGS, (receiptSettingsCache && receiptSettingsCache.loyaltyQrSettings) || {});
         if (qset.enabled) {
@@ -10868,7 +10912,7 @@ async function previewCustomizationReceipt(useTaiwanTemplate) {
         }
         const modalTitleEl = document.querySelector('#receipt-modal .modal-header h3');
         if (modalTitleEl) {
-            modalTitleEl.innerText = useTaiwanTemplate ?'Receipt Preview — Taiwan Template' :'Receipt Preview — Default';
+            modalTitleEl.innerText = useModernTemplate ?'Receipt Preview — Modern Template' :'Receipt Preview — Default';
         }
     } finally {
         receiptSettingsCache = originalReceiptSettingsCache;
@@ -16195,7 +16239,7 @@ const AUDIT_LOG_KEYWORD_MAP = {
     promo: ['promo code'],
     account: ['account', 'profile', 'username', 'password'],
     role: ['role'],
-    receipt: ['receipt', 'transaction id format', 'otp sender email', 'taiwan'],
+    receipt: ['receipt', 'transaction id format', 'otp sender email', 'modern'],
     settings: ['store & sales settings', 'appearance/ux settings', 'advanced settings'],
     feature: ['unlock', 'feature', 'pro theme'],
     demo: ['demo mode'],
@@ -18683,6 +18727,7 @@ async function handleLogout(type ='manual') {
 async function showMainSystemInterface() {
     document.getElementById('auth-view').style.display ='none';
     document.getElementById('main-view').style.display ='flex';
+    if (typeof updateMetaThemeColor ==='function') updateMetaThemeColor();
     renderSidebarUserWidget();
     (async () => {
         try {

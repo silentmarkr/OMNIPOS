@@ -569,10 +569,10 @@ window.OMNIPOS_FAQ_KB_TL = [
   answer: `<p>Kung naka-enable ang Loyalty Points, maaaring itakda kung saan ilalagay sa resibo ang QR code ng loyalty ng customer — sa itaas o sa ibaba ng barcode ng transaksyon.</p>`
 },
 {
-  id: 'receipt-taiwan-template',
+  id: 'receipt-modern-template',
   category: 'Receipt Settings',
   question: 'May opsyon bang makitid na format ng resibo para sa ibang uri ng printer?',
-  keywords: ['taiwan template', 'makitid na resibo', 'narrow receipt', 'compact receipt format'],
+  keywords: ['modern template', 'makitid na resibo', 'narrow receipt', 'compact receipt format'],
   verdict: 'oo',
   answer: `<p>Oo — may alternatibong format ng resibo na sumusunod sa mas makitid na sukat ng ilang uri ng thermal printer, na maaaring i-customize ang lapad mula 40mm hanggang 80mm. Naka-OFF ito by default at opsyonal lamang.</p>`
 },
@@ -809,7 +809,7 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li><strong>Loyalty Card/QR</strong> (Static o Rotating) para sa mga customer.</li>
     <li><strong>Self-Service Forgot Admin Password</strong> — hindi na kailangang mag-Hard Reset kung nakalimutan lang ang password.</li>
     <li><strong>Demo Mode</strong> at <strong>Bundle/Upgrade Tiers</strong> para sa premium features.</li>
-    <li>Mga karagdagang opsyon sa Receipt Customization — logo header, double-copy printing, loyalty QR position, at makitid na (Taiwan) na format.</li>
+    <li>Mga karagdagang opsyon sa Receipt Customization — logo header, double-copy printing, loyalty QR position, at makitid na (Modern) na format.</li>
   </ul>
   <p>Palagi itong ina-update sa tuwing may mga bagong pagbabago sa system.</p>`
 },

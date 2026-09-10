@@ -81,6 +81,10 @@ const CLIENT_TARGETS = new Set([
   path.join("public", "faq-knowledge.js"),
   path.join("public", "faq-knowledge.en.js"),
   path.join("public", "faq-lang.js"),
+  // SYNC FIX: itinugma sa RELEASE_CLIENT_TARGETS ng RELAY (server.js) —
+  // nakaligtaan dati ang public/service-worker.js kahit proprietary code
+  // rin ito (cache-shell list, PWA logic), hindi third-party lib.
+  path.join("public", "service-worker.js"),
 ]);
 
 const THIRD_PARTY_JS = new Set([

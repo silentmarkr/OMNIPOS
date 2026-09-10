@@ -110,6 +110,66 @@
     </style>
 
     <script>
+    
+    (function () {
+        try {
+            var metaThemeColor = document.querySelector('meta[name="theme-color"]');
+            if (!metaThemeColor) return;
+
+            
+            var HEADER_BG = {
+                day: '#ffffff',
+                dark: '#1c1c24',
+                ocean: '#0b232f',
+                emerald: '#0d2119',
+                sunset: '#241407',
+                rosegold: '#24101c',
+                cyber: '#0b0f1a',
+                noir: '#1c140d',
+                mintfrost: '#0d211d',
+                liquidglass: '#1e263a',
+                galaxyambient: '#18181c'
+            };
+            
+            var HEADER_ACCENT = {
+                day: '#7c5cff',
+                dark: '#7c5cff',
+                ocean: '#22d3ee',
+                emerald: '#22c55e',
+                sunset: '#f59e0b',
+                rosegold: '#ec4899',
+                cyber: '#22e5ff',
+                noir: '#d4a256',
+                mintfrost: '#2dd4bf',
+                liquidglass: '#0a84ff',
+                galaxyambient: '#1a73e8'
+            };
+            
+            var LOGIN_BG = '#0a0e17';
+
+            var hasSession = document.documentElement.classList.contains('has-session');
+            var color = LOGIN_BG;
+            if (hasSession) {
+                var t = localStorage.getItem('omnipos_theme');
+                if (!t) t = (localStorage.getItem('omnipos_darkmode') === 'true') ? 'dark' : 'day';
+                if (!HEADER_BG.hasOwnProperty(t)) t = 'day';
+                color = HEADER_BG[t];
+                try {
+                    var rawCt = localStorage.getItem('omnipos_custom_theme');
+                    if (rawCt) {
+                        var ct = JSON.parse(rawCt);
+                        if (ct && ct.header === 'gradient') {
+                            color = ct.accent || HEADER_ACCENT[t] || '#2563eb';
+                        }
+                    }
+                } catch (e2) {  }
+            }
+            metaThemeColor.setAttribute('content', color);
+        } catch (e) {  }
+    })();
+    </script>
+
+    <script>
     (function () {
         try {
             if (!document.documentElement.classList.contains('has-session')) return;
@@ -892,14 +952,14 @@
                             <h2 id="page-title-stock_return_inspection">Voided/Refunded</h2>
                             <p style="margin:4px 0 0;color:#64748b;font-size:.85rem;">Returned items from voided or refunded transactions awaiting stock inspection.</p>
                         </div>
-                      <button type="button"
+                        <div class="header-action-group">
+                            <button type="button"
         class="void-refund-transaction-shortcut"
         onclick="switchView('transactions')"
         title="Open Transaction Database Records">
     <i class="fa-solid fa-receipt"></i>
     <span>Transactions</span>
                       </button>
-                        <div class="header-action-group">
                             <button type="button" class="btn-action-outline" onclick="loadPendingStockReturns()"><i class="fa-solid fa-rotate"></i><span class="btn-action-label"> Refresh</span></button>
                         </div>
                     </div>
@@ -1380,7 +1440,7 @@
             <div id="receipt-custom-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
 
             
-            <details class="rc-section" open>
+            <details class="rc-section">
                 <summary><i class="fa-solid fa-shop" style="color:#2563eb;"></i> <span>1. Store Info, Header &amp; Footer</span></summary>
                 <div class="rc-section-body">
                 <div style="margin: 0 0 16px; padding: 14px; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(37,99,235,0.03);">
@@ -1634,7 +1694,7 @@
                             <option value="L">L — Low (smallest/simplest QR)</option>
                             <option value="M">M — Medium (default)</option>
                             <option value="Q">Q — High</option>
-                            <option value="H">H — Highest (similar to what's used on many receipts in Taiwan)</option>
+                            <option value="H">H — Highest (similar to what's used on many receipts in Modern)</option>
                         </select>
                     </div>
 
@@ -1821,46 +1881,46 @@
 
             <details class="rc-section">
                 <summary>
-                    🇹🇼 <span>8. Taiwan Receipt Template</span> <span class="rc-section-badge" style="font-weight:normal; font-size:0.7rem; color:#fff; background:#7c3aed; padding:2px 8px; border-radius:10px;">MODERN</span>
+                    <i class="fa-solid fa-receipt" style="color:#2563eb;"></i> <span>8. Modern Receipt Template</span> <span class="rc-section-badge" style="font-weight:normal; font-size:0.7rem; color:#fff; background:#7c3aed; padding:2px 8px; border-radius:10px;">MODERN</span>
                 </summary>
                 <div class="rc-section-body">
                 <p style="font-size:0.8rem; color: var(--text-muted); line-height:1.5; margin-bottom: 14px;">
                     When this is ON, the entire receipt generated by OmniPOS (store header/logo, item list,
                     totals, transaction barcode, Loyalty QR, footer — everything, NOT just a QR code) is
-                    resized to the receipt width commonly used by convenience stores in Taiwan.
+                    resized to the receipt width commonly used by convenience stores in Modern.
                     This is a hardware/visual setting only — it does not count toward the 2 free customizations.
                 </p>
 
                 <label class="qrset-enable-row" for="twset-enabled">
                     <span class="modern-toggle-switch">
-                        <input type="checkbox" id="twset-enabled" onchange="updateTaiwanTemplateSettingsPreview()" autocomplete="off">
+                        <input type="checkbox" id="twset-enabled" onchange="updateModernTemplateSettingsPreview()" autocomplete="off">
                         <span class="modern-toggle-slider"></span>
                     </span>
                     <span>
-                        <b>Use the Taiwan Receipt Template</b><br>
+                        <b>Use the Modern Receipt Template</b><br>
                         <span style="font-size:0.78rem; color:var(--text-muted);">When ON, this is followed by ALL printed/previewed receipts (checkout and reprints from History) instead of the normal Printer Paper Size above.</span>
                     </span>
                 </label>
 
                 <div id="twset-fields-wrap">
                     <div class="input-field-group">
-                        <label>Taiwan Template Width <span id="twset-widthmm-val" style="font-weight:normal;color:#94a3b8;"></span></label>
-                        <input type="range" id="twset-widthmm" min="40" max="80" step="1" oninput="updateTaiwanTemplateSettingsPreview()" autocomplete="off">
-                        <p style="font-size:0.72rem;color:var(--text-muted);margin:4px 0 0;">Default: 57mm — the typical receipt width used by convenience stores in Taiwan. The barcode, Loyalty QR, and every other receipt element automatically scale to fit within this width, so nothing gets cut off at the edge at any width setting. Still capped by the physical paper loaded in the printer.</p>
+                        <label>Modern Template Width <span id="twset-widthmm-val" style="font-weight:normal;color:#94a3b8;"></span></label>
+                        <input type="range" id="twset-widthmm" min="40" max="80" step="1" oninput="updateModernTemplateSettingsPreview()" autocomplete="off">
+                        <p style="font-size:0.72rem;color:var(--text-muted);margin:4px 0 0;">Default: 57mm — the typical receipt width used by convenience stores in Modern. The barcode, Loyalty QR, and every other receipt element automatically scale to fit within this width, so nothing gets cut off at the edge at any width setting. Still capped by the physical paper loaded in the printer.</p>
                     </div>
                 </div>
 
-                <button class="btn-action-outline" onclick="saveTaiwanTemplateSettings()"><i class="fa-solid fa-floppy-disk"></i> Save Taiwan Template Settings</button>
+                <button class="btn-action-outline" onclick="saveModernTemplateSettings()"><i class="fa-solid fa-floppy-disk"></i> Save Modern Template Settings</button>
 
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border-color);">
                     <button type="button" class="btn-action-outline" style="flex:1; justify-content:center; min-width:200px;" onclick="previewCustomizationReceipt(false)">
                         <i class="fa-solid fa-eye"></i> Preview Default Receipt
                     </button>
                     <button type="button" class="btn-action-outline" style="flex:1; justify-content:center; min-width:200px;" onclick="previewCustomizationReceipt(true)">
-                        <i class="fa-solid fa-eye"></i> Preview Taiwan Template Receipt
+                        <i class="fa-solid fa-eye"></i> Preview Modern Template Receipt
                     </button>
                 </div>
-                <p style="font-size:0.72rem;color:var(--text-muted);margin:6px 0 0;"><i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Ipinapakita na ng Preview ang iyong mga pagbabago sa itaas kahit hindi pa na-Save — ligtas itong subukan nang paulit-ulit, HINDI ito kumokonsumo ng free credits. Ang "Save" (o "Save Taiwan Template Settings") pa rin ang tanging gumagamit ng 1 sa 2 free na pagbabago, kaya i-Preview muna bago i-Save kung sakaling magkamali. Sample/dummy data lang ang gamit dito — hindi ito totoong transaksyon.</p>
+                <p style="font-size:0.72rem;color:var(--text-muted);margin:6px 0 0;"><i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Ipinapakita na ng Preview ang iyong mga pagbabago sa itaas kahit hindi pa na-Save — ligtas itong subukan nang paulit-ulit, HINDI ito kumokonsumo ng free credits. Ang "Save" (o "Save Modern Template Settings") pa rin ang tanging gumagamit ng 1 sa 2 free na pagbabago, kaya i-Preview muna bago i-Save kung sakaling magkamali. Sample/dummy data lang ang gamit dito — hindi ito totoong transaksyon.</p>
                 </div>
             </details>
 

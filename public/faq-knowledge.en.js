@@ -569,10 +569,10 @@ window.OMNIPOS_FAQ_KB_EN = [
   answer: `<p>If Loyalty Points is enabled, you can set where the customer's loyalty QR code goes on the receipt — above or below the transaction barcode.</p>`
 },
 {
-  id: 'receipt-taiwan-template',
+  id: 'receipt-modern-template',
   category: 'Receipt Settings',
   question: 'Is there a narrow receipt format option for other types of printers?',
-  keywords: ['taiwan template', 'makitid na resibo', 'narrow receipt', 'compact receipt format'],
+  keywords: ['modern template', 'makitid na resibo', 'narrow receipt', 'compact receipt format'],
   verdict: 'oo',
   answer: `<p>Yes — there's an alternative receipt format that follows the narrower size used by certain thermal printers, which can be customized from 40mm to 80mm wide. It's OFF by default and optional.</p>`
 },
@@ -809,7 +809,7 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li><strong>Loyalty Card/QR</strong> (Static or Rotating) for customers.</li>
     <li><strong>Self-Service Forgot Admin Password</strong> — no more need for a Hard Reset if you just forgot your password.</li>
     <li><strong>Demo Mode</strong> and <strong>Bundle/Upgrade Tiers</strong> for premium features.</li>
-    <li>Additional Receipt Customization options — logo header, double-copy printing, loyalty QR position, and a narrow (Taiwan) format.</li>
+    <li>Additional Receipt Customization options — logo header, double-copy printing, loyalty QR position, and a narrow (Modern) format.</li>
   </ul>
   <p>This is always updated whenever there are new changes to the system.</p>`
 },

@@ -361,7 +361,49 @@ function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
         }
 
         console.log(`✅ Local database backup created: ${destPath} (${files.length}/${maxBackupsToKeep} kept)`);
-        const result = { success: true, path: destPath };
+
+        // BUG FIX: dati, RAW SQLite (.db) file copy lang ang ginagawa ng
+        // auto local backup na ito — kaya WALANG paraan para gamitin ito
+        // sa loob mismo ng app kapag walang internet. Ang "System
+        // Recovery & Database Restore" card (triggerSystemRestore() sa
+        // app.js, #recoveryFileInput accept=".json") ay JSON.parse() lang
+        // ang ginagawa sa napiling file bago ipadala sa POST
+        // /api/restore-backup — kaya kung ito rin lang ang piliin, palya
+        // ito agad (hindi valid JSON ang raw SQLite binary). Ibig sabihin,
+        // hindi talaga magagamit ang lokal na backup na ito sa "System
+        // Recovery" flow, kahit ito mismo ang layunin nito (offline na
+        // restore). Idinagdag ngayon, sabay sa .db copy sa itaas, ang
+        // isa ring JSON snapshot (parehong shape ng
+        // omnipos_full_backup_<timestamp>.json na ipinapadala sa email
+        // tuwing Hard Reset — {timestamp, ...modules}) — kaya pareho na
+        // silang tugma sa /api/restore-backup at maaaring piliin sa
+        // parehong "System Recovery" file picker, online man o offline.
+        // Hindi ito nagpapalit/nag-aalis sa .db copy sa itaas — hiwalay
+        // pa rin itong ginagawa bilang huling paraan (manual file-level
+        // swap) kung sakaling masira/hindi na makabukas ang app mismo,
+        // dahil hindi kailangang tumakbo ang app para gamitin iyon.
+        let jsonSnapshotPath = null;
+        try {
+            const snapshot = getFullDatabaseSnapshot();
+            const backupPayload = { timestamp: snapshot.generatedAt, ...snapshot.modules };
+            jsonSnapshotPath = path.join(BACKUP_DIR, `omnipos-${stamp}.json`);
+            fs.writeFileSync(jsonSnapshotPath, JSON.stringify(backupPayload));
+
+            const jsonFiles = fs.readdirSync(BACKUP_DIR)
+                .filter(f => f.startsWith('omnipos-') && f.endsWith('.json'))
+                .sort();
+            while (jsonFiles.length > maxBackupsToKeep) {
+                const oldestJson = jsonFiles.shift();
+                fs.unlinkSync(path.join(BACKUP_DIR, oldestJson));
+            }
+            console.log(`✅ Local JSON snapshot backup created: ${jsonSnapshotPath} (${jsonFiles.length}/${maxBackupsToKeep} kept) — usable with System Recovery even offline.`);
+        } catch (jsonErr) {
+            // Hindi dapat mag-fail ang buong local backup kung nagawa
+            // naman ang .db copy sa itaas — i-log lang, huwag i-throw.
+            console.error('⚠️ Nagawa ang .db copy pero nabigo ang JSON snapshot na bahagi ng local backup:', jsonErr.message);
+        }
+
+        const result = { success: true, path: destPath, jsonSnapshotPath };
         recordBackupStatus(result);
         return result;
     } catch (err) {

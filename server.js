@@ -673,7 +673,7 @@ const DEFAULT_RECEIPT_SETTINGS = {
         doubleCopy: false,
         copyGapPx: 15
     },
-    taiwanTemplateSettings: {
+    modernTemplateSettings: {
         enabled: false,
         widthMm: 57
     },
@@ -776,8 +776,8 @@ function sanitizeLoyaltyQrSettings(raw) {
         copyGapPx: clampNumber(s.copyGapPx, 0, 80, d.copyGapPx)
     };
 }
-function sanitizeTaiwanTemplateSettings(raw) {
-    const d = DEFAULT_RECEIPT_SETTINGS.taiwanTemplateSettings;
+function sanitizeModernTemplateSettings(raw) {
+    const d = DEFAULT_RECEIPT_SETTINGS.modernTemplateSettings;
     const s = raw && typeof raw === 'object' ? raw : {};
     return {
         enabled: s.enabled === undefined ? d.enabled : !!s.enabled,
@@ -809,7 +809,7 @@ function getReceiptSettingsPublic(rawSettings) {
         barcodeSettings: sanitizeBarcodeSettings(s.barcodeSettings),
         advancedSettings: sanitizeAdvancedSettings(s.advancedSettings),
         loyaltyQrSettings: sanitizeLoyaltyQrSettings(s.loyaltyQrSettings),
-        taiwanTemplateSettings: sanitizeTaiwanTemplateSettings(s.taiwanTemplateSettings),
+        modernTemplateSettings: sanitizeModernTemplateSettings(s.modernTemplateSettings),
         transactionIdSettings: sanitizeTransactionIdSettings(s.transactionIdSettings),
         customizeCount: customizeCount,
         firstCustomizedAt: s.firstCustomizedAt || null,
@@ -925,8 +925,8 @@ app.post('/api/receipt-settings/loyalty-qr', requirePermission('receipt_settings
     logAction(username || req.authUser.username, `Updated the Receipt Loyalty QR Settings`);
     res.json({ success: true, message:'Loyalty QR settings updated.', settings: getReceiptSettingsPublic(settings) });
 });
-app.post('/api/receipt-settings/taiwan-template', requirePermission('receipt_settings_view'), (req, res) => {
-    const sanitized = sanitizeTaiwanTemplateSettings(req.body.taiwanTemplateSettings);
+app.post('/api/receipt-settings/modern-template', requirePermission('receipt_settings_view'), (req, res) => {
+    const sanitized = sanitizeModernTemplateSettings(req.body.modernTemplateSettings);
     const { username } = req.body;
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).receipt_settings_direct_apply;
@@ -935,19 +935,19 @@ app.post('/api/receipt-settings/taiwan-template', requirePermission('receipt_set
         requests.push({
             id:'REQ-' + Date.now(),
             requester: req.authUser.username,
-            type:'RECEIPT_TAIWAN_TEMPLATE',
-            data: { taiwanTemplateSettings: sanitized },
+            type:'RECEIPT_MODERN_TEMPLATE',
+            data: { modernTemplateSettings: sanitized },
             timestamp: new Date().toLocaleString()
         });
         writeData(FILE_REQUESTS, requests);
-        logAction(req.authUser.username, `Submitted a Taiwan Receipt Template change request for Admin approval`);
-        return res.json({ success: true, pending: true, message:'The Taiwan Receipt Template request has been submitted for Admin approval.' });
+        logAction(req.authUser.username, `Submitted a Modern Receipt Template change request for Admin approval`);
+        return res.json({ success: true, pending: true, message:'The Modern Receipt Template request has been submitted for Admin approval.' });
     }
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-    settings.taiwanTemplateSettings = sanitized;
+    settings.modernTemplateSettings = sanitized;
     writeData(FILE_RECEIPT_SETTINGS, settings);
-    logAction(username || req.authUser.username, `Updated the Taiwan Receipt Template settings`);
-    res.json({ success: true, message:'Taiwan Receipt Template settings updated.', settings: getReceiptSettingsPublic(settings) });
+    logAction(username || req.authUser.username, `Updated the Modern Receipt Template settings`);
+    res.json({ success: true, message:'Modern Receipt Template settings updated.', settings: getReceiptSettingsPublic(settings) });
 });
 app.post('/api/receipt-settings/transaction-id', requirePermission('receipt_settings_view'), (req, res) => {
     const sanitized = sanitizeTransactionIdSettings(req.body.transactionIdSettings);
@@ -8113,11 +8113,11 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
             settings.loyaltyQrSettings = sanitizeLoyaltyQrSettings(targetReq.data && targetReq.data.loyaltyQrSettings);
             writeData(FILE_RECEIPT_SETTINGS, settings);
             logAction(username, `APPROVED Receipt Loyalty QR Settings request mula kay "${targetReq.requester}"`);
-        } else if (targetReq.type ==='RECEIPT_TAIWAN_TEMPLATE') {
+        } else if (targetReq.type ==='RECEIPT_MODERN_TEMPLATE') {
             const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-            settings.taiwanTemplateSettings = sanitizeTaiwanTemplateSettings(targetReq.data && targetReq.data.taiwanTemplateSettings);
+            settings.modernTemplateSettings = sanitizeModernTemplateSettings(targetReq.data && targetReq.data.modernTemplateSettings);
             writeData(FILE_RECEIPT_SETTINGS, settings);
-            logAction(username, `APPROVED Taiwan Receipt Template request mula kay "${targetReq.requester}"`);
+            logAction(username, `APPROVED Modern Receipt Template request mula kay "${targetReq.requester}"`);
         } else if (targetReq.type ==='RECEIPT_TRANSACTION_ID') {
             const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
             settings.transactionIdSettings = sanitizeTransactionIdSettings(targetReq.data && targetReq.data.transactionIdSettings);

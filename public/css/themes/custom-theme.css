@@ -177,6 +177,12 @@ html[data-ct-card="glass"] body.dark-mode .tx-search-card {
    ------------------------------------------------------------ */
 html[data-ct-header="gradient"] .top-header {
   background: linear-gradient(135deg, var(--dm-accent, #2563eb), var(--dm-accent-hover, #1d4ed8)) !important;
+  /* Sadyang idinagdag pagkatapos ng gradient shorthand: nirereset ng
+     "background:" shorthand ang background-color papuntang transparent
+     kapag gradient lang ang laman, kaya nawawala ang solid na kulay na
+     ginagamit ng JS (updateMetaThemeColor) para sa status bar ng device.
+     Kailangan itong hiwalay/longhand para hindi masira ang gradient. */
+  background-color: var(--dm-accent, #2563eb) !important;
 }
 html[data-ct-header="gradient"] .top-header,
 html[data-ct-header="gradient"] .top-header * {
