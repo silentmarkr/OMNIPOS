@@ -4458,7 +4458,8 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
     #view-products.app-view:not(.terminal-theme),
     #view-customers.app-view:not(.terminal-theme),
     #view-debts.app-view:not(.terminal-theme),
-    #view-reorder.app-view:not(.terminal-theme) {
+    #view-reorder.app-view:not(.terminal-theme),
+    #view-stock_return_inspection.app-view:not(.terminal-theme) {
         display: flex;
         flex-direction: column !important;
         height: calc(100vh - 69px - 60px) !important;
@@ -4470,7 +4471,8 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
     #view-products.app-view:not(.terminal-theme) .table-container,
     #view-customers.app-view:not(.terminal-theme) .table-container,
     #view-debts.app-view:not(.terminal-theme) .table-container,
-    #view-reorder.app-view:not(.terminal-theme) .table-container {
+    #view-reorder.app-view:not(.terminal-theme) .table-container,
+    #view-stock_return_inspection.app-view:not(.terminal-theme) .table-container {
         flex: 1 !important;
         min-height: 0 !important;
         max-height: none !important;
@@ -5948,7 +5950,8 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     #view-products.app-view:not(.terminal-theme),
     #view-customers.app-view:not(.terminal-theme),
     #view-debts.app-view:not(.terminal-theme),
-    #view-reorder.app-view:not(.terminal-theme) {
+    #view-reorder.app-view:not(.terminal-theme),
+    #view-stock_return_inspection.app-view:not(.terminal-theme) {
         display: flex;
         flex-direction: column !important;
         height: calc(100vh - 69px - 70px) !important;
@@ -5965,7 +5968,8 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     #view-products.app-view:not(.terminal-theme) .table-container,
     #view-customers.app-view:not(.terminal-theme) .table-container,
     #view-debts.app-view:not(.terminal-theme) .table-container,
-    #view-reorder.app-view:not(.terminal-theme) .table-container {
+    #view-reorder.app-view:not(.terminal-theme) .table-container,
+    #view-stock_return_inspection.app-view:not(.terminal-theme) .table-container {
         flex: 1 !important;
         min-height: 0 !important;
         max-height: none !important;

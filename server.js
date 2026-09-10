@@ -417,6 +417,7 @@ const MENU_REGISTRY = [
     { key:'reorder', label:'Reorder Alerts / Purchase Orders', group:'Reorder / Purchase Orders' },
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)', group:'Reorder / Purchase Orders' },
     { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
+    { key:'stock_return_manager_review', label:'Inventory — Finalize Manager Review sa Damaged/Non-Restockable Items (2nd Reviewer, hiwalay sa unang Inspect)', group:'Reorder / Purchase Orders' },
     { key:'branches_view', label:'Overview — "All Branches" Widget (View Combined Sales ng Ibang Branch, Premium Feature)', group:'Multi-Branch' },
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
@@ -9718,6 +9719,18 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
     }
 });
 
+// Disposition statuses for returned/void items that are inspected as damaged and
+// therefore cannot be put back into sellable stock. Kept in sync with the matching
+// STOCK_RETURN_DAMAGE_STATUS_LABELS map on the client (public/app.js).
+const STOCK_RETURN_DAMAGE_STATUSES = {
+    disposed: 'Disposed / Discarded',
+    return_to_supplier: 'For Return to Supplier',
+    write_off: 'Written Off (Total Loss)',
+    for_repair: 'Held for Repair',
+    salvage_parts: 'Salvage for Parts',
+    pending_manager_review: 'Pending Manager Review'
+};
+
 function createStockReturnRecord({ sourceType, transactionId, requester, items, reason = '' }) {
     const now = new Date().toISOString();
     const record = {
@@ -9731,13 +9744,16 @@ function createStockReturnRecord({ sourceType, transactionId, requester, items, 
         inspectedAt: null,
         inspectedBy: null,
         inspectionReason: '',
+        lastReviewedAt: null,
+        lastReviewedBy: null,
         items: (Array.isArray(items) ? items : []).map((item, index) => ({
             lineId: String(item.lineId || `${transactionId}:${index}`),
             code: String(item.code || '').trim(),
             name: String(item.name || '').trim(),
             quantity: Math.max(0, parseInt(item.quantity, 10) || 0),
             restockedQty: 0,
-            damagedQty: 0
+            damagedQty: 0,
+            damageStatus: null
         })).filter(item => item.code && item.quantity > 0)
     };
     if (!record.items.length) return null;
@@ -9753,7 +9769,18 @@ function commitDataModules(changes) {
 app.get('/api/stock-returns', requirePermission('stock_return_inspection'), (req, res) => {
     const status = String(req.query.status || 'pending_inspection').trim().toLowerCase();
     const returns = readData(FILE_STOCK_RETURNS, []);
-    const filtered = status === 'all' ? returns : returns.filter(r => String(r.status || '').toLowerCase() === status);
+    let filtered;
+    if (status === 'all') {
+        filtered = returns;
+    } else if (status === 'active') {
+        // Everything still awaiting inspection, PLUS already-inspected records that still
+        // have damaged/non-restockable items — those stay visible on the Void/Refund page
+        // so their disposition status can keep being tracked. Fully-restocked records
+        // (nothing damaged) are considered resolved and are excluded.
+        filtered = returns.filter(r => String(r.status || '').toLowerCase() !== 'restocked');
+    } else {
+        filtered = returns.filter(r => String(r.status || '').toLowerCase() === status);
+    }
     res.json({ success: true, returns: filtered });
 });
 
@@ -9793,7 +9820,14 @@ async function processStockReturnInspection(req, res) {
         if (restockedQty > 0 && !productByCode.has(String(item.code).toLowerCase())) {
             return res.status(400).json({ success: false, message: `Product ${item.code} could not be found in inventory. No stock will be added until the product is restored to the catalog.` });
         }
-        normalized.push({ ...item, restockedQty, damagedQty });
+        let damageStatus = null;
+        if (damagedQty > 0) {
+            damageStatus = String(submitted.damageStatus || '').trim().toLowerCase();
+            if (!STOCK_RETURN_DAMAGE_STATUSES[damageStatus]) {
+                return res.status(400).json({ success: false, message: `Piliin ang status ng sirang item para sa ${item.name || item.code}.` });
+            }
+        }
+        normalized.push({ ...item, restockedQty, damagedQty, damageStatus });
     }
     for (const item of normalized) {
         if (item.restockedQty > 0) {
@@ -9825,6 +9859,108 @@ async function processStockReturnInspection(req, res) {
         message: totalDamaged > 0
             ? `Inspection completed. ${totalRestocked} item(s) returned to sellable stock; ${totalDamaged} item(s) were not restocked.`
             : `Inspection completed. ${totalRestocked} item(s) returned to sellable stock.`,
+        returnRecord: record
+    });
+}
+
+app.post('/api/stock-returns/:id/review', requirePermission('stock_return_manager_review'), rateLimit('stock-return-review', 60, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processStockReturnReview(req, res));
+});
+
+// Second-pass review for items whose damage disposition was left as "Pending Manager
+// Review" during the first inspection. Only those still-pending items can be updated
+// here — a manager can finalize their disposition status, or move some/all of the held
+// quantity back into sellable stock if it turns out they're fine after all. Items whose
+// disposition was already finalized during the original inspection are left untouched.
+async function processStockReturnReview(req, res) {
+    const id = String(req.params.id || '').trim();
+    const submittedItems = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!id || !submittedItems.length) {
+        return res.status(400).json({ success: false, message: 'A review result is required for at least one item.' });
+    }
+    const returns = readData(FILE_STOCK_RETURNS, []);
+    const index = returns.findIndex(r => String(r.id) === id);
+    if (index === -1) return res.status(404).json({ success: false, message: 'Stock return record not found.' });
+    const record = returns[index];
+    if (record.status === 'pending_inspection') {
+        return res.status(409).json({ success: false, message: 'This stock return has not been inspected yet.' });
+    }
+    // Segregation of duties: the person finalizing the manager review must be someone
+    // other than whoever performed the original inspection (admins are exempt, since a
+    // small shop may only have one admin account doing everything).
+    const reviewerUsername = req.authUser && req.authUser.username ? req.authUser.username : '';
+    const reviewerIsAdmin = req.authUser && req.authUser.role && req.authUser.role.toLowerCase() === 'admin';
+    if (!reviewerIsAdmin && record.inspectedBy && reviewerUsername &&
+        reviewerUsername.toLowerCase() === String(record.inspectedBy).toLowerCase()) {
+        return res.status(403).json({ success: false, message: 'Hindi maaaring ikaw rin ang mag-finalize ng review sa sarili mong inspection. Kailangan ito ng ibang authorized na manager/reviewer.' });
+    }
+    const pendingLineIds = new Set((record.items || [])
+        .filter(i => (parseInt(i.damagedQty, 10) || 0) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review')
+        .map(i => i.lineId));
+    if (!pendingLineIds.size) {
+        return res.status(409).json({ success: false, message: 'There are no items on this record awaiting manager review.' });
+    }
+    const byLine = new Map(submittedItems.map(item => [String(item.lineId || ''), item]));
+    for (const lineId of pendingLineIds) {
+        if (!byLine.has(lineId)) {
+            return res.status(400).json({ success: false, message: 'All items awaiting manager review must be included.' });
+        }
+    }
+    const products = readData(FILE_PRODUCTS, []);
+    const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    const updates = [];
+    for (const item of record.items) {
+        if (!pendingLineIds.has(item.lineId)) continue;
+        const submitted = byLine.get(item.lineId);
+        const held = parseInt(item.damagedQty, 10) || 0;
+        const restockNow = Math.max(0, parseInt(submitted.restockNowQty, 10) || 0);
+        const stillDamaged = Math.max(0, parseInt(submitted.damagedQty, 10) || 0);
+        if (restockNow + stillDamaged !== held) {
+            return res.status(400).json({ success: false, message: `${item.name || item.code}: Restock + Still Damaged must equal exactly ${held}.` });
+        }
+        if (restockNow > 0 && !productByCode.has(String(item.code).toLowerCase())) {
+            return res.status(400).json({ success: false, message: `Product ${item.code} could not be found in inventory. No stock will be added until the product is restored to the catalog.` });
+        }
+        let damageStatus = null;
+        if (stillDamaged > 0) {
+            damageStatus = String(submitted.damageStatus || '').trim().toLowerCase();
+            if (!STOCK_RETURN_DAMAGE_STATUSES[damageStatus]) {
+                return res.status(400).json({ success: false, message: `Piliin ang status ng sirang item para sa ${item.name || item.code}.` });
+            }
+        }
+        updates.push({ item, restockNow, stillDamaged, damageStatus });
+    }
+    for (const u of updates) {
+        if (u.restockNow > 0) {
+            const prod = productByCode.get(String(u.item.code).toLowerCase());
+            prod.stock = (parseInt(prod.stock) || 0) + u.restockNow;
+        }
+        u.item.restockedQty = (parseInt(u.item.restockedQty, 10) || 0) + u.restockNow;
+        u.item.damagedQty = u.stillDamaged;
+        u.item.damageStatus = u.stillDamaged > 0 ? u.damageStatus : null;
+    }
+    const totalQty = record.items.reduce((sum, i) => sum + (parseInt(i.quantity, 10) || 0), 0);
+    const totalRestocked = record.items.reduce((sum, i) => sum + (parseInt(i.restockedQty, 10) || 0), 0);
+    record.status = totalRestocked === totalQty ? 'restocked' : (totalRestocked === 0 ? 'rejected' : 'partially_restocked');
+    record.lastReviewedAt = new Date().toISOString();
+    record.lastReviewedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    returns[index] = record;
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_STOCK_RETURNS, data: returns }
+        ]);
+    } catch (error) {
+        console.error('Stock return review commit failed:', error);
+        return res.status(500).json({ success: false, message: 'The review could not be saved completely. No permanent stock-return change should remain; please try again.' });
+    }
+    const totalReRestocked = updates.reduce((sum, u) => sum + u.restockNow, 0);
+    logAction(record.lastReviewedBy, `STOCK RETURN MANAGER REVIEW ${record.status.toUpperCase()}: ${record.sourceType} ${record.transactionId} — additionally restocked ${totalReRestocked}`);
+    res.json({
+        success: true,
+        message: totalReRestocked > 0
+            ? `Review completed. ${totalReRestocked} additional item(s) returned to sellable stock.`
+            : 'Review completed. The disposition status has been updated.',
         returnRecord: record
     });
 }

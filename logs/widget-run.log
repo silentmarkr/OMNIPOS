@@ -1926,3 +1926,88 @@ MODE: Development (Localhost Access Only)
     at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
     at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+[2026-09-10 10:47:11] ❌ May tumatakbo na supervisor loop (PID 25741). Hindi na papatakbuhin ulit.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:567:9)
+    at process.processTimers (node:internal/timers:541:7)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5578:9
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5280:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5584:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-10 11:21:02] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-10 11:21:05] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-10 11:21:08] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-10T03:03:15.652Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Walang internet connection na na-detect sa device na ito.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-10 12:29:01] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-10 12:29:04] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-10 12:29:07] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-10T03:03:15.652Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5281:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5585:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5281:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5585:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+⚠️ Hindi na-log ang AI Assistant interaction: ReferenceError: FILE_AI_ASSISTANT_LOGS is not defined
+    at logAiAssistantInteraction (/data/data/com.termux/files/home/OMNIPOS/server.js:5281:31)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:5585:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

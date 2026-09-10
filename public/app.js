@@ -12427,9 +12427,38 @@ function closeColumnFilterDropdownOnOutsideClick(evt) {
 }
 
 let cachedPendingStockReturns = [];
+// Disposition statuses for items inspected as damaged/non-restockable.
+// Keep the keys/labels in sync with STOCK_RETURN_DAMAGE_STATUSES in server.js.
+const STOCK_RETURN_DAMAGE_STATUS_LABELS = {
+    disposed: 'Disposed / Discarded',
+    return_to_supplier: 'For Return to Supplier',
+    write_off: 'Written Off (Total Loss)',
+    for_repair: 'Held for Repair',
+    salvage_parts: 'Salvage for Parts',
+    pending_manager_review: 'Pending Manager Review'
+};
+function sretDamageStatusLabel(key) {
+    return STOCK_RETURN_DAMAGE_STATUS_LABELS[key] || 'Pending Manager Review';
+}
+// Shows/hides the per-item damage-status dropdown depending on whether that item's
+// "Damaged / Do not restock" quantity is greater than zero.
+window.sretSyncDamageRow = function (idx) {
+    const damagedInput = document.querySelector(`.sret-damaged[data-idx="${idx}"]`);
+    const row = document.querySelector(`.sret-damage-status-row[data-idx="${idx}"]`);
+    if (!damagedInput || !row) return;
+    const damaged = parseInt(damagedInput.value, 10) || 0;
+    row.style.display = damaged > 0 ? 'block' : 'none';
+};
 function canInspectStockReturns() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
     return isAdmin || !!(currentPermissions && currentPermissions.stock_return_inspection);
+}
+// Separate permission from the base Inspect action — this gates finalizing the manager
+// review on items still marked "Pending Manager Review", so the person who did the
+// original inspection isn't automatically the one who can also sign off on it.
+function canReviewStockReturns() {
+    const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
+    return isAdmin || !!(currentPermissions && currentPermissions.stock_return_manager_review);
 }
 async function loadPendingStockReturns() {
     const page = document.getElementById('view-stock_return_inspection');
@@ -12438,7 +12467,7 @@ async function loadPendingStockReturns() {
         return;
     }
     try {
-        const res = await authFetch(`${API_URL}/stock-returns?status=pending_inspection`);
+        const res = await authFetch(`${API_URL}/stock-returns?status=active`);
         const data = await res.json();
         cachedPendingStockReturns = data && data.success && Array.isArray(data.returns) ? data.returns : [];
     } catch (e) {
@@ -12456,18 +12485,48 @@ function renderPendingStockReturns() {
     }
     tbody.innerHTML = cachedPendingStockReturns.map(r => {
         const source = String(r.sourceType || '').toLowerCase() === 'void' ? 'VOID' : 'REFUND';
-        const sourceClass = source === 'VOID' ? 'pending' : 'pending';
         const itemCount = (r.items || []).reduce((sum, i) => sum + (parseInt(i.quantity, 10) || 0), 0);
         const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '—';
+        const isPending = String(r.status || '').toLowerCase() === 'pending_inspection';
+        // "Pending Manager Review" is not a final disposition — those items can still be
+        // restocked once a manager decides, so the record must stay actionable (not read-only).
+        const needsReview = !isPending && (r.items || []).some(i =>
+            (parseInt(i.damagedQty, 10) || 0) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review');
+        const sourceBadge = `<span class="badge" style="background-color:${source === 'VOID' ? '#ede9fe' : '#e0f2fe'};color:${source === 'VOID' ? '#6d28d9' : '#0369a1'};">${source}</span>`;
+        let statusBadge;
+        if (isPending) {
+            statusBadge = `<span class="badge" style="background-color:#fef3c7;color:#b45309;">Pending Inspection</span>`;
+        } else {
+            // Already inspected but kept visible because it still has damaged/non-restockable
+            // items — show the disposition status(es) that were selected for those items.
+            const damagedLabels = Array.from(new Set((r.items || [])
+                .filter(i => (parseInt(i.damagedQty, 10) || 0) > 0)
+                .map(i => sretDamageStatusLabel(i.damageStatus))));
+            const labelText = damagedLabels.length ? damagedLabels.join(', ') : 'Fully Restocked';
+            // Amber (not final, still needs a decision) vs red (finalized, cannot be restocked).
+            statusBadge = needsReview
+                ? `<span class="badge" style="background-color:#fef3c7;color:#b45309;">${escapeHtml(labelText)}</span>`
+                : `<span class="badge" style="background-color:#fee2e2;color:#b91c1c;">${escapeHtml(labelText)}</span>`;
+        }
+        let actionBtn;
+        if (isPending) {
+            actionBtn = `<button class="btn-clear" onclick="inspectStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#2563eb;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-clipboard-check"></i> Inspect</button>`;
+        } else if (needsReview) {
+            actionBtn = canReviewStockReturns()
+                ? `<button class="btn-clear" onclick="reviewStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#b45309;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-user-check"></i> Review</button>`
+                : `<span style="color:#94a3b8;font-size:.82rem;" title="Kailangan ng 'Finalize Manager Review' permission — hilingin sa Admin."><i class="fa-solid fa-lock"></i> Manager Review Only</span>`;
+        } else {
+            actionBtn = `<button class="btn-clear" onclick="inspectStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#475569;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-eye"></i> View</button>`;
+        }
         return `<tr>
             <td class="font-bold">${escapeHtml(r.id || '—')}</td>
-            <td><span class="stock-return-status ${sourceClass}">${source}</span></td>
+            <td>${sourceBadge}</td>
             <td>${escapeHtml(r.transactionId || '—')}</td>
             <td>${itemCount} unit(s)</td>
             <td>${escapeHtml(r.requester || 'Unknown')}</td>
             <td>${escapeHtml(date)}</td>
-            <td><span class="stock-return-status pending">Pending Inspection</span></td>
-            <td><button class="btn-clear" onclick="inspectStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#2563eb;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-clipboard-check"></i> Inspect</button></td>
+            <td>${statusBadge}</td>
+            <td>${actionBtn}</td>
         </tr>`;
     }).join('');
 }
@@ -12477,16 +12536,30 @@ async function inspectStockReturn(returnId) {
         await loadPendingStockReturns();
         return;
     }
+    const isPending = String(record.status || '').toLowerCase() === 'pending_inspection';
+    if (!isPending) {
+        return viewInspectedStockReturn(record);
+    }
+    const damageOptionsHtml = Object.entries(STOCK_RETURN_DAMAGE_STATUS_LABELS)
+        .map(([val, label]) => `<option value="${val}">${escapeHtml(label)}</option>`).join('');
     const rows = (record.items || []).map((item, idx) => `
         <div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:10px 0;">
             <div style="font-weight:700;margin-bottom:4px;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
             <div style="font-size:.78rem;color:#64748b;margin-bottom:7px;">Returned quantity: <b>${item.quantity}</b></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <label style="font-size:.78rem;">Sellable / Restock
-                    <input type="number" class="sret-restock" data-idx="${idx}" min="0" max="${item.quantity}" value="${item.quantity}" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-restock" data-idx="${idx}" min="0" max="${item.quantity}" value="${item.quantity}" oninput="sretSyncDamageRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
                 </label>
                 <label style="font-size:.78rem;">Damaged / Do not restock
-                    <input type="number" class="sret-damaged" data-idx="${idx}" min="0" max="${item.quantity}" value="0" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-damaged" data-idx="${idx}" min="0" max="${item.quantity}" value="0" oninput="sretSyncDamageRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
+                </label>
+            </div>
+            <div class="sret-damage-status-row" data-idx="${idx}" style="display:none;margin-top:8px;">
+                <label style="font-size:.78rem;color:#b91c1c;">Status ng sirang / hindi na maibabalik na item
+                    <select class="sret-damage-status" data-idx="${idx}" style="width:100%;padding:6px;box-sizing:border-box;">
+                        <option value="">— Piliin ang status —</option>
+                        ${damageOptionsHtml}
+                    </select>
                 </label>
             </div>
         </div>`).join('');
@@ -12500,17 +12573,27 @@ async function inspectStockReturn(returnId) {
         confirmButtonColor:'#2563eb',
         cancelButtonColor:'#64748b',
         width:560,
+        didOpen:() => {
+            (record.items || []).forEach((item, idx) => window.sretSyncDamageRow(idx));
+        },
         preConfirm:() => {
             const items = [];
             let invalid = false;
+            let missingStatus = false;
             (record.items || []).forEach((item, idx) => {
                 const restock = Math.max(0, parseInt(document.querySelector(`.sret-restock[data-idx="${idx}"]`)?.value,10) || 0);
                 const damaged = Math.max(0, parseInt(document.querySelector(`.sret-damaged[data-idx="${idx}"]`)?.value,10) || 0);
                 if (restock + damaged !== item.quantity) invalid = true;
-                items.push({ lineId:item.lineId, restockedQty:restock, damagedQty:damaged });
+                const damageStatus = damaged > 0 ? (document.querySelector(`.sret-damage-status[data-idx="${idx}"]`)?.value || '') : '';
+                if (damaged > 0 && !damageStatus) missingStatus = true;
+                items.push({ lineId:item.lineId, restockedQty:restock, damagedQty:damaged, damageStatus: damageStatus || null });
             });
             if (invalid) {
                 Swal.showValidationMessage('For each item, Restock + Damaged must exactly equal the Returned quantity.');
+                return false;
+            }
+            if (missingStatus) {
+                Swal.showValidationMessage('Piliin ang status para sa bawat item na may Damaged quantity.');
                 return false;
             }
             return { items, reason:(document.getElementById('stock-return-inspection-reason')?.value || '').trim() };
@@ -12532,6 +12615,153 @@ async function inspectStockReturn(returnId) {
     } catch (err) {
         console.error('Stock Return Inspection Error:', err);
         Swal.fire('Error', 'There was a connection problem while inspecting the returned items.', 'error');
+    }
+}
+// Read-only detail view for a return record that has already been inspected. It stays
+// visible on the Void/Refund page whenever it still has damaged/non-restockable items,
+// so staff can see what disposition status was chosen for those items.
+async function viewInspectedStockReturn(record) {
+    const rows = (record.items || []).map(item => {
+        const restocked = parseInt(item.restockedQty, 10) || 0;
+        const damaged = parseInt(item.damagedQty, 10) || 0;
+        const damageLabel = damaged > 0 ? sretDamageStatusLabel(item.damageStatus) : '';
+        return `<div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:8px 0;">
+            <div style="font-weight:700;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
+            <div style="font-size:.78rem;color:#475569;margin-top:2px;">Returned: <b>${item.quantity}</b> &nbsp;|&nbsp; Restocked: <b>${restocked}</b> &nbsp;|&nbsp; Damaged: <b>${damaged}</b></div>
+            ${damaged > 0 ? `<div style="font-size:.78rem;color:#b91c1c;margin-top:2px;">Status: <b>${escapeHtml(damageLabel)}</b></div>` : ''}
+        </div>`;
+    }).join('');
+    await Swal.fire({
+        title: '📋 Inspection Details',
+        html: `<div style="text-align:left;margin-bottom:8px;color:#475569;font-size:.82rem;">
+                   Source: <b>${escapeHtml(String(record.sourceType || '').toUpperCase())}</b> — Transaction: <b>${escapeHtml(record.transactionId || '—')}</b><br>
+                   Inspected by: <b>${escapeHtml(record.inspectedBy || 'Unknown')}</b> on <b>${escapeHtml(record.inspectedAt ? new Date(record.inspectedAt).toLocaleString() : '—')}</b>
+               </div>
+               <div style="max-height:380px;overflow-y:auto;">${rows}</div>
+               ${record.inspectionReason ? `<div style="margin-top:10px;font-size:.8rem;color:#475569;"><b>Note:</b> ${escapeHtml(record.inspectionReason)}</div>` : ''}`,
+        confirmButtonText:'Close',
+        confirmButtonColor:'#2563eb',
+        width:560
+    });
+}
+// Shows/hides a reviewable item's "Restock now" / "Still damaged" split inputs based on
+// whether the manager picked "Pending Manager Review" again in the status dropdown, since
+// that's the only case where 0 units are forced back into "still damaged".
+window.sretSyncReviewRow = function (idx) {
+    const restockInput = document.querySelector(`.sret-review-restock[data-idx="${idx}"]`);
+    const damagedInput = document.querySelector(`.sret-review-damaged[data-idx="${idx}"]`);
+    if (!restockInput || !damagedInput) return;
+    const restock = parseInt(restockInput.value, 10) || 0;
+    const held = parseInt(restockInput.dataset.held, 10) || 0;
+    damagedInput.value = Math.max(0, held - restock);
+    const statusRow = document.querySelector(`.sret-review-status-row[data-idx="${idx}"]`);
+    if (statusRow) {
+        const stillDamaged = Math.max(0, held - restock);
+        statusRow.style.display = stillDamaged > 0 ? 'block' : 'none';
+    }
+};
+// Second-pass review for items still marked "Pending Manager Review". A manager can
+// finalize their disposition (Disposed, Written Off, etc.), or restock some/all of the
+// held quantity if it turns out those units are actually fine after all. Items whose
+// disposition was already finalized in the original inspection are shown read-only here.
+async function reviewStockReturn(returnId) {
+    if (!canReviewStockReturns()) {
+        Swal.fire('Walang Pahintulot', 'Kailangan ng \'Finalize Manager Review\' permission para gawin ito. Hilingin sa Admin na bigyan ka ng access sa Roles & Permissions.', 'warning');
+        return;
+    }
+    const record = cachedPendingStockReturns.find(r => String(r.id) === String(returnId));
+    if (!record) {
+        await loadPendingStockReturns();
+        return;
+    }
+    const damageOptionsHtml = Object.entries(STOCK_RETURN_DAMAGE_STATUS_LABELS)
+        .map(([val, label]) => `<option value="${val}">${escapeHtml(label)}</option>`).join('');
+    const rows = (record.items || []).map((item, idx) => {
+        const restocked = parseInt(item.restockedQty, 10) || 0;
+        const held = parseInt(item.damagedQty, 10) || 0;
+        const isReviewable = held > 0 && String(item.damageStatus || '').toLowerCase() === 'pending_manager_review';
+        if (!isReviewable) {
+            // Already finalized (or never damaged) — context only, nothing to edit.
+            const damageLabel = held > 0 ? sretDamageStatusLabel(item.damageStatus) : '';
+            return `<div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:8px 0;opacity:.7;">
+                <div style="font-weight:700;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
+                <div style="font-size:.78rem;color:#475569;margin-top:2px;">Returned: <b>${item.quantity}</b> &nbsp;|&nbsp; Restocked: <b>${restocked}</b> &nbsp;|&nbsp; Damaged: <b>${held}</b></div>
+                ${held > 0 ? `<div style="font-size:.78rem;color:#b91c1c;margin-top:2px;">Status: <b>${escapeHtml(damageLabel)}</b> (already finalized)</div>` : ''}
+            </div>`;
+        }
+        return `<div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:10px 0;">
+            <div style="font-weight:700;margin-bottom:4px;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
+            <div style="font-size:.78rem;color:#64748b;margin-bottom:7px;">Currently held pending review: <b>${held}</b> (already restocked: ${restocked})</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <label style="font-size:.78rem;">Restock now
+                    <input type="number" class="sret-review-restock" data-idx="${idx}" data-held="${held}" min="0" max="${held}" value="0" oninput="sretSyncReviewRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
+                </label>
+                <label style="font-size:.78rem;">Still damaged
+                    <input type="number" class="sret-review-damaged" data-idx="${idx}" min="0" max="${held}" value="${held}" readonly style="width:100%;padding:6px;box-sizing:border-box;background:#f1f5f9;">
+                </label>
+            </div>
+            <div class="sret-review-status-row" data-idx="${idx}" style="display:block;margin-top:8px;">
+                <label style="font-size:.78rem;color:#b45309;">Napagpasyahang status ngayon
+                    <select class="sret-review-status" data-idx="${idx}" style="width:100%;padding:6px;box-sizing:border-box;">
+                        <option value="pending_manager_review">— Pending Manager Review (defer pa) —</option>
+                        ${damageOptionsHtml}
+                    </select>
+                </label>
+            </div>
+        </div>`;
+    }).join('');
+    const { value } = await Swal.fire({
+        title: '🔎 Manager Review',
+        html: `<div style="text-align:left;margin-bottom:8px;color:#475569;font-size:.82rem;">Source: <b>${escapeHtml(String(record.sourceType || '').toUpperCase())}</b> — Transaction: <b>${escapeHtml(record.transactionId || '—')}</b></div>
+               <div style="max-height:380px;overflow-y:auto;">${rows}</div>`,
+        showCancelButton:true,
+        confirmButtonText:'Save Review',
+        confirmButtonColor:'#b45309',
+        cancelButtonColor:'#64748b',
+        width:560,
+        preConfirm:() => {
+            const items = [];
+            let invalid = false;
+            (record.items || []).forEach((item, idx) => {
+                const held = parseInt(item.damagedQty, 10) || 0;
+                const isReviewable = held > 0 && String(item.damageStatus || '').toLowerCase() === 'pending_manager_review';
+                if (!isReviewable) return;
+                const restockNow = Math.max(0, parseInt(document.querySelector(`.sret-review-restock[data-idx="${idx}"]`)?.value, 10) || 0);
+                const stillDamaged = Math.max(0, held - restockNow);
+                let damageStatus = null;
+                if (stillDamaged > 0) {
+                    damageStatus = document.querySelector(`.sret-review-status[data-idx="${idx}"]`)?.value || '';
+                    if (!damageStatus) invalid = true;
+                }
+                items.push({ lineId:item.lineId, restockNowQty:restockNow, damagedQty:stillDamaged, damageStatus: damageStatus || null });
+            });
+            if (invalid) {
+                Swal.showValidationMessage('Piliin ang status para sa mga item na nananatiling damaged.');
+                return false;
+            }
+            if (!items.length) {
+                Swal.showValidationMessage('Wala nang item na naghihintay ng manager review dito.');
+                return false;
+            }
+            return { items };
+        }
+    });
+    if (!value) return;
+    try {
+        const response = await authFetch(`${API_URL}/stock-returns/${encodeURIComponent(returnId)}/review`, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(value)
+        });
+        const result = await response.json();
+        if (!result.success) {
+            Swal.fire('Review Failed', result.message || 'The review could not be processed.', 'error');
+            return;
+        }
+        await Swal.fire('Saved', result.message || 'The review was saved.', 'success');
+        await loadPendingStockReturns();
+        await loadInventoryProductsTable();
+    } catch (err) {
+        console.error('Stock Return Review Error:', err);
+        Swal.fire('Error', 'There was a connection problem while saving the review.', 'error');
     }
 }
 async function loadInventoryProductsTable() {
