@@ -348,9 +348,9 @@
                         <span><i class="fa-solid fa-users"></i> Active Users <span id="active-users-count-badge" class="uw-count-badge"></span></span>
                         <i class="fa-solid fa-chevron-down uw-sub-caret" id="uw-activeusers-caret"></i>
                     </div>
-                    <div class="uw-item uw-remoteaccess" id="uw-remoteaccess" onclick="handleRemoteAccessLinkClick(event)" title="Gumawa ng remote access link (Cloudflare) para ma-access ng client ang system kahit malayo">
+                    <div class="uw-item uw-remoteaccess" id="uw-remoteaccess" onclick="handleRemoteAccessLinkClick(event)" title="Create a remote access link so the client can access the system even remotely">
                         <span><i class="fa-solid fa-globe" id="uw-remoteaccess-icon"></i> Remote Access Link</span>
-                        <i class="fa-solid fa-qrcode uw-remoteaccess-qr-hint"></i>
+                        <i class="fa-solid fa-gear uw-remoteaccess-config-icon" id="uw-remoteaccess-config-icon" onclick="openCloudflareNamedTunnelConfigModal(event)" title="Configure a custom domain (optional — if a domain has been purchased)"></i>
                     </div>
                     <div class="uw-submenu uw-au-submenu" id="uw-activeusers-submenu">
                         

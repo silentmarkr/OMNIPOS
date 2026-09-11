@@ -9237,16 +9237,39 @@ app.get('/api/system/backup-status', (req, res) => {
     const status = getBackupStatus();
     res.json({ success: true, status });
 });
-// BAGO: "Remote Access Link" (globe icon sa profile menu) — gumagawa ng
-// pampublikong link papuntang lokal na OMNIPOS server gamit ang
-// Cloudflare Quick Tunnel (cloudflared), para makapag-access ang client
-// kahit malayo/hindi kasabay sa parehong WiFi/LAN. Tinatakbo ito bilang
-// background process sa loob mismo ng Termux (child ng Node server na
-// ito) — walang extra Cloudflare account/dashboard na kailangan dahil
-// "quick tunnel" ito (bawat start ay bagong random na *.trycloudflare.com
-// subdomain, walang expiry habang naka-on ang process/device).
+// NEW: "Remote Access Link" (globe icon in the profile menu) — creates a
+// public link to this local OMNIPOS server so the client can access it
+// remotely / while not on the same WiFi/LAN. There are 2 modes:
+//   1. "quick" — Cloudflare Quick Tunnel (no account/domain required; a
+//      random *.trycloudflare.com subdomain on every start). This is the
+//      DEFAULT/FALLBACK — always available even with nothing configured.
+//   2. "named" — Cloudflare Named Tunnel using the client's own domain
+//      (once they've bought a domain and configured it on the Cloudflare
+//      Zero Trust dashboard). A permanent link that doesn't change even
+//      after a restart. This is used AUTOMATICALLY whenever a config
+//      (hostname + tunnel token) is saved — if it's missing/cleared, it
+//      simply falls back to "quick" mode with no extra steps needed.
+// Both run as a background process inside Termux itself (a child process
+// of this Node server).
+const FILE_CLOUDFLARE_CONFIG ='cloudflareTunnelConfig';
+function getCloudflareNamedTunnelConfig() {
+    const cfg = readData(FILE_CLOUDFLARE_CONFIG, {});
+    return {
+        hostname: String((cfg && cfg.hostname) ||'').trim(),
+        token: String((cfg && cfg.token) ||'').trim()
+    };
+}
+function saveCloudflareNamedTunnelConfig(hostname, token) {
+    writeData(FILE_CLOUDFLARE_CONFIG, { hostname: String(hostname ||'').trim(), token: String(token ||'').trim(), updatedAt: Date.now() });
+}
+function maskCloudflareTunnelToken(token) {
+    const t = String(token ||'');
+    if (t.length <= 8) return t ?'••••••••' :'';
+    return `${t.slice(0, 4)}••••••••${t.slice(-4)}`;
+}
 const CLOUDFLARE_TUNNEL_STATE = {
     status:'idle', // idle | starting | running | error | stopped
+    mode: null, // 'quick' | 'named'
     url: null,
     error: null,
     startedAt: null,
@@ -9263,103 +9286,239 @@ function resolveCloudflaredBinaryPath() {
     for (const c of candidates) {
         try { if (c && fs.existsSync(c)) return c; } catch {}
     }
-    // Fallback — umasa sa PATH (hal. kung na-install via `pkg`/apt/brew).
+    // Fallback — rely on PATH (e.g. if installed via `pkg`/apt/brew).
     return 'cloudflared';
 }
-function startCloudflareTunnel() {
+// Shared "spawn + watch output/exit" logic used by both the Quick Tunnel
+// and the Named Tunnel — the only difference between them is the args
+// passed to cloudflared, and how "success" is determined (a URL parsed
+// from the output for quick, or a saved hostname plus a "connected"
+// signal from the output for named).
+function runCloudflaredProcess({ args, mode, resolveUrlFromOutput, fallbackUrl, grabTimeoutMs }) {
     return new Promise((resolve) => {
-        if (CLOUDFLARE_TUNNEL_STATE.status ==='starting' || CLOUDFLARE_TUNNEL_STATE.status ==='running') {
-            return resolve(CLOUDFLARE_TUNNEL_STATE);
-        }
-        CLOUDFLARE_TUNNEL_STATE.status ='starting';
-        CLOUDFLARE_TUNNEL_STATE.url = null;
-        CLOUDFLARE_TUNNEL_STATE.error = null;
         const bin = resolveCloudflaredBinaryPath();
         let child;
         try {
-            child = spawn(bin, ['tunnel','--url', `http://127.0.0.1:${PORT}`,'--no-autoupdate'], {
-                cwd: __dirname,
-                stdio: ['ignore','pipe','pipe'],
-                windowsHide: true
-            });
+            child = spawn(bin, args, { cwd: __dirname, stdio: ['ignore','pipe','pipe'], windowsHide: true });
         } catch (err) {
             CLOUDFLARE_TUNNEL_STATE.status ='error';
-            CLOUDFLARE_TUNNEL_STATE.error = `Hindi ma-start ang cloudflared (${err.message}). Siguraduhing naka-install ito — tingnan ang setup-omnipos.sh, o i-set ang CLOUDFLARED_BIN env var papunta sa binary.`;
+            CLOUDFLARE_TUNNEL_STATE.error = `Could not start cloudflared (${err.message}). Make sure it's installed — see setup-omnipos.sh, or set the CLOUDFLARED_BIN env var to point at the binary.`;
             return resolve(CLOUDFLARE_TUNNEL_STATE);
         }
         CLOUDFLARE_TUNNEL_STATE.process = child;
+        CLOUDFLARE_TUNNEL_STATE.mode = mode;
         let settled = false;
-        const urlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
+        let outputBuffer ='';
+        // BUGFIX: previously there was no identity check on whether the
+        // "child" firing this event is still the one currently tracked in
+        // CLOUDFLARE_TUNNEL_STATE.process. Because CLOUDFLARE_TUNNEL_STATE
+        // is a GLOBAL/SHARED object, if a tunnel was Stopped (or restarted
+        // via Save Config) and a NEW one was already started before the
+        // OLD cloudflared process actually exited (e.g. clicking quickly
+        // again), a late/stale 'data'/'error'/'exit' event from the OLD
+        // process could overwrite the status/url of the NEW (actually
+        // still working) tunnel — e.g. a genuinely "running" link would
+        // suddenly flip to "stopped"/"error". The isChildStillCurrent()
+        // guard below prevents this: the event is simply ignored once it
+        // no longer comes from the process that's currently tracked.
+        const isChildStillCurrent = () => CLOUDFLARE_TUNNEL_STATE.process === child;
         const onData = (buf) => {
-            const text = buf.toString('utf8');
-            const match = text.match(urlPattern);
-            if (match && !settled) {
-                settled = true;
+            outputBuffer += buf.toString('utf8');
+            const resolvedUrl = resolveUrlFromOutput(outputBuffer);
+            // NOTE/FIX: previously the SHARED STATE update was gated
+            // behind "!settled" — but "settled" should only control WHEN
+            // the PROMISE resolves (so the first request isn't blocked for
+            // too long), NOT when the status/url gets updated. So the
+            // state update below ALWAYS runs even if the promise already
+            // resolved before — AS LONG AS this is still the currently
+            // tracked process.
+            if (resolvedUrl && isChildStillCurrent()) {
                 CLOUDFLARE_TUNNEL_STATE.status ='running';
-                CLOUDFLARE_TUNNEL_STATE.url = match[0];
+                CLOUDFLARE_TUNNEL_STATE.url = resolvedUrl;
                 CLOUDFLARE_TUNNEL_STATE.startedAt = Date.now();
-                resolve(CLOUDFLARE_TUNNEL_STATE);
             }
+            if (resolvedUrl && !settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
         };
-        // Sinusulat ni cloudflared ang tunnel URL sa stderr (normal na
-        // gawi ng CLI na ito), kaya parehong pinapakinggan ang dalawa.
+        // cloudflared writes its log lines (including the tunnel
+        // URL/connection status) to stderr (normal behavior for this CLI),
+        // so both streams are listened to.
         child.stdout.on('data', onData);
         child.stderr.on('data', onData);
         child.once('error', (err) => {
-            CLOUDFLARE_TUNNEL_STATE.status ='error';
-            CLOUDFLARE_TUNNEL_STATE.error = `Cloudflared process error: ${err.message}. Siguraduhing naka-install ang cloudflared (tingnan ang setup-omnipos.sh).`;
-            CLOUDFLARE_TUNNEL_STATE.process = null;
+            if (isChildStillCurrent()) {
+                CLOUDFLARE_TUNNEL_STATE.status ='error';
+                CLOUDFLARE_TUNNEL_STATE.error = `Cloudflared process error: ${err.message}. Make sure cloudflared is installed (see setup-omnipos.sh).`;
+                CLOUDFLARE_TUNNEL_STATE.process = null;
+            }
             if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
         });
         child.once('exit', (code, signal) => {
+            // If this is no longer the currently tracked process (it was
+            // already Stopped, or a new tunnel has already replaced it),
+            // don't touch the SHARED STATE — it now belongs to the new
+            // process/to the latest Stop action.
+            if (!isChildStillCurrent()) {
+                if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
+                return;
+            }
             CLOUDFLARE_TUNNEL_STATE.process = null;
-            if (!settled) {
-                settled = true;
-                CLOUDFLARE_TUNNEL_STATE.status ='error';
-                CLOUDFLARE_TUNNEL_STATE.error = `Nag-exit agad ang cloudflared (code ${code}${signal ?', signal ' + signal :''}) bago pa makakuha ng public URL. Siguraduhing naka-install ang cloudflared at may internet connection ang device.`;
-                resolve(CLOUDFLARE_TUNNEL_STATE);
-            } else if (CLOUDFLARE_TUNNEL_STATE.status ==='running') {
+            // Base the decision (stopped vs error) on the ACTUAL status in
+            // CLOUDFLARE_TUNNEL_STATE rather than the promise's "settled"
+            // flag, since the promise may have already resolved (because
+            // of grabTimeoutMs below) before the process even exits early.
+            const wasRunning = CLOUDFLARE_TUNNEL_STATE.status ==='running';
+            if (wasRunning) {
                 CLOUDFLARE_TUNNEL_STATE.status ='stopped';
                 CLOUDFLARE_TUNNEL_STATE.url = null;
+            } else {
+                CLOUDFLARE_TUNNEL_STATE.status ='error';
+                CLOUDFLARE_TUNNEL_STATE.error = `cloudflared exited (code ${code}${signal ?', signal ' + signal :''}) before the link could be confirmed working. ${mode ==='named' ?'Make sure the Tunnel Token is correct and the Public Hostname is configured on the Cloudflare dashboard.' :'Make sure cloudflared is installed and the device has an internet connection.'}`;
             }
-        });
-        // Kung wala pang URL pagkalipas ng 15s, huwag nang i-block ang
-        // request — babalik ang response bilang "starting" pa rin at
-        // ang frontend na ang mag-po-poll sa /status endpoint.
-        setTimeout(() => {
             if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
-        }, 15000);
+        });
+        // If there's no clear confirmation yet after grabTimeoutMs, don't
+        // keep blocking the request — the response goes back as "starting"
+        // and the frontend will poll the /status endpoint. If a
+        // fallbackUrl is given (such as the hostname already configured
+        // for a Named Tunnel, which doesn't need to be parsed from the
+        // output), treat it as "running" right here since the process is
+        // still alive with no immediate error/exit — that's signal enough
+        // that it's connected.
+        setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            if (fallbackUrl && isChildStillCurrent()) {
+                CLOUDFLARE_TUNNEL_STATE.status ='running';
+                CLOUDFLARE_TUNNEL_STATE.url = fallbackUrl;
+                CLOUDFLARE_TUNNEL_STATE.startedAt = Date.now();
+            }
+            resolve(CLOUDFLARE_TUNNEL_STATE);
+        }, grabTimeoutMs);
+    });
+}
+function startCloudflareTunnel() {
+    if (CLOUDFLARE_TUNNEL_STATE.status ==='starting' || CLOUDFLARE_TUNNEL_STATE.status ==='running') {
+        return Promise.resolve(CLOUDFLARE_TUNNEL_STATE);
+    }
+    CLOUDFLARE_TUNNEL_STATE.status ='starting';
+    CLOUDFLARE_TUNNEL_STATE.url = null;
+    CLOUDFLARE_TUNNEL_STATE.error = null;
+    CLOUDFLARE_TUNNEL_STATE.mode = null;
+    const namedConfig = getCloudflareNamedTunnelConfig();
+    if (namedConfig.hostname && namedConfig.token) {
+        // A custom domain has been saved — use the Named Tunnel. The
+        // service URL (where the domain points, e.g. http://localhost:PORT)
+        // is already configured on the Cloudflare Zero Trust dashboard
+        // itself, back when the "Public Hostname" for this tunnel was set
+        // up — so there's no need to pass --url again here.
+        const hostnameUrl = /^https?:\/\//i.test(namedConfig.hostname) ? namedConfig.hostname : `https://${namedConfig.hostname}`;
+        return runCloudflaredProcess({
+            args: ['tunnel','run','--token', namedConfig.token],
+            mode:'named',
+            resolveUrlFromOutput: (text) => (/registered tunnel connection|connection.*registered/i.test(text) ? hostnameUrl : null),
+            fallbackUrl: hostnameUrl,
+            grabTimeoutMs: 8000
+        });
+    }
+    // No custom domain saved (or it was cleared) — Quick Tunnel as the
+    // default/fallback. A random *.trycloudflare.com link.
+    const urlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
+    return runCloudflaredProcess({
+        args: ['tunnel','--url', `http://127.0.0.1:${PORT}`,'--no-autoupdate'],
+        mode:'quick',
+        resolveUrlFromOutput: (text) => {
+            const match = text.match(urlPattern);
+            return match ? match[0] : null;
+        },
+        fallbackUrl: null,
+        grabTimeoutMs: 15000
     });
 }
 app.post('/api/system/cloudflare-tunnel/start', rateLimit('system-cloudflare-tunnel-start', 5, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
-        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagawa ng Remote Access Link.' });
+        return res.status(403).json({ success: false, message:'Only Admin privileges can create a Remote Access Link.' });
     }
     const state = await startCloudflareTunnel();
     if (state.status ==='error') {
-        return res.status(500).json({ success: false, status: state.status, message: state.error });
+        return res.status(500).json({ success: false, status: state.status, mode: state.mode, message: state.error });
     }
-    logAction(req.authUser.username, `Gumawa ng Cloudflare Remote Access Link${state.url ?' (' + state.url + ')' :' (kasalukuyang nag-i-start pa)'}.`);
-    res.json({ success: true, status: state.status, url: state.url });
+    const modeLabel = state.mode ==='named' ?'Named Tunnel (custom domain)' :'Quick Tunnel';
+    logAction(req.authUser.username, `Created a Cloudflare Remote Access Link — ${modeLabel}${state.url ?' (' + state.url + ')' :' (currently still starting)'}.`);
+    res.json({ success: true, status: state.status, mode: state.mode, url: state.url });
 });
 app.get('/api/system/cloudflare-tunnel/status', (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
-        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakakita ng status ng Remote Access Link.' });
+        return res.status(403).json({ success: false, message:'Only Admin privileges can view the Remote Access Link status.' });
     }
-    res.json({ success: true, status: CLOUDFLARE_TUNNEL_STATE.status, url: CLOUDFLARE_TUNNEL_STATE.url, message: CLOUDFLARE_TUNNEL_STATE.error || null });
+    res.json({ success: true, status: CLOUDFLARE_TUNNEL_STATE.status, mode: CLOUDFLARE_TUNNEL_STATE.mode, url: CLOUDFLARE_TUNNEL_STATE.url, message: CLOUDFLARE_TUNNEL_STATE.error || null });
 });
 app.post('/api/system/cloudflare-tunnel/stop', (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
-        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakapag-stop ng Remote Access Link.' });
+        return res.status(403).json({ success: false, message:'Only Admin privileges can stop the Remote Access Link.' });
     }
     if (CLOUDFLARE_TUNNEL_STATE.process) {
         try { CLOUDFLARE_TUNNEL_STATE.process.kill(); } catch {}
     }
     CLOUDFLARE_TUNNEL_STATE.status ='idle';
     CLOUDFLARE_TUNNEL_STATE.url = null;
+    CLOUDFLARE_TUNNEL_STATE.mode = null;
     CLOUDFLARE_TUNNEL_STATE.process = null;
-    logAction(req.authUser.username,'Ni-stop ang Cloudflare Remote Access Link.');
+    logAction(req.authUser.username,'Stopped the Cloudflare Remote Access Link.');
     res.json({ success: true });
+});
+// NEW: config endpoints for the OPTIONAL custom domain (Named Tunnel).
+// Once a hostname+token is saved here, startCloudflareTunnel() will
+// automatically use it instead of the Quick Tunnel. Removing/clearing it
+// (blank hostname+token) immediately falls back to the Quick Tunnel — no
+// extra steps needed.
+app.get('/api/system/cloudflare-tunnel/config', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Only Admin privileges can view the Cloudflare tunnel configuration.' });
+    }
+    const cfg = getCloudflareNamedTunnelConfig();
+    const hasNamedTunnel = !!(cfg.hostname && cfg.token);
+    res.json({ success: true, hasNamedTunnel, hostname: cfg.hostname, tokenMasked: maskCloudflareTunnelToken(cfg.token) });
+});
+app.post('/api/system/cloudflare-tunnel/config', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Only Admin privileges can configure the Cloudflare custom domain.' });
+    }
+    let hostname = String((req.body && req.body.hostname) ||'').trim();
+    let token = String((req.body && req.body.token) ||'').trim();
+    // Strip the protocol/trailing slash in case the full URL was pasted
+    // instead of just a plain hostname (e.g. "https://pos.tindahan.com/").
+    hostname = hostname.replace(/^https?:\/\//i,'').replace(/\/+$/,'');
+    // BUGFIX: if a Named Tunnel was already saved before and only the
+    // hostname is being changed (token field left blank — exactly as the
+    // frontend's token placeholder says: "leave blank if not changing"),
+    // reuse the PREVIOUSLY saved token instead of treating this as an
+    // invalid/blank config. Previously there was nothing like this on the
+    // backend, so the frontend was left to block it with a validation
+    // error instead — meaning the promised "leave blank to keep" behavior
+    // never actually worked.
+    if (hostname && !token) {
+        const existingForReuse = getCloudflareNamedTunnelConfig();
+        if (existingForReuse.token) token = existingForReuse.token;
+    }
+    const bothBlank = !hostname && !token;
+    const bothFilled = !!hostname && !!token;
+    if (!bothBlank && !bothFilled) {
+        return res.status(400).json({ success: false, message:'Both Hostname and Tunnel Token need to be filled in, or both left blank to fall back to the Quick Tunnel (no custom domain).' });
+    }
+    saveCloudflareNamedTunnelConfig(hostname, token);
+    // Stop the currently running tunnel (if any) so the new config is
+    // used right away on the next click.
+    if (CLOUDFLARE_TUNNEL_STATE.process) {
+        try { CLOUDFLARE_TUNNEL_STATE.process.kill(); } catch {}
+        CLOUDFLARE_TUNNEL_STATE.process = null;
+    }
+    CLOUDFLARE_TUNNEL_STATE.status ='idle';
+    CLOUDFLARE_TUNNEL_STATE.url = null;
+    CLOUDFLARE_TUNNEL_STATE.mode = null;
+    logAction(req.authUser.username, bothFilled
+        ? `Configured a Cloudflare Named Tunnel custom domain (${hostname}).`
+        :'Removed the Cloudflare Named Tunnel custom domain — falling back to the Quick Tunnel.');
+    res.json({ success: true, hasNamedTunnel: bothFilled, hostname });
 });
 app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
@@ -11591,6 +11750,18 @@ async function startOmniposServer() {
 }
 async function handleShutdownSignal(signal) {
     console.log(`ℹ️  Natanggap ang ${signal} — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...`);
+    // NEW: if the Cloudflare Remote Access Link tunnel is running, kill it
+    // before the server exits — otherwise it could be left running as an
+    // orphan process in Termux ("cloudflared tunnel --url ..." doesn't
+    // automatically die just because this Node server was
+    // restarted/crashed, since it isn't a detached child).
+    if (CLOUDFLARE_TUNNEL_STATE.process) {
+        try { CLOUDFLARE_TUNNEL_STATE.process.kill(); } catch {}
+        CLOUDFLARE_TUNNEL_STATE.process = null;
+        CLOUDFLARE_TUNNEL_STATE.status ='idle';
+        CLOUDFLARE_TUNNEL_STATE.url = null;
+        CLOUDFLARE_TUNNEL_STATE.mode = null;
+    }
     try {
         await pushSnapshotToCloud();
     } catch (err) {

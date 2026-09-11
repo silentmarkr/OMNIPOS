@@ -732,9 +732,12 @@ body:not(.dark-mode) .sidebar {
     align-items: center;
     gap: 8px;
 }
-.uw-remoteaccess-qr-hint {
+.uw-remoteaccess-config-icon {
     font-size: 0.8rem;
     color: #64748b;
+}
+.uw-remoteaccess-config-icon:hover {
+    color: #cbd5e1;
 }
 .uw-item.uw-logout {
     color: #f87171;

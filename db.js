@@ -466,7 +466,20 @@ function mirrorBackupToDownloads() {
 // sa maraming client) kada successful sync, nang walang benepisyo sa
 // client. Sa halip, hayaan na lang itong manatiling lokal (SQLite) sa
 // bawat device/server ng client.
-const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage']);
+// SECURITY BUGFIX: idinagdag ang 'cloudflareTunnelConfig' — ang bagong
+// Cloudflare Remote Access Link (Named Tunnel) module ay naglalaman ng
+// isang RAW SECRET credential (ang Cloudflare Tunnel Token — functionally
+// kapareho ng isang password/API key), pareho ang klase ng 'sessions'
+// (session token) na nasa listahan na ito dati. Kung hindi ito i-exclude,
+// aktwal na naisasama ang totoong Tunnel Token ng client sa Cloud Backup
+// payload na ipinapadala patungong SHARED na Neon Postgres database ng
+// developer (kasama ang backup data ng maraming ibang client) tuwing
+// successful ang cloud sync — isang totoong credential leak sa isang
+// shared na storage. Ang getFullDatabaseSnapshot() (para sa LOCAL na
+// backup file/Hard Reset email papunta mismo sa sariling email ng
+// client) ay sinasadyang hindi apektado nito — doon dapat kasama pa rin
+// ang config na ito para gumana ang restore.
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 // BUG FIX: dating ginagamit ng AI Assistant database snapshot (see
 // getAiKnowledgeSnapshot() sa ibaba) ang PAREHONG
@@ -565,7 +578,13 @@ function getFullDatabaseSnapshot() {
 // security secret (password hash, session token, license/activation key).
 const AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES = new Set([
     'sessions', 'featureUnlocks', 'cloudTokenPrefs',
-    'aiAssistantLogs', 'aiAssistantUsage', 'aiSupportTickets'
+    'aiAssistantLogs', 'aiAssistantUsage', 'aiSupportTickets',
+    // SECURITY BUGFIX: 'cloudflareTunnelConfig' holds a raw Cloudflare
+    // Tunnel Token (a real credential) for the Remote Access Link feature
+    // — same class of secret as 'sessions', so it must never be handed to
+    // the third-party AI provider as context either, even for a
+    // full-scope Admin snapshot.
+    'cloudflareTunnelConfig'
 ]);
 // Kapag hindi Admin/authorized ang naka-login, ito lang ang mga module na
 // isasama — basic catalog/store info, walang financial totals, walang

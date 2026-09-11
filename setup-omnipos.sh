@@ -131,14 +131,14 @@ fi
 echo "   Node version: $(node -v 2>/dev/null || echo 'NOT FOUND — there was a problem installing nodejs')"
 echo ""
 
-# BAGO: auto-install ng "cloudflared" (Cloudflare Tunnel binary) — ito
-# ang gumagawa ng pampublikong link (https://xxxx.trycloudflare.com)
-# para sa bagong "Remote Access Link" (globe icon) sa profile menu ng
-# OMNIPOS, kaya kailangan itong naka-install bago patakbuhin ang app.
-# Static Go binary ito, direkta mula sa GitHub releases ng Cloudflare
-# (hindi kailangang pumasok sa pkg repo ng Termux), kaya gumagana ito
-# nang diretso sa Termux/Android nang walang extra dependency.
-echo "🌐 Checking/installing cloudflared (para sa Remote Access Link / globe icon)..."
+# NEW: auto-install "cloudflared" (Cloudflare Tunnel binary) — this is
+# what creates the public link (https://xxxx.trycloudflare.com) for the
+# new "Remote Access Link" (globe icon) in the OMNIPOS profile menu, so
+# it needs to be installed before running the app. It's a static Go
+# binary, straight from Cloudflare's GitHub releases (no need to go
+# through Termux's pkg repo), so it works directly on Termux/Android
+# with no extra dependency.
+echo "🌐 Checking/installing cloudflared (for the Remote Access Link / globe icon)..."
 if [ "$PLATFORM" = "termux" ]; then
     CF_BIN_DIR="$PREFIX/bin"
 else
@@ -146,7 +146,7 @@ else
     mkdir -p "$CF_BIN_DIR" 2>/dev/null
 fi
 if command -v cloudflared >/dev/null 2>&1 || [ -x "$CF_BIN_DIR/cloudflared" ]; then
-    echo "   ✅ Nakita na ang cloudflared — nilaktawan ang pag-install."
+    echo "   ✅ cloudflared already found — skipping install."
 else
     CF_ARCH="$(uname -m 2>/dev/null)"
     case "$CF_ARCH" in
@@ -161,13 +161,13 @@ else
         echo "   Downloading cloudflared ($CF_ASSET)..."
         if curl -fsSL "$CF_URL" -o "$CF_BIN_DIR/cloudflared" 2>/dev/null && [ -s "$CF_BIN_DIR/cloudflared" ]; then
             chmod +x "$CF_BIN_DIR/cloudflared"
-            echo "   ✅ Na-install ang cloudflared sa $CF_BIN_DIR/cloudflared"
+            echo "   ✅ cloudflared installed at $CF_BIN_DIR/cloudflared"
         else
             rm -f "$CF_BIN_DIR/cloudflared" 2>/dev/null
-            echo "   ⚠️  Hindi ma-download ang cloudflared ngayon (walang internet o na-block ang GitHub). Gagana pa rin ang OmniPOS — hindi lang gagana ang 'Remote Access Link' (globe icon) hangga't hindi ito na-install. Puwedeng ulitin ang script na ito mamaya, o manual: curl -fsSL $CF_URL -o $CF_BIN_DIR/cloudflared && chmod +x $CF_BIN_DIR/cloudflared"
+            echo "   ⚠️  Could not download cloudflared right now (no internet, or GitHub is blocked). OmniPOS will still work — only the 'Remote Access Link' (globe icon) won't work until this is installed. You can re-run this script later, or install it manually: curl -fsSL $CF_URL -o $CF_BIN_DIR/cloudflared && chmod +x $CF_BIN_DIR/cloudflared"
         fi
     else
-        echo "   ⚠️  Hindi ma-detect ang CPU architecture ($CF_ARCH) para sa auto-install ng cloudflared. Manual na i-install ito kung gusto gamitin ang 'Remote Access Link' (globe icon)."
+        echo "   ⚠️  Could not detect the CPU architecture ($CF_ARCH) for auto-installing cloudflared. Install it manually if you want to use the 'Remote Access Link' (globe icon)."
     fi
 fi
 echo ""

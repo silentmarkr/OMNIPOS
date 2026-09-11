@@ -5549,19 +5549,21 @@ function showServerIpQrModal(event) {
         }
     });
 }
-// BAGO: "Remote Access Link" (globe icon sa profile menu). I-click ==>
-// tatawagin ang backend para (sa background, sa loob ng Termux)
-// i-start ang isang Cloudflare Quick Tunnel patungo sa lokal na
-// OMNIPOS server nito, kukunin ang nagawang pampublikong
-// *.trycloudflare.com URL, at ipapakita bilang QR code modal (parehong
-// pattern ng existing "Server IP QR Code" pero para sa remote/malayong
-// access sa halip na LAN lang).
+// NEW: "Remote Access Link" (globe icon in the profile menu). Click it
+// and the backend is called to (in the background, inside Termux) start
+// a Cloudflare tunnel to this local OMNIPOS server, grab the public URL
+// it produced, and show it as a QR code modal. The backend has 2 modes:
+// "quick" (default/fallback, no account/domain needed) and "named" (if a
+// custom domain has been configured via the gear icon — see
+// openCloudflareNamedTunnelConfigModal below). The backend picks this
+// automatically depending on whether a config is saved — no extra step
+// needed here in the click handler.
 let cloudflareTunnelStartInFlight = false;
 async function handleRemoteAccessLinkClick(event) {
     if (event) event.stopPropagation();
     if (cloudflareTunnelStartInFlight) return;
     if (currentUser && (currentUser.role ||'').toLowerCase() !=='admin') {
-        Swal.fire('Admins Only','Admin account lang ang pwedeng gumawa ng Remote Access Link.','warning');
+        Swal.fire('Admins Only','Only an Admin account can create a Remote Access Link.','warning');
         return;
     }
     const icon = document.getElementById('uw-remoteaccess-icon');
@@ -5571,19 +5573,22 @@ async function handleRemoteAccessLinkClick(event) {
         const startRes = await authFetch(`${API_URL}/system/cloudflare-tunnel/start`, { method:'POST' });
         const startData = await startRes.json();
         if (!startData.success) {
-            throw new Error(startData.message ||'Hindi ma-start ang Remote Access Link.');
+            throw new Error(startData.message ||'Could not start the Remote Access Link.');
         }
         let finalUrl = startData.url || null;
+        let finalMode = startData.mode || null;
         if (!finalUrl) {
-            finalUrl = await pollCloudflareTunnelStatus();
+            const polled = await pollCloudflareTunnelStatus();
+            finalUrl = polled.url;
+            finalMode = polled.mode || finalMode;
         }
         if (!finalUrl) {
-            Swal.fire('Hindi Pa Available','Hindi pa nagawa ang link sa loob ng ilang segundo. Siguraduhing naka-install ang cloudflared at may internet connection ang device, tapos subukan ulit.','error');
+            Swal.fire('Not Available Yet','The link wasn\'t created within a few seconds. Make sure cloudflared is installed and the device has an internet connection, then try again.','error');
             return;
         }
-        showRemoteAccessQrModal(finalUrl);
+        showRemoteAccessQrModal(finalUrl, finalMode);
     } catch (err) {
-        Swal.fire('Error', err.message ||'May naganap na error habang gumagawa ng Remote Access Link.','error');
+        Swal.fire('Error', err.message ||'An error occurred while creating the Remote Access Link.','error');
     } finally {
         cloudflareTunnelStartInFlight = false;
         if (icon) icon.classList.remove('fa-spin');
@@ -5592,35 +5597,40 @@ async function handleRemoteAccessLinkClick(event) {
 function pollCloudflareTunnelStatus() {
     return new Promise((resolve) => {
         let attempts = 0;
-        const maxAttempts = 20; // ~20s kung 1s ang interval
+        const maxAttempts = 30; // ~30s at a 1s interval — enough margin on top of the 15s blocking wait on /start for slow mobile data
         const check = async () => {
             attempts++;
             try {
                 const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/status`);
                 const data = await res.json();
                 if (data.success && data.status ==='running' && data.url) {
-                    return resolve(data.url);
+                    return resolve({ url: data.url, mode: data.mode });
                 }
                 if (data.success && data.status ==='error') {
-                    return resolve(null);
+                    return resolve({ url: null, mode: null });
                 }
             } catch (err) {}
-            if (attempts >= maxAttempts) return resolve(null);
+            if (attempts >= maxAttempts) return resolve({ url: null, mode: null });
             setTimeout(check, 1000);
         };
         check();
     });
 }
-function showRemoteAccessQrModal(url) {
+function showRemoteAccessQrModal(url, mode) {
     const containerId ='remote-access-qr-render-' + Date.now();
+    const isNamed = mode ==='named';
+    const modeNote = isNamed
+        ?'<span style="color:#4ade80;">Custom Domain</span> — a permanent link, it won\'t change even after a restart.'
+        :'<span style="color:#fbbf24;">Quick Tunnel</span> — a temporary link; it will change whenever the Remote Access Link or the device is restarted.';
     Swal.fire({
         title:'Remote Access Link',
         html: `
-            <p style="margin:2px 0 10px;font-weight:600;word-break:break-all;">${escapeHtml(url)}</p>
+            <p style="margin:2px 0 6px;font-weight:600;word-break:break-all;">${escapeHtml(url)}</p>
+            <p style="font-size:0.75rem;margin:0 0 10px;">${modeNote}</p>
             <div style="display:inline-block;background:#ffffff;padding:18px;border-radius:14px;box-shadow:0 0 0 1px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.25);">
                 <div id="${containerId}" style="display:flex;justify-content:center;align-items:center;line-height:0;"></div>
             </div>
-            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">I-scan ito gamit ang telepono ng client (kahit malayo/hindi kasabay sa parehong WiFi) para direktang mabuksan ang OmniPOS. Mananatiling gumagana ang link habang naka-on at may internet ang device na ito.</p>
+            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">Scan this with the client's phone (even remotely / not on the same WiFi) to open OmniPOS directly. The link keeps working as long as this device is on and has internet.</p>
         `,
         confirmButtonText:'Close',
         showCancelButton: false,
@@ -5638,6 +5648,84 @@ function showRemoteAccessQrModal(url) {
             }
         }
     });
+}
+// NEW: gear icon next to "Remote Access Link" — optional configuration of
+// a custom domain (Named Tunnel) once the client has bought a domain and
+// created a Cloudflare Zero Trust tunnel for it (Tunnel Token + a Public
+// Hostname pointed at this local OMNIPOS server). If left blank/removed,
+// it automatically falls back to the Quick Tunnel — no extra step needed.
+async function openCloudflareNamedTunnelConfigModal(event) {
+    if (event) event.stopPropagation();
+    if (currentUser && (currentUser.role ||'').toLowerCase() !=='admin') {
+        Swal.fire('Admins Only','Only an Admin account can configure a custom domain.','warning');
+        return;
+    }
+    let existing = { hasNamedTunnel: false, hostname:'', tokenMasked:'' };
+    try {
+        const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`);
+        const data = await res.json();
+        if (data.success) existing = data;
+    } catch (err) {}
+    const { value: formValues, isDenied } = await Swal.fire({
+        title:'Custom Domain (Named Tunnel)',
+        html: `
+            <p style="font-size:0.82rem;color:#94a3b8;margin:0 0 12px;text-align:left;">This is optional. If the client has their own domain and has already created a Cloudflare Tunnel on their Cloudflare Zero Trust dashboard, enter its Hostname here (e.g. pos.theirstore.com) and its Tunnel Token. If left blank/removed, the free Quick Tunnel will be used as a fallback (no domain needed).</p>
+            <input type="text" id="swal-cf-hostname" class="swal2-input" placeholder="Hostname (e.g. pos.theirstore.com)" value="${escapeHtml(existing.hostname ||'')}">
+            <input type="text" id="swal-cf-token" class="swal2-input" placeholder="${existing.hasNamedTunnel ?'Tunnel Token ('+escapeHtml(existing.tokenMasked)+') — leave blank if not changing' :'Tunnel Token'}">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        showDenyButton: existing.hasNamedTunnel,
+        denyButtonText:'Remove Custom Domain',
+        confirmButtonText:'Save',
+        preConfirm: () => {
+            const hostname = document.getElementById('swal-cf-hostname').value.trim();
+            const token = document.getElementById('swal-cf-token').value.trim();
+            if (hostname && !token && !existing.hasNamedTunnel) {
+                Swal.showValidationMessage('A Tunnel Token is also required along with the Hostname.');
+                return false;
+            }
+            return { hostname, token };
+        }
+    });
+    if (isDenied) {
+        try {
+            const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`, {
+                method:'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ hostname:'', token:'' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                Swal.fire({ toast: true, position:'top-end', icon:'success', title:'Custom domain removed — now using the Quick Tunnel', showConfirmButton: false, timer: 1800 });
+            }
+        } catch (err) {
+            Swal.fire('Error','Could not remove the custom domain.','error');
+        }
+        return;
+    }
+    if (!formValues) return;
+    // If a config was already saved before and the token field is left
+    // blank (an indication of "don't change it"), the BACKEND will reuse
+    // the previously saved token instead of clearing it — so this no
+    // longer needs to be blocked here on the frontend (there used to be a
+    // validation error here that directly contradicted the token field's
+    // own placeholder text, "leave blank if not changing"; that reuse now
+    // actually works thanks to the backend fix in
+    // /api/system/cloudflare-tunnel/config).
+    let { hostname, token } = formValues;
+    try {
+        const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ hostname, token })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message ||'Could not save the configuration.');
+        Swal.fire({ toast: true, position:'top-end', icon:'success', title: data.hasNamedTunnel ?'Custom domain saved' :'Now using the Quick Tunnel', showConfirmButton: false, timer: 1800 });
+    } catch (err) {
+        Swal.fire('Error', err.message ||'Could not save the configuration.','error');
+    }
 }
 function toggleThemesSubmenu(event) {
     if (event) event.stopPropagation();
