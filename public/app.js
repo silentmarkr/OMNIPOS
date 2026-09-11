@@ -5616,11 +5616,33 @@ function pollCloudflareTunnelStatus() {
         check();
     });
 }
+// NEW: explicit "Stop" control for the Remote Access Link. Calls the
+// existing /api/system/cloudflare-tunnel/stop endpoint (kills whichever
+// tunnel process — Quick, Cloudflare Named, or Custom — is currently
+// running) and reports back so the modal/menu can reflect that it's off.
+let remoteAccessStopInFlight = false;
+async function handleRemoteAccessStopClick() {
+    if (remoteAccessStopInFlight) return false;
+    remoteAccessStopInFlight = true;
+    try {
+        const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/stop`, { method:'POST' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message ||'Could not stop the Remote Access Link.');
+        return true;
+    } catch (err) {
+        Swal.fire('Error', err.message ||'Could not stop the Remote Access Link.','error');
+        return false;
+    } finally {
+        remoteAccessStopInFlight = false;
+    }
+}
 function showRemoteAccessQrModal(url, mode) {
     const containerId ='remote-access-qr-render-' + Date.now();
-    const isNamed = mode ==='named';
-    const modeNote = isNamed
-        ?'<span style="color:#4ade80;">Custom Domain</span> — a permanent link, it won\'t change even after a restart.'
+    const isNamed = mode ==='named' || mode ==='custom';
+    const modeNote = mode ==='named'
+        ?'<span style="color:#4ade80;">Custom Domain (Cloudflare)</span> — a permanent link, it won\'t change even after a restart.'
+        : mode ==='custom'
+        ?'<span style="color:#4ade80;">Custom Domain (Custom Tunnel)</span> — a permanent link, it won\'t change even after a restart.'
         :'<span style="color:#fbbf24;">Quick Tunnel</span> — a temporary link; it will change whenever the Remote Access Link or the device is restarted.';
     Swal.fire({
         title:'Remote Access Link',
@@ -5630,10 +5652,13 @@ function showRemoteAccessQrModal(url, mode) {
             <div style="display:inline-block;background:#ffffff;padding:18px;border-radius:14px;box-shadow:0 0 0 1px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.25);">
                 <div id="${containerId}" style="display:flex;justify-content:center;align-items:center;line-height:0;"></div>
             </div>
-            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">Scan this with the client's phone (even remotely / not on the same WiFi) to open OmniPOS directly. The link keeps working as long as this device is on and has internet.</p>
+            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">Scan this with the client's phone (even remotely / not on the same WiFi) to open OmniPOS directly. The link keeps working as long as this device is on and has internet — use "Stop Link" below to turn it off.</p>
         `,
         confirmButtonText:'Close',
         showCancelButton: false,
+        showDenyButton: true,
+        denyButtonText:'Stop Link',
+        denyButtonColor:'#dc2626',
         didOpen: () => {
             const el = document.getElementById(containerId);
             if (el && typeof QRCode !=='undefined') {
@@ -5646,46 +5671,91 @@ function showRemoteAccessQrModal(url, mode) {
                     correctLevel: QRCode.CorrectLevel.H
                 });
             }
+        },
+        preDeny: async () => {
+            const stopped = await handleRemoteAccessStopClick();
+            if (!stopped) return false; // keep the modal open if the stop call failed
+        }
+    }).then((result) => {
+        if (result.isDenied) {
+            Swal.fire({ toast: true, position:'top-end', icon:'success', title:'Remote Access Link stopped', showConfirmButton: false, timer: 1800 });
         }
     });
 }
 // NEW: gear icon next to "Remote Access Link" — optional configuration of
-// a custom domain (Named Tunnel) once the client has bought a domain and
-// created a Cloudflare Zero Trust tunnel for it (Tunnel Token + a Public
-// Hostname pointed at this local OMNIPOS server). If left blank/removed,
-// it automatically falls back to the Quick Tunnel — no extra step needed.
+// a custom domain (Named Tunnel) once the client has bought a domain.
+// Two providers can be picked for it:
+//   - "Cloudflare" — Hostname + Tunnel Token, from a Cloudflare Zero
+//     Trust tunnel the client already set up (original behavior).
+//   - "Custom / Any Provider" — Hostname + the exact command that starts
+//     ANY other tunnel tool (ngrok, Pinggy, LocalXpose, an SSH reverse
+//     tunnel, etc), so this is NOT limited to Cloudflare — any domain,
+//     free or paid, works as long as the chosen provider/tool can point
+//     it at this device.
+// If left blank/removed, it automatically falls back to the free
+// Cloudflare Quick Tunnel — no extra step needed.
 async function openCloudflareNamedTunnelConfigModal(event) {
     if (event) event.stopPropagation();
     if (currentUser && (currentUser.role ||'').toLowerCase() !=='admin') {
         Swal.fire('Admins Only','Only an Admin account can configure a custom domain.','warning');
         return;
     }
-    let existing = { hasNamedTunnel: false, hostname:'', tokenMasked:'' };
+    let existing = { hasNamedTunnel: false, provider:'cloudflare', hostname:'', tokenMasked:'', commandMasked:'' };
     try {
         const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`);
         const data = await res.json();
         if (data.success) existing = data;
     } catch (err) {}
+    const initialProvider = existing.provider ==='custom' ?'custom' :'cloudflare';
     const { value: formValues, isDenied } = await Swal.fire({
         title:'Custom Domain (Named Tunnel)',
         html: `
-            <p style="font-size:0.82rem;color:#94a3b8;margin:0 0 12px;text-align:left;">This is optional. If the client has their own domain and has already created a Cloudflare Tunnel on their Cloudflare Zero Trust dashboard, enter its Hostname here (e.g. pos.theirstore.com) and its Tunnel Token. If left blank/removed, the free Quick Tunnel will be used as a fallback (no domain needed).</p>
+            <p style="font-size:0.82rem;color:#94a3b8;margin:0 0 12px;text-align:left;">This is optional and NOT limited to Cloudflare — any domain, free or paid, can be used here as long as a tunnel provider can point it at this device. If left blank/removed, the free Quick Tunnel is used as a fallback.</p>
+            <select id="swal-cf-provider" class="swal2-input" style="cursor:pointer;">
+                <option value="cloudflare" ${initialProvider ==='cloudflare' ?'selected' :''}>Cloudflare (Hostname + Tunnel Token)</option>
+                <option value="custom" ${initialProvider ==='custom' ?'selected' :''}>Custom / Any Provider (Hostname + Command)</option>
+            </select>
             <input type="text" id="swal-cf-hostname" class="swal2-input" placeholder="Hostname (e.g. pos.theirstore.com)" value="${escapeHtml(existing.hostname ||'')}">
-            <input type="text" id="swal-cf-token" class="swal2-input" placeholder="${existing.hasNamedTunnel ?'Tunnel Token ('+escapeHtml(existing.tokenMasked)+') — leave blank if not changing' :'Tunnel Token'}">
+            <div id="swal-cf-cloudflare-fields">
+                <input type="text" id="swal-cf-token" class="swal2-input" placeholder="${(existing.hasNamedTunnel && initialProvider ==='cloudflare') ?'Tunnel Token ('+escapeHtml(existing.tokenMasked)+') — leave blank if not changing' :'Tunnel Token'}">
+            </div>
+            <div id="swal-cf-custom-fields">
+                <p style="font-size:0.75rem;color:#94a3b8;margin:6px 0 4px;text-align:left;">Command that starts the tunnel for this domain (e.g. <code>ngrok http 3000 --domain=pos.theirstore.com</code>). It runs in the background exactly like it would on a terminal.</p>
+                <textarea id="swal-cf-command" class="swal2-textarea" style="min-height:70px;" placeholder="${(existing.hasNamedTunnel && initialProvider ==='custom') ?'Command ('+escapeHtml(existing.commandMasked)+') — leave blank if not changing' :'e.g. ngrok http 3000 --domain=pos.theirstore.com'}"></textarea>
+            </div>
         `,
         focusConfirm: false,
         showCancelButton: true,
         showDenyButton: existing.hasNamedTunnel,
         denyButtonText:'Remove Custom Domain',
         confirmButtonText:'Save',
+        didOpen: () => {
+            const providerSelect = document.getElementById('swal-cf-provider');
+            const cloudflareFields = document.getElementById('swal-cf-cloudflare-fields');
+            const customFields = document.getElementById('swal-cf-custom-fields');
+            const applyVisibility = () => {
+                const isCustom = providerSelect.value ==='custom';
+                cloudflareFields.style.display = isCustom ?'none' :'';
+                customFields.style.display = isCustom ?'' :'none';
+            };
+            applyVisibility();
+            providerSelect.addEventListener('change', applyVisibility);
+        },
         preConfirm: () => {
+            const provider = document.getElementById('swal-cf-provider').value ==='custom' ?'custom' :'cloudflare';
             const hostname = document.getElementById('swal-cf-hostname').value.trim();
             const token = document.getElementById('swal-cf-token').value.trim();
-            if (hostname && !token && !existing.hasNamedTunnel) {
+            const command = document.getElementById('swal-cf-command').value.trim();
+            const alreadyHasThisProvider = existing.hasNamedTunnel && existing.provider === provider;
+            if (provider ==='cloudflare' && hostname && !token && !alreadyHasThisProvider) {
                 Swal.showValidationMessage('A Tunnel Token is also required along with the Hostname.');
                 return false;
             }
-            return { hostname, token };
+            if (provider ==='custom' && hostname && !command && !alreadyHasThisProvider) {
+                Swal.showValidationMessage('A tunnel Command is also required along with the Hostname.');
+                return false;
+            }
+            return { provider, hostname, token, command };
         }
     });
     if (isDenied) {
@@ -5693,7 +5763,7 @@ async function openCloudflareNamedTunnelConfigModal(event) {
             const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`, {
                 method:'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ hostname:'', token:'' })
+                body: JSON.stringify({ provider: existing.provider, hostname:'', token:'', command:'' })
             });
             const data = await res.json();
             if (data.success) {
@@ -5705,20 +5775,20 @@ async function openCloudflareNamedTunnelConfigModal(event) {
         return;
     }
     if (!formValues) return;
-    // If a config was already saved before and the token field is left
-    // blank (an indication of "don't change it"), the BACKEND will reuse
-    // the previously saved token instead of clearing it — so this no
-    // longer needs to be blocked here on the frontend (there used to be a
-    // validation error here that directly contradicted the token field's
-    // own placeholder text, "leave blank if not changing"; that reuse now
+    // If a config was already saved before and the token/command field is
+    // left blank (an indication of "don't change it"), the BACKEND will
+    // reuse the previously saved secret instead of clearing it — so this
+    // no longer needs to be blocked here on the frontend (there used to be
+    // a validation error here that directly contradicted the field's own
+    // placeholder text, "leave blank if not changing"; that reuse now
     // actually works thanks to the backend fix in
     // /api/system/cloudflare-tunnel/config).
-    let { hostname, token } = formValues;
+    let { provider, hostname, token, command } = formValues;
     try {
         const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`, {
             method:'POST',
             headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ hostname, token })
+            body: JSON.stringify({ provider, hostname, token, command })
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.message ||'Could not save the configuration.');

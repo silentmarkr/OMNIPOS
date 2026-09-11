@@ -9242,34 +9242,78 @@ app.get('/api/system/backup-status', (req, res) => {
 // remotely / while not on the same WiFi/LAN. There are 2 modes:
 //   1. "quick" — Cloudflare Quick Tunnel (no account/domain required; a
 //      random *.trycloudflare.com subdomain on every start). This is the
-//      DEFAULT/FALLBACK — always available even with nothing configured.
-//   2. "named" — Cloudflare Named Tunnel using the client's own domain
-//      (once they've bought a domain and configured it on the Cloudflare
-//      Zero Trust dashboard). A permanent link that doesn't change even
-//      after a restart. This is used AUTOMATICALLY whenever a config
-//      (hostname + tunnel token) is saved — if it's missing/cleared, it
-//      simply falls back to "quick" mode with no extra steps needed.
-// Both run as a background process inside Termux itself (a child process
-// of this Node server).
+//      DEFAULT/FALLBACK — always available even with nothing configured,
+//      and is ALWAYS Cloudflare regardless of what's configured below.
+//   2. "named" — a custom domain tunnel that stays up permanently (the
+//      link doesn't change even after a restart). This is used
+//      AUTOMATICALLY whenever a custom domain config is saved — if it's
+//      missing/cleared, it simply falls back to "quick" mode with no
+//      extra steps needed. The custom domain is NOT limited to Cloudflare
+//      — the admin can pick one of two providers for it:
+//        a) "cloudflare" — Cloudflare Named Tunnel (Hostname + Tunnel
+//           Token from the Cloudflare Zero Trust dashboard). This is the
+//           original behavior, kept as-is.
+//        b) "custom"     — ANY other tunnel provider/tool that can expose
+//           this device on a domain the client owns, whether the domain
+//           itself is free or paid, and whether the provider is free or
+//           paid (e.g. ngrok, Pinggy, LocalXpose, frp, an SSH reverse
+//           tunnel, etc). The admin supplies the exact command that
+//           starts that tunnel (binary + arguments) plus the public
+//           Hostname/URL it will be reachable at, and OmniPOS runs that
+//           command as a background process the same way it runs
+//           cloudflared for the other two modes.
+// All modes run as a background process inside Termux itself (a child
+// process of this Node server).
 const FILE_CLOUDFLARE_CONFIG ='cloudflareTunnelConfig';
+const NAMED_TUNNEL_PROVIDERS = ['cloudflare','custom'];
 function getCloudflareNamedTunnelConfig() {
     const cfg = readData(FILE_CLOUDFLARE_CONFIG, {});
+    // BACKWARD COMPAT: configs saved before the "custom provider" option
+    // existed only ever had {hostname, token} with no 'provider' field —
+    // treat those (and anything unrecognized) as 'cloudflare' so nothing
+    // that was already configured breaks.
+    let provider = String((cfg && cfg.provider) ||'').trim().toLowerCase();
+    if (!NAMED_TUNNEL_PROVIDERS.includes(provider)) provider ='cloudflare';
     return {
+        provider,
         hostname: String((cfg && cfg.hostname) ||'').trim(),
-        token: String((cfg && cfg.token) ||'').trim()
+        token: String((cfg && cfg.token) ||'').trim(),
+        command: String((cfg && cfg.command) ||'').trim()
     };
 }
-function saveCloudflareNamedTunnelConfig(hostname, token) {
-    writeData(FILE_CLOUDFLARE_CONFIG, { hostname: String(hostname ||'').trim(), token: String(token ||'').trim(), updatedAt: Date.now() });
+function saveCloudflareNamedTunnelConfig(provider, hostname, token, command) {
+    writeData(FILE_CLOUDFLARE_CONFIG, {
+        provider: NAMED_TUNNEL_PROVIDERS.includes(provider) ? provider :'cloudflare',
+        hostname: String(hostname ||'').trim(),
+        token: String(token ||'').trim(),
+        command: String(command ||'').trim(),
+        updatedAt: Date.now()
+    });
 }
 function maskCloudflareTunnelToken(token) {
     const t = String(token ||'');
     if (t.length <= 8) return t ?'••••••••' :'';
     return `${t.slice(0, 4)}••••••••${t.slice(-4)}`;
 }
+// Splits an admin-provided command line into a binary + argument array,
+// the same way a shell would tokenize it (respecting single/double
+// quotes so an argument containing spaces can still be passed as one
+// piece), but WITHOUT ever handing the raw string to a real shell — this
+// is spawned directly (shell: false, see runCloudflaredProcess) so there
+// is no command-injection risk from characters like `;`, `&&`, `|`, etc.
+function parseTunnelCommandLine(commandStr) {
+    const str = String(commandStr ||'').trim();
+    const tokens = [];
+    const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    let match;
+    while ((match = re.exec(str)) !== null) {
+        tokens.push(match[1] !== undefined ? match[1] : (match[2] !== undefined ? match[2] : match[3]));
+    }
+    return { bin: tokens[0] || null, args: tokens.slice(1) };
+}
 const CLOUDFLARE_TUNNEL_STATE = {
     status:'idle', // idle | starting | running | error | stopped
-    mode: null, // 'quick' | 'named'
+    mode: null, // 'quick' | 'named' | 'custom'
     url: null,
     error: null,
     startedAt: null,
@@ -9289,20 +9333,23 @@ function resolveCloudflaredBinaryPath() {
     // Fallback — rely on PATH (e.g. if installed via `pkg`/apt/brew).
     return 'cloudflared';
 }
-// Shared "spawn + watch output/exit" logic used by both the Quick Tunnel
-// and the Named Tunnel — the only difference between them is the args
-// passed to cloudflared, and how "success" is determined (a URL parsed
-// from the output for quick, or a saved hostname plus a "connected"
-// signal from the output for named).
-function runCloudflaredProcess({ args, mode, resolveUrlFromOutput, fallbackUrl, grabTimeoutMs }) {
+// Shared "spawn + watch output/exit" logic used by the Quick Tunnel, the
+// Cloudflare Named Tunnel, and any Custom (non-Cloudflare) tunnel command
+// — the only differences between them are the binary/args used to start
+// the process, and how "success" is determined (a URL parsed from the
+// output for quick, or a saved hostname plus a "connected"/"still alive"
+// signal for named/custom).
+function runCloudflaredProcess({ bin, args, mode, resolveUrlFromOutput, fallbackUrl, grabTimeoutMs, notInstalledHint }) {
     return new Promise((resolve) => {
-        const bin = resolveCloudflaredBinaryPath();
+        const resolvedBin = bin || resolveCloudflaredBinaryPath();
         let child;
         try {
-            child = spawn(bin, args, { cwd: __dirname, stdio: ['ignore','pipe','pipe'], windowsHide: true });
+            child = spawn(resolvedBin, args, { cwd: __dirname, stdio: ['ignore','pipe','pipe'], windowsHide: true });
         } catch (err) {
             CLOUDFLARE_TUNNEL_STATE.status ='error';
-            CLOUDFLARE_TUNNEL_STATE.error = `Could not start cloudflared (${err.message}). Make sure it's installed — see setup-omnipos.sh, or set the CLOUDFLARED_BIN env var to point at the binary.`;
+            CLOUDFLARE_TUNNEL_STATE.error = notInstalledHint
+                ? `Could not start "${resolvedBin}" (${err.message}). ${notInstalledHint}`
+                : `Could not start cloudflared (${err.message}). Make sure it's installed — see setup-omnipos.sh, or set the CLOUDFLARED_BIN env var to point at the binary.`;
             return resolve(CLOUDFLARE_TUNNEL_STATE);
         }
         CLOUDFLARE_TUNNEL_STATE.process = child;
@@ -9372,7 +9419,15 @@ function runCloudflaredProcess({ args, mode, resolveUrlFromOutput, fallbackUrl, 
                 CLOUDFLARE_TUNNEL_STATE.url = null;
             } else {
                 CLOUDFLARE_TUNNEL_STATE.status ='error';
-                CLOUDFLARE_TUNNEL_STATE.error = `cloudflared exited (code ${code}${signal ?', signal ' + signal :''}) before the link could be confirmed working. ${mode ==='named' ?'Make sure the Tunnel Token is correct and the Public Hostname is configured on the Cloudflare dashboard.' :'Make sure cloudflared is installed and the device has an internet connection.'}`;
+                let hint;
+                if (mode ==='named') {
+                    hint ='Make sure the Tunnel Token is correct and the Public Hostname is configured on the Cloudflare dashboard.';
+                } else if (mode ==='custom') {
+                    hint ='Make sure the custom tunnel command is correct, its provider is installed on this device, and the device has an internet connection.';
+                } else {
+                    hint ='Make sure cloudflared is installed and the device has an internet connection.';
+                }
+                CLOUDFLARE_TUNNEL_STATE.error = `${mode ==='custom' ?'The tunnel process' :'cloudflared'} exited (code ${code}${signal ?', signal ' + signal :''}) before the link could be confirmed working. ${hint}`;
             }
             if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
         });
@@ -9405,12 +9460,39 @@ function startCloudflareTunnel() {
     CLOUDFLARE_TUNNEL_STATE.error = null;
     CLOUDFLARE_TUNNEL_STATE.mode = null;
     const namedConfig = getCloudflareNamedTunnelConfig();
-    if (namedConfig.hostname && namedConfig.token) {
-        // A custom domain has been saved — use the Named Tunnel. The
-        // service URL (where the domain points, e.g. http://localhost:PORT)
-        // is already configured on the Cloudflare Zero Trust dashboard
-        // itself, back when the "Public Hostname" for this tunnel was set
-        // up — so there's no need to pass --url again here.
+    if (namedConfig.provider ==='custom' && namedConfig.hostname && namedConfig.command) {
+        // A custom domain has been saved using a NON-Cloudflare provider
+        // — the admin supplied the exact command that starts that
+        // provider's tunnel (e.g. ngrok, Pinggy, LocalXpose, an SSH
+        // reverse tunnel, etc). The domain itself can be free or paid,
+        // and doesn't need to be added to Cloudflare at all — whatever
+        // provider they used to point that domain at this device is
+        // fully up to them; OmniPOS just runs their command and shows
+        // the Hostname/URL they configured for it.
+        const hostnameUrl = /^https?:\/\//i.test(namedConfig.hostname) ? namedConfig.hostname : `https://${namedConfig.hostname}`;
+        const { bin, args } = parseTunnelCommandLine(namedConfig.command);
+        if (!bin) {
+            CLOUDFLARE_TUNNEL_STATE.status ='error';
+            CLOUDFLARE_TUNNEL_STATE.error ='The saved custom tunnel command is empty or invalid. Open the custom domain settings and re-enter the command.';
+            return Promise.resolve(CLOUDFLARE_TUNNEL_STATE);
+        }
+        return runCloudflaredProcess({
+            bin,
+            args,
+            mode:'custom',
+            resolveUrlFromOutput: () => null, // generic providers have no known output format — rely on fallbackUrl instead
+            fallbackUrl: hostnameUrl,
+            grabTimeoutMs: 8000,
+            notInstalledHint:'Make sure the tool used in this command is installed on this device (or that the path to it is correct), then try again.'
+        });
+    }
+    if (namedConfig.provider ==='cloudflare' && namedConfig.hostname && namedConfig.token) {
+        // A custom domain has been saved using Cloudflare — use the
+        // Cloudflare Named Tunnel. The service URL (where the domain
+        // points, e.g. http://localhost:PORT) is already configured on
+        // the Cloudflare Zero Trust dashboard itself, back when the
+        // "Public Hostname" for this tunnel was set up — so there's no
+        // need to pass --url again here.
         const hostnameUrl = /^https?:\/\//i.test(namedConfig.hostname) ? namedConfig.hostname : `https://${namedConfig.hostname}`;
         return runCloudflaredProcess({
             args: ['tunnel','run','--token', namedConfig.token],
@@ -9420,8 +9502,10 @@ function startCloudflareTunnel() {
             grabTimeoutMs: 8000
         });
     }
-    // No custom domain saved (or it was cleared) — Quick Tunnel as the
-    // default/fallback. A random *.trycloudflare.com link.
+    // No custom domain saved (or it was cleared) — Cloudflare Quick
+    // Tunnel as the default/fallback, always, regardless of which
+    // provider was previously configured above. A random
+    // *.trycloudflare.com link that needs no account/domain at all.
     const urlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
     return runCloudflaredProcess({
         args: ['tunnel','--url', `http://127.0.0.1:${PORT}`,'--no-autoupdate'],
@@ -9442,8 +9526,8 @@ app.post('/api/system/cloudflare-tunnel/start', rateLimit('system-cloudflare-tun
     if (state.status ==='error') {
         return res.status(500).json({ success: false, status: state.status, mode: state.mode, message: state.error });
     }
-    const modeLabel = state.mode ==='named' ?'Named Tunnel (custom domain)' :'Quick Tunnel';
-    logAction(req.authUser.username, `Created a Cloudflare Remote Access Link — ${modeLabel}${state.url ?' (' + state.url + ')' :' (currently still starting)'}.`);
+    const modeLabel = state.mode ==='named' ?'Named Tunnel (Cloudflare custom domain)' : (state.mode ==='custom' ?'Custom Tunnel (custom domain)' :'Quick Tunnel');
+    logAction(req.authUser.username, `Created a Remote Access Link — ${modeLabel}${state.url ?' (' + state.url + ')' :' (currently still starting)'}.`);
     res.json({ success: true, status: state.status, mode: state.mode, url: state.url });
 });
 app.get('/api/system/cloudflare-tunnel/status', (req, res) => {
@@ -9463,31 +9547,84 @@ app.post('/api/system/cloudflare-tunnel/stop', (req, res) => {
     CLOUDFLARE_TUNNEL_STATE.url = null;
     CLOUDFLARE_TUNNEL_STATE.mode = null;
     CLOUDFLARE_TUNNEL_STATE.process = null;
-    logAction(req.authUser.username,'Stopped the Cloudflare Remote Access Link.');
+    logAction(req.authUser.username,'Stopped the Remote Access Link.');
     res.json({ success: true });
 });
 // NEW: config endpoints for the OPTIONAL custom domain (Named Tunnel).
-// Once a hostname+token is saved here, startCloudflareTunnel() will
-// automatically use it instead of the Quick Tunnel. Removing/clearing it
-// (blank hostname+token) immediately falls back to the Quick Tunnel — no
-// extra steps needed.
+// Once a config is saved here, startCloudflareTunnel() will automatically
+// use it instead of the Quick Tunnel. Removing/clearing it immediately
+// falls back to the Quick Tunnel — no extra steps needed. Two providers
+// are supported for the custom domain:
+//   - 'cloudflare' — Hostname + Cloudflare Tunnel Token (original
+//     behavior, unchanged).
+//   - 'custom'     — Hostname + the exact command that starts ANY other
+//     tunnel provider/tool (ngrok, Pinggy, LocalXpose, an SSH reverse
+//     tunnel, etc), so the client's domain doesn't need to be a
+//     Cloudflare-managed one at all — any domain, free or paid, works as
+//     long as the chosen provider can point it at this device.
 app.get('/api/system/cloudflare-tunnel/config', (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
-        return res.status(403).json({ success: false, message:'Only Admin privileges can view the Cloudflare tunnel configuration.' });
+        return res.status(403).json({ success: false, message:'Only Admin privileges can view the tunnel configuration.' });
     }
     const cfg = getCloudflareNamedTunnelConfig();
-    const hasNamedTunnel = !!(cfg.hostname && cfg.token);
-    res.json({ success: true, hasNamedTunnel, hostname: cfg.hostname, tokenMasked: maskCloudflareTunnelToken(cfg.token) });
+    const hasNamedTunnel = cfg.provider ==='custom' ? !!(cfg.hostname && cfg.command) : !!(cfg.hostname && cfg.token);
+    res.json({
+        success: true,
+        hasNamedTunnel,
+        provider: cfg.provider,
+        hostname: cfg.hostname,
+        tokenMasked: maskCloudflareTunnelToken(cfg.token),
+        commandMasked: maskCloudflareTunnelToken(cfg.command)
+    });
 });
 app.post('/api/system/cloudflare-tunnel/config', (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
-        return res.status(403).json({ success: false, message:'Only Admin privileges can configure the Cloudflare custom domain.' });
+        return res.status(403).json({ success: false, message:'Only Admin privileges can configure the custom domain.' });
     }
+    let provider = String((req.body && req.body.provider) ||'').trim().toLowerCase();
     let hostname = String((req.body && req.body.hostname) ||'').trim();
     let token = String((req.body && req.body.token) ||'').trim();
+    let command = String((req.body && req.body.command) ||'').trim();
     // Strip the protocol/trailing slash in case the full URL was pasted
     // instead of just a plain hostname (e.g. "https://pos.tindahan.com/").
     hostname = hostname.replace(/^https?:\/\//i,'').replace(/\/+$/,'');
+    const existingForReuse = getCloudflareNamedTunnelConfig();
+    // Default the provider: if not explicitly sent, infer it from
+    // whichever secret field was actually filled in, falling back to
+    // whatever was already saved, and finally to 'cloudflare'.
+    if (!NAMED_TUNNEL_PROVIDERS.includes(provider)) {
+        if (token) provider ='cloudflare';
+        else if (command) provider ='custom';
+        else provider = existingForReuse.provider ||'cloudflare';
+    }
+    if (provider ==='custom') {
+        // BUGFIX: same "leave blank if not changing" reuse as the
+        // Cloudflare provider's token field below — if a custom command
+        // was already saved and only the hostname is being changed
+        // (command field left blank), reuse the PREVIOUSLY saved command
+        // instead of treating this as an invalid/blank config.
+        if (hostname && !command && existingForReuse.provider ==='custom' && existingForReuse.command) {
+            command = existingForReuse.command;
+        }
+        const bothBlank = !hostname && !command;
+        const bothFilled = !!hostname && !!command;
+        if (!bothBlank && !bothFilled) {
+            return res.status(400).json({ success: false, message:'Both Hostname and the tunnel Command need to be filled in, or both left blank to fall back to the Quick Tunnel (no custom domain).' });
+        }
+        saveCloudflareNamedTunnelConfig('custom', hostname,'', command);
+        if (CLOUDFLARE_TUNNEL_STATE.process) {
+            try { CLOUDFLARE_TUNNEL_STATE.process.kill(); } catch {}
+            CLOUDFLARE_TUNNEL_STATE.process = null;
+        }
+        CLOUDFLARE_TUNNEL_STATE.status ='idle';
+        CLOUDFLARE_TUNNEL_STATE.url = null;
+        CLOUDFLARE_TUNNEL_STATE.mode = null;
+        logAction(req.authUser.username, bothFilled
+            ? `Configured a Custom Tunnel provider for the custom domain (${hostname}).`
+            :'Removed the custom domain configuration — falling back to the Quick Tunnel.');
+        return res.json({ success: true, hasNamedTunnel: bothFilled, provider:'custom', hostname });
+    }
+    // provider === 'cloudflare' (original behavior, unchanged)
     // BUGFIX: if a Named Tunnel was already saved before and only the
     // hostname is being changed (token field left blank — exactly as the
     // frontend's token placeholder says: "leave blank if not changing"),
@@ -9496,16 +9633,15 @@ app.post('/api/system/cloudflare-tunnel/config', (req, res) => {
     // backend, so the frontend was left to block it with a validation
     // error instead — meaning the promised "leave blank to keep" behavior
     // never actually worked.
-    if (hostname && !token) {
-        const existingForReuse = getCloudflareNamedTunnelConfig();
-        if (existingForReuse.token) token = existingForReuse.token;
+    if (hostname && !token && existingForReuse.provider ==='cloudflare' && existingForReuse.token) {
+        token = existingForReuse.token;
     }
     const bothBlank = !hostname && !token;
     const bothFilled = !!hostname && !!token;
     if (!bothBlank && !bothFilled) {
         return res.status(400).json({ success: false, message:'Both Hostname and Tunnel Token need to be filled in, or both left blank to fall back to the Quick Tunnel (no custom domain).' });
     }
-    saveCloudflareNamedTunnelConfig(hostname, token);
+    saveCloudflareNamedTunnelConfig('cloudflare', hostname, token,'');
     // Stop the currently running tunnel (if any) so the new config is
     // used right away on the next click.
     if (CLOUDFLARE_TUNNEL_STATE.process) {
@@ -9518,7 +9654,7 @@ app.post('/api/system/cloudflare-tunnel/config', (req, res) => {
     logAction(req.authUser.username, bothFilled
         ? `Configured a Cloudflare Named Tunnel custom domain (${hostname}).`
         :'Removed the Cloudflare Named Tunnel custom domain — falling back to the Quick Tunnel.');
-    res.json({ success: true, hasNamedTunnel: bothFilled, hostname });
+    res.json({ success: true, hasNamedTunnel: bothFilled, provider:'cloudflare', hostname });
 });
 app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {

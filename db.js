@@ -479,6 +479,14 @@ function mirrorBackupToDownloads() {
 // backup file/Hard Reset email papunta mismo sa sariling email ng
 // client) ay sinasadyang hindi apektado nito — doon dapat kasama pa rin
 // ang config na ito para gumana ang restore.
+// UPDATE (Custom / Any-Provider Tunnel support): 'cloudflareTunnelConfig'
+// can now also hold a raw custom tunnel Command instead of a Cloudflare
+// Tunnel Token, whenever the admin picks "Custom / Any Provider" for the
+// Remote Access Link's custom domain (see server.js). That command can
+// itself embed a secret belonging to some other provider (e.g. an ngrok
+// or Pinggy auth token) — it must be treated with the exact same care as
+// the Cloudflare Tunnel Token above, which is why it stays inside this
+// SAME excluded key rather than a separate one.
 const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 // BUG FIX: dating ginagamit ng AI Assistant database snapshot (see
@@ -579,11 +587,13 @@ function getFullDatabaseSnapshot() {
 const AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES = new Set([
     'sessions', 'featureUnlocks', 'cloudTokenPrefs',
     'aiAssistantLogs', 'aiAssistantUsage', 'aiSupportTickets',
-    // SECURITY BUGFIX: 'cloudflareTunnelConfig' holds a raw Cloudflare
-    // Tunnel Token (a real credential) for the Remote Access Link feature
-    // — same class of secret as 'sessions', so it must never be handed to
-    // the third-party AI provider as context either, even for a
-    // full-scope Admin snapshot.
+    // SECURITY BUGFIX: 'cloudflareTunnelConfig' holds a raw credential
+    // for the Remote Access Link feature — a Cloudflare Tunnel Token, or
+    // (since the Custom / Any-Provider option was added) a raw tunnel
+    // Command that can itself embed another provider's secret — same
+    // class of secret as 'sessions', so it must never be handed to the
+    // third-party AI provider as context either, even for a full-scope
+    // Admin snapshot.
     'cloudflareTunnelConfig'
 ]);
 // Kapag hindi Admin/authorized ang naka-login, ito lang ang mga module na
