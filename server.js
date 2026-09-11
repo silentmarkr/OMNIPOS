@@ -1992,20 +1992,52 @@ async function searchYandexImagesFree(query, timeoutMs = 10000) {
         return { id: `yx${i}`, provider: 'Yandex', title: '', thumbnailUrl: imageUrl, imageUrl, width: null, height: null };
     });
 }
+// Each free provider has a stable `id` (used by the "Omni Search source"
+// dropdown in the UI so the user can pick a specific free site) alongside
+// the human-readable `name` shown in results/status text.
 const OMNI_FREE_IMAGE_PROVIDERS = [
-    { name: 'DuckDuckGo', run: searchDuckDuckGoImagesFree },
-    { name: 'Bing (free)', run: searchBingImagesFree },
-    { name: 'Openverse', run: searchOpenverseImagesFree },
-    { name: 'Wikimedia Commons', run: searchWikimediaCommonsImagesFree },
-    { name: 'Yandex', run: searchYandexImagesFree }
+    { id: 'duckduckgo', name: 'DuckDuckGo', run: searchDuckDuckGoImagesFree },
+    { id: 'bing_free', name: 'Bing (free)', run: searchBingImagesFree },
+    { id: 'openverse', name: 'Openverse', run: searchOpenverseImagesFree },
+    { id: 'wikimedia', name: 'Wikimedia Commons', run: searchWikimediaCommonsImagesFree },
+    { id: 'yandex', name: 'Yandex', run: searchYandexImagesFree }
 ];
-async function omniFreeImageSearch(query, timeoutMs = 10000) {
+// Resolves a provider id coming from the client. Returns null for a
+// missing/unknown/"auto" id so the caller falls back to the cascade
+// (tries every free provider in order) — this keeps old clients (no
+// `provider` field sent) working exactly as before.
+function resolveOmniImageProvider(providerId) {
+    if (!providerId) return null;
+    const id = providerId.toString().trim().toLowerCase();
+    if (!id || id === 'auto') return null;
+    return OMNI_FREE_IMAGE_PROVIDERS.find(p => p.id === id) || null;
+}
+async function omniFreeImageSearch(query, timeoutMs = 10000, providerId = null) {
     const q = (query || '').toString().trim().slice(0, 150);
     if (!q) {
         const err = new Error('Maglagay muna ng search term.');
         err.statusCode = 400;
         throw err;
     }
+    const chosen = resolveOmniImageProvider(providerId);
+    // A specific free site was picked from the dropdown — search only that
+    // site (no automatic fallback to the others), so the user gets exactly
+    // what they chose.
+    if (chosen) {
+        try {
+            const results = await chosen.run(q, timeoutMs);
+            if (results && results.length) return { provider: chosen.name, results: sortImageResultsByResolution(results) };
+            const err = new Error(`Walang nahanap na image sa ${chosen.name} para sa "${q}". Subukan ang ibang site o piliin ang "Auto".`);
+            err.statusCode = 502;
+            throw err;
+        } catch (err) {
+            if (err.statusCode) throw err;
+            const wrapped = new Error(`${chosen.name} failed: ${err.message} — subukan ang ibang site o piliin ang "Auto".`);
+            wrapped.statusCode = 502;
+            throw wrapped;
+        }
+    }
+    // "Auto" (default): self-healing cascade through every free provider.
     const errors = [];
     for (const provider of OMNI_FREE_IMAGE_PROVIDERS) {
         try {
@@ -2046,84 +2078,24 @@ setInterval(() => {
 function sleepMs(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
-const OMNI_SEARCH_WORKER_SCRIPT = path.join(__dirname, 'omnipos-search-image.js');
+// "Omni Search Images" (bulk) now runs entirely in-process, inside this
+// same running server — there is no separate spawned worker script/process
+// anymore. This keeps the whole feature self-contained inside OmniPOS
+// itself (nothing to install or keep in sync outside of server.js).
 const OMNI_SEARCH_SESSION_TTL_MS = BULK_IMAGE_SEARCH_SESSION_TTL_MS;
 const OMNI_SEARCH_PROGRESS_TTL_MS = BULK_IMAGE_SEARCH_PROGRESS_TTL_MS;
-const omniImageSearchSessions = new Map();   
-const omniImageSearchProgress = new Map();   
-const omniImageSearchJobs = new Map();       
+const omniImageSearchSessions = new Map();
+const omniImageSearchProgress = new Map();
 setInterval(() => {
     const now = Date.now();
     for (const [nonce, sess] of omniImageSearchSessions.entries()) {
         if (now - sess.createdAt > OMNI_SEARCH_SESSION_TTL_MS) omniImageSearchSessions.delete(nonce);
     }
     for (const [nonce, p] of omniImageSearchProgress.entries()) {
-        if (now - p.startedAt > OMNI_SEARCH_PROGRESS_TTL_MS) { omniImageSearchProgress.delete(nonce); omniImageSearchJobs.delete(nonce); }
+        if (now - p.startedAt > OMNI_SEARCH_PROGRESS_TTL_MS) omniImageSearchProgress.delete(nonce);
     }
 }, 5 * 60 * 1000).unref();
-let omniInternalCallbackServer = null;
-let omniInternalCallbackPort = null;
-function handleOmniProgressUpdate(remoteAddress, payload) {
-    const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
-    if (!isLoopback) throw new Error('Forbidden: internal-only endpoint.');
-    const nonce = payload && payload.nonce;
-    const job = nonce ? omniImageSearchJobs.get(nonce) : null;
-    if (!job || !payload || job.secret !== payload.secret) {
-        throw new Error('Invalid or expired Omni Search job token.');
-    }
-    if (typeof job.clearFallback === 'function') job.clearFallback();
-    const progress = omniImageSearchProgress.get(nonce);
-    if (!progress || progress.finished) return; 
-    if (payload.type === 'item') {
-        progress.proposals.push(payload.proposal);
-        progress.done = payload.done;
-        progress.updatedAt = Date.now();
-    } else if (payload.type === 'finished') {
-        const items = new Map();
-        (payload.items || []).forEach(it => { if (it && it.code) items.set(it.code, it); });
-        omniImageSearchSessions.set(nonce, { username: job.username, createdAt: Date.now(), items });
-        progress.finished = true;
-        progress.updatedAt = Date.now();
-    } else if (payload.type === 'error') {
-        progress.error = payload.message || 'Omni Search Images failed.';
-        progress.finished = true;
-        progress.updatedAt = Date.now();
-    }
-}
-function ensureOmniInternalCallbackServer() {
-    if (omniInternalCallbackServer) return Promise.resolve(omniInternalCallbackPort);
-    return new Promise((resolve, reject) => {
-        const srv = http.createServer((req, res) => {
-            if (req.method !== 'POST' || req.url !== '/omni-progress') {
-                res.writeHead(404); res.end(); return;
-            }
-            let body = '';
-            req.on('data', (chunk) => {
-                body += chunk;
-                if (body.length > 2 * 1024 * 1024) req.destroy(); 
-            });
-            req.on('end', () => {
-                try {
-                    const payload = JSON.parse(body || '{}');
-                    handleOmniProgressUpdate(req.socket.remoteAddress, payload);
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true }));
-                } catch (err) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, message: err.message }));
-                }
-            });
-            req.on('error', () => { try { res.destroy(); } catch {} });
-        });
-        srv.on('error', reject);
-        srv.listen(0, '127.0.0.1', () => {
-            omniInternalCallbackServer = srv;
-            omniInternalCallbackPort = srv.address().port;
-            resolve(omniInternalCallbackPort);
-        });
-    });
-}
-async function runOmniImageSearchInProcess(nonce, targets, username) {
+async function runOmniImageSearchInProcess(nonce, targets, username, providerId) {
     const progress = omniImageSearchProgress.get(nonce);
     if (!progress || progress.finished) return;
     const items = new Map();
@@ -2132,7 +2104,7 @@ async function runOmniImageSearchInProcess(nonce, targets, username) {
             if (progress.finished) break; 
             const p = targets[i];
             try {
-                const { provider, results } = await omniFreeImageSearch(`${p.name} product photo`);
+                const { provider, results } = await omniFreeImageSearch(`${p.name} product photo`, 10000, providerId);
                 const best = results[0];
                 if (best) {
                     items.set(p.code, { imageUrl: best.imageUrl, thumbnailUrl: best.thumbnailUrl, title: best.title, provider });
@@ -2142,7 +2114,7 @@ async function runOmniImageSearchInProcess(nonce, targets, username) {
                 }
             } catch (err) {
                 console.error(`Omni Search Images error for ${p.code}:`, err);
-                progress.proposals.push({ code: p.code, name: p.name, found: false, message: 'Search failed for this product.' });
+                progress.proposals.push({ code: p.code, name: p.name, found: false, message: err.message || 'Search failed for this product.' });
             }
             progress.done = i + 1;
             progress.updatedAt = Date.now();
@@ -2161,63 +2133,6 @@ async function runOmniImageSearchInProcess(nonce, targets, username) {
             progress.updatedAt = Date.now();
         }
     }
-}
-async function runOmniImageSearchJob(nonce, targets, username) {
-    const progress = omniImageSearchProgress.get(nonce);
-    if (!progress) return;
-    let callbackPort;
-    try {
-        callbackPort = await ensureOmniInternalCallbackServer();
-    } catch (err) {
-        console.warn('⚠️  Omni Search Images: could not start the internal progress callback server — running the search in-process instead. Detalye:', err.message);
-        return runOmniImageSearchInProcess(nonce, targets, username);
-    }
-    const secret = crypto.randomBytes(24).toString('hex');
-    const jobFile = path.join(os.tmpdir(), `omnipos-omni-search-${nonce}.json`);
-    try {
-        fs.writeFileSync(jobFile, JSON.stringify({
-            nonce, secret, host: '127.0.0.1', port: callbackPort,
-            targets: targets.map(p => ({ code: p.code, name: p.name }))
-        }));
-    } catch (err) {
-        console.warn('⚠️  Omni Search Images: could not write the background job file — running the search in-process instead. Detalye:', err.message);
-        return runOmniImageSearchInProcess(nonce, targets, username);
-    }
-    let handedOff = false;
-    let fallbackTimer = null;
-    const triggerFallback = (reason) => {
-        if (handedOff) return;
-        handedOff = true;
-        if (fallbackTimer) clearTimeout(fallbackTimer);
-        console.warn(`⚠️  Omni Search Images (job ${nonce}): ${reason} — automatically switching to the in-process fallback so the search still completes.`);
-        runOmniImageSearchInProcess(nonce, targets, username).catch(e => console.error('Omni Search Images in-process fallback failed:', e));
-    };
-    omniImageSearchJobs.set(nonce, { secret, username, clearFallback: () => { handedOff = true; if (fallbackTimer) clearTimeout(fallbackTimer); } });
-    let child;
-    try {
-        child = spawn(process.execPath, [OMNI_SEARCH_WORKER_SCRIPT, jobFile], {
-            cwd: __dirname,
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: true
-        });
-    } catch (err) {
-        try { fs.unlinkSync(jobFile); } catch {}
-        return triggerFallback(`could not spawn the background worker process (${err.message})`);
-    }
-    fallbackTimer = setTimeout(() => {
-        if (!progress.finished && progress.done === 0) {
-            try { if (child && !child.killed) child.kill(); } catch {}
-            triggerFallback('background worker reported no progress after 20s (it may not have been able to start)');
-        }
-    }, 20000);
-    child.once('error', (err) => triggerFallback(`background worker process error (${err.message})`));
-    child.once('exit', (code, signal) => {
-        if (!handedOff && !progress.finished && code !== 0) {
-            triggerFallback(`background worker exited early (code ${code}${signal ? ', signal ' + signal : ''})`);
-        }
-    });
-    child.unref();
 }
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
     if (!(await isInternetLikelyUp())) {
@@ -7761,7 +7676,7 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref();
 app.post('/api/products/image-search/omni', rateLimit('product-image-search-omni', 20, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
     try {
-        const { provider, results } = await omniFreeImageSearch(req.body && req.body.query);
+        const { provider, results } = await omniFreeImageSearch(req.body && req.body.query, 10000, req.body && req.body.provider);
         const nonce = crypto.randomBytes(16).toString('hex');
         const items = new Map();
         results.forEach(r => items.set(r.id, { imageUrl: r.imageUrl, thumbnailUrl: r.thumbnailUrl }));
@@ -7995,7 +7910,8 @@ app.post('/api/products/omni-image-search', rateLimit('product-omni-image-search
         updatedAt: Date.now()
     });
     res.json({ success: true, nonce, totalTargeted: targets.length, totalEligible, truncated });
-    runOmniImageSearchJob(nonce, targets, req.authUser.username).catch(err => {
+    const provider = req.body && req.body.provider;
+    runOmniImageSearchInProcess(nonce, targets, req.authUser.username, provider).catch(err => {
         console.error('Omni Search Images job dispatch failed:', err);
         const p = omniImageSearchProgress.get(nonce);
         if (p && !p.finished) { p.error = err.message || 'Omni Search Images failed to start.'; p.finished = true; p.updatedAt = Date.now(); }

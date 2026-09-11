@@ -2142,3 +2142,287 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-11 22:30:27] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-11 22:30:30] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-11 22:30:33] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-11T14:29:23.586Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-12 02:17:38] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-12 02:17:41] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-12 02:17:44] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-11T18:07:12.347Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for CELL017: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL018: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL019: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL020: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL021: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL022: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL023: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL024: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL025: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL026: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL027: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL028: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL029: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL030: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL031: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL032: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL033: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL034: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL035: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL036: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL037: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL038: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL039: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL040: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL041: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL042: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL043: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL044: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL045: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL046: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL047: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL048: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL049: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL050: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL051: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL052: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL053: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL054: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL055: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL056: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL057: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL058: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL059: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL060: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}

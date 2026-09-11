@@ -3362,9 +3362,20 @@
                 <div class="search-box-container" style="margin-bottom:10px;">
                     <input type="text" id="p-image-search-query" placeholder="e.g. Fresh Milk 1L" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();performOmniProductImageSearch();}">
                 </div>
+                <div class="input-field-group" style="margin-bottom:10px;">
+                    <label style="font-size:0.8rem;">Omni Search Source <span style="font-weight:normal;color:#94a3b8;">(piliin kung aling libreng site ang gagamitin ng Omni Search)</span></label>
+                    <select id="p-image-search-omni-provider" class="omni-provider-pref-select" onchange="setOmniImageProviderPref(this.value)">
+                        <option value="auto">Auto (try all free sources — recommended)</option>
+                        <option value="duckduckgo">DuckDuckGo</option>
+                        <option value="bing_free">Bing (free)</option>
+                        <option value="openverse">Openverse</option>
+                        <option value="wikimedia">Wikimedia Commons</option>
+                        <option value="yandex">Yandex</option>
+                    </select>
+                </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
                     <button type="button" class="btn-action-outline" onclick="performProductImageSearch()"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
-                    <button type="button" class="btn-action-outline" onclick="performOmniProductImageSearch()" title="Free search across multiple sources (no API key needed), with automatic fallback if one source is blocked."><i class="fa-solid fa-globe"></i> Omni Search</button>
+                    <button type="button" class="btn-action-outline" onclick="performOmniProductImageSearch()" title="Free search using the source picked above (or automatic fallback across all free sources when set to Auto)."><i class="fa-solid fa-globe"></i> Omni Search</button>
                     <button type="button" class="btn-action-outline" id="p-image-search-add-gallery-btn" onclick="addSelectedSearchImagesToGallery()" disabled title="Check photos below first, then click this to add them to Additional Photos."><i class="fa-solid fa-images"></i> + Gallery</button>
                 </div>
                 <p style="color:#94a3b8;font-size:0.78rem;margin:-6px 0 6px;">Tip: check the checkbox on a photo's corner to select several, then click <b>+ Gallery</b> to add them straight to Additional Photos. Tapping the photo itself (not the checkbox) still sets it as the main product photo.</p>
@@ -3473,6 +3484,17 @@
                 <p style="font-size:13px;color:#64748b;margin-top:0;">
  Sources: (DuckDuckGo, Bing, Openverse, Wikimedia Commons, Yandex)
                 </p>
+                <div class="input-field-group" style="margin-bottom:10px;">
+                    <label style="font-size:0.8rem;">Omni Search Source <span style="font-weight:normal;color:#94a3b8;">(piliin kung aling libreng site ang gagamitin sa lahat ng produkto sa run na ito)</span></label>
+                    <select id="omni-imgsearch-provider" class="omni-provider-pref-select" onchange="setOmniImageProviderPref(this.value)">
+                        <option value="auto">Auto (try all free sources — recommended)</option>
+                        <option value="duckduckgo">DuckDuckGo</option>
+                        <option value="bing_free">Bing (free)</option>
+                        <option value="openverse">Openverse</option>
+                        <option value="wikimedia">Wikimedia Commons</option>
+                        <option value="yandex">Yandex</option>
+                    </select>
+                </div>
                 <button type="button" class="btn-action-outline" id="omni-imgsearch-start-btn" onclick="startOmniImageSearch()">
                     <i class="fa-solid fa-magnifying-glass-plus"></i> Start Omni Search Images
                 </button>

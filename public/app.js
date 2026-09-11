@@ -3824,9 +3824,9 @@ async function openAddCustomerForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Customer',
         html: `
-            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Full Name">
-            <input type="text" id="swal-cust-phone" class="swal2-input" placeholder="Phone Number (optional)">
-            <input type="email" id="swal-cust-email" class="swal2-input" placeholder="Email (optional)">
+            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Full Name" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="text" id="swal-cust-phone" class="swal2-input" placeholder="Phone Number (optional)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="email" id="swal-cust-email" class="swal2-input" placeholder="Email (optional)" style="width:100%;margin:0;box-sizing:border-box;">
         `,
         focusConfirm: false,
         showCancelButton: true,
@@ -3868,9 +3868,9 @@ async function openEditCustomerForm(id) {
     const { value: formValues } = await Swal.fire({
         title:'Edit Customer',
         html: `
-            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Full Name" value="${escapeHtml(cust.name)}">
-            <input type="text" id="swal-cust-phone" class="swal2-input" placeholder="Phone Number" value="${escapeHtml(cust.phone ||'')}">
-            <input type="email" id="swal-cust-email" class="swal2-input" placeholder="Email" value="${escapeHtml(cust.email ||'')}">
+            <input type="text" id="swal-cust-name" class="swal2-input" placeholder="Full Name" value="${escapeHtml(cust.name)}" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="text" id="swal-cust-phone" class="swal2-input" placeholder="Phone Number" value="${escapeHtml(cust.phone ||'')}" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="email" id="swal-cust-email" class="swal2-input" placeholder="Email" value="${escapeHtml(cust.email ||'')}" style="width:100%;margin:0;box-sizing:border-box;">
         `,
         focusConfirm: false,
         showCancelButton: true,
@@ -4562,12 +4562,12 @@ async function openAddDebtForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Debt',
         html: `
-            <input type="text" id="swal-debt-name" class="swal2-input" placeholder="Debtor's Full Name">
-            <input type="text" id="swal-debt-phone" class="swal2-input" placeholder="Phone Number (optional)">
-            <input type="number" id="swal-debt-amount" class="swal2-input" placeholder="Amount Owed (₱)" min="0.01" step="0.01">
-            <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note (e.g. reason, when borrowed, etc.)"></textarea>
-            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time (when payment is due):</label>
-            <input type="datetime-local" id="swal-debt-due" class="swal2-input">
+            <input type="text" id="swal-debt-name" class="swal2-input" placeholder="Debtor's Full Name" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="text" id="swal-debt-phone" class="swal2-input" placeholder="Phone Number (optional)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="number" id="swal-debt-amount" class="swal2-input" placeholder="Amount Owed (₱)" min="0.01" step="0.01" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note (e.g. reason, when borrowed, etc.)" style="width:100%;margin:0 0 10px;box-sizing:border-box;"></textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin:0 0 6px;">Due Date/Time (when payment is due):</label>
+            <input type="datetime-local" id="swal-debt-due" class="swal2-input" style="width:100%;margin:0;box-sizing:border-box;">
         `,
         focusConfirm: false,
         showCancelButton: true,
@@ -4619,12 +4619,12 @@ async function openEditDebtForm(id) {
     const { value: formValues } = await Swal.fire({
         title:'Edit Debt',
         html: `
-            <input type="text" id="swal-debt-name" class="swal2-input" placeholder="Full Name" value="${escapeHtml(debt.customerName)}">
-            <input type="text" id="swal-debt-phone" class="swal2-input" placeholder="Phone Number" value="${escapeHtml(debt.phone ||'')}">
-            <input type="number" id="swal-debt-amount" class="swal2-input" placeholder="Amount Owed (₱)" min="0.01" step="0.01" value="${debt.amount}">
-            <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note">${escapeHtml(debt.note ||'')}</textarea>
-            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time:</label>
-            <input type="datetime-local" id="swal-debt-due" class="swal2-input" value="${dueLocalValue}">
+            <input type="text" id="swal-debt-name" class="swal2-input" placeholder="Full Name" value="${escapeHtml(debt.customerName)}" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="text" id="swal-debt-phone" class="swal2-input" placeholder="Phone Number" value="${escapeHtml(debt.phone ||'')}" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="number" id="swal-debt-amount" class="swal2-input" placeholder="Amount Owed (₱)" min="0.01" step="0.01" value="${debt.amount}" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note" style="width:100%;margin:0 0 10px;box-sizing:border-box;">${escapeHtml(debt.note ||'')}</textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin:0 0 6px;">Due Date/Time:</label>
+            <input type="datetime-local" id="swal-debt-due" class="swal2-input" value="${dueLocalValue}" style="width:100%;margin:0;box-sizing:border-box;">
         `,
         focusConfirm: false,
         showCancelButton: true,
@@ -4668,8 +4668,8 @@ async function openRecordDebtPaymentForm(id) {
     const remaining = Math.max(0, (debt.amount || 0) - (debt.amountPaid || 0));
     const { value: paymentAmount } = await Swal.fire({
         title: `Payment — ${escapeHtml(debt.customerName)}`,
-        html: `<p style="color:#94a3b8;margin-bottom:8px;">Remaining balance: <b>₱${remaining.toFixed(2)}</b></p>
-               <input type="number" id="swal-debt-payment" class="swal2-input" placeholder="Amount Paid (₱)" min="0.01" step="0.01" max="${remaining}">`,
+        html: `<p style="color:#94a3b8;font-size:0.85rem;margin:0 0 10px;text-align:left;">Remaining balance: <b>₱${remaining.toFixed(2)}</b></p>
+               <input type="number" id="swal-debt-payment" class="swal2-input" placeholder="Amount Paid (₱)" min="0.01" step="0.01" max="${remaining}" style="width:100%;margin:0;box-sizing:border-box;">`,
         focusConfirm: false,
         showCancelButton: true,
         confirmButtonText:'Record Payment',
@@ -4729,15 +4729,15 @@ function openLoyaltyCardManageModal(customerId) {
     const canManage = isAdmin || !!(currentPermissions && currentPermissions.loyalty_card_issue);
     const card = cust.loyaltyCard;
     const statusHtml = card
-        ? `<p style="margin:4px 0;">Card ID: <b>${escapeHtml(card.cardId)}</b><br>
+        ? `<p style="margin:0 0 8px;text-align:left;">Card ID: <b>${escapeHtml(card.cardId)}</b><br>
              Mode: <b>${card.mode ==='static' ?'Static (Physical Card)' :'Rotating QR (Advanced/Auto-Refresh)'}</b><br>
              Status: <b style="color:${card.revoked ?'#ef4444':'#22c55e'};">${card.revoked ?'Revoked':'Active'}</b><br>
              Issued: ${new Date(card.issuedAt).toLocaleString()} by ${escapeHtml(card.issuedBy ||'—')}</p>`
-        :`<p style="color:#94a3b8;">No Loyalty Card/QR has been issued for this customer yet.</p>`;
+        :`<p style="color:#94a3b8;margin:0 0 8px;text-align:left;">No Loyalty Card/QR has been issued for this customer yet.</p>`;
     if (!canManage) {
         Swal.fire({
             title: `Loyalty Card — ${escapeHtml(cust.name)}`,
-            html: statusHtml + `<p style="color:#f59e0b;font-size:0.85rem;">The "Issue/Regenerate Loyalty Card" permission is required to issue, regenerate, or revoke.</p>`,
+            html: statusHtml + `<p style="color:#f59e0b;font-size:0.85rem;margin:0;text-align:left;">The "Issue/Regenerate Loyalty Card" permission is required to issue, regenerate, or revoke.</p>`,
             icon:'info'
         });
         return;
@@ -4747,7 +4747,7 @@ function openLoyaltyCardManageModal(customerId) {
         html: statusHtml + `
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;text-align:left;">
                 <label style="font-size:0.85rem;color:#94a3b8;">New card mode (for Issue/Regenerate):</label>
-                <select id="loyalty-card-mode-select" class="swal2-select" style="margin:0;">
+                <select id="loyalty-card-mode-select" class="swal2-select" style="width:100%;margin:0;box-sizing:border-box;">
                     <option value="rotating">Rotating QR — auto-refreshes after each redemption (recommended, most secure)</option>
                     <option value="static">Static Card — one persistent QR/card, points build up over time</option>
                 </select>
@@ -5211,15 +5211,15 @@ async function openAddPromoCodeForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Promo Code',
         html: `
-            <input type="text" id="swal-promo-code" class="swal2-input" placeholder="CODE (e.g. SUMMER20)" style="text-transform:uppercase;">
-            <select id="swal-promo-type" class="swal2-select">
+            <input type="text" id="swal-promo-code" class="swal2-input" placeholder="CODE (e.g. SUMMER20)" style="text-transform:uppercase;width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <select id="swal-promo-type" class="swal2-select" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
                 <option value="percent">Percent (%)</option>
                 <option value="fixed">Fixed Amount (₱)</option>
             </select>
-            <input type="number" id="swal-promo-value" class="swal2-input" placeholder="Value">
-            <input type="number" id="swal-promo-minspend" class="swal2-input" placeholder="Minimum Spend (optional)">
-            <input type="date" id="swal-promo-expiry" class="swal2-input" placeholder="Expiry (optional)">
-            <input type="text" id="swal-promo-desc" class="swal2-input" placeholder="Description (optional)">
+            <input type="number" id="swal-promo-value" class="swal2-input" placeholder="Value" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="number" id="swal-promo-minspend" class="swal2-input" placeholder="Minimum Spend (optional)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="date" id="swal-promo-expiry" class="swal2-input" placeholder="Expiry (optional)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="text" id="swal-promo-desc" class="swal2-input" placeholder="Description (optional)" style="width:100%;margin:0;box-sizing:border-box;">
         `,
         focusConfirm: false,
         showCancelButton: true,
@@ -9472,7 +9472,7 @@ async function openCustomerPickerForCart() {
     const pickerResult = await Swal.fire({
         title:'Select Customer',
         html: `
-            <input type="text" id="swal-cust-search" class="swal2-input" placeholder="Search by name/phone..." oninput="window.__filterSwalCustomerList(this.value)">
+            <input type="text" id="swal-cust-search" class="swal2-input" placeholder="Search by name/phone..." oninput="window.__filterSwalCustomerList(this.value)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
             <div id="swal-cust-list" style="max-height:260px;overflow-y:auto;">${buildRowsHtml(customers)}</div>
         `,
         showConfirmButton: false,
@@ -9683,12 +9683,12 @@ async function promptCreditDebtDraft() {
         title:'Add Debt (Customer Credit)',
         html: `
             <p style="text-align:left;color:#94a3b8;font-size:0.85rem;margin:0 0 8px;">This sale will be recorded under <b>Debtors</b> instead of cash/e-wallet/card.</p>
-            <input type="text" id="swal-credit-name" class="swal2-input" placeholder="Debtor's Full Name" value="${escapeHtml(nameVal)}" ${nameLocked ? 'readonly style="background:#f1f5f9;"' : ''}>
-            <input type="text" id="swal-credit-phone" class="swal2-input" placeholder="Phone Number (optional)" value="${escapeHtml(phoneVal)}">
-            <input type="text" class="swal2-input" value="₱${dueAmount.toFixed(2)}" readonly style="background:#f1f5f9;" title="Amount owed = sale total">
-            <textarea id="swal-credit-note" class="swal2-textarea" placeholder="Note (e.g. reason, when it will be paid, etc.)"></textarea>
-            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin-top:6px;">Due Date/Time (when payment is due):</label>
-            <input type="datetime-local" id="swal-credit-due" class="swal2-input">
+            <input type="text" id="swal-credit-name" class="swal2-input" placeholder="Debtor's Full Name" value="${escapeHtml(nameVal)}" ${nameLocked ? 'readonly' : ''} style="width:100%;margin:0 0 10px;box-sizing:border-box;${nameLocked ? 'background:#f1f5f9;' : ''}">
+            <input type="text" id="swal-credit-phone" class="swal2-input" placeholder="Phone Number (optional)" value="${escapeHtml(phoneVal)}" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
+            <input type="text" class="swal2-input" value="₱${dueAmount.toFixed(2)}" readonly title="Amount owed = sale total" style="width:100%;margin:0 0 10px;box-sizing:border-box;background:#f1f5f9;">
+            <textarea id="swal-credit-note" class="swal2-textarea" placeholder="Note (e.g. reason, when it will be paid, etc.)" style="width:100%;margin:0 0 10px;box-sizing:border-box;"></textarea>
+            <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin:0 0 6px;">Due Date/Time (when payment is due):</label>
+            <input type="datetime-local" id="swal-credit-due" class="swal2-input" style="width:100%;margin:0;box-sizing:border-box;">
         `,
         focusConfirm: false,
         showCancelButton: true,
@@ -13394,7 +13394,7 @@ function openCopySpecsFromProductModal() {
     Swal.fire({
         title:'Copy Specs from Another Product',
         html: `
-            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Search for a product (code or name)..." autocomplete="off">
+            <input type="text" id="copy-specs-search" class="swal2-input" placeholder="Search for a product (code or name)..." autocomplete="off" style="width:100%;margin:0;box-sizing:border-box;">
             <div id="copy-specs-list" style="max-height:260px;overflow-y:auto;text-align:left;border:1px solid #e2e8f0;border-radius:8px;margin-top:8px;"></div>
         `,
         showConfirmButton: false,
@@ -13481,6 +13481,39 @@ function syncImageQualityPrefSelects() {
         sel.value = current;
     });
 }
+// Which free site "Omni Search" (single product) / "Omni Search Images"
+// (bulk) should use. 'auto' = try every free source in order (original
+// behavior); any other value = search only that one free site.
+const OMNI_IMAGE_PROVIDERS = [
+    { value: 'auto', label: 'Auto (try all free sources — recommended)' },
+    { value: 'duckduckgo', label: 'DuckDuckGo' },
+    { value: 'bing_free', label: 'Bing (free)' },
+    { value: 'openverse', label: 'Openverse' },
+    { value: 'wikimedia', label: 'Wikimedia Commons' },
+    { value: 'yandex', label: 'Yandex' }
+];
+const OMNI_IMAGE_PROVIDER_STORAGE_KEY = 'omnipos_omni_image_provider_pref';
+const OMNI_IMAGE_PROVIDER_DEFAULT = 'auto';
+function getOmniImageProviderPref() {
+    try {
+        const v = localStorage.getItem(OMNI_IMAGE_PROVIDER_STORAGE_KEY);
+        if (v && OMNI_IMAGE_PROVIDERS.some(p => p.value === v)) return v;
+    } catch (err) {   }
+    return OMNI_IMAGE_PROVIDER_DEFAULT;
+}
+function setOmniImageProviderPref(value) {
+    if (!OMNI_IMAGE_PROVIDERS.some(p => p.value === value)) return;
+    try { localStorage.setItem(OMNI_IMAGE_PROVIDER_STORAGE_KEY, value); } catch (err) {   }
+    document.querySelectorAll('.omni-provider-pref-select').forEach(sel => {
+        if (sel.value !== value) sel.value = value;
+    });
+}
+function syncOmniImageProviderPrefSelects() {
+    const current = getOmniImageProviderPref();
+    document.querySelectorAll('.omni-provider-pref-select').forEach(sel => {
+        sel.value = current;
+    });
+}
 function resizeImageDataUrlForProduct(dataUrl) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -13517,6 +13550,7 @@ function openProductImageSearchModal() {
     updateProductImageSearchGalleryBtnState();
     updateProductImageSearchCheckboxAvailability();
     syncImageQualityPrefSelects();
+    syncOmniImageProviderPrefSelects();
     document.getElementById('product-image-search-modal').style.display = 'flex';
     if (nameVal) {
         performOmniProductImageSearch();
@@ -13576,13 +13610,17 @@ async function performOmniProductImageSearch() {
     if (productImageSearchState.busy) return;
     productImageSearchState.busy = true;
     productImageSearchState.source = 'omni';
-    statusEl.textContent = 'Omni Search running (trying free sources)...';
+    const providerSel = document.getElementById('p-image-search-omni-provider');
+    const provider = (providerSel && providerSel.value) || getOmniImageProviderPref();
+    statusEl.textContent = provider && provider !== 'auto'
+        ? `Omni Search running (${OMNI_IMAGE_PROVIDERS.find(p => p.value === provider)?.label || provider})...`
+        : 'Omni Search running (trying free sources)...';
     resultsEl.innerHTML = '';
     try {
         const res = await authFetch(`${API_URL}/products/image-search/omni`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
+            body: JSON.stringify({ query, provider })
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -14343,6 +14381,7 @@ function openBulkImageSearchModal() {
     document.getElementById('bulk-imgsearch-progress-wrap').style.display = 'none';
     if (typeof resetOmniImageSearchUI === 'function') resetOmniImageSearchUI();
     syncImageQualityPrefSelects();
+    syncOmniImageProviderPrefSelects();
     hideBulkImageSearchHeaderIcon();
     document.getElementById('bulk-image-search-modal').style.display = 'flex';
 }
@@ -14663,12 +14702,16 @@ async function startOmniImageSearch() {
     document.getElementById('omni-imgsearch-apply-btn').style.display = 'none';
     listEl.innerHTML = '';
     progressWrap.style.display = 'none';
-    statusEl.textContent = 'Starting Omni Search (free)...';
+    const providerSel = document.getElementById('omni-imgsearch-provider');
+    const provider = (providerSel && providerSel.value) || getOmniImageProviderPref();
+    statusEl.textContent = provider && provider !== 'auto'
+        ? `Starting Omni Search (${OMNI_IMAGE_PROVIDERS.find(p => p.value === provider)?.label || provider})...`
+        : 'Starting Omni Search (free)...';
     try {
         const res = await authFetch(`${API_URL}/products/omni-image-search`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ onlyMissing, limit }),
+            body: JSON.stringify({ onlyMissing, limit, provider }),
             timeoutMs: 30000
         });
         const data = await res.json();
@@ -17593,7 +17636,7 @@ function openScanToAddStockPrompt() {
         title:'Scan Barcode to Add Stock',
         html: `
             <input id="stock-scan-input" type="text" class="swal2-input"
-                   placeholder="Scan or type the barcode here..." autocomplete="off">
+                   placeholder="Scan or type the barcode here..." autocomplete="off" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
             <div id="stock-scan-status" style="min-height:60px; font-size:0.9rem; color:#94a3b8; text-align:left; padding:6px 4px;">
                 Waiting for scan...
             </div>
@@ -19740,8 +19783,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const { value: formValues } = await Swal.fire({
             title: 'Enter OTP + New Password',
             html:
-                '<input id="swal-otp" class="swal2-input" placeholder="6-digit OTP" maxlength="6">' +
-                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="New Password (min 8 chars)">',
+                '<input id="swal-otp" class="swal2-input" placeholder="6-digit OTP" maxlength="6" style="width:100%;margin:0 0 10px;box-sizing:border-box;">' +
+                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="New Password (min 8 chars)" style="width:100%;margin:0;box-sizing:border-box;">',
             focusConfirm: false,
             showCancelButton: true,
             confirmButtonText: 'Reset Password',
