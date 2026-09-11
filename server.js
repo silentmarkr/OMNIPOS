@@ -9394,7 +9394,9 @@ function runCloudflaredProcess({ bin, args, mode, resolveUrlFromOutput, fallback
         child.once('error', (err) => {
             if (isChildStillCurrent()) {
                 CLOUDFLARE_TUNNEL_STATE.status ='error';
-                CLOUDFLARE_TUNNEL_STATE.error = `Cloudflared process error: ${err.message}. Make sure cloudflared is installed (see setup-omnipos.sh).`;
+                CLOUDFLARE_TUNNEL_STATE.error = notInstalledHint
+                    ? `Tunnel process error (${err.message}). ${notInstalledHint}`
+                    : `Cloudflared process error: ${err.message}. Make sure cloudflared is installed (see setup-omnipos.sh).`;
                 CLOUDFLARE_TUNNEL_STATE.process = null;
             }
             if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }

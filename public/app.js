@@ -5620,25 +5620,31 @@ function pollCloudflareTunnelStatus() {
 // existing /api/system/cloudflare-tunnel/stop endpoint (kills whichever
 // tunnel process — Quick, Cloudflare Named, or Custom — is currently
 // running) and reports back so the modal/menu can reflect that it's off.
+// NOTE: this deliberately does NOT call Swal.fire() itself on error —
+// it's meant to be used from inside showRemoteAccessQrModal's preDeny,
+// which is already showing its own SweetAlert2 modal; firing a second,
+// separate Swal.fire() while the first one is still open/resolving would
+// replace it in the SweetAlert2 singleton and could leave that first
+// modal's own close/loading state in a confused spot. The caller shows
+// the error via Swal.showValidationMessage() on the SAME modal instead
+// (see showRemoteAccessQrModal below).
 let remoteAccessStopInFlight = false;
 async function handleRemoteAccessStopClick() {
-    if (remoteAccessStopInFlight) return false;
+    if (remoteAccessStopInFlight) return { success: false, message:'Already stopping — please wait.' };
     remoteAccessStopInFlight = true;
     try {
         const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/stop`, { method:'POST' });
         const data = await res.json();
-        if (!data.success) throw new Error(data.message ||'Could not stop the Remote Access Link.');
-        return true;
+        if (!data.success) return { success: false, message: data.message ||'Could not stop the Remote Access Link.' };
+        return { success: true };
     } catch (err) {
-        Swal.fire('Error', err.message ||'Could not stop the Remote Access Link.','error');
-        return false;
+        return { success: false, message: err.message ||'Could not stop the Remote Access Link.' };
     } finally {
         remoteAccessStopInFlight = false;
     }
 }
 function showRemoteAccessQrModal(url, mode) {
     const containerId ='remote-access-qr-render-' + Date.now();
-    const isNamed = mode ==='named' || mode ==='custom';
     const modeNote = mode ==='named'
         ?'<span style="color:#4ade80;">Custom Domain (Cloudflare)</span> — a permanent link, it won\'t change even after a restart.'
         : mode ==='custom'
@@ -5673,8 +5679,15 @@ function showRemoteAccessQrModal(url, mode) {
             }
         },
         preDeny: async () => {
-            const stopped = await handleRemoteAccessStopClick();
-            if (!stopped) return false; // keep the modal open if the stop call failed
+            const result = await handleRemoteAccessStopClick();
+            if (!result.success) {
+                // Show the error on THIS SAME modal instance (instead of
+                // firing a separate Swal.fire, which would fight with
+                // this one for the single SweetAlert2 popup) and keep it
+                // open so the admin can try again.
+                Swal.showValidationMessage(result.message);
+                return false;
+            }
         }
     }).then((result) => {
         if (result.isDenied) {
@@ -5711,17 +5724,17 @@ async function openCloudflareNamedTunnelConfigModal(event) {
         title:'Custom Domain (Named Tunnel)',
         html: `
             <p style="font-size:0.82rem;color:#94a3b8;margin:0 0 12px;text-align:left;">This is optional and NOT limited to Cloudflare — any domain, free or paid, can be used here as long as a tunnel provider can point it at this device. If left blank/removed, the free Quick Tunnel is used as a fallback.</p>
-            <select id="swal-cf-provider" class="swal2-input" style="cursor:pointer;">
+            <select id="swal-cf-provider" class="swal2-select" style="cursor:pointer;width:100%;margin:0 0 10px;box-sizing:border-box;">
                 <option value="cloudflare" ${initialProvider ==='cloudflare' ?'selected' :''}>Cloudflare (Hostname + Tunnel Token)</option>
                 <option value="custom" ${initialProvider ==='custom' ?'selected' :''}>Custom / Any Provider (Hostname + Command)</option>
             </select>
-            <input type="text" id="swal-cf-hostname" class="swal2-input" placeholder="Hostname (e.g. pos.theirstore.com)" value="${escapeHtml(existing.hostname ||'')}">
+            <input type="text" id="swal-cf-hostname" class="swal2-input" style="width:100%;margin:0 0 10px;box-sizing:border-box;" placeholder="Hostname (e.g. pos.theirstore.com)" value="${escapeHtml(existing.hostname ||'')}">
             <div id="swal-cf-cloudflare-fields">
-                <input type="text" id="swal-cf-token" class="swal2-input" placeholder="${(existing.hasNamedTunnel && initialProvider ==='cloudflare') ?'Tunnel Token ('+escapeHtml(existing.tokenMasked)+') — leave blank if not changing' :'Tunnel Token'}">
+                <input type="text" id="swal-cf-token" class="swal2-input" style="width:100%;margin:0;box-sizing:border-box;" placeholder="${(existing.hasNamedTunnel && initialProvider ==='cloudflare') ?'Tunnel Token ('+escapeHtml(existing.tokenMasked)+') — leave blank if not changing' :'Tunnel Token'}">
             </div>
             <div id="swal-cf-custom-fields">
                 <p style="font-size:0.75rem;color:#94a3b8;margin:6px 0 4px;text-align:left;">Command that starts the tunnel for this domain (e.g. <code>ngrok http 3000 --domain=pos.theirstore.com</code>). It runs in the background exactly like it would on a terminal.</p>
-                <textarea id="swal-cf-command" class="swal2-textarea" style="min-height:70px;" placeholder="${(existing.hasNamedTunnel && initialProvider ==='custom') ?'Command ('+escapeHtml(existing.commandMasked)+') — leave blank if not changing' :'e.g. ngrok http 3000 --domain=pos.theirstore.com'}"></textarea>
+                <textarea id="swal-cf-command" class="swal2-textarea" style="min-height:70px;width:100%;margin:0;box-sizing:border-box;" placeholder="${(existing.hasNamedTunnel && initialProvider ==='custom') ?'Command ('+escapeHtml(existing.commandMasked)+') — leave blank if not changing' :'e.g. ngrok http 3000 --domain=pos.theirstore.com'}"></textarea>
             </div>
         `,
         focusConfirm: false,
