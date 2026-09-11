@@ -668,6 +668,7 @@
                                 <span><i class="fa-solid fa-grip-lines pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
                                 <div class="cart-header-actions">
                                     <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> Preview</button>
+                                    <button class="btn-price-check" onclick="openPriceCheck()" title="Price Check"><i class="fa-solid fa-tags"></i> <span class="btn-price-check-label">Price Check</span></button>
                                     <button class="btn-clear" onclick="handleClearCart()"><i class="fa-solid fa-trash-can"></i> Clear</button>
                                 </div>
                             </div>
@@ -683,7 +684,7 @@
                                     </button>
                                     <div style="display:flex;gap:6px;">
                                         <button class="btn-select-customer" id="cart-customer-btn" onclick="openCustomerPickerForCart()">Walk-in <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i></button>
-                                        <button class="btn-scan-qr" onclick="openLoyaltyCardScanner()" title="Scan Customer Loyalty Card/QR — auto-selects the customer and pre-authorizes their points redemption" style="width:34px;height:34px;border-radius:8px;border:none;background:#f59e0b;color:#fff;cursor:pointer;">
+                                        <button class="btn-scan-qr btn-customer-qr-scan" onclick="openLoyaltyCardScanner()" title="Scan Customer Loyalty Card/QR — auto-selects the customer and pre-authorizes their points redemption">
                                             <i class="fa-solid fa-qrcode"></i>
                                         </button>
                                     </div>

@@ -2311,6 +2311,20 @@ body.cart-pane-resizing-cursor {
     font-size: 0.85rem;
     font-weight: 600;
 }
+.btn-price-check {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
 .cart-items-wrapper {
     flex: 1 1 auto;
     min-height: 0;
@@ -2331,6 +2345,23 @@ body.cart-pane-resizing-cursor {
 }
 .cart-items-wrapper::-webkit-scrollbar-track {
     background: transparent;
+}
+.cart-empty-state {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #64748b;
+    font-size: clamp(0.85rem, 1vw, 1.05rem);
+    font-weight: 600;
+    text-align: center;
+    padding: 24px;
+}
+.cart-empty-state i {
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    opacity: 0.55;
 }
 .cart-item-row {
     background-color: #111827;
@@ -5317,6 +5348,26 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
     cursor: pointer;
     color: var(--text-muted);
 }
+.btn-scan-qr.btn-customer-qr-scan {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    padding: 0;
+    margin: 0 !important;
+    border: none;
+    border-radius: 8px;
+    background: #f59e0b;
+    color: #fff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    gap: 0;
+}
+@media screen and (max-width: 600px) {
+    .btn-scan-qr.btn-customer-qr-scan { width: 34px; }
+}
 .cart-promo-row #cart-promo-input {
     flex: 1;
     padding: 7px 10px;
@@ -6209,6 +6260,16 @@ body.dark-mode .bottom-nav-item:active {
     .btn-clear, .btn-print-preview {
         min-height: 40px;
         padding: 8px 14px;
+    }
+    .btn-price-check {
+        min-height: 40px;
+        width: 40px;
+        padding: 8px;
+        justify-content: center;
+        gap: 0;
+    }
+    .btn-price-check-label {
+        display: none;
     }
     .t-product-card {
         min-height: 44px;

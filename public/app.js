@@ -12151,6 +12151,52 @@ async function requestReceiptCounterReset() {
         Swal.fire('Connection Error','Unable to reach the server. Please try again.','error');
     }
 }
+function openPriceCheck() {
+    if (!Array.isArray(globalProducts) || globalProducts.length === 0) {
+        Swal.fire('Walang Produkto', 'Walang available na produkto na maku-check ang presyo.', 'info');
+        return;
+    }
+    const buildPriceCheckRowsHtml = (list) => (list.map(p => `
+        <div class="pc-pick-row" data-code="${escapeHtml(p.code || '')}" style="padding:10px;border-bottom:1px solid #eee;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <span><strong>${escapeHtml(p.name || 'Unnamed Product')}</strong><br><small>${escapeHtml(p.code || '')}</small></span>
+            <span style="font-weight:700;color:#16a34a;white-space:nowrap;">₱${(parseFloat(p.price) || 0).toFixed(2)}</span>
+        </div>
+    `).join('')) || '<p style="padding:10px;color:#94a3b8;">Walang nahanap na produkto.</p>';
+    const attachPriceCheckRowClicks = (list) => {
+        document.querySelectorAll('.pc-pick-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const prod = list.find(p => p.code === row.dataset.code);
+                Swal.close();
+                if (prod) showProductDetails(prod.code);
+            });
+        });
+    };
+    window.__filterSwalPriceCheckList = (q) => {
+        q = (q || '').toLowerCase();
+        const list = globalProducts.filter(p => p && (
+            (p.name || '').toLowerCase().includes(q) ||
+            (p.code || '').toLowerCase().includes(q)
+        )).slice(0, 50);
+        const container = document.getElementById('swal-pricecheck-list');
+        if (container) container.innerHTML = buildPriceCheckRowsHtml(list);
+        attachPriceCheckRowClicks(list);
+    };
+    Swal.fire({
+        title: 'Price Check',
+        html: `
+            <input type="text" id="swal-pricecheck-search" class="swal2-input" placeholder="I-scan ang barcode o maghanap ng produkto..." oninput="window.__filterSwalPriceCheckList(this.value)" style="width:100%;margin:0 0 10px;box-sizing:border-box;" autocomplete="off">
+            <div id="swal-pricecheck-list" style="max-height:300px;overflow-y:auto;text-align:left;"></div>
+        `,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: 'Close',
+        didOpen: () => {
+            window.__filterSwalPriceCheckList('');
+            const input = document.getElementById('swal-pricecheck-search');
+            if (input) input.focus();
+        }
+    });
+}
 function openReceiptPreview() {
     if (shoppingCart.length === 0) {
         Swal.fire('Empty Cart','Add an item first before previewing the receipt.','warning');
