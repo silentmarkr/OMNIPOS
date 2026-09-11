@@ -54,6 +54,7 @@ function updateBtPrinterStatusUI() {
         if (dot) dot.style.background = '#94a3b8';
         if (text) text.innerText = 'Hindi supported ng browser na ito';
         hideBtPrintButtons();
+        if (typeof updatePrinterActiveSummaryUI === 'function') updatePrinterActiveSummaryUI();
         return;
     }
 
@@ -70,6 +71,7 @@ function updateBtPrinterStatusUI() {
         if (text) text.innerText = 'Walang naka-pair na printer';
         hideBtPrintButtons();
     }
+    if (typeof updatePrinterActiveSummaryUI === 'function') updatePrinterActiveSummaryUI();
 }
 
 function showBtPrintButtons() {

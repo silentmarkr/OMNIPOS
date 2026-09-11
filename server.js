@@ -2188,6 +2188,85 @@ async function isInternetLikelyUp() {
     lastConnectivityProbe = { at: now, up };
     return up;
 }
+// ==== WiFi / LAN (Ethernet Cable) Network Printer ====
+// Raw ESC/POS-over-TCP printing (the "JetDirect"/port-9100 convention used as the
+// out-of-the-box default by virtually every WiFi- or Ethernet-capable thermal
+// receipt printer brand). The browser cannot open raw TCP sockets itself, so the
+// server relays the already-built ESC/POS bytes from the client straight to the
+// printer's IP:port.
+function isValidPrinterHost(host) {
+    if (typeof host !== 'string') return false;
+    const h = host.trim();
+    if (!h || h.length > 253) return false;
+    // Basic sanity check: IPv4/hostname characters only (no spaces, no protocol/paths).
+    return /^[a-zA-Z0-9.\-]+$/.test(h);
+}
+function isValidPrinterPort(port) {
+    return Number.isInteger(port) && port > 0 && port < 65536;
+}
+app.post('/api/printer/network-test', rateLimit('printer-network-test', 30, 5 * 60 * 1000), async (req, res) => {
+    const host = ((req.body && req.body.host) || '').toString().trim();
+    const port = parseInt((req.body && req.body.port), 10) || 9100;
+    if (!isValidPrinterHost(host)) {
+        return res.status(400).json({ success: false, message: 'Invalid o walang laman ang printer IP address/host.' });
+    }
+    if (!isValidPrinterPort(port)) {
+        return res.status(400).json({ success: false, message: 'Invalid ang port number (1-65535).' });
+    }
+    try {
+        const reachable = await rawTcpProbe(host, port, 3000);
+        res.json({ success: true, reachable });
+    } catch (err) {
+        res.json({ success: true, reachable: false });
+    }
+});
+app.post('/api/printer/network-print', rateLimit('printer-network-print', 60, 5 * 60 * 1000), (req, res) => {
+    const host = ((req.body && req.body.host) || '').toString().trim();
+    const port = parseInt((req.body && req.body.port), 10) || 9100;
+    const dataBase64 = req.body && req.body.dataBase64;
+    if (!isValidPrinterHost(host)) {
+        return res.status(400).json({ success: false, message: 'Invalid o walang laman ang printer IP address/host.' });
+    }
+    if (!isValidPrinterPort(port)) {
+        return res.status(400).json({ success: false, message: 'Invalid ang port number (1-65535).' });
+    }
+    if (!dataBase64 || typeof dataBase64 !== 'string') {
+        return res.status(400).json({ success: false, message: 'Walang print data na natanggap.' });
+    }
+    let buffer;
+    try {
+        buffer = Buffer.from(dataBase64, 'base64');
+    } catch (err) {
+        return res.status(400).json({ success: false, message: 'Invalid ang format ng print data.' });
+    }
+    if (!buffer.length) {
+        return res.status(400).json({ success: false, message: 'Walang laman ang print data.' });
+    }
+    if (buffer.length > 300 * 1024) {
+        return res.status(400).json({ success: false, message: 'Masyadong malaki ang print data.' });
+    }
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (statusCode, result) => {
+        if (settled) return;
+        settled = true;
+        try { socket.destroy(); } catch (err) { /* noop */ }
+        if (result.success) {
+            logAction(req.authUser.username, `Nag-print gamit ang WiFi/LAN Network Printer (${host}:${port})`);
+        }
+        res.status(statusCode).json(result);
+    };
+    socket.setTimeout(8000);
+    socket.once('timeout', () => finish(504, { success: false, message: 'Nag-timeout ang koneksyon sa printer. Siguraduhing tama ang IP Address/Port at nakakonekta ang printer sa parehong network.' }));
+    socket.once('error', (err) => finish(502, { success: false, message: `Hindi makonekta sa printer: ${err.message || err}` }));
+    socket.connect(port, host, () => {
+        socket.write(buffer, (err) => {
+            if (err) return finish(502, { success: false, message: `Nabigo ang pag-send ng print data: ${err.message || err}` });
+            socket.end();
+            finish(200, { success: true, message: 'Naipadala ang print data sa printer.' });
+        });
+    });
+});
 const APP_VERSION = require('./package.json').version || '0.0.0';
 const RENDER_DEPLOY_HOOK_URL = process.env.RENDER_DEPLOY_HOOK_URL || null;
 const FILE_DEPLOY_STATS = 'deployStats';

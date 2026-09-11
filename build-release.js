@@ -77,6 +77,9 @@ const ENV_KEY_FILENAME = ".env.key";
 const CLIENT_TARGETS = new Set([
   path.join("public", "app.js"),
   path.join("public", "bt-printer.js"),
+  // Printer Device Settings (Bluetooth brand presets + WiFi/LAN network
+  // printing) — proprietary code, must ship/obfuscate alongside bt-printer.js.
+  path.join("public", "printer-manager.js"),
   path.join("public", "faq-engine.js"),
   path.join("public", "faq-knowledge.js"),
   path.join("public", "faq-knowledge.en.js"),

@@ -468,6 +468,29 @@ function attachHoldZoomToThumbs(container, selector) {
         }, 180);
     });
 }
+// Some free image-search sources (DuckDuckGo/Yandex especially) return
+// thumbnail URLs hotlinked straight from random third-party sites; those
+// often fail to load in the browser (hotlink protection, expired links,
+// blocked by the origin, etc). Without this handler, a broken <img> keeps
+// retrying/re-painting as it scrolls in/out of view or as the browser
+// retries the failed request, which is what shows up as the thumbnail
+// "blinking"/flickering. This hides it gracefully after the first failure
+// instead, and only affects the preview thumbnail — selecting/applying the
+// image still works since that goes through the server, not this <img>.
+function handleImgSearchThumbError(imgEl) {
+    if (!imgEl || imgEl.dataset.errLoaded === '1') return;
+    imgEl.dataset.errLoaded = '1';
+    imgEl.onerror = null;
+    imgEl.style.display = 'none';
+    if (!imgEl.nextElementSibling || !imgEl.nextElementSibling.classList.contains('img-search-thumb-fallback')) {
+        const fallback = document.createElement('div');
+        fallback.className = 'img-search-thumb-fallback';
+        fallback.innerHTML = '<i class="fa-solid fa-image"></i>';
+        imgEl.insertAdjacentElement('afterend', fallback);
+    }
+    const wrap = imgEl.closest('.p-image-search-item, .bulk-imgsearch-item');
+    if (wrap) wrap.classList.add('img-load-failed');
+}
 const productImageSearchFullResCache = new Map();
 async function fetchFullResPreviewForSearchResult(id) {
     if (productImageSearchFullResCache.has(id)) {
@@ -10200,8 +10223,12 @@ function triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments) {
     if (!hasCashPortion) return;
     setTimeout(() => {
         try {
-            if (typeof openCashDrawerViaBluetooth ==='function') {
+            if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
+                typeof openCashDrawerViaBluetooth ==='function') {
                 openCashDrawerViaBluetooth();
+            } else if (typeof isNetworkPrinterConfigured ==='function' && isNetworkPrinterConfigured() &&
+                typeof openCashDrawerViaNetworkPrinter ==='function') {
+                openCashDrawerViaNetworkPrinter();
             }
         } catch (e) { console.warn('Auto-open cash drawer failed:', e); }
     }, 150);
@@ -10213,6 +10240,9 @@ function triggerAutoPrintIfEnabled() {
             if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
                 typeof printReceiptViaBluetooth ==='function') {
                 printReceiptViaBluetooth('r');
+            } else if (typeof isNetworkPrinterConfigured ==='function' && isNetworkPrinterConfigured() &&
+                typeof printReceiptViaNetworkPrinter ==='function') {
+                printReceiptViaNetworkPrinter('r');
             } else {
                 window.print();
             }
@@ -12188,12 +12218,24 @@ function openPriceCheck() {
             <div id="swal-pricecheck-list" style="max-height:300px;overflow-y:auto;text-align:left;"></div>
         `,
         showConfirmButton: false,
+        showDenyButton: true,
+        denyButtonText: 'Reset',
+        denyButtonColor: '#64748b',
         showCancelButton: true,
         cancelButtonText: 'Close',
         didOpen: () => {
             window.__filterSwalPriceCheckList('');
             const input = document.getElementById('swal-pricecheck-search');
             if (input) input.focus();
+        },
+        preDeny: () => {
+            const input = document.getElementById('swal-pricecheck-search');
+            if (input) {
+                input.value = '';
+                input.focus();
+            }
+            window.__filterSwalPriceCheckList('');
+            return false;
         }
     });
 }
@@ -13532,8 +13574,8 @@ function syncImageQualityPrefSelects() {
 // behavior); any other value = search only that one free site.
 const OMNI_IMAGE_PROVIDERS = [
     { value: 'auto', label: 'Auto (try all free sources — recommended)' },
-    { value: 'duckduckgo', label: 'DuckDuckGo' },
     { value: 'bing_free', label: 'Bing (free)' },
+    { value: 'duckduckgo', label: 'DuckDuckGo' },
     { value: 'openverse', label: 'Openverse' },
     { value: 'wikimedia', label: 'Wikimedia Commons' },
     { value: 'yandex', label: 'Yandex' }
@@ -13697,7 +13739,7 @@ function renderProductImageSearchResults(results) {
         const safeId = String(r.id || '').replace(/"/g, '&quot;');
         return `<div class="p-image-search-item">
             <button type="button" class="p-image-search-thumb" data-result-id="${safeId}" title="${safeTitle}">
-                <img src="${safeThumb}" alt="${safeTitle}" loading="lazy">
+                <img src="${safeThumb}" alt="${safeTitle}" loading="lazy" onerror="handleImgSearchThumbError(this)">
             </button>
             <label class="p-image-search-check-wrap" title="Select for + Gallery">
                 <input type="checkbox" data-result-id="${safeId}" onchange="toggleProductImageSearchSelect('${r.id}', this.checked)">
@@ -14610,7 +14652,7 @@ function renderBulkImageSearchPreview() {
         const safeThumb = (p.thumbnailUrl || '').replace(/"/g, '&quot;');
         return `<div class="bulk-imgsearch-item">
             <input type="checkbox" checked data-bulk-imgsearch-idx="${idx}" onchange="updateBulkImageSearchApplyBtn()">
-            <img src="${safeThumb}" alt="" loading="lazy">
+            <img src="${safeThumb}" alt="" loading="lazy" onerror="handleImgSearchThumbError(this)">
             <div class="bulk-imgsearch-item-info">
                 <div class="bulk-imgsearch-item-name">${(p.name || '').replace(/</g, '&lt;')}</div>
                 <div class="bulk-imgsearch-item-code">${(p.code || '').replace(/</g, '&lt;')}</div>
@@ -14850,7 +14892,7 @@ function renderOmniImageSearchPreview() {
         const providerBadge = p.provider ? `<div style="font-size:11px;color:#16a34a;">via ${(p.provider || '').replace(/</g, '&lt;')}</div>` : '';
         return `<div class="bulk-imgsearch-item">
             <input type="checkbox" checked data-omni-imgsearch-idx="${idx}" onchange="updateOmniImageSearchApplyBtn()">
-            <img src="${safeThumb}" alt="" loading="lazy">
+            <img src="${safeThumb}" alt="" loading="lazy" onerror="handleImgSearchThumbError(this)">
             <div class="bulk-imgsearch-item-info">
                 <div class="bulk-imgsearch-item-name">${(p.name || '').replace(/</g, '&lt;')}</div>
                 <div class="bulk-imgsearch-item-code">${(p.code || '').replace(/</g, '&lt;')}</div>

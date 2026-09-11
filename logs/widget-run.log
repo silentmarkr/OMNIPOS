@@ -2426,3 +2426,886 @@ Omni Search Images error for CELL060: Error: DuckDuckGo failed: DuckDuckGo image
     at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
   statusCode: 502
 }
+[2026-09-12 04:46:08] ⚠️  May natirang lock file mula sa dating session (PID 24079, hindi na tumatakbo) — nililinis.
+[2026-09-12 04:46:09] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-12 04:46:12] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-11T19:53:57.527Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for CELL017: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL018: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL019: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL020: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL021: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL022: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL023: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL024: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL025: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL026: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL027: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL028: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL029: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL030: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL031: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL032: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL033: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL034: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL035: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL036: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL037: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL038: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL039: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL040: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL041: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL042: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL043: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL044: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL045: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL046: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL047: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL048: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL049: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL050: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL051: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL052: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL053: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL054: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL055: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL056: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL057: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL058: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL059: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL060: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL011: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL012: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL013: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL014: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL015: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL016: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL017: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL018: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL011: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL019: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL012: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL020: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL013: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL021: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL014: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL022: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL015: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL023: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL016: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL024: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL017: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL025: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL018: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL026: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL019: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL027: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL020: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL028: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL021: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL029: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL022: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL030: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL023: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL031: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL024: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL032: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL025: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL033: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL026: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL034: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL027: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL035: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL028: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL036: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL029: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL037: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL030: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL038: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL031: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL039: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL032: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL040: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL033: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL041: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL034: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL042: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL035: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL043: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL036: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL044: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL037: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL045: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL038: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL046: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL039: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL047: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL040: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL048: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL041: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL049: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL042: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL050: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL043: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL051: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL044: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL052: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL045: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL053: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL046: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL054: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL047: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL055: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL048: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL056: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL049: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL057: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL050: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL058: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL051: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL059: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL052: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL060: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL053: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL054: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL055: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL056: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL057: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL058: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL059: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+Omni Search Images error for CELL060: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2035:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2107:47) {
+  statusCode: 502
+}
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-12 05:45:28] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-12 05:45:31] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-12 05:45:34] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-11T21:27:58.336Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

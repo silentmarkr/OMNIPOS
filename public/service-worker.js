@@ -1,6 +1,6 @@
 
 
-const CACHE_VERSION = 'omnipos-shell-v52';
+const CACHE_VERSION = 'omnipos-shell-v53';
 
 const SHELL_FILES = [
   '/',
@@ -8,6 +8,7 @@ const SHELL_FILES = [
   '/style.css',
   '/app.js',
   '/bt-printer.js',
+  '/printer-manager.js',
   '/manifest.json',
   '/css/themes/theme-dark.css',
   '/css/themes/theme-ocean-pro.css',

@@ -3227,6 +3227,24 @@ body.dark-mode .search-box-container input::placeholder {
     border-color: var(--primary-color, #4a90e2);
     transform: translateY(-1px);
 }
+.img-search-thumb-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 1.1rem;
+}
+.p-image-search-thumb .img-search-thumb-fallback {
+    width: 100%;
+    height: 100%;
+}
+.bulk-imgsearch-item .img-search-thumb-fallback {
+    width: 42px;
+    height: 42px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    flex-shrink: 0;
+}
 .p-image-search-thumb img {
     width: 100%;
     height: 100%;
