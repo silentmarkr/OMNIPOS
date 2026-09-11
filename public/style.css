@@ -721,6 +721,21 @@ body:not(.dark-mode) .sidebar {
     font-size: 0.8rem;
     color: #64748b;
 }
+.uw-item.uw-remoteaccess {
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.12);
+}
+.uw-item.uw-remoteaccess span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.uw-remoteaccess-qr-hint {
+    font-size: 0.8rem;
+    color: #64748b;
+}
 .uw-item.uw-logout {
     color: #f87171;
 }

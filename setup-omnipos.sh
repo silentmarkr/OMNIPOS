@@ -131,6 +131,47 @@ fi
 echo "   Node version: $(node -v 2>/dev/null || echo 'NOT FOUND — there was a problem installing nodejs')"
 echo ""
 
+# BAGO: auto-install ng "cloudflared" (Cloudflare Tunnel binary) — ito
+# ang gumagawa ng pampublikong link (https://xxxx.trycloudflare.com)
+# para sa bagong "Remote Access Link" (globe icon) sa profile menu ng
+# OMNIPOS, kaya kailangan itong naka-install bago patakbuhin ang app.
+# Static Go binary ito, direkta mula sa GitHub releases ng Cloudflare
+# (hindi kailangang pumasok sa pkg repo ng Termux), kaya gumagana ito
+# nang diretso sa Termux/Android nang walang extra dependency.
+echo "🌐 Checking/installing cloudflared (para sa Remote Access Link / globe icon)..."
+if [ "$PLATFORM" = "termux" ]; then
+    CF_BIN_DIR="$PREFIX/bin"
+else
+    CF_BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$CF_BIN_DIR" 2>/dev/null
+fi
+if command -v cloudflared >/dev/null 2>&1 || [ -x "$CF_BIN_DIR/cloudflared" ]; then
+    echo "   ✅ Nakita na ang cloudflared — nilaktawan ang pag-install."
+else
+    CF_ARCH="$(uname -m 2>/dev/null)"
+    case "$CF_ARCH" in
+        aarch64|arm64) CF_ASSET="cloudflared-linux-arm64" ;;
+        armv7l|armv6l|arm) CF_ASSET="cloudflared-linux-arm" ;;
+        x86_64|amd64) CF_ASSET="cloudflared-linux-amd64" ;;
+        i686|i386) CF_ASSET="cloudflared-linux-386" ;;
+        *) CF_ASSET="" ;;
+    esac
+    if [ -n "$CF_ASSET" ]; then
+        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_ASSET}"
+        echo "   Downloading cloudflared ($CF_ASSET)..."
+        if curl -fsSL "$CF_URL" -o "$CF_BIN_DIR/cloudflared" 2>/dev/null && [ -s "$CF_BIN_DIR/cloudflared" ]; then
+            chmod +x "$CF_BIN_DIR/cloudflared"
+            echo "   ✅ Na-install ang cloudflared sa $CF_BIN_DIR/cloudflared"
+        else
+            rm -f "$CF_BIN_DIR/cloudflared" 2>/dev/null
+            echo "   ⚠️  Hindi ma-download ang cloudflared ngayon (walang internet o na-block ang GitHub). Gagana pa rin ang OmniPOS — hindi lang gagana ang 'Remote Access Link' (globe icon) hangga't hindi ito na-install. Puwedeng ulitin ang script na ito mamaya, o manual: curl -fsSL $CF_URL -o $CF_BIN_DIR/cloudflared && chmod +x $CF_BIN_DIR/cloudflared"
+        fi
+    else
+        echo "   ⚠️  Hindi ma-detect ang CPU architecture ($CF_ARCH) para sa auto-install ng cloudflared. Manual na i-install ito kung gusto gamitin ang 'Remote Access Link' (globe icon)."
+    fi
+fi
+echo ""
+
 if [ "$PLATFORM" = "termux" ]; then
     DOWNLOADS_DIR="$HOME/storage/downloads"
     INSTALL_DIR="$HOME/OMNIPOS"

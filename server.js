@@ -9237,6 +9237,130 @@ app.get('/api/system/backup-status', (req, res) => {
     const status = getBackupStatus();
     res.json({ success: true, status });
 });
+// BAGO: "Remote Access Link" (globe icon sa profile menu) — gumagawa ng
+// pampublikong link papuntang lokal na OMNIPOS server gamit ang
+// Cloudflare Quick Tunnel (cloudflared), para makapag-access ang client
+// kahit malayo/hindi kasabay sa parehong WiFi/LAN. Tinatakbo ito bilang
+// background process sa loob mismo ng Termux (child ng Node server na
+// ito) — walang extra Cloudflare account/dashboard na kailangan dahil
+// "quick tunnel" ito (bawat start ay bagong random na *.trycloudflare.com
+// subdomain, walang expiry habang naka-on ang process/device).
+const CLOUDFLARE_TUNNEL_STATE = {
+    status:'idle', // idle | starting | running | error | stopped
+    url: null,
+    error: null,
+    startedAt: null,
+    process: null
+};
+function resolveCloudflaredBinaryPath() {
+    const envPath = String(process.env.CLOUDFLARED_BIN ||'').trim();
+    if (envPath && fs.existsSync(envPath)) return envPath;
+    const candidates = [];
+    if (process.env.PREFIX) candidates.push(path.join(process.env.PREFIX,'bin','cloudflared'));
+    candidates.push('/data/data/com.termux/files/usr/bin/cloudflared');
+    candidates.push(path.join(os.homedir() ||'','.local/bin/cloudflared'));
+    candidates.push(path.join(__dirname,'bin','cloudflared'));
+    for (const c of candidates) {
+        try { if (c && fs.existsSync(c)) return c; } catch {}
+    }
+    // Fallback — umasa sa PATH (hal. kung na-install via `pkg`/apt/brew).
+    return 'cloudflared';
+}
+function startCloudflareTunnel() {
+    return new Promise((resolve) => {
+        if (CLOUDFLARE_TUNNEL_STATE.status ==='starting' || CLOUDFLARE_TUNNEL_STATE.status ==='running') {
+            return resolve(CLOUDFLARE_TUNNEL_STATE);
+        }
+        CLOUDFLARE_TUNNEL_STATE.status ='starting';
+        CLOUDFLARE_TUNNEL_STATE.url = null;
+        CLOUDFLARE_TUNNEL_STATE.error = null;
+        const bin = resolveCloudflaredBinaryPath();
+        let child;
+        try {
+            child = spawn(bin, ['tunnel','--url', `http://127.0.0.1:${PORT}`,'--no-autoupdate'], {
+                cwd: __dirname,
+                stdio: ['ignore','pipe','pipe'],
+                windowsHide: true
+            });
+        } catch (err) {
+            CLOUDFLARE_TUNNEL_STATE.status ='error';
+            CLOUDFLARE_TUNNEL_STATE.error = `Hindi ma-start ang cloudflared (${err.message}). Siguraduhing naka-install ito — tingnan ang setup-omnipos.sh, o i-set ang CLOUDFLARED_BIN env var papunta sa binary.`;
+            return resolve(CLOUDFLARE_TUNNEL_STATE);
+        }
+        CLOUDFLARE_TUNNEL_STATE.process = child;
+        let settled = false;
+        const urlPattern = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
+        const onData = (buf) => {
+            const text = buf.toString('utf8');
+            const match = text.match(urlPattern);
+            if (match && !settled) {
+                settled = true;
+                CLOUDFLARE_TUNNEL_STATE.status ='running';
+                CLOUDFLARE_TUNNEL_STATE.url = match[0];
+                CLOUDFLARE_TUNNEL_STATE.startedAt = Date.now();
+                resolve(CLOUDFLARE_TUNNEL_STATE);
+            }
+        };
+        // Sinusulat ni cloudflared ang tunnel URL sa stderr (normal na
+        // gawi ng CLI na ito), kaya parehong pinapakinggan ang dalawa.
+        child.stdout.on('data', onData);
+        child.stderr.on('data', onData);
+        child.once('error', (err) => {
+            CLOUDFLARE_TUNNEL_STATE.status ='error';
+            CLOUDFLARE_TUNNEL_STATE.error = `Cloudflared process error: ${err.message}. Siguraduhing naka-install ang cloudflared (tingnan ang setup-omnipos.sh).`;
+            CLOUDFLARE_TUNNEL_STATE.process = null;
+            if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
+        });
+        child.once('exit', (code, signal) => {
+            CLOUDFLARE_TUNNEL_STATE.process = null;
+            if (!settled) {
+                settled = true;
+                CLOUDFLARE_TUNNEL_STATE.status ='error';
+                CLOUDFLARE_TUNNEL_STATE.error = `Nag-exit agad ang cloudflared (code ${code}${signal ?', signal ' + signal :''}) bago pa makakuha ng public URL. Siguraduhing naka-install ang cloudflared at may internet connection ang device.`;
+                resolve(CLOUDFLARE_TUNNEL_STATE);
+            } else if (CLOUDFLARE_TUNNEL_STATE.status ==='running') {
+                CLOUDFLARE_TUNNEL_STATE.status ='stopped';
+                CLOUDFLARE_TUNNEL_STATE.url = null;
+            }
+        });
+        // Kung wala pang URL pagkalipas ng 15s, huwag nang i-block ang
+        // request — babalik ang response bilang "starting" pa rin at
+        // ang frontend na ang mag-po-poll sa /status endpoint.
+        setTimeout(() => {
+            if (!settled) { settled = true; resolve(CLOUDFLARE_TUNNEL_STATE); }
+        }, 15000);
+    });
+}
+app.post('/api/system/cloudflare-tunnel/start', rateLimit('system-cloudflare-tunnel-start', 5, 10 * 60 * 1000), async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagawa ng Remote Access Link.' });
+    }
+    const state = await startCloudflareTunnel();
+    if (state.status ==='error') {
+        return res.status(500).json({ success: false, status: state.status, message: state.error });
+    }
+    logAction(req.authUser.username, `Gumawa ng Cloudflare Remote Access Link${state.url ?' (' + state.url + ')' :' (kasalukuyang nag-i-start pa)'}.`);
+    res.json({ success: true, status: state.status, url: state.url });
+});
+app.get('/api/system/cloudflare-tunnel/status', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakakita ng status ng Remote Access Link.' });
+    }
+    res.json({ success: true, status: CLOUDFLARE_TUNNEL_STATE.status, url: CLOUDFLARE_TUNNEL_STATE.url, message: CLOUDFLARE_TUNNEL_STATE.error || null });
+});
+app.post('/api/system/cloudflare-tunnel/stop', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakapag-stop ng Remote Access Link.' });
+    }
+    if (CLOUDFLARE_TUNNEL_STATE.process) {
+        try { CLOUDFLARE_TUNNEL_STATE.process.kill(); } catch {}
+    }
+    CLOUDFLARE_TUNNEL_STATE.status ='idle';
+    CLOUDFLARE_TUNNEL_STATE.url = null;
+    CLOUDFLARE_TUNNEL_STATE.process = null;
+    logAction(req.authUser.username,'Ni-stop ang Cloudflare Remote Access Link.');
+    res.json({ success: true });
+});
 app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagamit ng Check for Updates.' });

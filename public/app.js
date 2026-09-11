@@ -5549,6 +5549,96 @@ function showServerIpQrModal(event) {
         }
     });
 }
+// BAGO: "Remote Access Link" (globe icon sa profile menu). I-click ==>
+// tatawagin ang backend para (sa background, sa loob ng Termux)
+// i-start ang isang Cloudflare Quick Tunnel patungo sa lokal na
+// OMNIPOS server nito, kukunin ang nagawang pampublikong
+// *.trycloudflare.com URL, at ipapakita bilang QR code modal (parehong
+// pattern ng existing "Server IP QR Code" pero para sa remote/malayong
+// access sa halip na LAN lang).
+let cloudflareTunnelStartInFlight = false;
+async function handleRemoteAccessLinkClick(event) {
+    if (event) event.stopPropagation();
+    if (cloudflareTunnelStartInFlight) return;
+    if (currentUser && (currentUser.role ||'').toLowerCase() !=='admin') {
+        Swal.fire('Admins Only','Admin account lang ang pwedeng gumawa ng Remote Access Link.','warning');
+        return;
+    }
+    const icon = document.getElementById('uw-remoteaccess-icon');
+    cloudflareTunnelStartInFlight = true;
+    if (icon) icon.classList.add('fa-spin');
+    try {
+        const startRes = await authFetch(`${API_URL}/system/cloudflare-tunnel/start`, { method:'POST' });
+        const startData = await startRes.json();
+        if (!startData.success) {
+            throw new Error(startData.message ||'Hindi ma-start ang Remote Access Link.');
+        }
+        let finalUrl = startData.url || null;
+        if (!finalUrl) {
+            finalUrl = await pollCloudflareTunnelStatus();
+        }
+        if (!finalUrl) {
+            Swal.fire('Hindi Pa Available','Hindi pa nagawa ang link sa loob ng ilang segundo. Siguraduhing naka-install ang cloudflared at may internet connection ang device, tapos subukan ulit.','error');
+            return;
+        }
+        showRemoteAccessQrModal(finalUrl);
+    } catch (err) {
+        Swal.fire('Error', err.message ||'May naganap na error habang gumagawa ng Remote Access Link.','error');
+    } finally {
+        cloudflareTunnelStartInFlight = false;
+        if (icon) icon.classList.remove('fa-spin');
+    }
+}
+function pollCloudflareTunnelStatus() {
+    return new Promise((resolve) => {
+        let attempts = 0;
+        const maxAttempts = 20; // ~20s kung 1s ang interval
+        const check = async () => {
+            attempts++;
+            try {
+                const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/status`);
+                const data = await res.json();
+                if (data.success && data.status ==='running' && data.url) {
+                    return resolve(data.url);
+                }
+                if (data.success && data.status ==='error') {
+                    return resolve(null);
+                }
+            } catch (err) {}
+            if (attempts >= maxAttempts) return resolve(null);
+            setTimeout(check, 1000);
+        };
+        check();
+    });
+}
+function showRemoteAccessQrModal(url) {
+    const containerId ='remote-access-qr-render-' + Date.now();
+    Swal.fire({
+        title:'Remote Access Link',
+        html: `
+            <p style="margin:2px 0 10px;font-weight:600;word-break:break-all;">${escapeHtml(url)}</p>
+            <div style="display:inline-block;background:#ffffff;padding:18px;border-radius:14px;box-shadow:0 0 0 1px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.25);">
+                <div id="${containerId}" style="display:flex;justify-content:center;align-items:center;line-height:0;"></div>
+            </div>
+            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">I-scan ito gamit ang telepono ng client (kahit malayo/hindi kasabay sa parehong WiFi) para direktang mabuksan ang OmniPOS. Mananatiling gumagana ang link habang naka-on at may internet ang device na ito.</p>
+        `,
+        confirmButtonText:'Close',
+        showCancelButton: false,
+        didOpen: () => {
+            const el = document.getElementById(containerId);
+            if (el && typeof QRCode !=='undefined') {
+                new QRCode(el, {
+                    text: url,
+                    width: 220,
+                    height: 220,
+                    colorDark:'#000000',
+                    colorLight:'#ffffff',
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            }
+        }
+    });
+}
 function toggleThemesSubmenu(event) {
     if (event) event.stopPropagation();
     const submenu = document.getElementById('uw-themes-submenu');
