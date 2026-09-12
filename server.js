@@ -417,6 +417,7 @@ const MENU_REGISTRY = [
     { key:'roles_permissions_view', label:'Users — Roles & Permissions Tab (opening/viewing the RBAC matrix)', group:'Users & Access' },
     { key:'edit_user_profile', label:'Edit User Profile (Widget)', group:'Users & Access' },
     { key:'logs',         label:'User Logs', group:'Users & Access' },
+    { key:'terminal_settings_view', label:'POS Terminal — Buksan ang "Settings" Modal mula sa Terminal Page (Desktop view, mirrored subset ng Store/Appearance/Advanced Settings)', group:'Settings' },
     { key:'receipt_settings_view', label:'Users — Receipt Customization Tab (view/open access)', group:'Settings' },
     { key:'receipt_settings_direct_apply', label:'Receipt Customization — Direct Apply (No Approval Needed)', group:'Settings' },
     { key:'store_settings_view', label:'Users — Store & Sales Settings Tab (view/open access)', group:'Settings' },
@@ -439,12 +440,12 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
     },
     {
         name:'Cashier',
         protected: false,
-        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
     }
 ];
 function getRoles() {
@@ -501,6 +502,9 @@ function findManualDiscountAuthorizer(users, password) {
 }
 function findShiftCloseAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'shift_close_own_password');
+}
+function findTerminalSettingsAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'terminal_settings_view');
 }
 const FILE_LOYALTY_SECURITY ='loyaltySecurity';
 function getLoyaltyCardSigningKey() {
@@ -1272,6 +1276,22 @@ function getStoreSettingsPublic(rawSettings) {
         updatedAt: s.updatedAt || null
     };
 }
+app.post('/api/terminal-settings/authorize', rateLimit('terminal-settings-auth', 8, 10 * 60 * 1000), async (req, res) => {
+    const { password } = req.body || {};
+    if (!password) {
+        return res.status(400).json({ success: false, message: 'Password is required to open Terminal Settings.' });
+    }
+    const users = readData(FILE_USERS);
+    const authResult = await findTerminalSettingsAuthorizer(users, password);
+    if (!authResult) {
+        return res.status(403).json({
+            success: false,
+            code: 'WRONG_TERMINAL_SETTINGS_PASSWORD',
+            message: 'Incorrect password, or this account is not authorized (via Roles & Permissions) to open Terminal Settings.'
+        });
+    }
+    res.json({ success: true, authorizedBy: authResult.isAdmin ? 'Admin' : authResult.user.username });
+});
 app.get('/api/store-settings', (req, res) => {
     const settings = readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS);
     res.json(getStoreSettingsPublic(settings));

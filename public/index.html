@@ -639,6 +639,7 @@
                                 <span><i class="fa-solid fa-grip-lines pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
                                 <div class="cart-header-actions">
                                     <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> Preview</button>
+                                    <button class="btn-terminal-settings" onclick="openTerminalSettingsModal()" title="Terminal Settings"><i class="fa-solid fa-gear"></i> Settings</button>
                                     <button class="btn-price-check" onclick="openPriceCheck()" title="Price Check"><i class="fa-solid fa-tags"></i> <span class="btn-price-check-label">Price Check</span></button>
                                     <button class="btn-clear" onclick="handleClearCart()"><i class="fa-solid fa-trash-can"></i> Clear</button>
                                 </div>
@@ -3838,6 +3839,174 @@
                     <button type="submit" class="btn-action-global">Create Role</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div id="terminal-settings-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-gear"></i> Terminal Settings</h3>
+                <button class="close-modal-btn" onclick="closeModal('terminal-settings-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.82rem; color:var(--text-muted); margin:0 0 16px;">
+                    Ito ay mirror lang ng mga settings na nasa <b>Users &gt; Store &amp; Sales / Appearance / Advanced</b> — ang mga sumusunod na field lang ang ipinapakita dito dahil ito ang mga direktang ginagamit sa POS Terminal page. Anumang i-save dito ay nagbabago rin agad sa Settings page (magkasabay silang naka-sync), at vice versa.
+                </p>
+                <div id="terminal-settings-status" style="margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);"></div>
+
+                <details class="rc-section" open>
+                    <summary><i class="fa-solid fa-receipt" style="color:#16a34a;"></i> <span>Receipt Customization</span></summary>
+                    <div class="rc-section-body">
+                        <div class="input-field-group">
+                            <label>Store Name</label>
+                            <input type="text" id="tset-rc-storename" placeholder="e.g. OmniPOS" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Store Address</label>
+                            <input type="text" id="tset-rc-address" placeholder="e.g. 123 Main St., Quezon City" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Contact Number</label>
+                            <input type="text" id="tset-rc-contact" placeholder="e.g. 0917-123-4567" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Header Text</label>
+                            <input type="text" id="tset-rc-header" placeholder="e.g. Welcome to our store!" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Receipt Footer Message</label>
+                            <input type="text" id="tset-rc-footer" placeholder="e.g. Thank you for shopping!" autocomplete="off">
+                        </div>
+                        <small style="color:var(--text-muted); font-size:0.75rem; display:block; margin:-8px 0 12px;">Ang Logo/Image na header at ang advanced na receipt style (barcode, QR, fonts, transaction ID format) ay nasa Users &gt; Receipt Customization pa rin (hindi kasama dito).</small>
+                        <button type="button" class="btn-action-global" onclick="saveTerminalReceiptSettings()">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Receipt Details
+                        </button>
+                        <hr style="border:none; border-top:1px solid var(--border-color); margin:18px 0;">
+                        <div class="input-field-group">
+                            <label>Printer Paper Size</label>
+                            <select id="tset-rc-papersize">
+                                <option value="58mm">58mm (compact thermal/portable printer)</option>
+                                <option value="80mm">80mm (standard POS receipt printer used in convenience stores)</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn-action-outline" onclick="saveTerminalReceiptPaperSize()">
+                            <i class="fa-solid fa-print"></i> Save Paper Size
+                        </button>
+                    </div>
+                </details>
+
+                <details class="rc-section" style="margin-top:14px;">
+                    <summary><i class="fa-solid fa-coins" style="color:#2563eb;"></i> <span>Store &amp; Sales</span></summary>
+                    <div class="rc-section-body">
+                        <div class="input-field-group">
+                            <label>Currency</label>
+                            <select id="tset-currency-code">
+                                <option value="PHP">PHP — Philippine Peso (₱)</option>
+                                <option value="USD">USD — US Dollar ($)</option>
+                                <option value="EUR">EUR — Euro (€)</option>
+                                <option value="JPY">JPY — Japanese Yen (¥)</option>
+                                <option value="SGD">SGD — Singapore Dollar (S$)</option>
+                            </select>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-tax-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-tax-enabled">Enable Tax</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Tax Label</label>
+                            <input type="text" id="tset-tax-label" placeholder="e.g. VAT" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Tax Rate (%)</label>
+                            <input type="number" id="tset-tax-rate" min="0" max="100" step="0.01" placeholder="e.g. 12" autocomplete="off">
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-prices-include-tax" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-prices-include-tax">Product prices already include tax</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Accepted Payment Methods</label>
+                            <div style="display:flex; flex-wrap:wrap; gap:14px; margin-top:6px;">
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-pm-cash" style="width:auto;" autocomplete="off"> Cash</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-pm-gcash" style="width:auto;" autocomplete="off"> GCash</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-pm-maya" style="width:auto;" autocomplete="off"> Maya</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-pm-card" style="width:auto;" autocomplete="off"> Card</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-pm-banktransfer" style="width:auto;" autocomplete="off"> Bank Transfer</label>
+                            </div>
+                            <small style="color:var(--text-muted); font-size:0.75rem;">Ang GCash/Maya QR image upload ay nasa Users &gt; Store &amp; Sales pa rin (hindi kasama dito).</small>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-senior-pwd-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-senior-pwd-enabled">Enable Senior Citizen / PWD Discount</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Senior/PWD Discount Rate (%)</label>
+                            <input type="number" id="tset-senior-pwd-rate" min="0" max="100" step="0.01" placeholder="e.g. 20" autocomplete="off">
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-loyalty-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-loyalty-enabled">Enable Loyalty Points (earn &amp; redeem)</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Earn Rate (₱ spent per 1 point)</label>
+                            <input type="number" id="tset-loyalty-earn-rate" min="1" step="1" placeholder="e.g. 100" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Redeem Value (₱ discount per 1 point)</label>
+                            <input type="number" id="tset-loyalty-point-value" min="0" step="0.01" placeholder="e.g. 1" autocomplete="off">
+                        </div>
+                        <button type="button" class="btn-action-global" onclick="saveTerminalStoreSalesSettings()">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Store &amp; Sales Settings
+                        </button>
+                    </div>
+                </details>
+
+                <details class="rc-section" style="margin-top:14px;">
+                    <summary><i class="fa-solid fa-palette" style="color:#0ea5e9;"></i> <span>Appearance</span></summary>
+                    <div class="rc-section-body">
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-scanner-sound" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-scanner-sound">Barcode Scanner Sound Feedback</label>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-swap-terminal-layout" style="width:auto;" onchange="setTerminalLayoutSwapped(this.checked)" autocomplete="off">
+                            <label style="margin:0;" for="tset-swap-terminal-layout">Swap Order Cart / Product List Position (Desktop only, this device only)</label>
+                        </div>
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin:-6px 0 10px 26px;">Ang toggle na ito ay agad naka-apply (device-only, katulad ng pag-drag sa "Order" header papuntang kanan) — walang kailangang i-Save.</p>
+                        <button type="button" class="btn-action-global" onclick="saveTerminalAppearanceSettings()">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Appearance Settings
+                        </button>
+                    </div>
+                </details>
+
+                <details class="rc-section" style="margin-top:14px;">
+                    <summary><i class="fa-solid fa-sliders" style="color:#f59e0b;"></i> <span>Advanced</span></summary>
+                    <div class="rc-section-body">
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 8px;"><i class="fa-solid fa-lock"></i> Idle Auto-Lock</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-idle-lock-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-idle-lock-enabled">Lock the terminal after inactivity (requires password to resume — not a full logout)</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Lock After (minutes of inactivity)</label>
+                            <input type="number" id="tset-idle-lock-minutes" min="1" max="120" step="1" placeholder="e.g. 5" autocomplete="off">
+                        </div>
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-tv"></i> Customer-Facing Display</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-customer-display-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-customer-display-enabled">Enable Customer-Facing Display</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Compact View Threshold (auto-switch to a denser view above this many line items)</label>
+                            <input type="number" id="tset-customer-display-compact-threshold" min="3" max="50" step="1" placeholder="e.g. 8" autocomplete="off">
+                        </div>
+                        <button type="button" class="btn-action-outline" onclick="openCustomerDisplay()" style="display:block; margin-bottom:14px;"><i class="fa-solid fa-up-right-from-square"></i> Open Customer Display</button>
+                        <button type="button" class="btn-action-global" onclick="saveTerminalAdvancedSettings()">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Advanced Settings
+                        </button>
+                    </div>
+                </details>
+            </div>
         </div>
     </div>
 

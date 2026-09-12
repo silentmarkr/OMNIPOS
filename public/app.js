@@ -11914,6 +11914,138 @@ async function saveAdvancedSettings() {
         Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
     }
 }
+
+function mirrorRealSettingsIntoTerminalModal() {
+    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
+    const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
+    copyVal('rc-form-storename', 'tset-rc-storename');
+    copyVal('rc-form-address', 'tset-rc-address');
+    copyVal('rc-form-contact', 'tset-rc-contact');
+    copyVal('rc-form-header', 'tset-rc-header');
+    copyVal('rc-form-footer', 'tset-rc-footer');
+    copyVal('rc-form-papersize', 'tset-rc-papersize');
+    copyVal('ss-currency-code', 'tset-currency-code');
+    copyChecked('ss-tax-enabled', 'tset-tax-enabled');
+    copyVal('ss-tax-label', 'tset-tax-label');
+    copyVal('ss-tax-rate', 'tset-tax-rate');
+    copyChecked('ss-prices-include-tax', 'tset-prices-include-tax');
+    copyChecked('ss-pm-cash', 'tset-pm-cash');
+    copyChecked('ss-pm-gcash', 'tset-pm-gcash');
+    copyChecked('ss-pm-maya', 'tset-pm-maya');
+    copyChecked('ss-pm-card', 'tset-pm-card');
+    copyChecked('ss-pm-banktransfer', 'tset-pm-banktransfer');
+    copyChecked('ss-senior-pwd-enabled', 'tset-senior-pwd-enabled');
+    copyVal('ss-senior-pwd-rate', 'tset-senior-pwd-rate');
+    copyChecked('ss-loyalty-enabled', 'tset-loyalty-enabled');
+    copyVal('ss-loyalty-earn-rate', 'tset-loyalty-earn-rate');
+    copyVal('ss-loyalty-point-value', 'tset-loyalty-point-value');
+    copyChecked('ux-scanner-sound', 'tset-scanner-sound');
+    const swapCb = document.getElementById('tset-swap-terminal-layout');
+    if (swapCb && typeof getTerminalLayoutSwapped === 'function') swapCb.checked = getTerminalLayoutSwapped();
+    copyChecked('adv-idle-lock-enabled', 'tset-idle-lock-enabled');
+    copyVal('adv-idle-lock-minutes', 'tset-idle-lock-minutes');
+    copyChecked('adv-customer-display-enabled', 'tset-customer-display-enabled');
+    copyVal('adv-customer-display-compact-threshold', 'tset-customer-display-compact-threshold');
+    const statusEl = document.getElementById('terminal-settings-status');
+    if (statusEl) statusEl.textContent = '';
+}
+async function loadTerminalSettingsModalData() {
+    await Promise.all([
+        loadReceiptCustomizationPanel(),
+        loadStoreSettingsPanel(),
+        loadUxSettingsPanel(),
+        loadAdvancedSettingsPanel()
+    ]);
+    mirrorRealSettingsIntoTerminalModal();
+}
+async function saveTerminalReceiptSettings() {
+    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
+    copyVal('tset-rc-storename', 'rc-form-storename');
+    copyVal('tset-rc-address', 'rc-form-address');
+    copyVal('tset-rc-contact', 'rc-form-contact');
+    copyVal('tset-rc-header', 'rc-form-header');
+    copyVal('tset-rc-footer', 'rc-form-footer');
+    await saveReceiptCustomization();
+    mirrorRealSettingsIntoTerminalModal();
+}
+async function saveTerminalReceiptPaperSize() {
+    const f = document.getElementById('tset-rc-papersize');
+    const t = document.getElementById('rc-form-papersize');
+    if (f && t) t.value = f.value;
+    await saveReceiptPaperSize();
+    mirrorRealSettingsIntoTerminalModal();
+}
+async function saveTerminalStoreSalesSettings() {
+    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
+    const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
+    copyVal('tset-currency-code', 'ss-currency-code');
+    copyChecked('tset-tax-enabled', 'ss-tax-enabled');
+    copyVal('tset-tax-label', 'ss-tax-label');
+    copyVal('tset-tax-rate', 'ss-tax-rate');
+    copyChecked('tset-prices-include-tax', 'ss-prices-include-tax');
+    copyChecked('tset-pm-cash', 'ss-pm-cash');
+    copyChecked('tset-pm-gcash', 'ss-pm-gcash');
+    copyChecked('tset-pm-maya', 'ss-pm-maya');
+    copyChecked('tset-pm-card', 'ss-pm-card');
+    copyChecked('tset-pm-banktransfer', 'ss-pm-banktransfer');
+    copyChecked('tset-senior-pwd-enabled', 'ss-senior-pwd-enabled');
+    copyVal('tset-senior-pwd-rate', 'ss-senior-pwd-rate');
+    copyChecked('tset-loyalty-enabled', 'ss-loyalty-enabled');
+    copyVal('tset-loyalty-earn-rate', 'ss-loyalty-earn-rate');
+    copyVal('tset-loyalty-point-value', 'ss-loyalty-point-value');
+    await saveStoreSettings();
+    mirrorRealSettingsIntoTerminalModal();
+}
+async function saveTerminalAppearanceSettings() {
+    const f = document.getElementById('tset-scanner-sound');
+    const t = document.getElementById('ux-scanner-sound');
+    if (f && t) t.checked = f.checked;
+    await saveUxSettings();
+    mirrorRealSettingsIntoTerminalModal();
+}
+async function saveTerminalAdvancedSettings() {
+    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
+    const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
+    copyChecked('tset-idle-lock-enabled', 'adv-idle-lock-enabled');
+    copyVal('tset-idle-lock-minutes', 'adv-idle-lock-minutes');
+    copyChecked('tset-customer-display-enabled', 'adv-customer-display-enabled');
+    copyVal('tset-customer-display-compact-threshold', 'adv-customer-display-compact-threshold');
+    await saveAdvancedSettings();
+    mirrorRealSettingsIntoTerminalModal();
+}
+async function openTerminalSettingsModal() {
+    const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
+    const { value: authPassword } = await Swal.fire({
+        title: isAdmin ? '🔒 Admin Authorization Required' : '🔒 Terminal Settings Authorization Required',
+        html: isAdmin
+            ? 'Admin password is required to open Terminal Settings.'
+            : 'Admin or authorized Supervisor/Manager password is required to open Terminal Settings.',
+        input: 'password',
+        inputPlaceholder: isAdmin ? 'Enter Admin password' : 'Admin/Supervisor password',
+        showCancelButton: true,
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#ef4444'
+    });
+    if (!authPassword || authPassword.trim() === '') return;
+    try {
+        const res = await authFetch(`${API_URL}/terminal-settings/authorize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: authPassword })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            Swal.fire('Access Denied', data.message || 'Incorrect password, or this account is not authorized to open Terminal Settings.', 'error');
+            return;
+        }
+        await loadTerminalSettingsModalData();
+        document.getElementById('terminal-settings-modal').style.display = 'flex';
+    } catch (err) {
+        console.error('Terminal Settings authorization error:', err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+
 const ONLINE_PAYMENT_GATEWAY_LABELS = { paymongo: 'PayMongo', xendit: 'Xendit' };
 async function loadOnlinePaymentsPanel() {
     try {
