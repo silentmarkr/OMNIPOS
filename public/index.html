@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    
+
     <script>
     (function () {
         try {
@@ -12,15 +12,11 @@
             }
             var isStoreThemeDay = (t === 'day');
 
-                     
-
             var isTerminalView = sessionStorage.getItem('currentView') === 'terminal';
             var isLight = isTerminalView
                 ? (localStorage.getItem('terminal_daymode') === 'true')
                 : isStoreThemeDay;
 
-            
-            
             var THEME_BG = {
                 dark: '#121218',
                 ocean: '#05141c',
@@ -36,7 +32,6 @@
             var metaCS = document.getElementById('meta-color-scheme');
             if (!isLight && t && THEME_BG[t]) {
 
-                
                 var root = document.documentElement;
                 root.style.setProperty('--dm-bg', THEME_BG[t]);
                 root.style.colorScheme = 'dark';
@@ -45,20 +40,12 @@
                 if (metaCS) metaCS.setAttribute('content', 'dark');
             } else if (!isLight) {
 
-                
-
                 var rootT = document.documentElement;
                 rootT.style.setProperty('--dm-bg', THEME_BG.dark);
                 rootT.style.colorScheme = 'dark';
                 if (metaCS) metaCS.setAttribute('content', 'dark');
             } else {
 
-                
-
-                
-
-                
-                
                 document.documentElement.style.colorScheme = 'light';
                 if (metaCS) metaCS.setAttribute('content', 'light');
             }
@@ -104,19 +91,18 @@
     })();
     </script>
     <style>
-        
+
         html.has-session #auth-view { display: none !important; }
         html.has-session #main-view { display: flex !important; }
     </style>
 
     <script>
-    
+
     (function () {
         try {
             var metaThemeColor = document.querySelector('meta[name="theme-color"]');
             if (!metaThemeColor) return;
 
-            
             var HEADER_BG = {
                 day: '#ffffff',
                 dark: '#1c1c24',
@@ -130,7 +116,7 @@
                 liquidglass: '#1e263a',
                 galaxyambient: '#18181c'
             };
-            
+
             var HEADER_ACCENT = {
                 day: '#7c5cff',
                 dark: '#7c5cff',
@@ -144,7 +130,7 @@
                 liquidglass: '#0a84ff',
                 galaxyambient: '#1a73e8'
             };
-            
+
             var LOGIN_BG = '#0a0e17';
 
             var hasSession = document.documentElement.classList.contains('has-session');
@@ -175,16 +161,6 @@
             if (!document.documentElement.classList.contains('has-session')) return;
             var savedView = sessionStorage.getItem('currentView');
 
-            
-
-            
-
-            
-
-            
-
-            
-            
             var KNOWN_VIEWS = ['overview','dashboard','terminal','products','barcode',
                 'reorder','stock_return_inspection','reports','customers','transactions','users','faq','logs'];
             if (savedView && KNOWN_VIEWS.indexOf(savedView) !== -1) {
@@ -194,7 +170,7 @@
     })();
     </script>
     <style>
-        
+
         html.has-session[data-preload-view]:not([data-preload-view="overview"]) #view-overview,
         html.has-session[data-preload-view]:not([data-preload-view="dashboard"]) #view-dashboard {
             display: none !important;
@@ -206,7 +182,7 @@
         html.has-session[data-preload-view="stock_return_inspection"] #view-stock_return_inspection { display: block !important; }
         html.has-session[data-preload-view="reports"] #view-reports { display: block !important; }
         html.has-session[data-preload-view="customers"] #view-customers { display: block !important; }
-        
+
         html.has-session[data-preload-view="transactions"] #view-transactions { display: block !important; }
         html.has-session[data-preload-view="users"] #view-users { display: block !important; }
         html.has-session[data-preload-view="faq"] #view-faq { display: block !important; }
@@ -227,12 +203,12 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
     <title>OmniPOS - Point of Sale System</title>
-  
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=20260909-2">
-    
+
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-emerald-pro.css" data-retry>
@@ -250,8 +226,6 @@
 
     <script>
 
-    
-
     (function () {
         document.querySelectorAll('link[data-retry]').forEach(function (link) {
             link.addEventListener('error', function onErr() {
@@ -268,7 +242,7 @@
    <script src="JsBarcode.all.min.js"></script>
 
   <script src="sweetalert2.all.min.js"></script>
-  
+
 </head>
 
 <body>
@@ -305,7 +279,7 @@
                         <input type="password" id="login-password" placeholder="Password" required autocomplete="off">
                         <div id="password-keyboard-warning" class="keyboard-warning" style="display:none;"></div>
                     </div>
-                    
+
                     <div class="input-group terms-agree-group" style="display:flex; align-items:flex-start; gap:8px; margin: 4px 0 14px;">
                         <input type="checkbox" id="login-terms-agree" required style="margin-top:3px; width:16px; height:16px; min-width:16px; min-height:16px; flex-shrink:0;" autocomplete="off">
                         <label for="login-terms-agree" style="font-size:0.85rem; line-height:1.4; color:#64748b; cursor:pointer;">
@@ -314,7 +288,7 @@
                     </div>
                     <button type="submit" class="btn-primary-auth">Sign In</button>
                 </form>
-                
+
                 <button type="button" id="biometric-login-btn" class="btn-action-outline" style="display:none; width:100%; margin-top:12px; justify-content:center;" onclick="loginWithBiometric()">
                     <i class="fa-solid fa-fingerprint"></i> Login with Fingerprint
                 </button>
@@ -322,10 +296,8 @@
         </div>
     </div>
 
-  
-
     <div id="main-view" class="app-shell" style="display: none;">
-        
+
         <aside class="sidebar" id="app-sidebar">
             <div class="sidebar-brand">
                 <span><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i</span>POS</span></span>
@@ -353,7 +325,7 @@
                         <i class="fa-solid fa-gear uw-remoteaccess-config-icon" id="uw-remoteaccess-config-icon" onclick="openCloudflareNamedTunnelConfigModal(event)" title="Configure a custom domain (optional — if a domain has been purchased)"></i>
                     </div>
                     <div class="uw-submenu uw-au-submenu" id="uw-activeusers-submenu">
-                        
+
                         <div class="uw-item uw-networkinfo" id="uw-networkinfo" onclick="showServerIpQrModal(event)" title="Tap to show QR code">
                             <span><i class="fa-solid fa-wifi"></i> Server IP: <span id="uw-networkinfo-value">Loading...</span></span>
                             <i class="fa-solid fa-copy uw-networkinfo-copy-icon" onclick="copySidebarNetworkInfo(event)" title="Tap to copy"></i>
@@ -367,14 +339,14 @@
                         <i class="fa-solid fa-chevron-down uw-sub-caret" id="uw-themes-caret"></i>
                     </div>
                     <div class="uw-submenu" id="uw-themes-submenu">
-                        
+
                     </div>
                     <div class="uw-item uw-has-sub" id="uw-terminalthemes-toggle" onclick="toggleTerminalThemesSubmenu(event)" style="display:none;">
                         <span><i class="fa-solid fa-swatchbook"></i> Terminal Themes</span>
                         <i class="fa-solid fa-chevron-down uw-sub-caret" id="uw-terminalthemes-caret"></i>
                     </div>
                     <div class="uw-submenu" id="uw-terminalthemes-submenu">
-                        
+
                     </div>
                     <a href="#" class="uw-item uw-logout" onclick="handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> Sign Out</a>
                 </div>
@@ -437,7 +409,7 @@
                         <i class="fa-solid fa-magnifying-glass-plus"></i>
                         <span id="bulk-imgsearch-minimized-badge" class="lowstock-bell-badge"></span>
                     </button>
-                    
+
                     <div class="header-user-menu-wrap" id="header-user-menu-wrap">
                         <button class="header-user-avatar-btn" id="header-user-avatar-btn" onclick="toggleHeaderUserMenu(event)" title="Account" aria-label="Account">
                             <span class="header-user-avatar" id="header-user-avatar">
@@ -470,7 +442,7 @@
                                 <i class="fa-solid fa-chevron-down hu-sub-caret" id="hu-terminalthemes-caret"></i>
                             </div>
                             <div class="hu-submenu" id="hu-terminalthemes-submenu">
-                                
+
                             </div>
                             <div class="hu-divider" id="hu-logout-divider"></div>
                             <a href="#" class="hu-item hu-logout" id="hu-logout-btn" onclick="handleLogout(); return false;">
@@ -497,7 +469,7 @@
     <div class="metric-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
     <div><p class="metric-label">LOW STOCK</p><h3 id="metric-low-stock">0</h3></div>
                       </div>
-                      
+
                       <div class="metric-card">
     <div class="metric-icon danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
     <div><p class="metric-label">NO STOCK</p><h3 id="metric-no-stock">0</h3></div>
@@ -527,7 +499,6 @@
                         </div>
                     </div></section>
 
-              
 <section id="view-overview" class="app-view">
 
                     <div class="overview-greeting-row ov-anim" style="--ov-delay:0">
@@ -672,7 +643,7 @@
                                     <button class="btn-clear" onclick="handleClearCart()"><i class="fa-solid fa-trash-can"></i> Clear</button>
                                 </div>
                             </div>
-                            
+
                             <div class="cart-items-wrapper" id="cart-items-container">
                                 </div>
 
@@ -735,7 +706,7 @@
                                         <i class="fa-solid fa-qrcode"></i>
                                     </button>
                                 </div>
-                              
+
                             </div>
 <div class="category-header-row">
 
@@ -950,7 +921,6 @@
                     </div>
                 </section>
 
-                  
                 <section id="view-stock_return_inspection" class="app-view" style="display:none;">
                     <div class="view-header-row">
                         <div>
@@ -1290,7 +1260,7 @@
 
                     <div class="table-container">
                         <table class="data-table">
- 
+
                             <thead>
                                 <tr>
                                     <th><span class="th-label-wrap">Transaction ID<button type="button" class="col-filter-btn tx-col-filter-btn" data-field="id" onclick="toggleTxColumnFilter('id', event)" title="Filter Transaction ID"><i class="fa-solid fa-filter"></i></button></span></th>
@@ -1311,7 +1281,7 @@
 <section id="view-users" class="app-view" style="display:none;">
 
     <div class="tabs-container" style="display: flex; justify-content: center; gap: 10px; width: 100%;">
-       
+
         <button class="tab-btn active" id="manage-users-tab-btn" onclick="switchUserTab('manage-users-tab', this)">Users Management</button>
 
 <button class="tab-btn" id="pending-requests-counter-tab" onclick="switchUserTab('pending-requests-tab', this)">Pending Requests</button>
@@ -1325,6 +1295,8 @@
 <button class="tab-btn" id="ux-settings-tab-btn" onclick="switchUserTab('ux-settings-tab', this); loadUxSettingsPanel(); initCustomTheme();">Appearance</button>
 
 <button class="tab-btn" id="advanced-settings-tab-btn" onclick="switchUserTab('advanced-settings-tab', this); loadAdvancedSettingsPanel();">Advanced</button>
+
+<button class="tab-btn" id="online-payments-tab-btn" onclick="switchUserTab('online-payments-tab', this); loadOnlinePaymentsPanel();">Online Payments</button>
 
 <button class="tab-btn" id="fraud-alerts-counter-tab" onclick="switchUserTab('fraud-alerts-tab', this); loadFraudAlertsTable();">Fraud Alerts</button>
 
@@ -1405,7 +1377,6 @@
 
     <div id="receipt-custom-tab" class="tab-content-panel" style="display:none;">
 
-        
         <div id="rc-otp-sender-config" style="display:none; width:100%; max-width:480px; margin: 20px auto 0; padding:16px; border:1px solid var(--warning-gold); border-radius:8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
             <h4 id="rc-otp-sender-heading" onclick="toggleOtpSenderBox()" style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin-bottom:0; margin-top:0; cursor:pointer;">
                 <i id="rc-otp-sender-heading-icon" class="fa-solid fa-envelope-circle-check" style="color:#eab308;"></i> <span id="rc-otp-sender-heading-text">Google App Verification</span>
@@ -1416,7 +1387,7 @@
             </h4>
             <div id="rc-otp-sender-body" style="margin-top:10px;">
                 <div id="rc-otp-sender-current" style="font-size:0.8rem; margin-bottom:10px; display:none;"></div>
-                
+
                 <div id="rc-otp-sender-form-fields">
                     <div class="input-field-group">
                         <label>Sender Gmail</label>
@@ -1444,7 +1415,6 @@
 
             <div id="receipt-custom-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
 
-            
             <details class="rc-section">
                 <summary><i class="fa-solid fa-shop" style="color:#2563eb;"></i> <span>1. Store Info, Header &amp; Footer</span></summary>
                 <div class="rc-section-body">
@@ -1770,7 +1740,7 @@
                     <input type="checkbox" id="aset-uppercase-store" onchange="previewReceiptAdvancedSettings()" autocomplete="off">
                     <span><b>Uppercase store name</b> <span style="font-size:0.78rem; color:var(--text-muted);">(display the store name/title in all caps)</span></span>
                 </label>
-                
+
                 <details class="rc-section-sub">
                     <summary><i class="fa-solid fa-arrows-up-down" style="color:#2563eb;"></i> <span>Row Spacing</span></summary>
                     <div class="rc-section-sub-body">
@@ -2428,6 +2398,140 @@
         </div>
     </div>
 
+    <div id="online-payments-tab" class="tab-content-panel" style="display:none;">
+        <div class="receipt-custom-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+            <h3 style="margin-top:0; display:flex; align-items:center; gap:8px; font-size:1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                <i class="fa-solid fa-qrcode"></i> Online Payments (QR Ph)
+            </h3>
+            <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
+                Lets you generate a QR Ph code for customers in Debtors so they can pay online (from any bank or e-wallet app that supports QR Ph — GCash, Maya, and others) — the payment goes straight into your own payment gateway account, and is automatically recorded in Debtors once confirmed.
+            </p>
+
+            <div id="online-payments-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
+
+            <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="op-qrph-enabled" style="width:auto;" autocomplete="off">
+                <label style="margin:0;" for="op-qrph-enabled">Enable QR Ph online payments in Debtors</label>
+            </div>
+
+            <div class="input-field-group" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+                <input type="checkbox" id="op-qrph-pos-enabled" style="width:auto;" autocomplete="off">
+                <label style="margin:0;" for="op-qrph-pos-enabled">Enable Live QR Ph in the POS Terminal (Cash Register) — extra option alongside the uploaded GCash/Maya QR</label>
+            </div>
+
+            <div style="margin-top:18px; padding:16px; border-radius:8px; background: var(--input-bg, #f8fafc); border:1px solid var(--border-color);">
+                <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 12px;"><i class="fa-solid fa-shuffle"></i> Payment Gateway</h4>
+                <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 12px;">Choose which gateway generates the QR Ph code. <strong>PayMongo is the default</strong> — you're free to switch to an alternative below, and OMNIPOS can automatically fall back to PayMongo on the fly if the alternative gateway isn't connected yet or a request to it fails, so Debtors QR Ph keeps working either way.</p>
+
+                <div class="input-field-group">
+                    <label>Active Gateway</label>
+                    <select id="op-provider-select" onchange="updateOnlinePaymentsProviderUI()">
+                        <option value="paymongo">PayMongo (Default)</option>
+                        <option value="xendit">Xendit</option>
+                    </select>
+                </div>
+
+                <div class="input-field-group" id="op-fallback-field" style="display:flex; align-items:center; gap:8px;">
+                    <input type="checkbox" id="op-fallback-enabled" style="width:auto;" checked autocomplete="off">
+                    <label style="margin:0;" for="op-fallback-enabled">Automatically fall back to PayMongo if the selected gateway isn't connected or a request to it fails</label>
+                </div>
+            </div>
+
+            <div style="margin-top:16px; padding:16px; border-radius:8px; background: var(--input-bg, #f8fafc); border:1px solid var(--border-color);">
+                <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 12px;"><i class="fa-solid fa-plug-circle-bolt"></i> Connect PayMongo Account</h4>
+                <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 12px;">Paste the Secret Key from <strong>your own</strong> PayMongo Dashboard (Developers &gt; API Keys) — no file editing needed. This is saved directly here in OMNIPOS and works immediately, no restart required.</p>
+
+                <div class="input-field-group">
+                    <label>Mode</label>
+                    <select id="op-mode-select" onchange="updateOnlinePaymentsModeUI()">
+                        <option value="test">Test / Sandbox (no real money — try this first)</option>
+                        <option value="live">Live (real money, your PayMongo account must be verified)</option>
+                    </select>
+                </div>
+
+                <div class="input-field-group">
+                    <label>Test Secret Key <span style="font-weight:400;color:var(--text-muted);">(starts with <code>sk_test_</code>)</span></label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="password" id="op-test-key-input" placeholder="sk_test_..." autocomplete="off" style="flex:1;">
+                        <button type="button" class="btn-action-outline" onclick="togglePaymongoKeyVisibility('op-test-key-input', this)" title="Show/Hide"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <small id="op-test-key-current" style="color:var(--text-muted); font-size:0.78rem;"></small>
+                </div>
+
+                <div class="input-field-group">
+                    <label>Live Secret Key <span style="font-weight:400;color:var(--text-muted);">(starts with <code>sk_live_</code>)</span></label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="password" id="op-live-key-input" placeholder="sk_live_..." autocomplete="off" style="flex:1;">
+                        <button type="button" class="btn-action-outline" onclick="togglePaymongoKeyVisibility('op-live-key-input', this)" title="Show/Hide"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <small id="op-live-key-current" style="color:var(--text-muted); font-size:0.78rem;"></small>
+                </div>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+                    <button type="button" class="btn-action-global" onclick="connectPaymongoCredentials()"><i class="fa-solid fa-link"></i> Connect / Save</button>
+                    <button type="button" class="btn-action-outline" onclick="testPaymongoConnection()"><i class="fa-solid fa-satellite-dish"></i> Test Connection</button>
+                </div>
+                <div id="op-test-result" style="margin-top:10px; font-size:0.85rem;"></div>
+            </div>
+
+            <div style="margin-top:16px; padding:16px; border-radius:8px; background: var(--input-bg, #f8fafc); border:1px solid var(--border-color);">
+                <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 12px;"><i class="fa-solid fa-plug-circle-bolt"></i> Connect Xendit Account</h4>
+                <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 12px;">Optional alternative gateway. Paste the Secret Key from <strong>your own</strong> Xendit Dashboard (Settings &gt; Developers &gt; API Keys) — saved directly here in OMNIPOS and works immediately, no restart required.</p>
+
+                <div class="input-field-group">
+                    <label>Mode</label>
+                    <select id="op-xendit-mode-select" onchange="updateXenditModeUI()">
+                        <option value="test">Test / Development (no real money — try this first)</option>
+                        <option value="live">Live / Production (real money, your Xendit account must be verified)</option>
+                    </select>
+                </div>
+
+                <div class="input-field-group">
+                    <label>Test Secret Key <span style="font-weight:400;color:var(--text-muted);">(starts with <code>xnd_development_</code>)</span></label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="password" id="op-xendit-test-key-input" placeholder="xnd_development_..." autocomplete="off" style="flex:1;">
+                        <button type="button" class="btn-action-outline" onclick="togglePaymongoKeyVisibility('op-xendit-test-key-input', this)" title="Show/Hide"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <small id="op-xendit-test-key-current" style="color:var(--text-muted); font-size:0.78rem;"></small>
+                </div>
+
+                <div class="input-field-group">
+                    <label>Live Secret Key <span style="font-weight:400;color:var(--text-muted);">(starts with <code>xnd_production_</code>)</span></label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="password" id="op-xendit-live-key-input" placeholder="xnd_production_..." autocomplete="off" style="flex:1;">
+                        <button type="button" class="btn-action-outline" onclick="togglePaymongoKeyVisibility('op-xendit-live-key-input', this)" title="Show/Hide"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <small id="op-xendit-live-key-current" style="color:var(--text-muted); font-size:0.78rem;"></small>
+                </div>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+                    <button type="button" class="btn-action-global" onclick="connectXenditCredentials()"><i class="fa-solid fa-link"></i> Connect / Save</button>
+                    <button type="button" class="btn-action-outline" onclick="testXenditConnection()"><i class="fa-solid fa-satellite-dish"></i> Test Connection</button>
+                </div>
+                <div id="op-xendit-test-result" style="margin-top:10px; font-size:0.85rem;"></div>
+            </div>
+
+            <div style="margin-top:16px; padding:14px; border-radius:8px; background: var(--input-bg, #f8fafc); border:1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:6px;">
+                    <span>Active gateway</span>
+                    <strong id="op-active-gateway">—</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:6px;">
+                    <span>Current mode</span>
+                    <strong id="op-env-status">—</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem;">
+                    <span>Minimum amount (QR Ph)</span>
+                    <strong id="op-min-amount">—</strong>
+                </div>
+            </div>
+
+            <button class="btn-action-global" id="online-payments-save-btn" onclick="saveOnlinePaymentsSettings()" style="margin-top:16px;">
+                <i class="fa-solid fa-floppy-disk"></i> Save Online Payments Settings
+            </button>
+        </div>
+    </div>
+
     <div id="fraud-alerts-tab" class="tab-content-panel" style="display:none;">
         <div class="receipt-custom-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
             <h3 style="margin-top:0; display:flex; align-items:center; gap:8px; font-size:1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
@@ -2457,7 +2561,7 @@
     </div>
 
 <div id="reset-restore-panel" class="tab-content-panel" style="display:none;">
-    
+
     <div class="Reset-Restore" style="margin-top: 20px; padding: 20px; border: 1px solid var(--danger-red); border-radius: 8px; background: rgba(239, 68, 68, 0.04); box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
         <h3 style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.2rem; margin-top: 0;">
             <i class="fa-solid fa-triangle-exclamation"></i> RESTRICTED ACCESS: AUTHORIZED PERSONNEL ONLY
@@ -2628,13 +2732,13 @@
         <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
             Import a validated `.json` ledger archive script to rebuild core state schemas, product logs, configurations, and transactional tables back to local environment storage.
         </p>
-        
+
         <div style="background: rgba(37, 99, 235, 0.05); padding: 15px; border-radius: 6px; border: 1px dashed var(--primary-blue); display: flex; flex-direction: column; gap: 12px;">
             <div>
                 <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Select JSON Database Backup Object:</label>
                 <input type="file" id="recoveryFileInput" accept=".json" style="display: block; width: 100%; font-size: 0.85rem; color: inherit; text-transform: none;" autocomplete="off"/>
             </div>
-            
+
             <button onclick="triggerSystemRestore()" style="width: 100%; padding: 10px; background: var(--primary-blue); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem;">
                 <i class="fa-solid fa-file-import"></i> Initialize State Schema Restore
             </button>
@@ -2653,7 +2757,6 @@
                         Admin-only page. Not part of Roles &amp; Permissions — always Admin-only, on every device.
                     </div>
 
-                    <!-- Google App Verification (synced with Users > Receipt Customization) -->
                     <div class="ct-card" id="ct-google-app-card" style="max-width:980px;">
                         <div class="ct-card-header" id="ct-google-app-heading" onclick="toggleCtGoogleAppBox()" style="cursor:pointer; justify-content:space-between;">
                             <div style="display:flex; align-items:center; gap:10px;">
@@ -2677,7 +2780,6 @@
                         </div>
                     </div>
 
-                    <!-- Token / Diamond Wallet -->
                     <div class="ct-card" id="ct-wallet-card" style="max-width:980px;">
                         <div class="ct-card-header">
                             <i class="fa-solid fa-gem ct-icon-accent"></i>
@@ -2764,13 +2866,6 @@
                     </div>
                 </section>
 
-                <!-- AYOS/BAGO: Transaction History modal — buong history (hindi
-                     lang 5 latest), may filter (category dropdown + date-from/
-                     date-to) at "Load more" pagination. Ang category dropdown
-                     ay dynamic, pinopopulate mula sa
-                     /relay/cloud-tokens/transaction-categories (single source
-                     of truth), para hindi mag-mismatch sa mga category na
-                     talagang ginagamit sa RELAY. -->
                 <div id="ct-history-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.6); align-items:flex-start; justify-content:center; padding:24px 12px; overflow-y:auto;">
                     <div style="background:var(--top-header-bg, #ffffff); color:var(--text-primary); border:1px solid var(--border-color); border-radius:12px; max-width:640px; width:100%; padding:20px; margin-top:20px;">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
@@ -2779,14 +2874,6 @@
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
                         </div>
-                        <!-- AYOS/BAGO: date-from/date-to muna sa itaas, "All categories"
-                             dropdown sa ilalim nila (dating nasa itaas ito, ngayon
-                             pinagpalit na ang pwesto per request). -->
-                        <!-- AYOS/BAGO: dinagdagan ng visible na label ("From date" /
-                             "To date") sa itaas ng bawat date input — hindi kasi
-                             sinusuportahan ng native <input type="date"> ang
-                             placeholder text, kaya blangko/walang laman ang
-                             hitsura kapag wala pang napiling petsa. -->
                         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
                             <div style="flex:1; min-width:130px;">
                                 <label for="ct-history-filter-date-from" style="display:block; font-size:0.72rem; font-weight:600; color:var(--text-muted); margin-bottom:4px;">From date</label>
@@ -2813,7 +2900,6 @@
                     </div>
                 </div>
 
-              
                 <section id="view-faq" class="app-view" style="display:none;">
                     <div id="faq-classic-header">
                         <h2 id="page-title-faq" style="margin:0 0 10px;">Frequently Asked Questions (FAQ)</h2>
@@ -2836,18 +2922,6 @@
                     </div>
 
                     <div class="faq-ai-box" id="faq-ai-box">
-                        <!-- BAGO: inilipat dito mula sa labas ng box ang dating
-                             "#faq-classic-list" (pinangalanang muli bilang
-                             "#faq-kb-shortcuts") — layunin nitong maging parang
-                             laman ng isang chat box pa rin ang mga karaniwang
-                             tanong/shortcut sa Search mode (hindi AI Chatbot),
-                             sa halip na hiwalay na section sa ibaba ng buong
-                             pahina. Ipinapakita ito bilang default kapag walang
-                             aktibong resulta, at itinatago habang may
-                             ipinapakitang sagot — see faq-engine.js:
-                             setKbShortcutsVisible(). Palaging nakatago ito sa
-                             AI Chatbot mode (see style.css
-                             #view-faq.faq-fullchat-mode #faq-kb-shortcuts). -->
                         <div id="faq-kb-shortcuts">
                             <h3 id="faq-common-heading" style="margin-top:4px;">Common Questions</h3>
                             <div id="faq-list-toolbar" class="faq-list-toolbar"></div>
@@ -2961,14 +3035,6 @@
                        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
                    }
                    .faq-lang-option.active:hover { color: #fff; }
-                   /* BUGFIX: walang dating dark-mode override ang .faq-lang-toggle
-                      kahit saan (kaiba sa katabing .faq-mode-toggle sa style.css na
-                      may sariling dark override) — kaya ang halos-transparent na
-                      light-gray gradient background nito ay nawawala/nagmumukhang
-                      SOLID BLACK sa ibabaw ng malapit-sa-itim na dark theme page
-                      background, sa halip na sumunod sa tema kagaya ng ibang toggle.
-                      Ganito rin sa border at sa hindi-aktibong label text (parehong
-                      walang dark variant dati). Idinagdag dito ang tatlong ito. */
                    body.dark-mode .faq-lang-toggle, .dark .faq-lang-toggle {
                        background: rgba(255,255,255,0.05);
                        border-color: var(--dm-border, rgba(255,255,255,0.12));
@@ -3131,7 +3197,7 @@
                 <div class="payment-calculation-block">
                     <label class="input-label-field">CASH RECEIVED</label>
                     <input type="number" id="pay-modal-received-input" class="large-payment-input" placeholder="0" oninput="calculatePaymentChange()" autocomplete="off">
-                    
+
                     <div class="quick-cash-grid-denominations">
                         <button onclick="appendQuickCashDenomination(50)">₱50</button>
                         <button onclick="appendQuickCashDenomination(100)">₱100</button>
@@ -3145,13 +3211,34 @@
                     </div>
 
                     <div id="pay-ewallet-qr-block" style="display:none;margin-top:10px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;text-align:center;">
-                        <div id="pay-ewallet-qr-img-wrap" style="display:none;margin-bottom:8px;">
-                            <img id="pay-ewallet-qr-img" src="" alt="QR code" style="width:170px;height:170px;border-radius:8px;background:#fff;padding:6px;border:1px solid #e2e8f0;">
-                            <div style="font-size:0.75rem;color:#64748b;margin-top:4px;">Scan using the customer's <span id="pay-ewallet-qr-label">GCash</span> app</div>
+                        <div id="pay-ewallet-mode-toggle" style="display:none;justify-content:center;gap:6px;margin-bottom:10px;">
+                            <button type="button" id="pay-ewallet-mode-static-btn" class="method-btn active" style="padding:6px 10px;font-size:0.75rem;" onclick="setEwalletQrMode('static')"><i class="fa-solid fa-image"></i> Uploaded QR</button>
+                            <button type="button" id="pay-ewallet-mode-live-btn" class="method-btn" style="padding:6px 10px;font-size:0.75rem;" onclick="setEwalletQrMode('live')"><i class="fa-solid fa-bolt"></i> Live QR (PayMongo)</button>
                         </div>
-                        <div id="pay-ewallet-qr-missing" style="display:none;font-size:0.8rem;color:#b45309;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> No QR has been uploaded in Store Settings.</div>
-                        <label class="input-label-field" style="text-align:left;">REFERENCE / TRANSACTION NUMBER</label>
-                        <input type="text" id="pay-ewallet-reference-input" class="large-payment-input" style="font-size:1rem;" placeholder="hal. 1234 5678 9012" autocomplete="off">
+
+                        <div id="pay-ewallet-static-block">
+                            <div id="pay-ewallet-qr-img-wrap" style="display:none;margin-bottom:8px;">
+                                <img id="pay-ewallet-qr-img" src="" alt="QR code" style="width:170px;height:170px;border-radius:8px;background:#fff;padding:6px;border:1px solid #e2e8f0;">
+                                <div style="font-size:0.75rem;color:#64748b;margin-top:4px;">Scan using the customer's <span id="pay-ewallet-qr-label">GCash</span> app</div>
+                            </div>
+                            <div id="pay-ewallet-qr-missing" style="display:none;font-size:0.8rem;color:#b45309;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> No QR has been uploaded in Store Settings.</div>
+                            <label class="input-label-field" style="text-align:left;">REFERENCE / TRANSACTION NUMBER</label>
+                            <input type="text" id="pay-ewallet-reference-input" class="large-payment-input" style="font-size:1rem;" placeholder="hal. 1234 5678 9012" autocomplete="off">
+                        </div>
+
+                        <div id="pay-ewallet-live-block" style="display:none;">
+                            <div id="pay-ewallet-live-idle">
+                                <p style="font-size:0.78rem;color:#64748b;margin:0 0 10px;">Generate a live QR Ph code — this sale is completed automatically once the customer pays.</p>
+                                <button type="button" class="btn-action-global" onclick="generateLivePosQr()"><i class="fa-solid fa-qrcode"></i> Generate Live QR</button>
+                            </div>
+                            <div id="pay-ewallet-live-loading" style="display:none;font-size:0.85rem;color:#64748b;"><i class="fa-solid fa-spinner fa-spin"></i> Generating QR code...</div>
+                            <div id="pay-ewallet-live-qr-wrap" style="display:none;">
+                                <img id="pay-ewallet-live-qr-img" src="" alt="Live QR Ph" style="width:170px;height:170px;border-radius:8px;background:#fff;padding:6px;border:1px solid #e2e8f0;">
+                                <div id="pay-ewallet-live-status" style="font-size:0.8rem;color:#64748b;margin-top:8px;"><i class="fa-solid fa-spinner fa-spin"></i> Waiting for payment...</div>
+                                <button type="button" class="btn-action-outline" style="margin-top:8px;" onclick="cancelLivePosQr()">Cancel</button>
+                            </div>
+                            <div id="pay-ewallet-live-error" style="display:none;font-size:0.8rem;color:#dc2626;margin-top:8px;"></div>
+                        </div>
                     </div>
                 </div>
                 </div>
@@ -3173,7 +3260,7 @@
             </div>
         </div>
     </div>
-      
+
     <div id="receipt-modal" class="modal-overlay" style="display:none;">
         <div class="modal-card receipt-modal-view">
             <div class="modal-header no-print">
@@ -3215,14 +3302,14 @@
                         <div class="r-total-row" id="r-payref-row" style="display:none;"><span>Ref. No.</span><span id="r-payref"></span></div>
                         <div class="r-total-row"><span>Change</span><span id="r-change">₱0.00</span></div>
                         <div class="r-total-row" id="r-loyalty-redeemed-row" style="display:none;"><span>Points Redeemed</span><span id="r-loyalty-redeemed">0</span></div>
-                        
+
                     </div>
                     </div>
                     <hr class="dashed-divider">
                   <div class="receipt-barcode-container" id="r-barcode-outer-container" style="text-align: center; margin: 15px 0;">
                         <svg id="receipt-barcode"></svg>
                   </div>
-                  
+
                   <div class="receipt-barcode-container" id="r-loyalty-qr-container" style="text-align: center; margin: 15px 0; display:none;">
                         <hr class="dashed-divider" id="r-loyalty-qr-divider" style="margin-bottom:10px;">
                         <p class="receipt-footer-msg-id" id="r-loyalty-qr-note" style="margin:0 0 8px;"></p>
@@ -3240,7 +3327,7 @@
                     <button id="receipt-bt-print-btn" class="btn-print-receipt" style="display:none; background:#0ea5e9;" onclick="printReceiptViaBluetooth('r')"><i class="fa-solid fa-bluetooth-b"></i> BT Print</button>
                     <button id="receipt-net-print-btn" class="btn-print-receipt" style="display:none; background:#0891b2;" onclick="printReceiptViaNetworkPrinter('r')"><i class="fa-solid fa-wifi"></i> Network Print</button>
     <button id="receipt-next-sale-btn" class="btn-new-sale" onclick="resetSaleTerminalCycle()">+ New Sale</button>
-  
+
                 </div>
             </div>
         </div>
@@ -3343,7 +3430,7 @@
                             <option value="Dairy">Dairy</option>
                             <option value="Snacks">Snacks</option>
                           <option value="ADD_NEW_CATEGORY" style="font-weight: bold; color: var(--primary-color, #4a90e2);">+ Add New Category...</option>
-  
+
                         </select>
                     </div>
                     <div class="input-field-group">
@@ -3691,7 +3778,7 @@
                         <label>Confirm New Password</label>
                         <input type="password" id="ep-confirm-password" autocomplete="new-password">
                     </div>
-                    
+
                     <div id="biometric-section" style="display:none;">
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:20px 0;">
                         <p style="font-weight:700; margin-bottom:4px;"><i class="fa-solid fa-fingerprint"></i> Fingerprint Login <span style="font-weight:400; color:#64748b; font-size:0.8rem;">(this device only)</span></p>
@@ -3969,18 +4056,17 @@
 <script src="html5-qrcode.min.js"></script>
 <script src="qrcode.min.js"></script>
 
-  
 <div id="qr-scanner-modal" class="modal-overlay" style="display:none; z-index: 9999;">
     <div class="modal-card" style="max-width: 500px; width: 100%; background: var(--bg-sidebar-dark); border: 2px solid var(--terminal-border);">
         <div class="modal-header" style="border-bottom: 1px solid var(--terminal-border); padding-bottom: 5px;">
             <h3><i class="fa-solid fa-camera"></i> Interactive Live Scanner</h3>
             <button class="close-modal-btn" onclick="closeQRScanner()" style="color: #94a3b8;">&times;</button>
         </div>
-        
+
         <div class="modal-body" style="text-align: center; padding: 4px 4px;">
         </div>
             <div class="scanner-controls-panel" style="display: flex; justify-content: flex-start; align-items: flex-start; gap: 14px; margin-bottom: 8px; flex-wrap: wrap;">
-                
+
                 <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px;">
                     <span style="font-size: 0.7rem; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Scan Trigger Mode</span>
                     <div style="display: flex; background: #1e293b; border-radius: 6px; padding: 2px; border: 1px solid #334155;">
@@ -4005,10 +4091,10 @@
                     </div>
              </div>
             </div>
-     
+
 <div class="modal-body" style="padding: 5px 0;">
             <div id="qr-reader" style="width: 100%; background: #000; border-radius: 8px; overflow: hidden; border: 2px solid var(--terminal-border);"></div>
-            
+
             <div style="margin-top: 15px;">
                 <button id="btn-manual-trigger" onclick="triggerManualScan()" disabled style="width: 100%; border: none; padding: 12px; border-radius: 6px; font-size: 1.05rem; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;">
                     <i class="fa-solid fa-expand"></i> Press to Scan
@@ -4027,7 +4113,7 @@
                 <div style="font-size: 0.75rem; color:#94a3b8; margin-top:2px;">Current Stock &rarr; Bagong Stock (i-scan ulit para dagdagan pa)</div>
             </div>
         </div>
-        
+
         <div class="modal-footer" style="justify-content: center; border-top: 1px solid var(--terminal-border); background: #374151; padding-top: 5px;">
             <button class="btn-close-gray" onclick="closeQRScanner()" style="padding: 7px 16px; font-size: 0.95rem; cursor: pointer; background: #7d2e2eef; color: #f3f4f6; border: none; border-radius: 7px;">
                 <i class="fa-solid fa-circle-xmark"></i> Close Scanner
@@ -4060,32 +4146,18 @@ if ('serviceWorker' in navigator) {
 
 (function () {
 
-    
-
-    
-
-    
-
-    
-    
     function paintConnectivityBtn(mode, titleOverride) {
         const icon = document.getElementById('connectivity-mode-icon');
         const btn = document.getElementById('connectivity-mode-btn');
         if (!icon || !btn) return;
         btn.dataset.mode = mode;
 
-        
-        
         const label = document.getElementById('connectivity-mode-label');
         if (label) {
             label.textContent = mode === 'offline' ? 'Offline' : (mode === 'connecting' ? 'Checking…' : 'Online');
         }
         icon.className = mode === 'offline' ? 'fa-solid fa-wifi-slash' : 'fa-solid fa-wifi';
 
-        
-
-        
-        
         let tip;
         if (titleOverride) {
             tip = titleOverride;
@@ -4100,34 +4172,19 @@ if ('serviceWorker' in navigator) {
         btn.setAttribute('aria-label', tip);
     }
 
-    
-
     window.setConnectivityLiveState = function (liveState) {
         const btn = document.getElementById('connectivity-mode-btn');
         if (!btn) return;
 
-        
         if (btn.dataset.pref === 'offline') return;
         paintConnectivityBtn(liveState);
     };
-
-    
-
-    
-
-    
-
-    
-
-    
 
     function checkRealInternetAccess(timeoutMs = 2500) {
         if (typeof window.checkRealInternetAccess === 'function') {
             return window.checkRealInternetAccess(timeoutMs);
         }
 
-        
-        
         return Promise.resolve(!!navigator.onLine);
     }
 
@@ -4143,12 +4200,6 @@ if ('serviceWorker' in navigator) {
         } catch (err) { return null; }
     }
 
-    
-
-    
-
-    
-    
     window.syncConnectivityModeOnLogin = async function () {
         const btn = document.getElementById('connectivity-mode-btn');
         paintConnectivityBtn('connecting');
@@ -4159,7 +4210,6 @@ if ('serviceWorker' in navigator) {
             paintConnectivityBtn(confirmedMode || 'online');
         } else {
 
-            
             pushConnectivityMode('offline');
             if (btn) btn.dataset.pref = 'offline';
             paintConnectivityBtn('offline');
@@ -4171,7 +4221,6 @@ if ('serviceWorker' in navigator) {
         const currentlyOffline = btn && btn.dataset.mode === 'offline';
         const nextMode = currentlyOffline ? 'online' : 'offline';
 
-        
         if (nextMode === 'online') {
             paintConnectivityBtn('connecting');
             const hasInternet = await checkRealInternetAccess();
@@ -4210,8 +4259,7 @@ if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js');
     });
   }
-   
+
 </script>
 </body>
 </html>
- 

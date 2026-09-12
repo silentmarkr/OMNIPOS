@@ -468,15 +468,6 @@ function attachHoldZoomToThumbs(container, selector) {
         }, 180);
     });
 }
-// Some free image-search sources (DuckDuckGo/Yandex especially) return
-// thumbnail URLs hotlinked straight from random third-party sites; those
-// often fail to load in the browser (hotlink protection, expired links,
-// blocked by the origin, etc). Without this handler, a broken <img> keeps
-// retrying/re-painting as it scrolls in/out of view or as the browser
-// retries the failed request, which is what shows up as the thumbnail
-// "blinking"/flickering. This hides it gracefully after the first failure
-// instead, and only affects the preview thumbnail — selecting/applying the
-// image still works since that goes through the server, not this <img>.
 function handleImgSearchThumbError(imgEl) {
     if (!imgEl || imgEl.dataset.errLoaded === '1') return;
     imgEl.dataset.errLoaded = '1';
@@ -492,21 +483,11 @@ function handleImgSearchThumbError(imgEl) {
     if (wrap) wrap.classList.add('img-load-failed');
 }
 const productImageSearchFullResCache = new Map();
-// BAGO: mga proxied thumbnail blob URL (Omni Search / free providers) —
-// tinatago ang mga ito para ma-revoke (URL.revokeObjectURL) bago mag-render
-// ulit ng bagong resulta, para hindi tumaas nang tumaas ang memory usage sa
-// mahabang session.
 const omniThumbBlobUrls = new Set();
 function revokeOmniThumbBlobUrls() {
     omniThumbBlobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
     omniThumbBlobUrls.clear();
 }
-// Kinukuha ang thumbnail sa pamamagitan ng bagong /image-search/thumb-proxy
-// endpoint (server-side fetch — tingnan ang paliwanag sa server.js) sa
-// halip na direktang i-hotlink ng <img> ang external URL mismo. Ginagamit
-// ito para sa LAHAT ng FREE/Omni Search providers (DuckDuckGo, Bing (free),
-// Openverse, Wikimedia Commons, Yandex) — iisa lang ang proxy endpoint,
-// kaya awtomatikong nakikinabang ang lahat ng ito, hindi lang DuckDuckGo.
 async function loadOmniSearchThumbProxied(imgEl, nonce, key, source) {
     if (!imgEl || !nonce || !key) { handleImgSearchThumbError(imgEl); return; }
     try {
@@ -739,6 +720,12 @@ let shoppingCart = [];
 let activeTerminalCategory ='All';
 let selectedPaymentMethod ='CASH';
 let pendingCreditDebtDraft = null;
+let posQrphAvailable = false;
+let posQrphAvailabilityChecked = false;
+let posQrphMinAmount = 1;
+let ewalletQrMode ='static';
+let livePosQrPoll = null;
+let livePosQrIntent = null;
 let splitPaymentMode = false;
 let splitPaymentLines = [];
 let scannerTarget ='PRODUCT';
@@ -766,20 +753,10 @@ const THEME_CATALOG = [
     { id:'galaxyambient', name:'Galaxy Ambient Pro', icon:'fa-circle-half-stroke', pro: true },
 ];
 let featureCatalogLiveCache = null;
-// BAGO: kill-switch flags mula RELAY (tingnan ang ACTIVATION_FLAGS sa
-// RELAY server.js at ang bagong "⚙️ System Controls" card sa RELAY admin
-// Home tab) — kapag na-disable ng developer ang "Send Request" (manual
-// OTP approval) o ang "Activate via Omni Tokens", ipinapakita ito dito
-// bago pa man i-submit ng user ang request (hindi na kailangang antayin
-// pang mag-error mula sa server). Fail-open ang default (both true) para
-// hindi ma-brick ang UI kung hindi pa na-refresh ang cache.
 let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
 function getActivationFlags() {
     return activationFlagsCache || { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
 }
-// Nagbabalik ng maikling paalala (HTML) kapag may naka-disable — ilalagay
-// ito sa ilalim ng presyo/description sa bawat modal. Walang laman kung
-// pareho namang bukas ang dalawa (walang dapat ipaalala).
 function buildActivationNoteHtml() {
     const flags = getActivationFlags();
     const otpOn = flags.otpRequestsEnabled !== false;
@@ -793,12 +770,6 @@ function buildActivationNoteHtml() {
     }
     return '<p style="font-size:0.78rem;color:#d97706;margin:8px 0 0;">⚠️ "Activate via Omni Tokens" is temporarily unavailable (maintenance) — only "Send Request" is open right now.</p>';
 }
-// Ibinabalik ang mga Swal.fire option na dapat i-spread papalit sa
-// showCancelButton/showDenyButton/confirmButtonText/denyButtonText na
-// dating laging pareho sa lahat ng unlock modal — para awtomatikong
-// itago ang alinmang opsyon na naka-disable sa halip na hayaang mag-error
-// pagkatapos i-click. Kung PAREHONG naka-disable, `bothDisabled: true`
-// ang isasauli para malaman ng caller na dapat na lang mag-info modal.
 function getUnlockModalButtonOptions() {
     const flags = getActivationFlags();
     const otpOn = flags.otpRequestsEnabled !== false;
@@ -872,11 +843,6 @@ async function refreshUnlockedThemesFromServer() {
     }
 }
 function getStatusBarSourceElement() {
-    // Kung nakikita pa rin ang login/auth screen (hindi pa naka-sign in),
-    // ang dapat kunan ng kulay ay ang itaas na bahagi ng login screen mismo
-    // (.auth-sidebar), hindi ang #app-top-header — dahil nakatago pa lang
-    // ito noon at may sarili namang disenyo/kulay ang login screen na
-    // hiwalay sa currently-selected app theme.
     const authView = document.getElementById('auth-view');
     const authVisible = authView && getComputedStyle(authView).display !== 'none';
     if (authVisible) {
@@ -891,12 +857,6 @@ function updateMetaThemeColor() {
     if (!source || !metaThemeColor) return;
     let bg = getComputedStyle(source).backgroundColor;
     if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
-        // Fallback: ilang custom header style (hal. "Gradient") ay gumagamit
-        // ng background-image lang kaya "transparent" ang nababasa sa
-        // background-color. Sa halip na iwan ang lumang/mali na kulay,
-        // subukang kunin ang unang solid na kulay mula sa background-image
-        // (linear-gradient/radial-gradient) para may makuha pa ring
-        // makatuwirang kulay.
         const bgImage = getComputedStyle(source).backgroundImage;
         const colorMatch = bgImage && bgImage.match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}/);
         if (colorMatch) {
@@ -905,11 +865,6 @@ function updateMetaThemeColor() {
     }
     if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
         if (metaThemeColor.getAttribute('content') === bg) return;
-        // Sa ilang bersyon ng Chrome for Android, hindi agad nire-repaint
-        // ng OS status bar ang bagong kulay kapag "content" attribute lang
-        // ng EXISTING na <meta> ang binago (setAttribute). Mas maaasahan
-        // kapag talagang binago/pinalitan ang buong <meta> node — kaya
-        // ginagawa itong bago araw-araw sa halip na i-mutate lang.
         var freshMeta = document.createElement('meta');
         freshMeta.setAttribute('name', 'theme-color');
         freshMeta.setAttribute('content', bg);
@@ -1477,37 +1432,10 @@ function updateSidebarFeatureLocks() {
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
     updateModuleSubscriptionBadges();
-    // AYOS: ang FAQ page's AI vs Keyword Search toggle (OmniFAQ.renderAiModeToggle,
-    // sa faq-engine.js) ay naka-render na noong DOMContentLoaded — bago pa
-    // matapos ang async fetchUnlockedFeatures() dito. Kaya kung "ai_assistant"
-    // pala ang na-unlock, naiiwan itong naka-stuck sa dating "locked" na
-    // hitsura (may lock icon sa "AI Assistant" option) kahit unlocked na
-    // pala talaga ang subscription — hindi tugma sa status box sa itaas nito
-    // na tama namang nag-a-update ("Active"). I-refresh din ito dito kada
-    // pag-update ng unlock status.
     if (window.OmniFAQ && typeof window.OmniFAQ.renderAiModeToggle === 'function') {
         window.OmniFAQ.renderAiModeToggle();
     }
 }
-// BAGO: parehong "renews/expires in X day(s)" na badge tulad ng Cloud
-// Backup (refreshCloudBackupSubscriptionBadge) pero para sa RBAC at
-// Multi-Branch subscriptions — para ganap nang "same treatment" ang
-// tatlo. Iisang fetch lang sa /api/module-subscriptions/status (hindi na
-// hiwalay per-feature) dahil magkasabay naman silang ipinapakita.
-// BUGFIX: ang #ai-assistant-credit-expiry na wrapper (may sariling
-// border/background/pill shape mula sa mobile/desktop na CSS) ay
-// walang default hidden state — kaya kahit walang laman ang DALAWA
-// nitong anak na elemento (#ai-assistant-credit-pill at
-// #ai-assistant-subscription-status, hal. sa Search/Keyword FAQ mode
-// kung saan force-hidden ang subscription-status), nananatiling
-// bisible ang WRAPPER mismo bilang isang walang-lamang "ghost" na
-// pill — lumalabas itong parang naliligtaang black/di-tema-sunod na
-// hugis (ito ang na-report na bug sa FAQ page screenshot). Tinatawag
-// ito kada pagbabago ng alinman sa dalawang anak (see faq-engine.js:
-// refreshAiCreditPill, at renderAiAssistantCompactExpiry sa ibaba) —
-// getComputedStyle ang ginamit (sa halip na .style.display lang) para
-// tamang nasusunod pati ang CSS !important rules (hal. ang
-// force-hide ng subscription-status sa Search mode).
 function syncAiCreditExpiryWrapper() {
     const wrap = document.getElementById('ai-assistant-credit-expiry');
     if (!wrap) return;
@@ -1540,17 +1468,6 @@ async function updateModuleSubscriptionBadges() {
             renderModuleSubscriptionBadge(multiBranchBox, 'Multi-Branch Dashboard', data.subscriptions.multi_branch);
         }
         if (aiAssistantUnlocked && aiAssistantBox) {
-            // BAGO: dating ginagamit dito ang parehong
-            // renderModuleSubscriptionBadge() (buong "OmniPOS AI
-            // Assistant: Active (Monthly) — renews/expires on ..." na
-            // text) tulad ng RBAC/Multi-Branch. Ngayon, compact na
-            // "Expires on: <date>" na lang ito (hiniling ng user) —
-            // hiwalay na function para hindi maapektuhan ang
-            // RBAC/Multi-Branch na parehong function pa rin ang gamit
-            // (renderModuleSubscriptionBadge, di ginalaw). Ang box na
-            // ito ay AI Chatbot mode lang ipinapakita sa FAQ page —
-            // see style.css #ai-assistant-subscription-status /
-            // .faq-subscription-compact.
             renderAiAssistantCompactExpiry(aiAssistantBox, data.subscriptions.ai_assistant);
         }
     } catch (err) {
@@ -1593,11 +1510,6 @@ function renderModuleSubscriptionBadge(box, displayName, sub) {
         const daysLeft = Math.ceil((sub.expiresAt - Date.now()) / (24 * 60 * 60 * 1000));
         const expiryDate = new Date(sub.expiresAt).toLocaleDateString();
         if (daysLeft <= 0) {
-            // AYOS: kapag lampas na sa expiresAt pero naka-grace-period pa
-            // (MODULE_SUBSCRIPTION_GRACE_PERIOD_MS sa server), "negative
-            // days" ang lalabas kung basta ipa-Math.ceil lang — hindi ito
-            // maganda/malinaw sa user. Ipinapakita na lang na "expired,
-            // renew now" sa halip.
             expiryText = ` — <span style="color:#dc2626;font-weight:600;">expired (${expiryDate}) — renew now to avoid losing access</span>`;
         } else if (daysLeft <= 7) {
             expiryText = ` — <span style="color:#dc2626;font-weight:600;">renews/expires in ${daysLeft} day(s) (${expiryDate})</span>`;
@@ -1624,13 +1536,6 @@ const CLOUD_BACKUP_PLANS_UI = {
     standard: { name:'Standard', autoBackupIntervalMs: 6 * 60 * 60 * 1000, extra:'90-day history, priority restore.', price: { monthly: 249, yearly: 2490 }, storageQuotaMB: 1024 },
     pro: { name:'Pro', autoBackupIntervalMs: 60 * 60 * 1000, extra:'365-day history, Multi-Branch included, priority support.', price: { monthly: 399, yearly: 3990 }, storageQuotaMB: 5120 }
 };
-// AYOS: dating naka-hardcode ang buong tagline (kasama ang "once every 24
-// hours" atbp.) kaya kahit magbago ang autoBackupIntervalMs sa RELAY
-// (admin override), hindi ito nababago sa modal na nakikita ng user. Ngayon,
-// ang bahagi ng tagline na tungkol sa "gaano kadalas mag-backup" ay
-// dynamic na — kinukuha mula sa live na autoBackupIntervalMs (kapag
-// available), at pinapalitan lang ang salita kung kailan pa ito huling
-// na-fetch mula RELAY (tingnan ang refreshCloudBackupPlansLive()).
 function formatAutoBackupIntervalPhrase(ms) {
     if (!ms || !isFinite(ms) || ms <= 0) return 'Automatic cloud backup';
     const hours = ms / (60 * 60 * 1000);
@@ -1647,16 +1552,6 @@ function formatAutoBackupIntervalPhrase(ms) {
     return `Automatic cloud backup every ${rounded} hours`;
 }
 let cloudBackupPlansLiveCache = null;
-// AYOS/BAGO: tinanggal na ang hiwalay na maintenance-fee live cache dito
-// (cloudBackupMaintenanceFeeLiveCache/StandardLiveCache/PaidLiveCache/
-// PaidUntilLiveCache at ang mga getter nito) — ang tier modal
-// (promptCloudBackupSubscription) ay hindi na nagdadagdag ng hiwalay na
-// "maintenance fee" sa ibabaw ng presyo ng tier: ang Monthly/Yearly presyo
-// mismo ng tier (mula dito sa cloudBackupPlansLiveCache/CLOUD_BACKUP_PLANS_UI)
-// ang siya nang "maintenance fee" na makikita ng client pagkatapos
-// mag-subscribe, sa cost-share widget (renderCloudBackupCostShare, na
-// direktang kumukuha ng per-client/tier-aware na datos mula sa
-// /cloud-backup/cost-share) at sa Client Cost Allocation admin sa RELAY.
 async function refreshCloudBackupPlansLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
@@ -1711,12 +1606,6 @@ const MODULE_SUBSCRIPTION_PLANS_UI = {
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } },
     ai_assistant: { tagline: 'AI-powered help assistant on the FAQ page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } }
 };
-// Cloud Backup, RBAC, and Multi-Branch are all "subscription-only" features
-// (monthly/yearly billing, not a one-time purchase). Used in the
-// "✨ Upgrade Options" bulk modal to: (1) prevent them from being
-// checked alongside other items (the bulk endpoint rejects that), and
-// (2) route them to the correct monthly/yearly (and, for Cloud Backup,
-// tier) subscription flow instead of the bulk unlock.
 const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
 async function promptModuleSubscription(featureId) {
     if (blockIfOffline('Feature subscription')) return false;
@@ -1726,12 +1615,6 @@ async function promptModuleSubscription(featureId) {
     const displayName = (live && live.name) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].name) || featureId;
     const tagline = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || staticInfo.tagline || '';
     const price = (live && live.subscriptionPrice) ? live.subscriptionPrice : staticInfo.price;
-    // Same modal layout as promptCloudBackupSubscription below — cycle
-    // buttons row, then a plan card row using the identical cb-tier-*
-    // classes. RBAC/Multi-Branch only have one plan (no tier choice), so
-    // the card row has a single non-clickable entry instead of several
-    // selectable tier buttons, but it must look and read the same as the
-    // Cloud Backup modal in every other respect.
     let selectedCycle = 'monthly';
     const buildHtml = () => {
         const cycleButtons = ['monthly', 'yearly'].map(cycle => {
@@ -1876,19 +1759,11 @@ async function refreshCloudBackupCostShare() {
         wrap.style.display = 'none';
     }
 }
-// Kada 5 minuto lang nire-refresh (kasabay ng NEON_USAGE_CACHE_MS sa RELAY
-// server, na 5 minuto rin) — walang saysay na mas madalas pa dito dahil
-// hanggang 5 minuto pa rin ang pinakabagong Neon project-wide total cost
-// na available sa RELAY. Tumatakbo lang habang naka-unlock ang Cloud
-// Backup feature; awtomatikong huminto sa logout (tingnan ang
-// stopCloudBackupCostShareAutoRefresh() sa handleLogout).
 let cloudBackupCostShareRefreshTimer = null;
 const CLOUD_BACKUP_COST_SHARE_REFRESH_MS = 5 * 60 * 1000;
 function startCloudBackupCostShareAutoRefresh() {
-    if (cloudBackupCostShareRefreshTimer) return; // huwag magdoble ng timer
+    if (cloudBackupCostShareRefreshTimer) return;
     cloudBackupCostShareRefreshTimer = setInterval(() => {
-        // Huwag mag-fetch kung tago naman ang tab/window — iwas
-        // unnecessary Neon/RELAY calls habang naka-background.
         if (document.hidden) return;
         refreshCloudBackupCostShare();
     }, CLOUD_BACKUP_COST_SHARE_REFRESH_MS);
@@ -1899,20 +1774,6 @@ function stopCloudBackupCostShareAutoRefresh() {
         cloudBackupCostShareRefreshTimer = null;
     }
 }
-// Shared helper for any "icon + short message" notice box (warnings,
-// inline errors, keyboard hints, etc). Centralizing this in one place
-// means there's only ever ONE icon rendered per message, even if the
-// message text itself happens to arrive with its own leading emoji
-// (e.g. a backend string that wasn't fully cleaned up) — this strips
-// that off automatically instead of stacking a second icon next to
-// the FontAwesome one. Pass displayStyle to match the element's normal
-// CSS display value (e.g. 'block' or 'flex'); falsy message hides it.
-// Matches one or more leading emoji "clusters" — a symbol char optionally
-// followed by a variation selector (U+FE0E/FE0F, e.g. the invisible byte
-// that turns ⚠ into ⚠️) or a zero-width joiner, plus any surrounding
-// whitespace. The base regex alone would strip the visible ⚠ but leave the
-// invisible U+FE0F behind as a stray character before the message text —
-// this covers that case so nothing is left over.
 const LEADING_EMOJI_STRIP_REGEX = /^(?:[\s]*[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}][\u{FE0E}\u{FE0F}\u{200D}]?)+[\s]*/u;
 function renderIconMessage(el, message, iconClass, displayStyle) {
     if (!el) return;
@@ -1935,8 +1796,6 @@ function renderCloudBackupCostShare(data) {
     const totalEl = document.getElementById('cloud-backup-cost-share-total');
     if (!wrap || !basis || !warningBox || !storagePct || !computePct || !baseEl || !maintenanceEl || !totalEl) return;
 
-    // Hide entirely if the feature isn't reachable/configured, or if this
-    // installation has no recorded Cloud Backup usage yet this billing period.
     if (!data || !data.success || !data.hasUsage || !data.yourShare) {
         wrap.style.display = 'none';
         return;
@@ -1963,16 +1822,6 @@ function renderCloudBackupCostShare(data) {
     storagePct.textContent = typeof share.storageSharePercent === 'number' ? `${share.storageSharePercent}%` : '—';
     computePct.textContent = typeof share.computeSharePercent === 'number' ? `${share.computeSharePercent}%` : '—';
     baseEl.textContent = fmtPHP(share.baseCostPHP);
-    // AYOS/BAGO: hindi na flat na fee ang ipinapakita dito — ito na ang
-    // Monthly AT Yearly na presyo mismo ng Cloud Backup tier (Basic/
-    // Standard/Pro, mula sa Cloud Backup Pricing/pricing.html) na
-    // sinubscribe ng client na ito (share.cloudBackupTierName/
-    // maintenanceFeeMonthlyPHP/maintenanceFeeYearlyPHP — galing sa
-    // computeClientCostAllocation() sa RELAY). Kapag "paid"/active pa ang
-    // subscription niya ngayong billing period (o lifetime), "✓ Paid"/
-    // "✓ Lifetime" ang ipinapakita sa halip, dahil hindi na ito idinadagdag
-    // sa "Total this month" habang aktibo pa ito (0 na ang
-    // share.maintenanceFeePHP mismo, kaya tama rin ang totalEl sa ibaba).
     if (share.cloudBackupIsLifetime) {
         maintenanceEl.innerHTML = `<span style="color:#16a34a;">✓ Lifetime</span>`;
         maintenanceEl.title = 'Covered by a one-time Lifetime Cloud Backup purchase — no recurring plan fee.';
@@ -2080,16 +1929,6 @@ async function pollUntilApproved(url, body) {
         });
     });
 }
-// ============================================================
-// GENERIC TOKEN-FUNDED SELF-SERVE ACTIVATION (front-end)
-//
-// Shared by: single à la carte feature unlock, bulk/tier bundle
-// purchases, Module Subscriptions (RBAC/Multi-Branch), and Pro Themes.
-// Cloud Backup keeps its own dedicated flow (promptCloudBackupTokenActivation)
-// since it also carries tier selection — everything else routes through
-// here. Asks for the requestor's Gmail, checks the Omni Token balance
-// (nothing charged yet), emails a verification code straight to that
-// Gmail, then only spends tokens once the code is confirmed.
 async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPrice, displayName }) {
     if (blockIfOffline('Feature activation')) return null;
     const emailResult = await Swal.fire({
@@ -2200,10 +2039,6 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
 }
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
-    // AYOS: laging tinatawag na ngayon ang refreshFeatureCatalogLive()
-    // (hindi na naka-kondisyon sa "typeof price !== 'number'" lang) para
-    // laging sariwa ang activationFlagsCache bago ipakita ang modal na ito,
-    // kahit pumasa na ang caller ng price.
     await refreshFeatureCatalogLive();
     if (typeof price !== 'number') {
         const live = getFeatureLiveInfo(featureId);
@@ -2342,17 +2177,6 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 setTimeout(() => finish(Object.assign({}, result, { _verifiedOtp: code })), 650);
                 return;
             }
-            // AYOS/BAGO: kung "insufficient" ang tugon (tama ang code, pero
-            // nagbago na ang token balance sa pagitan ng request at confirm
-            // — hal. na-spend na ng auto-sync), huwag ituring na "maling
-            // code" ito. Dating bumabagsak ito dito sa generic na
-            // "incorrect code" branch sa ibaba, kaya nauubos na lang ang
-            // attempts nang walang kwenta at kapag na-exhaust na, nawawala
-            // na lang ang buong result papunta sa caller (natatapon ang
-            // insufficient/balanceTokens/requiredTokens na kailangan para
-            // ipakita ang "Buy Omni Tokens" prompt). Dito, isara agad ang
-            // modal at ibalik ang buong result na 'yun papunta sa caller,
-            // nang hindi binabawasan ang attempts.
             if (result && result.insufficient) {
                 statusEl.textContent = result.message || 'Insufficient balance.';
                 statusEl.className = 'otp-verify-status is-error';
@@ -2488,14 +2312,6 @@ async function promptCloudBackupSubscription() {
     if (blockIfOffline('Cloud Backup subscription')) return false;
     await refreshCloudBackupPlansLive();
     const cloudBackupPlans = getCloudBackupPlansMerged();
-    // AYOS/BAGO: wala nang hiwalay na "maintenance & monitoring" na
-    // idinadagdag dito sa ibabaw ng tier price — ang Monthly/Yearly presyo
-    // ng bawat tier sa itaas MISMO ang "maintenance fee" na makikita sa
-    // cost-share widget at sa Client Cost Allocation admin pagkatapos
-    // mag-subscribe (tingnan ang computeClientCostAllocation() sa RELAY).
-    // Kaya ang tier modal na ito ay dapat na lang ipakita ang eksaktong
-    // parehong presyo na nasa Cloud Backup Pricing (pricing.html) —
-    // Monthly/Yearly per tier, walang extra na dagdag na linya.
     let selectedTier = 'standard';
     let selectedCycle = 'monthly';
     const tierKeys = Object.keys(cloudBackupPlans);
@@ -2542,11 +2358,6 @@ async function promptCloudBackupSubscription() {
             attachHandlers();
         }
     });
-    // AYOS/BAGO: "Activate via Omni Tokens" — kung meron nang
-    // sapat na Omni Tokens (nabili na dati), hindi na kailangan pang
-    // maghintay ng manual OTP approval mula sa developer. Ang tier at
-    // billing cycle na huling napili sa modal na ito (selectedTier/
-    // selectedCycle) ay dinadala papunta sa bagong self-service flow.
     if (result.isDenied) {
         return promptCloudBackupTokenActivation(selectedTier, selectedCycle);
     }
@@ -2554,17 +2365,6 @@ async function promptCloudBackupSubscription() {
     const planName = `Cloud Backup — ${cloudBackupPlans[selectedTier].name} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
     return runUnlockFlow('cloud_backup', planName, { tier: selectedTier, billingCycle: selectedCycle });
 }
-// ============================================================
-// TOKEN-FUNDED CLOUD BACKUP ACTIVATION (self-service, instant)
-//
-// Kaibahan sa runUnlockFlow('cloud_backup', ...) sa itaas: doon,
-// hinihintay ng requestor ang OTP na ipinadala sa DEVELOPER (kailangan
-// pang mag-Approve ang developer bago gumana ang code, dahil kailangan
-// niya pang i-verify ang proof-of-payment). Dito, kung meron nang sapat
-// na Omni Tokens ang installation na ito (nabili na dati sa Cloud
-// Tokens page), agad na ipinapadala ang OTP DIRETSO sa Gmail na ipinasok
-// ng requestor — walang hinihintay na approval, dahil ang "pambayad" ay
-// ang tokens mismo (ma-deduct lang kapag successful ang OTP).
 async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
     if (blockIfOffline('Cloud Backup activation')) return false;
     await refreshCloudBackupPlansLive();
@@ -2633,12 +2433,6 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
     });
     if (!result.isConfirmed) return false;
     const requestorEmail = result.value.email;
-    // NEW: final confirmation step before activation. This is scoped to
-    // this token-funded self-service flow only (it does NOT touch
-    // runUnlockFlow, which is shared with other paid features such as
-    // themes/modules) — it simply restates the maintenance-fee
-    // computation and the monthly auto-sync-to-cloud-backup notice so
-    // the requestor confirms the recurring cost before tokens are spent.
     const planLabel = cloudBackupPlans[selectedTier].name;
     const cycleLabel = selectedCycle === 'monthly' ? 'Monthly' : 'Yearly';
     const feeTokens = requiredTokensFor(selectedTier, selectedCycle);
@@ -2712,9 +2506,6 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
     const otpModalResult = await showOtpVerificationModal({
         title: 'Verify Your Gmail',
         descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to activate Cloud Backup — <strong>${cloudBackupPlans[selectedTier].name}</strong> (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'}). Your ${requiredTokensFor(selectedTier, selectedCycle)} token/s will only be deducted once this code is verified.`,
-        // AYOS/BAGO: itinugma sa CLOUD_BACKUP_TOKEN_OTP_MAX_ATTEMPTS (5) sa
-        // server — dati default 3 na lang ang modal kahit 5 attempts ang
-        // pinapayagan ng backend bago mag-expire ang challenge.
         maxAttempts: 5,
         verify: async (otp) => {
             const confirmRes = await authFetch(`${API_URL}/cloud-backup/token-activate/confirm`, {
@@ -2880,12 +2671,6 @@ async function showUpgradeTiersModal() {
                     totalEl.textContent ='₱' + total;
                 }
             }
-            // Cloud Backup / RBAC / Multi-Branch are subscription-only
-            // (cannot be bundled with other items — the server rejects
-            // that). When one of these three is checked, disable ALL other
-            // checkboxes and the tier cards, since only one of these can be
-            // selected at a time. Its own checkbox stays enabled so it can
-            // still be unchecked.
             function applySubscriptionExclusivity() {
                 const checkedSubscriptionId = Array.from(selectedFeatureIds)
                     .find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
@@ -2934,11 +2719,6 @@ async function showUpgradeTiersModal() {
                     if (chk.checked) {
                         selectedFeatureIds.add(id);
                         if (ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id)) {
-                            // Only one subscription at a time — clear anything
-                            // that was already checked (if it was checked
-                            // before the subscription item), so it isn't
-                            // mistakenly still counted as part of the
-                            // total/request.
                             selectedFeatureIds = new Set([id]);
                             featureChecks.forEach(other => {
                                 if (other !== chk) other.checked = false;
@@ -2966,9 +2746,6 @@ async function showUpgradeTiersModal() {
             }
             const subscriptionFeatureId = featureIds.find(id => ALL_SUBSCRIPTION_FEATURE_IDS_UI.includes(id));
             if (subscriptionFeatureId && featureIds.length > 1) {
-                // Safety net lang ito — hindi dapat marating dahil naka-disable
-                // na ang ibang checkbox/tier kapag naka-check na ang isang
-                // subscription item (see applySubscriptionExclusivity above).
                 Swal.showValidationMessage('Cloud Backup, RBAC, and Multi-Branch are subscriptions — please select one of them on its own, separate from other items.');
                 return false;
             }
@@ -2976,19 +2753,10 @@ async function showUpgradeTiersModal() {
         }
     });
     if (result.isDenied) {
-        // NOTE: preConfirm does not run for the deny button, so here we
-        // re-derive (same logic as preConfirm above) the currently
-        // selected tier/features directly from the closure variables
-        // (selectedTierId/selectedFeatureIds).
         const deniedFeatureIds = selectedTierId
             ? tiers.find(t => t.id === selectedTierId).featureIds
             : Array.from(selectedFeatureIds);
         if (deniedFeatureIds.length === 0) {
-            // BUGFIX: dating hindi hinihintay (await) ang alert na ito bago
-            // agad mag-`return false`, kaya nasasarado rin ang buong Upgrade
-            // Options modal kasabay nito — hindi na ito bumabalik pagkatapos
-            // i-OK ang "Nothing Selected". Ngayon, hinihintay muna ang OK sa
-            // alert bago muling buksan (ulit) ang Upgrade Options modal.
             await Swal.fire('Nothing Selected', 'Please select a package or at least one feature first.', 'info');
             return showUpgradeTiersModal();
         }
@@ -3017,10 +2785,6 @@ async function showUpgradeTiersModal() {
     }
     if (!result.isConfirmed || !result.value || !result.value.featureIds || result.value.featureIds.length === 0) return false;
     if (result.value.subscriptionFeatureId) {
-        // Cloud Backup/RBAC/Multi-Branch cannot go through the bulk unlock
-        // endpoint (the server rejects them since they're subscriptions) —
-        // they must go through their own monthly/yearly (and, for Cloud
-        // Backup, tier) subscription flow.
         return result.value.subscriptionFeatureId === 'cloud_backup'
             ? promptCloudBackupSubscription()
             : promptModuleSubscription(result.value.subscriptionFeatureId);
@@ -3089,9 +2853,6 @@ async function requestBulkUnlock(featureIds, tierId) {
         Swal.fire('Error','Could not reach the server to send the unlock request.','error');
         return false;
     }
-    // RELAY stores the pending OTP keyed by the *still-locked* feature set it actually received
-    // (server.js filters out already-unlocked features before forwarding to RELAY). The confirm/cancel
-    // calls must use that same set, not the original selection, or the OTP key won't match on RELAY's side.
     const confirmFeatureIds = (Array.isArray(reqData.featureIds) && reqData.featureIds.length)
         ? reqData.featureIds
         : featureIds;
@@ -3637,10 +3398,6 @@ function switchView(viewKey, opts) {
             viewKey ='overview';
         }
     }
-    // AYOS: Omni Tokens — hindi ito bahagi ng currentPermissions/RBAC
-    // matrix kaya hindi masusukat ng check sa itaas (walang property na
-    // "cloudtokens" doon) — Admin lang palagi ang puwede rito, kahit
-    // anong role/permission ang naka-set sa Users & Roles.
     if (viewKey === 'cloudtokens' && !isAdmin) {
         console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
@@ -4065,6 +3822,7 @@ function renderDebtsTable() {
             <td>
                 <div class="action-icon-btns-row">
                     ${d.status !=='paid' ? `<button class="btn-icon-action" onclick="openRecordDebtPaymentForm('${escapeHtml(d.id)}')" title="Record a payment" style="color:#22c55e;"><i class="fa-solid fa-money-bill-wave"></i></button>` :''}
+                    ${d.status !=='paid' ? `<button class="btn-icon-action" onclick="openDebtQrPhModal('${escapeHtml(d.id)}')" title="Bayaran Online (QR Ph)" style="color:#6366f1;"><i class="fa-solid fa-qrcode"></i></button>` :''}
                     <button class="btn-icon-action edit" onclick="openEditDebtForm('${escapeHtml(d.id)}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
                     <button class="btn-icon-action delete" onclick="deleteDebtConfirm('${escapeHtml(d.id)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
                 </div>
@@ -4483,21 +4241,6 @@ async function emailDebtReceipt(id) {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
-// NOTE: An earlier version of this function rasterized the e-receipt by
-// serializing the HTML card into an <svg><foreignObject> and drawing that
-// as an <img> onto a canvas. That trick is fundamentally fragile in
-// Chrome/Blink (incl. Android WebView): ANY raster content painted through
-// foreignObject-as-image (fonts aside) can silently taint the canvas, so
-// canvas.toDataURL() throws a SecurityError and both Download and Share
-// fail with "Could not generate the receipt image." Removing just the
-// barcode <img> only patched one instance of this; other engines/versions
-// can still taint on the foreignObject step itself.
-//
-// To eliminate this whole class of bug, we no longer rasterize the HTML at
-// all. Instead we draw the receipt directly with the Canvas 2D API (text,
-// shapes, and the barcode PNG via drawImage) — the same reliable approach
-// already used elsewhere in OmniPOS for transaction receipt images. Direct
-// drawImage() of a same-origin data: URI never taints the canvas.
 function renderDebtEReceiptToImageDataUrl(m) {
     return new Promise((resolve) => {
         const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -4600,7 +4343,6 @@ function renderDebtEReceiptToImageDataUrl(m) {
             ctx.textAlign = 'left';
         }
 
-        // page background + card
         ctx.fillStyle = C.bg;
         ctx.fillRect(0, 0, width, height);
         roundRect(pad, pad, width - pad * 2, height - pad * 2, 20);
@@ -4632,7 +4374,6 @@ function renderDebtEReceiptToImageDataUrl(m) {
 
         y += headerHeight + 20;
 
-        // customer block
         ctx.fillStyle = C.text;
         ctx.font = `700 17px ${FONT}`;
         ctx.fillText(truncate(ctx, m.customerName, bw - 90), bx, y);
@@ -4644,7 +4385,6 @@ function renderDebtEReceiptToImageDataUrl(m) {
         pill(bx + bw, y, m.statusLabel, statusPalette.fg, statusPalette.bg);
         y += custBlockHeight;
 
-        // balance card
         ctx.fillStyle = C.accentSoft;
         roundRect(bx, y, bw, balanceCardHeight, 16);
         ctx.fill();
@@ -4677,7 +4417,6 @@ function renderDebtEReceiptToImageDataUrl(m) {
         ctx.fill();
         y += balanceCardHeight + 18;
 
-        // info list
         const infoRows = [['Due Date', m.dueAt ? new Date(m.dueAt).toLocaleString() : 'No due date set']];
         if (m.transactionId) infoRows.push(['Linked Transaction', m.transactionId]);
         infoRows.push(['Receipt No.', m.id]);
@@ -4802,7 +4541,7 @@ function renderDebtEReceiptToImageDataUrl(m) {
                     ctx.textAlign = 'center';
                     ctx.fillText(m.transactionId ? 'Scan to find this transaction' : 'Receipt Barcode', bx + bw / 2, y + bch + 34);
                     ctx.textAlign = 'left';
-                } catch (e) { /* keep going even if the barcode can't be drawn */ }
+                } catch (e) {                                                     }
                 y += barcodeHeight;
                 drawFooter();
                 finish();
@@ -5877,15 +5616,6 @@ function showServerIpQrModal(event) {
         }
     });
 }
-// NEW: "Remote Access Link" (globe icon in the profile menu). Click it
-// and the backend is called to (in the background, inside Termux) start
-// a Cloudflare tunnel to this local OMNIPOS server, grab the public URL
-// it produced, and show it as a QR code modal. The backend has 2 modes:
-// "quick" (default/fallback, no account/domain needed) and "named" (if a
-// custom domain has been configured via the gear icon — see
-// openCloudflareNamedTunnelConfigModal below). The backend picks this
-// automatically depending on whether a config is saved — no extra step
-// needed here in the click handler.
 let cloudflareTunnelStartInFlight = false;
 async function handleRemoteAccessLinkClick(event) {
     if (event) event.stopPropagation();
@@ -5925,7 +5655,7 @@ async function handleRemoteAccessLinkClick(event) {
 function pollCloudflareTunnelStatus() {
     return new Promise((resolve) => {
         let attempts = 0;
-        const maxAttempts = 30; // ~30s at a 1s interval — enough margin on top of the 15s blocking wait on /start for slow mobile data
+        const maxAttempts = 30;
         const check = async () => {
             attempts++;
             try {
@@ -5944,18 +5674,6 @@ function pollCloudflareTunnelStatus() {
         check();
     });
 }
-// NEW: explicit "Stop" control for the Remote Access Link. Calls the
-// existing /api/system/cloudflare-tunnel/stop endpoint (kills whichever
-// tunnel process — Quick, Cloudflare Named, or Custom — is currently
-// running) and reports back so the modal/menu can reflect that it's off.
-// NOTE: this deliberately does NOT call Swal.fire() itself on error —
-// it's meant to be used from inside showRemoteAccessQrModal's preDeny,
-// which is already showing its own SweetAlert2 modal; firing a second,
-// separate Swal.fire() while the first one is still open/resolving would
-// replace it in the SweetAlert2 singleton and could leave that first
-// modal's own close/loading state in a confused spot. The caller shows
-// the error via Swal.showValidationMessage() on the SAME modal instead
-// (see showRemoteAccessQrModal below).
 let remoteAccessStopInFlight = false;
 async function handleRemoteAccessStopClick() {
     if (remoteAccessStopInFlight) return { success: false, message:'Already stopping — please wait.' };
@@ -6009,10 +5727,6 @@ function showRemoteAccessQrModal(url, mode) {
         preDeny: async () => {
             const result = await handleRemoteAccessStopClick();
             if (!result.success) {
-                // Show the error on THIS SAME modal instance (instead of
-                // firing a separate Swal.fire, which would fight with
-                // this one for the single SweetAlert2 popup) and keep it
-                // open so the admin can try again.
                 Swal.showValidationMessage(result.message);
                 return false;
             }
@@ -6023,18 +5737,6 @@ function showRemoteAccessQrModal(url, mode) {
         }
     });
 }
-// NEW: gear icon next to "Remote Access Link" — optional configuration of
-// a custom domain (Named Tunnel) once the client has bought a domain.
-// Two providers can be picked for it:
-//   - "Cloudflare" — Hostname + Tunnel Token, from a Cloudflare Zero
-//     Trust tunnel the client already set up (original behavior).
-//   - "Custom / Any Provider" — Hostname + the exact command that starts
-//     ANY other tunnel tool (ngrok, Pinggy, LocalXpose, an SSH reverse
-//     tunnel, etc), so this is NOT limited to Cloudflare — any domain,
-//     free or paid, works as long as the chosen provider/tool can point
-//     it at this device.
-// If left blank/removed, it automatically falls back to the free
-// Cloudflare Quick Tunnel — no extra step needed.
 async function openCloudflareNamedTunnelConfigModal(event) {
     if (event) event.stopPropagation();
     if (currentUser && (currentUser.role ||'').toLowerCase() !=='admin') {
@@ -6116,14 +5818,6 @@ async function openCloudflareNamedTunnelConfigModal(event) {
         return;
     }
     if (!formValues) return;
-    // If a config was already saved before and the token/command field is
-    // left blank (an indication of "don't change it"), the BACKEND will
-    // reuse the previously saved secret instead of clearing it — so this
-    // no longer needs to be blocked here on the frontend (there used to be
-    // a validation error here that directly contradicted the field's own
-    // placeholder text, "leave blank if not changing"; that reuse now
-    // actually works thanks to the backend fix in
-    // /api/system/cloudflare-tunnel/config).
     let { provider, hostname, token, command } = formValues;
     try {
         const res = await authFetch(`${API_URL}/system/cloudflare-tunnel/config`, {
@@ -6177,10 +5871,6 @@ document.addEventListener('click', (e) => {
         }
     }, { passive: true });
 })();
-// AYOS/BAGO: colored initial-letter avatar (parang Slack/Gmail/PayMongo-style
-// "MR" circle) bilang fallback kapag walang na-upload na profile photo ang
-// user — mas "pro" ang tingnan kaysa sa generic gray person icon. Consistent
-// ang kulay per-user (hash ng username/displayName), hindi random kada render.
 const AVATAR_COLOR_PALETTE = ['#2563eb', '#7c3aed', '#0d9488', '#dc2626', '#ea580c', '#16a34a', '#0891b2', '#c026d3', '#4f46e5', '#65a30d'];
 function getUserAvatarColor(seed) {
     const str = String(seed || '');
@@ -6643,9 +6333,6 @@ function applyRoleBasedAccessControls(role) {
     resetElements.forEach(el => {
         el.style.setProperty('display', isAdmin ?'' :'none','important');
     });
-    // AYOS: Omni Tokens — admin/client-only page. WALANG entry sa RBAC
-    // matrix (menuRegistry) sa itaas — palaging Admin lang ito, sa
-    // bawat device, kahit anong role ang binigay sa Users & Roles.
     const cloudTokenElements = document.querySelectorAll('.admin-only-nav');
     cloudTokenElements.forEach(el => {
         el.style.setProperty('display', isAdmin ? '' : 'none', 'important');
@@ -6664,12 +6351,6 @@ function applyRoleBasedAccessControls(role) {
     }
     console.log(`[OmniPOS] Applied dynamic Permission Matrix for role: ${role ||'unknown'}`);
 }
-// ===================================================================
-// CLOUD TOKENS ("diamonds") — Admin/Client-only page. Google App
-// Verification status (naka-sync sa Users > Receipt Customization) +
-// ang Token/Diamond wallet na gamit sa pagpapanatili ng Cloud Backup
-// auto-sync na active.
-// ===================================================================
 let cloudTokensPollTimer = null;
 async function loadCloudTokensView() {
     const walletCard = document.getElementById('ct-wallet-card');
@@ -6690,22 +6371,14 @@ async function loadCloudTokensView() {
         }
     }
 }
-// ===================================================================
-// AYOS/BAGO: Transaction History modal — buong history (hindi lang ang 5
-// latest na makikita sa "Recent Activity" widget), may filter (category
-// dropdown, populated dynamically from RELAY's single source of truth)
-// at date range, plus "Load more" pagination. Bawat category ay may
-// sariling malinaw/hindi-nagtatapat na icon+color, para organized at
-// madaling makilala kaagad kung anong klase ng entry ang tinitingnan.
-// ===================================================================
 const CT_CATEGORY_META = {
-    TOKEN_PURCHASE: { icon: 'fa-circle-plus', color: '#22c55e' },   // green — totoong pera papasok
-    FEATURE_UNLOCK: { icon: 'fa-unlock', color: '#ef4444' },        // red — malaking one-time charge
-    ADDON_PURCHASE: { icon: 'fa-puzzle-piece', color: '#ef4444' },  // red — karagdagang charge
-    SYNC_CHARGE: { icon: 'fa-cloud-arrow-up', color: '#ef4444' },   // red — whole-token na charge
-    SYNC_FRACTION: { icon: 'fa-clock', color: '#9ca3af' },          // gray/neutral — WALANG totoong balance change pa
-    RESTORE_CHARGE: { icon: 'fa-cloud-arrow-down', color: '#ef4444' }, // red — charge mula sa cloud restore (auto o manual admin charge)
-    REFUND: { icon: 'fa-rotate-left', color: '#22c55e' }            // green — ibinalik na tokens
+    TOKEN_PURCHASE: { icon: 'fa-circle-plus', color: '#22c55e' },
+    FEATURE_UNLOCK: { icon: 'fa-unlock', color: '#ef4444' },
+    ADDON_PURCHASE: { icon: 'fa-puzzle-piece', color: '#ef4444' },
+    SYNC_CHARGE: { icon: 'fa-cloud-arrow-up', color: '#ef4444' },
+    SYNC_FRACTION: { icon: 'fa-clock', color: '#9ca3af' },
+    RESTORE_CHARGE: { icon: 'fa-cloud-arrow-down', color: '#ef4444' },
+    REFUND: { icon: 'fa-rotate-left', color: '#22c55e' }
 };
 let ctHistoryState = { offset: 0, limit: 20, category: 'ALL', dateFrom: '', dateTo: '', loading: false };
 function openTransactionHistoryModal() {
@@ -6762,7 +6435,7 @@ async function fetchTransactionHistoryPage(append) {
             offset: ctHistoryState.offset
         });
         if (ctHistoryState.dateFrom) qs.set('dateFrom', ctHistoryState.dateFrom);
-        if (ctHistoryState.dateTo) qs.set('dateTo', `${ctHistoryState.dateTo}T23:59:59`); // end-of-day inclusive
+        if (ctHistoryState.dateTo) qs.set('dateTo', `${ctHistoryState.dateTo}T23:59:59`);
         const res = await authFetch(`${API_URL}/admin/cloud-tokens/transaction-history?${qs.toString()}`);
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -6792,9 +6465,6 @@ function renderTransactionHistoryRows(rows, append) {
         const meta = CT_CATEGORY_META[entry.category] || { icon: isCredit ? 'fa-circle-plus' : 'fa-circle-minus', color: isCredit ? '#22c55e' : '#ef4444' };
         const dateStr = entry.created_at ? new Date(entry.created_at).toLocaleString() : '';
         const triggerLabel = entry.trigger_type ? ` (${entry.trigger_type === 'automatic' ? 'Auto' : 'Manual'})` : '';
-        // AYOS/BAGO: sign lang para sa SYNC_FRACTION (walang totoong balance
-        // change, kaya wala itong "+"/"-" — pero makikita pa rin ang tunay
-        // na maliit na presyo, hanggang 3 decimal places).
         const amountDisplay = entry.category === 'SYNC_FRACTION'
             ? `~${Math.abs(tokens).toFixed(3)}`
             : `${isCredit ? '+' : ''}${tokens}`;
@@ -6814,7 +6484,6 @@ function renderTransactionHistoryRows(rows, append) {
     }
 }
 function renderCloudTokensOverview(data) {
-    // Google App Verification status
     const statusEl = document.getElementById('ct-google-app-status');
     const googleAppHeadingText = document.getElementById('ct-google-app-heading-text');
     const googleAppChevron = document.getElementById('ct-google-app-chevron');
@@ -6827,9 +6496,6 @@ function renderCloudTokensOverview(data) {
             statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:#ef4444;"></i> Not yet configured`;
         }
     }
-    // Collapse the card by default once verified (matches the Receipt
-    // Customization page's Google App Verification behavior); keep it
-    // expanded with no chevron when not yet configured.
     if (isGoogleAppConfigured) {
         if (googleAppHeadingText) googleAppHeadingText.textContent = 'Google App Verified';
         if (googleAppChevron) { googleAppChevron.style.display = 'inline-block'; googleAppChevron.classList.remove('fa-chevron-up'); googleAppChevron.classList.add('fa-chevron-down'); }
@@ -6839,33 +6505,17 @@ function renderCloudTokensOverview(data) {
         if (googleAppChevron) googleAppChevron.style.display = 'none';
         if (googleAppBody) googleAppBody.style.display = 'block';
     }
-    // Plan / cost-per-sync
     const planNameEl = document.getElementById('ct-plan-name');
     const costPerSyncEl = document.getElementById('ct-cost-per-sync');
     if (planNameEl) planNameEl.textContent = (data.cloudBackup && data.cloudBackup.planName) || (data.cloudBackup && data.cloudBackup.active ? data.cloudBackup.tier : 'No active plan');
-    // AYOS: ipinapakita na ngayon ang EKSAKTONG/totoong average na presyo
-    // kada sync (tokenCostPerSyncExact, galing sa live na RELAY pricing ng
-    // kasalukuyang tier) sa halip na yung dati — palaging paitaas-rounded
-    // (ceil) na estimate lang (tokenCostPerSync).
     if (costPerSyncEl) {
         const exact = data.cloudBackup && data.cloudBackup.tokenCostPerSyncExact;
-        // AYOS/BUGFIX: gamitin ang toFixed(3) — 3 decimal places, kagaya ng
-        // dami ng digit na ginagamit ni Neon sa sarili nilang published
-        // rates (hal. 0.106/0.222) — para hindi maputol pabalik sa "0" ang
-        // totoong maliliit na presyo kada sync sa display.
         costPerSyncEl.textContent = (typeof exact === 'number') ? exact.toFixed(3) : ((data.cloudBackup && data.cloudBackup.tokenCostPerSync) || '--');
     }
-    // AYOS/BAGO: buwanang breakdown — ipinapakita rito nang malinaw na ang
-    // maintenance fee (babawasin agad sa activation/renewal) ay HIWALAY sa
-    // tokens na kakailanganin para sa aktwal na auto-sync, at ang
-    // tinatayang TOTAL na kailangan bawat buwan (~2x ng maintenance fee sa
-    // normal na dalas) — para hindi na magulat ang admin sa dulo ng buwan.
     const estBox = document.getElementById('ct-monthly-estimate');
     if (estBox) {
         const maintFee = data.cloudBackup && data.cloudBackup.maintenanceFeeTokens;
         const estTotal = data.cloudBackup && data.cloudBackup.estTotalMonthlyTokens;
-        // NEW: estSyncTokensPerMonth now comes explicitly from the server
-        // instead of being derived here as (estTotal - maintFee).
         const estSyncServerValue = data.cloudBackup && data.cloudBackup.estSyncTokensPerMonth;
         if (typeof maintFee === 'number' && typeof estTotal === 'number') {
             const estSync = (typeof estSyncServerValue === 'number') ? estSyncServerValue : (estTotal - maintFee);
@@ -6874,9 +6524,6 @@ function renderCloudTokensOverview(data) {
             document.getElementById('ct-est-total').textContent = `~${estTotal} token(s)`;
             const extraMonthEl = document.getElementById('ct-est-extra-month');
             if (extraMonthEl) extraMonthEl.textContent = `~${estSync}`;
-            // AYOS/BAGO: restore-cost reference row (kung available ang
-            // elements sa markup) — hiwalay sa Est. total needed/mo. sa
-            // itaas, "just in case" reference lang.
             const restoreCostEl = document.getElementById('ct-est-restore-cost');
             const restoreTotalEl = document.getElementById('ct-est-total-with-restore');
             const restoreCost = data.cloudBackup && data.cloudBackup.tokenCostPerRestore;
@@ -6888,17 +6535,8 @@ function renderCloudTokensOverview(data) {
             estBox.style.display = 'none';
         }
     }
-    // NEW: yearly breakdown box — same idea as the monthly box above, but
-    // for a full year (12 maintenance renewals + 12 months of syncs), so
-    // the customer can plan ahead for how much extra balance to buy at
-    // once instead of topping up every month. Approximate estimate only.
     const estYearBox = document.getElementById('ct-yearly-estimate');
     if (estYearBox) {
-        // FIX: the yearly maintenance fee is the tier's actual discounted
-        // yearly price from RELAY (maintenanceFeeTokensYearly), NOT
-        // maintenanceFeeTokens * 12 — the RELAY yearly price already has a
-        // discount built in (e.g. ~2 months off vs. 12 monthly renewals),
-        // so multiplying the monthly fee by 12 here would overstate it.
         const maintFeeYear = data.cloudBackup && data.cloudBackup.maintenanceFeeTokensYearly;
         const estSyncYear = data.cloudBackup && data.cloudBackup.estSyncTokensPerYear;
         const estTotalYear = data.cloudBackup && data.cloudBackup.estTotalYearlyTokens;
@@ -6908,8 +6546,6 @@ function renderCloudTokensOverview(data) {
             document.getElementById('ct-est-total-year').textContent = `~${estTotalYear} token(s)`;
             const extraYearEl = document.getElementById('ct-est-extra-year');
             if (extraYearEl) extraYearEl.textContent = `~${estSyncYear}`;
-            // AYOS/BAGO: restore-cost reference row para sa yearly box —
-            // parehong pattern gaya ng monthly box sa itaas.
             const restoreCostYearEl = document.getElementById('ct-est-restore-cost-year');
             const restoreTotalYearEl = document.getElementById('ct-est-total-with-restore-year');
             const restoreCostYear = data.cloudBackup && data.cloudBackup.tokenCostPerRestore;
@@ -6921,20 +6557,13 @@ function renderCloudTokensOverview(data) {
             estYearBox.style.display = 'none';
         }
     }
-    // Auto-sync toggle (reflect current state without re-firing onchange)
     const toggleEl = document.getElementById('ct-autosync-toggle');
     if (toggleEl) toggleEl.checked = !!(data.cloudBackup && data.cloudBackup.autoSyncEnabled);
-    // Wallet balance
     const balanceEl = document.getElementById('ct-balance-number');
     const banner = document.getElementById('ct-insufficient-banner');
     if (data.wallet && data.wallet.available) {
         if (balanceEl) balanceEl.textContent = data.wallet.balanceTokens;
         if (banner) banner.style.display = data.wallet.sufficientForSync === false ? 'flex' : 'none';
-        // AYOS: kung kulang na ang balance, i-disable mismo ang checkbox
-        // (hindi lang basta i-reject sa backend) — para hindi na ito
-        // ma-toggle-ON sa UI habang zero/kulang ang balance. Kapag
-        // sapat na ulit ang balance sa susunod na refresh/poll, awtomatiko
-        // itong bumalik na click-able.
         if (toggleEl) toggleEl.disabled = data.wallet.sufficientForSync === false;
     } else {
         if (balanceEl) balanceEl.textContent = '—';
@@ -6942,14 +6571,8 @@ function renderCloudTokensOverview(data) {
             banner.style.display = 'flex';
             banner.querySelector('span').textContent = (data.wallet && data.wallet.unavailableReason) || 'Could not check the token balance right now.';
         }
-        // Hindi ma-verify ang balance (offline sa RELAY, atbp.) — huwag
-        // harangan ang toggle dito, pareho ng ibang gate sa buong system.
         if (toggleEl) toggleEl.disabled = false;
     }
-    // Recent activity / ledger — AYOS/BAGO: ginagamit na ngayon ang parehong
-    // renderTransactionHistoryRows() na ginagamit ng Transaction History
-    // modal, para magkatugma ang icon/color/format ng dalawa (single source
-    // of truth), sa halip na dalawang hiwalay na paraan ng pag-render.
     const ledgerListEl = document.getElementById('ct-ledger-list');
     if (ledgerListEl) {
         const ledger = (data.wallet && data.wallet.ledger) || [];
@@ -6959,53 +6582,19 @@ function renderCloudTokensOverview(data) {
             renderTransactionHistoryRows(ledger, false);
         }
     }
-    // Payment methods — dating hard-coded (GCash/Maya/Online Banking) ang
-    // mga <option> dito. Ngayon, dynamic na ito, base sa listahan na
-    // ibinalik ng RELAY (data.packages.paymentMethods) — kung ano lang ang
-    // naka-configure na provider/env var doon (PayMongo/Xendit/Stripe/
-    // PayPal/atbp.), iyon lang ang lalabas bilang <option>.
     const availableMethods = (data.packages && data.packages.paymentMethods) || [];
     const paymentOptionsHtml = availableMethods.length
         ? availableMethods.map(m => `<option value="${m.id}">${m.label}</option>`).join('')
         : `<option value="" disabled selected>No payment method configured yet</option>`;
-    // Token packages
     const packagesGrid = document.getElementById('ct-packages-grid');
     if (packagesGrid) {
         if (data.packages && data.packages.available && data.packages.items) {
             const items = data.packages.items;
-            // UPDATE: only show the "Starter Bundle" packages (isBundle: true,
-            // the ones with the "Covers a full month" badge). The plain
-            // per-tier cards (maintenance-fee-only, no badge) are no longer
-            // shown as separate buyable cards — their breakdown numbers are
-            // still visible inside each bundle card, and a bare maintenance
-            // -fee-only purchase invites the exact insufficient-balance
-            // problem the bundles exist to avoid.
             packagesGrid.innerHTML = Object.keys(items).filter(tier => items[tier].isBundle).map(tier => {
                 const pkg = items[tier];
                 const bundleBadge = pkg.isBundle ? `<div class="ct-package-badge"><i class="fa-solid fa-circle-check"></i> Covers a full month</div>` : '';
                 const hasBreakdown = typeof pkg.maintenanceFeeTokens === 'number' && typeof pkg.estSyncTokensPerMonth === 'number';
-                // NEW: Est. sync cost (1 mo.) is now a real, data-size-based
-                // estimate (decoupled from the maintenance fee — it no longer
-                // just copies the price), plus a yearly row and a plain
-                // "recommended extra balance" line so customers know roughly
-                // how much extra (on top of the maintenance fee) to buy for
-                // a full month or a full year. These are approximate
-                // estimates, not guaranteed final costs.
                 const hasYearlyBreakdown = typeof pkg.estSyncTokensPerYear === 'number' && typeof pkg.estTotalYearlyTokens === 'number';
-                // FIX: maintenanceFeeTokensYearly is the tier's actual
-                // discounted yearly price from RELAY (NOT maintenanceFeeTokens
-                // * 12) — shown explicitly here so the yearly discount is
-                // visible, consistent with the Current Plan yearly box.
-                // AYOS/BAGO: idinagdag ang restore-cost reference row (mula sa
-                // RELAY's estRestoreTokensPerRestore/estTotal...WithOneRestore
-                // — tingnan ang /relay/cloud-tokens/packages) sa parehong
-                // monthly/yearly breakdown na ito. Ito ay reference/"just in
-                // case" na bilang lang — hindi kasama sa Est. total needed/mo.
-                // o /yr. sa itaas (restore ay hindi naka-schedule/recurring
-                // gaya ng sync), kaya hiwalay itong linya, malinaw na naka-
-                // label bilang "if a restore is needed" — para makita ng
-                // customer, kahit sa Starter Bundle card pa lang, na may
-                // hiwalay na cost ang restore bukod sa sync.
                 const hasRestoreRef = typeof pkg.estRestoreTokensPerRestore === 'number';
                 const breakdown = hasBreakdown ? `<div class="ct-package-breakdown">
                         <div><span>Maintenance fee</span><span>${pkg.maintenanceFeeTokens} tokens</span></div>
@@ -7038,8 +6627,6 @@ function renderCloudTokensOverview(data) {
             packagesGrid.innerHTML = `<div class="ct-banner ct-banner-warn" style="display:flex;"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data.packages && data.packages.unavailableReason) || 'Could not load token packages.'}</span></div>`;
         }
     }
-    // Custom-amount na select — kaparehong dynamic na listahan ng payment
-    // methods (tingnan ang comment sa itaas).
     const customMethodEl = document.getElementById('ct-custom-method');
     if (customMethodEl) {
         customMethodEl.innerHTML = paymentOptionsHtml;
@@ -7080,9 +6667,6 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
         if (data.checkoutUrl) {
             Swal.fire({ title: 'Redirecting to checkout', text: `Complete the ${method.toUpperCase()} payment for ${data.tokens} tokens (₱${data.amountPHP}) in the new tab that just opened.`, icon: 'info', timer: 3000, showConfirmButton: false });
             window.open(data.checkoutUrl, '_blank');
-            // Pagkatapos magbayad ang customer sa ibang tab/window, i-refresh
-            // ng ilang beses ang balance dito (ang webhook ang nagpapatunay
-            // ng aktwal na pagcredit ng tokens, hindi ito guaranteed agad).
             let pollCount = 0;
             clearInterval(cloudTokensPollTimer);
             cloudTokensPollTimer = setInterval(() => {
@@ -7091,19 +6675,6 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
                 if (pollCount >= 10) clearInterval(cloudTokensPollTimer);
             }, 6000);
         } else if (data.qrCodeImageUrl) {
-            // AYOS: QR Ph — walang checkout tab na binubuksan dito, sa halip
-            // ipinapakita ang QR code image mismo sa loob ng modal na ito
-            // para ma-scan gamit ang GCash/Maya/kahit anong QR Ph-supported
-            // banking app.
-            // BUGFIX: dating 2 minuto (20 x 6s) lang ang polling window dito
-            // — mas maikli pa kaysa sa aktwal na bisa ng QR code mismo (15
-            // minuto, tingnan ang RELAY/server.js QRPH_EXPIRY_SECONDS), kaya
-            // kung 3-5 minuto ang inabot ng customer bago mag-scan/magbayad,
-            // hindi na ito automatic na mare-refresh at parang "tumigil" ang
-            // balance kahit successful na ang bayad. Ngayon, 15 minuto (90 x
-            // 10s = 900s) na ito, tugma sa QR code expiry — 90 calls/15 min
-            // ay ligtas pa rin sa 120/hour na rate limit ng
-            // /relay/cloud-tokens/wallet.
             const expiresNote = data.expiresAt
                 ? ` Valid until <b>${new Date(data.expiresAt).toLocaleTimeString()}</b>.`
                 : '';
@@ -8551,11 +8122,6 @@ async function loadBranchesWidget() {
         if (res.status === 402) {
             const locked = await res.json();
             card.style.display = '';
-            // Multi-Branch is a subscription feature (like Cloud Backup), so
-            // `locked.price` is always null here — the real price lives in
-            // `locked.subscriptionPrice.monthly`. Match Cloud Backup's own
-            // unlock button wording ("starting at ₱X/mo") instead of the
-            // one-time-purchase phrasing this used to have.
             const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number'
                 ? locked.subscriptionPrice.monthly
                 : locked.price;
@@ -9969,6 +9535,8 @@ function closeModal(modalId) {
 function cancelPaymentModal() {
     closeModal('payment-modal');
     pendingCreditDebtDraft = null;
+    stopLivePosQrPolling();
+    resetLivePosQrUI();
     if (typeof updateCartTotals ==='function') updateCartTotals();
 }
 function selectPaymentMethod(method) {
@@ -10049,9 +9617,11 @@ function updateEwalletQrBlockVisibility(method) {
     const isEwallet = method ==='GCASH' || method ==='MAYA';
     block.style.display = isEwallet ?'block' :'none';
     if (!isEwallet) {
+        stopLivePosQrPolling();
         if (typeof updateCartTotals ==='function') updateCartTotals();
         return;
     }
+    ensurePosQrphAvailabilityLoaded().then(() => setEwalletQrMode('static'));
     const imgWrap = document.getElementById('pay-ewallet-qr-img-wrap');
     const missingEl = document.getElementById('pay-ewallet-qr-missing');
     const imgEl = document.getElementById('pay-ewallet-qr-img');
@@ -10070,6 +9640,118 @@ function updateEwalletQrBlockVisibility(method) {
     }
     let dueAmount = parseFloat((document.getElementById('pay-modal-amount-due') || {}).innerText?.replace('₱','')) || 0;
     broadcastCustomerDisplay('ewallet', { method, qrImage: qrImage || null, amount: dueAmount });
+}
+async function ensurePosQrphAvailabilityLoaded() {
+    if (posQrphAvailabilityChecked) return;
+    posQrphAvailabilityChecked = true;
+    try {
+        const res = await authFetch(`${API_URL}/pos/qrph/enabled`);
+        const data = await res.json();
+        if (data.success) {
+            posQrphAvailable = !!data.enabled;
+            posQrphMinAmount = data.minAmount || 1;
+        }
+    } catch (err) {
+        console.error(err);
+    }
+    const toggleRow = document.getElementById('pay-ewallet-mode-toggle');
+    if (toggleRow) toggleRow.style.display = posQrphAvailable ?'flex' :'none';
+}
+function setEwalletQrMode(mode) {
+    ewalletQrMode = (mode ==='live' && posQrphAvailable) ?'live' :'static';
+    const staticBtn = document.getElementById('pay-ewallet-mode-static-btn');
+    const liveBtn = document.getElementById('pay-ewallet-mode-live-btn');
+    const staticBlock = document.getElementById('pay-ewallet-static-block');
+    const liveBlock = document.getElementById('pay-ewallet-live-block');
+    if (staticBtn) staticBtn.classList.toggle('active', ewalletQrMode ==='static');
+    if (liveBtn) liveBtn.classList.toggle('active', ewalletQrMode ==='live');
+    if (staticBlock) staticBlock.style.display = ewalletQrMode ==='static' ?'' :'none';
+    if (liveBlock) liveBlock.style.display = ewalletQrMode ==='live' ?'' :'none';
+    if (ewalletQrMode ==='static') {
+        stopLivePosQrPolling();
+        resetLivePosQrUI();
+    }
+}
+async function generateLivePosQr() {
+    let dueAmount = parseFloat((document.getElementById('pay-modal-amount-due') || {}).innerText?.replace('₱','')) || 0;
+    if (dueAmount < posQrphMinAmount) {
+        Swal.fire('Amount too low', `Minimum amount for Live QR Ph is ₱${posQrphMinAmount.toFixed(2)}.`,'error');
+        return;
+    }
+    const idleEl = document.getElementById('pay-ewallet-live-idle');
+    const loadingEl = document.getElementById('pay-ewallet-live-loading');
+    const errorEl = document.getElementById('pay-ewallet-live-error');
+    if (idleEl) idleEl.style.display ='none';
+    if (errorEl) errorEl.style.display ='none';
+    if (loadingEl) loadingEl.style.display ='block';
+    try {
+        const res = await authFetch(`${API_URL}/pos/qrph`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify({ amount: dueAmount, method: selectedPaymentMethod })
+        });
+        const data = await res.json();
+        if (loadingEl) loadingEl.style.display ='none';
+        if (!data.success) {
+            if (idleEl) idleEl.style.display ='block';
+            if (errorEl) { errorEl.style.display ='block'; errorEl.textContent = data.message ||'Failed to generate the QR code.'; }
+            return;
+        }
+        livePosQrIntent = { paymentIntentId: data.paymentIntentId, provider: data.provider, amount: data.amount };
+        const qrImgEl = document.getElementById('pay-ewallet-live-qr-img');
+        const qrWrapEl = document.getElementById('pay-ewallet-live-qr-wrap');
+        const statusEl = document.getElementById('pay-ewallet-live-status');
+        if (qrImgEl) qrImgEl.src = data.qrCodeImageUrl;
+        if (qrWrapEl) qrWrapEl.style.display ='block';
+        if (statusEl) { statusEl.style.color ='#64748b'; statusEl.innerHTML ='<i class="fa-solid fa-spinner fa-spin"></i> Waiting for payment...'; }
+        broadcastCustomerDisplay('ewallet', { method: selectedPaymentMethod, qrImage: data.qrCodeImageUrl, amount: dueAmount });
+        startLivePosQrPolling();
+    } catch (err) {
+        console.error(err);
+        if (loadingEl) loadingEl.style.display ='none';
+        if (idleEl) idleEl.style.display ='block';
+        if (errorEl) { errorEl.style.display ='block'; errorEl.textContent ='Unable to reach the server.'; }
+    }
+}
+function startLivePosQrPolling() {
+    stopLivePosQrPolling();
+    livePosQrPoll = setInterval(async () => {
+        if (!livePosQrIntent) return;
+        try {
+            const res = await authFetch(`${API_URL}/pos/qrph/status?paymentIntentId=${encodeURIComponent(livePosQrIntent.paymentIntentId)}&provider=${encodeURIComponent(livePosQrIntent.provider)}`);
+            const data = await res.json();
+            if (!data.success || !livePosQrIntent) return;
+            const statusEl = document.getElementById('pay-ewallet-live-status');
+            if (data.status ==='succeeded') {
+                stopLivePosQrPolling();
+                if (statusEl) { statusEl.style.color ='#16a34a'; statusEl.innerHTML ='<i class="fa-solid fa-circle-check"></i> Payment received! Finishing the sale...'; }
+                const refInput = document.getElementById('pay-ewallet-reference-input');
+                if (refInput) refInput.value = livePosQrIntent.paymentIntentId;
+                await submitFinalPaymentTransaction();
+            } else if (['expired','failed','cancelled'].includes(data.status)) {
+                stopLivePosQrPolling();
+                if (statusEl) { statusEl.style.color ='#dc2626'; statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> QR ${data.status}. Click Cancel and generate a new one.`; }
+            }
+        } catch (err) { console.error(err); }
+    }, 4000);
+}
+function stopLivePosQrPolling() {
+    if (livePosQrPoll) { clearInterval(livePosQrPoll); livePosQrPoll = null; }
+}
+function resetLivePosQrUI() {
+    livePosQrIntent = null;
+    const idleEl = document.getElementById('pay-ewallet-live-idle');
+    const loadingEl = document.getElementById('pay-ewallet-live-loading');
+    const qrWrapEl = document.getElementById('pay-ewallet-live-qr-wrap');
+    const errorEl = document.getElementById('pay-ewallet-live-error');
+    if (idleEl) idleEl.style.display ='block';
+    if (loadingEl) loadingEl.style.display ='none';
+    if (qrWrapEl) qrWrapEl.style.display ='none';
+    if (errorEl) errorEl.style.display ='none';
+}
+function cancelLivePosQr() {
+    stopLivePosQrPolling();
+    resetLivePosQrUI();
 }
 function calculatePaymentChange() {
     let dueAmount = parseFloat(document.getElementById('pay-modal-amount-due').innerText.replace('₱',''));
@@ -12232,6 +11914,288 @@ async function saveAdvancedSettings() {
         Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
     }
 }
+const ONLINE_PAYMENT_GATEWAY_LABELS = { paymongo: 'PayMongo', xendit: 'Xendit' };
+async function loadOnlinePaymentsPanel() {
+    try {
+        const res = await authFetch(`${API_URL}/online-payments/settings`);
+        const data = await res.json();
+        if (data.success) {
+            const s = data.settings;
+            const checkEl = document.getElementById('op-qrph-enabled');
+            if (checkEl) checkEl.checked = !!s.qrphEnabled;
+            const posCheckEl = document.getElementById('op-qrph-pos-enabled');
+            if (posCheckEl) posCheckEl.checked = !!s.posTerminalEnabled;
+            const providerSelect = document.getElementById('op-provider-select');
+            if (providerSelect) providerSelect.value = s.provider || 'paymongo';
+            const fallbackEl = document.getElementById('op-fallback-enabled');
+            if (fallbackEl) fallbackEl.checked = s.fallbackToPaymongoEnabled !== false;
+            updateOnlinePaymentsProviderUI();
+            const activeGatewayEl = document.getElementById('op-active-gateway');
+            if (activeGatewayEl) activeGatewayEl.textContent = ONLINE_PAYMENT_GATEWAY_LABELS[s.provider] || 'PayMongo';
+            const envEl = document.getElementById('op-env-status');
+            if (envEl) envEl.textContent = s.environment === 'live' ? 'Live (real money)' : 'Test/Sandbox (no real money)';
+            const minEl = document.getElementById('op-min-amount');
+            if (minEl) minEl.textContent = `₱${(s.minAmount || 1).toFixed(2)}`;
+            const statusEl = document.getElementById('online-payments-status');
+            if (statusEl) {
+                statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
+                statusEl.style.color = '#64748b';
+            }
+        }
+        const credRes = await authFetch(`${API_URL}/online-payments/paymongo-credentials`);
+        const credData = await credRes.json();
+        if (credData.success) {
+            const modeSelect = document.getElementById('op-mode-select');
+            if (modeSelect) modeSelect.value = credData.env || 'test';
+            const testCurrent = document.getElementById('op-test-key-current');
+            if (testCurrent) testCurrent.textContent = credData.testKeyConfigured ? `Currently saved: ${credData.testKeyMasked}` : 'No Test Key saved yet.';
+            const liveCurrent = document.getElementById('op-live-key-current');
+            if (liveCurrent) liveCurrent.textContent = credData.liveKeyConfigured ? `Currently saved: ${credData.liveKeyMasked}` : 'No Live Key saved yet.';
+            const testInput = document.getElementById('op-test-key-input');
+            if (testInput) testInput.value = '';
+            const liveInput = document.getElementById('op-live-key-input');
+            if (liveInput) liveInput.value = '';
+        }
+        const xenditCredRes = await authFetch(`${API_URL}/online-payments/xendit-credentials`);
+        const xenditCredData = await xenditCredRes.json();
+        if (xenditCredData.success) {
+            const modeSelect = document.getElementById('op-xendit-mode-select');
+            if (modeSelect) modeSelect.value = xenditCredData.env || 'test';
+            const testCurrent = document.getElementById('op-xendit-test-key-current');
+            if (testCurrent) testCurrent.textContent = xenditCredData.testKeyConfigured ? `Currently saved: ${xenditCredData.testKeyMasked}` : 'No Test Key saved yet.';
+            const liveCurrent = document.getElementById('op-xendit-live-key-current');
+            if (liveCurrent) liveCurrent.textContent = xenditCredData.liveKeyConfigured ? `Currently saved: ${xenditCredData.liveKeyMasked}` : 'No Live Key saved yet.';
+            const testInput = document.getElementById('op-xendit-test-key-input');
+            if (testInput) testInput.value = '';
+            const liveInput = document.getElementById('op-xendit-live-key-input');
+            if (liveInput) liveInput.value = '';
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+function togglePaymongoKeyVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = showing ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+}
+function updateOnlinePaymentsModeUI() {                                                    }
+function updateXenditModeUI() {                                                    }
+function updateOnlinePaymentsProviderUI() {
+    const provider = (document.getElementById('op-provider-select') || {}).value || 'paymongo';
+    const fallbackField = document.getElementById('op-fallback-field');
+    if (fallbackField) fallbackField.style.display = provider === 'paymongo' ? 'none' : 'flex';
+}
+async function connectPaymongoCredentials() {
+    const env = document.getElementById('op-mode-select').value === 'live' ? 'live' : 'test';
+    const testSecretKey = (document.getElementById('op-test-key-input').value || '').trim();
+    const liveSecretKey = (document.getElementById('op-live-key-input').value || '').trim();
+    const payload = { env };
+    if (testSecretKey) payload.testSecretKey = testSecretKey;
+    if (liveSecretKey) payload.liveSecretKey = liveSecretKey;
+    try {
+        const res = await authFetch(`${API_URL}/online-payments/paymongo-credentials`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire('Connected!', 'PayMongo credentials have been saved. This can be used right away — no restart needed.', 'success');
+            loadOnlinePaymentsPanel();
+        } else {
+            Swal.fire('Error', data.message || 'Failed to save the PayMongo credentials.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+async function testPaymongoConnection() {
+    const env = document.getElementById('op-mode-select').value === 'live' ? 'live' : 'test';
+    const keyInputId = env === 'live' ? 'op-live-key-input' : 'op-test-key-input';
+    const typedKey = (document.getElementById(keyInputId).value || '').trim();
+    const resultEl = document.getElementById('op-test-result');
+    if (resultEl) { resultEl.textContent = 'Checking...'; resultEl.style.color = '#64748b'; }
+    try {
+        const res = await authFetch(`${API_URL}/online-payments/paymongo-credentials/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ env, key: typedKey || undefined })
+        });
+        const data = await res.json();
+        if (resultEl) {
+            resultEl.textContent = (data.success ? '✓ ' : '✗ ') + (data.message || (data.success ? 'Connected.' : 'Failed.'));
+            resultEl.style.color = data.success ? '#16a34a' : '#dc2626';
+        }
+    } catch (err) {
+        console.error(err);
+        if (resultEl) { resultEl.textContent = '✗ Unable to reach the server.'; resultEl.style.color = '#dc2626'; }
+    }
+}
+async function connectXenditCredentials() {
+    const env = document.getElementById('op-xendit-mode-select').value === 'live' ? 'live' : 'test';
+    const testSecretKey = (document.getElementById('op-xendit-test-key-input').value || '').trim();
+    const liveSecretKey = (document.getElementById('op-xendit-live-key-input').value || '').trim();
+    const payload = { env };
+    if (testSecretKey) payload.testSecretKey = testSecretKey;
+    if (liveSecretKey) payload.liveSecretKey = liveSecretKey;
+    try {
+        const res = await authFetch(`${API_URL}/online-payments/xendit-credentials`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire('Connected!', 'Xendit credentials have been saved. This can be used right away — no restart needed.', 'success');
+            loadOnlinePaymentsPanel();
+        } else {
+            Swal.fire('Error', data.message || 'Failed to save the Xendit credentials.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+async function testXenditConnection() {
+    const env = document.getElementById('op-xendit-mode-select').value === 'live' ? 'live' : 'test';
+    const keyInputId = env === 'live' ? 'op-xendit-live-key-input' : 'op-xendit-test-key-input';
+    const typedKey = (document.getElementById(keyInputId).value || '').trim();
+    const resultEl = document.getElementById('op-xendit-test-result');
+    if (resultEl) { resultEl.textContent = 'Checking...'; resultEl.style.color = '#64748b'; }
+    try {
+        const res = await authFetch(`${API_URL}/online-payments/xendit-credentials/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ env, key: typedKey || undefined })
+        });
+        const data = await res.json();
+        if (resultEl) {
+            resultEl.textContent = (data.success ? '✓ ' : '✗ ') + (data.message || (data.success ? 'Connected.' : 'Failed.'));
+            resultEl.style.color = data.success ? '#16a34a' : '#dc2626';
+        }
+    } catch (err) {
+        console.error(err);
+        if (resultEl) { resultEl.textContent = '✗ Unable to reach the server.'; resultEl.style.color = '#dc2626'; }
+    }
+}
+async function saveOnlinePaymentsSettings() {
+    const payload = {
+        qrphEnabled: document.getElementById('op-qrph-enabled').checked,
+        posTerminalEnabled: (document.getElementById('op-qrph-pos-enabled') || {}).checked || false,
+        provider: (document.getElementById('op-provider-select') || {}).value || 'paymongo',
+        fallbackToPaymongoEnabled: (document.getElementById('op-fallback-enabled') || {}).checked !== false
+    };
+    try {
+        const res = await authFetch(`${API_URL}/online-payments/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire('Saved!', 'Online Payments settings have been updated.', 'success');
+            posQrphAvailabilityChecked = false;
+            loadOnlinePaymentsPanel();
+        } else {
+            Swal.fire('Error', data.message || 'Failed to save Online Payments settings.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+let debtQrPhPollTimer = null;
+async function openDebtQrPhModal(id) {
+    const debt = globalDebts.find(d => d.id === id);
+    if (!debt) return;
+    const remaining = Math.max(0, (debt.amount || 0) - (debt.amountPaid || 0));
+    if (remaining <= 0) {
+        Swal.fire('Bayad na', 'Wala nang natitirang balance ang debt na ito.', 'info');
+        return;
+    }
+    const { value: amountStr, isConfirmed } = await Swal.fire({
+        title: 'Bayaran Online (QR Ph)',
+        input: 'number',
+        inputLabel: `Halaga (natitirang balance: ₱${remaining.toFixed(2)})`,
+        inputValue: remaining.toFixed(2),
+        inputAttributes: { min: 1, max: remaining, step: '0.01' },
+        showCancelButton: true,
+        confirmButtonText: 'Gumawa ng QR Code'
+    });
+    if (!isConfirmed) return;
+    const amount = parseFloat(amountStr) || remaining;
+    Swal.fire({ title: 'Ginagawa ang QR code...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    try {
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}/qrph`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            Swal.fire('Error', data.message || 'Nabigo ang paggawa ng QR Ph code.', 'error');
+            return;
+        }
+        showDebtQrPhModal(id, data);
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Connection Error', 'Unable to reach the server. Please try again.', 'error');
+    }
+}
+function showDebtQrPhModal(id, qrData) {
+    if (debtQrPhPollTimer) { clearInterval(debtQrPhPollTimer); debtQrPhPollTimer = null; }
+    Swal.fire({
+        title: 'I-scan para Magbayad',
+        html: `
+            <div style="text-align:center;">
+                <img src="${escapeHtml(qrData.qrCodeImageUrl)}" alt="QR Ph" style="width:240px;height:240px;object-fit:contain;border:1px solid #e6e9ef;border-radius:12px;padding:8px;background:#fff;">
+                <p style="margin:14px 0 4px;font-weight:700;font-size:1.1rem;">₱${(qrData.amount || 0).toFixed(2)}</p>
+                <p id="debt-qrph-status-text" style="margin:0;color:#64748b;font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin"></i> Naghihintay ng bayad...</p>
+            </div>
+        `,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: 'Isara',
+        allowOutsideClick: false,
+        didOpen: () => {
+            debtQrPhPollTimer = setInterval(() => pollDebtQrPhStatus(id), 5000);
+        },
+        willClose: () => {
+            if (debtQrPhPollTimer) { clearInterval(debtQrPhPollTimer); debtQrPhPollTimer = null; }
+        }
+    });
+}
+async function pollDebtQrPhStatus(id) {
+    try {
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}/qrph/status`);
+        const data = await res.json();
+        if (!data.success) return;
+        if (data.status === 'succeeded') {
+            if (debtQrPhPollTimer) { clearInterval(debtQrPhPollTimer); debtQrPhPollTimer = null; }
+            Swal.close();
+            if (typeof globalDebts !== 'undefined') {
+                const idx = globalDebts.findIndex(d => d.id === id);
+                if (idx !== -1 && data.debt) globalDebts[idx] = data.debt;
+            }
+            if (typeof renderDebtsTable === 'function') renderDebtsTable();
+            Swal.fire('Nabayaran!', 'Nakumpirma na ang online payment at na-record na ito sa Debtors.', 'success');
+        } else if (data.status === 'expired') {
+            if (debtQrPhPollTimer) { clearInterval(debtQrPhPollTimer); debtQrPhPollTimer = null; }
+            const statusText = document.getElementById('debt-qrph-status-text');
+            if (statusText) {
+                statusText.innerHTML = '<i class="fa-solid fa-clock"></i> Nag-expire na ang QR code. Isara ito at gumawa ng bago.';
+                statusText.style.color = '#dc2626';
+            }
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
 function toggleFraudDetectionFields() {
     const enabled = document.getElementById('adv-fraud-detection-enabled') ? document.getElementById('adv-fraud-detection-enabled').checked : false;
     ['adv-fraud-sensitivity', 'adv-fraud-email-enabled', 'adv-fraud-recipient-email'].forEach(id => {
@@ -13125,8 +13089,6 @@ function closeColumnFilterDropdownOnOutsideClick(evt) {
 }
 
 let cachedPendingStockReturns = [];
-// Disposition statuses for items inspected as damaged/non-restockable.
-// Keep the keys/labels in sync with STOCK_RETURN_DAMAGE_STATUSES in server.js.
 const STOCK_RETURN_DAMAGE_STATUS_LABELS = {
     disposed: 'Disposed / Discarded',
     return_to_supplier: 'For Return to Supplier',
@@ -13138,13 +13100,6 @@ const STOCK_RETURN_DAMAGE_STATUS_LABELS = {
 function sretDamageStatusLabel(key) {
     return STOCK_RETURN_DAMAGE_STATUS_LABELS[key] || 'Pending Manager Review';
 }
-// Keeps "Sellable / Restock" and "Damaged / Do not restock" complementary so their sum
-// always exactly equals the returned quantity — typing into either field derives the
-// other, which is what prevents the "must exactly equal" validation error at Complete
-// Inspection time. `changedEl` is whichever input actually fired the event (passed in
-// from oninput="...(idx, this)"), so we know which one to treat as the source of truth;
-// the other is only ever written to via .value, which never re-fires 'input' itself —
-// so there is no possibility of the two handlers looping off each other.
 window.sretSyncDamageRow = function (idx, changedEl) {
     const restockInput = document.querySelector(`.sret-restock[data-idx="${idx}"]`);
     const damagedInput = document.querySelector(`.sret-damaged[data-idx="${idx}"]`);
@@ -13166,9 +13121,6 @@ function canInspectStockReturns() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
     return isAdmin || !!(currentPermissions && currentPermissions.stock_return_inspection);
 }
-// Separate permission from the base Inspect action — this gates finalizing the manager
-// review on items still marked "Pending Manager Review", so the person who did the
-// original inspection isn't automatically the one who can also sign off on it.
 function canReviewStockReturns() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
     return isAdmin || !!(currentPermissions && currentPermissions.stock_return_manager_review);
@@ -13201,8 +13153,6 @@ function renderPendingStockReturns() {
         const itemCount = (r.items || []).reduce((sum, i) => sum + (parseInt(i.quantity, 10) || 0), 0);
         const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '—';
         const isPending = String(r.status || '').toLowerCase() === 'pending_inspection';
-        // "Pending Manager Review" is not a final disposition — those items can still be
-        // restocked once a manager decides, so the record must stay actionable (not read-only).
         const needsReview = !isPending && (r.items || []).some(i =>
             (parseInt(i.damagedQty, 10) || 0) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review');
         const sourceBadge = `<span class="badge" style="background-color:${source === 'VOID' ? '#ede9fe' : '#e0f2fe'};color:${source === 'VOID' ? '#6d28d9' : '#0369a1'};">${source}</span>`;
@@ -13210,13 +13160,10 @@ function renderPendingStockReturns() {
         if (isPending) {
             statusBadge = `<span class="badge" style="background-color:#fef3c7;color:#b45309;">Pending Inspection</span>`;
         } else {
-            // Already inspected but kept visible because it still has damaged/non-restockable
-            // items — show the disposition status(es) that were selected for those items.
             const damagedLabels = Array.from(new Set((r.items || [])
                 .filter(i => (parseInt(i.damagedQty, 10) || 0) > 0)
                 .map(i => sretDamageStatusLabel(i.damageStatus))));
             const labelText = damagedLabels.length ? damagedLabels.join(', ') : 'Fully Restocked';
-            // Amber (not final, still needs a decision) vs red (finalized, cannot be restocked).
             statusBadge = needsReview
                 ? `<span class="badge" style="background-color:#fef3c7;color:#b45309;">${escapeHtml(labelText)}</span>`
                 : `<span class="badge" style="background-color:#fee2e2;color:#b91c1c;">${escapeHtml(labelText)}</span>`;
@@ -13330,9 +13277,6 @@ async function inspectStockReturn(returnId) {
         Swal.fire('Error', 'There was a connection problem while inspecting the returned items.', 'error');
     }
 }
-// Read-only detail view for a return record that has already been inspected. It stays
-// visible on the Void/Refund page whenever it still has damaged/non-restockable items,
-// so staff can see what disposition status was chosen for those items.
 async function viewInspectedStockReturn(record) {
     const rows = (record.items || []).map(item => {
         const restocked = parseInt(item.restockedQty, 10) || 0;
@@ -13357,9 +13301,6 @@ async function viewInspectedStockReturn(record) {
         width:560
     });
 }
-// Shows/hides a reviewable item's "Restock now" / "Still damaged" split inputs based on
-// whether the manager picked "Pending Manager Review" again in the status dropdown, since
-// that's the only case where 0 units are forced back into "still damaged".
 window.sretSyncReviewRow = function (idx) {
     const restockInput = document.querySelector(`.sret-review-restock[data-idx="${idx}"]`);
     const damagedInput = document.querySelector(`.sret-review-damaged[data-idx="${idx}"]`);
@@ -13373,10 +13314,6 @@ window.sretSyncReviewRow = function (idx) {
         statusRow.style.display = stillDamaged > 0 ? 'block' : 'none';
     }
 };
-// Second-pass review for items still marked "Pending Manager Review". A manager can
-// finalize their disposition (Disposed, Written Off, etc.), or restock some/all of the
-// held quantity if it turns out those units are actually fine after all. Items whose
-// disposition was already finalized in the original inspection are shown read-only here.
 async function reviewStockReturn(returnId) {
     if (!canReviewStockReturns()) {
         Swal.fire('Walang Pahintulot', 'Kailangan ng \'Finalize Manager Review\' permission para gawin ito. Hilingin sa Admin na bigyan ka ng access sa Roles & Permissions.', 'warning');
@@ -13394,7 +13331,6 @@ async function reviewStockReturn(returnId) {
         const held = parseInt(item.damagedQty, 10) || 0;
         const isReviewable = held > 0 && String(item.damageStatus || '').toLowerCase() === 'pending_manager_review';
         if (!isReviewable) {
-            // Already finalized (or never damaged) — context only, nothing to edit.
             const damageLabel = held > 0 ? sretDamageStatusLabel(item.damageStatus) : '';
             return `<div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:8px 0;opacity:.7;">
                 <div style="font-weight:700;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
@@ -13889,9 +13825,6 @@ function syncImageQualityPrefSelects() {
         sel.value = current;
     });
 }
-// Which free site "Omni Search" (single product) / "Omni Search Images"
-// (bulk) should use. 'auto' = try every free source in order (original
-// behavior); any other value = search only that one free site.
 const OMNI_IMAGE_PROVIDERS = [
     { value: 'auto', label: 'Auto (try all free sources — recommended)' },
     { value: 'bing_free', label: 'Bing (free)' },
@@ -14059,10 +13992,6 @@ function renderProductImageSearchResults(results) {
         const safeTitle = (r.title || '').replace(/"/g, '&quot;');
         const safeThumb = (r.thumbnailUrl || '').replace(/"/g, '&quot;');
         const safeId = String(r.id || '').replace(/"/g, '&quot;');
-        // Omni/free providers: hindi na direktang naka-set ang src papunta
-        // sa external host (madalas naka-block ang hotlinking dito) —
-        // sa halip, kinukuha via loadOmniSearchThumbProxied() pagkatapos
-        // mai-insert sa DOM (see below).
         const imgTag = isOmni
             ? `<img data-omni-thumb-id="${safeId}" alt="${safeTitle}" loading="lazy">`
             : `<img src="${safeThumb}" alt="${safeTitle}" loading="lazy" onerror="handleImgSearchThumbError(this)">`;
@@ -15200,10 +15129,6 @@ async function pollOmniImageSearchProgress(startBtn) {
         if (omniImageSearchState.truncated) {
             statusText += ` Only the first ${data.total} of ${omniImageSearchState.totalEligible} eligible products were processed this run — lower "Products to process" or run again for the rest.`;
         }
-        // BAGO: kapag paulit-ulit na na-block ang piniling provider
-        // (hal. DuckDuckGo — HTTP 403/429), isang malinaw na aggregate
-        // banner na lang ang ipapakita (hindi na ito basta natatabunan ng
-        // parehong per-item red error sa bawat produkto).
         if (data.earlyStopReason) {
             statusText = `⚠️ ${data.earlyStopReason}`;
         } else {
@@ -15246,9 +15171,6 @@ function renderOmniImageSearchPreview() {
         </div>`;
     }).join('');
     updateOmniImageSearchApplyBtn();
-    // BAGO: lahat ng free-provider thumbnail dito (DuckDuckGo, Bing (free),
-    // Openverse, Wikimedia Commons, Yandex) ay via thumb-proxy na ngayon —
-    // parehong fix ng single-product Omni Search sa itaas.
     listEl.querySelectorAll('img[data-omni-thumb-code]').forEach((imgEl) => {
         loadOmniSearchThumbProxied(imgEl, nonce, imgEl.dataset.omniThumbCode, 'omni-bulk');
     });
@@ -17673,17 +17595,7 @@ async function runCloudBackupSync() {
             return;
         }
         if (response.status === 402) {
-            // AYOS: dating pareho ang message kahit ano pa ang totoong dahilan
-            // (parehong 402 status ang ginagamit ng server para sa 2 magkaibang
-            // kaso — see /api/cloud-backup/sync sa server.js). Ngayon, tinitignan
-            // muna kung `insufficientTokens` (naka-unlock na ang plan, kulang lang
-            // sa Omni Tokens balance) bago ipakita ang "still locked" (na dapat
-            // lang lumabas kung `featureLocked` — walang active subscription).
             if (result.insufficientTokens) {
-                // AYOS: ginagamit na ang tokenCostPerSyncExact (average) sa halip
-                // na tokenCostPerSync (ceil) — para tumugma ito sa "Cost per sync
-                // (avg.)" na makikita sa Omni Tokens page, at binuo mismo dito
-                // (English) sa halip na umasa sa result.message.
                 const neededDisplay = (typeof result.tokenCostPerSyncExact === 'number') ? result.tokenCostPerSyncExact : result.tokenCostPerSync;
                 const msg = `Insufficient Omni Tokens (balance: ${result.balanceTokens}, needed: ~${neededDisplay} per sync on average). Please buy more Omni Tokens.`;
                 if (statusBox) {
@@ -17784,13 +17696,7 @@ async function runCloudBackupRestore() {
         });
         const result = await response.json();
         if (response.status === 402) {
-            // AYOS: parehong ayos gaya ng sa runCloudBackupSync() sa itaas —
-            // huwag ipakita ang "still locked" kung ang totoong dahilan pala
-            // ay `insufficientTokens` (naka-unlock na, kulang lang sa tokens).
             if (result.insufficientTokens) {
-                // AYOS/BAGO: restore-specific na field names na ngayon
-                // (tokenCostPerRestore/Exact) — restore ay may sarili nang
-                // proportional-to-size na charge, hindi na basta sync cost.
                 const neededDisplay = (typeof result.tokenCostPerRestoreExact === 'number') ? result.tokenCostPerRestoreExact : result.tokenCostPerRestore;
                 const msg = `Insufficient Omni Tokens (balance: ${result.balanceTokens}, needed: ~${neededDisplay} for this restore). Please buy more Omni Tokens.`;
                 if (statusBox) statusBox.innerHTML = `<i class="fa-solid fa-gem" style="color:#f59e0b;"></i> Out of Omni Tokens — balance: ${result.balanceTokens}, needed: ~${neededDisplay} for this restore. Please buy more Omni Tokens.`;
@@ -17813,9 +17719,6 @@ async function runCloudBackupRestore() {
             if (result.accountsNeedingPasswordReset && result.accountsNeedingPasswordReset.length > 0) {
                 extraNote = `<br><br><strong>Note:</strong> the following accounts were just restored (no password was included in the backup) — the Admin must reset their passwords in User Management before they can log in: <br>${result.accountsNeedingPasswordReset.join(', ')}`;
             }
-            // AYOS/BAGO: restore ngayon ay may proportional-to-size na token
-            // charge — ipinapakita dito kung ilan ang na-deduct at ang bagong
-            // balance, para malinaw sa Admin.
             if (typeof result.tokensCharged === 'number') {
                 extraNote += `<br><br><span style="color:#6b7280;">Charged ${result.tokensCharged} Omni Token(s) for this restore — new balance: ${result.balanceTokens ?? '—'}.</span>`;
             }
@@ -19167,19 +19070,6 @@ window.addEventListener('popstate', function(event) {
             switchView(savedView);
         }
     }
-    // BUGFIX: dati, walang bagong pushState pagkatapos ma-proseso ang
-    // back navigation dito (dahil sa switchView, hindi na-pu-push ulit
-    // ang state kapag pareho na ang history.state.view at ang bagong
-    // viewKey — na palaging totoo mismo pagkatapos ng popstate). Kaya
-    // unti-unting naaaubos ang history stack ng browser/webview sa
-    // bawat back button press o swipe-back gesture — at kapag naubos
-    // na ito, ang SUSUNOD na back/swipe-back ay hindi na maha-handle
-    // ng app: direkta na itong lalabas bilang totoong "exit" ng OS
-    // (lalo na kapag naka-install bilang fullscreen/standalone PWA sa
-    // mobile), sa halip na manatili lang sa loob ng app. Sa pagdagdag
-    // ulit ng entry dito sa bawat popstate, laging may "buffer" na
-    // matitirang history entry ang app, kaya nahaharang palagi ang
-    // back/swipe-back sa loob ng app mismo.
     var viewAfterPop = (event.state && event.state.view) || sessionStorage.getItem('currentView') || 'overview';
     history.pushState({ view: viewAfterPop }, '', '');
 });
@@ -20400,4 +20290,3 @@ if ('serviceWorker' in navigator) {
         });
     });
 }
-

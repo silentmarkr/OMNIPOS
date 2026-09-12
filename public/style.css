@@ -41,26 +41,7 @@ html.theme-preload body {
     --pos-danger-soft: #fdeaea;
     --receipt-edge-color: rgba(15, 23, 42, 0.16);
     --receipt-edge-bg: #ffffff;
-    /* BUGFIX: dati, ginagamit ng .faq-top-bar at .faq-composer-dock
-       (see style.css, FAQ chatbox rules) ang var(--bg-page, #f8fafc)
-       para sa kanilang background sa light/"day" mode — pero hindi
-       kailanman na-define ang --bg-page kahit saan, kaya palaging
-       #f8fafc (hardcoded fallback) ang nagagamit. Hindi ito eksaktong
-       tugma sa tunay na light-mode background ng buong app (body {
-       background: ... #f4f7fb }), kaya may kapansin-pansing di-
-       pagkakatugma ng kulay (bahagyang "seam") sa itaas at ibaba ng
-       FAQ chatbox — pareho ito sa mobile at desktop dahil iisang set
-       lang ng CSS rules ang ginagamit ng dalawa. Ngayon, tama nang
-       tumutugma ang --bg-page sa aktwal na base color ng page. */
     --bg-page: #f4f7fb;
-    /* BAGO: buong "backdrop" (parehong radial-gradient blobs + base
-       color) ng totoong page background (see body { background: ... }
-       at body.dark-mode { background: ... } sa ibaba) — ginagamit ito
-       (kasama ang background-attachment:fixed) ng sticky FAQ top-bar/
-       composer-dock para eksaktong tumugma ang kulay nito sa page
-       kahit anong scroll position, sa halip na flat/solid na kulay
-       lang na nagiging kapansin-pansing "nakalutang"/naiiba kapag
-       dumaan ang mga blob sa likod nito. */
     --page-backdrop-light:
         radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.06), transparent 40%),
         radial-gradient(circle at 85% 80%, rgba(168, 85, 247, 0.05), transparent 42%),
@@ -1178,16 +1159,6 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    /* Dati ay "0 30px" lang ang padding, kaya sa mga device na may
-       notch/camera cutout o rounded corner sa LEFT side ng screen
-       (halimbawa sa ilang Android phone sa landscape, o may punch-hole
-       camera), naikakaltas o naitatago ng cutout ang hamburger menu at
-       logo dahil walang kahit anong extra space na nireresерba doon —
-       ito ang "humaharang" sa pag-adjust ng header sa leftside. Gamit
-       ang env(safe-area-inset-left/right) idinaragdag ang eksaktong
-       espasyo na kailangan ng OS/device sa magkabilang gilid, sa ibabaw
-       ng normal na 30px padding. Zero ang env() na ito sa mga device na
-       walang cutout (Android/desktop/no-notch), kaya walang epekto doon. */
     padding-top: 0;
     padding-bottom: 0;
     padding-left: calc(30px + env(safe-area-inset-left, 0px));
@@ -1196,15 +1167,6 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     top: 0;
     z-index: 90;
 }
-/* Pinapalawak ang background ng header papunta sa likod ng iOS status
-   bar/notch (safe area), para ang parehong kulay na sumusunod na sa
-   theme (background-color/background-image ng .top-header) ang lumabas
-   dito, sa halip na default black status bar ng iOS. Gumagamit ng
-   absolutely-positioned pseudo-element (hindi binabago ang height mismo
-   ng .top-header) para hindi masira ang mga ibang bahagi ng CSS na
-   umaasa sa eksaktong 69px na taas nito (hal. calc(100vh - 69px) sa
-   FAQ chatbox). Walang epekto ito sa Android/desktop dahil 0 ang
-   env(safe-area-inset-top) doon. */
 .top-header::before {
     content: "";
     position: absolute;
@@ -1273,24 +1235,9 @@ body.dark-mode .header-desktop-logo-text {
     .top-header.overview-header-mode .header-desktop-logo-text {
         font-size: 1.5rem;
     }
-    /* Pareho na ngayon ang left position ng page title (ibang views)
-       at ng OmniPOS logo (Overview view) sa mobile — dati may extra
-       20px na margin-left ang title lang (mula sa base .header-page-title
-       rule) kaya lumilitaw itong bahagyang mas nasa kanan kumpara sa
-       logo. Alisin ang extra offset na iyon dito, mobile lang. */
     .header-page-title {
         margin-left: 0;
     }
-    /* Sa mobile, ang .header-left ay laging walang laman na visual
-       na content (nakatago ang hamburger-menu, logo, at terminal brand
-       maliban sa Overview/Terminal view), kaya ang aktwal na left gap
-       ng title (at ng logo sa Overview) ay direktang sinusukat mula sa
-       padding-left ng .top-header mismo. Binawasan ito dito mula 30px
-       papuntang 20px — mobile view lang, hindi apektado ang desktop —
-       gaya ng hiniling: 20px na gap sa leftside ng title sa lahat ng
-       page sa mobile. Nananatili ang env(safe-area-inset-left) sa ibabaw
-       nito para hindi pa rin maharangan ng notch/cutout sa mga device
-       na may ganito. */
     .top-header {
         padding-left: calc(20px + env(safe-area-inset-left, 0px));
     }
@@ -7512,6 +7459,10 @@ body.dark-mode .receipt-custom-container input:focus {
     border-color: var(--primary-blue) !important;
     outline: none;
 }
+body.dark-mode #online-payments-tab {
+    --input-bg: var(--dm-surface-alt);
+    --border-color: var(--dm-border);
+}
 body.dark-mode .swal2-popup {
     background-color: var(--dm-surface) !important;
     color: var(--dm-text-secondary) !important;
@@ -7580,17 +7531,6 @@ body.dark-mode .swal2-select:focus {
     border-color: var(--dm-accent) !important;
     box-shadow: 0 0 0 3px var(--dm-accent-soft) !important;
 }
-/* SweetAlert2's own base CSS only applies border/border-radius/box-shadow/
-   transition/height via `input:where(.swal2-input)` — a TAG-scoped
-   selector that only ever matches <input> elements. It never matches a
-   <select>, not even one carrying the .swal2-input class (e.g. the
-   Custom Domain provider dropdown), which is why that dropdown used to
-   fall back to an unstyled native control: no rounded corners, no border,
-   no matching height/padding, so its left/right edges never lined up with
-   the Hostname/Token/Command fields in the same modal. `.swal2-select`
-   (the correct SweetAlert2 class for <select>) only adds padding/width/
-   font-size, so it still needs the border treatment below, applied via a
-   CLASS-scoped selector so it works on any element, <select> included. */
 div.swal2-popup select.swal2-select {
     width: auto;
     min-width: 0;
@@ -8095,11 +8035,6 @@ body.dark-mode .faq-cat-heading, .dark .faq-cat-heading { color: #9a9ba8; }
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  /* BAGO: ang dropdown na ito ay Search (Keyword) mode na lang ang
-     gamit — hindi na ito kailaresan sa AI Chatbot composer's send
-     button, kaya hindi na kailangang mag-iwan ng malaking reserved
-     space sa kanan. Mas malapad na ito ngayon para hindi na pinuputol
-     ang mga tanong (dating "How d…" sa maliliit na screen). */
   max-width: 100%;
   background: var(--bg-card, #fff);
   border: 1px solid var(--border-color, #cbd5e1);
@@ -8287,12 +8222,6 @@ body.dark-mode .faq-ai-answer.faq-ai-noresult, .dark .faq-ai-answer.faq-ai-nores
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ===================================================================
-   FAQ v2 — category accordion, list toolbar, AI/keyword mode toggle,
-   and the multi-turn AI chat thread.
-   =================================================================== */
-
-/* --- toolbar above the FAQ list: expand/collapse + category chips --- */
 .faq-list-toolbar { margin: 6px 0 16px; }
 .faq-toolbar-row { display: flex; gap: 8px; margin-bottom: 10px; }
 .faq-toolbar-btn {
@@ -8318,7 +8247,6 @@ body.dark-mode .faq-ai-answer.faq-ai-noresult, .dark .faq-ai-answer.faq-ai-nores
 }
 .faq-cat-chip:hover .faq-cat-chip-count { background: rgba(255,255,255,0.25); }
 
-/* --- category accordion (wraps a group of .faq-item questions) --- */
 .faq-category {
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 10px;
@@ -8360,18 +8288,6 @@ body.dark-mode .faq-category, .dark .faq-category {
 }
 body.dark-mode .faq-category summary, .dark .faq-category summary { color: var(--dm-text-primary, #f5f5f7); }
 
-/* --- AI Assistant / Keyword Search mode toggle (sliding switch) ---
-   BUGFIX: dati, ang .faq-ticket-btn (madalas nakatago/display:none) ang
-   may margin-left:auto para itulak ang mga sumusunod na buton pakanan —
-   pero dahil nakatago ito kadalasan, hindi ito laging gumagana, kaya
-   nagiging hindi pantay/hindi predictable ang agwat sa pagitan ng
-   dalawang toggle (lang toggle at AI-mode toggle) sa itaas. Inilipat
-   dito ang margin-left:auto (laging bisible ang toggle na ito) para
-   laging maaasahang nakadikit sa KANANG gilid ang AI-mode toggle
-   (kasama ang credit pill/ticket/new-conversation na sumusunod dito),
-   habang ang lang toggle naman ay nasa KALIWANG gilid — kapwa sila
-   dapat umaabot hanggang sa tunay na gilid ng chatbox (see
-   .faq-fullchat-mode .faq-top-bar sa ibaba para sa width match). */
 .faq-mode-toggle-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; margin-left: 0; }
 .faq-mode-toggle {
   position: relative;
@@ -8417,7 +8333,6 @@ body.dark-mode .faq-mode-toggle, .dark .faq-mode-toggle {
 body.dark-mode .faq-mode-option, .dark .faq-mode-option { color: var(--dm-text-secondary, #9a9ba8); }
 body.dark-mode .faq-mode-option.active, .dark .faq-mode-option.active { color: #fff; }
 
-/* --- chat thread (multi-turn AI conversation) --- */
 .faq-ai-result-box { margin-top: 16px; }
 .faq-chat-thread {
   display: flex; flex-direction: column; gap: 12px;
@@ -8497,7 +8412,6 @@ body.dark-mode .faq-cat-chip, .dark .faq-cat-chip {
   background: rgba(59, 130, 246, 0.12); color: var(--dm-text-primary, #f5f5f7);
 }
 
-/* --- follow-up suggestion chips under an AI answer --- */
 .faq-followup-chips {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   margin-top: 12px; padding-top: 10px;
@@ -8506,12 +8420,6 @@ body.dark-mode .faq-cat-chip, .dark .faq-cat-chip {
 .faq-followup-label { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary, #64748b); width: 100%; }
 .faq-followup-chip { font-size: 0.75rem; padding: 5px 12px; }
 
-/* ===================================================================
-   OMNIPOS AI SUPPORT AGENT — modern full-screen chat mode
-   =================================================================== */
-
-/* --- top bar: language toggle + AI/Search toggle + credit pill,
-       always visible, in both classic-list mode and fullchat mode --- */
 .faq-top-bar {
   max-width: 800px;
   display: flex;
@@ -8535,22 +8443,8 @@ body.dark-mode .faq-cat-chip, .dark .faq-cat-chip {
 }
 .ai-credit-pill.low { color: #b45309; background: rgba(245, 158, 11, 0.14); border-color: rgba(245,158,11,0.4); }
 .ai-credit-pill.exhausted { color: #b91c1c; background: rgba(239, 68, 68, 0.14); border-color: rgba(239,68,68,0.4); }
-/* BUGFIX: inalis ang margin-left:auto dito — nakatago ang buton na ito
-   sa karamihan ng oras (style="display:none" hanggang ma-configure ang
-   AI Assistant), kaya hindi ito maaasahang gamitin bilang "anchor" ng
-   right-aligned na grupo. Ang .faq-mode-toggle-wrap na (laging bisible)
-   ang gumaganap nito ngayon — see itaas. */
 body.dark-mode .ai-credit-pill, .dark .ai-credit-pill { background: rgba(59,130,246,0.12); color: var(--dm-text-secondary,#9a9ba8); }
 
-/* --- BAGO: compact na "Expires on: <date>" na label (dating buong
-       "OmniPOS AI Assistant: Active (Monthly) — renews/expires on..."
-       na status box, tinanggal na ang produkto pangalan/icon/"Active"
-       word — see app.js renderAiAssistantCompactExpiry). Laging
-       nakasunod sa "New conversation"/refresh button sa loob ng
-       .faq-top-bar, kaya kasama na sa flex-wrap nito — sakto lang ang
-       sukat (compact padding/font-size) para hindi sumingit sa mobile
-       width. AI Chatbot (fullchat) mode LANG ito lumalabas — see
-       ibaba: #view-faq:not(.faq-fullchat-mode) #ai-assistant-subscription-status. --- */
 .faq-subscription-compact {
   display: inline-flex;
   align-items: center;
@@ -8566,23 +8460,14 @@ body.dark-mode .ai-credit-pill, .dark .ai-credit-pill { background: rgba(59,130,
 body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
   background: rgba(255,255,255,0.05); color: var(--dm-text-secondary,#9a9ba8);
 }
-/* Search (kb) mode: hindi na ito ipinapakita dito — see BAGO na
-   note sa itaas at ang HTML (index.html), inalis na rin ang dating
-   #faq-classic-subheader (intro text + buong subscription status
-   box) sa Search mode. AI Chatbot mode lang ito lalabas, kung saan
-   ipinapakita ito ng JS (display:inline-flex) kapag naka-unlock at
-   Active ang AI Assistant subscription. */
 #view-faq:not(.faq-fullchat-mode) #ai-assistant-subscription-status {
   display: none !important;
 }
 
-/* --- the AI box: default (Search / classic) look is unchanged in
-       flow; fullchat mode below turns it into an app-like chat pane --- */
 .faq-ai-box { max-width: 800px; }
 #faq-ai-upsell { margin-top: 10px; font-size: 0.78rem; }
 #faq-ai-upsell a { color: var(--primary-blue,#2563eb); text-decoration: none; font-weight: 600; }
 
-/* --- quick action chips (diagnostics / explain error / ticket) --- */
 .faq-quick-actions {
   display: flex; flex-wrap: wrap; gap: 8px;
   margin: 0 0 10px;
@@ -8596,8 +8481,6 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 .faq-quick-action-chip:hover { background: var(--primary-blue, #2563eb); color: #fff; }
 
-/* --- suggested-action chips rendered under an AI answer (safe
-       navigation only — switchView, never a data-changing action) --- */
 .faq-suggested-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .faq-suggested-action-btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -8607,7 +8490,6 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 .faq-suggested-action-btn:hover { background: #16a34a; color: #fff; }
 
-/* --- image attach preview --- */
 .faq-image-preview-wrap { position: relative; display: inline-block; margin-bottom: 10px; }
 .faq-image-preview-wrap img {
   max-height: 90px; max-width: 160px; border-radius: 10px;
@@ -8627,8 +8509,6 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 .faq-file-preview-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* --- composer bar: pill input + circular arrow-up send button,
-       like a modern AI chat app --- */
 .faq-composer {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px;
@@ -8663,44 +8543,13 @@ body.dark-mode .faq-composer-input-wrap #faq-ai-input, .dark .faq-composer-input
 body.dark-mode .faq-composer-input-wrap #faq-ai-input::placeholder, .dark .faq-composer-input-wrap #faq-ai-input::placeholder { color: var(--dm-text-muted, #6f7080); }
 body.dark-mode .faq-composer-icon-btn, .dark .faq-composer-icon-btn { background: rgba(255,255,255,0.08); color: var(--dm-text-secondary,#9a9ba8); }
 
-/* --- FULLCHAT MODE: activated on #view-faq when the "AI Chatbot"
-       toggle is selected. Hides everything except the top bar, and
-       turns the AI box into an immersive, docked chat screen —
-       modern-AI-app style. --- */
 #view-faq.faq-fullchat-mode #faq-classic-header,
 #view-faq.faq-fullchat-mode #faq-kb-shortcuts {
   display: none !important;
 }
-/* BUGFIX (mobile + desktop): dati, "min-height" lang ang gamit dito
-   kaya walang tunay na hangganan ang taas ng buong chat panel — puwede
-   itong lumagpas sa laki ng viewport at ang WHOLE PAGE na ang
-   nagiging scrollable sa halip na ang loob lang ng chat thread. Dahil
-   dito, tila "nakadikit"/"frozen" ang toggle buttons sa itaas at ang
-   search box/composer sa ibaba habang hindi pantay ang galaw nila sa
-   pag-scroll ng mga sagot. Ngayon, may TUNAY na hangganan (height +
-   max-height + overflow:hidden) ang panel na ito, kaya ang .faq-top-bar
-   sa itaas at ang .faq-composer-dock sa ibaba ay laging nakikita/hindi
-   gumagalaw, at ang .faq-chat-thread lang sa loob ang siyang
-   scrollable — pareho ito sa mobile at sa desktop dahil iisang set ng
-   CSS rules ito, may responsive na max-width lang na nagbabago. */
 #view-faq.faq-fullchat-mode {
   display: flex;
   flex-direction: column;
-  /* BUGFIX: hiling ng user — i-expand pa ang chatbox (mas malaki ang
-     natitirang espasyo para sa scrollable na .faq-chat-thread), gawing
-     mas malapit sa header ang toggle bar sa itaas, at gawing "sagad"/
-     flush sa ibaba ang search box/composer. Dati, hindi kinakansela
-     dito ang 30px padding ng .content-body (direktang parent) — basta
-     "calc(100vh - 150px)" na lang ang ginamit bilang tantiya, na mas
-     malaki pa sa aktwal na kailangan (69px na taas lang ng
-     .top-header + ang muling-idinagdag na internal padding sa ibaba),
-     kaya may sobrang patay/blangkong puwang sa itaas't ibaba ng buong
-     panel. Ngayon, kinakansela ng negative margin ang 30px padding ng
-     .content-body (kagaya ng ginawa na sa Search/kb mode sa ibaba),
-     pinapalitan ng mas manipis na internal padding (10px sa itaas/
-     ibaba), at eksakto na ang height base sa tunay na 69px na taas ng
-     .top-header — mas malaki ang natitirang espasyo para sa
-     .faq-chat-thread. */
   margin: -30px;
   padding: 10px 30px;
   box-sizing: border-box;
@@ -8709,43 +8558,16 @@ body.dark-mode .faq-composer-icon-btn, .dark .faq-composer-icon-btn { background
   min-height: 0;
   overflow: hidden;
 }
-/* BUGFIX: dati, magkaiba ang max-width ng .faq-top-bar (800px, walang
-   auto margin) kumpara sa .faq-ai-box/chatbox (900px, naka-center gamit
-   ang margin:0 auto) — kaya hindi tugma ang gilid ng dalawang toggle
-   button sa itaas kumpara sa aktwal na gilid ng chatbox, lalo na
-   napapansin ito sa mobile ("may gap pa sa hilid"). Ngayon, eksaktong
-   magkatugma na ang width + centering ng .faq-top-bar at ng
-   .faq-ai-box. */
 #view-faq.faq-fullchat-mode .faq-top-bar {
   flex-shrink: 0;
   max-width: 900px;
   width: 100%;
-  /* BUGFIX: hiling ng user — dapat "sagad"/flush ang chat thread papunta
-     sa top bar (~1px na lang na gap), hindi yung dating 14px na malaking
-     puwang sa pagitan ng credits pill at ng unang chat bubble. */
   margin: 0 auto 1px;
 }
-/* BAGO: hiling ng user — dating walang sariling background ang toggle
-   row na ito sa dark mode (transparent, kaya sumisilip ang itim/black
-   na page backdrop sa likod nito). Gamit dito ang color-mix ng
-   var(--dm-accent) — ang accent color ng KASALUKUYANG theme (iisa ring
-   variable ang ginagamit ng active na "AI Chatbot"/"Search" na slider
-   sa loob nito, see .faq-mode-slider) — kaya nagbabago ang kulay nito
-   kasabay ng pagpili ng ibang theme, sa halip na palaging itim. */
 body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar,
 .dark #view-faq.faq-fullchat-mode .faq-top-bar {
   background: color-mix(in srgb, var(--dm-accent, #7c5cff) 16%, transparent);
   border-radius: 14px;
-  /* BUGFIX: hiling ng user — dating "padding: 6px 8px" dito ang sanhi
-     ng "misalign"/pag-wrap ng toggle buttons sa sariling linya sa
-     mobile (Eng/Tag sa itaas, AI Chatbot/Search sa ibaba, credits pill
-     pa sa ibaba pa) — kinakain ng horizontal padding ang natitirang
-     lapad na kailangan ng .faq-mode-toggle-wrap (AI Chatbot/Search)
-     para magkasya pa rin sa parehong linya ng Eng/Tag (ang buong row
-     ay may flex-wrap:wrap, kaya kahit ilang px lang na pagbawas sa
-     available width ay sapat na para mag-wrap nang maaga). Vertical
-     padding na lang (walang horizontal) ang idinagdag dito para hindi
-     maapektuhan ang available width ng mga anak nito. */
   padding: 6px 0;
 }
 #view-faq.faq-fullchat-mode .faq-ai-box {
@@ -8765,16 +8587,6 @@ body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar,
   flex-direction: column;
   overflow: hidden;
 }
-/* BUGFIX: dating "max-height:none" dito ang dahilan kung bakit hindi
-   internal/loob-lang-ng-thread ang scroll — walang taas na hangganan
-   kaya lumalaki ang buong listahan ng mga sagot/tanong at ang buong
-   pahina na ang kailangang mag-scroll. Ngayon, bounded height ito
-   (flex:1 sa loob ng fixed-height na panel sa itaas) kaya ITO lang
-   mismo ang gumagalaw kapag nag-scroll — laging nakikita ang toggle
-   buttons sa itaas at ang search box/buttons sa ibaba. Ginagawa rin
-   nitong gumagana ang existing na "auto scroll to latest answer" (sa
-   faq-engine.js: thread.scrollTop = thread.scrollHeight) dahil may
-   tunay na itong internal scroll position ngayon. */
 #view-faq.faq-fullchat-mode .faq-chat-thread {
   flex: 1;
   min-height: 0;
@@ -8796,89 +8608,30 @@ body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar,
   flex-shrink: 0;
   position: sticky;
   bottom: 0;
-  /* BUGFIX: hiling ng user — dapat "sagad"/flush din ang chat thread
-     papunta sa search box/composer sa ibaba (~1px na lang na gap), hindi
-     yung dating 12px na padding-top na gumagawa ng malaking blangkong
-     puwang sa pagitan ng huling sagot at ng quick-action icons row. */
   padding: 1px 0 4px;
   background: var(--page-backdrop-light);
   background-attachment: fixed;
-  /* BAGO: itinutulak pataas ang composer sa ibabaw ng on-screen keyboard sa
-     mobile gamit ang --faq-kb-offset (itinatakda ng JS via visualViewport
-     sa setupFaqComposerKeyboardHandling, faq-engine.js). 0px kapag walang
-     keyboard/desktop, kaya walang epekto doon. */
   padding-bottom: calc(4px + var(--faq-kb-offset, 0px));
   transition: padding-bottom 0.15s ease;
 }
 body.dark-mode #view-faq.faq-fullchat-mode .faq-composer-dock,
 .dark #view-faq.faq-fullchat-mode .faq-composer-dock {
-  /* BAGO: hiling ng user — pinalitan mula sa var(--page-backdrop-dark)
-     (halos itim, kapareho lang ng buong page background) tungo sa
-     kulay na sumusunod sa accent ng kasalukuyang theme, kagaya ng
-     .faq-top-bar sa itaas. Dinagdagan din ng border-radius para hindi
-     patalas/parisukat ang gilid ng background nito. */
   background: color-mix(in srgb, var(--dm-accent, #7c5cff) 16%, transparent);
   border-radius: 14px;
 }
-/* BUGFIX (mobile, AI Chatbot/fullchat mode): ang budget sa itaas
-   (height/max-height: calc(100vh - 150px)) ay hindi isinasaalang-alang
-   ang nakapirming #app-bottom-nav sa mobile (<=1024px — see .bottom-nav
-   sa style.css, ~70px ang taas nito). Dahil dito, mas mataas pa sa
-   totoong nakikitang espasyo ang buong #view-faq.faq-fullchat-mode
-   container, kaya lumalagpas ito sa ilalim ng viewport at ang BUONG
-   PAGE (document) na ang nagiging scrollable sa halip na ang loob lang
-   ng .faq-chat-thread — ito mismo ang na-report na "freeze/stuck" na
-   bug (parang nakadikit/hindi tugma ang galaw ng toggle bar sa itaas at
-   ng composer/search box sa ibaba dahil magkaiba na ang scroll context
-   nila kumpara sa itinakdang sticky positions), at dahilan din kung
-   bakit hindi na "sagad" (flush) sa tunay na ilalim ng screen ang
-   composer/search box — kailangan pa munang mag-scroll ng buong pahina
-   para lang makita ito. Ibinabawas dito ang parehong 70px na ginagamit
-   na ng .main-content padding-bottom at ng Search-mode composer offset
-   sa itaas (tugma sa taas ng .bottom-nav) para eksaktong tumugma ang
-   container sa aktwal na nakikitang espasyo sa mobile — internal scroll
-   na lang ng .faq-chat-thread ang mangyayari, hindi na ang buong page. */
 @media (max-width: 1024px) {
   #view-faq.faq-fullchat-mode {
-    /* BUGFIX: kagaya ng sa itaas — ang dating "150px" ay tantiya lang,
-       hindi tumpak; ginagamit dito ang eksaktong 69px (.top-header) +
-       70px (#app-bottom-nav) na budget, kasabay ng mas manipis na
-       padding (6px sa itaas/ibaba, 12px sa gilid — sapat pa ring may
-       gap mula sa bottom-nav pero mas malaki na ang natitirang
-       espasyo ng chatbox kumpara sa dati). */
     padding: 6px 12px;
     height: calc(100vh - 69px - 70px);
     max-height: calc(100vh - 69px - 70px);
   }
 }
 
-/* --- BAGO: "Search" (kb) mode box look — request ng user: hindi na
-   dapat mukhang chat conversation na kausap ang AI (walang bubble
-   thread, walang docked/sticky bottom bar), pero gusto pa ring
-   magmukhang parang naka-loob-sa-isang-box (parang chat box) ang
-   lahat — kaya binibigyan ng magaan na card border/background ang
-   .faq-ai-box dito, kasama ang mga shortcut/"Common Questions" sa
-   loob nito bilang default na laman (see faq-engine.js:
-   setKbShortcutsVisible / #faq-kb-shortcuts sa index.html). --- */
 #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 14px;
   background: #ffffff;
   padding: 16px;
-  /* BUGFIX: dating umaasa lang ang .faq-composer-dock sa ibaba
-     (position:sticky) para "pumako" ito sa ilalim ng screen — pero
-     hindi kailanman puwedeng itulak ng sticky ang isang element
-     lampas sa ilalim ng sarili niyang parent box. Kapag maikli ang
-     laman ng .faq-ai-box (hal. walang pang resulta / iilan lang na
-     shortcut), agad na lang natatapat ang search box sa ibaba ng
-     maikling laman na iyon — malaking patay na puwang ang natitira
-     pababa (ito ang na-report na bug: lumulutang sa gitna ng screen
-     ang search box sa halip na nakapako sa tunay na ibaba). Dito,
-     ginagawang flex column ang box (min-height ay itinatakda ng JS
-     via faq-engine.js: syncFaqBoxMinHeight(), tugma sa aktwal na
-     natitirang taas ng viewport) para laging may sapat na puwang ang
-     composer na maabot ang tunay na ibaba, gumagana pa rin ang normal
-     na pag-scroll ng buong pahina kapag lumaki ang laman. */
   display: flex;
   flex-direction: column;
 }
@@ -8905,41 +8658,10 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
 .dark #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty) {
   border-top-color: var(--dm-border, rgba(255,255,255,0.12));
 }
-/* AI-only na composer affordances (screenshot attach) — walang silbi sa
-   plain keyword search kaya itinatago dito. */
 #view-faq:not(.faq-fullchat-mode) #faq-attach-btn {
   display: none;
 }
 
-/* ================================================================
-   BAGO/BUGFIX: i-"freeze" ang toggle bar (language + AI/Search mode
-   switch) at ang search box/composer sa Search (kb) mode gamit ang
-   position:sticky — kagaya mismo ng paraang ginagamit na ng
-   .top-header ng buong app (sticky sa itaas ng normal na document
-   scroll, see style.css .top-header).
-
-   BUGFIX: dating sinubukan dito ang IBANG paraan — ibinigay sa buong
-   #view-faq ang "bounded height" (height:calc(100vh - 150px);
-   overflow:hidden) na hiniram lang mula sa AI Chatbot fullchat mode
-   sa itaas, para gayahin ang "hindi gumagalaw" na epekto nito. PERO
-   may extra na mga elemento dito na wala sa fullchat mode
-   (#faq-classic-header, #faq-classic-subheader kasama ang AI
-   subscription status box) — kulang ang 150px budget na iyon para
-   sa mga ito, kaya lumagpas ang totoong laman sa inaasahang taas, at
-   dahil buong pahina pa rin talaga ang aktwal na gumagalaw/scroll
-   (walang overflow container sa itaas ng #view-faq — normal na
-   document-level scroll ito, hindi tulad ng akala), paulit-ulit na
-   "nakikita"/naka-tumpak ang buong .top-header ng app habang
-   dumadaan ang scroll sa gitna ng laman — ito ang naging
-   "humaharang/tumatabon sa mga shortcut" na bug na na-report.
-
-   Ngayon, hindi na pinipilit i-freeze/bilangin ang BUONG #view-faq sa
-   isang taasan — normal na muling gumagalaw ang buong pahina (tulad
-   ng dati), at ang .faq-top-bar lang mismo (sticky sa ilalim ng
-   .top-header, +3px gap) at ang .faq-composer-dock lang mismo (sticky
-   sa ibaba, +3px gap) ang ginagawang "frozen" — walang artificial na
-   overflow:hidden na nagbabanggaan sa totoong scroll ng pahina, kaya
-   hindi na maaaring mangyari ulit ang duplicate/overlapping na bug. */
 #view-faq:not(.faq-fullchat-mode) #faq-classic-header {
   margin-bottom: 3px;
 }
@@ -8948,35 +8670,17 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
 }
 #view-faq:not(.faq-fullchat-mode) .faq-top-bar {
   position: sticky;
-  top: 72px; /* 69px na taas ng .top-header + 3px na gap, gaya ng hiningi */
+  top: 72px;
   z-index: 60;
   margin-bottom: 3px;
   padding: 6px 0;
   background: var(--page-backdrop-light);
-  /* BUGFIX: naalis ang background-attachment:fixed dito — ang combo ng
-     position:sticky + background-attachment:fixed ay kilalang sanhi ng
-     paint/compositing glitch sa Android Chrome (stale/"ghost" na naka-
-     paint na layer). Resulta: kapag umalis ang user sa FAQ (Search/kb
-     mode) papuntang ibang view (hal. Overview), naiiwan pa ring
-     nakikita ang FAQ top bar/content sa ilalim ng bagong view hanggang
-     sa susunod na manual scroll/repaint — ito ang na-report na bug.
-     Hindi naman kailangan ang fixed attachment dito dahil naka-sticky
-     na mismo ang element — sapat na ang plain/static background. */
 }
 body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-top-bar,
 .dark #view-faq:not(.faq-fullchat-mode) .faq-top-bar {
-  /* BAGO: hiling ng user — pinalitan mula sa var(--page-backdrop-dark)
-     (halos itim) tungo sa kulay na sumusunod sa accent ng
-     kasalukuyang theme, kagaya ng ginawa sa AI Chatbot/fullchat mode. */
   background: color-mix(in srgb, var(--dm-accent, #7c5cff) 16%, transparent);
   border-radius: 14px;
 }
-/* BUGFIX: dating naka-margin-top:14px/padding-top:14px/border-top ang
-   composer dito — pinalitan ng masisikip na 3px na gap, kasama ang
-   parehong --faq-kb-offset variable na ginagamit na sa fullchat mode
-   para itaas ang composer sa ibabaw ng on-screen keyboard sa mobile
-   (see faq-engine.js: setupFaqComposerKeyboardHandling — pinapagana
-   na rin ito ngayon sa Search mode, hindi na fullchat-only). */
 #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
   flex-shrink: 0;
   position: sticky;
@@ -8987,43 +8691,22 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-top-bar,
   padding-bottom: calc(3px + var(--faq-kb-offset, 0px));
   border-top: none;
   background: var(--page-backdrop-light);
-  /* BUGFIX: see .faq-top-bar sa itaas — inalis din dito ang
-     background-attachment:fixed (sticky + fixed-attachment na
-     background ang sanhi ng "ghost"/stale paint sa Android Chrome
-     kapag lumipat ang view palayo sa FAQ Search mode). */
   transition: padding-bottom 0.15s ease, bottom 0.15s ease;
 }
 body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
 .dark #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
-  /* BAGO: hiling ng user — pinalitan mula sa var(--page-backdrop-dark)
-     (halos itim) tungo sa kulay na sumusunod sa accent ng
-     kasalukuyang theme, kagaya ng ginawa sa AI Chatbot/fullchat mode. */
   background: color-mix(in srgb, var(--dm-accent, #7c5cff) 16%, transparent);
   border-radius: 14px;
 }
-/* Iwasan matabunan ng nakapirming #app-bottom-nav (mobile, <=1024px —
-   see .bottom-nav sa style.css) ang search box: itinaas ang "stick"
-   point ng eksaktong taas nito (~70px) + 3px na gap. */
 @media (max-width: 1024px) {
   #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
     bottom: calc(70px + 3px);
   }
-  /* BUGFIX: habang naka-focus ang #faq-ai-input (bukas ang on-screen
-     keyboard), itinatago na ng JS ang #app-bottom-nav
-     (setupFaqComposerKeyboardHandling sa faq-engine.js, .bottom-nav-hidden),
-     pero pareho pa ring nag-i-reserve ang rule sa itaas ng buong ~73px
-     na puwang nito. Resulta: malaking patay na puwang sa pagitan ng
-     search box at ng keyboard mismo, kung saan sumisilip pa ang
-     #faq-kb-shortcuts sa likod nito. Kapag naka-focus (.faq-kb-active,
-     idinaragdag/inaalis ng JS), ibalik sa 3px lang ang gap — kapareho
-     ng ginagamit na sa Fullchat mode — dahil wala nang bottom nav na
-     kailangang bigyan-daan sa oras na iyon. */
   #view-faq:not(.faq-fullchat-mode).faq-kb-active .faq-composer-dock {
     bottom: 3px;
   }
 }
 
-/* --- support ticket modal --- */
 .faq-ticket-modal-backdrop {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
   display: flex; align-items: center; justify-content: center;
@@ -9056,26 +8739,14 @@ body.dark-mode .faq-ticket-modal-body textarea, .dark .faq-ticket-modal-body tex
 }
 @media (max-width: 640px) {
   #view-faq.faq-fullchat-mode .faq-ai-box { max-width: 100%; }
-  /* BUGFIX: dati walang override dito para sa .faq-top-bar, kaya
-     naiiwan itong naka-900px/naka-center habang ang chatbox ay naging
-     100% na — sa mobile, magkaiba ang epektibong width kaya
-     nagkakaroon ng di-pantay na "gap sa hilid" ang dalawang toggle
-     button kumpara sa tunay na gilid ng chatbox. Ipinapantay dito. */
   #view-faq.faq-fullchat-mode .faq-top-bar { max-width: 100%; }
   .faq-top-bar { gap: 6px; }
   .faq-ticket-btn span, #faq-new-convo-text { display: none; }
-  /* BAGO: hiling ng user — kapag Search (kb) mode ang naka-toggle,
-     dapat laging may kasamang text na "New search" (o "Bagong
-     paghahanap" sa Tagalog) ang refresh button, hindi basta icon-only
-     — kahit sa pinakamaliit na mobile width. Ang icon-only na
-     display:none sa itaas ay para lang sa AI Chatbot (fullchat) mode,
-     kung saan mas compact talaga dapat ang chat controls. */
   #view-faq:not(.faq-fullchat-mode) #faq-new-convo-text {
     display: inline !important;
   }
 }
 
-/* --- rate-limit notice with live countdown --- */
 .faq-ratelimit-countdown { white-space: nowrap; }
 #faq-retry-secs { font-variant-numeric: tabular-nums; }
 
@@ -9384,16 +9055,6 @@ body.dark-mode .reorder-card-actions {
         flex: none !important;
         min-height: 0 !important;
     }
-    /* On mobile the rows above become stacked "cards" (Product/Supplier/.../
-       Actions each on their own line), which are much taller than a normal
-       table row — that's why the table's own internal scrollbar was just
-       turned off above, letting it grow to full content height instead.
-       But #view-reorder itself (and its Create PO / PO History tab panels)
-       is still pinned to a fixed, viewport-relative height meant for a
-       table that scrolls INTERNALLY — so without also freeing this outer
-       shell to grow with its content, the last card's Action buttons render
-       past that fixed box and are never reachable, in List or Grid view, on
-       either tab. */
     #view-reorder.app-view:not(.terminal-theme) {
         height: auto !important;
         min-height: 0 !important;
@@ -11209,9 +10870,6 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     }
 }
 
-/* ===================================================================
-   CLOUD TOKENS ("diamonds") — Admin/Client-only page.
-=================================================================== */
 .ct-card {
     background: var(--top-header-bg, #ffffff);
     border: 1px solid var(--border-color);
@@ -11472,13 +11130,6 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
 .ct-btn:hover {
     filter: brightness(0.95);
 }
-/* AYOS/BAGO: yung mga plain .ct-btn na walang .ct-btn-primary/.ct-btn-secondary
-   (hal. "View All / Transaction History" at "Load more") ay dating walang
-   background/color/border kaya default browser button lang ang lumalabas
-   at hindi sumusunod sa theme. Ngayon, sumusunod na ito sa parehong
-   --top-header-bg/--text-primary/--border-color na ginagamit ng ibang
-   parte ng Cloud Tokens page (at ng modal, tingnan ang scoped block sa
-   ibaba), kaya readable at tama ang kulay sa lahat ng tema. */
 .ct-btn:not(.ct-btn-primary):not(.ct-btn-secondary) {
     background: var(--top-header-bg, #ffffff);
     color: var(--text-primary);
@@ -11523,29 +11174,6 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     color: var(--text-primary);
 }
 
-/* ===================================================================
-   CLOUD TOKENS — Dark / Pro theme readability pass.
-   Naka-scope lang sa #view-cloudtokens (walang epekto sa ibang page).
-   Ginagamit dito ang parehong --dm-* variables na ginagamit na ng
-   ibang parte ng app (tingnan ang mga theme-*.css sa css/themes/),
-   kaya awtomatiko itong "sumusunod" sa KAHIT ANONG naka-activate na
-   tema — Dark, Ocean, Emerald, Sunset, Rose Gold, Cyber, Coffee Noir,
-   Mint Frost, Liquid Glass, Galaxy Ambient — dahil iisa lang ang
-   `body.dark-mode` class na dinadagdag ng JS (applyTheme()) sa lahat
-   ng temang ito maliban sa "Day". Kapag may bagong tema sa hinaharap
-   na may sarili ring --dm-* set, awtomatiko na rin itong masasakop
-   nang walang karagdagang code dito.
-
-   AYOS/BAGO: kasama na rin dito ang #ct-history-modal. Ang Transaction
-   History modal ay nasa LABAS ng <section id="view-cloudtokens"> sa
-   markup (fixed-position overlay na idineklara pagkatapos ng closing
-   </section> tag), kaya hindi ito nasasakop ng dating selector na
-   "body.dark-mode #view-cloudtokens" lang — dati, palagi itong bumabalik
-   sa light-theme na kulay (o sa hardcoded dark background) kahit anong
-   tema ang naka-active, kaya unreadable ang text/icons sa maraming tema.
-   Idinagdag ang #ct-history-modal dito para sumunod din ito (at ang
-   laman nito) sa currently-active na tema.
-=================================================================== */
 body.dark-mode #view-cloudtokens,
 body.dark-mode #ct-history-modal {
     --text-primary: var(--dm-text-primary);
@@ -11556,11 +11184,6 @@ body.dark-mode #ct-history-modal {
     --accent-blue-light: var(--dm-accent-soft);
     --top-header-bg: var(--dm-surface);
 }
-/* Native <select> dropdown-list items (ang popup list mismo, hal. ang
-   "All categories" dropdown) ay hindi sumusunod sa CSS variable
-   inheritance — kailangan explicit na background-color/color sa
-   mismong <option>, gaya ng ginagawa na rin ng .input-field-group
-   select option sa ibang bahagi ng app. */
 body.dark-mode .ct-payment-select option {
     background-color: var(--dm-surface);
     color: var(--dm-text-primary);
@@ -11608,15 +11231,12 @@ body.dark-mode .ct-package-breakdown {
     background: var(--dm-accent-soft);
 }
 
-/* AI FAQ voice input - V1 only */
 .faq-voice-btn.is-listening { color: var(--primary-blue, #2563eb); border-color: var(--primary-blue, #2563eb); background: rgba(37, 99, 235, 0.10); }
 .faq-voice-btn.is-listening i { animation: faqVoicePulse 1s ease-in-out infinite; }
 .faq-voice-btn.unsupported { opacity: 0.45; cursor: not-allowed; }
 @keyframes faqVoicePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
 @media (prefers-reduced-motion: reduce) { .faq-voice-btn.is-listening i { animation: none; } }
 
-/* Desktop: keep the language control on the left, AI/Search toggle truly
-   centered, and the remaining FAQ actions on the right. */
 @media (min-width: 769px) {
   .faq-top-bar {
     width: 100%;
@@ -11643,9 +11263,6 @@ body.dark-mode .ct-package-breakdown {
   }
 }
 
-
-
-/* AI CHAT DESKTOP: restore compact original top controls layout */
 @media (min-width: 769px) {
   #faq-ai-mode-toggle,
   .faq-ai-mode-toggle,
@@ -11658,76 +11275,12 @@ body.dark-mode .ct-package-breakdown {
   }
 }
 
-/* ================================================================
-   AI FAQ DESKTOP — NO OUTER PAGE SCROLL, ONLY THE CHATBOX SCROLLS
-   ================================================================
-   Hiling ng user: sa desktop, alisin ang scrollbar sa gilid ng buong
-   pahina, panatilihing naka-pako/sticky ang "Frequently Asked
-   Questions (FAQ)" heading pati ang toggle row, at ang LOOB LANG ng
-   chatbox card (ang Common Questions list / AI resulta) ang dapat
-   gumagalaw kapag nag-scroll.
-
-   BUGFIX-HISTORY: may naunang pagtatangka nito na nag-iwan ng
-   detalyadong paliwanag sa itaas (tignan bago ang
-   "#view-faq:not(.faq-fullchat-mode) #faq-classic-header") — dati,
-   gumamit sila ng hardcoded na height:calc(100vh - 150px) bilang
-   "budget" ng natitirang espasyo, pero hindi nito na-account ang
-   iba't-ibang laki ng extra na laman sa itaas (subscription status,
-   atbp.), kaya lumagpas ang totoong laman at bumalik sa normal na
-   buong-pahina na scroll — na dulot ng "duplicate/overlapping header"
-   na bug. Dito, TUNAY na flexbox distribution ang ginamit sa halip
-   ng hardcoded na numero: flex-shrink:0 sa header/toggle row (kahit
-   anong laki ng laman nito, hindi ito babawasan ng espasyo ng iba),
-   at flex:1;min-height:0;overflow-y:auto LANG sa aktwal na
-   scrollable na listahan/resulta — awtomatiko nang tama ang
-   paghahati ng natitirang espasyo, kaya hindi na maaaring mangyari
-   ulit ang dating bug. Desktop lang ito (>=1025px) — hindi ginalaw
-   ang mobile/tablet, dahil doon ligtas at gumagana nang maayos ang
-   umiiral nang approach (normal pang buong-pahina ang scroll doon,
-   see syncFaqBoxMinHeight sa faq-engine.js), at maaaring magdulot ng
-   bagong isyu ang bounded+overflow:hidden na paraan kapag lumitaw
-   ang on-screen keyboard sa mobile. */
 @media (min-width: 1025px) {
   #view-faq:not(.faq-fullchat-mode) {
-    /* BUGFIX: dating "display: flex !important;" — natatalo ng
-       !important ang inline style="display:none" na inilalagay ng
-       switchView() (app.js) tuwing lumilipat sa ibang view (hal.
-       Overview), kaya nananatiling GUMAGANA/NAKIKITA ang FAQ view
-       sa likod ng ibang view (tumatagos ang FAQ list/menu). Sapat na
-       ang specificity ng ID selector na ito para manalo laban sa
-       default/generic na mga rule kahit walang !important — kaya
-       ligtas itong tanggalin: kapag WALANG inline override (ibig
-       sabihin, ito ang kasalukuyang aktibong view), mananalo pa rin
-       ang display:flex mula rito; kapag may inline display:none
-       (hindi ito ang aktibong view), ang inline style — na wala nang
-       katunggaling !important — ang susundin, tama ang pagkatago. */
     display: flex;
     flex-direction: column !important;
-    /* BUGFIX: si .content-body (direktang parent ng #view-faq) ay may
-       sariling padding:30px sa LAHAT ng gilid — hindi ito isinaalang-
-       alang ng orihinal na height:calc(100vh - 69px), kaya 60px
-       (30px sa itaas + 30px sa ibaba) na sobra ang aktwal na
-       kinakailangang taas, sanhi ng natitirang bahagyang page-level
-       scroll pati na ang hindi tamang laki ng blangkong puwang bago
-       ang composer (ito ang na-report na bug sa desktop screenshot).
-       Ngayon, "hinihila" pataas/pababa/kaliwa/kanan ng negative
-       margin ang #view-faq papunta mismo sa gilid ng .content-body
-       (kinakansela ang 30px padding nito), kaya tumpak na ang
-       calc(100vh - 69px) bilang reference — at ibinabalik ang
-       parehong 30px na puwang bilang SARILING internal padding nito
-       (kasama ang box-sizing:border-box para hindi ito magdagdag ng
-       extra sa itinakdang taas). */
     margin: -30px !important;
-    height: calc(100vh - 69px) !important; /* 69px = .top-header height */
-    /* BUGFIX: hiling ng user — i-expand din ang chatbox sa Search (kb)
-       mode, kagaya ng ginawa sa AI Chatbot/fullchat mode sa itaas.
-       Dating 30px pantay sa lahat ng gilid ang internal padding dito
-       (kinakansela lang nito ang 30px padding ng .content-body nang
-       walang binabawas na espasyo) — pinapaliit dito sa 10px sa itaas/
-       ibaba (mas malapit ang laman sa header sa itaas, at mas malaki
-       ang natitirang taas para sa scrollable na FAQ list/resulta),
-       pero pinapanatili ang 30px sa gilid para sa dating left/right
-       spacing. */
+    height: calc(100vh - 69px) !important;
     padding: 10px 30px !important;
     box-sizing: border-box !important;
     overflow: hidden !important;
@@ -11748,20 +11301,6 @@ body.dark-mode .ct-package-breakdown {
   #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box {
     overflow-y: auto !important;
   }
-  /* BUGFIX: sa loob ng .faq-ai-box (flex column), pareho noong may
-     flex:1 ang #faq-kb-shortcuts AT ang .faq-ai-result-box (base rule,
-     style.css ~L8615) — kaya kahit BLANGKO pa ang result box (walang
-     pang tinanong/hinanap, "Common Questions" lang ang nakikita),
-     kumukuha pa rin ito ng KALAHATI ng natitirang taas ng chatbox
-     (parehong flex-grow:1, flex-basis:0). Sa desktop, naka-bounded na
-     ang taas ng .faq-ai-box (overflow:hidden sa itaas), kaya lantad
-     na malaking patay/blangkong puwang sa gitna ng listahan ng FAQ at
-     ng composer sa ibaba — ito ang "kinain ng malaking gap ang
-     chatbox" na na-report. Ayusin: #faq-kb-shortcuts lang ang laging
-     kumukuha ng natitirang espasyo (flex:1) — ang .faq-ai-result-box
-     ay hindi kumukuha ng puwang habang blangko pa (flex:0, walang
-     natural na taas), at flex:1 lang ito kapag may laman na (may
-     resulta na dapat i-scroll). */
   #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts {
     flex: 1 !important;
   }
@@ -11779,12 +11318,6 @@ body.dark-mode .ct-package-breakdown {
   }
 }
 
-/* ================================================================
-   AI FAQ DESKTOP — FINAL POSITIONING
-   Desktop only: one horizontal control row, with AI Credits + expiry
-   centered, language on the left, AI/Search on the right. New
-   Conversation shares the quick-action row above the composer.
-   ================================================================ */
 @media (min-width: 1025px) {
   #view-faq .faq-top-bar {
     width: 100% !important;
@@ -11806,13 +11339,7 @@ body.dark-mode .ct-package-breakdown {
   #view-faq #ai-assistant-credit-expiry {
     grid-column: 2 !important;
     justify-self: center !important;
-    display: inline-flex; /* BUGFIX: tinanggal ang !important — dating pinipilit
-       nitong laging bisible ang wrapper kahit walang laman ang alinman sa
-       dalawang anak nito (credit-pill/subscription-status), kaya lumalabas
-       itong walang-lamang "ghost" na capsule. Ngayon, kaya nang i-override
-       ito ng syncAiCreditExpiryWrapper() sa app.js gamit ang normal na
-       inline style (.style.display), habang naka-inline-flex pa rin ito
-       kapag talagang may ipinapakita. */
+    display: inline-flex;
     align-items: center !important;
     justify-content: center !important;
     gap: 0 !important;
@@ -11843,14 +11370,11 @@ body.dark-mode .ct-package-breakdown {
     justify-content: flex-end !important;
   }
 
-  /* Never show the old text Support Ticket / New Conversation controls
-     in the top bar. The ticket icon remains in the lower quick actions. */
   #view-faq #faq-top-bar #faq-ticket-btn,
   #view-faq #faq-top-bar > .faq-toolbar-btn {
     display: none !important;
   }
 
-  /* Chatbot and Search/Common Questions use the exact same centered width. */
   #view-faq .faq-ai-box,
   #view-faq.faq-fullchat-mode .faq-ai-box,
   #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
@@ -11867,9 +11391,6 @@ body.dark-mode .ct-package-breakdown {
     box-sizing: border-box !important;
   }
 
-  /* Quick-action icons + New Conversation: one row. The three existing
-     quick-action icons stay on the left; New Conversation is exactly
-     centered relative to the 900px Search/Chat box. */
   #view-faq .faq-quick-actions-row {
     position: relative !important;
     display: grid !important;
@@ -11928,7 +11449,6 @@ body.dark-mode .ct-package-breakdown {
   }
 }
 
-/* AI FAQ DESKTOP — requested final arrangement */
 @media (min-width: 1025px) {
   #view-faq .faq-top-bar {
     width: 100% !important;
@@ -11962,7 +11482,6 @@ body.dark-mode .ct-package-breakdown {
   #view-faq #faq-top-bar #faq-ticket-btn,
   #view-faq #faq-top-bar > .faq-toolbar-btn { display: none !important; }
 
-  /* Both AI Chatbot and Search/Common Questions share the same desktop footprint. */
   #view-faq .faq-ai-box,
   #view-faq.faq-fullchat-mode .faq-ai-box,
   #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
@@ -11973,8 +11492,6 @@ body.dark-mode .ct-package-breakdown {
   #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
   #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box { width: 100% !important; box-sizing: border-box !important; }
 
-  /* Three existing quick-action icons + New Conversation on ONE row;
-     New Conversation is centered to the 900px chat/search box. */
   #view-faq .faq-quick-actions-row {
     width: 100% !important; min-height: 38px !important; margin: 0 0 6px !important;
     display: grid !important; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) !important;
@@ -12004,62 +11521,12 @@ body.dark-mode .ct-package-breakdown {
   .dark #view-faq .faq-new-conversation-btn { background: rgba(255,255,255,.05) !important; border-color: var(--dm-border,rgba(255,255,255,.12)) !important; color: var(--dm-text-secondary,#9a9ba8) !important; }
 }
 
-/* ================================================================
-   AI FAQ MOBILE/TABLET — "NO OUTER PAGE SCROLL, ONLY THE CHATBOX
-   SCROLLS", kagaya ng ginawa na para sa desktop sa itaas ("AI FAQ
-   DESKTOP — NO OUTER PAGE SCROLL" block).
-   ================================================================
-   Hiling ng user: sa mobile view, dapat manatiling nakapirmi/hindi
-   nadadala ng pag-scroll ang toggle card sa itaas (Eng/Tag + AI
-   Chatbot/Search), walang scrollbar ang buong pahina, at LOOB LANG
-   ng chatbox card (ang Common Questions list / AI resulta) ang
-   dapat gumagalaw kapag nag-scroll — parehong flexbox distribution
-   (flex-shrink:0 sa header/toggle row, flex:1;min-height:0;
-   overflow-y:auto lang sa aktwal na scrollable list) ang ginamit
-   dito, kagaya ng desktop, sa halip na ang dating position:sticky
-   na paraan (hindi laging maaasahang mag-freeze sa itaas kapag
-   dynamic ang laman sa taas nito — ito ang naging "nadadala pa rin
-   ng scroll ang toggle card" na na-report).
-
-   Saklaw: <=1024px (parehong totoong mobile at tablet). Idinagdag
-   ang 70px na reserved height ng nakapirming #app-bottom-nav (see
-   .bottom-nav sa style.css) bukod pa sa 69px ng .top-header, dahil
-   may extra pang nakapirming navigation bar sa ibaba ng screen dito
-   na wala sa desktop. */
 @media (max-width: 1024px) {
-  /* BUGFIX: dating 30px (kopya lang mula sa desktop) ang parehong
-     outer padding ng #view-faq AT internal padding ng .faq-ai-box
-     card dito — sa makitid na mobile screen, malaking bahagi ng
-     natitirang taas (na dapat sana ay para sa aktwal na listahan ng
-     FAQ) ang nauubos na lang sa mga patay na puwang na ito sa itaas/
-     ibaba/gilid ng card ("madaming nasasaying na space" na
-     na-report). Pinaliit dito ang mga ito (12px sa labas, 10px sa
-     loob ng card) — mas maraming category ang makikita nang hindi
-     kailangang mag-scroll, habang buo pa ring naka-fit ang lahat sa
-     loob ng screen (walang page-level scroll, see kalakip na mga
-     patakaran sa ibaba). */
   #view-faq:not(.faq-fullchat-mode) {
-    /* BUGFIX (mobile — ito ang na-report na bug sa Overview screenshot):
-       dating "display: flex !important;" — sa mobile bottom-nav/sidebar
-       navigation, ang switchView() (app.js) ay naglalagay ng inline
-       style="display:none" sa #view-faq kapag lumipat sa ibang view
-       (hal. Overview), pero natatalo ito ng !important dito, kaya
-       nananatiling naka-force VISIBLE ang FAQ card sa likod ng
-       Overview/Sign-Out dropdown (ito mismo ang tumatagos na FAQ list
-       sa screenshot). Sapat na ang specificity ng ID selector na ito
-       kaya hindi na kailangan ng !important dito: kapag ito ang aktibong
-       view (walang inline override), mananalo pa rin ang display:flex
-       mula rito; kapag hindi ito ang aktibong view (may inline
-       display:none), ang inline style na 'yon — na wala nang
-       katunggaling !important — ang susundin, kaya tama nang matatago. */
     display: flex;
     flex-direction: column !important;
     margin: -30px !important;
-    height: calc(100vh - 69px - 60px) !important; /* 69px header + 70px bottom nav */
-    /* BUGFIX: hiling ng user — i-expand din ang chatbox sa mobile
-       Search (kb) mode. Dating 12px pantay sa lahat ng gilid — dito,
-       6px na lang sa itaas/ibaba (mas malapit sa header, mas malaki
-       ang natitirang taas), pero pinapanatili ang 12px sa gilid. */
+    height: calc(100vh - 69px - 60px) !important;
     padding: 6px 3px !important;
     box-sizing: border-box !important;
     overflow: hidden !important;
@@ -12083,10 +11550,6 @@ body.dark-mode .ct-package-breakdown {
   #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box {
     overflow-y: auto !important;
   }
-  /* Kagaya ng desktop: #faq-kb-shortcuts lang ang laging kumukuha ng
-     natitirang espasyo — hindi kumukuha ng puwang ang blangkong
-     .faq-ai-result-box (iniiwasan ang "malaking gap" sa gitna ng
-     chatbox), flex:1 lang ito kapag may laman na. */
   #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts {
     flex: 1 !important;
   }
@@ -12103,58 +11566,12 @@ body.dark-mode .ct-package-breakdown {
     flex-shrink: 0 !important;
   }
 
-  /* "New search"/refresh button: laging BLANGKO ang #faq-quick-actions
-     sa Search (kb) mode (mga icon lang ito para sa AI Chatbot mode —
-     see faq-engine.js: renderQuickActions), at itinatago pa nga ito
-     (".faq-quick-actions:empty { display:none }") — kaya IISA na
-     lang na item ang natitira sa loob ng ".faq-quick-actions-row".
-     Sa ganitong kaso, kahit "space-between" pa ang gamit (see ang
-     <=768px na rule sa ibaba, para sa AI Chatbot mode na may ilang
-     icon), lumalapat pa rin ito sa KALIWA sa halip na sa GITNA
-     (default na behavior ng flexbox "space-between" kapag iisa lang
-     ang item) — ito ang "hindi nakapirmi sa gitna" na na-report.
-     Mas mataas ang specificity ng selector dito (may ":not()") kaya
-     ito ang mananalo laban sa <=768px na rule sa ibaba. */
   #view-faq:not(.faq-fullchat-mode) .faq-quick-actions-row {
     justify-content: center !important;
   }
 }
 
-/* ================================================================
-   AI FAQ MOBILE — ipinapantay dito sa mobile ang pwesto ng mga
-   toggle/button/card na kagaya ng desktop (see "AI FAQ DESKTOP"
-   blocks sa itaas), MALIBAN sa #faq-classic-header (hindi ito
-   ginagalaw) at sa AI Credits + Expiry pill: dahil makitid ang
-   mobile width, magpapatong/mag-o-overflow ang tatlong grupo (lang
-   toggle, AI Chatbot/Search toggle, credit+expiry pill) kung
-   ipapaskil sila sa iisang hilera lang, kaya inilipat ang
-   credit+expiry sa sarili nitong ikalawang hilera:
-
-     Row 1: Eng/Tag toggle (kaliwa)  <->  AI Chatbot/Search toggle (kanan)
-     Row 2: AI Credits + Expiry pill, naka-center
-
-   Saklaw lang nito ang tunay na mobile width (<=768px) — hindi
-   ginagalaw ang tablet (769–1024px) at desktop (>=1025px) na mga
-   arrangement sa itaas. */
 @media screen and (max-width: 768px) {
-  /* Flexbox (hindi rigid na 2-column grid) sinasadya dito: ang lang
-     toggle + AI Chatbot/Search toggle ay may sapat na lapad (lalo na
-     ang "AI Chatbot"/"Search" na buong salita, walang text-wrap) na
-     hindi laging kasya sa iisang linya sa pinakamakikitid na phone
-     width (~360-375px, minus ang content padding). Gamit ang
-     flex-wrap:wrap, kung kasya sila (karamihan ng phone, >=~410px na
-     content width) magkatabi sila kagaya ng hiniling (lang kaliwa,
-     toggle kanan); kung hindi kasya, awtomatikong nalalaglag na lang
-     ng sarili nitong linya ang AI/Search toggle sa halip na mag-overflow
-     o mapasingit — walang horizontal scroll/clipping na mangyayari.
-     Ang credit+expiry pill naman ay laging PILIT nasa sarili nitong
-     bagong linya (via ang zero-size ::after "line-break" trick sa
-     ibaba — karaniwang paraan sa flexbox para pilitin ang susunod na
-     item papunta sa bagong linya nang hindi kinakailangang gawing
-     100% width mismo ang item na iyon), at naka-center dahil sa
-     margin:auto — kaya nananatiling "hugging"/maliit lang ang laki ng
-     pill nito (hindi ito nag-e-stretch sa buong lapad ng row, na
-     sana ay sisirain ang bilog/pill na hitsura nito). */
   #view-faq .faq-top-bar {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -12173,8 +11590,6 @@ body.dark-mode .ct-package-breakdown {
     align-items: center !important;
     justify-content: flex-end !important;
   }
-  /* Pilit na bagong linya bago ang credit+expiry pill (order:3),
-     nang hindi kinakailangang i-stretch ang pill mismo sa 100% width. */
   #view-faq .faq-top-bar::after {
     content: "";
     order: 3;
@@ -12185,13 +11600,7 @@ body.dark-mode .ct-package-breakdown {
   #view-faq #ai-assistant-credit-expiry {
     order: 4 !important;
     margin: 0 auto !important;
-    display: inline-flex; /* BUGFIX: tinanggal ang !important dito — ito
-       mismo ang dahilan kung bakit palaging nananatiling bisible (bilang
-       walang-lamang "ghost" capsule) ang wrapper na ito sa mobile kahit
-       na sinusubukan na siyang itago ng JS (syncAiCreditExpiryWrapper,
-       app.js) tuwing walang laman ang credit-pill/subscription-status —
-       hindi kailanman kayang talunin ng inline style ang isang
-       !important na stylesheet rule. */
+    display: inline-flex;
     align-items: center !important;
     justify-content: center !important;
     gap: 0 !important;
@@ -12217,12 +11626,6 @@ body.dark-mode .ct-package-breakdown {
     border-color: var(--dm-border, rgba(255,255,255,0.12)) !important;
   }
 
-  /* Ang "New conversation"/refresh button ay dapat kasabay sa
-     PAREHONG hilera ng tatlong diagnostic quick-action icons sa
-     itaas ng search box/composer — kagaya ng desktop — sa halip na
-     mahulog sa sarili nitong linya sa ibaba nito (dati, walang
-     display rule ang .faq-quick-actions-row sa mobile kaya
-     block-level lang ito at nag-a-"stack" nang patayo). */
   #view-faq .faq-quick-actions-row {
     display: flex !important;
     align-items: center !important;
@@ -12231,14 +11634,6 @@ body.dark-mode .ct-package-breakdown {
     gap: 3px !important;
     margin: 0 0 3px !important;
   }
-  /* BUGFIX: hiling ng user — dapat "sagad"/flush ang AI Chatbot (fullchat)
-     na chat thread papunta sa quick-action icons row sa ibaba (~1px na
-     lang na gap), pero ang margin-bottom: 10px !important sa itaas
-     (na para talaga sa Search/kb mode spacing) ay tumatalab din sa
-     fullchat mode dahil parehong ".faq-quick-actions-row" lang ang
-     ginagamit na selector doon. Mas mataas ang specificity nito
-     (may dagdag na ".faq-fullchat-mode" class) kaya ito ang mananalo
-     PARA SA fullchat mode lamang — hindi naaapektuhan ang Search mode. */
   #view-faq.faq-fullchat-mode .faq-quick-actions-row {
     margin: 0 0 1px !important;
   }
@@ -12276,21 +11671,7 @@ body.dark-mode .ct-package-breakdown {
   }
 }
 
-/* =====================================================================
-   Desktop/tablet terminal product grid — fixed card size
-   Mobile (<=768px) keeps its original responsive minmax(128px, 1fr)
-   behavior untouched. From 769px up, the auto-fill + 1fr track was
-   letting each .t-product-card stretch or shrink to fill the row,
-   so cards changed size depending on window/pane width instead of
-   staying the same size as the mobile design. Locking the column
-   track to a fixed width keeps every card the same physical size on
-   any desktop/tablet width; the grid simply wraps more cards per row
-   (or fewer) and keeps scrolling via the grid's existing
-   overflow-y: auto — no card ever grows or shrinks.
-   ===================================================================== */
 @media screen and (min-width: 769px) {
-    /* Desktop grid uses the same product-card layout as mobile grid view.
-       Only the grid track is fixed so cards never stretch or collapse. */
     .terminal-products-grid {
         grid-template-columns: repeat(auto-fill, 175px) !important;
         grid-auto-rows: max-content;
@@ -12375,8 +11756,6 @@ body.dark-mode .ct-package-breakdown {
         box-sizing: border-box;
     }
 }
-/* Desktop-only quick navigation for Transaction Database Records.
-   Mobile/tablet keeps the existing responsive header untouched. */
 .transactions-page-title-row {
     display: flex;
     align-items: center;
@@ -12425,8 +11804,6 @@ body.dark-mode .ct-package-breakdown {
 .transactions-void-refund-shortcut {
     display: none !important;
 }
-
-
 
 @media screen and (min-width: 1025px) {
     .transactions-void-refund-shortcut {

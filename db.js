@@ -487,7 +487,11 @@ function mirrorBackupToDownloads() {
 // or Pinggy auth token) — it must be treated with the exact same care as
 // the Cloudflare Tunnel Token above, which is why it stays inside this
 // SAME excluded key rather than a separate one.
-const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig']);
+// 'onlinePaymentGatewayCredentials' holds raw Secret Keys for the
+// additional (non-PayMongo) Online Payment gateways added alongside
+// PayMongo (e.g. Xendit) — same class of secret as 'paymongoCredentials'
+// above, so it is excluded here for the exact same reason.
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 // BUG FIX: dating ginagamit ng AI Assistant database snapshot (see
 // getAiKnowledgeSnapshot() sa ibaba) ang PAREHONG
@@ -594,7 +598,14 @@ const AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES = new Set([
     // class of secret as 'sessions', so it must never be handed to the
     // third-party AI provider as context either, even for a full-scope
     // Admin snapshot.
-    'cloudflareTunnelConfig'
+    // SECURITY: 'paymongoCredentials' holds a raw PayMongo Secret Key
+    // (test and/or live) used for Online Payments (QR Ph) — same class of
+    // secret as the Cloudflare Tunnel Token above, so it must never be
+    // handed to the third-party AI provider as context either.
+    // SECURITY: 'onlinePaymentGatewayCredentials' holds raw Secret Keys for
+    // any additional (non-PayMongo) Online Payment gateway connected
+    // (e.g. Xendit) — same class of secret as 'paymongoCredentials' above.
+    'cloudflareTunnelConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials'
 ]);
 // Kapag hindi Admin/authorized ang naka-login, ito lang ang mga module na
 // isasama — basic catalog/store info, walang financial totals, walang
