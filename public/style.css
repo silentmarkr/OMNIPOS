@@ -1178,10 +1178,41 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 30px;
+    /* Dati ay "0 30px" lang ang padding, kaya sa mga device na may
+       notch/camera cutout o rounded corner sa LEFT side ng screen
+       (halimbawa sa ilang Android phone sa landscape, o may punch-hole
+       camera), naikakaltas o naitatago ng cutout ang hamburger menu at
+       logo dahil walang kahit anong extra space na nireresерba doon —
+       ito ang "humaharang" sa pag-adjust ng header sa leftside. Gamit
+       ang env(safe-area-inset-left/right) idinaragdag ang eksaktong
+       espasyo na kailangan ng OS/device sa magkabilang gilid, sa ibabaw
+       ng normal na 30px padding. Zero ang env() na ito sa mga device na
+       walang cutout (Android/desktop/no-notch), kaya walang epekto doon. */
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: calc(30px + env(safe-area-inset-left, 0px));
+    padding-right: calc(30px + env(safe-area-inset-right, 0px));
     position: sticky;
     top: 0;
     z-index: 90;
+}
+/* Pinapalawak ang background ng header papunta sa likod ng iOS status
+   bar/notch (safe area), para ang parehong kulay na sumusunod na sa
+   theme (background-color/background-image ng .top-header) ang lumabas
+   dito, sa halip na default black status bar ng iOS. Gumagamit ng
+   absolutely-positioned pseudo-element (hindi binabago ang height mismo
+   ng .top-header) para hindi masira ang mga ibang bahagi ng CSS na
+   umaasa sa eksaktong 69px na taas nito (hal. calc(100vh - 69px) sa
+   FAQ chatbox). Walang epekto ito sa Android/desktop dahil 0 ang
+   env(safe-area-inset-top) doon. */
+.top-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(env(safe-area-inset-top) * -1);
+    height: env(safe-area-inset-top);
+    background: inherit;
 }
 .header-left {
     display: flex;
@@ -1229,19 +1260,44 @@ body.dark-mode .header-desktop-logo-text {
     color: var(--dm-text-primary);
 }
 @media screen and (max-width: 1024px) {
+    .hamburger-menu {
+        display: none !important;
+    }
     .header-desktop-logo {
         display: none !important;
     }
     .top-header.overview-header-mode .header-desktop-logo {
         display: flex !important;
+        margin-left: 0px;
     }
     .top-header.overview-header-mode .header-desktop-logo-text {
-        font-size: 1.28rem;
+        font-size: 1.5rem;
+    }
+    /* Pareho na ngayon ang left position ng page title (ibang views)
+       at ng OmniPOS logo (Overview view) sa mobile — dati may extra
+       20px na margin-left ang title lang (mula sa base .header-page-title
+       rule) kaya lumilitaw itong bahagyang mas nasa kanan kumpara sa
+       logo. Alisin ang extra offset na iyon dito, mobile lang. */
+    .header-page-title {
+        margin-left: 0;
+    }
+    /* Sa mobile, ang .header-left ay laging walang laman na visual
+       na content (nakatago ang hamburger-menu, logo, at terminal brand
+       maliban sa Overview/Terminal view), kaya ang aktwal na left gap
+       ng title (at ng logo sa Overview) ay direktang sinusukat mula sa
+       padding-left ng .top-header mismo. Binawasan ito dito mula 30px
+       papuntang 20px — mobile view lang, hindi apektado ang desktop —
+       gaya ng hiniling: 20px na gap sa leftside ng title sa lahat ng
+       page sa mobile. Nananatili ang env(safe-area-inset-left) sa ibabaw
+       nito para hindi pa rin maharangan ng notch/cutout sa mga device
+       na may ganito. */
+    .top-header {
+        padding-left: calc(20px + env(safe-area-inset-left, 0px));
     }
 }
 @media screen and (max-width: 380px) {
     .top-header.overview-header-mode .header-desktop-logo-text {
-        font-size: 1.12rem;
+        font-size: 1.5rem;
     }
 }
 .top-header.terminal-header-mode .header-desktop-logo {
@@ -6002,9 +6058,6 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     .main-content {
         margin-left: 0;
     }
-    .hamburger-menu {
-        display: block;
-    }
     .app-view:not(.terminal-theme) {
         margin-left: -24px;
         margin-right: -24px;
@@ -9331,6 +9384,24 @@ body.dark-mode .reorder-card-actions {
         flex: none !important;
         min-height: 0 !important;
     }
+    /* On mobile the rows above become stacked "cards" (Product/Supplier/.../
+       Actions each on their own line), which are much taller than a normal
+       table row — that's why the table's own internal scrollbar was just
+       turned off above, letting it grow to full content height instead.
+       But #view-reorder itself (and its Create PO / PO History tab panels)
+       is still pinned to a fixed, viewport-relative height meant for a
+       table that scrolls INTERNALLY — so without also freeing this outer
+       shell to grow with its content, the last card's Action buttons render
+       past that fixed box and are never reachable, in List or Grid view, on
+       either tab. */
+    #view-reorder.app-view:not(.terminal-theme) {
+        height: auto !important;
+        min-height: 0 !important;
+    }
+    #view-reorder.app-view:not(.terminal-theme) > .tab-content-panel {
+        flex: none !important;
+        min-height: 0 !important;
+    }
     .reorder-data-table th:first-child,
     .reorder-data-table td:first-child,
     .reorder-po-data-table th:first-child,
@@ -12418,5 +12489,3 @@ body.dark-mode .ct-package-breakdown {
         transform: translateY(0);
     }
 }
-
-

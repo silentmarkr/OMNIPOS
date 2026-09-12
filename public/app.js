@@ -492,6 +492,36 @@ function handleImgSearchThumbError(imgEl) {
     if (wrap) wrap.classList.add('img-load-failed');
 }
 const productImageSearchFullResCache = new Map();
+// BAGO: mga proxied thumbnail blob URL (Omni Search / free providers) —
+// tinatago ang mga ito para ma-revoke (URL.revokeObjectURL) bago mag-render
+// ulit ng bagong resulta, para hindi tumaas nang tumaas ang memory usage sa
+// mahabang session.
+const omniThumbBlobUrls = new Set();
+function revokeOmniThumbBlobUrls() {
+    omniThumbBlobUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    omniThumbBlobUrls.clear();
+}
+// Kinukuha ang thumbnail sa pamamagitan ng bagong /image-search/thumb-proxy
+// endpoint (server-side fetch — tingnan ang paliwanag sa server.js) sa
+// halip na direktang i-hotlink ng <img> ang external URL mismo. Ginagamit
+// ito para sa LAHAT ng FREE/Omni Search providers (DuckDuckGo, Bing (free),
+// Openverse, Wikimedia Commons, Yandex) — iisa lang ang proxy endpoint,
+// kaya awtomatikong nakikinabang ang lahat ng ito, hindi lang DuckDuckGo.
+async function loadOmniSearchThumbProxied(imgEl, nonce, key, source) {
+    if (!imgEl || !nonce || !key) { handleImgSearchThumbError(imgEl); return; }
+    try {
+        const qs = new URLSearchParams({ nonce, [source === 'omni-bulk' ? 'code' : 'id']: key });
+        if (source === 'omni-bulk') qs.set('source', 'omni-bulk');
+        const res = await authFetch(`${API_URL}/products/image-search/thumb-proxy?${qs.toString()}`);
+        if (!res.ok) { handleImgSearchThumbError(imgEl); return; }
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        omniThumbBlobUrls.add(objUrl);
+        imgEl.src = objUrl;
+    } catch (err) {
+        handleImgSearchThumbError(imgEl);
+    }
+}
 async function fetchFullResPreviewForSearchResult(id) {
     if (productImageSearchFullResCache.has(id)) {
         return productImageSearchFullResCache.get(id);
@@ -4135,6 +4165,7 @@ function buildDebtReceiptModel(debt) {
         .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     const items = Array.isArray(debt.items) ? debt.items : [];
     const s = receiptSettingsCache || {};
+    const barcodeValue = debt.transactionId || debt.id || '';
     return {
         id: debt.id || '',
         customerName: debt.customerName || 'Walk-in Customer',
@@ -4153,7 +4184,9 @@ function buildDebtReceiptModel(debt) {
         items,
         storeName: s.storeName || 'OmniPOS',
         storeAddress: s.storeAddress || '',
-        footerText: s.footerText || 'Thank you for your continued trust!'
+        footerText: s.footerText || 'Thank you for your continued trust!',
+        barcodeValue,
+        barcodeDataUrl: generateDebtReceiptBarcodeDataUrl(barcodeValue)
     };
 }
 function printDebtReceipt(id) {
@@ -4257,8 +4290,8 @@ function buildDebtEReceiptDocument(m) {
             </tr>`).join('')
         : `<tr><td colspan="2" class="empty-row">No linked products for this debt.</td></tr>`;
     const statusClass = m.status === 'paid' ? 'ok' : (m.status === 'partial' ? 'warn' : 'danger');
-    m.barcodeValue = m.transactionId || m.id || '';
-    m.barcodeDataUrl = generateDebtReceiptBarcodeDataUrl(m.barcodeValue);
+    if (!m.barcodeValue) m.barcodeValue = m.transactionId || m.id || '';
+    if (!m.barcodeDataUrl) m.barcodeDataUrl = generateDebtReceiptBarcodeDataUrl(m.barcodeValue);
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4450,62 +4483,336 @@ async function emailDebtReceipt(id) {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
-function renderDebtEReceiptToImageDataUrl(docHtml) {
-    return new Promise((resolve, reject) => {
-        const frame = document.createElement('iframe');
-        frame.style.cssText = 'position:fixed;left:-99999px;top:0;width:480px;height:600px;border:none;visibility:hidden;';
-        document.body.appendChild(frame);
-        const cleanup = () => { if (frame.parentNode) frame.parentNode.removeChild(frame); };
-        frame.onload = () => {
-            let svgUrl = null;
-            try {
-                const frameDoc = frame.contentDocument;
-                const styleTag = frameDoc.querySelector('style');
-                const width = 480;
-                const height = Math.max(frameDoc.body.scrollHeight, 200);
-                const bodyClone = frameDoc.body.cloneNode(true);
-                if (styleTag) bodyClone.insertBefore(styleTag.cloneNode(true), bodyClone.firstChild);
-                bodyClone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-                const svgString = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '">' +
-                    '<foreignObject x="0" y="0" width="' + width + '" height="' + height + '">' +
-                    bodyClone.outerHTML +
-                    '</foreignObject></svg>';
-                const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-                svgUrl = URL.createObjectURL(svgBlob);
-                const img = new Image();
-                img.onload = () => {
-                    try {
-                        const scale = Math.min(window.devicePixelRatio || 1, 2);
-                        const canvas = document.createElement('canvas');
-                        canvas.width = Math.ceil(width * scale);
-                        canvas.height = Math.ceil(height * scale);
-                        const ctx = canvas.getContext('2d');
-                        ctx.scale(scale, scale);
-                        ctx.drawImage(img, 0, 0, width, height);
-                        const pngDataUrl = canvas.toDataURL('image/png');
-                        URL.revokeObjectURL(svgUrl);
-                        cleanup();
-                        resolve(pngDataUrl);
-                    } catch (err) {
-                        if (svgUrl) URL.revokeObjectURL(svgUrl);
-                        cleanup();
-                        reject(err);
-                    }
-                };
-                img.onerror = () => {
-                    if (svgUrl) URL.revokeObjectURL(svgUrl);
-                    cleanup();
-                    reject(new Error('Failed to rasterize the e-receipt image.'));
-                };
-                img.src = svgUrl;
-            } catch (err) {
-                if (svgUrl) URL.revokeObjectURL(svgUrl);
-                cleanup();
-                reject(err);
-            }
+// NOTE: An earlier version of this function rasterized the e-receipt by
+// serializing the HTML card into an <svg><foreignObject> and drawing that
+// as an <img> onto a canvas. That trick is fundamentally fragile in
+// Chrome/Blink (incl. Android WebView): ANY raster content painted through
+// foreignObject-as-image (fonts aside) can silently taint the canvas, so
+// canvas.toDataURL() throws a SecurityError and both Download and Share
+// fail with "Could not generate the receipt image." Removing just the
+// barcode <img> only patched one instance of this; other engines/versions
+// can still taint on the foreignObject step itself.
+//
+// To eliminate this whole class of bug, we no longer rasterize the HTML at
+// all. Instead we draw the receipt directly with the Canvas 2D API (text,
+// shapes, and the barcode PNG via drawImage) — the same reliable approach
+// already used elsewhere in OmniPOS for transaction receipt images. Direct
+// drawImage() of a same-origin data: URI never taints the canvas.
+function renderDebtEReceiptToImageDataUrl(m) {
+    return new Promise((resolve) => {
+        const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+        const C = {
+            bg: '#eef1f6', card: '#ffffff', text: '#0f172a', muted: '#64748b', border: '#e6e9ef',
+            accent: '#6366f1', accentSoft: '#eef2ff', stripe: '#f8fafc',
+            ok: '#16a34a', okSoft: '#dcfce7', warn: '#d97706', warnSoft: '#fef3c7', danger: '#dc2626', dangerSoft: '#fee2e2'
         };
-        frame.onerror = () => { cleanup(); reject(new Error('Failed to render the e-receipt document.')); };
-        frame.srcdoc = docHtml;
+        const statusPalette = {
+            paid: { fg: C.ok, bg: C.okSoft },
+            partial: { fg: C.warn, bg: C.warnSoft },
+            unpaid: { fg: C.danger, bg: C.dangerSoft }
+        }[m.status] || { fg: C.muted, bg: '#f1f5f9' };
+
+        const width = 460;
+        const pad = 24;
+        const bx = pad + 22;
+        const bw = width - pad * 2 - 44;
+
+        const measureCanvas = document.createElement('canvas');
+        const mctx = measureCanvas.getContext('2d');
+        function wrapLines(text, font, maxWidth) {
+            mctx.font = font;
+            const words = String(text || '').split(/\s+/).filter(Boolean);
+            const lines = [];
+            let line = '';
+            words.forEach(word => {
+                const test = line ? line + ' ' + word : word;
+                if (mctx.measureText(test).width > maxWidth && line) {
+                    lines.push(line);
+                    line = word;
+                } else {
+                    line = test;
+                }
+            });
+            lines.push(line);
+            return lines.filter((l, i) => l || i === 0);
+        }
+        function truncate(ctx, text, maxWidth) {
+            let t = String(text == null ? '' : text);
+            if (ctx.measureText(t).width <= maxWidth) return t;
+            while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+            return t + '…';
+        }
+
+        const noteFont = `400 12px ${FONT}`;
+        const noteLines = m.note ? wrapLines(m.note, noteFont, bw - 28) : [];
+
+        const headerHeight = 96;
+        const custBlockHeight = 46;
+        const balanceCardHeight = 120;
+        const infoRowHeight = 24;
+        const infoRowsCount = 3 + (m.transactionId ? 1 : 0);
+        const sectionTitleHeight = 28;
+        const rowHeight = 22;
+        const paymentRowCount = m.paymentHistory.length || 1;
+        const itemRowCount = m.items.length || 1;
+        const noteBoxHeight = m.note ? (sectionTitleHeight + 14 + noteLines.length * 16 + 10) : 0;
+        const barcodeHeight = m.barcodeDataUrl ? 140 : 0;
+        const footerHeight = 76;
+
+        const height = pad + headerHeight + 20
+            + custBlockHeight
+            + balanceCardHeight + 18
+            + (infoRowsCount * infoRowHeight) + 10
+            + sectionTitleHeight + (paymentRowCount * rowHeight)
+            + sectionTitleHeight + (itemRowCount * rowHeight)
+            + noteBoxHeight
+            + barcodeHeight
+            + footerHeight
+            + pad;
+
+        const scale = Math.min(window.devicePixelRatio || 1, 2);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(width * scale);
+        canvas.height = Math.ceil(height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.textBaseline = 'top';
+
+        function roundRect(x, y, w, h, r) {
+            const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+            ctx.beginPath();
+            ctx.moveTo(x + rr, y);
+            ctx.arcTo(x + w, y, x + w, y + h, rr);
+            ctx.arcTo(x + w, y + h, x, y + h, rr);
+            ctx.arcTo(x, y + h, x, y, rr);
+            ctx.arcTo(x, y, x + w, y, rr);
+            ctx.closePath();
+        }
+        function pill(rightX, y, text, fg, bg) {
+            ctx.font = `700 12px ${FONT}`;
+            const pw = ctx.measureText(text).width + 22;
+            ctx.fillStyle = bg;
+            roundRect(rightX - pw, y, pw, 24, 12);
+            ctx.fill();
+            ctx.fillStyle = fg;
+            ctx.textAlign = 'center';
+            ctx.fillText(text, rightX - pw / 2, y + 6);
+            ctx.textAlign = 'left';
+        }
+
+        // page background + card
+        ctx.fillStyle = C.bg;
+        ctx.fillRect(0, 0, width, height);
+        roundRect(pad, pad, width - pad * 2, height - pad * 2, 20);
+        ctx.save();
+        ctx.clip();
+        ctx.fillStyle = C.card;
+        ctx.fillRect(pad, pad, width - pad * 2, height - pad * 2);
+
+        let y = pad;
+        const cardW = width - pad * 2;
+        const grad = ctx.createLinearGradient(pad, y, pad + cardW, y);
+        grad.addColorStop(0, C.accent);
+        grad.addColorStop(1, '#a5b4fc');
+        ctx.fillStyle = grad;
+        ctx.fillRect(pad, y, cardW, headerHeight);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `700 16px ${FONT}`;
+        ctx.fillText(truncate(ctx, m.storeName, cardW - 44 - 90), bx, y + 20);
+        let hy = y + 44;
+        if (m.storeAddress) {
+            ctx.font = `400 11px ${FONT}`;
+            ctx.fillText(truncate(ctx, m.storeAddress, cardW - 44), bx, hy);
+            hy += 16;
+        }
+        ctx.font = `700 11px ${FONT}`;
+        ctx.fillText('DIGITAL DEBT RECEIPT', bx, hy + 6);
+        pill(pad + cardW - 20, y + 18, m.statusLabel, '#ffffff', 'rgba(255,255,255,0.22)');
+
+        y += headerHeight + 20;
+
+        // customer block
+        ctx.fillStyle = C.text;
+        ctx.font = `700 17px ${FONT}`;
+        ctx.fillText(truncate(ctx, m.customerName, bw - 90), bx, y);
+        if (m.phone) {
+            ctx.fillStyle = C.muted;
+            ctx.font = `400 12px ${FONT}`;
+            ctx.fillText(m.phone, bx, y + 22);
+        }
+        pill(bx + bw, y, m.statusLabel, statusPalette.fg, statusPalette.bg);
+        y += custBlockHeight;
+
+        // balance card
+        ctx.fillStyle = C.accentSoft;
+        roundRect(bx, y, bw, balanceCardHeight, 16);
+        ctx.fill();
+        let cy = y + 16;
+        ctx.fillStyle = C.muted;
+        ctx.font = `700 10px ${FONT}`;
+        ctx.fillText('REMAINING BALANCE', bx + 18, cy);
+        cy += 16;
+        ctx.fillStyle = C.text;
+        ctx.font = `800 24px ${FONT}`;
+        ctx.fillText(`₱${m.remaining.toFixed(2)}`, bx + 18, cy);
+        cy += 36;
+        const stats = [['Owed', `₱${m.amount.toFixed(2)}`], ['Paid', `₱${m.paid.toFixed(2)}`], ['Progress', `${m.percentPaid}%`]];
+        const statW = (bw - 36) / 3;
+        stats.forEach(([label, val], i) => {
+            const sx = bx + 18 + i * statW;
+            ctx.fillStyle = C.muted;
+            ctx.font = `400 11px ${FONT}`;
+            ctx.fillText(label, sx, cy);
+            ctx.fillStyle = C.text;
+            ctx.font = `700 13px ${FONT}`;
+            ctx.fillText(val, sx, cy + 15);
+        });
+        cy += 38;
+        ctx.fillStyle = 'rgba(100,116,139,0.2)';
+        roundRect(bx + 18, cy, bw - 36, 6, 3);
+        ctx.fill();
+        ctx.fillStyle = C.accent;
+        roundRect(bx + 18, cy, (bw - 36) * Math.min(1, m.percentPaid / 100), 6, 3);
+        ctx.fill();
+        y += balanceCardHeight + 18;
+
+        // info list
+        const infoRows = [['Due Date', m.dueAt ? new Date(m.dueAt).toLocaleString() : 'No due date set']];
+        if (m.transactionId) infoRows.push(['Linked Transaction', m.transactionId]);
+        infoRows.push(['Receipt No.', m.id]);
+        infoRows.push(['Generated', new Date().toLocaleString()]);
+        infoRows.forEach(([label, val], i) => {
+            const ry = y + i * infoRowHeight;
+            ctx.fillStyle = C.muted;
+            ctx.font = `400 12px ${FONT}`;
+            ctx.fillText(label, bx, ry + 4);
+            ctx.fillStyle = C.text;
+            ctx.textAlign = 'right';
+            ctx.fillText(truncate(ctx, val, bw / 2), bx + bw, ry + 4);
+            ctx.textAlign = 'left';
+            if (i < infoRows.length - 1) {
+                ctx.strokeStyle = C.border;
+                ctx.beginPath();
+                ctx.moveTo(bx, ry + infoRowHeight - 2);
+                ctx.lineTo(bx + bw, ry + infoRowHeight - 2);
+                ctx.stroke();
+            }
+        });
+        y += infoRows.length * infoRowHeight + 10;
+
+        function sectionTitle(label) {
+            ctx.fillStyle = C.muted;
+            ctx.font = `700 10px ${FONT}`;
+            ctx.fillText(label.toUpperCase(), bx, y);
+            y += sectionTitleHeight;
+        }
+        function tableRows(rows, emptyText) {
+            if (!rows.length) {
+                ctx.fillStyle = C.muted;
+                ctx.font = `italic 12px ${FONT}`;
+                ctx.textAlign = 'center';
+                ctx.fillText(emptyText, bx + bw / 2, y + 4);
+                ctx.textAlign = 'left';
+                y += rowHeight;
+                return;
+            }
+            rows.forEach((r, i) => {
+                if (i % 2 === 1) {
+                    ctx.fillStyle = C.stripe;
+                    ctx.fillRect(bx, y, bw, rowHeight);
+                }
+                ctx.fillStyle = C.text;
+                ctx.font = `400 12px ${FONT}`;
+                ctx.fillText(truncate(ctx, r.left, bw - 90), bx, y + 4);
+                ctx.textAlign = 'right';
+                ctx.fillText(r.right, bx + bw, y + 4);
+                ctx.textAlign = 'left';
+                y += rowHeight;
+            });
+        }
+
+        sectionTitle('Payment Breakdown');
+        tableRows(
+            m.paymentHistory.map(p => ({
+                left: p.date ? new Date(p.date).toLocaleString() : '—',
+                right: `₱${(parseFloat(p.amount) || 0).toFixed(2)}`
+            })),
+            'No payments recorded yet.'
+        );
+
+        sectionTitle('Items Purchased');
+        tableRows(
+            m.items.map(it => ({
+                left: `${it.name} ×${parseInt(it.quantity) || 0}`,
+                right: `₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}`
+            })),
+            'No linked products for this debt.'
+        );
+
+        if (m.note) {
+            sectionTitle('Note');
+            const boxH = 14 + noteLines.length * 16 - 4;
+            ctx.fillStyle = C.stripe;
+            roundRect(bx, y, bw, boxH, 12);
+            ctx.fill();
+            ctx.fillStyle = C.text;
+            ctx.font = noteFont;
+            noteLines.forEach((line, i) => ctx.fillText(line, bx + 14, y + 10 + i * 16));
+            y += boxH + 10;
+        }
+
+        function drawFooter() {
+            ctx.strokeStyle = C.border;
+            ctx.beginPath();
+            ctx.moveTo(bx, y);
+            ctx.lineTo(bx + bw, y);
+            ctx.stroke();
+            y += 20;
+            ctx.fillStyle = C.text;
+            ctx.font = `400 13px ${FONT}`;
+            ctx.textAlign = 'center';
+            ctx.fillText(truncate(ctx, m.footerText, bw), bx + bw / 2, y);
+            y += 20;
+            ctx.fillStyle = C.muted;
+            ctx.font = `400 10px ${FONT}`;
+            ctx.fillText('Please keep this receipt for your records.', bx + bw / 2, y);
+            y += 14;
+            ctx.fillText('Generated by OmniPOS', bx + bw / 2, y);
+            ctx.textAlign = 'left';
+        }
+        function finish() {
+            ctx.restore();
+            resolve(canvas.toDataURL('image/png'));
+        }
+
+        if (m.barcodeDataUrl) {
+            const bcImg = new Image();
+            bcImg.onload = () => {
+                try {
+                    const bcw = Math.min(220, bw);
+                    const bch = bcw * (bcImg.height / bcImg.width || 0.3);
+                    const bcx = bx + (bw - bcw) / 2;
+                    ctx.fillStyle = '#ffffff';
+                    roundRect(bcx - 10, y + 10, bcw + 20, bch + 16, 12);
+                    ctx.fill();
+                    ctx.drawImage(bcImg, bcx, y + 18, bcw, bch);
+                    ctx.fillStyle = C.muted;
+                    ctx.font = `400 10px ${FONT}`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(m.transactionId ? 'Scan to find this transaction' : 'Receipt Barcode', bx + bw / 2, y + bch + 34);
+                    ctx.textAlign = 'left';
+                } catch (e) { /* keep going even if the barcode can't be drawn */ }
+                y += barcodeHeight;
+                drawFooter();
+                finish();
+            };
+            bcImg.onerror = () => { y += barcodeHeight; drawFooter(); finish(); };
+            bcImg.src = m.barcodeDataUrl;
+        } else {
+            drawFooter();
+            finish();
+        }
     });
 }
 async function downloadDebtEReceipt(id) {
@@ -4516,8 +4823,7 @@ async function downloadDebtEReceipt(id) {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...'; }
     try {
         const m = buildDebtReceiptModel(debt);
-        const docHtml = buildDebtEReceiptDocument(m);
-        const pngDataUrl = await renderDebtEReceiptToImageDataUrl(docHtml);
+        const pngDataUrl = await renderDebtEReceiptToImageDataUrl(m);
         const blob = await (await fetch(pngDataUrl)).blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -4542,10 +4848,9 @@ async function shareDebtEReceipt(id) {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...'; }
     try {
         const m = buildDebtReceiptModel(debt);
-        const docHtml = buildDebtEReceiptDocument(m);
         const fileName = `E-Receipt-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
         const summaryText = `${m.storeName} — Debt Receipt\nCustomer: ${m.customerName}\nStatus: ${m.statusLabel}\nOwed: ₱${m.amount.toFixed(2)} | Paid: ₱${m.paid.toFixed(2)} | Remaining: ₱${m.remaining.toFixed(2)}\n${m.dueAt ? 'Due: ' + new Date(m.dueAt).toLocaleString() : ''}`;
-        const pngDataUrl = await renderDebtEReceiptToImageDataUrl(docHtml);
+        const pngDataUrl = await renderDebtEReceiptToImageDataUrl(m);
         const blob = await (await fetch(pngDataUrl)).blob();
         try {
             const file = new File([blob], fileName, { type: 'image/png' });
@@ -11981,7 +12286,7 @@ async function loadFraudAlertsTable() {
                 <td>${escapeHtml(typeLabel)}</td>
                 <td><span style="color:${color};font-weight:700;text-transform:uppercase;font-size:0.75rem;">${escapeHtml(a.severity || '')}</span></td>
                 <td>${escapeHtml(a.cashier || 'N/A')}</td>
-                <td style="max-width:320px;">${escapeHtml(a.summary || '')}</td>
+                <td style="max-width:320px;white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(a.summary || '')}</td>
                 <td>${statusHtml}</td>
                 <td>${actionHtml}</td>
             </tr>`;
@@ -12833,14 +13138,29 @@ const STOCK_RETURN_DAMAGE_STATUS_LABELS = {
 function sretDamageStatusLabel(key) {
     return STOCK_RETURN_DAMAGE_STATUS_LABELS[key] || 'Pending Manager Review';
 }
-// Shows/hides the per-item damage-status dropdown depending on whether that item's
-// "Damaged / Do not restock" quantity is greater than zero.
-window.sretSyncDamageRow = function (idx) {
+// Keeps "Sellable / Restock" and "Damaged / Do not restock" complementary so their sum
+// always exactly equals the returned quantity — typing into either field derives the
+// other, which is what prevents the "must exactly equal" validation error at Complete
+// Inspection time. `changedEl` is whichever input actually fired the event (passed in
+// from oninput="...(idx, this)"), so we know which one to treat as the source of truth;
+// the other is only ever written to via .value, which never re-fires 'input' itself —
+// so there is no possibility of the two handlers looping off each other.
+window.sretSyncDamageRow = function (idx, changedEl) {
+    const restockInput = document.querySelector(`.sret-restock[data-idx="${idx}"]`);
     const damagedInput = document.querySelector(`.sret-damaged[data-idx="${idx}"]`);
     const row = document.querySelector(`.sret-damage-status-row[data-idx="${idx}"]`);
-    if (!damagedInput || !row) return;
-    const damaged = parseInt(damagedInput.value, 10) || 0;
-    row.style.display = damaged > 0 ? 'block' : 'none';
+    if (!restockInput || !damagedInput) return;
+    const qty = parseInt(restockInput.dataset.qty, 10) || 0;
+    if (changedEl === damagedInput) {
+        const damaged = Math.max(0, Math.min(qty, parseInt(damagedInput.value, 10) || 0));
+        damagedInput.value = damaged;
+        restockInput.value = qty - damaged;
+    } else {
+        const restock = Math.max(0, Math.min(qty, parseInt(restockInput.value, 10) || 0));
+        restockInput.value = restock;
+        damagedInput.value = qty - restock;
+    }
+    if (row) row.style.display = (parseInt(damagedInput.value, 10) || 0) > 0 ? 'block' : 'none';
 };
 function canInspectStockReturns() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
@@ -12941,10 +13261,10 @@ async function inspectStockReturn(returnId) {
             <div style="font-size:.78rem;color:#64748b;margin-bottom:7px;">Returned quantity: <b>${item.quantity}</b></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <label style="font-size:.78rem;">Sellable / Restock
-                    <input type="number" class="sret-restock" data-idx="${idx}" min="0" max="${item.quantity}" value="${item.quantity}" oninput="sretSyncDamageRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-restock" data-idx="${idx}" data-qty="${item.quantity}" min="0" max="${item.quantity}" value="${item.quantity}" oninput="sretSyncDamageRow(${idx}, this)" style="width:100%;padding:6px;box-sizing:border-box;">
                 </label>
                 <label style="font-size:.78rem;">Damaged / Do not restock
-                    <input type="number" class="sret-damaged" data-idx="${idx}" min="0" max="${item.quantity}" value="0" oninput="sretSyncDamageRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-damaged" data-idx="${idx}" data-qty="${item.quantity}" min="0" max="${item.quantity}" value="0" oninput="sretSyncDamageRow(${idx}, this)" style="width:100%;padding:6px;box-sizing:border-box;">
                 </label>
             </div>
             <div class="sret-damage-status-row" data-idx="${idx}" style="display:none;margin-top:8px;">
@@ -13733,13 +14053,22 @@ function renderProductImageSearchResults(results) {
     const resultsEl = document.getElementById('p-image-search-results');
     productImageSearchFullResCache.clear();
     productImageSearchSelectedIds.clear();
+    revokeOmniThumbBlobUrls();
+    const isOmni = productImageSearchState.source === 'omni';
     resultsEl.innerHTML = results.map(r => {
         const safeTitle = (r.title || '').replace(/"/g, '&quot;');
         const safeThumb = (r.thumbnailUrl || '').replace(/"/g, '&quot;');
         const safeId = String(r.id || '').replace(/"/g, '&quot;');
+        // Omni/free providers: hindi na direktang naka-set ang src papunta
+        // sa external host (madalas naka-block ang hotlinking dito) —
+        // sa halip, kinukuha via loadOmniSearchThumbProxied() pagkatapos
+        // mai-insert sa DOM (see below).
+        const imgTag = isOmni
+            ? `<img data-omni-thumb-id="${safeId}" alt="${safeTitle}" loading="lazy">`
+            : `<img src="${safeThumb}" alt="${safeTitle}" loading="lazy" onerror="handleImgSearchThumbError(this)">`;
         return `<div class="p-image-search-item">
             <button type="button" class="p-image-search-thumb" data-result-id="${safeId}" title="${safeTitle}">
-                <img src="${safeThumb}" alt="${safeTitle}" loading="lazy" onerror="handleImgSearchThumbError(this)">
+                ${imgTag}
             </button>
             <label class="p-image-search-check-wrap" title="Select for + Gallery">
                 <input type="checkbox" data-result-id="${safeId}" onchange="toggleProductImageSearchSelect('${r.id}', this.checked)">
@@ -13750,6 +14079,12 @@ function renderProductImageSearchResults(results) {
     updateProductImageSearchGalleryBtnState();
     updateProductImageSearchCheckboxAvailability();
     attachHoldZoomToProductSearchThumbs(resultsEl);
+    if (isOmni) {
+        const nonce = productImageSearchState.nonce;
+        resultsEl.querySelectorAll('img[data-omni-thumb-id]').forEach((imgEl) => {
+            loadOmniSearchThumbProxied(imgEl, nonce, imgEl.dataset.omniThumbId, 'omni-single');
+        });
+    }
 }
 function toggleProductImageSearchSelect(id, checked) {
     if (checked) productImageSearchSelectedIds.add(id);
@@ -14865,7 +15200,15 @@ async function pollOmniImageSearchProgress(startBtn) {
         if (omniImageSearchState.truncated) {
             statusText += ` Only the first ${data.total} of ${omniImageSearchState.totalEligible} eligible products were processed this run — lower "Products to process" or run again for the rest.`;
         }
-        statusText += ' Review below, then Apply.';
+        // BAGO: kapag paulit-ulit na na-block ang piniling provider
+        // (hal. DuckDuckGo — HTTP 403/429), isang malinaw na aggregate
+        // banner na lang ang ipapakita (hindi na ito basta natatabunan ng
+        // parehong per-item red error sa bawat produkto).
+        if (data.earlyStopReason) {
+            statusText = `⚠️ ${data.earlyStopReason}`;
+        } else {
+            statusText += ' Review below, then Apply.';
+        }
         statusEl.textContent = statusText;
         renderOmniImageSearchPreview();
         document.getElementById('omni-imgsearch-selectall-row').style.display = foundCount ? 'flex' : 'none';
@@ -14877,6 +15220,8 @@ async function pollOmniImageSearchProgress(startBtn) {
 }
 function renderOmniImageSearchPreview() {
     const listEl = document.getElementById('omni-imgsearch-preview-list');
+    revokeOmniThumbBlobUrls();
+    const nonce = omniImageSearchState.nonce;
     listEl.innerHTML = omniImageSearchState.proposals.map((p, idx) => {
         if (!p.found) {
             return `<div class="bulk-imgsearch-item is-notfound">
@@ -14888,11 +15233,11 @@ function renderOmniImageSearchPreview() {
                 <div class="bulk-imgsearch-item-status">${p.message || 'No image found'}</div>
             </div>`;
         }
-        const safeThumb = (p.thumbnailUrl || '').replace(/"/g, '&quot;');
+        const safeCode = String(p.code || '').replace(/"/g, '&quot;');
         const providerBadge = p.provider ? `<div style="font-size:11px;color:#16a34a;">via ${(p.provider || '').replace(/</g, '&lt;')}</div>` : '';
         return `<div class="bulk-imgsearch-item">
             <input type="checkbox" checked data-omni-imgsearch-idx="${idx}" onchange="updateOmniImageSearchApplyBtn()">
-            <img src="${safeThumb}" alt="" loading="lazy" onerror="handleImgSearchThumbError(this)">
+            <img data-omni-thumb-code="${safeCode}" alt="" loading="lazy">
             <div class="bulk-imgsearch-item-info">
                 <div class="bulk-imgsearch-item-name">${(p.name || '').replace(/</g, '&lt;')}</div>
                 <div class="bulk-imgsearch-item-code">${(p.code || '').replace(/</g, '&lt;')}</div>
@@ -14901,6 +15246,12 @@ function renderOmniImageSearchPreview() {
         </div>`;
     }).join('');
     updateOmniImageSearchApplyBtn();
+    // BAGO: lahat ng free-provider thumbnail dito (DuckDuckGo, Bing (free),
+    // Openverse, Wikimedia Commons, Yandex) ay via thumb-proxy na ngayon —
+    // parehong fix ng single-product Omni Search sa itaas.
+    listEl.querySelectorAll('img[data-omni-thumb-code]').forEach((imgEl) => {
+        loadOmniSearchThumbProxied(imgEl, nonce, imgEl.dataset.omniThumbCode, 'omni-bulk');
+    });
 }
 function setAllOmniImageSearchSelections(checked) {
     document.querySelectorAll('[data-omni-imgsearch-idx]').forEach(cb => { cb.checked = checked; });
@@ -18816,6 +19167,21 @@ window.addEventListener('popstate', function(event) {
             switchView(savedView);
         }
     }
+    // BUGFIX: dati, walang bagong pushState pagkatapos ma-proseso ang
+    // back navigation dito (dahil sa switchView, hindi na-pu-push ulit
+    // ang state kapag pareho na ang history.state.view at ang bagong
+    // viewKey — na palaging totoo mismo pagkatapos ng popstate). Kaya
+    // unti-unting naaaubos ang history stack ng browser/webview sa
+    // bawat back button press o swipe-back gesture — at kapag naubos
+    // na ito, ang SUSUNOD na back/swipe-back ay hindi na maha-handle
+    // ng app: direkta na itong lalabas bilang totoong "exit" ng OS
+    // (lalo na kapag naka-install bilang fullscreen/standalone PWA sa
+    // mobile), sa halip na manatili lang sa loob ng app. Sa pagdagdag
+    // ulit ng entry dito sa bawat popstate, laging may "buffer" na
+    // matitirang history entry ang app, kaya nahaharang palagi ang
+    // back/swipe-back sa loob ng app mismo.
+    var viewAfterPop = (event.state && event.state.view) || sessionStorage.getItem('currentView') || 'overview';
+    history.pushState({ view: viewAfterPop }, '', '');
 });
 function playScanBeep() {
     try {

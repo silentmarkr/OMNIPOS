@@ -45,6 +45,7 @@ const PRINTER_BT_BRAND_PRESETS = [
         label: 'Epson / Star Micronics / Bixolon / Citizen / SNBC (karamihan)',
         serviceUuid: '',
         charUuid: '',
+        unsupported: true,
         note: 'Karamihan sa opisyal na Bluetooth printer ng mga brand na ito ay gumagamit ng CLASSIC Bluetooth (SPP), hindi BLE — kaya hindi ito ma-a-access ng Web Bluetooth (ang ginagamit ng Chrome). Gamitin sa halip ang "WiFi / LAN (Ethernet Cable)" section sa ibaba kung may WiFi o LAN port ang printer mo, o gamitin ang opisyal na printer app/driver ng brand.'
     },
     {
@@ -130,8 +131,17 @@ function populatePrinterBrandDropdowns() {
             btSelect.appendChild(opt);
         });
         btSelect.dataset.populated = 'true';
-        const savedBrand = localStorage.getItem(PRINTER_BT_BRAND_STORAGE_KEY) || 'generic-18f0';
+        let savedBrand = localStorage.getItem(PRINTER_BT_BRAND_STORAGE_KEY) || PRINTER_BT_BRAND_PRESETS[0].id;
         btSelect.value = savedBrand;
+        if (btSelect.value !== savedBrand) {
+            // Stored brand id no longer matches any option (e.g. presets were
+            // renamed/removed in an update) — setting .value to an unknown
+            // option leaves the <select> showing blank instead of falling
+            // back, even though the note text below already defaults fine.
+            savedBrand = PRINTER_BT_BRAND_PRESETS[0].id;
+            btSelect.value = savedBrand;
+            localStorage.setItem(PRINTER_BT_BRAND_STORAGE_KEY, savedBrand);
+        }
         renderBtPrinterBrandNote(savedBrand);
     }
 
@@ -144,8 +154,14 @@ function populatePrinterBrandDropdowns() {
             netSelect.appendChild(opt);
         });
         netSelect.dataset.populated = 'true';
-        const savedNetBrand = getNetworkPrinterSettings().brand;
+        let savedNetBrand = getNetworkPrinterSettings().brand;
         netSelect.value = savedNetBrand;
+        if (netSelect.value !== savedNetBrand) {
+            // Same fallback gap as the BT dropdown above.
+            savedNetBrand = PRINTER_NET_BRAND_PRESETS[0].id;
+            netSelect.value = savedNetBrand;
+            localStorage.setItem(PRINTER_NET_STORAGE_KEYS.brand, savedNetBrand);
+        }
         renderNetPrinterBrandNote(savedNetBrand);
     }
 }
@@ -155,7 +171,10 @@ function renderBtPrinterBrandNote(brandId) {
     const noteEl = document.getElementById('bt-printer-brand-note');
     if (noteEl) {
         noteEl.textContent = preset.note || '';
-        noteEl.style.color = preset.serviceUuid ? 'var(--text-muted)' : '#ef4444';
+        // Red/warning styling means "this option won't work with Web Bluetooth",
+        // not just "no UUID to prefill" — "Custom / Manual Entry" also has no
+        // serviceUuid but is a perfectly valid, non-error choice.
+        noteEl.style.color = preset.unsupported ? '#ef4444' : 'var(--text-muted)';
     }
 }
 
@@ -288,6 +307,11 @@ function saveNetworkPrinterSettings() {
     localStorage.setItem(PRINTER_NET_STORAGE_KEYS.connType, connType);
     localStorage.setItem(PRINTER_NET_STORAGE_KEYS.brand, brand);
 
+    // A host is now configured, so this mirrors the DOMContentLoaded rule
+    // (autoFilled = false once settings.host is set) — the just-saved port is
+    // a deliberate value now, not a placeholder safe to overwrite.
+    if (portEl) portEl.dataset.autoFilled = 'false';
+
     updateNetworkPrinterStatusUI();
     if (typeof Swal !== 'undefined') {
         Swal.fire({ icon: 'success', title: 'Na-save!', text: `Network Printer Settings: ${host}:${port}`, timer: 1800, showConfirmButton: false });
@@ -298,8 +322,22 @@ function forgetNetworkPrinter() {
     Object.values(PRINTER_NET_STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
     const hostEl = document.getElementById('net-printer-host');
     const portEl = document.getElementById('net-printer-port');
+    const connTypeEl = document.getElementById('net-printer-conn-type');
+    const brandEl = document.getElementById('net-printer-brand-select');
     if (hostEl) hostEl.value = '';
-    if (portEl) portEl.value = '';
+    if (portEl) {
+        portEl.value = '';
+        // Back to a clean-slate state (no host saved) — restore the "safe to
+        // auto-fill from a brand preset" flag so picking a brand fills the
+        // port again, same as a fresh install. Without this, a single
+        // auto-fill right after forgetting would silently stop future ones.
+        portEl.dataset.autoFilled = 'true';
+    }
+    const defaultConnType = 'wifi';
+    const defaultBrand = PRINTER_NET_BRAND_PRESETS[0].id;
+    if (connTypeEl) connTypeEl.value = defaultConnType;
+    if (brandEl) brandEl.value = defaultBrand;
+    renderNetPrinterBrandNote(defaultBrand);
     updateNetworkPrinterStatusUI();
 }
 
@@ -444,7 +482,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const portEl = document.getElementById('net-printer-port');
     const connTypeEl = document.getElementById('net-printer-conn-type');
     if (hostEl) hostEl.value = settings.host;
-    if (portEl) { portEl.value = settings.port; portEl.dataset.autoFilled = settings.host ? 'false' : 'true'; }
+    if (portEl) {
+        portEl.value = settings.port;
+        portEl.dataset.autoFilled = settings.host ? 'false' : 'true';
+        // The moment the user actually types a port themselves, it's no longer
+        // "safe to overwrite" from a brand preset — without this, autoFilled
+        // stays 'true' forever on a fresh install (no host saved yet) and a
+        // manually-typed port keeps getting clobbered every time the Brand
+        // dropdown is touched.
+        portEl.addEventListener('input', () => {
+            portEl.dataset.autoFilled = 'false';
+        });
+    }
     if (connTypeEl) connTypeEl.value = settings.connType;
 
     updateNetworkPrinterStatusUI();
