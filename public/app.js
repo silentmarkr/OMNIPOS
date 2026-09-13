@@ -785,8 +785,8 @@ function getUnlockModalButtonOptions() {
             confirmButtonText:'Send Request',
             denyButtonText: '💎 Activate via Omni Tokens',
             cancelButtonText:'Close',
-            confirmButtonColor:'#2563eb',
-            denyButtonColor: '#7c3aed',
+            confirmButtonColor:'#ef4444',
+            denyButtonColor: '#2563eb',
         }
     };
 }
@@ -6680,9 +6680,12 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
                 : '';
             Swal.fire({
                 title: 'Scan the QR Ph code',
-                html: `<p>Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to pay <b>₱${data.amountPHP}</b> for ${data.tokens} tokens.${expiresNote}</p>
-                       <img src="${data.qrCodeImageUrl}" alt="QR Ph code" style="max-width:260px; width:100%; margin:12px auto; display:block; background:#fff; padding:8px; border-radius:8px;" />
-                       <p style="font-size:0.8rem; color:var(--text-muted);">This will update automatically once the payment is confirmed — no need to keep this window open.</p>`,
+                html: `<div class="paymongo-qr-content">
+                       <p class="paymongo-qr-description">Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to pay <b>₱${data.amountPHP}</b> for ${data.tokens} tokens.${expiresNote}</p>
+                       <img class="paymongo-qr-image paymongo-qr-image-token" src="${data.qrCodeImageUrl}" alt="QR Ph code" />
+                       <p class="paymongo-qr-note">This will update automatically once the payment is confirmed — no need to keep this window open.</p>
+                       </div>`,
+                customClass: { popup: 'paymongo-qr-modal' },
                 showConfirmButton: true,
                 confirmButtonText: 'Close'
             });
@@ -10390,6 +10393,102 @@ window.addEventListener('afterprint', () => {
     if (styleTag) styleTag.innerHTML ='';
     document.body.classList.remove('print-target-receipt','print-target-barcode');
 });
+function getReceiptCustomizationPrice() {
+    const price = Number(receiptSettingsCache && receiptSettingsCache.creditPricePHP);
+    return Number.isFinite(price) && price >= 1 ? Math.round(price) : 59;
+}
+function getReceiptCreditPricing() {
+    const unitPrice = getReceiptCustomizationPrice();
+    const minQuantity = Number(receiptSettingsCache && receiptSettingsCache.creditDiscountMinQuantity);
+    const discountPercent = Number(receiptSettingsCache && receiptSettingsCache.creditDiscountPercent);
+    const maxQuantity = Number(receiptSettingsCache && receiptSettingsCache.creditMaxQuantity);
+    return {
+        unitPrice,
+        discountMinQuantity: Number.isInteger(minQuantity) && minQuantity >= 2 ? minQuantity : 2,
+        discountPercent: Number.isFinite(discountPercent) && discountPercent >= 0 ? discountPercent : 5,
+        maxQuantity: Number.isInteger(maxQuantity) && maxQuantity >= 1 ? maxQuantity : 100
+    };
+}
+function calculateReceiptCreditQuote(quantity) {
+    const p = getReceiptCreditPricing();
+    const qty = Math.max(1, Math.min(p.maxQuantity, Math.floor(Number(quantity) || 1)));
+    const subtotal = p.unitPrice * qty;
+    const discountPercent = qty >= p.discountMinQuantity ? p.discountPercent : 0;
+    const discount = Math.round(subtotal * discountPercent) / 100;
+    const totalPHP = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
+    const totalTokens = Math.max(1, Math.ceil(totalPHP));
+    return { quantity: qty, unitPrice: p.unitPrice, subtotal, discountMinQuantity: p.discountMinQuantity, discountPercent, discount, totalPHP, totalTokens };
+}
+async function showReceiptCreditPurchaseChoice() {
+    await fetchReceiptSettings();
+    const p = getReceiptCreditPricing();
+    return Swal.fire({
+        title: 'Buy Receipt Customization Credits',
+        html: `<div style="text-align:left;">
+            <label for="rc-credit-qty" style="display:block;font-size:.82rem;font-weight:700;margin-bottom:6px;">Quantity of Credits</label>
+            <input id="rc-credit-qty" class="swal2-input rc-credit-qty-input" type="number" min="1" max="${p.maxQuantity}" step="1" value="1" inputmode="numeric" autocomplete="off" aria-label="Quantity of Receipt Customization Credits" style="width:100%;margin:0 0 10px;box-sizing:border-box;pointer-events:auto;position:relative;z-index:5;">
+            <div id="rc-credit-quote" style="font-size:.84rem;line-height:1.6;background:rgba(37,99,235,.08);border-radius:10px;padding:10px 12px;">
+                Loading total…
+            </div>
+        </div>`,
+        icon: 'question',
+        showCancelButton: true,
+        showDenyButton: true,
+        showConfirmButton: !!getActivationFlags().otpRequestsEnabled,
+        confirmButtonText: 'Send Request',
+        denyButtonText: '💎 Use Omni Token',
+        cancelButtonText: 'Cancel',
+        customClass: { popup: 'receipt-credit-unlock-modal' },
+        focusConfirm: false,
+        focusDeny: false,
+        confirmButtonColor: '#ef4444',
+        denyButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        didOpen: () => {
+            const qtyInput = document.getElementById('rc-credit-qty');
+            const quoteEl = document.getElementById('rc-credit-quote');
+            const update = (normalizeInput = false) => {
+                const rawValue = qtyInput ? qtyInput.value : '1';
+                const q = calculateReceiptCreditQuote(rawValue);
+                if (normalizeInput && qtyInput) qtyInput.value = q.quantity;
+                if (quoteEl) quoteEl.innerHTML = `<div><strong>${q.quantity}</strong> credit(s) × ₱${q.unitPrice.toLocaleString('en-PH')}</div>` +
+                    `<div>Subtotal: ₱${q.subtotal.toFixed(2)}</div>` +
+                    (q.discountPercent > 0 ? `<div style="color:#16a34a;font-weight:700;">Bulk discount (${q.discountPercent}%): −₱${q.discount.toFixed(2)}</div>` : '') +
+                    `<div style="font-size:.98rem;font-weight:800;margin-top:3px;">Total: ₱${q.totalPHP.toFixed(2)}</div>` +
+                    `<div style="color:#2563eb;font-weight:800;">💎 Omni Tokens: ${q.totalTokens}</div>`;
+            };
+            if (qtyInput) {
+                qtyInput.disabled = false;
+                qtyInput.readOnly = false;
+                qtyInput.style.pointerEvents = 'auto';
+                qtyInput.focus({ preventScroll: true });
+                qtyInput.select();
+                qtyInput.addEventListener('input', () => update(false));
+            }
+            qtyInput?.addEventListener('change', () => update(true));
+            qtyInput?.addEventListener('blur', () => update(true));
+            update(false);
+        },
+        preConfirm: () => {
+            const input = document.getElementById('rc-credit-qty');
+            const q = calculateReceiptCreditQuote(input ? input.value : 1);
+            if (!Number.isInteger(Number(input?.value)) || q.quantity < 1 || q.quantity > p.maxQuantity) {
+                Swal.showValidationMessage(`Enter a whole number from 1 to ${p.maxQuantity}.`);
+                return false;
+            }
+            return q;
+        },
+        preDeny: () => {
+            const input = document.getElementById('rc-credit-qty');
+            const q = calculateReceiptCreditQuote(input ? input.value : 1);
+            if (!Number.isInteger(Number(input?.value)) || q.quantity < 1 || q.quantity > p.maxQuantity) {
+                Swal.showValidationMessage(`Enter a whole number from 1 to ${p.maxQuantity}.`);
+                return false;
+            }
+            return q;
+        }
+    });
+}
 async function loadReceiptCustomizationPanel() {
     await fetchReceiptSettings();
     const s = receiptSettingsCache;
@@ -10509,7 +10608,11 @@ async function loadReceiptCustomizationPanel() {
         }
     }
     if (s.otpRequired) {
-        if (statusEl) statusEl.innerHTML ='';
+        if (statusEl) {
+            statusEl.innerHTML = s.customizeCredits > 0
+                ? `<span class="text-success"><i class="fa-solid fa-coins"></i> Purchased Credits Available: ${s.customizeCredits}</span>`
+                :'';
+        }
         if (resetBtn) {
             resetBtn.disabled = false;
             resetBtn.style.opacity ='1';
@@ -10525,6 +10628,16 @@ async function loadReceiptCustomizationPanel() {
             resetBtn.title = `You still have ${s.freeAttemptsRemaining} free customization(s) left — no need to reset yet.`;
         }
     }
+    const creditStatusEl = document.getElementById('rc-credit-status');
+    const buyCreditBtnLabel = document.getElementById('rc-buy-credit-btn-label');
+    const price = Number(s.creditPricePHP);
+    const displayPrice = Number.isFinite(price) && price >= 1 ? Math.round(price) : 59;
+    if (creditStatusEl) {
+        creditStatusEl.innerHTML = s.customizeCredits > 0
+            ? `<i class="fa-solid fa-coins" style="color:#2563eb;"></i> You have <strong>${s.customizeCredits}</strong> purchased credit(s) left — 1 credit = 1 customization save beyond the free 2, no OTP needed. Price: ₱${displayPrice} per credit.`
+            : `Used up the 2 free customizations? Buy a credit instead of asking for an OTP — 1 credit = 1 additional Receipt Customization save. Price: ₱${displayPrice} per credit.`;
+    }
+    if (buyCreditBtnLabel) buyCreditBtnLabel.textContent = `💎 Use Omni Token (₱${displayPrice})`;
 }
 function closeGoogleAppVerificationFloatingBox() {
     const otpSenderBox = document.getElementById('rc-otp-sender-config');
@@ -11340,10 +11453,31 @@ async function saveReceiptCustomization() {
             body: JSON.stringify(payload)
         });
         let data = await res.json();
-        if (data.requiresOtp) {
+        if (data.requiresOtp && data.requiresCredit) {
+            await refreshFeatureCatalogLive();
+            const flags = getActivationFlags();
+            const price = getReceiptCustomizationPrice();
+            if (!flags.otpRequestsEnabled && !flags.omniTokenActivationEnabled) {
+                await Swal.fire({
+                    title:'Unlock Temporarily Unavailable',
+                    html: buildActivationNoteHtml(),
+                    icon:'warning',
+                    confirmButtonText:'OK',
+                    confirmButtonColor:'#2563eb'
+                });
+                return;
+            }
+            const choice = await showReceiptCreditPurchaseChoice();
+            if (choice.isDenied) {
+                await activateReceiptCreditViaTokens(choice.value && choice.value.quantity);
+                return;
+            }
+            if (!choice.isConfirmed) return;
+            await runReceiptCreditSendRequestFlow(choice.value && choice.value.quantity);
+            return;
             const otpReqRes = await authFetch(`${API_URL}/receipt-settings/request-otp`, {
                 method:'POST',
-                headers: {'Content-Type':'application/json' },
+                headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({ username: payload.username })
             });
             const otpReqData = await otpReqRes.json();
@@ -11351,23 +11485,22 @@ async function saveReceiptCustomization() {
                 Swal.fire('OTP Not Sent', otpReqData.message ||'Failed to send the OTP.','error');
                 return;
             }
-            const { value: otpCode } = await Swal.fire({
-                title:'🔒 OTP Required',
-                html:'You have reached the free limit for receipt customization (2/2). An OTP code has been sent to the developer\'s registered email. Enter the 6-digit code you received:',
-                input:'text',
-                inputPlaceholder:'000000',
-                showCancelButton: true,
-                confirmButtonColor:'#2563eb',
-                cancelButtonColor:'#64748b'
+            const otpModalResult = await showOtpVerificationModal({
+                title:'OTP Required',
+                descriptionHtml:'You have reached the free limit for Receipt Customization (2/2). A 6-digit OTP has been sent to the developer\'s registered email. Enter the code below to continue.',
+                maxAttempts: 3,
+                verify: async (otp) => {
+                    payload.otp = otp;
+                    const verifyRes = await authFetch(`${API_URL}/receipt-settings`, {
+                        method:'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                    return verifyRes.json();
+                }
             });
-            if (!otpCode || !otpCode.trim()) return;
-            payload.otp = otpCode.trim();
-            res = await authFetch(`${API_URL}/receipt-settings`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify(payload)
-            });
-            data = await res.json();
+            if (!otpModalResult) return;
+            data = otpModalResult;
             if (data.pending) {
                 data = await pollUntilApproved(`${API_URL}/receipt-settings`, payload);
             }
@@ -12284,12 +12417,13 @@ function showDebtQrPhModal(id, qrData) {
     Swal.fire({
         title: 'I-scan para Magbayad',
         html: `
-            <div style="text-align:center;">
-                <img src="${escapeHtml(qrData.qrCodeImageUrl)}" alt="QR Ph" style="width:240px;height:240px;object-fit:contain;border:1px solid #e6e9ef;border-radius:12px;padding:8px;background:#fff;">
-                <p style="margin:14px 0 4px;font-weight:700;font-size:1.1rem;">₱${(qrData.amount || 0).toFixed(2)}</p>
-                <p id="debt-qrph-status-text" style="margin:0;color:#64748b;font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin"></i> Naghihintay ng bayad...</p>
+            <div class="paymongo-qr-content">
+                <img class="paymongo-qr-image" src="${escapeHtml(qrData.qrCodeImageUrl)}" alt="QR Ph">
+                <p class="paymongo-qr-amount">₱${(qrData.amount || 0).toFixed(2)}</p>
+                <p id="debt-qrph-status-text" class="paymongo-qr-status"><i class="fa-solid fa-spinner fa-spin"></i> Naghihintay ng bayad...</p>
             </div>
         `,
+        customClass: { popup: 'paymongo-qr-modal' },
         showConfirmButton: false,
         showCancelButton: true,
         cancelButtonText: 'Isara',
@@ -12499,6 +12633,179 @@ function applyPaymentMethodVisibility() {
         seniorPwdToggleLabel.style.opacity = disabled ? '0.4' : '';
         seniorPwdToggleLabel.title = disabled ? 'Naka-disable sa Store & Sales Settings' : '';
     }
+}
+async function requestReceiptCreditPurchase() {
+    await refreshFeatureCatalogLive();
+    const opts = getUnlockModalButtonOptions();
+    if (opts.bothDisabled) {
+        await Swal.fire({ title:'Credit Purchase Temporarily Unavailable', html: buildActivationNoteHtml(), icon:'warning', confirmButtonText:'OK' });
+        return;
+    }
+    const choice = await showReceiptCreditPurchaseChoice();
+    if (choice.isDenied) {
+        await activateReceiptCreditViaTokens(choice.value && choice.value.quantity);
+        return;
+    }
+    if (!choice.isConfirmed) return;
+    await runReceiptCreditSendRequestFlow(choice.value && choice.value.quantity);
+}
+async function runReceiptCreditSendRequestFlow(quantity = 1) {
+    const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
+    let quote = calculateReceiptCreditQuote(quantity);
+    try {
+        const otpReqRes = await authFetch(`${API_URL}/receipt-settings/request-credit-purchase`, {
+            method:'POST',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify({ username, quantity: quote.quantity })
+        });
+        const otpReqData = await otpReqRes.json();
+        if (!otpReqData.success) {
+            Swal.fire('Not Sent', otpReqData.message ||'Failed to send the purchase request.','error');
+            return;
+        }
+        if (otpReqData.quote) quote = otpReqData.quote;
+        const purchaseBody = { otp:'', username };
+        const otpModalResult = await showOtpVerificationModal({
+            title:'OTP Required',
+            descriptionHtml:`A 6-digit confirmation code has been sent to the developer's registered email. After your payment of <strong>₱${quote.totalPHP.toFixed(2)}</strong> for <strong>${quote.quantity} credit(s)</strong>${quote.discountPercent > 0 ? ` with ${quote.discountPercent}% bulk discount` : ''} is confirmed, enter the code below.`,
+            maxAttempts: 3,
+            verify: async (otp) => {
+                purchaseBody.otp = otp;
+                const purchaseRes = await authFetch(`${API_URL}/receipt-settings/confirm-credit-purchase`, {
+                    method:'POST',
+                    headers: {'Content-Type':'application/json' },
+                    body: JSON.stringify(purchaseBody)
+                });
+                return purchaseRes.json();
+            }
+        });
+        if (!otpModalResult) return;
+        let purchaseData = otpModalResult;
+        if (purchaseData.pending) {
+            purchaseData = await pollUntilApproved(`${API_URL}/receipt-settings/confirm-credit-purchase`, purchaseBody);
+        }
+        if (purchaseData.cancelled) return;
+        if (purchaseData.success) {
+            Swal.fire('Credit Added!', purchaseData.message ||'Your customization credit has been added.','success');
+            receiptSettingsCache = purchaseData.settings || receiptSettingsCache;
+            applyReceiptBranding();
+            loadReceiptCustomizationPanel();
+        } else {
+            Swal.fire('Error', purchaseData.message ||'Failed to confirm the credit purchase.','error');
+        }
+    } catch (err) {
+        console.error('Receipt credit purchase error:', err);
+        Swal.fire('Error','Something went wrong while requesting the credit purchase.','error');
+    }
+}
+async function activateReceiptCreditViaTokens(quantity = 1) {
+    if (blockIfOffline('Receipt Customization credit purchase')) return;
+    let quote = calculateReceiptCreditQuote(quantity);
+    const emailResult = await Swal.fire({
+        title: '💎 Use Omni Token',
+        html: `<div style="text-align:left;">
+            <div style="font-size:.84rem;line-height:1.6;margin-bottom:10px;">
+                <strong>${quote.quantity} credit(s)</strong> × ₱${quote.unitPrice.toLocaleString('en-PH')}<br>
+                Subtotal: ₱${quote.subtotal.toFixed(2)}<br>
+                ${quote.discountPercent > 0 ? `<span style="color:#16a34a;font-weight:700;">Bulk discount (${quote.discountPercent}%): −₱${quote.discount.toFixed(2)}</span><br>` : ''}
+                <strong>Total: ₱${quote.totalPHP.toFixed(2)}</strong><br>
+                <span style="color:#2563eb;font-weight:800;">💎 Omni Tokens required: ${quote.totalTokens}</span>
+            </div>
+            <label for="rc-token-requestor-email" style="display:block;font-size:.82rem;font-weight:700;margin-bottom:6px;">Verification Email</label>
+            <input type="email" id="rc-token-requestor-email" class="swal2-input" placeholder="you@gmail.com" style="margin:0;width:100%;">
+        </div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Send Verification Code',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        focusConfirm: false,
+        preConfirm: () => {
+            const email = (document.getElementById('rc-token-requestor-email').value || '').trim();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                Swal.showValidationMessage('Please enter a valid Gmail/email address.');
+                return false;
+            }
+            return { email };
+        }
+    });
+    if (!emailResult.isConfirmed) return;
+    const requestorEmail = emailResult.value.email;
+    const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
+    let reqData;
+    try {
+        const reqRes = await authFetch(`${API_URL}/receipt-settings/token-activate/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestorEmail, username, quantity: quote.quantity })
+        });
+        reqData = await reqRes.json();
+    } catch (e) {
+        Swal.fire('Error', 'Could not reach the server to check your Omni Tokens balance.', 'error');
+        return;
+    }
+    if (!reqData.success) {
+        if (reqData.insufficient) {
+            const unavailableQuote = reqData.quote || quote;
+            const buyResult = await Swal.fire({
+                icon: 'info',
+                title: 'Not Enough Omni Tokens',
+                html: `You have <strong>${reqData.balanceTokens}</strong> token/s, but <strong>${reqData.requiredTokens}</strong> are needed for <strong>${unavailableQuote.quantity}</strong> credit(s) (${unavailableQuote.discountPercent > 0 ? unavailableQuote.discountPercent + '% discount applied' : 'no bulk discount'}).`,
+                showCancelButton: true,
+                confirmButtonText: 'Buy Omni Tokens',
+                cancelButtonText: 'Not now',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (buyResult.isConfirmed) switchView('cloudtokens');
+            return;
+        }
+        if (reqData.gmailNotVerified) {
+            await Swal.fire({
+                icon: 'warning',
+                title: 'OTP Sender Email Not Set Up',
+                text: reqData.message || 'Please configure and verify an OTP Sender Email (Gmail App Password) first.',
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#7c3aed'
+            });
+            return;
+        }
+        Swal.fire('Error', reqData.message || 'Could not send the verification code.', 'error');
+        return;
+    }
+    if (reqData.quote) quote = reqData.quote;
+    const otpModalResult = await showOtpVerificationModal({
+        title: 'Verify Your Gmail',
+        descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to add <strong>${quote.quantity} Receipt Customization credit(s)</strong> for <strong>₱${Number(quote.totalPHP).toFixed(2)}</strong> / <strong>${quote.totalTokens} Omni Tokens</strong>. Your tokens will only be deducted once this code is verified.`,
+        maxAttempts: 5,
+        verify: async (otp) => {
+            const confirmRes = await authFetch(`${API_URL}/receipt-settings/token-activate/confirm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ otp, username })
+            });
+            return confirmRes.json();
+        },
+        onExpire: () => authFetch(`${API_URL}/receipt-settings/token-activate/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
+    });
+    if (!otpModalResult || !otpModalResult.success) {
+        if (otpModalResult && otpModalResult.insufficient) {
+            const buyResult = await Swal.fire({
+                icon: 'info',
+                title: 'Not Enough Omni Tokens',
+                html: `Your code was correct, but your token balance changed in the meantime — you now have <strong>${otpModalResult.balanceTokens}</strong>, needing <strong>${otpModalResult.requiredTokens}</strong>.`,
+                showCancelButton: true,
+                confirmButtonText: 'Buy Omni Tokens',
+                cancelButtonText: 'Close',
+                confirmButtonColor: '#7c3aed'
+            });
+            if (buyResult.isConfirmed) switchView('cloudtokens');
+        }
+        return;
+    }
+    receiptSettingsCache = otpModalResult.settings || receiptSettingsCache;
+    applyReceiptBranding();
+    loadReceiptCustomizationPanel();
+    Swal.fire('Credit Added!', otpModalResult.message || 'Your customization credit has been added.', 'success');
 }
 async function requestReceiptCounterReset() {
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';

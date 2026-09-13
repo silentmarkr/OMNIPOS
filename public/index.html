@@ -638,8 +638,8 @@
                             <div class="cart-header" id="terminal-cart-header" title="I-drag ang header na ito papuntang kanan para ipalit ang pwesto ng Order at Products (Desktop lang)">
                                 <span><i class="fa-solid fa-grip-lines pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
                                 <div class="cart-header-actions">
-                                    <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> Preview</button>
-                                    <button class="btn-terminal-settings" onclick="openTerminalSettingsModal()" title="Terminal Settings"><i class="fa-solid fa-gear"></i> Settings</button>
+                                    <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> <span class="btn-print-preview-label">Preview</span></button>
+                                    <button class="btn-terminal-settings" onclick="openTerminalSettingsModal()" title="Terminal Settings"><i class="fa-solid fa-gear"></i> <span class="btn-terminal-settings-label">Settings</span></button>
                                     <button class="btn-price-check" onclick="openPriceCheck()" title="Price Check"><i class="fa-solid fa-tags"></i> <span class="btn-price-check-label">Price Check</span></button>
                                     <button class="btn-clear" onclick="handleClearCart()"><i class="fa-solid fa-trash-can"></i> Clear</button>
                                 </div>
@@ -2021,6 +2021,18 @@
                 </p>
                 <button id="rc-reset-counter-btn" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444; opacity:0.4; cursor:not-allowed;" disabled onclick="requestReceiptCounterReset()">
                     <i class="fa-solid fa-rotate-left"></i> Reset Customization Counter (OTP Required)
+                </button>
+                </div>
+            </details>
+
+            <details class="rc-section">
+                <summary><i class="fa-solid fa-coins" style="color:#2563eb;"></i> <span>11. Buy Customization Credits</span></summary>
+                <div class="rc-section-body">
+                <p id="rc-credit-status" style="font-size:0.8rem; color: var(--text-muted); margin-bottom: 10px;">
+                    Naubos ang 2 free customizations? Puwede kang bumili ng credit — 1 credit = 1 additional Receipt Customization save, walang OTP kailangan.
+                </p>
+                <button id="rc-buy-credit-btn" class="btn-action-outline" style="color:#2563eb; border-color:#2563eb;" onclick="requestReceiptCreditPurchase()">
+                    <i class="fa-solid fa-coins"></i> <span id="rc-buy-credit-btn-label">Buy 1 Credit</span>
                 </button>
                 </div>
             </details>

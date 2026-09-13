@@ -2344,7 +2344,18 @@ body.cart-pane-resizing-cursor {
 }
 @media screen and (max-width: 1024px) {
     .btn-terminal-settings {
-        display: none !important;
+        padding: 6px 8px;
+        gap: 0;
+    }
+    .btn-terminal-settings-label {
+        display: none;
+    }
+    .btn-print-preview {
+        padding: 6px 8px;
+        gap: 0;
+    }
+    .btn-print-preview-label {
+        display: none;
     }
 }
 .cart-items-wrapper {
@@ -6294,9 +6305,16 @@ body.dark-mode .bottom-nav-item:active {
     .btn-charge-action:active {
         background-color: var(--primary-blue-hover);
     }
-    .btn-clear, .btn-print-preview {
+    .btn-clear {
         min-height: 40px;
         padding: 8px 14px;
+    }
+    .btn-print-preview, .btn-terminal-settings {
+        min-height: 40px;
+        width: 40px;
+        padding: 8px;
+        justify-content: center;
+        gap: 0;
     }
     .btn-price-check {
         min-height: 40px;
@@ -11884,4 +11902,141 @@ body.dark-mode .ct-package-breakdown {
     .void-refund-transaction-shortcut:active {
         transform: translateY(0);
     }
+}
+
+/* Receipt Credit quantity input: explicitly interactive across desktop/mobile themes. */
+.receipt-credit-unlock-modal .rc-credit-qty-input,
+.receipt-credit-unlock-modal .rc-credit-qty-input:focus {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    touch-action: manipulation !important;
+    cursor: text !important;
+    position: relative !important;
+    z-index: 5 !important;
+}
+
+.receipt-credit-unlock-modal .swal2-html-container {
+    pointer-events: auto !important;
+}
+
+/* Receipt Credit unlock buttons: keep the requested semantic order in every theme.
+   Some dark/pro theme rules style .swal2-confirm/.swal2-deny with !important,
+   so scope these overrides to this modal only. */
+.receipt-credit-unlock-modal .swal2-confirm {
+    background-color: #ef4444 !important;
+    color: #ffffff !important;
+}
+.receipt-credit-unlock-modal .swal2-confirm:hover {
+    background-color: #dc2626 !important;
+}
+.receipt-credit-unlock-modal .swal2-deny {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+}
+.receipt-credit-unlock-modal .swal2-deny:hover {
+    background-color: #1d4ed8 !important;
+}
+
+/* PayMongo/QR Ph dialogs and the live QR section must remain readable in every
+   OmniPOS theme.  The existing payment markup contains light inline colors,
+   therefore these scoped !important rules intentionally override those values. */
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-qr-block {
+    background-color: var(--dm-surface-alt) !important;
+    border-color: var(--dm-border) !important;
+    color: var(--dm-text-primary) !important;
+}
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-qr-img {
+    background-color: #ffffff !important;
+    border-color: var(--dm-border) !important;
+}
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-live-idle p,
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-live-loading,
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-live-status,
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-qr-img-wrap > div {
+    color: var(--dm-text-secondary) !important;
+}
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-live-error,
+body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-qr-missing {
+    color: var(--danger-red, #ef4444) !important;
+}
+body.terminal-modal-daymode #payment-modal #pay-ewallet-qr-block {
+    background-color: #f8fafc !important;
+    border-color: var(--border-color) !important;
+    color: #0f172a !important;
+}
+body.terminal-modal-daymode #payment-modal #pay-ewallet-qr-img,
+body.terminal-modal-daymode #payment-modal #pay-ewallet-live-qr-img {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+}
+body.terminal-modal-daymode #payment-modal #pay-ewallet-live-idle p,
+body.terminal-modal-daymode #payment-modal #pay-ewallet-live-loading,
+body.terminal-modal-daymode #payment-modal #pay-ewallet-live-status,
+body.terminal-modal-daymode #payment-modal #pay-ewallet-qr-img-wrap > div {
+    color: #64748b !important;
+}
+body.terminal-modal-daymode #payment-modal #pay-ewallet-live-error,
+body.terminal-modal-daymode #payment-modal #pay-ewallet-qr-missing {
+    color: #dc2626 !important;
+}
+
+.paymongo-qr-modal .paymongo-qr-content {
+    text-align: center;
+    color: var(--dm-text-primary, #0f172a);
+}
+.paymongo-qr-modal .paymongo-qr-description,
+.paymongo-qr-modal .paymongo-qr-note {
+    color: var(--dm-text-secondary, #475569);
+}
+.paymongo-qr-modal .paymongo-qr-description {
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+.paymongo-qr-modal .paymongo-qr-note {
+    margin: 10px 0 0;
+    font-size: .8rem;
+}
+.paymongo-qr-modal .paymongo-qr-image {
+    width: 240px;
+    height: 240px;
+    max-width: 100%;
+    object-fit: contain;
+    display: block;
+    margin: 12px auto;
+    padding: 8px;
+    background: #ffffff;
+    border: 1px solid var(--dm-border, #e2e8f0);
+    border-radius: 12px;
+    box-sizing: border-box;
+}
+.paymongo-qr-modal .paymongo-qr-image-token {
+    width: 260px;
+    height: 260px;
+}
+body.dark-mode .paymongo-qr-modal {
+    background-color: var(--dm-surface) !important;
+    color: var(--dm-text-primary) !important;
+    border-color: var(--dm-border) !important;
+}
+body.dark-mode .paymongo-qr-modal .swal2-title {
+    color: var(--dm-text-primary) !important;
+}
+body.dark-mode .paymongo-qr-modal .paymongo-qr-description,
+body.dark-mode .paymongo-qr-modal .paymongo-qr-note,
+body.dark-mode .paymongo-qr-modal .paymongo-qr-status {
+    color: var(--dm-text-secondary) !important;
+}
+body.terminal-modal-daymode .paymongo-qr-modal {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #e2e8f0 !important;
+}
+body.terminal-modal-daymode .paymongo-qr-modal .swal2-title {
+    color: #0f172a !important;
+}
+body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-description,
+body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-note,
+body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-status {
+    color: #64748b !important;
 }

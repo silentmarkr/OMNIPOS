@@ -596,6 +596,8 @@ function saveCloudTokenPrefs(prefs) {
     writeData(FILE_CLOUD_TOKEN_PREFS, { autoSyncEnabled: prefs.autoSyncEnabled !== false });
 }
 const FREE_CUSTOMIZE_LIMIT = 2;
+// Price per additional Receipt Customization credit once the 2 free attempts are used up. Adjust as needed.
+const CUSTOMIZE_CREDIT_PRICE_PHP = 59; // Fallback only; authoritative pricing comes from RELAY.
 const OTP_RECIPIENT_EMAIL = Buffer.from('cml2ZXJvbWFyazE3QGdtYWlsLmNvbQ==','base64').toString('utf8');
 const OTP_TTL_MS = 10 * 60 * 1000;
 function getOtpMailCredentials(settings) {
@@ -670,10 +672,13 @@ const DEFAULT_RECEIPT_SETTINGS = {
         format: 'xs'
     },
     customizeCount: 0,
+    customizeCredits: 0,
     firstCustomizedAt: null,
     pendingOtp: null,
     pendingResetOtp: null,
+    pendingCreditPurchaseOtp: null,
     resetHistory: [],
+    creditPurchaseHistory: [],
     otpSenderEmail: null,
     otpSenderAppPassword: null
 };
@@ -780,9 +785,43 @@ function sanitizeTransactionIdSettings(raw) {
         format: VALID_TRANSACTION_ID_FORMATS.includes(s.format) ? s.format : d.format
     };
 }
+let receiptCreditPricingCache = {
+    pricePHP: CUSTOMIZE_CREDIT_PRICE_PHP,
+    discountMinQuantity: 2,
+    discountPercent: 5,
+    maxQuantity: 100,
+    updatedAt: 0
+};
+async function refreshReceiptCreditPricingFromRelay(installationId = null) {
+    if (!RELAY_URL || !RELAY_API_KEY) return receiptCreditPricingCache;
+    try {
+        const qs = installationId ? `?installationId=${encodeURIComponent(installationId)}` : '';
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/receipt-credit-pricing${qs}`, {
+            method: 'GET',
+            headers: { 'x-relay-key': RELAY_API_KEY }
+        });
+        const data = await parseRelayResponse(relayRes);
+        if (relayRes.ok && data && data.success && data.pricing) {
+            const r = data.pricing;
+            const pricePHP = Number(r.pricePHP);
+            const discountMinQuantity = Number(r.discountMinQuantity);
+            const discountPercent = Number(r.discountPercent);
+            const maxQuantity = Number(r.maxQuantity);
+            if (Number.isFinite(pricePHP) && pricePHP >= 0) receiptCreditPricingCache.pricePHP = pricePHP;
+            if (Number.isInteger(discountMinQuantity) && discountMinQuantity >= 2) receiptCreditPricingCache.discountMinQuantity = discountMinQuantity;
+            if (Number.isFinite(discountPercent) && discountPercent >= 0 && discountPercent <= 90) receiptCreditPricingCache.discountPercent = discountPercent;
+            if (Number.isInteger(maxQuantity) && maxQuantity >= 1 && maxQuantity <= 1000) receiptCreditPricingCache.maxQuantity = maxQuantity;
+            receiptCreditPricingCache.updatedAt = Date.now();
+        }
+    } catch (err) {
+        console.warn('Unable to refresh Receipt Credit pricing from RELAY:', err.message);
+    }
+    return receiptCreditPricingCache;
+}
 function getReceiptSettingsPublic(rawSettings) {
     const s = rawSettings || DEFAULT_RECEIPT_SETTINGS;
     const customizeCount = s.customizeCount || 0;
+    const customizeCredits = s.customizeCredits || 0;
     const headerType = VALID_HEADER_TYPES.includes(s.headerType) ? s.headerType : DEFAULT_RECEIPT_SETTINGS.headerType;
     const headerImage = headerType ==='image' ? sanitizeReceiptHeaderImageDataUrl(s.headerImage) : null;
     return {
@@ -804,6 +843,12 @@ function getReceiptSettingsPublic(rawSettings) {
         firstCustomizedAt: s.firstCustomizedAt || null,
         freeAttemptsRemaining: Math.max(0, FREE_CUSTOMIZE_LIMIT - customizeCount),
         otpRequired: customizeCount >= FREE_CUSTOMIZE_LIMIT,
+        customizeCredits: customizeCredits,
+        creditPricePHP: receiptCreditPricingCache.pricePHP,
+        creditDiscountMinQuantity: receiptCreditPricingCache.discountMinQuantity,
+        creditDiscountPercent: receiptCreditPricingCache.discountPercent,
+        creditMaxQuantity: receiptCreditPricingCache.maxQuantity,
+        creditNeeded: customizeCount >= FREE_CUSTOMIZE_LIMIT && customizeCredits <= 0,
         otpSenderConfigured: !!(s.otpSenderEmail && s.otpSenderAppPassword),
         otpSenderEmailMasked: maskEmail(s.otpSenderEmail)
     };
@@ -836,8 +881,14 @@ app.post('/api/categories', (req, res) => {
     }
     res.json({ success: true, categories });
 });
-app.get('/api/receipt-settings', (req, res) => {
+app.get('/api/receipt-settings', async (req, res) => {
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    let installationId = null;
+    try {
+        const featureData = readFeatureUnlocks();
+        installationId = getOrCreateInstallationId(featureData);
+    } catch (_) {}
+    await refreshReceiptCreditPricingFromRelay(installationId);
     res.json(getReceiptSettingsPublic(settings));
 });
 app.post('/api/receipt-settings/paper-size', requirePermission('receipt_settings_view'), (req, res) => {
@@ -1114,23 +1165,36 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const currentCount = settings.customizeCount || 0;
     const needsOtp = currentCount >= FREE_CUSTOMIZE_LIMIT;
+    const availableCredits = settings.customizeCredits || 0;
+    let consumeCredit = false;
     if (needsOtp) {
-        if (!otp || !String(otp).trim()) {
-            return res.json({ success: false, requiresOtp: true, message:'OTP verification is now required to continue customizing the receipt.' });
-        }
-        const pending = settings.pendingOtp;
-        if (!pending || !pending.code) {
-            return res.status(400).json({ success: false, requiresOtp: true, message:'No active OTP request. Please request a new OTP first.' });
-        }
-        if (Date.now() > pending.expiresAt) {
+        if (availableCredits > 0) {
+            // A purchased credit covers this save — no OTP needed.
+            consumeCredit = true;
+        } else {
+            if (!otp || !String(otp).trim()) {
+                return res.json({
+                    success: false,
+                    requiresOtp: true,
+                    requiresCredit: true,
+                    creditPricePHP: CUSTOMIZE_CREDIT_PRICE_PHP,
+                    message: `You've used up your 2 free customizations and have no purchased credits left. Buy a Receipt Customization credit (₱${CUSTOMIZE_CREDIT_PRICE_PHP} each) or enter an OTP to continue.`
+                });
+            }
+            const pending = settings.pendingOtp;
+            if (!pending || !pending.code) {
+                return res.status(400).json({ success: false, requiresOtp: true, message:'No active OTP request. Please request a new OTP first.' });
+            }
+            if (Date.now() > pending.expiresAt) {
+                settings.pendingOtp = null;
+                writeData(FILE_RECEIPT_SETTINGS, settings);
+                return res.status(400).json({ success: false, requiresOtp: true, message:'The OTP code has expired. Please request a new one.' });
+            }
+            if (String(otp).trim() !== pending.code) {
+                return res.status(400).json({ success: false, requiresOtp: true, message:'Incorrect OTP code.' });
+            }
             settings.pendingOtp = null;
-            writeData(FILE_RECEIPT_SETTINGS, settings);
-            return res.status(400).json({ success: false, requiresOtp: true, message:'The OTP code has expired. Please request a new one.' });
         }
-        if (String(otp).trim() !== pending.code) {
-            return res.status(400).json({ success: false, requiresOtp: true, message:'Incorrect OTP code.' });
-        }
-        settings.pendingOtp = null;
     }
     settings.storeName = storeName.trim();
     settings.storeAddress = (storeAddress ||'').trim();
@@ -1140,13 +1204,256 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
     settings.headerType = normalizedHeaderType;
     settings.headerImage = normalizedHeaderType ==='image' ? sanitizedHeaderImage : null;
     settings.headerImageStyle = sanitizedHeaderImageStyle;
+    if (consumeCredit) {
+        settings.customizeCredits = availableCredits - 1;
+    }
     settings.customizeCount = currentCount + 1;
     if (!settings.firstCustomizedAt) {
         settings.firstCustomizedAt = new Date().toISOString();
     }
     writeData(FILE_RECEIPT_SETTINGS, settings);
-    logAction(username ||'Unknown', `Updated the Receipt Customization details (attempt #${settings.customizeCount})`);
+    logAction(username ||'Unknown', `Updated the Receipt Customization details (attempt #${settings.customizeCount}${consumeCredit ? ', used 1 purchased credit' : ''})`);
     res.json({ success: true, message:'Receipt details updated successfully.', settings: getReceiptSettingsPublic(settings) });
+});
+app.post('/api/receipt-settings/request-credit-purchase', rateLimit('credit-purchase-request', 5, 15 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
+    if (!activationFlagsCache.otpRequestsEnabled) {
+        return res.status(503).json({ success: false, message: 'Manual unlock requests ("Send Request") are temporarily disabled by the developer. Please try "Activate via Omni Tokens" instead, or try again later.' });
+    }
+    const { username, quantity } = req.body;
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    try {
+        const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const storeName = settings.storeName || null;
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/request-receipt-credit-purchase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, storeName, requestedBy: username || 'Unknown', quantity: Number(quantity) || 1 })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (relayData.success) {
+            logAction(username || 'Unknown', `Requested to purchase ${relayData.quote?.quantity || Number(quantity) || 1} Receipt Customization credit(s) via RELAY pricing.`);
+        }
+        res.status(relayRes.status).json(relayData);
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay (credit-purchase):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}.` });
+    }
+});
+app.post('/api/receipt-settings/confirm-credit-purchase', rateLimit('credit-purchase-verify', 120, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
+    const { otp, username } = req.body;
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message:'The OTP/confirmation code is required.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    try {
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-receipt-credit-purchase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, otp: String(otp).trim() })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (relayData.pending) {
+            return res.status(202).json({ success: false, pending: true, message: relayData.message || 'Correct code! Waiting for the developer to confirm your payment.' });
+        }
+        if (!relayData.success) {
+            return res.status(relayRes.status === 200 ? 400 : relayRes.status).json(relayData);
+        }
+        if (!verifyReceiptCreditTicket(relayData.ticket, installationId)) {
+            console.error('⚠️ Received a receipt-credit-purchase ticket from the relay but its signature is INVALID.');
+            return res.status(400).json({ success: false, message: 'The purchase ticket received was not valid. Please try again.' });
+        }
+        const creditsGranted = Math.max(1, Number(relayData.ticket.payload.credits) || 1);
+        const pricePaidPHP = Number.isFinite(Number(relayData.ticket.payload.pricePHP)) ? Number(relayData.ticket.payload.pricePHP) : CUSTOMIZE_CREDIT_PRICE_PHP * creditsGranted;
+        const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        settings.customizeCredits = (settings.customizeCredits || 0) + creditsGranted;
+        settings.creditPurchaseHistory = Array.isArray(settings.creditPurchaseHistory) ? settings.creditPurchaseHistory : [];
+        settings.creditPurchaseHistory.push({ purchasedAt: new Date().toISOString(), purchasedBy: username || 'Unknown', credits: creditsGranted, pricePHP: pricePaidPHP });
+        writeData(FILE_RECEIPT_SETTINGS, settings);
+        logAction(username || 'Unknown', `Purchased ${creditsGranted} Receipt Customization credit(s) (₱${pricePaidPHP} total, Relay-verified)`);
+        res.json({ success: true, message: `Payment confirmed — ${creditsGranted} customization credit(s) added.`, settings: getReceiptSettingsPublic(settings) });
+    } catch (err) {
+        console.error('Hindi ma-abot ang Unlock Relay (credit-purchase):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}.` });
+    }
+});
+// ===================================================================
+// RECEIPT CUSTOMIZATION CREDIT — TOKEN-FUNDED SELF-SERVE ACTIVATION
+// Mirrors /api/cloud-backup/token-activate/(request|confirm|cancel):
+// OMNIPOS owns IDENTITY (emails a code straight to the requestor's own
+// Gmail using the store's verified Sender Gmail App Password, verifies
+// it locally), RELAY owns MONEY (atomically deducts Omni Tokens and
+// issues the signed receipt-credit ticket only once identity is proven).
+// This is the token-based alternative to the manual "Send Request" flow
+// above (request-credit-purchase / confirm-credit-purchase).
+// ===================================================================
+const RECEIPT_CREDIT_TOKEN_OTP_TTL_MS = 10 * 60 * 1000;
+const RECEIPT_CREDIT_TOKEN_OTP_MAX_ATTEMPTS = 5;
+const receiptCreditTokenOtpChallenges = new Map();
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of receiptCreditTokenOtpChallenges.entries()) {
+        if (now > v.expiresAt) receiptCreditTokenOtpChallenges.delete(k);
+    }
+}, 60 * 1000).unref();
+app.post('/api/receipt-settings/token-activate/request', requirePermission('receipt_settings_view'), rateLimit('receipt-credit-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.omniTokenActivationEnabled) {
+        return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
+    }
+    const { requestorEmail, username, quantity } = req.body;
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = String(requestorEmail || '').trim();
+    if (!emailPattern.test(cleanEmail)) {
+        return res.status(400).json({ success: false, message: 'Please enter a valid Gmail/email address to receive the verification code.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    const quoteRes = await relayFetch(`${RELAY_URL}/relay/receipt-credit-pricing?installationId=${encodeURIComponent(installationId)}&quantity=${encodeURIComponent(Number(quantity) || 1)}`, {
+        method: 'GET',
+        headers: { 'x-relay-key': RELAY_API_KEY }
+    });
+    const quoteData = await parseRelayResponse(quoteRes);
+    if (!quoteRes.ok || !quoteData.success || !quoteData.quote) {
+        return res.status(quoteRes.status || 502).json({ success: false, message: quoteData.message || 'Could not get the current Receipt Credit price from RELAY.' });
+    }
+    const quote = quoteData.quote;
+    const wallet = await fetchCloudTokenWallet(installationId);
+    if (!wallet.ok) {
+        return res.status(502).json({ success: false, message: `Could not reach the Omni Tokens service to check your balance: ${wallet.reason}` });
+    }
+    const requiredTokens = Number(quote.totalTokens);
+    if (wallet.balanceTokens < requiredTokens) {
+        return res.status(402).json({
+            success: false,
+            insufficient: true,
+            balanceTokens: wallet.balanceTokens,
+            requiredTokens,
+            message: `Insufficient Omni Tokens. You have ${wallet.balanceTokens}, but ${requiredTokens} tokens are needed for ${quote.quantity} Receipt Customization credit(s). Please buy more Omni Tokens first.`,
+            quote
+        });
+    }
+    const otpMailCreds = getOtpMailCredentials();
+    if (!otpMailCreds) {
+        return res.status(400).json({
+            success: false,
+            gmailNotVerified: true,
+            message: 'No verified OTP Sender Email (Gmail App) is configured yet. Please configure and verify one first in Receipt Customization > OTP Sender Email.'
+        });
+    }
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    receiptCreditTokenOtpChallenges.set(installationId, {
+        code: otpCode,
+        expiresAt: Date.now() + RECEIPT_CREDIT_TOKEN_OTP_TTL_MS,
+        requestorEmail: cleanEmail,
+        requestedBy: username || 'Unknown',
+        attempts: 0,
+        activationRequestId: crypto.randomUUID(),
+        quantity: quote.quantity,
+        quote
+    });
+    try {
+        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
+            from: `"OmniPOS Receipt Customization" <${otpMailCreds.user}>`,
+            to: cleanEmail,
+            subject: `🔐 OmniPOS Receipt Customization Credit — Verification Code`,
+            text: `Verification code to add ${quote.quantity} Receipt Customization credit(s) (₱${quote.totalPHP.toFixed(2)} / ${requiredTokens} Omni Tokens):\n\n` +
+                  `OTP Code: ${otpCode}\n\n` +
+                  `This code will expire in 10 minutes.\n` +
+                  `Cost: ${requiredTokens} Omni Token/s for ${quote.quantity} credit(s) (will only be deducted after you successfully enter this code).\n\n` +
+                  `If you did not request this, you can safely ignore this email — nothing has been charged yet.`
+        });
+    } catch (mailErr) {
+        receiptCreditTokenOtpChallenges.delete(installationId);
+        console.error('Receipt Customization credit token-activation OTP send failure:', mailErr.message);
+        return res.status(500).json({ success: false, message: `Failed to send the verification code: ${mailErr.message}` });
+    }
+    logAction(username || 'Unknown', `Requested a Receipt Customization credit activation OTP via Omni Tokens sent to ${maskEmail(cleanEmail)}`);
+    res.json({ success: true, message: `A verification code has been sent to ${maskEmail(cleanEmail)}. Enter it to finish adding ${quote.quantity} credit(s).`, quote });
+});
+app.post('/api/receipt-settings/token-activate/confirm', rateLimit('receipt-credit-token-activate-confirm', 30, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
+    const { otp, username } = req.body;
+    if (!otp || !String(otp).trim()) {
+        return res.status(400).json({ success: false, message: 'The OTP code is required.' });
+    }
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    const pending = receiptCreditTokenOtpChallenges.get(installationId);
+    if (!pending) {
+        return res.status(400).json({ success: false, message: 'No active Receipt Customization credit activation request found. Please request a new code first.' });
+    }
+    if (Date.now() > pending.expiresAt) {
+        receiptCreditTokenOtpChallenges.delete(installationId);
+        return res.status(400).json({ success: false, message: 'The code has expired. Please request a new one.' });
+    }
+    if (String(otp).trim() !== pending.code) {
+        pending.attempts = (pending.attempts || 0) + 1;
+        if (pending.attempts >= RECEIPT_CREDIT_TOKEN_OTP_MAX_ATTEMPTS) {
+            receiptCreditTokenOtpChallenges.delete(installationId);
+            return res.status(400).json({ success: false, message: 'Too many incorrect attempts. This request has been cancelled — please request a new code.' });
+        }
+        return res.status(400).json({ success: false, message: 'Incorrect code.' });
+    }
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    }
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-receipt-credit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, clientRequestId: pending.activationRequestId, quantity: pending.quantity || 1 })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            if (relayData.insufficient) {
+                return res.status(402).json({
+                    success: false,
+                    insufficient: true,
+                    balanceTokens: relayData.balanceTokens,
+                    requiredTokens: relayData.requiredTokens,
+                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again with the same code before it expires.'
+                });
+            }
+            return res.status(400).json({ success: false, message: relayData.message || 'Failed to add the Receipt Customization credit.' });
+        }
+        if (!verifyReceiptCreditTicket(relayData.ticket, installationId)) {
+            console.error('⚠️ Received a receipt-credit-purchase ticket (token activation) from the relay but its signature is INVALID.');
+            return res.status(500).json({ success: false, message: 'The activation ticket received is not valid. Please contact the developer.' });
+        }
+        const creditsGranted = Math.max(1, Number(relayData.ticket.payload.credits) || 1);
+        const pricePaidPHP = Number.isFinite(Number(relayData.ticket.payload.pricePHP)) ? Number(relayData.ticket.payload.pricePHP) : CUSTOMIZE_CREDIT_PRICE_PHP * creditsGranted;
+        const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+        settings.customizeCredits = (settings.customizeCredits || 0) + creditsGranted;
+        settings.creditPurchaseHistory = Array.isArray(settings.creditPurchaseHistory) ? settings.creditPurchaseHistory : [];
+        settings.creditPurchaseHistory.push({ purchasedAt: new Date().toISOString(), purchasedBy: username || pending.requestedBy || 'Unknown', credits: creditsGranted, pricePHP: pricePaidPHP, source: 'omni_tokens' });
+        writeData(FILE_RECEIPT_SETTINGS, settings);
+        receiptCreditTokenOtpChallenges.delete(installationId);
+        logAction((username || pending.requestedBy || 'Unknown'), `Purchased ${creditsGranted} Receipt Customization credit(s) using Omni Tokens (verified via ${maskEmail(pending.requestorEmail)})`);
+        res.json({
+            success: true,
+            message: `Payment confirmed via Omni Tokens — ${creditsGranted} customization credit(s) added.`,
+            settings: getReceiptSettingsPublic(settings),
+            balanceTokens: relayData.balanceTokens
+        });
+    } catch (err) {
+        console.error('Could not reach the Unlock Relay (receipt-credit token-activate/confirm):', err);
+        res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+app.post('/api/receipt-settings/token-activate/cancel', rateLimit('receipt-credit-token-activate-cancel', 30, 10 * 60 * 1000), requirePermission('receipt_settings_view'), (req, res) => {
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    receiptCreditTokenOtpChallenges.delete(installationId);
+    res.json({ success: true, message: 'Cancelled.' });
 });
 app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
@@ -3051,6 +3358,24 @@ function verifyReceiptResetTicket(ticket, expectedInstallationId) {
     if (typeof issuedAt !== 'number' || typeof expiresAt !== 'number') return false;
     if (Date.now() > expiresAt) return false;
     const payloadString = JSON.stringify({ installationId, purpose, issuedAt, expiresAt });
+    try {
+        return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(ticket.signature, 'base64'));
+    } catch (err) {
+        return false;
+    }
+}
+function verifyReceiptCreditTicket(ticket, expectedInstallationId) {
+    if (!ticket || !ticket.payload || !ticket.signature) return false;
+    const { installationId, purpose, credits, pricePHP, issuedAt, expiresAt } = ticket.payload;
+    if (installationId !== expectedInstallationId) return false;
+    if (purpose !== 'receipt-customization-credit-purchase') return false;
+    if (typeof issuedAt !== 'number' || typeof expiresAt !== 'number') return false;
+    if (Date.now() > expiresAt) return false;
+    // NOTE: the relay signs { installationId, purpose, credits, pricePHP, issuedAt, expiresAt }
+    // for this ticket type (unlike the admin-reset/receipt-reset tickets, this one carries
+    // `credits`/`pricePHP` fields) — the key set AND order here must match RELAY/server.js
+    // exactly (both receipt-credit ticket-issuing endpoints) or every signature check fails.
+    const payloadString = JSON.stringify({ installationId, purpose, credits, pricePHP, issuedAt, expiresAt });
     try {
         return crypto.verify(null, Buffer.from(payloadString), RELAY_PUBLIC_KEY, Buffer.from(ticket.signature, 'base64'));
     } catch (err) {
