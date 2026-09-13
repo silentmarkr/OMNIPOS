@@ -506,6 +506,15 @@ function findShiftCloseAuthorizer(users, password) {
 function findTerminalSettingsAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'terminal_settings_view');
 }
+// AYOS: ginagamit ito ng self-service "Activate via Omni Tokens" flows
+// (features/cloud-backup/receipt-credit) bilang kapalit ng dating
+// email-OTP identity check — dahil napatunayan na ang pagmamay-ari ng
+// Omni Token balance mismo (binili na ito), ang natitirang gate na
+// kailangan ay pahintulot ng ADMIN (hindi basta-basta kahit sinong user
+// na may permission), kaya walang permissionKey na ipinapasa dito.
+function findOmniTokenUnlockAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password, null);
+}
 const FILE_LOYALTY_SECURITY ='loyaltySecurity';
 function getLoyaltyCardSigningKey() {
     const data = readData(FILE_LOYALTY_SECURITY, {});
@@ -1286,33 +1295,19 @@ app.post('/api/receipt-settings/confirm-credit-purchase', rateLimit('credit-purc
 });
 // ===================================================================
 // RECEIPT CUSTOMIZATION CREDIT — TOKEN-FUNDED SELF-SERVE ACTIVATION
-// Mirrors /api/cloud-backup/token-activate/(request|confirm|cancel):
-// OMNIPOS owns IDENTITY (emails a code straight to the requestor's own
-// Gmail using the store's verified Sender Gmail App Password, verifies
-// it locally), RELAY owns MONEY (atomically deducts Omni Tokens and
-// issues the signed receipt-credit ticket only once identity is proven).
-// This is the token-based alternative to the manual "Send Request" flow
-// above (request-credit-purchase / confirm-credit-purchase).
+// AYOS/UPDATE: dating naghihintay ito ng email-OTP mula sa requestor
+// bago mag-deduct ng Omni Tokens. Dahil napatunayan na ang pagmamay-ari
+// ng Omni Token balance mismo (binili na ang mga token na ito), inalis
+// na ang OTP-to-client-email step — ang natitirang gate na lang ay
+// pahintulot ng ADMIN PASSWORD (findOmniTokenUnlockAuthorizer), na
+// tinatanong at ipinapasa ng client sa iisang request na ito. Ang
+// "Send Request" (developer OTP) na flow sa itaas ay hindi ginalaw.
 // ===================================================================
-const RECEIPT_CREDIT_TOKEN_OTP_TTL_MS = 10 * 60 * 1000;
-const RECEIPT_CREDIT_TOKEN_OTP_MAX_ATTEMPTS = 5;
-const receiptCreditTokenOtpChallenges = new Map();
-setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of receiptCreditTokenOtpChallenges.entries()) {
-        if (now > v.expiresAt) receiptCreditTokenOtpChallenges.delete(k);
-    }
-}, 60 * 1000).unref();
-app.post('/api/receipt-settings/token-activate/request', requirePermission('receipt_settings_view'), rateLimit('receipt-credit-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+app.post('/api/receipt-settings/token-activate/confirm', requirePermission('receipt_settings_view'), rateLimit('receipt-credit-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
     }
-    const { requestorEmail, username, quantity } = req.body;
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const cleanEmail = String(requestorEmail || '').trim();
-    if (!emailPattern.test(cleanEmail)) {
-        return res.status(400).json({ success: false, message: 'Please enter a valid Gmail/email address to receive the verification code.' });
-    }
+    const { quantity, adminPassword, username } = req.body;
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
@@ -1342,75 +1337,20 @@ app.post('/api/receipt-settings/token-activate/request', requirePermission('rece
             quote
         });
     }
-    const otpMailCreds = getOtpMailCredentials();
-    if (!otpMailCreds) {
-        return res.status(400).json({
-            success: false,
-            gmailNotVerified: true,
-            message: 'No verified OTP Sender Email (Gmail App) is configured yet. Please configure and verify one first in Receipt Customization > OTP Sender Email.'
-        });
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message: 'An admin password is required to approve this activation.' });
     }
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
-    receiptCreditTokenOtpChallenges.set(installationId, {
-        code: otpCode,
-        expiresAt: Date.now() + RECEIPT_CREDIT_TOKEN_OTP_TTL_MS,
-        requestorEmail: cleanEmail,
-        requestedBy: username || 'Unknown',
-        attempts: 0,
-        activationRequestId: crypto.randomUUID(),
-        quantity: quote.quantity,
-        quote
-    });
-    try {
-        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
-            from: `"OmniPOS Receipt Customization" <${otpMailCreds.user}>`,
-            to: cleanEmail,
-            subject: `🔐 OmniPOS Receipt Customization Credit — Verification Code`,
-            text: `Verification code to add ${quote.quantity} Receipt Customization credit(s) (₱${quote.totalPHP.toFixed(2)} / ${requiredTokens} Omni Tokens):\n\n` +
-                  `OTP Code: ${otpCode}\n\n` +
-                  `This code will expire in 10 minutes.\n` +
-                  `Cost: ${requiredTokens} Omni Token/s for ${quote.quantity} credit(s) (will only be deducted after you successfully enter this code).\n\n` +
-                  `If you did not request this, you can safely ignore this email — nothing has been charged yet.`
-        });
-    } catch (mailErr) {
-        receiptCreditTokenOtpChallenges.delete(installationId);
-        console.error('Receipt Customization credit token-activation OTP send failure:', mailErr.message);
-        return res.status(500).json({ success: false, message: `Failed to send the verification code: ${mailErr.message}` });
+    const users = readData(FILE_USERS);
+    const authResult = await findOmniTokenUnlockAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The activation was not authorized.' });
     }
-    logAction(username || 'Unknown', `Requested a Receipt Customization credit activation OTP via Omni Tokens sent to ${maskEmail(cleanEmail)}`);
-    res.json({ success: true, message: `A verification code has been sent to ${maskEmail(cleanEmail)}. Enter it to finish adding ${quote.quantity} credit(s).`, quote });
-});
-app.post('/api/receipt-settings/token-activate/confirm', rateLimit('receipt-credit-token-activate-confirm', 30, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
-    const { otp, username } = req.body;
-    if (!otp || !String(otp).trim()) {
-        return res.status(400).json({ success: false, message: 'The OTP code is required.' });
-    }
-    const featureData = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(featureData);
-    const pending = receiptCreditTokenOtpChallenges.get(installationId);
-    if (!pending) {
-        return res.status(400).json({ success: false, message: 'No active Receipt Customization credit activation request found. Please request a new code first.' });
-    }
-    if (Date.now() > pending.expiresAt) {
-        receiptCreditTokenOtpChallenges.delete(installationId);
-        return res.status(400).json({ success: false, message: 'The code has expired. Please request a new one.' });
-    }
-    if (String(otp).trim() !== pending.code) {
-        pending.attempts = (pending.attempts || 0) + 1;
-        if (pending.attempts >= RECEIPT_CREDIT_TOKEN_OTP_MAX_ATTEMPTS) {
-            receiptCreditTokenOtpChallenges.delete(installationId);
-            return res.status(400).json({ success: false, message: 'Too many incorrect attempts. This request has been cancelled — please request a new code.' });
-        }
-        return res.status(400).json({ success: false, message: 'Incorrect code.' });
-    }
-    if (!RELAY_API_KEY) {
-        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
-    }
+    const activationRequestId = crypto.randomUUID();
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-receipt-credit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, clientRequestId: pending.activationRequestId, quantity: pending.quantity || 1 })
+            body: JSON.stringify({ installationId, clientRequestId: activationRequestId, quantity: quote.quantity || 1 })
         });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
@@ -1420,7 +1360,7 @@ app.post('/api/receipt-settings/token-activate/confirm', rateLimit('receipt-cred
                     insufficient: true,
                     balanceTokens: relayData.balanceTokens,
                     requiredTokens: relayData.requiredTokens,
-                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again with the same code before it expires.'
+                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to add the Receipt Customization credit.' });
@@ -1434,10 +1374,9 @@ app.post('/api/receipt-settings/token-activate/confirm', rateLimit('receipt-cred
         const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
         settings.customizeCredits = (settings.customizeCredits || 0) + creditsGranted;
         settings.creditPurchaseHistory = Array.isArray(settings.creditPurchaseHistory) ? settings.creditPurchaseHistory : [];
-        settings.creditPurchaseHistory.push({ purchasedAt: new Date().toISOString(), purchasedBy: username || pending.requestedBy || 'Unknown', credits: creditsGranted, pricePHP: pricePaidPHP, source: 'omni_tokens' });
+        settings.creditPurchaseHistory.push({ purchasedAt: new Date().toISOString(), purchasedBy: username || authResult.user.username || 'Unknown', credits: creditsGranted, pricePHP: pricePaidPHP, source: 'omni_tokens' });
         writeData(FILE_RECEIPT_SETTINGS, settings);
-        receiptCreditTokenOtpChallenges.delete(installationId);
-        logAction((username || pending.requestedBy || 'Unknown'), `Purchased ${creditsGranted} Receipt Customization credit(s) using Omni Tokens (verified via ${maskEmail(pending.requestorEmail)})`);
+        logAction((username || authResult.user.username || 'Unknown'), `Purchased ${creditsGranted} Receipt Customization credit(s) using Omni Tokens (admin-approved by ${authResult.user.username})`);
         res.json({
             success: true,
             message: `Payment confirmed via Omni Tokens — ${creditsGranted} customization credit(s) added.`,
@@ -1448,12 +1387,6 @@ app.post('/api/receipt-settings/token-activate/confirm', rateLimit('receipt-cred
         console.error('Could not reach the Unlock Relay (receipt-credit token-activate/confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
-app.post('/api/receipt-settings/token-activate/cancel', rateLimit('receipt-credit-token-activate-cancel', 30, 10 * 60 * 1000), requirePermission('receipt_settings_view'), (req, res) => {
-    const featureData = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(featureData);
-    receiptCreditTokenOtpChallenges.delete(installationId);
-    res.json({ success: true, message: 'Cancelled.' });
 });
 app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
@@ -6384,27 +6317,20 @@ app.post('/api/features/cancel-otp', rateLimit('feature-cancel-otp', 30, 10 * 60
         res.json({ success: false, message: `Could not reach the unlock relay: ${err.message}` });
     }
 });
-const CLOUD_BACKUP_TOKEN_OTP_TTL_MS = 10 * 60 * 1000;
-const CLOUD_BACKUP_TOKEN_OTP_MAX_ATTEMPTS = 5;
-const cloudBackupTokenOtpChallenges = new Map();
-setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of cloudBackupTokenOtpChallenges.entries()) {
-        if (now > v.expiresAt) cloudBackupTokenOtpChallenges.delete(k);
-    }
-}, 60 * 1000).unref();
-app.post('/api/cloud-backup/token-activate/request', requirePermission('relay_unlock_request'), rateLimit('cloud-backup-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+// AYOS/UPDATE: dating naghihintay ito ng email-OTP mula sa requestor
+// bago mag-deduct ng Omni Tokens. Dahil napatunayan na ang pagmamay-ari
+// ng Omni Token balance mismo (binili na ang mga token na ito), inalis
+// na ang OTP-to-client-email step — ang natitirang gate na lang ay
+// pahintulot ng ADMIN PASSWORD (findOmniTokenUnlockAuthorizer), na
+// tinatanong at ipinapasa ng client sa iisang request na ito. Ang
+// "Send Request" (developer OTP) na flow ay hindi ginalaw.
+app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('cloud-backup-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
     }
-    const { tier, billingCycle, requestorEmail, username } = req.body;
+    const { tier, billingCycle, adminPassword, username } = req.body;
     if (!CLOUD_BACKUP_PLANS[tier] || !CLOUD_BACKUP_BILLING_CYCLES[billingCycle]) {
         return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
-    }
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const cleanEmail = String(requestorEmail || '').trim();
-    if (!emailPattern.test(cleanEmail)) {
-        return res.status(400).json({ success: false, message: 'Please enter a valid Gmail/email address to receive the verification code.' });
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
@@ -6425,80 +6351,24 @@ app.post('/api/cloud-backup/token-activate/request', requirePermission('relay_un
             message: `Insufficient Omni Tokens for this plan. You have ${wallet.balanceTokens}, but ${requiredTokens} tokens are needed. Please buy more Omni Tokens first.`
         });
     }
-    const otpMailCreds = getOtpMailCredentials();
-    if (!otpMailCreds) {
-        return res.status(400).json({
-            success: false,
-            gmailNotVerified: true,
-            message: 'No verified OTP Sender Email (Gmail App) is configured yet. Please configure and verify one first in Receipt Customization > OTP Sender Email.'
-        });
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message: 'An admin password is required to approve this activation.' });
     }
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
-    cloudBackupTokenOtpChallenges.set(installationId, {
-        code: otpCode,
-        expiresAt: Date.now() + CLOUD_BACKUP_TOKEN_OTP_TTL_MS,
-        tier,
-        billingCycle,
-        requestorEmail: cleanEmail,
-        requestedBy: username || 'Unknown',
-        attempts: 0,
-        activationRequestId: crypto.randomUUID()
-    });
-    try {
-        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
-            from: `"OmniPOS Cloud Backup" <${otpMailCreds.user}>`,
-            to: cleanEmail,
-            subject: `🔐 OmniPOS Cloud Backup Activation — Verification Code`,
-            text: `Verification code to activate your Cloud Backup plan (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}):\n\n` +
-                  `OTP Code: ${otpCode}\n\n` +
-                  `This code will expire in 10 minutes.\n` +
-                  `Cost: ${requiredTokens} Omni Token/s (will only be deducted after you successfully enter this code).\n\n` +
-                  `If you did not request this, you can safely ignore this email — nothing has been charged yet.`
-        });
-    } catch (mailErr) {
-        cloudBackupTokenOtpChallenges.delete(installationId);
-        console.error('Cloud Backup token-activation OTP send failure:', mailErr.message);
-        return res.status(500).json({ success: false, message: `Failed to send the verification code: ${mailErr.message}` });
+    const users = readData(FILE_USERS);
+    const authResult = await findOmniTokenUnlockAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The activation was not authorized.' });
     }
-    logAction(username || 'Unknown', `Requested a Cloud Backup activation OTP via Omni Tokens (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}) sent to ${maskEmail(cleanEmail)}`);
-    res.json({ success: true, message: `A verification code has been sent to ${maskEmail(cleanEmail)}. Enter it to finish activating Cloud Backup.` });
-});
-app.post('/api/cloud-backup/token-activate/confirm', rateLimit('cloud-backup-token-activate-confirm', 30, 10 * 60 * 1000), async (req, res) => {
-    const { otp, username } = req.body;
-    if (!otp || !String(otp).trim()) {
-        return res.status(400).json({ success: false, message: 'The OTP code is required.' });
-    }
-    const data = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(data);
-    const pending = cloudBackupTokenOtpChallenges.get(installationId);
-    if (!pending) {
-        return res.status(400).json({ success: false, message: 'No active Cloud Backup activation request found. Please request a new code first.' });
-    }
-    if (Date.now() > pending.expiresAt) {
-        cloudBackupTokenOtpChallenges.delete(installationId);
-        return res.status(400).json({ success: false, message: 'The code has expired. Please request a new one.' });
-    }
-    if (String(otp).trim() !== pending.code) {
-        pending.attempts = (pending.attempts || 0) + 1;
-        if (pending.attempts >= CLOUD_BACKUP_TOKEN_OTP_MAX_ATTEMPTS) {
-            cloudBackupTokenOtpChallenges.delete(installationId);
-            return res.status(400).json({ success: false, message: 'Too many incorrect attempts. This request has been cancelled — please request a new code.' });
-        }
-        return res.status(400).json({ success: false, message: 'Incorrect code.' });
-    }
-    if (!RELAY_API_KEY) {
-        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
-    }
+    const activationRequestId = crypto.randomUUID();
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-cloud-backup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
                 installationId,
-                tier: pending.tier,
-                billingCycle: pending.billingCycle,
-                requestorEmail: pending.requestorEmail,
-                clientRequestId: pending.activationRequestId
+                tier,
+                billingCycle,
+                clientRequestId: activationRequestId
             })
         });
         const relayData = await parseRelayResponse(relayRes);
@@ -6509,7 +6379,7 @@ app.post('/api/cloud-backup/token-activate/confirm', rateLimit('cloud-backup-tok
                     insufficient: true,
                     balanceTokens: relayData.balanceTokens,
                     requiredTokens: relayData.requiredTokens,
-                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again with the same code before it expires.'
+                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate Cloud Backup.' });
@@ -6519,12 +6389,11 @@ app.post('/api/cloud-backup/token-activate/confirm', rateLimit('cloud-backup-tok
             return res.status(500).json({ success: false, message: 'The activation token received is not valid. Please contact the developer.' });
         }
         data.tokens[CLOUD_BACKUP_FEATURE_ID] = relayData.token;
-        const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : pending.tier;
-        const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : pending.billingCycle;
+        const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : tier;
+        const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
         data.cloudBackupPlan = { tier: confirmedTier || null, billingCycle: confirmedCycle || null, activatedAt: Date.now() };
         writeData(FILE_FEATURE_UNLOCKS, data);
-        cloudBackupTokenOtpChallenges.delete(installationId);
-        logAction((username || pending.requestedBy || 'Unknown'), `Activated/renewed the Cloud Backup subscription using Omni Tokens (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle}, verified via ${maskEmail(pending.requestorEmail)})`);
+        logAction((username || authResult.user.username || 'Unknown'), `Activated/renewed the Cloud Backup subscription using Omni Tokens (${data.cloudBackupPlan.tier}/${data.cloudBackupPlan.billingCycle}, admin-approved by ${authResult.user.username})`);
         res.json({
             success: true,
             message: `${CLOUD_BACKUP_PLANS[data.cloudBackupPlan.tier].name} has been activated!`,
@@ -6536,26 +6405,18 @@ app.post('/api/cloud-backup/token-activate/confirm', rateLimit('cloud-backup-tok
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-app.post('/api/cloud-backup/token-activate/cancel', rateLimit('cloud-backup-token-activate-cancel', 30, 10 * 60 * 1000), (req, res) => {
-    const data = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(data);
-    cloudBackupTokenOtpChallenges.delete(installationId);
-    res.json({ success: true, message: 'Cancelled.' });
-});
-const FEATURE_TOKEN_OTP_TTL_MS = 10 * 60 * 1000;
-const FEATURE_TOKEN_OTP_MAX_ATTEMPTS = 5;
-const featureTokenOtpChallenges = new Map();
-setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of featureTokenOtpChallenges.entries()) {
-        if (now > v.expiresAt) featureTokenOtpChallenges.delete(k);
-    }
-}, 60 * 1000).unref();
-app.post('/api/features/token-activate/request', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-request', 5, 10 * 60 * 1000), async (req, res) => {
+// AYOS/UPDATE: dating naghihintay ito ng email-OTP mula sa requestor
+// bago mag-deduct ng Omni Tokens. Dahil napatunayan na ang pagmamay-ari
+// ng Omni Token balance mismo (binili na ang mga token na ito), inalis
+// na ang OTP-to-client-email step — ang natitirang gate na lang ay
+// pahintulot ng ADMIN PASSWORD (findOmniTokenUnlockAuthorizer), na
+// tinatanong at ipinapasa ng client sa iisang request na ito. Ang
+// "Send Request" (developer OTP) na flow ay hindi ginalaw.
+app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
     }
-    const { featureIds, billingCycle, totalPrice, requestorEmail, username } = req.body;
+    const { featureIds, billingCycle, totalPrice, adminPassword, username } = req.body;
     if (!Array.isArray(featureIds) || featureIds.length === 0) {
         return res.status(400).json({ success: false, message: 'Missing featureIds.' });
     }
@@ -6584,11 +6445,6 @@ app.post('/api/features/token-activate/request', requirePermission('relay_unlock
         const alaCarteTotal = featureIds.reduce((sum, id) => sum + (FEATURE_CATALOG[id].price || 0), 0);
         requiredTokens = (typeof totalPrice === 'number' && totalPrice >= 0) ? Math.round(totalPrice) : alaCarteTotal;
     }
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const cleanEmail = String(requestorEmail || '').trim();
-    if (!emailPattern.test(cleanEmail)) {
-        return res.status(400).json({ success: false, message: 'Please enter a valid Gmail/email address to receive the verification code.' });
-    }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
@@ -6607,82 +6463,26 @@ app.post('/api/features/token-activate/request', requirePermission('relay_unlock
             message: `Insufficient Omni Tokens for this purchase. You have ${wallet.balanceTokens}, but ${requiredTokens} tokens are needed. Please buy more Omni Tokens first.`
         });
     }
-    const otpMailCreds = getOtpMailCredentials();
-    if (!otpMailCreds) {
-        return res.status(400).json({
-            success: false,
-            gmailNotVerified: true,
-            message: 'No verified OTP Sender Email (Gmail App) is configured yet. Please configure and verify one first in Receipt Customization > OTP Sender Email.'
-        });
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message: 'An admin password is required to approve this activation.' });
+    }
+    const users = readData(FILE_USERS);
+    const authResult = await findOmniTokenUnlockAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The activation was not authorized.' });
     }
     const featureNames = featureIds.map(id => FEATURE_CATALOG[id].name);
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
-    featureTokenOtpChallenges.set(installationId, {
-        code: otpCode,
-        expiresAt: Date.now() + FEATURE_TOKEN_OTP_TTL_MS,
-        featureIds,
-        billingCycle: isModuleSubscriptionPurchase ? billingCycle : null,
-        totalPrice: requiredTokens,
-        requestorEmail: cleanEmail,
-        requestedBy: username || 'Unknown',
-        attempts: 0,
-        activationRequestId: crypto.randomUUID()
-    });
-    try {
-        await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
-            from: `"OmniPOS" <${otpMailCreds.user}>`,
-            to: cleanEmail,
-            subject: `🔐 OmniPOS Activation — Verification Code`,
-            text: `Verification code to activate ${featureNames.join(', ')}:\n\n` +
-                  `OTP Code: ${otpCode}\n\n` +
-                  `This code will expire in 10 minutes.\n` +
-                  `Cost: ${requiredTokens} Omni Token/s (will only be deducted after you successfully enter this code).\n\n` +
-                  `If you did not request this, you can safely ignore this email — nothing has been charged yet.`
-        });
-    } catch (mailErr) {
-        featureTokenOtpChallenges.delete(installationId);
-        console.error('Feature token-activation OTP send failure:', mailErr.message);
-        return res.status(500).json({ success: false, message: `Failed to send the verification code: ${mailErr.message}` });
-    }
-    logAction(username || 'Unknown', `Requested an activation OTP via Omni Tokens for ${featureNames.join(', ')} sent to ${maskEmail(cleanEmail)}`);
-    res.json({ success: true, message: `A verification code has been sent to ${maskEmail(cleanEmail)}. Enter it to finish activating.` });
-});
-app.post('/api/features/token-activate/confirm', rateLimit('feature-token-activate-confirm', 30, 10 * 60 * 1000), async (req, res) => {
-    const { otp, username } = req.body;
-    if (!otp || !String(otp).trim()) {
-        return res.status(400).json({ success: false, message: 'The OTP code is required.' });
-    }
-    const data = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(data);
-    const pending = featureTokenOtpChallenges.get(installationId);
-    if (!pending) {
-        return res.status(400).json({ success: false, message: 'No active activation request found. Please request a new code first.' });
-    }
-    if (Date.now() > pending.expiresAt) {
-        featureTokenOtpChallenges.delete(installationId);
-        return res.status(400).json({ success: false, message: 'The code has expired. Please request a new one.' });
-    }
-    if (String(otp).trim() !== pending.code) {
-        pending.attempts = (pending.attempts || 0) + 1;
-        if (pending.attempts >= FEATURE_TOKEN_OTP_MAX_ATTEMPTS) {
-            featureTokenOtpChallenges.delete(installationId);
-            return res.status(400).json({ success: false, message: 'Too many incorrect attempts. This request has been cancelled — please request a new code.' });
-        }
-        return res.status(400).json({ success: false, message: 'Incorrect code.' });
-    }
-    if (!RELAY_API_KEY) {
-        return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
-    }
+    const activationRequestId = crypto.randomUUID();
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-purchase`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({
                 installationId,
-                featureIds: pending.featureIds,
-                billingCycle: pending.billingCycle || undefined,
-                totalPrice: pending.totalPrice,
-                clientRequestId: pending.activationRequestId
+                featureIds,
+                billingCycle: isModuleSubscriptionPurchase ? billingCycle : undefined,
+                totalPrice: requiredTokens,
+                clientRequestId: activationRequestId
             })
         });
         const relayData = await parseRelayResponse(relayRes);
@@ -6693,13 +6493,12 @@ app.post('/api/features/token-activate/confirm', rateLimit('feature-token-activa
                     insufficient: true,
                     balanceTokens: relayData.balanceTokens,
                     requiredTokens: relayData.requiredTokens,
-                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again with the same code before it expires.'
+                    message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate.' });
         }
-        const isModuleSubscriptionPurchase = pending.featureIds.length === 1 && isModuleSubscriptionFeature(pending.featureIds[0]);
-        for (const featureId of pending.featureIds) {
+        for (const featureId of featureIds) {
             const token = relayData.tokens && relayData.tokens[featureId];
             if (!token || !verifyUnlockToken(token, installationId, featureId)) {
                 console.error('⚠️ Received an activation token from the relay, but it is missing or has an INVALID signature for', featureId);
@@ -6708,14 +6507,12 @@ app.post('/api/features/token-activate/confirm', rateLimit('feature-token-activa
             data.tokens[featureId] = token;
         }
         if (isModuleSubscriptionPurchase) {
-            const confirmedCycle = (relayData.billingCycle && MODULE_SUBSCRIPTION_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : pending.billingCycle;
+            const confirmedCycle = (relayData.billingCycle && MODULE_SUBSCRIPTION_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
             data.moduleSubscriptions = data.moduleSubscriptions || {};
-            data.moduleSubscriptions[pending.featureIds[0]] = { billingCycle: confirmedCycle || null, activatedAt: Date.now() };
+            data.moduleSubscriptions[moduleSubIds[0]] = { billingCycle: confirmedCycle || null, activatedAt: Date.now() };
         }
         writeData(FILE_FEATURE_UNLOCKS, data);
-        featureTokenOtpChallenges.delete(installationId);
-        const featureNames = pending.featureIds.map(id => FEATURE_CATALOG[id].name);
-        logAction((username || pending.requestedBy || 'Unknown'), `Activated ${featureNames.join(', ')} using Omni Tokens (verified via ${maskEmail(pending.requestorEmail)})`);
+        logAction((username || authResult.user.username || 'Unknown'), `Activated ${featureNames.join(', ')} using Omni Tokens (admin-approved by ${authResult.user.username})`);
         const unlockedFeatureIds = getUnlockedFeatureIds();
         res.json({
             success: true,
@@ -6728,12 +6525,6 @@ app.post('/api/features/token-activate/confirm', rateLimit('feature-token-activa
         console.error('Could not reach the Unlock Relay (features token-activate/confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
-app.post('/api/features/token-activate/cancel', rateLimit('feature-token-activate-cancel', 30, 10 * 60 * 1000), (req, res) => {
-    const data = readFeatureUnlocks();
-    const installationId = getOrCreateInstallationId(data);
-    featureTokenOtpChallenges.delete(installationId);
-    res.json({ success: true, message: 'Cancelled.' });
 });
 app.get('/api/themes/status', (req, res) => {
     const unlockedFeatureIds = getUnlockedFeatureIds();

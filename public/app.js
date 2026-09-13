@@ -1931,45 +1931,27 @@ async function pollUntilApproved(url, body) {
 }
 async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPrice, displayName }) {
     if (blockIfOffline('Feature activation')) return null;
-    const emailResult = await Swal.fire({
-        title: '💎 Activate with Omni Tokens',
-        html: `<p style="font-size:0.85rem;margin:0 0 10px;text-align:left;">Enter the Gmail/email that should receive the verification code to activate <strong>${escapeHtml(displayName)}</strong>. Your tokens will only be deducted once the code is verified.</p>` +
-              `<input type="email" id="fx-token-requestor-email" class="swal2-input" placeholder="you@gmail.com" style="margin:0;width:100%;">`,
-        showCancelButton: true,
-        confirmButtonText: 'Send Verification Code',
-        cancelButtonText: 'Cancel',
-        confirmButtonColor: '#7c3aed',
-        focusConfirm: false,
-        preConfirm: () => {
-            const email = (document.getElementById('fx-token-requestor-email').value || '').trim();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                Swal.showValidationMessage('Please enter a valid Gmail/email address.');
-                return false;
-            }
-            return { email };
-        }
-    });
-    if (!emailResult.isConfirmed) return null;
-    const requestorEmail = emailResult.value.email;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) || 'Unknown';
-    let reqData;
+    const adminPassword = await promptAdminPasswordConfirm(`Activate via Omni Tokens: ${displayName}`);
+    if (!adminPassword) return null;
+    let confirmData;
     try {
-        const reqRes = await authFetch(`${API_URL}/features/token-activate/request`, {
+        const confirmRes = await authFetch(`${API_URL}/features/token-activate/confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ featureIds, billingCycle: billingCycle || undefined, totalPrice: typeof totalPrice === 'number' ? totalPrice : undefined, requestorEmail, username: requestingUsername })
+            body: JSON.stringify({ featureIds, billingCycle: billingCycle || undefined, totalPrice: typeof totalPrice === 'number' ? totalPrice : undefined, adminPassword, username: requestingUsername })
         });
-        reqData = await reqRes.json();
+        confirmData = await confirmRes.json();
     } catch (e) {
-        Swal.fire('Error', 'Could not reach the server to check your Omni Tokens balance.', 'error');
+        Swal.fire('Error', 'Could not reach the server to activate via Omni Tokens.', 'error');
         return null;
     }
-    if (!reqData.success) {
-        if (reqData.insufficient) {
+    if (!confirmData.success) {
+        if (confirmData.insufficient) {
             const buyResult = await Swal.fire({
                 icon: 'info',
                 title: 'Not Enough Omni Tokens',
-                html: `You have <strong>${reqData.balanceTokens}</strong> token/s, but <strong>${reqData.requiredTokens}</strong> are needed for this purchase.`,
+                html: `You have <strong>${confirmData.balanceTokens}</strong> token/s, but <strong>${confirmData.requiredTokens}</strong> are needed for this purchase.`,
                 showCancelButton: true,
                 confirmButtonText: 'Buy Omni Tokens',
                 cancelButtonText: 'Not now',
@@ -1978,64 +1960,23 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
             if (buyResult.isConfirmed) switchView('cloudtokens');
             return null;
         }
-        if (reqData.gmailNotVerified) {
-            const cfgResult = await Swal.fire({
-                icon: 'warning',
-                title: 'OTP Sender Email Not Set Up',
-                text: reqData.message || 'Please configure and verify an OTP Sender Email (Gmail App Password) first.',
-                showCancelButton: true,
-                confirmButtonText: 'Configure Now',
-                cancelButtonText: 'Not now',
-                confirmButtonColor: '#7c3aed'
-            });
-            if (cfgResult.isConfirmed) {
-                switchView('users');
-                setTimeout(() => { const t = document.getElementById('receipt-custom-tab-btn'); if (t) t.click(); }, 50);
-            }
+        if (confirmData.code === 'WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Incorrect Password', confirmData.message || 'Incorrect admin password. The activation was not authorized.', 'error');
             return null;
         }
-        Swal.fire('Error', reqData.message || 'Could not send the verification code.', 'error');
+        Swal.fire('Error', confirmData.message || 'Could not activate this item.', 'error');
         return null;
     }
-    const otpModalResult = await showOtpVerificationModal({
-        title: 'Verify Your Gmail',
-        descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to activate <strong>${escapeHtml(displayName)}</strong>. Your tokens will only be deducted once this code is verified.`,
-        maxAttempts: 5,
-        verify: async (otp) => {
-            const confirmRes = await authFetch(`${API_URL}/features/token-activate/confirm`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ otp, username: requestingUsername })
-            });
-            return confirmRes.json();
-        },
-        onExpire: () => authFetch(`${API_URL}/features/token-activate/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
-    });
-    if (!otpModalResult || !otpModalResult.success) {
-        if (otpModalResult && otpModalResult.insufficient) {
-            const buyResult = await Swal.fire({
-                icon: 'info',
-                title: 'Not Enough Omni Tokens',
-                html: `Your code was correct, but your token balance changed in the meantime — you now have <strong>${otpModalResult.balanceTokens}</strong>, needing <strong>${otpModalResult.requiredTokens}</strong>.`,
-                showCancelButton: true,
-                confirmButtonText: 'Buy Omni Tokens',
-                cancelButtonText: 'Close',
-                confirmButtonColor: '#7c3aed'
-            });
-            if (buyResult.isConfirmed) switchView('cloudtokens');
-        }
-        return null;
+    if (Array.isArray(confirmData.unlockedFeatureIds)) {
+        unlockedFeatureIdsCache = confirmData.unlockedFeatureIds;
     }
-    if (Array.isArray(otpModalResult.unlockedFeatureIds)) {
-        unlockedFeatureIdsCache = otpModalResult.unlockedFeatureIds;
-    }
-    if (Array.isArray(otpModalResult.unlockedThemeIds)) {
-        localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(otpModalResult.unlockedThemeIds));
+    if (Array.isArray(confirmData.unlockedThemeIds)) {
+        localStorage.setItem('omnipos_unlocked_themes_cache', JSON.stringify(confirmData.unlockedThemeIds));
     }
     updateSidebarFeatureLocks();
     initDemoModeUI();
-    Swal.fire('Activated!', otpModalResult.message || `${displayName} is ready to use.`, 'success');
-    return otpModalResult;
+    Swal.fire('Activated!', confirmData.message || `${displayName} is ready to use.`, 'success');
+    return confirmData;
 }
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
@@ -2391,33 +2332,19 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
             <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">Pay with your Omni Tokens balance — pick a plan and billing cycle:</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
             <div style="display:flex;margin-bottom:14px;">${tierButtons}</div>
-            <label style="font-size:0.78rem;font-weight:600;display:block;margin-bottom:4px;">Your Gmail (the verification code will be sent here)</label>
-            <input type="email" id="cb-token-requestor-email" class="swal2-input" placeholder="you@gmail.com" style="margin:0;width:100%;">
         </div>`;
     };
     const result = await Swal.fire({
         title: '💎 Activate with Omni Tokens',
         html: buildHtml(),
         showCancelButton: true,
-        confirmButtonText: 'Send Verification Code',
+        confirmButtonText: 'Continue',
         cancelButtonText: 'Cancel',
         confirmButtonColor: '#7c3aed',
         focusConfirm: false,
-        preConfirm: () => {
-            const email = (document.getElementById('cb-token-requestor-email').value || '').trim();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                Swal.showValidationMessage('Please enter a valid Gmail/email address.');
-                return false;
-            }
-            return { email };
-        },
         didOpen: (popup) => {
             const rerender = () => {
-                const emailInput = popup.querySelector('#cb-token-requestor-email');
-                const keepEmail = emailInput ? emailInput.value : '';
                 popup.querySelector('.swal2-html-container').innerHTML = buildHtml();
-                const newEmailInput = popup.querySelector('#cb-token-requestor-email');
-                if (newEmailInput) newEmailInput.value = keepEmail;
                 attachHandlers();
             };
             const attachHandlers = () => {
@@ -2432,7 +2359,6 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
         }
     });
     if (!result.isConfirmed) return false;
-    const requestorEmail = result.value.email;
     const planLabel = cloudBackupPlans[selectedTier].name;
     const cycleLabel = selectedCycle === 'monthly' ? 'Monthly' : 'Yearly';
     const feeTokens = requiredTokensFor(selectedTier, selectedCycle);
@@ -2452,30 +2378,32 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
             <p style="font-size:0.78rem;margin:0;">Cloud Backup auto-synchronizes your data to the cloud every month. Your Omni Tokens balance will be checked and deducted automatically on each sync — keep enough tokens to avoid an interruption.</p>
         </div>`,
         showCancelButton: true,
-        confirmButtonText: 'Confirm & Send Verification Code',
+        confirmButtonText: 'Confirm',
         cancelButtonText: 'Go Back',
         confirmButtonColor: '#7c3aed'
     });
     if (!feeConfirm.isConfirmed) return false;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) || 'Unknown';
-    let reqData;
+    const adminPassword = await promptAdminPasswordConfirm(`Activate via Omni Tokens: Cloud Backup — ${planLabel} (${cycleLabel})`);
+    if (!adminPassword) return false;
+    let confirmData;
     try {
-        const reqRes = await authFetch(`${API_URL}/cloud-backup/token-activate/request`, {
+        const confirmRes = await authFetch(`${API_URL}/cloud-backup/token-activate/confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tier: selectedTier, billingCycle: selectedCycle, requestorEmail, username: requestingUsername })
+            body: JSON.stringify({ tier: selectedTier, billingCycle: selectedCycle, adminPassword, username: requestingUsername })
         });
-        reqData = await reqRes.json();
+        confirmData = await confirmRes.json();
     } catch (e) {
-        Swal.fire('Error', 'Could not reach the server to check your Omni Tokens balance.', 'error');
+        Swal.fire('Error', 'Could not reach the server to activate Cloud Backup via Omni Tokens.', 'error');
         return false;
     }
-    if (!reqData.success) {
-        if (reqData.insufficient) {
+    if (!confirmData.success) {
+        if (confirmData.insufficient) {
             const buyResult = await Swal.fire({
                 icon: 'info',
                 title: 'Not Enough Omni Tokens',
-                html: `You have <strong>${reqData.balanceTokens}</strong> token/s, but <strong>${reqData.requiredTokens}</strong> are needed for this plan.`,
+                html: `You have <strong>${confirmData.balanceTokens}</strong> token/s, but <strong>${confirmData.requiredTokens}</strong> are needed for this plan.`,
                 showCancelButton: true,
                 confirmButtonText: 'Buy Omni Tokens',
                 cancelButtonText: 'Not now',
@@ -2484,61 +2412,20 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
             if (buyResult.isConfirmed) switchView('cloudtokens');
             return false;
         }
-        if (reqData.gmailNotVerified) {
-            const cfgResult = await Swal.fire({
-                icon: 'warning',
-                title: 'OTP Sender Email Not Set Up',
-                text: reqData.message || 'Please configure and verify an OTP Sender Email (Gmail App Password) first.',
-                showCancelButton: true,
-                confirmButtonText: 'Configure Now',
-                cancelButtonText: 'Not now',
-                confirmButtonColor: '#7c3aed'
-            });
-            if (cfgResult.isConfirmed) {
-                switchView('users');
-                setTimeout(() => { const t = document.getElementById('receipt-custom-tab-btn'); if (t) t.click(); }, 50);
-            }
+        if (confirmData.code === 'WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Incorrect Password', confirmData.message || 'Incorrect admin password. The activation was not authorized.', 'error');
             return false;
         }
-        Swal.fire('Error', reqData.message || 'Could not send the verification code.', 'error');
+        Swal.fire('Error', confirmData.message || 'Failed to activate Cloud Backup.', 'error');
         return false;
     }
-    const otpModalResult = await showOtpVerificationModal({
-        title: 'Verify Your Gmail',
-        descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to activate Cloud Backup — <strong>${cloudBackupPlans[selectedTier].name}</strong> (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'}). Your ${requiredTokensFor(selectedTier, selectedCycle)} token/s will only be deducted once this code is verified.`,
-        maxAttempts: 5,
-        verify: async (otp) => {
-            const confirmRes = await authFetch(`${API_URL}/cloud-backup/token-activate/confirm`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ otp, username: requestingUsername })
-            });
-            return confirmRes.json();
-        },
-        onExpire: () => authFetch(`${API_URL}/cloud-backup/token-activate/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
-    });
-    if (!otpModalResult || !otpModalResult.success) {
-        if (otpModalResult && otpModalResult.insufficient) {
-            const buyResult = await Swal.fire({
-                icon: 'info',
-                title: 'Not Enough Omni Tokens',
-                html: `Your code was correct, but your token balance changed in the meantime — you now have <strong>${otpModalResult.balanceTokens}</strong>, needing <strong>${otpModalResult.requiredTokens}</strong>.`,
-                showCancelButton: true,
-                confirmButtonText: 'Buy Omni Tokens',
-                cancelButtonText: 'Close',
-                confirmButtonColor: '#7c3aed'
-            });
-            if (buyResult.isConfirmed) switchView('cloudtokens');
-        }
-        return false;
-    }
-    if (Array.isArray(otpModalResult.unlockedFeatureIds)) {
-        unlockedFeatureIdsCache = otpModalResult.unlockedFeatureIds;
+    if (Array.isArray(confirmData.unlockedFeatureIds)) {
+        unlockedFeatureIdsCache = confirmData.unlockedFeatureIds;
     }
     updateSidebarFeatureLocks();
     initDemoModeUI();
     updateCloudBackupLockState();
-    Swal.fire('Activated!', otpModalResult.message || 'Cloud Backup is ready to use.', 'success');
+    Swal.fire('Activated!', confirmData.message || 'Cloud Backup is ready to use.', 'success');
     return true;
 }
 async function showUpgradeTiersModal() {
@@ -3485,9 +3372,7 @@ function switchView(viewKey, opts) {
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
     if (!history.state || history.state.view !== viewKey) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('view', viewKey);
-        history.pushState({ view: viewKey }, '', url.pathname + url.search + url.hash);
+        history.pushState({ view: viewKey },'','');
     }
     updateResponsivePageTitle();
 }
@@ -12706,7 +12591,7 @@ async function runReceiptCreditSendRequestFlow(quantity = 1) {
 async function activateReceiptCreditViaTokens(quantity = 1) {
     if (blockIfOffline('Receipt Customization credit purchase')) return;
     let quote = calculateReceiptCreditQuote(quantity);
-    const emailResult = await Swal.fire({
+    const confirmResult = await Swal.fire({
         title: '💎 Use Omni Token',
         html: `<div style="text-align:left;">
             <div style="font-size:.84rem;line-height:1.6;margin-bottom:10px;">
@@ -12716,46 +12601,36 @@ async function activateReceiptCreditViaTokens(quantity = 1) {
                 <strong>Total: ₱${quote.totalPHP.toFixed(2)}</strong><br>
                 <span style="color:#2563eb;font-weight:800;">💎 Omni Tokens required: ${quote.totalTokens}</span>
             </div>
-            <label for="rc-token-requestor-email" style="display:block;font-size:.82rem;font-weight:700;margin-bottom:6px;">Verification Email</label>
-            <input type="email" id="rc-token-requestor-email" class="swal2-input" placeholder="you@gmail.com" style="margin:0;width:100%;">
         </div>`,
         showCancelButton: true,
-        confirmButtonText: 'Send Verification Code',
+        confirmButtonText: 'Continue',
         cancelButtonText: 'Cancel',
         confirmButtonColor: '#2563eb',
-        cancelButtonColor: '#64748b',
-        focusConfirm: false,
-        preConfirm: () => {
-            const email = (document.getElementById('rc-token-requestor-email').value || '').trim();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                Swal.showValidationMessage('Please enter a valid Gmail/email address.');
-                return false;
-            }
-            return { email };
-        }
+        cancelButtonColor: '#64748b'
     });
-    if (!emailResult.isConfirmed) return;
-    const requestorEmail = emailResult.value.email;
+    if (!confirmResult.isConfirmed) return;
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
-    let reqData;
+    const adminPassword = await promptAdminPasswordConfirm(`Activate via Omni Tokens: ${quote.quantity} Receipt Customization credit(s)`);
+    if (!adminPassword) return;
+    let confirmData;
     try {
-        const reqRes = await authFetch(`${API_URL}/receipt-settings/token-activate/request`, {
+        const confirmRes = await authFetch(`${API_URL}/receipt-settings/token-activate/confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requestorEmail, username, quantity: quote.quantity })
+            body: JSON.stringify({ quantity: quote.quantity, adminPassword, username })
         });
-        reqData = await reqRes.json();
+        confirmData = await confirmRes.json();
     } catch (e) {
-        Swal.fire('Error', 'Could not reach the server to check your Omni Tokens balance.', 'error');
+        Swal.fire('Error', 'Could not reach the server to activate via Omni Tokens.', 'error');
         return;
     }
-    if (!reqData.success) {
-        if (reqData.insufficient) {
-            const unavailableQuote = reqData.quote || quote;
+    if (!confirmData.success) {
+        if (confirmData.insufficient) {
+            const unavailableQuote = confirmData.quote || quote;
             const buyResult = await Swal.fire({
                 icon: 'info',
                 title: 'Not Enough Omni Tokens',
-                html: `You have <strong>${reqData.balanceTokens}</strong> token/s, but <strong>${reqData.requiredTokens}</strong> are needed for <strong>${unavailableQuote.quantity}</strong> credit(s) (${unavailableQuote.discountPercent > 0 ? unavailableQuote.discountPercent + '% discount applied' : 'no bulk discount'}).`,
+                html: `You have <strong>${confirmData.balanceTokens}</strong> token/s, but <strong>${confirmData.requiredTokens}</strong> are needed for <strong>${unavailableQuote.quantity}</strong> credit(s) (${unavailableQuote.discountPercent > 0 ? unavailableQuote.discountPercent + '% discount applied' : 'no bulk discount'}).`,
                 showCancelButton: true,
                 confirmButtonText: 'Buy Omni Tokens',
                 cancelButtonText: 'Not now',
@@ -12764,53 +12639,17 @@ async function activateReceiptCreditViaTokens(quantity = 1) {
             if (buyResult.isConfirmed) switchView('cloudtokens');
             return;
         }
-        if (reqData.gmailNotVerified) {
-            await Swal.fire({
-                icon: 'warning',
-                title: 'OTP Sender Email Not Set Up',
-                text: reqData.message || 'Please configure and verify an OTP Sender Email (Gmail App Password) first.',
-                confirmButtonText: 'OK',
-                confirmButtonColor: '#7c3aed'
-            });
+        if (confirmData.code === 'WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Incorrect Password', confirmData.message || 'Incorrect admin password. The activation was not authorized.', 'error');
             return;
         }
-        Swal.fire('Error', reqData.message || 'Could not send the verification code.', 'error');
+        Swal.fire('Error', confirmData.message || 'Could not add the Receipt Customization credit.', 'error');
         return;
     }
-    if (reqData.quote) quote = reqData.quote;
-    const otpModalResult = await showOtpVerificationModal({
-        title: 'Verify Your Gmail',
-        descriptionHtml: `Enter the 6-digit code sent to <strong>${escapeHtml(requestorEmail)}</strong> to add <strong>${quote.quantity} Receipt Customization credit(s)</strong> for <strong>₱${Number(quote.totalPHP).toFixed(2)}</strong> / <strong>${quote.totalTokens} Omni Tokens</strong>. Your tokens will only be deducted once this code is verified.`,
-        maxAttempts: 5,
-        verify: async (otp) => {
-            const confirmRes = await authFetch(`${API_URL}/receipt-settings/token-activate/confirm`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ otp, username })
-            });
-            return confirmRes.json();
-        },
-        onExpire: () => authFetch(`${API_URL}/receipt-settings/token-activate/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
-    });
-    if (!otpModalResult || !otpModalResult.success) {
-        if (otpModalResult && otpModalResult.insufficient) {
-            const buyResult = await Swal.fire({
-                icon: 'info',
-                title: 'Not Enough Omni Tokens',
-                html: `Your code was correct, but your token balance changed in the meantime — you now have <strong>${otpModalResult.balanceTokens}</strong>, needing <strong>${otpModalResult.requiredTokens}</strong>.`,
-                showCancelButton: true,
-                confirmButtonText: 'Buy Omni Tokens',
-                cancelButtonText: 'Close',
-                confirmButtonColor: '#7c3aed'
-            });
-            if (buyResult.isConfirmed) switchView('cloudtokens');
-        }
-        return;
-    }
-    receiptSettingsCache = otpModalResult.settings || receiptSettingsCache;
+    receiptSettingsCache = confirmData.settings || receiptSettingsCache;
     applyReceiptBranding();
     loadReceiptCustomizationPanel();
-    Swal.fire('Credit Added!', otpModalResult.message || 'Your customization credit has been added.', 'success');
+    Swal.fire('Credit Added!', confirmData.message || 'Your customization credit has been added.', 'success');
 }
 async function requestReceiptCounterReset() {
     const username = currentUser ? (currentUser.username || currentUser.name) :'Unknown';
@@ -19504,13 +19343,18 @@ async function initializeSystem() {
 }
 window.addEventListener('DOMContentLoaded', initializeSystem);
 window.addEventListener('popstate', function(event) {
-    const viewFromState = (event.state && event.state.view)
-        || new URLSearchParams(window.location.search).get('view')
-        || sessionStorage.getItem('currentView')
-        || 'overview';
-    if (currentUser && viewFromState !== 'auth-view') {
-        switchView(viewFromState);
+    if (event.state && event.state.view) {
+        if (currentUser) {
+            switchView(event.state.view);
+        }
+    } else {
+        const savedView = sessionStorage.getItem('currentView');
+        if (savedView && currentUser && savedView !=='auth-view') {
+            switchView(savedView);
+        }
     }
+    var viewAfterPop = (event.state && event.state.view) || sessionStorage.getItem('currentView') || 'overview';
+    history.pushState({ view: viewAfterPop }, '', '');
 });
 function playScanBeep() {
     try {
@@ -19764,7 +19608,7 @@ async function handleLogout(type ='manual') {
         console.error('Error while cleaning up UI state on logout (non-blocking, navigation continues):', err);
     } finally {
         try {
-            history.pushState({ view:'auth-view' },'', window.location.pathname);
+            history.pushState({ view:'auth-view' },'','');
         } catch (e) {}
         showAuthenticationInterface();
     }
@@ -19862,19 +19706,19 @@ async function showMainSystemInterface() {
         console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);
     } finally {
         try {
-            const VALID_VIEWS = ['overview','terminal','products','dashboard','barcode','reorder','reports','transactions','customers','debts','shiftreport','logs','faq','stock_return_inspection','cloudtokens','users'];
             const shortcutView = new URLSearchParams(window.location.search).get('view');
+            const ALLOWED_SHORTCUT_VIEWS = ['terminal','products'];
             const savedView = sessionStorage.getItem('currentView');
-            let targetView ='overview';
-            if (shortcutView && VALID_VIEWS.includes(shortcutView)) {
-                targetView = shortcutView;
-            } else if (savedView && savedView !=='auth-view' && VALID_VIEWS.includes(savedView)) {
-                targetView = savedView;
+            if (shortcutView && ALLOWED_SHORTCUT_VIEWS.includes(shortcutView)) {
+                switchView(shortcutView);
+                history.replaceState({ view: shortcutView }, '', window.location.pathname);
+            } else if (savedView && savedView !=='auth-view') {
+                switchView(savedView);
+                history.replaceState({ view: savedView },'','');
+            } else {
+                switchView('overview');
+                history.replaceState({ view:'overview' },'','');
             }
-            switchView(targetView);
-            const url = new URL(window.location.href);
-            url.searchParams.set('view', targetView);
-            history.replaceState({ view: targetView }, '', url.pathname + url.search);
         } catch (finalErr) {
             console.error('Fallback view also failed to render — please try reloading the page:', finalErr);
         }

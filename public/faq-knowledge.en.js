@@ -403,6 +403,187 @@ window.OMNIPOS_FAQ_KB_EN = [
   keywords: ['user logs', 'audit trail', 'activity log', 'history ng aksyon'],
   answer: `<p>This shows the history of each user's actions in the system — who logged in, made a sale, voided a transaction, approved/rejected a request, created a purchase order, etc. — for accountability and audit trail purposes. Normally, only the Admin has access here unless another role is given access.</p>`
 },
+{
+  id: 'reports-advanced-chart-tools',
+  category: 'Reports',
+  question: 'What advanced chart tools are available in Overview and Sales Report?',
+  keywords: ['compare to previous period', 'date range', 'custom range', 'group by', 'high low chart', 'export csv report', 'sales chart filter'],
+  answer: `<p>Above the sales chart (Overview and Sales Report), there's a toolbar to customize what you're viewing:</p>
+  <ul>
+    <li><strong>Group By</strong> — Day, Week, Month, or Year — how the data is grouped into each bar/point.</li>
+    <li><strong>Date Range</strong> — Today, Last 7/30/90 Days, Last 1 Year, All Time, or "Custom Range…" (manual "from" and "to" dates).</li>
+    <li><strong>View (Total/High/Low)</strong> — choose whether the chart shows Total only, High, Low, or High &amp; Low.</li>
+    <li><strong>Compare to Previous Period</strong> — a checkbox that overlays the current range's data against the equivalent immediately-preceding period (e.g. this month vs. last month), so you can quickly see if sales went up or down.</li>
+  </ul>
+  <p>Sales Report also has an "Export CSV" button to download the report data as a file — this is part of the locked <strong>Sales Analytics &amp; Advanced Reports</strong> premium module.</p>`
+},
+{
+  id: 'reports-analytics-panels',
+  category: 'Reports',
+  question: 'What do Slow-Moving Items, Profit by Product, and Payment Method Breakdown show in Sales Report?',
+  keywords: ['slow moving items', 'profit by product', 'payment method breakdown', 'least sold products', 'profit per product'],
+  answer: `<p>Below the chart in Sales Report, there are four analytics panels:</p>
+  <ul>
+    <li><strong>Top Selling Items</strong> — ranking of best-selling products.</li>
+    <li><strong>Slow-Moving Items</strong> — products with the fewest sales in the selected date range, useful for deciding what to discount or stop stocking.</li>
+    <li><strong>Profit by Product</strong> — estimated profit per product (Price − Cost Price × quantity sold). The product's <strong>Cost Price</strong> field needs to be filled in for this to calculate correctly.</li>
+    <li><strong>Payment Method Breakdown</strong> — splits total sales by payment method (Cash, GCash, Card, etc.) within the selected date range.</li>
+  </ul>`
+},
+{
+  id: 'shift-payment-breakdown',
+  category: 'Shift / Z-Reading',
+  question: 'What is Payment Method Breakdown in Shift/Z-Reading?',
+  keywords: ['payment method breakdown open shift', 'cash gcash breakdown shift', 'z-reading breakdown', 'split payments per shift'],
+  answer: `<p>On the Shift / Z-Reading page, you'll see <strong>Payment Method Breakdown (Open Shift)</strong> — splitting total sales by payment method (Cash, GCash, Card, etc.) received only within the current open shift. This is part of what you compare against actual cash/settlement before you close the shift via Z-Reading.</p>`
+},
+{
+  id: 'inventory-po-history',
+  category: 'Inventory',
+  question: 'How do I view past Purchase Orders (Purchase Order History)?',
+  keywords: ['purchase order history', 'past po', 'received order', 'cancelled order', 'search po number'],
+  answer: `<p>On the Reorder Alerts / Purchase Orders page, there's a separate <strong>Purchase Order History</strong> tab showing ALL Purchase Orders ever created (not just open/active ones).</p>
+  <ul>
+    <li>A search box to look up by PO number, supplier, or item.</li>
+    <li>A filter by status: Ordered only, Received only, or Cancelled only.</li>
+    <li>Sort options: Newest First, Oldest First, or by Supplier.</li>
+  </ul>`
+},
+{
+  id: 'inventory-bulk-upload-photos',
+  category: 'Inventory',
+  question: 'How do I use Bulk Upload Photos for multiple products?',
+  keywords: ['bulk upload photos', 'upload own photos', 'match filename product code', 'select folder photos', 'own product images'],
+  answer: `<p><strong>Bulk Upload Photos</strong> (on the Products page) is for uploading your own product photos in bulk — different from Bulk Search Images, which searches online automatically.</p>
+  <ol>
+    <li>Select multiple photo files, or an entire folder (all images in it are auto-imported).</li>
+    <li>The system automatically matches each photo's <strong>filename</strong> (e.g. <code>PRDT20250006.jpg</code>) to a Product Code — if no match is found, it tries matching it to a Product Name instead.</li>
+    <li>Review the matches before applying — nothing changes automatically until you click "Apply Matched Photos".</li>
+  </ol>`
+},
+{
+  id: 'cloudtokens-recent-activity',
+  category: 'Cloud Tokens & Payments',
+  question: 'Where can I see the history of my Omni Tokens usage?',
+  keywords: ['recent activity tokens', 'token ledger', 'token usage history', 'transaction history tokens', 'tokens spent'],
+  answer: `<p>On the Omni Tokens page, there's a <strong>Recent Activity</strong> section — showing your token wallet's most recent actions (token purchases, usage for sync/restore, etc.). There's a "View All / Transaction History" button for the complete list.</p>`
+},
+{
+  id: 'login-edit-profile-picture',
+  category: 'Login & Sessions',
+  question: 'How do I change my profile picture?',
+  keywords: ['edit profile picture', 'change avatar', 'upload photo profile', 'remove profile photo'],
+  answer: `<p>From a user's Edit Profile (avatar/account menu), open <strong>Edit Profile Picture</strong>:</p>
+  <ol>
+    <li>Click "Upload Photo" to choose a new image from your device.</li>
+    <li>If there's already a photo, there's also a button to remove it.</li>
+    <li>Click "Save Photo" to apply the new avatar.</li>
+  </ol>`
+},
+{
+  id: 'reset-restore-purchased-features',
+  category: 'System Reset',
+  question: 'What is "Restore Purchased Features" / Sync with Relay?',
+  keywords: ['restore purchased features', 'sync with relay', 'relay sync', 'restore unlocked features', 'new device unlock'],
+  answer: `<p>In Settings → System, there's a <strong>"Sync with Relay Now"</strong> button — this is attempted automatically after a Hard Reset, but you can also click it manually at any time (e.g. after a fresh install on the same device) if you don't want to wait.</p>
+  <p>It pulls from Relay (the licensing server) all of the premium modules and Pro Themes you'd previously unlocked, and restores them to the system without needing to request a new OTP unlock again.</p>`
+},
+{
+  id: 'shift-history',
+  category: 'Shift / Z-Reading',
+  question: 'Where can I see past Z-Readings / closed shifts?',
+  keywords: ['shift history', 'past z-reading', 'closed shift', 'cash short over history', 'load more shift'],
+  answer: `<p>Below the Shift / Z-Reading page, there's a <strong>Shift History</strong> table listing every closed shift, including: Z-Reading ID, who closed it (Closed By), the time range (Period), transaction count, Net Sales, and the Cash Short/Over (variance) for each.</p>
+  <p>There's a "Load More" button below to see older records incrementally.</p>`
+},
+{
+  id: 'shift-admin-supervisor-control',
+  category: 'Shift / Z-Reading',
+  question: 'Can an Admin close another cashier\'s shift?',
+  keywords: ['close another cashier shift', 'admin close shift', 'supervisor control shift', 'select shift to view or close', 'shift on another device'],
+  answer: `<p>Yes — above the Shift / Z-Reading page, there's an <strong>Admin/Supervisor Control</strong> panel with a dropdown to choose whose shift to view or close.</p>
+  <p>An Admin/Supervisor can close another cashier's shift even if they used a different device or POS terminal, whether they're online or offline/locally connected.</p>`
+},
+{
+  id: 'appearance-custom-theme-studio',
+  category: 'Store & Appearance Settings',
+  question: 'What is the Custom Theme Studio?',
+  keywords: ['custom theme studio', 'corner radius', 'card style', 'accent color', 'reduced motion', 'high contrast', 'system font size', 'layout density'],
+  answer: `<p>The <strong>Custom Theme Studio</strong> (in Appearance settings) is a more detailed way to fine-tune the system's look, separate from picking a Pro Theme:</p>
+  <ul>
+    <li><strong>Font Size</strong> (50%–130%) and <strong>Accent Color</strong> (or just use the current Pro Theme's color).</li>
+    <li><strong>Card Style</strong> (Elevated, Flat, Bordered, or Glass), <strong>Corner Radius</strong> (Sharp through Pill), and Border Thickness.</li>
+    <li><strong>Header Style</strong>, <strong>Card &amp; Spacing Density</strong>, and <strong>Table Row Size</strong> (including custom row padding in pixels).</li>
+    <li><strong>Reduced Motion</strong> — turns off animations/transitions, useful for accessibility or slower devices.</li>
+    <li><strong>High Contrast</strong> — strengthens text and border colors for easier readability.</li>
+  </ul>
+  <p>There's a "Reset" button to restore all of these to their defaults.</p>`
+},
+{
+  id: 'payments-connect-gateway',
+  category: 'Cloud Tokens & Payments',
+  question: 'How do I accept QR Ph/GCash payments from customers using my own PayMongo or Xendit account?',
+  keywords: ['connect paymongo', 'connect xendit', 'own payment gateway', 'accept customer payments', 'qr ph in debtors', 'live qr in terminal', 'own account payment'],
+  answer: `<p>This is SEPARATE from buying Cloud Tokens/Pro Themes — this is for accepting ONLINE PAYMENTS from your own CUSTOMERS (e.g. to pay off a debt, or at the POS Terminal).</p>
+  <ol>
+    <li>In Settings → Online Payments, <strong>Connect</strong> your own PayMongo and/or Xendit account — just paste the Secret Key from your own Dashboard for that provider (no file editing needed).</li>
+    <li>Choose a Mode: Test/Sandbox (no real money, try this first) or Live (real money, your account must be verified).</li>
+    <li>There's a "Test Connection" button to immediately verify the connection works.</li>
+    <li>Enable <strong>"QR Ph online payments in Debtors"</strong> to turn this on for the Debtors module, and/or <strong>"Live QR Ph in the POS Terminal"</strong> to make it an extra option at checkout, alongside your uploaded static GCash/Maya QR.</li>
+  </ol>`
+},
+{
+  id: 'inventory-barcode-print-settings',
+  category: 'Inventory',
+  question: 'How do I customize the layout when printing multiple barcode labels?',
+  keywords: ['barcode print settings', 'barcodes per row', 'label width height', 'gap between barcodes', 'label padding'],
+  answer: `<p>In <strong>Barcode Print Settings</strong> (Barcode Generator page), you can customize the sheet layout before printing multiple barcode labels:</p>
+  <ul>
+    <li><strong>Barcodes per Row</strong> (number of columns) and <strong>Row Alignment</strong> (Left/Center/Right).</li>
+    <li><strong>Max Label Width</strong> and <strong>Label Height</strong> in millimeters (0 = auto).</li>
+    <li><strong>Gap Between Labels</strong> and <strong>Label Padding</strong> (Top/Bottom) in pixels.</li>
+  </ul>`
+},
+{
+  id: 'terminal-quick-settings',
+  category: 'POS Terminal',
+  question: 'What is Terminal Settings (gear icon) in the POS Terminal?',
+  keywords: ['terminal settings', 'gear icon in terminal', 'quick settings at checkout', 'paper size in terminal', 'receipt details in terminal'],
+  answer: `<p><strong>Terminal Settings</strong> (gear icon in the POS Terminal) is just a "mirror" of some of the settings under Users → Store &amp; Sales / Appearance / Advanced — only the fields directly used on the Terminal page are shown here (e.g. Store Name, Address, Contact Number, Header/Footer Text, Printer Paper Size).</p>
+  <p>The two locations sync in real time — anything you change here automatically updates the Settings page too, and vice versa. The Logo/Image header and advanced receipt styling (barcode, QR, fonts, transaction ID format) still live under Users → Receipt Customization, and aren't included here.</p>`
+},
+{
+  id: 'terminal-live-scanner',
+  category: 'POS Terminal',
+  question: 'What is the Interactive Live Scanner?',
+  keywords: ['interactive live scanner', 'camera scanner', 'scan using camera', 'auto scan mode', 'manual scan mode', 'phone camera barcode'],
+  answer: `<p>The <strong>Interactive Live Scanner</strong> lets you use a device's camera (phone/tablet/laptop) as a barcode/QR scanner in the POS Terminal, instead of dedicated barcode scanner hardware.</p>
+  <ul>
+    <li><strong>Auto</strong> mode — automatically recognizes and adds the product to the cart the moment the camera sees the barcode.</li>
+    <li><strong>Manual</strong> mode — you press the shutter/capture button first before what the camera sees is processed.</li>
+  </ul>`
+},
+{
+  id: 'receipt-qr-double-copy',
+  category: 'Receipt Settings',
+  question: 'How do I print 2 side-by-side copies of the QR code on the receipt?',
+  keywords: ['print 2 copies qr', 'two qr side by side', 'gap between qr copies', 'module dot size qr'],
+  answer: `<p>In Receipt Customization, there's a checkbox for <strong>"Print 2 copies of the QR side by side"</strong> — the same QR (e.g. GCash/Maya), but printed twice next to each other, so for example the customer can tear one off.</p>
+  <p>On a Bluetooth thermal printer, the 2 copies automatically print one after another instead (not side by side), since generic thermal printers usually can't place two QR blocks next to each other.</p>
+  <p>There's also an adjustable <strong>"Gap Between the 2 QR Copies"</strong> (only relevant when double copy is checked) and <strong>Module/Dot Size</strong> for the QR on Bluetooth thermal print — bigger is easier to scan, but also takes up more space on the paper.</p>`
+},
+{
+  id: 'faq-support-ticket',
+  category: 'FAQ & Support',
+  question: 'What if my question isn\'t answered in the FAQ?',
+  keywords: ['create support ticket', 'contact support', 'faq has no answer', 'ask the developer', 'submit ticket'],
+  answer: `<p>If the FAQ (or the AI Assistant, if unlocked) can't answer your question, there's a <strong>"Create Support Ticket"</strong> button:</p>
+  <ol>
+    <li>Enter a <strong>Subject</strong> (short summary) and <strong>describe the issue</strong> — what happened and what you've already tried.</li>
+    <li>Your current AI conversation and basic device info are automatically attached to the ticket, so the developer/admin can help you faster.</li>
+    <li>Submit the ticket to send it directly to the system's developer/admin.</li>
+  </ol>`
+},
 
 {
   id: 'customers-add',
@@ -616,6 +797,19 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li>Once the OTP is confirmed, that theme is permanently unlocked for your system.</li>
   </ol>
   <p>After unlocking one or more, you can freely switch between all of your unlocked themes at any time.</p>`
+},
+{
+  id: 'themes-terminal-themes',
+  category: 'Themes',
+  question: 'What is Terminal Themes and how is it different from the regular Themes menu?',
+  keywords: ['terminal themes', 'terminal theme', 'pos theme', 'checkout theme', 'change terminal skin', 'swatchbook'],
+  answer: `<p><strong>Terminal Themes</strong> is a separate theme switcher that only appears in the account menu (avatar) while you're inside the <strong>POS Terminal</strong> view — it's not the same as the general "Themes" menu, which affects the look of the whole system.</p>
+  <ul>
+    <li>It uses the same Pro Themes you've already unlocked, but the chosen theme is only applied to the POS Terminal/checkout screen — it doesn't change how other pages (Dashboard, Products, Reports, etc.) look.</li>
+    <li>If no theme is selected, "Default (Terminal Dark)" is used.</li>
+    <li>This menu automatically hides once you leave the Terminal view, and reappears only when you go back into it.</li>
+  </ul>
+  <p>To access it: click the avatar/account icon → "Terminal Themes" (swatchbook icon), while you're in the Terminal.</p>`
 },
 
 {

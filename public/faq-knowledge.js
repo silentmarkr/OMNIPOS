@@ -403,6 +403,187 @@ window.OMNIPOS_FAQ_KB_TL = [
   keywords: ['user logs', 'audit trail', 'activity log', 'history ng aksyon'],
   answer: `<p>Ipinapakita rito ang history ng mga aksyon ng bawat user sa system — kung sino ang naglogin, nagbenta, nag-void, nag-approve/reject ng request, gumawa ng purchase order, atbp. — para sa accountability at audit trail. Karaniwan, Admin lang ang may access dito maliban kung binigyan ng access ang ibang role.</p>`
 },
+{
+  id: 'reports-advanced-chart-tools',
+  category: 'Reports',
+  question: 'Anong mga advanced na chart tool meron sa Overview at Sales Report?',
+  keywords: ['compare to previous period', 'date range', 'custom range', 'group by', 'high low chart', 'export csv report', 'sales chart filter'],
+  answer: `<p>Sa itaas ng sales chart (Overview at Sales Report), may toolbar para i-customize ang tinitignan:</p>
+  <ul>
+    <li><strong>Group By</strong> — Day, Week, Month, o Year — kung paano pinagsasama-sama ang datos sa bawat bar/point.</li>
+    <li><strong>Date Range</strong> — Today, Last 7/30/90 Days, Last 1 Year, All Time, o "Custom Range…" (manual na "from" at "to" date).</li>
+    <li><strong>View (Total/High/Low)</strong> — pipiliin kung Total lang, High, Low, o High &amp; Low ang ipapakita.</li>
+    <li><strong>Compare to Previous Period</strong> — check-box na nag-o-overlay sa chart ng datos ng kasalukuyang range kumpara sa parehong haba ng agad na nakaraang period (hal. buwan na ito vs nakaraang buwan), para makita agad kung tumaas o bumaba ang benta.</li>
+  </ul>
+  <p>May "Export CSV" ring button sa Sales Report para i-download ang report data bilang file — kasama ito sa naka-lock na <strong>Sales Analytics &amp; Advanced Reports</strong> premium module.</p>`
+},
+{
+  id: 'reports-analytics-panels',
+  category: 'Reports',
+  question: 'Ano ang makikita sa Slow-Moving Items, Profit by Product, at Payment Method Breakdown sa Sales Report?',
+  keywords: ['slow moving items', 'profit by product', 'payment method breakdown', 'pinaka-kaunting nabenta', 'kita bawat produkto'],
+  answer: `<p>Sa ibaba ng chart sa Sales Report, may apat na analytics panel:</p>
+  <ul>
+    <li><strong>Top Selling Items</strong> — ranking ng pinakamabenta na produkto.</li>
+    <li><strong>Slow-Moving Items</strong> — mga produktong pinaka-kaunti ang nabenta sa napiling date range, makakatulong ito para makapag-desisyon kung ano ang bawasan o i-promo.</li>
+    <li><strong>Profit by Product</strong> — tinatantsang kita bawat produkto (Presyo − Cost Price × dami nabenta). Kailangan may laman ang <strong>Cost Price</strong> field ng produkto para makita ito dito, kung hindi ay hindi ito makukwenta nang tama.</li>
+    <li><strong>Payment Method Breakdown</strong> — paghahati-hati ng kabuuang benta base sa paraan ng bayad (Cash, GCash, Card, atbp.) sa loob ng napiling date range.</li>
+  </ul>`
+},
+{
+  id: 'shift-payment-breakdown',
+  category: 'Shift / Z-Reading',
+  question: 'Ano ang Payment Method Breakdown sa Shift/Z-Reading?',
+  keywords: ['payment method breakdown open shift', 'paghahati ng bayad sa shift', 'cash gcash sa shift', 'z-reading breakdown'],
+  answer: `<p>Sa Shift / Z-Reading page, makikita ang <strong>Payment Method Breakdown (Open Shift)</strong> — pagbukod-bukod ng kabuuang benta base sa paraan ng bayad (Cash, GCash, Card, atbp.) na natanggap sa loob lang ng kasalukuyang bukas na shift. Kasama ito sa impormasyong ikukumpara mo sa aktwal na pera/settlement bago mo isara (Close) ang shift sa pamamagitan ng Z-Reading.</p>`
+},
+{
+  id: 'inventory-po-history',
+  category: 'Inventory',
+  question: 'Paano tignan ang lumang Purchase Orders (Purchase Order History)?',
+  keywords: ['purchase order history', 'lumang po', 'received order', 'cancelled order', 'search po number'],
+  answer: `<p>Sa Reorder Alerts / Purchase Orders page, may hiwalay na tab na <strong>Purchase Order History</strong> kung saan makikita ang LAHAT ng dati nang ginawang Purchase Order (hindi lang ang bukas/active).</p>
+  <ul>
+    <li>May search box para hanapin ayon sa PO number, supplier, o item.</li>
+    <li>May filter ayon sa status: Ordered lang, Received lang, o Cancelled lang.</li>
+    <li>May pagpili ng sort: Newest First, Oldest First, o ayon sa Supplier.</li>
+  </ul>`
+},
+{
+  id: 'inventory-bulk-upload-photos',
+  category: 'Inventory',
+  question: 'Paano gamitin ang Bulk Upload Photos para sa maramihang produkto?',
+  keywords: ['bulk upload photos', 'i-upload ang sariling litrato', 'match filename product code', 'select folder photos', 'sariling larawan produkto'],
+  answer: `<p><strong>Bulk Upload Photos</strong> (sa Products page) ay para sa pag-upload ng sarili mong mga litrato ng produkto nang maramihan — iba ito sa Bulk Search Images na awtomatikong naghahanap online.</p>
+  <ol>
+    <li>Pumili ng maramihang photo file, o buong folder (awtomatikong ii-import lahat ng litrato roon).</li>
+    <li>Awtomatikong itinutugma ng system ang <strong>filename ng bawat photo</strong> (hal. <code>PRDT20250006.jpg</code>) sa Product Code — kung walang tugma, susubukan namang itugma sa Product Name.</li>
+    <li>I-review muna ang mga natugmang produkto bago i-apply — walang awtomatikong nagbabago hangga't hindi mo pinindot ang "Apply Matched Photos".</li>
+  </ol>`
+},
+{
+  id: 'cloudtokens-recent-activity',
+  category: 'Cloud Tokens & Payments',
+  question: 'Saan ko makikita ang history ng paggamit ng Omni Tokens?',
+  keywords: ['recent activity tokens', 'ledger ng tokens', 'history ng token', 'transaction history tokens', 'ginastos na tokens'],
+  answer: `<p>Sa Omni Tokens page, may seksyon na <strong>Recent Activity</strong> — dito makikita ang pinakahuling mga kilos sa token wallet mo (pagbili ng tokens, gamit sa sync/restore, atbp.). May button na "View All / Transaction History" para makita ang kumpletong listahan.</p>`
+},
+{
+  id: 'login-edit-profile-picture',
+  category: 'Login & Sessions',
+  question: 'Paano magpalit ng profile picture?',
+  keywords: ['edit profile picture', 'palitan ang larawan', 'avatar', 'upload photo profile', 'tanggalin ang litrato'],
+  answer: `<p>Sa Edit Profile ng user (avatar/account menu), buksan ang <strong>Edit Profile Picture</strong>:</p>
+  <ol>
+    <li>I-click ang "Upload Photo" para pumili ng bagong larawan mula sa device.</li>
+    <li>Kung may kasalukuyan nang litrato, may button ring pwedeng gamitin para tanggalin ito (Remove photo).</li>
+    <li>I-click ang "Save Photo" para i-apply ang bagong avatar.</li>
+  </ol>`
+},
+{
+  id: 'reset-restore-purchased-features',
+  category: 'System Reset',
+  question: 'Ano ang "Restore Purchased Features" / Sync with Relay?',
+  keywords: ['restore purchased features', 'sync with relay', 'relay sync', 'ibalik ang na-unlock na features', 'bagong device unlock'],
+  answer: `<p>Sa Settings → System, may button na <strong>"Sync with Relay Now"</strong> — awtomatiko itong sinusubukan pagkatapos ng Hard Reset, pero pwede mo ring i-click nang manual anumang oras (hal. pagkatapos ng bagong install sa parehong device) kung ayaw mong maghintay.</p>
+  <p>Kinukuha nito mula sa Relay (licensing server) ang lahat ng dating na-unlock mong premium module at Pro Theme, at ibinabalik ito sa system nang hindi na kailangang mag-request ulit ng bagong OTP unlock.</p>`
+},
+{
+  id: 'shift-history',
+  category: 'Shift / Z-Reading',
+  question: 'Saan ko makikita ang mga lumang Z-Reading / nakasarang shift?',
+  keywords: ['shift history', 'lumang z-reading', 'nakasarang shift', 'cash short over history', 'load more shift'],
+  answer: `<p>Sa ibaba ng Shift / Z-Reading page, may <strong>Shift History</strong> table na naglilista ng lahat ng nakasarang shift, kasama ang: Z-Reading ID, sino ang nagsara (Closed By), ang saklaw ng oras (Period), bilang ng transaksyon, Net Sales, at ang Cash Short/Over (variance) ng bawat isa.</p>
+  <p>May "Load More" button sa ibaba para makita ang mas lumang records nang paunti-unti.</p>`
+},
+{
+  id: 'shift-admin-supervisor-control',
+  category: 'Shift / Z-Reading',
+  question: 'Puwede bang isara ng Admin ang shift ng ibang cashier?',
+  keywords: ['isara ang shift ng ibang cashier', 'admin close shift', 'supervisor control shift', 'select shift to view or close', 'ibang device shift'],
+  answer: `<p>Oo — sa itaas ng Shift / Z-Reading page, may <strong>Admin/Supervisor Control</strong> panel na may dropdown para piliin kung kaninong shift ang titignan o isasara.</p>
+  <p>Kaya ng Admin/Supervisor na isara ang shift ng ibang cashier kahit ibang device o POS terminal ang ginamit nila, online man sila o offline/local lang naka-connect.</p>`
+},
+{
+  id: 'appearance-custom-theme-studio',
+  category: 'Store & Appearance Settings',
+  question: 'Ano ang Custom Theme Studio?',
+  keywords: ['custom theme studio', 'corner radius', 'card style', 'accent color', 'reduced motion', 'high contrast', 'font size ng system', 'density ng layout'],
+  answer: `<p>Ang <strong>Custom Theme Studio</strong> (sa Appearance settings) ay mas detalyadong paraan para i-fine-tune ang itsura ng system, hiwalay sa pagpili ng Pro Theme:</p>
+  <ul>
+    <li><strong>Font Size</strong> (50%–130%) at <strong>Accent Color</strong> (o gamitin na lang ang kulay ng kasalukuyang Pro Theme).</li>
+    <li><strong>Card Style</strong> (Elevated, Flat, Bordered, o Glass), <strong>Corner Radius</strong> (Sharp hanggang Pill), at Border Thickness.</li>
+    <li><strong>Header Style</strong>, <strong>Card &amp; Spacing Density</strong>, at <strong>Table Row Size</strong> (kasama ang custom row padding sa pixel).</li>
+    <li><strong>Reduced Motion</strong> — pinapatay ang mga animation/transition, kapaki-pakinabang para sa accessibility o mas mabilis na device.</li>
+    <li><strong>High Contrast</strong> — pinapalakas ang kulay ng text at borders para mas madaling basahin.</li>
+  </ul>
+  <p>May "Reset" button para ibalik lahat sa default settings.</p>`
+},
+{
+  id: 'payments-connect-gateway',
+  category: 'Cloud Tokens & Payments',
+  question: 'Paano tumanggap ng QR Ph/GCash na bayad mula sa customer gamit ang sariling PayMongo o Xendit account?',
+  keywords: ['connect paymongo', 'connect xendit', 'sariling payment gateway', 'tumanggap ng bayad customer', 'qr ph sa debtors', 'live qr sa terminal', 'sarili account payment'],
+  answer: `<p>Ito ay HIWALAY sa pagbili ng Cloud Tokens/Pro Theme — para ito sa pagtanggap ng ONLINE PAYMENT mula sa iyong mga CUSTOMER (hal. pambayad sa utang o sa POS Terminal).</p>
+  <ol>
+    <li>Sa Settings → Online Payments, i-<strong>Connect</strong> ang sarili mong PayMongo at/o Xendit account — kailangan mo lang i-paste ang Secret Key mula sa iyong sariling Dashboard ng provider na iyon (walang kailangang i-edit na file).</li>
+    <li>Pumili ng Mode: Test/Sandbox (walang totoong pera, para subukan muna) o Live (totoong pera, kailangang verified na ang account).</li>
+    <li>May "Test Connection" button para i-verify agad kung gumagana ang koneksyon.</li>
+    <li>I-enable ang <strong>"QR Ph online payments in Debtors"</strong> para paganahin ito sa Debtors module, at/o ang <strong>"Live QR Ph in the POS Terminal"</strong> para maging extra na opsyon ito sa checkout, kasabay ng na-upload mong static na GCash/Maya QR.</li>
+  </ol>`
+},
+{
+  id: 'inventory-barcode-print-settings',
+  category: 'Inventory',
+  question: 'Paano i-customize ang layout kapag nagpi-print ng maramihang barcode label?',
+  keywords: ['barcode print settings', 'ilang barcode kada row', 'label width height', 'gap sa barcode', 'padding ng label'],
+  answer: `<p>Sa <strong>Barcode Print Settings</strong> (Barcode Generator page), maaaring i-customize ang layout ng sheet bago mag-print ng maramihang barcode label:</p>
+  <ul>
+    <li><strong>Barcodes per Row</strong> (bilang ng column) at <strong>Row Alignment</strong> (Left/Center/Right).</li>
+    <li><strong>Max Label Width</strong> at <strong>Label Height</strong> sa millimeters (0 = auto).</li>
+    <li><strong>Gap Between Labels</strong> at <strong>Label Padding</strong> (Top/Bottom) sa pixels.</li>
+  </ul>`
+},
+{
+  id: 'terminal-quick-settings',
+  category: 'POS Terminal',
+  question: 'Ano ang Terminal Settings (gear icon) sa POS Terminal?',
+  keywords: ['terminal settings', 'gear icon sa terminal', 'mabilisang settings sa checkout', 'paper size sa terminal', 'receipt details sa terminal'],
+  answer: `<p>Ang <strong>Terminal Settings</strong> (gear icon sa POS Terminal) ay "mirror" lang ng ilang settings na nasa Users → Store &amp; Sales / Appearance / Advanced — ipinapakita lang dito ang mga field na direktang ginagamit sa Terminal page (hal. Store Name, Address, Contact Number, Header/Footer Text, Printer Paper Size).</p>
+  <p>Real-time na naka-sync ang dalawang lokasyon — anumang baguhin mo dito ay awtomatikong nag-a-update din sa Settings page, at kabaliktaran. Ang Logo/Image header at advanced na estilo ng resibo (barcode, QR, fonts, transaction ID format) ay nasa Users → Receipt Customization pa rin, hindi kasama dito.</p>`
+},
+{
+  id: 'terminal-live-scanner',
+  category: 'POS Terminal',
+  question: 'Ano ang Interactive Live Scanner?',
+  keywords: ['interactive live scanner', 'camera scanner', 'scan gamit ang camera', 'auto scan mode', 'manual scan mode', 'phone camera barcode'],
+  answer: `<p>Ang <strong>Interactive Live Scanner</strong> ay nagpapahintulot na gamitin ang camera ng device (phone/tablet/laptop) bilang barcode/QR scanner sa POS Terminal, kapalit ng dedicated na barcode scanner hardware.</p>
+  <ul>
+    <li><strong>Auto</strong> mode — awtomatikong kikilalanin at ida-dagdag sa cart ang produkto sa sandaling makita ng camera ang barcode.</li>
+    <li><strong>Manual</strong> mode — kailangan mo munang pindutin ang shutter/capture bago iproseso ang nakita ng camera.</li>
+  </ul>`
+},
+{
+  id: 'receipt-qr-double-copy',
+  category: 'Receipt Settings',
+  question: 'Paano mag-print ng 2 magkatabing kopya ng QR code sa resibo?',
+  keywords: ['print 2 copies qr', 'dalawang qr side by side', 'gap ng qr copies', 'module dot size qr'],
+  answer: `<p>Sa Receipt Customization, may checkbox na <strong>"Print 2 copies of the QR side by side"</strong> — parehong QR lang (hal. GCash/Maya), pero naka-print nang dalawang beses nang magkatabi, para halimbawa ay may mapunit na kopya ang customer.</p>
+  <p>Sa Bluetooth thermal printer, awtomatikong isa-isa na lang (sunod-sunod, hindi magkatabi) ang pagkakaprint ng 2 kopya, dahil karaniwang hindi kayang mag-lagay ng dalawang QR block nang magkatabi ang generic na thermal printer.</p>
+  <p>May kasama ring i-adjust na <strong>"Gap Between the 2 QR Copies"</strong> (relevant lang kapag naka-check ang double copy) at <strong>Module/Dot Size</strong> ng QR para sa Bluetooth thermal print — mas malaki, mas madaling i-scan pero mas malaki rin ang espasyong kinukuha sa papel.</p>`
+},
+{
+  id: 'faq-support-ticket',
+  category: 'FAQ & Support',
+  question: 'Paano kung wala sa FAQ ang sagot sa tanong ko?',
+  keywords: ['create support ticket', 'contact support', 'walang sagot sa faq', 'magtanong sa developer', 'submit ticket'],
+  answer: `<p>Kung hindi masagot ng FAQ (o ng AI Assistant, kung naka-unlock) ang tanong mo, may button para <strong>"Create Support Ticket"</strong>:</p>
+  <ol>
+    <li>Maglagay ng <strong>Subject</strong> (maikling buod) at <strong>ilarawan ang isyu</strong> — ano ang nangyari at ano na ang nasubukan mong gawin.</li>
+    <li>Awtomatikong isasama sa ticket ang kasalukuyan mong AI conversation at basic device info, para mas mabilis matulungan ka ng developer/admin.</li>
+    <li>I-submit ang ticket para maipasa ito direkta sa developer/admin ng system.</li>
+  </ol>`
+},
 
 {
   id: 'customers-add',
@@ -616,6 +797,19 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li>Kapag na-confirm ang OTP, naka-unlock na permanently ang theme na iyon para sa system mo.</li>
   </ol>
   <p>Pagkatapos ma-unlock ang isa o higit pa, puwede ka nang lumipat-lipat nang libre sa gitna ng lahat ng na-unlock na themes anumang oras.</p>`
+},
+{
+  id: 'themes-terminal-themes',
+  category: 'Themes',
+  question: 'Ano ang Terminal Themes at paano ito iba sa regular na Themes?',
+  keywords: ['terminal themes', 'theme ng terminal', 'theme sa pos', 'checkout theme', 'palitan ang skin ng terminal', 'swatchbook'],
+  answer: `<p><strong>Terminal Themes</strong> ay hiwalay na theme switcher na nakikita mo lang sa account menu (avatar) habang naka-open ka sa <strong>POS Terminal</strong> view — hindi ito kapareho ng general na "Themes" menu na nag-aapekto sa buong system.</p>
+  <ul>
+    <li>Ginagamit dito ang parehong mga na-unlock mong Pro Theme, pero inaaplay lang ang napiling theme sa POS Terminal/checkout screen — hindi nagbabago ang itsura ng ibang pages (Dashboard, Products, Reports, atbp.).</li>
+    <li>Kung walang piniling theme, "Default (Terminal Dark)" ang gagamitin.</li>
+    <li>Awtomatikong nawawala/nagtatago ang menu na ito kapag lumabas ka ng Terminal view — lalabas lang ulit ito kapag bumalik ka roon.</li>
+  </ul>
+  <p>Para ma-access: i-click ang avatar/account icon → "Terminal Themes" (may swatchbook icon), habang nasa Terminal ka.</p>`
 },
 
 {
