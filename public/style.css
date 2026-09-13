@@ -1235,6 +1235,7 @@ body.dark-mode .header-desktop-logo-text {
     .top-header.overview-header-mode .header-desktop-logo {
         display: flex !important;
         margin-left: 0px;
+        gap: 6px;
     }
     .top-header {
     padding-left: calc(20px + env(safe-area-inset-left, 0px));
