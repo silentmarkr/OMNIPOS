@@ -5032,6 +5032,10 @@ app.get('/api/module-subscriptions/status', (req, res) => {
     }
     res.json({ success: true, subscriptions });
 });
+const FILE_AI_ASSISTANT_LOGS = 'aiAssistantLogs';
+const AI_ASSISTANT_LOG_CAP = 500;
+const FILE_AI_SUPPORT_TICKETS = 'aiSupportTickets';
+const AI_ASSISTANT_TICKET_CAP = 500;
 function isAiAssistantConfigured() {
     return !!RELAY_API_KEY;
 }
