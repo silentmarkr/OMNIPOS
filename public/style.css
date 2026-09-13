@@ -1212,6 +1212,10 @@ body.dark-mode .uw-theme-option.is-locked:hover {
 .header-desktop-logo:active {
     opacity: 0.75;
 }
+.header-desktop-logo > i {
+    font-size: 1.3rem;
+  line-height: 1
+}
 .header-desktop-logo-text {
     font-size: 1.5rem;  
     font-weight: 800;
@@ -1232,14 +1236,17 @@ body.dark-mode .header-desktop-logo-text {
         display: flex !important;
         margin-left: 0px;
     }
-    .top-header.overview-header-mode .header-desktop-logo-text {
-        font-size: 1.5rem;
-    }
+    .top-header {
+    padding-left: calc(20px + env(safe-area-inset-left, 0px));
+}
+.top-header:not(.overview-header-mode) {
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+}
     .header-page-title {
         margin-left: 0;
     }
     .top-header {
-        padding-left: calc(20px + env(safe-area-inset-left, 0px));
+        padding-left: calc(14px + env(safe-area-inset-left, 0px));
     }
 }
 @media screen and (max-width: 380px) {

@@ -3485,9 +3485,7 @@ function switchView(viewKey, opts) {
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
     if (!history.state || history.state.view !== viewKey) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('view', viewKey);
-        history.pushState({ view: viewKey }, '', url.pathname + url.search + url.hash);
+        history.pushState({ view: viewKey },'','');
     }
     updateResponsivePageTitle();
 }
@@ -19504,13 +19502,18 @@ async function initializeSystem() {
 }
 window.addEventListener('DOMContentLoaded', initializeSystem);
 window.addEventListener('popstate', function(event) {
-    const viewFromState = (event.state && event.state.view)
-        || new URLSearchParams(window.location.search).get('view')
-        || sessionStorage.getItem('currentView')
-        || 'overview';
-    if (currentUser && viewFromState !== 'auth-view') {
-        switchView(viewFromState);
+    if (event.state && event.state.view) {
+        if (currentUser) {
+            switchView(event.state.view);
+        }
+    } else {
+        const savedView = sessionStorage.getItem('currentView');
+        if (savedView && currentUser && savedView !=='auth-view') {
+            switchView(savedView);
+        }
     }
+    var viewAfterPop = (event.state && event.state.view) || sessionStorage.getItem('currentView') || 'overview';
+    history.pushState({ view: viewAfterPop }, '', '');
 });
 function playScanBeep() {
     try {
@@ -19764,7 +19767,7 @@ async function handleLogout(type ='manual') {
         console.error('Error while cleaning up UI state on logout (non-blocking, navigation continues):', err);
     } finally {
         try {
-            history.pushState({ view:'auth-view' },'', window.location.pathname);
+            history.pushState({ view:'auth-view' },'','');
         } catch (e) {}
         showAuthenticationInterface();
     }
@@ -19862,19 +19865,19 @@ async function showMainSystemInterface() {
         console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);
     } finally {
         try {
-            const VALID_VIEWS = ['overview','terminal','products','dashboard','barcode','reorder','reports','transactions','customers','debts','shiftreport','logs','faq','stock_return_inspection','cloudtokens','users'];
             const shortcutView = new URLSearchParams(window.location.search).get('view');
+            const ALLOWED_SHORTCUT_VIEWS = ['terminal','products'];
             const savedView = sessionStorage.getItem('currentView');
-            let targetView ='overview';
-            if (shortcutView && VALID_VIEWS.includes(shortcutView)) {
-                targetView = shortcutView;
-            } else if (savedView && savedView !=='auth-view' && VALID_VIEWS.includes(savedView)) {
-                targetView = savedView;
+            if (shortcutView && ALLOWED_SHORTCUT_VIEWS.includes(shortcutView)) {
+                switchView(shortcutView);
+                history.replaceState({ view: shortcutView }, '', window.location.pathname);
+            } else if (savedView && savedView !=='auth-view') {
+                switchView(savedView);
+                history.replaceState({ view: savedView },'','');
+            } else {
+                switchView('overview');
+                history.replaceState({ view:'overview' },'','');
             }
-            switchView(targetView);
-            const url = new URL(window.location.href);
-            url.searchParams.set('view', targetView);
-            history.replaceState({ view: targetView }, '', url.pathname + url.search);
         } catch (finalErr) {
             console.error('Fallback view also failed to render — please try reloading the page:', finalErr);
         }

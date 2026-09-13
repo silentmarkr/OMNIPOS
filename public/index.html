@@ -391,7 +391,7 @@
                 <div class="header-left">
                     <button class="hamburger-menu" id="btn-sidebar-toggle" onclick="openSidebarMenu()"><i class="fa-solid fa-bars"></i></button>
                     <span class="header-desktop-logo" id="header-desktop-logo" onclick="switchView('overview')" title="Go to Overview" aria-label="OmniPOS - Go to Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}">
-                        <span class="header-desktop-logo-text brand-word">Omn<span class="brand-i-wrap">i</span>POS</span>
+                        <i class="fa-solid fa-cash-register"></i> <span class="header-desktop-logo-text brand-word">Omn<span class="brand-i-wrap">i</span>POS</span>
                     </span>
                     <div class="terminal-brand-header" id="terminal-brand-header">
                         <span class="terminal-brand-label" onclick="switchView('overview')" title="Bumalik sa Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}"><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i</span>POS</span></span>
@@ -636,7 +636,7 @@
                     <div class="terminal-container">
                         <div class="terminal-cart-pane" id="terminal-cart-pane">
                             <div class="cart-header" id="terminal-cart-header" title="I-drag ang header na ito papuntang kanan para ipalit ang pwesto ng Order at Products (Desktop lang)">
-                                <span><i class="fa-solid fa-grip-lines pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
+                                <span><i class="pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
                                 <div class="cart-header-actions">
                                     <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> <span class="btn-print-preview-label">Preview</span></button>
                                     <button class="btn-terminal-settings" onclick="openTerminalSettingsModal()" title="Terminal Settings"><i class="fa-solid fa-gear"></i> <span class="btn-terminal-settings-label">Settings</span></button>
@@ -2012,21 +2012,21 @@
                 </div>
             </details>
 
-            <details class="rc-section">
-                <summary><i class="fa-solid fa-rotate-left" style="color:#2563eb;"></i> <span>10. Reset Customization Counter</span></summary>
-                <div class="rc-section-body">
-                <p style="font-size:0.8rem; color: var(--text-muted); margin-bottom: 10px;">
-                    Used up your 2 free customizations? The button below sends an OTP to the developer's registered
-                    email to reset the counter back to 2/2. It will not change the original date of your first customization.
-                </p>
-                <button id="rc-reset-counter-btn" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444; opacity:0.4; cursor:not-allowed;" disabled onclick="requestReceiptCounterReset()">
-                    <i class="fa-solid fa-rotate-left"></i> Reset Customization Counter (OTP Required)
-                </button>
-                </div>
-            </details>
+          <details class="rc-section" style="display:none;">
+    <summary><i class="fa-solid fa-rotate-left" style="color:#2563eb;"></i> <span>10. Reset Customization Counter</span></summary>
+    <div class="rc-section-body">
+    <p style="font-size:0.8rem; color: var(--text-muted); margin-bottom: 10px;">
+        Used up your 2 free customizations? The button below sends an OTP to the developer's registered
+        email to reset the counter back to 2/2. It will not change the original date of your first customization.
+    </p>
+    <button id="rc-reset-counter-btn" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444; opacity:0.4; cursor:not-allowed;" disabled onclick="requestReceiptCounterReset()">
+        <i class="fa-solid fa-rotate-left"></i> Reset Customization Counter (OTP Required)
+    </button>
+    </div>
+          </details>
 
             <details class="rc-section">
-                <summary><i class="fa-solid fa-coins" style="color:#2563eb;"></i> <span>11. Buy Customization Credits</span></summary>
+                <summary><i class="fa-solid fa-coins" style="color:#2563eb;"></i> <span>10. Buy Customization Credits</span></summary>
                 <div class="rc-section-body">
                 <p id="rc-credit-status" style="font-size:0.8rem; color: var(--text-muted); margin-bottom: 10px;">
                     Naubos ang 2 free customizations? Puwede kang bumili ng credit — 1 credit = 1 additional Receipt Customization save, walang OTP kailangan.
@@ -3862,11 +3862,12 @@
             </div>
             <div class="modal-body">
                 <p style="font-size:0.82rem; color:var(--text-muted); margin:0 0 16px;">
-                    Ito ay mirror lang ng mga settings na nasa <b>Users &gt; Store &amp; Sales / Appearance / Advanced</b> — ang mga sumusunod na field lang ang ipinapakita dito dahil ito ang mga direktang ginagamit sa POS Terminal page. Anumang i-save dito ay nagbabago rin agad sa Settings page (magkasabay silang naka-sync), at vice versa.
-                </p>
+    This is a mirror of the settings located under <b>Users &gt; Store &amp; Sales / Appearance / Advanced</b> — only the fields directly used on the POS Terminal page are displayed here. Any changes saved here will automatically update the Settings page (they are synced in real time), and vice versa.
+</p>
+
                 <div id="terminal-settings-status" style="margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);"></div>
 
-                <details class="rc-section" open>
+                <details class="rc-section" close>
                     <summary><i class="fa-solid fa-receipt" style="color:#16a34a;"></i> <span>Receipt Customization</span></summary>
                     <div class="rc-section-body">
                         <div class="input-field-group">
