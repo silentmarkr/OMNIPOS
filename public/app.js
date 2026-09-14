@@ -1407,7 +1407,8 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'promo-codes-lock':'promo_codes',
 'create-po-lock':'purchase_orders',
 'reorder-export-csv-lock':'purchase_orders',
-'menu-reorder-lock':'purchase_orders'
+'menu-reorder-lock':'purchase_orders',
+'menu-branches-lock':'multi_branch'
 };
 function updateRolesPermissionsLockState() {
     const wrap = document.getElementById('roles-permissions-matrix-wrap');
@@ -3289,7 +3290,7 @@ function switchView(viewKey, opts) {
         console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
     }
-    const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders' };
+    const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
             guardShiftReportAccess(isAdmin);
@@ -3368,6 +3369,7 @@ function switchView(viewKey, opts) {
     if (viewKey ==='shiftreport') loadShiftReportView();
     if (viewKey ==='reorder') loadReorderView();
     if (viewKey === 'cloudtokens') loadCloudTokensView();
+    if (viewKey === 'branches') { loadBranchesPage(); startBranchesPagePolling(); } else { stopBranchesPagePolling(); }
     sessionStorage.setItem('currentView', viewKey);
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
@@ -3389,6 +3391,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     logs:         { text:'System Audit Logs',   icon:'fa-clock-rotate-left',  hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 icon:'fa-circle-question',    hideIds: ['page-title-faq'] },
     stock_return_inspection: { text:'Void / Refund', icon:'fa-clipboard-check', hideIds: ['page-title-stock_return_inspection'] },
+    branches:     { text:'Branches',            icon:'fa-code-branch',       hideIds: ['page-title-branches'] },
     cloudtokens:  { text:'Omni Tokens',         icon:'fa-gem',                hideIds: ['page-title-cloudtokens'] },
     users:        { text:'Settings',            icon:'fa-gear',              hideIds: [] }
 };
@@ -7526,7 +7529,7 @@ async function loadDashboardMetrics() {
         if (productsList.length > 0) globalProducts = productsList;
         refreshLowStockBadge();
         checkBackupHealthBanner();
-        loadBranchesWidget();
+        refreshBranchesAlertBadge();
     } catch (e) {
         console.warn('Dashboard Analytics Pipeline Fallback Invoked:', e);
         const cachedTxs = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
@@ -8159,91 +8162,312 @@ function initOverviewAdvancedChartToolbar() {
     const themeObserver = new MutationObserver(() => renderAdvancedOverviewChart());
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 }
-async function loadBranchesWidget() {
-    const card = document.getElementById('branches-widget-card');
-    const body = document.getElementById('branches-widget-body');
-    if (!card || !body) return;
+// === Multi-Branch (PRO) — dedicated page: drill-down, trend chart, alerts, stock transfers ===
+let branchesPageState = {
+    branches: [],
+    combined: {},
+    installationId: null,
+    expandedBranchId: null,
+    trendCache: {},
+    combinedTrendCache: [],
+    transfers: [],
+    pollTimer: null
+};
+async function refreshBranchesAlertBadge() {
+    const badge = document.getElementById('menu-branches-alert-badge');
+    if (!badge) return;
+    if (!isFeatureUnlockedCached('multi_branch')) { badge.style.display = 'none'; return; }
     try {
-        const token = localStorage.getItem('omnipos_token');
-        const res = await fetch(`${API_URL}/branches/summary`, {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        });
+        const res = await authFetch(`${API_URL}/branches/summary`);
+        if (!res.ok) { badge.style.display = 'none'; return; }
+        const data = await res.json();
+        if (!data.configured || !data.success) { badge.style.display = 'none'; return; }
+        const branches = data.branches || [];
+        let count = branches.filter(b => !b.isSelf && (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000)).length;
+        count += branches.filter(b => (b.summary?.lowStockCount || 0) > 0).length;
+        try {
+            const tRes = await authFetch(`${API_URL}/branches/transfers`);
+            if (tRes.ok) {
+                const tData = await tRes.json();
+                if (tData.success) count += (tData.transfers || []).filter(t => t.direction === 'incoming' && t.status === 'pending').length;
+            }
+        } catch (e) { /* ignore */ }
+        if (count > 0) { badge.innerText = count > 99 ? '99+' : count; badge.style.display = 'inline-block'; }
+        else badge.style.display = 'none';
+    } catch (e) {
+        badge.style.display = 'none';
+    }
+}
+function startBranchesPagePolling() {
+    stopBranchesPagePolling();
+    branchesPageState.pollTimer = setInterval(() => loadBranchesPage(true), 60000);
+}
+function stopBranchesPagePolling() {
+    if (branchesPageState.pollTimer) { clearInterval(branchesPageState.pollTimer); branchesPageState.pollTimer = null; }
+}
+async function loadBranchesPage(silent) {
+    const body = document.getElementById('branches-page-body');
+    const newBtn = document.getElementById('branches-new-transfer-btn');
+    if (!body) return;
+    if (!silent) body.innerHTML = '<p style="color:#94a3b8;font-size:0.9rem;">Loading…</p>';
+    try {
+        const res = await authFetch(`${API_URL}/branches/summary`);
         if (res.status === 402) {
             const locked = await res.json();
-            card.style.display = '';
-            const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number'
-                ? locked.subscriptionPrice.monthly
-                : locked.price;
+            if (newBtn) newBtn.style.display = 'none';
+            const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number' ? locked.subscriptionPrice.monthly : locked.price;
             body.innerHTML = `
-                <div style="text-align:center; padding:10px 4px;">
-                    <p style="font-size:0.85rem;color:#64748b;margin:6px 0 10px;line-height:1.5;">
-                        <i class="fa-solid fa-lock" style="color:#f59e0b;"></i>
-                        See combined sales across all your branches in one view.
-                    </p>
-                    <button type="button" id="branches-widget-unlock-btn" class="btn-action-outline">
+                <div style="text-align:center; padding:40px 15px;">
+                    <i class="fa-solid fa-lock" style="font-size:2rem;color:#f59e0b;margin-bottom:12px;"></i>
+                    <p style="color:#64748b;margin:0 0 14px;max-width:420px;margin-left:auto;margin-right:auto;">See combined sales, per-branch drill-down, hourly trend charts, offline/low-stock alerts, and inter-branch stock transfer requests — all here on one page.</p>
+                    <button type="button" class="btn-action-outline" id="branches-page-unlock-btn">
                         <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — starting at ₱${monthlyPrice}/mo
                     </button>
                 </div>`;
-            const unlockBtn = document.getElementById('branches-widget-unlock-btn');
-            if (unlockBtn) {
-                unlockBtn.addEventListener('click', async () => {
-                    const ok = await promptModuleSubscription(locked.featureId);
-                    if (ok) loadBranchesWidget();
-                });
-            }
+            const unlockBtn = document.getElementById('branches-page-unlock-btn');
+            if (unlockBtn) unlockBtn.addEventListener('click', async () => { const ok = await promptModuleSubscription(locked.featureId); if (ok) loadBranchesPage(); });
             return;
         }
-        if (!res.ok) {
-            card.style.display = 'none';
-            return;
-        }
+        if (!res.ok) { if (!silent) body.innerHTML = '<p style="color:#ef4444;">Could not get branch data.</p>'; return; }
         const data = await res.json();
-        card.style.display = '';
         if (!data.configured) {
+            if (newBtn) newBtn.style.display = 'none';
             body.innerHTML = `
-                <p style="color:#94a3b8;font-size:0.85rem;margin:8px 0 0;line-height:1.5;">
-                    Wala pang naka-configure na Business Group Code. Kung may 2+ branch ang negosyo mo, i-set ito sa
+                <p style="color:#94a3b8;line-height:1.6;">
+                    No Business Group Code has been configured yet. If your business has 2+ branches, set this up in
                     <a href="#" onclick="switchView('users'); setTimeout(()=>{ document.getElementById('store-settings-tab-btn')?.click(); }, 50); return false;" style="color:#3b82f6;">Store &amp; Sales Settings</a>
-                    para makita ang combined sales ng lahat ng branch dito.
+                    (same code on every branch) to see the combined dashboard here.
                 </p>`;
             return;
         }
-        if (!data.success) {
-            body.innerHTML = `<p style="color:#ef4444;font-size:0.85rem;margin:8px 0 0;">${data.message || 'Hindi makuha ang branch summary.'}</p>`;
+        if (!data.success) { body.innerHTML = `<p style="color:#ef4444;">${escapeHtml(data.message || 'Could not get the branch summary.')}</p>`; return; }
+        branchesPageState.branches = data.branches || [];
+        branchesPageState.combined = data.combined || {};
+        branchesPageState.installationId = (branchesPageState.branches.find(b => b.isSelf) || {}).installationId || null;
+        if (newBtn) newBtn.style.display = branchesPageState.branches.length > 1 ? '' : 'none';
+        if (branchesPageState.branches.length === 0) {
+            body.innerHTML = `<p style="color:#94a3b8;">The Business Group Code is configured, but no other branch has checked in with the same code yet. Make sure the code matches on every branch device (each one also needs an internet connection).</p>`;
             return;
         }
-        const branches = data.branches || [];
-        const combined = data.combined || {};
-        const currency = (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
-        if (branches.length === 0) {
-            body.innerHTML = `<p style="color:#94a3b8;font-size:0.85rem;margin:8px 0 0;">Naka-configure na ang Business Group Code, pero wala pang ibang branch na nag-check-in gamit ang parehong code. Siguraduhing pareho ang code sa lahat ng branch device (kailangan din ng internet connection sa bawat isa).</p>`;
-            return;
-        }
-        const rows = branches.map(b => {
-            const ago = timeAgoLabel(b.updatedAt);
-            const staleWarning = (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000);
-            return `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-color);">
+        renderBranchesPage();
+        loadBranchTransfers(true);
+        loadBranchesTrend(true);
+    } catch (err) {
+        console.warn('loadBranchesPage failed:', err);
+        if (!silent) body.innerHTML = '<p style="color:#ef4444;">Could not reach the server.</p>';
+    }
+}
+function renderTrendSvg(history) {
+    if (!history || history.length < 2) {
+        return '<p style="color:#94a3b8;font-size:0.8rem;margin:6px 0;">Not enough data yet for the trend chart (needs a few check-ins throughout the day).</p>';
+    }
+    const w = 600, h = 140, pad = 10;
+    const values = history.map(p => Number(p.grossSalesToday) || 0);
+    const maxV = Math.max(...values, 1);
+    const stepX = (w - pad * 2) / (values.length - 1);
+    const points = values.map((v, i) => {
+        const x = pad + i * stepX;
+        const y = h - pad - ((v / maxV) * (h - pad * 2));
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const firstTs = new Date(history[0].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const lastTs = new Date(history[history.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `
+        <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:120px;" preserveAspectRatio="none">
+            <polyline points="${points}" fill="none" stroke="#3b82f6" stroke-width="2"></polyline>
+        </svg>
+        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#94a3b8;"><span>${firstTs}</span><span>${lastTs}</span></div>`;
+}
+async function loadBranchesTrend(silent) {
+    try {
+        const res = await authFetch(`${API_URL}/branches/trend`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.success || !data.configured) return;
+        branchesPageState.combinedTrendCache = data.combinedHistory || [];
+        (data.branches || []).forEach(b => { branchesPageState.trendCache[b.installationId] = b.history || []; });
+        renderBranchesPage();
+    } catch (e) { console.warn('loadBranchesTrend failed:', e); }
+}
+async function loadBranchTransfers(silent) {
+    try {
+        const res = await authFetch(`${API_URL}/branches/transfers`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.success) return;
+        branchesPageState.transfers = data.transfers || [];
+        renderBranchesPage();
+        refreshBranchesAlertBadge();
+    } catch (e) { console.warn('loadBranchTransfers failed:', e); }
+}
+function renderBranchTransfersHtml() {
+    const transfers = branchesPageState.transfers || [];
+    const header = `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-right-left"></i> Stock Transfer Requests</h3>`;
+    if (transfers.length === 0) {
+        return header + `<p style="color:#94a3b8;font-size:0.85rem;">There are no transfer requests between branches yet.</p>`;
+    }
+    const rows = transfers.slice(0, 50).map(t => {
+        const statusColor = t.status === 'pending' ? '#f59e0b' : (t.status === 'accepted' ? '#16a34a' : '#94a3b8');
+        const dirLabel = t.direction === 'incoming' ? `To you from ${escapeHtml(t.fromBranchName)}` : (t.direction === 'outgoing' ? `To ${escapeHtml(t.toBranchName)}` : `${escapeHtml(t.fromBranchName)} \u2192 ${escapeHtml(t.toBranchName)}`);
+        const actions = (t.direction === 'incoming' && t.status === 'pending')
+            ? `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','accept')">Accept</button>
+               <button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;color:#ef4444;border-color:#ef4444;" onclick="respondBranchTransfer('${t.id}','reject')">Reject</button>`
+            : (t.direction === 'outgoing' && t.status === 'pending')
+                ? `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','cancel')">Cancel</button>`
+                : '';
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;">
+                <div>
+                    <div style="font-weight:600;">${escapeHtml(t.itemName)} ${t.sku ? `<span style="color:#94a3b8;font-weight:normal;font-size:0.75rem;">(${escapeHtml(t.sku)})</span>` : ''} — ${t.qty} pc(s)</div>
+                    <div style="font-size:0.75rem;color:#94a3b8;">${dirLabel} · ${timeAgoLabel(t.createdAt)}</div>
+                    ${t.note ? `<div style="font-size:0.75rem;color:#64748b;margin-top:2px;">"${escapeHtml(t.note)}"</div>` : ''}
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:0.75rem;font-weight:600;text-transform:capitalize;color:${statusColor};">${t.status}</div>
+                    <div style="margin-top:4px;display:flex;gap:6px;">${actions}</div>
+                </div>
+            </div>`;
+    }).join('');
+    return header + `<div class="overview-trend-card">${rows}</div>`;
+}
+function renderBranchesPage() {
+    const body = document.getElementById('branches-page-body');
+    if (!body) return;
+    const { branches, combined } = branchesPageState;
+    const currency = (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
+    const staleBranches = branches.filter(b => !b.isSelf && (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000));
+    const lowStockAlerts = branches.filter(b => (b.summary?.lowStockCount || 0) > 0);
+    const combinedCard = `
+        <div class="overview-trend-card" style="margin-bottom:15px;">
+            <div class="overview-trend-header"><h3><i class="fa-solid fa-chart-simple"></i> Combined (${branches.length} branch${branches.length > 1 ? 'es' : ''})</h3></div>
+            <div style="display:flex;flex-wrap:wrap;gap:20px;margin:10px 0 16px;">
+                <div><div style="font-size:1.4rem;font-weight:700;">${currency}${(combined.grossSalesToday || 0).toFixed(2)}</div><div style="font-size:0.75rem;color:#94a3b8;">Gross Sales Today</div></div>
+                <div><div style="font-size:1.4rem;font-weight:700;">${combined.transactionCountToday || 0}</div><div style="font-size:0.75rem;color:#94a3b8;">Transactions Today</div></div>
+                <div><div style="font-size:1.4rem;font-weight:700;">${combined.lowStockCount || 0}</div><div style="font-size:0.75rem;color:#94a3b8;">Low Stock Items</div></div>
+                <div><div style="font-size:1.4rem;font-weight:700;">${combined.activeShiftCount || 0}</div><div style="font-size:0.75rem;color:#94a3b8;">Active Shifts</div></div>
+            </div>
+            <div style="font-size:0.75rem;color:#64748b;margin-bottom:4px;">Hourly Sales Trend (Combined, Today)</div>
+            ${renderTrendSvg(branchesPageState.combinedTrendCache)}
+        </div>`;
+    const alertsHtml = (staleBranches.length === 0 && lowStockAlerts.length === 0) ? '' : `
+        <div class="overview-trend-card" style="margin-bottom:15px;border-left:3px solid #f59e0b;">
+            <div class="overview-trend-header"><h3><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;"></i> Alerts</h3></div>
+            <ul style="margin:10px 0 0;padding-left:20px;line-height:1.9;font-size:0.85rem;">
+                ${staleBranches.map(b => `<li style="color:#ef4444;">${escapeHtml(b.branchName || 'Unnamed Branch')} may be offline — no check-in for ${timeAgoLabel(b.updatedAt)}.</li>`).join('')}
+                ${lowStockAlerts.map(b => `<li style="color:#f59e0b;">${escapeHtml(b.branchName || 'Unnamed Branch')} has ${b.summary?.lowStockCount || 0} low-stock item(s).</li>`).join('')}
+            </ul>
+        </div>`;
+    const branchRows = branches.map(b => {
+        const ago = timeAgoLabel(b.updatedAt);
+        const stale = !b.isSelf && (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000);
+        const expanded = branchesPageState.expandedBranchId === b.installationId;
+        return `
+            <div class="overview-trend-card" style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:10px;" onclick="toggleBranchDrilldown('${b.installationId}')">
                     <div>
                         <div style="font-weight:600;">${escapeHtml(b.branchName || 'Unnamed Branch')}${b.isSelf ? ' <span style="font-weight:normal;color:#3b82f6;font-size:0.75rem;">(this device)</span>' : ''}</div>
-                        <div style="font-size:0.75rem;color:${staleWarning ? '#ef4444' : '#94a3b8'};">Updated ${ago}${staleWarning ? ' — may be offline' : ''}</div>
+                        <div style="font-size:0.75rem;color:${stale ? '#ef4444' : '#94a3b8'};">Updated ${ago}${stale ? ' — may be offline' : ''}</div>
                     </div>
-                    <div style="text-align:right;">
-                        <div style="font-weight:600;">${currency}${(b.summary?.grossSalesToday || 0).toFixed(2)}</div>
-                        <div style="font-size:0.75rem;color:#94a3b8;">${b.summary?.transactionCountToday || 0} tx · ${b.summary?.lowStockCount || 0} low stock</div>
+                    <div style="text-align:right;display:flex;align-items:center;gap:10px;">
+                        <div>
+                            <div style="font-weight:600;">${currency}${(b.summary?.grossSalesToday || 0).toFixed(2)}</div>
+                            <div style="font-size:0.75rem;color:#94a3b8;">${b.summary?.transactionCountToday || 0} tx · ${b.summary?.lowStockCount || 0} low stock</div>
+                        </div>
+                        <i class="fa-solid ${expanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:#94a3b8;"></i>
                     </div>
-                </div>`;
-        }).join('');
-        body.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin:8px 0 6px;">
-                <span style="font-size:0.8rem;color:#64748b;">${branches.length} branch(es) combined</span>
-                <span style="font-weight:700;font-size:1.1rem;">${currency}${(combined.grossSalesToday || 0).toFixed(2)} <span style="font-weight:400;font-size:0.75rem;color:#94a3b8;">today</span></span>
-            </div>
-            ${rows}
-        `;
+                </div>
+                ${expanded ? `
+                    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color);">
+                        <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;">
+                            <div><div style="font-weight:700;">${currency}${(b.summary?.netSalesToday || 0).toFixed(2)}</div><div style="font-size:0.7rem;color:#94a3b8;">Net Sales Today</div></div>
+                            <div><div style="font-weight:700;">${b.summary?.activeShiftCount || 0}</div><div style="font-size:0.7rem;color:#94a3b8;">Active Shifts</div></div>
+                        </div>
+                        <div style="font-size:0.75rem;color:#64748b;margin-bottom:4px;">Hourly Sales Trend</div>
+                        ${renderTrendSvg(branchesPageState.trendCache[b.installationId])}
+                    </div>` : ''}
+            </div>`;
+    }).join('');
+    body.innerHTML = combinedCard + alertsHtml +
+        `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-code-branch"></i> Per-Branch Detail</h3>` +
+        branchRows + renderBranchTransfersHtml();
+    populateBranchTransferDestinations();
+}
+function toggleBranchDrilldown(installationId) {
+    branchesPageState.expandedBranchId = branchesPageState.expandedBranchId === installationId ? null : installationId;
+    renderBranchesPage();
+}
+function populateBranchTransferDestinations() {
+    const sel = document.getElementById('bt-form-to-branch');
+    if (!sel) return;
+    const others = (branchesPageState.branches || []).filter(b => !b.isSelf);
+    sel.innerHTML = others.length
+        ? others.map(b => `<option value="${b.installationId}" data-name="${escapeHtml(b.branchName || 'Unnamed Branch')}">${escapeHtml(b.branchName || 'Unnamed Branch')}</option>`).join('')
+        : '<option value="">No other branch available</option>';
+}
+function openBranchTransferRequestModal() {
+    const errEl = document.getElementById('bt-form-error');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    const form = document.getElementById('branch-transfer-form');
+    if (form) form.reset();
+    populateBranchTransferDestinations();
+    document.getElementById('branch-transfer-modal').style.display = 'flex';
+}
+async function submitBranchTransferRequest(evt) {
+    evt.preventDefault();
+    const errEl = document.getElementById('bt-form-error');
+    const btn = document.getElementById('bt-form-submit-btn');
+    const toSel = document.getElementById('bt-form-to-branch');
+    const toInstallationId = toSel.value;
+    const toBranchName = toSel.selectedOptions[0] ? toSel.selectedOptions[0].getAttribute('data-name') : '';
+    const itemName = document.getElementById('bt-form-item').value.trim();
+    const sku = document.getElementById('bt-form-sku').value.trim();
+    const qty = parseInt(document.getElementById('bt-form-qty').value, 10);
+    const note = document.getElementById('bt-form-note').value.trim();
+    if (!toInstallationId) { errEl.textContent = 'No destination branch is available.'; errEl.style.display = 'block'; return false; }
+    if (!itemName || !qty || qty < 1) { errEl.textContent = 'Fill in the item name and quantity.'; errEl.style.display = 'block'; return false; }
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Sending…';
+    try {
+        const res = await authFetch(`${API_URL}/branches/transfer-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toInstallationId, toBranchName, itemName, sku, qty, note })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            errEl.textContent = data.message || 'The request could not be submitted.';
+            errEl.style.display = 'block';
+            return false;
+        }
+        closeModal('branch-transfer-modal');
+        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'success', title: 'Transfer request sent', timer: 1600, showConfirmButton: false });
+        loadBranchTransfers();
     } catch (err) {
-        console.warn('loadBranchesWidget failed:', err);
-        card.style.display = 'none';
+        errEl.textContent = 'Could not reach the server.';
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+    return false;
+}
+async function respondBranchTransfer(transferId, action) {
+    try {
+        const res = await authFetch(`${API_URL}/branches/transfer-respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transferId, action })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Could not update', text: data.message || '' });
+            return;
+        }
+        loadBranchTransfers();
+    } catch (err) {
+        console.warn('respondBranchTransfer failed:', err);
     }
 }
 function timeAgoLabel(ts) {
@@ -11741,7 +11965,7 @@ async function testBranchConnection() {
     }
     if (!currentInputVal) {
         statusEl.style.color = '#f59e0b';
-        statusEl.textContent = 'Ilagay muna ang Business Group Code sa itaas.';
+        statusEl.textContent = 'Enter the Business Group Code above first.';
         return;
     }
     btn.disabled = true;
@@ -11754,7 +11978,7 @@ async function testBranchConnection() {
         const data = await res.json();
         statusEl.style.color = data.success ? '#16a34a' : '#ef4444';
         statusEl.textContent = data.message || (data.success ? 'OK' : 'Failed');
-        if (data.success) loadBranchesWidget();
+        if (data.success) { refreshBranchesAlertBadge(); if (document.getElementById('view-branches')?.style.display !== 'none') loadBranchesPage(); }
     } catch (err) {
         statusEl.style.color = '#ef4444';
         statusEl.textContent = 'Unable to reach the server.';

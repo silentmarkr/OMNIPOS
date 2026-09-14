@@ -410,7 +410,7 @@ const MENU_REGISTRY = [
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)', group:'Reorder / Purchase Orders' },
     { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
     { key:'stock_return_manager_review', label:'Inventory — Finalize Manager Review sa Damaged/Non-Restockable Items (2nd Reviewer, hiwalay sa unang Inspect)', group:'Reorder / Purchase Orders' },
-    { key:'branches_view', label:'Overview — "All Branches" Widget (View Combined Sales ng Ibang Branch, Premium Feature)', group:'Multi-Branch' },
+    { key:'branches', label:'Branches Page (View Combined Sales, Per-Branch Drilldown, Trends, Alerts, and Stock Transfers From Other Branches, Premium Feature)', group:'Multi-Branch' },
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
     { key:'pending_requests', label:'Users — Pending Requests Tab', group:'Users & Access' },
@@ -440,12 +440,12 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false }
     },
     {
         name:'Cashier',
         protected: false,
-        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches_view: false }
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false }
     }
 ];
 function getRoles() {
@@ -3457,12 +3457,12 @@ const relayBackupStatus = {
 async function runRelayBackupSync() {
     if (getConnectivityMode() === 'offline') {
         relayBackupStatus.state = 'orange';
-        relayBackupStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
+        relayBackupStatus.lastError = 'Currently in OFFLINE mode — intentionally not calling RELAY for now.';
         return;
     }
     if (!(await isInternetLikelyUp())) {
         relayBackupStatus.state = 'orange';
-        relayBackupStatus.lastError = 'Walang internet connection na na-detect.';
+        relayBackupStatus.lastError = 'No internet connection detected.';
         return;
     }
     relayBackupStatus.lastAttemptAt = Date.now();
@@ -3481,7 +3481,7 @@ async function runRelayBackupSync() {
     );
     if (!RELAY_API_KEY) {
         relayBackupStatus.state = 'orange';
-        relayBackupStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
+        relayBackupStatus.lastError = 'No RELAY_API_KEY configured — cannot check in to relay.';
         return;
     }
     try {
@@ -3570,17 +3570,17 @@ const relayIntegrityStatus = {
 async function runRelayIntegrityCheckin() {
     if (getConnectivityMode() === 'offline') {
         relayIntegrityStatus.state = 'orange';
-        relayIntegrityStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
+        relayIntegrityStatus.lastError = 'Currently in OFFLINE mode — intentionally not calling RELAY for now.';
         return;
     }
     if (!(await isInternetLikelyUp())) {
         relayIntegrityStatus.state = 'orange';
-        relayIntegrityStatus.lastError = 'Walang internet connection na na-detect.';
+        relayIntegrityStatus.lastError = 'No internet connection detected.';
         return;
     }
     if (!RELAY_API_KEY) {
         relayIntegrityStatus.state = 'orange';
-        relayIntegrityStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
+        relayIntegrityStatus.lastError = 'No RELAY_API_KEY configured — cannot check in to relay.';
         return;
     }
     relayIntegrityStatus.lastAttemptAt = Date.now();
@@ -3675,17 +3675,17 @@ async function runRelayBranchCheckin() {
     relayBranchStatus.multiBranchFeatureLocked = !isMultiBranchUnlocked;
     if (getConnectivityMode() === 'offline') {
         relayBranchStatus.state = 'orange';
-        relayBranchStatus.lastError = 'Naka-OFFLINE mode — sinadya munang hindi tumatawag sa RELAY.';
+        relayBranchStatus.lastError = 'Currently in OFFLINE mode — intentionally not calling RELAY for now.';
         return;
     }
     if (!(await isInternetLikelyUp())) {
         relayBranchStatus.state = 'orange';
-        relayBranchStatus.lastError = 'Walang internet connection na na-detect.';
+        relayBranchStatus.lastError = 'No internet connection detected.';
         return;
     }
     if (!RELAY_API_KEY) {
         relayBranchStatus.state = 'orange';
-        relayBranchStatus.lastError = 'Walang RELAY_API_KEY na naka-configure — hindi ma-checkin sa relay.';
+        relayBranchStatus.lastError = 'No RELAY_API_KEY configured — cannot check in to relay.';
         return;
     }
     relayBranchStatus.lastAttemptAt = Date.now();
@@ -3706,7 +3706,7 @@ async function runRelayBranchCheckin() {
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
             relayBranchStatus.state = 'orange';
-            relayBranchStatus.lastError = relayData.message || 'Tinanggihan ng relay ang branch check-in.';
+            relayBranchStatus.lastError = relayData.message || 'The relay rejected the branch check-in.';
             return;
         }
         relayBranchStatus.state = 'green';
@@ -3727,27 +3727,27 @@ app.post('/api/relay-branch/checkin-now', requirePermission('store_settings_view
     if (!hashBranchGroupKey(storeSettings.branchGroupKey)) {
         return res.status(400).json({
             success: false,
-            message: 'Walang naka-set na Business Group Code. Ilagay muna ito sa itaas, i-Save, saka subukan ulit.'
+            message: 'No Business Group Code has been set. Enter it above, Save, then try again.'
         });
     }
     await runRelayBranchCheckin();
     if (relayBranchStatus.state === 'green') {
-        return res.json({ success: true, message: 'Successful ang check-in! Makikita ka na ng ibang branch (o sila sayo) sa loob ng ilang segundo.', status: relayBranchStatus });
+        return res.json({ success: true, message: 'Check-in successful! Other branches will be able to see you (or you them) within a few seconds.', status: relayBranchStatus });
     }
     res.status(502).json({
         success: false,
-        message: relayBranchStatus.lastError || 'Hindi na-checkin — hindi malinaw ang dahilan.',
+        message: relayBranchStatus.lastError || 'Check-in failed — the reason is unclear.',
         status: relayBranchStatus
     });
 });
-app.get('/api/branches/summary', requirePermission('branches_view'), requireFeature('multi_branch'), async (req, res) => {
+app.get('/api/branches/summary', requirePermission('branches'), requireFeature('multi_branch'), async (req, res) => {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
     if (!groupKeyHash) {
         return res.json({ success: true, configured: false, branchCount: 0, branches: [], combined: null });
     }
     if (!RELAY_API_KEY) {
-        return res.status(500).json({ success: false, configured: true, message: 'Walang RELAY_API_KEY na naka-configure sa .env.' });
+        return res.status(500).json({ success: false, configured: true, message: 'No RELAY_API_KEY configured in .env.' });
     }
     try {
         const data = readFeatureUnlocks();
@@ -3762,7 +3762,7 @@ app.get('/api/branches/summary', requirePermission('branches_view'), requireFeat
             return res.status(relayRes.status || 502).json({
                 success: false,
                 configured: true,
-                message: relayData.message || 'Hindi makuha ang branch summary mula sa relay.'
+                message: relayData.message || 'Could not get the branch summary from the relay.'
             });
         }
         res.json({
@@ -3779,7 +3779,105 @@ app.get('/api/branches/summary', requirePermission('branches_view'), requireFeat
             combined: relayData.combined || null
         });
     } catch (err) {
-        res.status(502).json({ success: false, configured: true, message: `Hindi maabot ang relay: ${err.message}` });
+        res.status(502).json({ success: false, configured: true, message: `Could not reach the relay: ${err.message}` });
+    }
+});
+app.get('/api/branches/trend', requirePermission('branches'), requireFeature('multi_branch'), async (req, res) => {
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash) return res.json({ success: true, configured: false, branches: [], combinedHistory: [] });
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, configured: true, message: 'No RELAY_API_KEY configured in .env.' });
+    }
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const url = `${RELAY_URL}/relay/branch-trend?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`;
+        const relayRes = await relayFetch(url, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, configured: true, message: relayData.message || 'Could not get the branch trend from the relay.' });
+        }
+        res.json({ success: true, configured: true, branches: relayData.branches || [], combinedHistory: relayData.combinedHistory || [] });
+    } catch (err) {
+        res.status(502).json({ success: false, configured: true, message: `Could not reach the relay: ${err.message}` });
+    }
+});
+app.get('/api/branches/transfers', requirePermission('branches'), requireFeature('multi_branch'), async (req, res) => {
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash) return res.json({ success: true, configured: false, transfers: [] });
+    if (!RELAY_API_KEY) {
+        return res.status(500).json({ success: false, configured: true, message: 'No RELAY_API_KEY configured in .env.' });
+    }
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const url = `${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}`;
+        const relayRes = await relayFetch(url, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, configured: true, message: relayData.message || 'Could not get the transfer requests from the relay.' });
+        }
+        res.json({
+            success: true,
+            configured: true,
+            installationId,
+            transfers: (relayData.transfers || []).map((t) => ({ ...t, direction: t.fromInstallationId === installationId ? 'outgoing' : (t.toInstallationId === installationId ? 'incoming' : 'other') }))
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, configured: true, message: `Could not reach the relay: ${err.message}` });
+    }
+});
+app.post('/api/branches/transfer-request', requirePermission('branches'), requireFeature('multi_branch'), rateLimit('branches-transfer-request', 20, 10 * 60 * 1000), async (req, res) => {
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash) return res.status(400).json({ success: false, message: 'No Business Group Code has been configured yet.' });
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY configured in .env.' });
+    const { toInstallationId, toBranchName, itemName, sku, qty, note } = req.body || {};
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/branch-transfer-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                branchGroupKeyHash: groupKeyHash,
+                fromBranchName: storeSettings.branchName || null,
+                toInstallationId, toBranchName, itemName, sku, qty, note
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'The transfer request could not be submitted.' });
+        }
+        res.json({ success: true, transfer: relayData.transfer });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
+    }
+});
+app.post('/api/branches/transfer-respond', requirePermission('branches'), requireFeature('multi_branch'), rateLimit('branches-transfer-respond', 30, 10 * 60 * 1000), async (req, res) => {
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash) return res.status(400).json({ success: false, message: 'No Business Group Code has been configured yet.' });
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY configured in .env.' });
+    const { transferId, action } = req.body || {};
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/branch-transfer-respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, branchGroupKeyHash: groupKeyHash, transferId, action })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'The transfer request could not be updated.' });
+        }
+        res.json({ success: true, transfer: relayData.transfer });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
     }
 });
 let integrityWatchDebounceTimer = null;
