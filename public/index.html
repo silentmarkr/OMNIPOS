@@ -684,6 +684,7 @@
                                     <span>Discount ₱</span>
                                     <input type="number" id="cart-discount-input" value="0" min="0" oninput="handleManualDiscountInput()" autocomplete="off">
                                 </div>
+                                <div id="cart-discount-best-badge" class="cart-customer-subpane" style="display:none;font-size:0.75em;color:#16a34a;font-weight:600;padding:2px 0 4px;text-align:right;"></div>
                                 <div class="cart-checkout-sticky">
                                     <div class="mobile-terminal-search-slot" id="mobile-terminal-search-slot"></div>
                                     <div class="summary-total-row">
@@ -3308,7 +3309,10 @@
                     </div>
                     <hr class="dashed-divider">
                     <div class="receipt-totals-block">
+                        <div class="r-total-row" id="r-vatable-row" style="display:none;"><span>VATable Sales</span><span id="r-vatable-amount">₱0.00</span></div>
+                        <div class="r-total-row" id="r-vatexempt-row" style="display:none;"><span>VAT-Exempt Sales</span><span id="r-vatexempt-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-discount-row" style="display:none;"><span>Discount (<span id="r-discount-type"></span>)</span><span id="r-discount-amount">₱0.00</span></div>
+                        <div class="r-total-row" id="r-scpwd-discount-row" style="display:none;"><span>Less: SC/PWD Discount<span id="r-scpwd-discount-pct"></span></span><span id="r-scpwd-discount-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-tax-row" style="display:none;"><span id="r-tax-label">Tax</span><span id="r-tax-amount">₱0.00</span></div>
                         <div class="r-total-row font-bold"><span>TOTAL</span><span id="r-total">₱0.00</span></div>
                         <div class="r-total-row"><span>Payment (<span id="r-method">CASH</span>)</span><span id="r-paid">₱0.00</span></div>
@@ -3449,6 +3453,11 @@
                     <div class="input-field-group">
                         <label>Price (₱)</label>
                         <input type="number" id="p-form-price" step="0.01" required placeholder="0.00" autocomplete="off">
+                    </div>
+                    <div class="input-field-group theme-callout-box" id="p-form-net-price-group" style="display:none;">
+                        <label>Calculate from VAT-Exclusive/Net Profit (₱) <span class="theme-callout-box-subtext">(optional — the amount you want to receive after VAT)</span></label>
+                        <input type="number" id="p-form-net-price" step="0.01" placeholder="e.g. 500.00" autocomplete="off" oninput="applyNetPriceToProductForm()">
+                        <small id="p-form-net-price-hint" class="theme-callout-box-result"></small>
                     </div>
                     <div class="input-field-group">
                         <label>Cost Price (₱) <span style="font-weight:normal;color:#94a3b8;">(optional — para sa Profit Margin report, hindi makikita ng cashier)</span></label>

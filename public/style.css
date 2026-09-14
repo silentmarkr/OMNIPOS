@@ -5138,6 +5138,36 @@ body.dark-mode .avatar-photo-box {
     outline: none;
     font-size: 0.95rem;
 }
+/* Theme-aware highlighted callout for optional "calculate for me" style fields
+   (e.g. the Net Profit/VAT-Exclusive helper on the product form). Uses the same
+   --dm-accent/--dm-accent-soft variables the rest of the theme system already
+   reads from — this box is meant to visibly "pop" out from the rest of the form,
+   and since it's driven entirely by these variables (never hardcoded hex), it
+   will automatically match Day Mode, Dark Mode, and any Pro/custom accent theme,
+   including themes added later, without needing another code change here. */
+.theme-callout-box {
+    background-color: var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
+    border: 1px dashed var(--dm-accent, #7c5cff);
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: 0 0 0 1px var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
+}
+/* Note: the label/input inside inherit their color from the normal
+   .input-field-group / body.dark-mode rules above/below — those already flip
+   correctly between light and dark text, so we don't re-declare color here. */
+.theme-callout-box-subtext {
+    font-weight: normal;
+    color: var(--text-muted, #64748b);
+}
+body.dark-mode .theme-callout-box-subtext {
+    color: var(--dm-text-muted);
+}
+.theme-callout-box-result {
+    display: block;
+    margin-top: 6px;
+    color: var(--success-green, #16a34a);
+    font-weight: 600;
+}
 .modal-footer {
     padding: 15px 20px;
     background-color: #f8fafc;
@@ -5809,9 +5839,14 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
 .receipt-total-emphasis .r-total-row.font-bold { font-size: 1.05rem; letter-spacing: 0.3px; color: var(--receipt-accent-color, inherit); }
 .receipt-meta-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--receipt-meta-row-gap, 4px);
+    grid-template-columns: auto 1fr;
+    gap: var(--receipt-meta-row-gap, 4px) 10px;
     font-size: 0.8rem;
+}
+.receipt-meta-grid > div {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .receipt-items-table {
     display: flex;
@@ -5835,6 +5870,11 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
     font-size: 0.85rem;
 }
 .r-total-row { display: flex; justify-content: space-between; }
+.r-total-row > span:last-child {
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
 .receipt-footer-msg { text-align: center; font-size: 0.8rem; margin-top: 15px; font-weight: 600; }
 .receipt-footer-msg-id { text-align: center; font-size: 0.7rem; color: #64748b; margin-top: 4px; }
 .modal-footer-controls-row {
@@ -12183,4 +12223,55 @@ body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-status {
 .promo-add-btn {
     width: 100%;
     margin-top: 2px;
+}
+
+/* ===== Promo Codes Manager — dark mode support ===== */
+/* AYOS/BUGFIX: gumamit dati ng hardcoded light colors (#fff background,
+   light-only text colors) ang .promo-card at kasamang elements, kaya
+   nananatiling puti ito kahit naka-Dark Mode/ibang theme ang buong app.
+   Sinusunod dito ang parehong pattern gaya ng .swal2-popup sa itaas —
+   gamit ang --dm-* variables (na iba-iba per active theme) sa ilalim ng
+   body.dark-mode, para automatic na sumusunod ito sa kung anong theme
+   (default dark, ocean, emerald, sunset, atbp.) ang pinili ng user. */
+body.dark-mode .promo-card {
+    background: var(--dm-surface) !important;
+    border-color: var(--dm-border) !important;
+}
+body.dark-mode .promo-card:hover {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35) !important;
+}
+body.dark-mode .promo-card-meta,
+body.dark-mode .promo-usage-label,
+body.dark-mode .promo-form-hint {
+    color: var(--dm-text-secondary) !important;
+}
+body.dark-mode .promo-card-desc {
+    color: var(--dm-text-muted) !important;
+}
+body.dark-mode .promo-code-badge {
+    background: var(--dm-accent-soft) !important;
+    color: var(--dm-accent) !important;
+}
+body.dark-mode .promo-usage-track {
+    background: var(--dm-surface-alt) !important;
+}
+body.dark-mode .promo-usage-fill {
+    background: linear-gradient(90deg, var(--dm-accent), var(--dm-accent-hover)) !important;
+}
+body.dark-mode .promo-usage-fill.is-full {
+    background: linear-gradient(90deg, var(--danger-red), #f87171) !important;
+}
+body.dark-mode .promo-unlimited-chip {
+    background: var(--dm-accent-soft) !important;
+    color: var(--dm-accent) !important;
+}
+body.dark-mode .promo-status-pill.active { background: rgba(34, 197, 94, 0.18) !important; color: #4ade80 !important; }
+body.dark-mode .promo-status-pill.inactive { background: var(--dm-surface-alt) !important; color: var(--dm-text-muted) !important; }
+body.dark-mode .promo-status-pill.expired { background: rgba(234, 179, 8, 0.18) !important; color: var(--warning-gold) !important; }
+body.dark-mode .promo-status-pill.exhausted { background: rgba(239, 68, 68, 0.18) !important; color: #f87171 !important; }
+body.dark-mode .promo-form-label {
+    color: var(--dm-text-secondary) !important;
+}
+body.dark-mode .promo-manager-list p {
+    color: var(--dm-text-muted) !important;
 }

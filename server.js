@@ -8297,16 +8297,49 @@ async function processTransaction(req, res) {
     const netAfterItemDiscounts = Math.max(0, Math.round((grossSubtotal - itemDiscountTotal) * 100) / 100);
     let cartDiscount = 0;
     let appliedPromoCode = null;
+    // BUGFIX (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act, BIR VAT-exemption
+    // rules): the 20% discount used to be applied directly to netAfterItemDiscounts
+    // (which could still be VAT-inclusive), and VAT was still computed/added below as
+    // if it were a regular, non-exempt sale — even though the discount type was
+    // "SENIOR_PWD". Two violations: (1) the 20% discount base was wrong because it
+    // should first be taken from the VAT-exempt price, and (2) VAT should not be
+    // computed/added at all on a qualifying senior/PWD purchase — it must be
+    // VAT-exempt/zero-rated.
+    // The `seniorPwdVatExempt` flag below tells the generic tax block not to
+    // compute/add any VAT for this sale.
+    let seniorPwdVatExempt = false;
     const discountType = transaction.discountType || 'NONE';
     if (discountType === 'SENIOR_PWD') {
         if (!transaction.seniorPwdId || !String(transaction.seniorPwdId).trim()) {
-            return res.status(400).json({ success: false, message: 'Kailangan ng Senior/PWD ID Number para sa discount na ito.' });
+            return res.status(400).json({ success: false, message: 'A Senior/PWD ID Number is required for this discount.' });
         }
         if (!storeSettings.seniorPwdDiscountEnabled) {
-            return res.status(400).json({ success: false, message: 'Naka-disable ang Senior/PWD Discount. Puntahan ang Users > Store & Sales para i-enable.' });
+            return res.status(400).json({ success: false, message: 'Senior/PWD Discount is disabled. Go to Users > Store & Sales to enable it.' });
         }
         const seniorPwdRate = Math.min(Math.max(0, storeSettings.seniorPwdDiscountRate), 100) / 100;
-        cartDiscount = Math.round(netAfterItemDiscounts * seniorPwdRate * 100) / 100;
+        const taxRatePctForExemption = Math.min(Math.max(0, storeSettings.taxRate), 100);
+        const vatApplicable = !!storeSettings.taxEnabled && taxRatePctForExemption > 0;
+        seniorPwdVatExempt = vatApplicable;
+        // If prices are VAT-inclusive, strip the VAT out first before taking the 20%
+        // discount (the discount base must be the VAT-exempt price, not the price that
+        // still includes VAT). If prices are not VAT-inclusive (VAT is added separately
+        // at checkout instead), netAfterItemDiscounts is already the VAT-exempt base —
+        // nothing needs to be stripped.
+        const vatExemptBase = (vatApplicable && storeSettings.pricesIncludeTax)
+            ? Math.round((netAfterItemDiscounts / (1 + taxRatePctForExemption / 100)) * 100) / 100
+            : netAfterItemDiscounts;
+        // Amount of VAT removed due to the exemption (0 if prices aren't VAT-inclusive).
+        const vatExemptedAmount = Math.max(0, Math.round((netAfterItemDiscounts - vatExemptBase) * 100) / 100);
+        // The actual 20% Senior/PWD discount, based on the VAT-exempt price.
+        const seniorPwdDiscountAmount = Math.round(vatExemptBase * seniorPwdRate * 100) / 100;
+        // `cartDiscount` is the total to subtract from netAfterItemDiscounts to get the
+        // final pre-tax amount due (VAT removed + 20% discount). VAT is not added back
+        // below because seniorPwdVatExempt is already set.
+        cartDiscount = Math.round((vatExemptedAmount + seniorPwdDiscountAmount) * 100) / 100;
+        // Stored for the audit trail/receipt — transparent about how much is the
+        // "20% Senior/PWD discount" versus the "VAT removed due to exemption".
+        transaction.seniorPwdDiscountAmount = seniorPwdDiscountAmount;
+        transaction.seniorPwdVatExemptedAmount = vatExemptedAmount;
     } else if (discountType === 'PROMO') {
         const promoCode = String(transaction.promoCode || '').toUpperCase();
         const promos = readData(FILE_PROMOCODES, []);
@@ -8433,14 +8466,19 @@ async function processTransaction(req, res) {
     const verifiedTotal = Math.max(0, Math.round((netAfterItemDiscounts - cartDiscount) * 100) / 100);
     let taxAmount = 0;
     const taxRatePct = Math.min(Math.max(0, storeSettings.taxRate), 100);
-    if (storeSettings.taxEnabled && taxRatePct > 0) {
+    // BUGFIX: when the sale is VAT-exempt (SENIOR_PWD, as set above), no VAT should be
+    // computed/added here at all — don't "extract" it as if it were a regular
+    // VAT-inclusive sale, and don't add it separately either if prices are
+    // VAT-exclusive. `taxAmount` must stay 0, and `verifiedTotal` (the VAT-exempt base
+    // minus the 20% discount) is itself the final amount due — no VAT added.
+    if (storeSettings.taxEnabled && taxRatePct > 0 && !seniorPwdVatExempt) {
         if (storeSettings.pricesIncludeTax) {
             taxAmount = Math.round((verifiedTotal - (verifiedTotal / (1 + taxRatePct / 100))) * 100) / 100;
         } else {
             taxAmount = Math.round(verifiedTotal * (taxRatePct / 100) * 100) / 100;
         }
     }
-    const grandTotal = (storeSettings.taxEnabled && !storeSettings.pricesIncludeTax)
+    const grandTotal = (storeSettings.taxEnabled && !storeSettings.pricesIncludeTax && !seniorPwdVatExempt)
         ? Math.round((verifiedTotal + taxAmount) * 100) / 100
         : verifiedTotal;
     const tendered = Array.isArray(transaction.payments) && transaction.payments.length > 0
@@ -8458,6 +8496,7 @@ async function processTransaction(req, res) {
     transaction.taxRate = storeSettings.taxEnabled ? taxRatePct : 0;
     transaction.taxAmount = taxAmount;
     transaction.taxInclusive = !!storeSettings.pricesIncludeTax;
+    transaction.vatExempt = seniorPwdVatExempt;
     transaction.total = grandTotal;
     transaction.change = Math.round((tendered - grandTotal) * 100) / 100;
     transaction.discountAuthorizedBy = discountAuthorizedBy;

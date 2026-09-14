@@ -9174,48 +9174,109 @@ function getCartNetSubtotal() {
         return sum + Math.max(0, (item.price * item.quantity) - lineDiscount);
     }, 0);
 }
+// Estimated VAT-exempt base for the Senior/PWD discount on the client (for the
+// cashier's live preview only) — this should match the same logic the server
+// (processTransaction) uses as the final/authoritative computation: if prices are
+// VAT-inclusive, strip the VAT out first before taking the % discount.
+// BUGFIX (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act, BIR VAT-exemption
+// rules): this used to return ONLY the 20% discount amount. That amount alone is
+// correct for the "Discount" line on the receipt, but a qualifying Senior/PWD sale
+// is also VAT-exempt/zero-rated — the 12% VAT baked into the price must ALSO be
+// removed. Since the caller (updateCartTotals) previously only subtracted this
+// single number from the subtotal, the VAT portion was never actually removed from
+// the on-screen Total, so the cashier ended up overcharging the customer.
+// Now this returns both pieces so the caller can subtract each of them.
+function estimateSeniorPwdDiscount(subtotal) {
+    if (subtotal <= 0) return { discountAmount: 0, vatExemptedAmount: 0 };
+    const seniorPwdRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate))
+        ? storeSettingsCache.seniorPwdDiscountRate : 20;
+    const taxRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.taxRate)) ? storeSettingsCache.taxRate : 0;
+    const vatApplicable = !!(storeSettingsCache && storeSettingsCache.taxEnabled) && taxRatePct > 0;
+    const vatExemptBase = (vatApplicable && storeSettingsCache.pricesIncludeTax)
+        ? subtotal / (1 + taxRatePct / 100)
+        : subtotal;
+    const discountAmount = Math.max(0, vatExemptBase * (seniorPwdRatePct / 100));
+    // Amount of VAT removed due to the exemption (0 if prices aren't VAT-inclusive,
+    // or if VAT isn't enabled/applicable at all).
+    const vatExemptedAmount = Math.max(0, subtotal - vatExemptBase);
+    return { discountAmount, vatExemptedAmount };
+}
+function estimatePromoDiscount(subtotal) {
+    if (!cartActivePromo || subtotal <= 0) return 0;
+    let discountAmount = cartActivePromo.type === 'percent'
+        ? (subtotal * cartActivePromo.value / 100)
+        : cartActivePromo.value;
+    return Math.min(Math.max(discountAmount, 0), subtotal);
+}
+function renderBestDiscountBadge(winner, seniorPwdAmount, promoAmount, otherAvailable) {
+    const badge = document.getElementById('cart-discount-best-badge');
+    if (!badge) return;
+    if (!winner || !otherAvailable) {
+        badge.style.display = 'none';
+        badge.innerText = '';
+        return;
+    }
+    if (winner === 'SENIOR_PWD') {
+        badge.innerText = `Auto-applied: Senior/PWD (₱${seniorPwdAmount.toFixed(2)}) — bigger than the promo code (₱${promoAmount.toFixed(2)})`;
+    } else {
+        badge.innerText = `Auto-applied: Promo code (₱${promoAmount.toFixed(2)}) — bigger than Senior/PWD (₱${seniorPwdAmount.toFixed(2)})`;
+    }
+    badge.style.display = 'block';
+}
+// Advanced: when both the Senior/PWD ID toggle and an active promo code are set at
+// the same time, the system automatically picks whichever discount is bigger (and
+// shows the cashier which one was applied), so they don't have to compute it
+// themselves.
+function resolveBestCartDiscount() {
+    const discountInput = document.getElementById('cart-discount-input');
+    if (!discountInput) return;
+    const subtotal = getCartNetSubtotal();
+    const seniorPwdCheckbox = document.getElementById('cart-senior-pwd-toggle');
+    const hasSeniorPwd = !!(cartSeniorPwdId && seniorPwdCheckbox && seniorPwdCheckbox.checked);
+    const hasPromo = !!(cartActivePromo && cartPromoCode);
+    if (subtotal <= 0 || (!hasSeniorPwd && !hasPromo)) {
+        if (subtotal <= 0 && hasSeniorPwd && seniorPwdCheckbox) seniorPwdCheckbox.checked = false;
+        if (subtotal <= 0) { cartSeniorPwdId = ''; cartPromoCode = ''; cartActivePromo = null; }
+        cartDiscountType = 'NONE';
+        discountInput.removeAttribute('readonly');
+        discountInput.value = 0;
+        renderBestDiscountBadge(null);
+        return;
+    }
+    if (hasPromo && cartActivePromo.minSpend && subtotal < cartActivePromo.minSpend) {
+        const minSpendForMessage = cartActivePromo.minSpend;
+        cartPromoCode = '';
+        cartActivePromo = null;
+        const promoInput = document.getElementById('cart-promo-input');
+        if (promoInput) promoInput.value = '';
+        Swal.fire({
+            icon: 'warning',
+            title: 'Promo Removed',
+            text: `The cart no longer meets the ₱${minSpendForMessage.toFixed(2)} minimum spend for this promo code.`,
+            timer: 2200,
+            showConfirmButton: false
+        });
+        return resolveBestCartDiscount();
+    }
+    const seniorPwdAmount = hasSeniorPwd ? estimateSeniorPwdDiscount(subtotal).discountAmount : 0;
+    const promoAmount = hasPromo ? estimatePromoDiscount(subtotal) : 0;
+    if (hasSeniorPwd && (!hasPromo || seniorPwdAmount >= promoAmount)) {
+        cartDiscountType = 'SENIOR_PWD';
+        discountInput.value = seniorPwdAmount.toFixed(2);
+        discountInput.setAttribute('readonly', true);
+        renderBestDiscountBadge('SENIOR_PWD', seniorPwdAmount, promoAmount, hasPromo);
+    } else {
+        cartDiscountType = 'PROMO';
+        discountInput.value = promoAmount.toFixed(2);
+        discountInput.setAttribute('readonly', true);
+        renderBestDiscountBadge('PROMO', seniorPwdAmount, promoAmount, hasSeniorPwd);
+    }
+}
 function recalculateActiveDiscount() {
     const discountInput = document.getElementById('cart-discount-input');
     if (!discountInput) return;
-    if (cartDiscountType === 'SENIOR_PWD') {
-        const subtotal = getCartNetSubtotal();
-        if (subtotal <= 0) {
-            const checkbox = document.getElementById('cart-senior-pwd-toggle');
-            if (checkbox) checkbox.checked = false;
-            cartDiscountType = 'NONE';
-            cartSeniorPwdId = '';
-            discountInput.removeAttribute('readonly');
-            discountInput.value = 0;
-            return;
-        }
-        const seniorPwdRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate))
-            ? storeSettingsCache.seniorPwdDiscountRate : 20;
-        discountInput.value = (subtotal * (seniorPwdRatePct / 100)).toFixed(2);
-    } else if (cartDiscountType === 'PROMO' && cartActivePromo) {
-        const subtotal = getCartNetSubtotal();
-        if (cartActivePromo.minSpend && subtotal < cartActivePromo.minSpend) {
-            const minSpendForMessage = cartActivePromo.minSpend;
-            cartDiscountType = 'NONE';
-            cartPromoCode = '';
-            cartActivePromo = null;
-            const promoInput = document.getElementById('cart-promo-input');
-            if (promoInput) promoInput.value = '';
-            discountInput.removeAttribute('readonly');
-            discountInput.value = 0;
-            Swal.fire({
-                icon: 'warning',
-                title: 'Promo Removed',
-                text: `The cart no longer meets the ₱${minSpendForMessage.toFixed(2)} minimum spend for this promo code.`,
-                timer: 2200,
-                showConfirmButton: false
-            });
-            return;
-        }
-        let discountAmount = cartActivePromo.type === 'percent'
-            ? (subtotal * cartActivePromo.value / 100)
-            : cartActivePromo.value;
-        discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
-        discountInput.value = discountAmount.toFixed(2);
+    if (cartSeniorPwdId || cartActivePromo) {
+        resolveBestCartDiscount();
     }
 }
 function updateCartTotals() {
@@ -9225,13 +9286,24 @@ function updateCartTotals() {
     const totalEl = document.getElementById('summary-total');
     let subtotal = getCartNetSubtotal();
     let discount = parseFloat(discountInput ? discountInput.value : 0) || 0;
-    let total = Math.max(0, subtotal - discount);
+    // BUGFIX (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act, BIR VAT-exemption
+    // rules): the "Discount" field only ever holds the 20% Senior/PWD discount — it
+    // does NOT include the 12% VAT that must ALSO be removed, since a qualifying
+    // Senior/PWD sale is VAT-exempt/zero-rated. Without also subtracting that VAT
+    // amount here, Total was only ever (Subtotal - 20% discount), which overcharged
+    // the customer by the VAT amount (e.g. ₱22.40 - ₱4.00 = ₱18.40 shown, instead of
+    // the correct ₱16.00). This mirrors the authoritative calculation already fixed
+    // server-side in processTransaction().
+    const vatExemptedAmount = (cartDiscountType === 'SENIOR_PWD')
+        ? estimateSeniorPwdDiscount(subtotal).vatExemptedAmount
+        : 0;
+    let total = Math.max(0, subtotal - discount - vatExemptedAmount);
     if (subtotalEl) subtotalEl.innerText = `₱${subtotal.toFixed(2)}`;
     if (totalEl) totalEl.innerText = `₱${total.toFixed(2)}`;
     broadcastCustomerDisplay('cart', {
         items: shoppingCart.map(i => ({ code: i.code, name: i.name, quantity: i.quantity, price: i.price, itemDiscount: i.itemDiscount || 0 })),
         subtotal,
-        discount,
+        discount: discount + vatExemptedAmount,
         total
     });
 }
@@ -9280,6 +9352,7 @@ function handleManualDiscountInput() {
     if (checkbox) checkbox.checked = false;
     const loyaltyInput = document.getElementById('cart-loyalty-input');
     if (loyaltyInput) loyaltyInput.value ='';
+    renderBestDiscountBadge(null);
     updateCartTotals();
 }
 function toggleSeniorPwdDiscount() {
@@ -9311,26 +9384,24 @@ function toggleSeniorPwdDiscount() {
         }).then(result => {
             if (result.isConfirmed && result.value && result.value.trim()) {
                 cartSeniorPwdId = result.value.trim();
-                cartDiscountType ='SENIOR_PWD';
-                cartPromoCode ='';
-                cartActivePromo = null;
+                // Advanced: the active promo code is no longer cleared here — if it's
+                // set together with Senior/PWD, resolveBestCartDiscount() inside
+                // updateCartTotals() will automatically pick whichever discount is bigger.
                 cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
-                const promoInput = document.getElementById('cart-promo-input');
-                if (promoInput) promoInput.value ='';
                 const loyaltyInput = document.getElementById('cart-loyalty-input');
                 if (loyaltyInput) loyaltyInput.value ='';
-                discountInput.value = (subtotal * (seniorPwdRatePct / 100)).toFixed(2);
-                discountInput.setAttribute('readonly', true);
                 updateCartTotals();
             } else {
                 checkbox.checked = false;
             }
         });
     } else {
-        cartDiscountType ='NONE';
         cartSeniorPwdId ='';
         discountInput.removeAttribute('readonly');
-        discountInput.value = 0;
+        if (!cartActivePromo) {
+            cartDiscountType = 'NONE';
+            discountInput.value = 0;
+        }
         updateCartTotals();
     }
 }
@@ -9350,16 +9421,14 @@ async function applyPromoCodeToCart() {
         const res = await authFetch(`${API_URL}/promocodes/${encodeURIComponent(code)}/validate?subtotal=${subtotal}${customerQuery}`);
         const data = await res.json();
         if (data.success) {
-            const checkbox = document.getElementById('cart-senior-pwd-toggle');
-            if (checkbox) checkbox.checked = false;
-            cartDiscountType ='PROMO';
+            // Advanced: the Senior/PWD toggle is no longer cleared here — if it's set
+            // together with a promo code, resolveBestCartDiscount() inside
+            // updateCartTotals() will automatically pick whichever discount is bigger.
             cartPromoCode = code;
             cartActivePromo = data.promo || null;
-            cartSeniorPwdId ='';
             cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
             const loyaltyInput = document.getElementById('cart-loyalty-input');
             if (loyaltyInput) loyaltyInput.value ='';
-            discountInput.value = data.discountAmount.toFixed(2);
             discountInput.setAttribute('readonly', true);
             updateCartTotals();
             const remainingNote = (typeof data.promo?.remainingUses === 'number') ? ` (${data.promo.remainingUses} use/s left)` : '';
@@ -9552,6 +9621,7 @@ function applyLoyaltyPointsToCart() {
     discountInput.value = discountAmount.toFixed(2);
     discountInput.setAttribute('readonly', true);
     if (input) input.value = pts;
+    renderBestDiscountBadge(null);
     updateCartTotals();
     Swal.fire({ icon:'success', title:'Points Redeemed!', text: `${pts} pts: -₱${discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
 }
@@ -9577,6 +9647,7 @@ function resetCartDiscountAndCustomerState() {
     if (loyaltyInput) loyaltyInput.value ='';
     const loyaltyBadge = document.getElementById('cart-loyalty-card-badge');
     if (loyaltyBadge) loyaltyBadge.style.display ='none';
+    renderBestDiscountBadge(null);
 }
 function closeModal(modalId) {
     document.getElementById(modalId).style.display ='none';
@@ -13221,17 +13292,53 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     }
     document.getElementById('r-change').innerText = `₱${parseFloat(tx.change).toFixed(2)}`;
     const discountRow = document.getElementById('r-discount-row');
+    const vatableRow = document.getElementById('r-vatable-row');
+    const vatExemptRow = document.getElementById('r-vatexempt-row');
+    const scPwdRow = document.getElementById('r-scpwd-discount-row');
     const discountAmt = parseFloat(tx.discount) || 0;
-    if (discountRow) {
-        if (discountAmt > 0) {
-            let label ='Manual';
-            if (tx.discountType ==='SENIOR_PWD') label = `Senior/PWD${tx.seniorPwdId ?' #' + tx.seniorPwdId :''}`;
-            else if (tx.discountType ==='PROMO') label = `Promo: ${tx.promoCode ||''}`;
-            document.getElementById('r-discount-type').innerText = label;
-            document.getElementById('r-discount-amount').innerText = `-₱${discountAmt.toFixed(2)}`;
-            discountRow.style.display ='flex';
-        } else {
-            discountRow.style.display ='none';
+    // BIR-style OR breakdown (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act):
+    // instead of one combined "Discount ... (VAT-Exempt)" line that hides the
+    // VAT-exempt portion inside the discount figure, show the sales
+    // classification ("VATable Sales" / "VAT-Exempt Sales") as its own lines,
+    // separate from the 20% SC/PWD discount itself ("Less: SC/PWD Discount").
+    // Falls back to the old combined line for non-Senior/PWD discounts, for
+    // Senior/PWD sales that aren't VAT-exempt (e.g. non-VAT-registered store),
+    // and for older transactions saved before this breakdown existed.
+    const seniorPwdDiscountAmt = parseFloat(tx.seniorPwdDiscountAmount);
+    const isSeniorPwdBreakdown = tx.discountType === 'SENIOR_PWD' && !!tx.vatExempt && Number.isFinite(seniorPwdDiscountAmt);
+    if (isSeniorPwdBreakdown) {
+        if (discountRow) discountRow.style.display = 'none';
+        // The VAT-exempt sales base is the amount actually due (subtotalBeforeTax)
+        // plus back the 20% discount that was taken off of it.
+        const vatExemptSales = Math.max(0, (parseFloat(tx.subtotalBeforeTax) || 0) + seniorPwdDiscountAmt);
+        if (vatableRow) {
+            document.getElementById('r-vatable-amount').innerText = `₱0.00`;
+            vatableRow.style.display = 'flex';
+        }
+        if (vatExemptRow) {
+            document.getElementById('r-vatexempt-amount').innerText = `₱${vatExemptSales.toFixed(2)}`;
+            vatExemptRow.style.display = 'flex';
+        }
+        if (scPwdRow) {
+            document.getElementById('r-scpwd-discount-pct').innerText = tx.seniorPwdId ? ` (#${tx.seniorPwdId})` : '';
+            document.getElementById('r-scpwd-discount-amount').innerText = `-₱${seniorPwdDiscountAmt.toFixed(2)}`;
+            scPwdRow.style.display = 'flex';
+        }
+    } else {
+        if (vatableRow) vatableRow.style.display = 'none';
+        if (vatExemptRow) vatExemptRow.style.display = 'none';
+        if (scPwdRow) scPwdRow.style.display = 'none';
+        if (discountRow) {
+            if (discountAmt > 0) {
+                let label ='Manual';
+                if (tx.discountType ==='SENIOR_PWD') label = `Senior/PWD${tx.seniorPwdId ?' #' + tx.seniorPwdId :''}${tx.vatExempt ?' (VAT-Exempt)' :''}`;
+                else if (tx.discountType ==='PROMO') label = `Promo: ${tx.promoCode ||''}`;
+                document.getElementById('r-discount-type').innerText = label;
+                document.getElementById('r-discount-amount').innerText = `-₱${discountAmt.toFixed(2)}`;
+                discountRow.style.display ='flex';
+            } else {
+                discountRow.style.display ='none';
+            }
         }
     }
     const taxRow = document.getElementById('r-tax-row');
@@ -14002,6 +14109,44 @@ function openProductModal(mode, code ='') {
         });
     }
     document.getElementById('product-modal').style.display ='flex';
+    refreshProductNetPriceHelperVisibility();
+}
+// When prices are VAT-inclusive in Store Settings, the "Price" entered on a product
+// is exactly what gets stripped of VAT at the time of sale (see processTransaction
+// on the server) — so if what the owner typed was their desired PROFIT/net take, they
+// will lose money if that same number is entered as "Price" with no VAT added. This
+// helper computes and fills the Price field with the VAT-inclusive price, so the net
+// amount they want to receive stays intact.
+function shouldShowProductNetPriceHelper() {
+    return !!(storeSettingsCache && storeSettingsCache.taxEnabled && storeSettingsCache.pricesIncludeTax
+        && Number.isFinite(storeSettingsCache.taxRate) && storeSettingsCache.taxRate > 0);
+}
+function refreshProductNetPriceHelperVisibility() {
+    const group = document.getElementById('p-form-net-price-group');
+    if (!group) return;
+    const show = shouldShowProductNetPriceHelper();
+    group.style.display = show ? 'block' : 'none';
+    const netInput = document.getElementById('p-form-net-price');
+    if (netInput) netInput.value = '';
+    const hint = document.getElementById('p-form-net-price-hint');
+    if (hint) hint.innerText = '';
+}
+function applyNetPriceToProductForm() {
+    const netInput = document.getElementById('p-form-net-price');
+    const priceInput = document.getElementById('p-form-price');
+    const hint = document.getElementById('p-form-net-price-hint');
+    if (!netInput || !priceInput) return;
+    const netVal = parseFloat(netInput.value);
+    if (!Number.isFinite(netVal) || netVal <= 0) {
+        if (hint) hint.innerText = '';
+        return;
+    }
+    const taxRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.taxRate)) ? storeSettingsCache.taxRate : 0;
+    const grossPrice = Math.round(netVal * (1 + taxRatePct / 100) * 100) / 100;
+    priceInput.value = grossPrice.toFixed(2);
+    if (hint) {
+        hint.innerText = `Price to be entered: ₱${grossPrice.toFixed(2)} (includes ${taxRatePct}% VAT) — you'll still receive ₱${netVal.toFixed(2)} after VAT is extracted at the sale.`;
+    }
 }
 function getProductGalleryImages() {
     try {
