@@ -6412,6 +6412,29 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
 // pahintulot ng ADMIN PASSWORD (findOmniTokenUnlockAuthorizer), na
 // tinatanong at ipinapasa ng client sa iisang request na ito. Ang
 // "Send Request" (developer OTP) na flow ay hindi ginalaw.
+// AYOS/SECURITY FIX (totalPrice trust bug): dati, basta `totalPrice >= 0`
+// (na kinukwenta sa BROWSER JS at kayang i-edit/i-intercept) ang tanging
+// check bago ito ipasa sa RELAY bilang aktwal na babayaran. Kinukwenta
+// dito ang pinakamababang lehitimong presyo GAMIT ang parehong
+// getTierPricing()/UPGRADE_TIERS na pinagmumulan din ng totoong presyo,
+// para hindi na basta tinitiwalaan ang anumang halaga mula sa client.
+// Ang RELAY (sole source of truth ng pera) ay mayroon ding sarili at
+// independiyenteng bersyon ng floor na ito bilang huling linya ng
+// depensa — dito lang para maagap ang error message at consistent ang
+// presyong ipinapakita sa user.
+function computeMinimumLegitimatePrice(featureIds) {
+    const alaCarteTotal = featureIds.reduce((sum, id) => sum + (FEATURE_CATALOG[id].price || 0), 0);
+    const unlockedIds = getUnlockedFeatureIds();
+    let bestPrice = alaCarteTotal;
+    for (const tier of UPGRADE_TIERS) {
+        const requestedInTier = featureIds.filter(id => tier.featureIds.includes(id));
+        if (requestedInTier.length !== featureIds.length) continue;
+        const alreadyPurchased = tier.featureIds.filter(id => !featureIds.includes(id) && unlockedIds.includes(id));
+        const { effectivePrice } = getTierPricing(tier, alreadyPurchased, 0);
+        if (effectivePrice < bestPrice) bestPrice = effectivePrice;
+    }
+    return bestPrice;
+}
 app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
@@ -6442,8 +6465,11 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
             return res.status(400).json({ success: false, message: 'Invalid subscription module.' });
         }
     } else {
-        const alaCarteTotal = featureIds.reduce((sum, id) => sum + (FEATURE_CATALOG[id].price || 0), 0);
-        requiredTokens = (typeof totalPrice === 'number' && totalPrice >= 0) ? Math.round(totalPrice) : alaCarteTotal;
+        const minimumLegitimatePrice = computeMinimumLegitimatePrice(featureIds);
+        if (typeof totalPrice === 'number' && isFinite(totalPrice) && totalPrice < minimumLegitimatePrice) {
+            console.warn(`⚠️ PRICE TAMPERING SUSPECTED (local): totalPrice=${totalPrice} para sa [${featureIds.join(', ')}] pero ang pinakamababang lehitimong presyo ay ${minimumLegitimatePrice}. Ginamit ang floor sa halip.`);
+        }
+        requiredTokens = (typeof totalPrice === 'number' && isFinite(totalPrice) && totalPrice >= minimumLegitimatePrice) ? Math.round(totalPrice) : minimumLegitimatePrice;
     }
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
@@ -7488,7 +7514,17 @@ app.post('/api/products/deduct', (req, res) => {
         message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin ng kahit sinong naka-login para baguhin ang stock nang walang permission check at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
 });
-app.put('/api/products/:code', (req, res) => {
+app.put('/api/products/:code', async (req, res) => {
+    // AYOS/BUGFIX: parehong dahilan gaya ng quick-restock/PO-receive sa itaas —
+    // ang general na "edit product" form ay pwede ring direktang magbago ng
+    // stock (buong-object merge ng updatedData sa FILE_PRODUCTS), kaya may
+    // parehong lost-update race window ito laban sa mga kasabay na
+    // benta/void/refund/stock-return/restock/PO-receive. Sa parehong mutex
+    // na lang din ito para ligtas, kahit bihira lang mangyari ito kompara sa
+    // restock (hindi araw-araw binabago ang product form habang nagbebenta).
+    await transactionsMutexRunExclusive(() => processProductUpdate(req, res));
+});
+function processProductUpdate(req, res) {
     const { code } = req.params;
     const { updatedData } = req.body;
     const username = req.authUser.username;
@@ -7507,7 +7543,7 @@ app.put('/api/products/:code', (req, res) => {
         logAction(username, `Submitted an UPDATE request for code: ${code}`);
         return res.json({ success: true, message:'Update request submitted for Admin approval' });
     }
-});
+}
 app.delete('/api/products/:code', (req, res) => {
     const { code } = req.params;
     const username = req.authUser.username;
@@ -8260,6 +8296,7 @@ async function processTransaction(req, res) {
     const itemDiscountTotal = Math.round(resolvedItems.reduce((sum, it) => sum + it.itemDiscount, 0) * 100) / 100;
     const netAfterItemDiscounts = Math.max(0, Math.round((grossSubtotal - itemDiscountTotal) * 100) / 100);
     let cartDiscount = 0;
+    let appliedPromoCode = null;
     const discountType = transaction.discountType || 'NONE';
     if (discountType === 'SENIOR_PWD') {
         if (!transaction.seniorPwdId || !String(transaction.seniorPwdId).trim()) {
@@ -8274,14 +8311,27 @@ async function processTransaction(req, res) {
         const promoCode = String(transaction.promoCode || '').toUpperCase();
         const promos = readData(FILE_PROMOCODES, []);
         const promo = promos.find(p => p.code === promoCode);
-        if (!promo || !promo.active || (promo.expiresAt && new Date(promo.expiresAt).getTime() < Date.now())) {
-            return res.status(400).json({ success: false, message: 'Hindi valid o na-expire na ang promo code na ito.' });
-        }
-        if (promo.minSpend && netAfterItemDiscounts < promo.minSpend) {
-            return res.status(400).json({ success: false, message: `Kailangan ng minimum na ₱${promo.minSpend.toFixed(2)} para magamit ang promo na ito.` });
+        // AYOS/BUGFIX: dati'y walang maxUses/usedCount/per-customer limit check
+        // dito, kaya magagamit nang walang limitasyon ang isang promo code
+        // habang "active" pa ito. Ang evaluatePromoUsability() ay iisang
+        // pinagmumulan ng katotohanan (shared sa /validate endpoint din) para
+        // hindi mag-drift ang dalawang lugar na ito.
+        const usability = evaluatePromoUsability(promo, { subtotal: netAfterItemDiscounts, customerId: transaction.customerId || null });
+        if (!usability.ok) {
+            return res.status(400).json({ success: false, message: usability.message, code: usability.code });
         }
         const promoDiscount = promo.type === 'percent' ? (netAfterItemDiscounts * promo.value / 100) : promo.value;
         cartDiscount = Math.round(Math.min(Math.max(promoDiscount, 0), netAfterItemDiscounts) * 100) / 100;
+        // I-normalize sa canonical (uppercase, existing) na code ang naka-save
+        // sa transaction record mismo, para consistent ang paghahanap nito
+        // sa oras ng VOID (restore ng usedCount/redemptions).
+        transaction.promoCode = promo.code;
+        // Ita-tag lang ang code dito; ang aktwal na pag-increment ng
+        // usedCount/redemptions ay nangyayari sa ilalim, sa sandaling
+        // makumpirma na ang buong benta (matapos ang tendered-amount check),
+        // para hindi mabilang ang isang PROMO na na-validate lang pero
+        // hindi natuloy ang benta (halimbawa: kulang ang bayad).
+        appliedPromoCode = promo.code;
     } else if (discountType === 'MANUAL') {
         cartDiscount = Math.round(Math.min(Math.max(0, parseFloat(transaction.discount) || 0), netAfterItemDiscounts) * 100) / 100;
     } else if (discountType === 'LOYALTY') {
@@ -8452,6 +8502,27 @@ async function processTransaction(req, res) {
     transactions.unshift(transaction);
     writeData(FILE_TRANSACTIONS, transactions);
     writeData(FILE_PRODUCTS, products);
+    if (appliedPromoCode) {
+        // Ito na ang tunay na "commit" ng paggamit ng promo — nangyayari lang
+        // dito, matapos makumpirma ang buong benta (payment ok, stock ok).
+        // Ligtas ang basa-dagdag-sulat na ito laban sa parallel na benta
+        // dahil naka-serialize na lahat ng ito sa loob ng
+        // transactionsMutexRunExclusive (kasama na rin ang mga promocode
+        // CRUD endpoint sa itaas).
+        const promosAtCommit = readData(FILE_PROMOCODES, []);
+        const promoIdx = promosAtCommit.findIndex(p => p.code === appliedPromoCode);
+        if (promoIdx !== -1) {
+            promosAtCommit[promoIdx].usedCount = Math.max(0, parseInt(promosAtCommit[promoIdx].usedCount, 10) || 0) + 1;
+            if (transaction.customerId) {
+                if (!promosAtCommit[promoIdx].redemptions || typeof promosAtCommit[promoIdx].redemptions !== 'object') {
+                    promosAtCommit[promoIdx].redemptions = {};
+                }
+                const custKey = transaction.customerId;
+                promosAtCommit[promoIdx].redemptions[custKey] = Math.max(0, parseInt(promosAtCommit[promoIdx].redemptions[custKey], 10) || 0) + 1;
+            }
+            writeData(FILE_PROMOCODES, promosAtCommit);
+        }
+    }
     logAction(username, `Processed sale transaction: ${transaction.id}`
         + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : '')
         + (transaction.loyaltyAuthorizedBy ? ` (Loyalty redemption authorized by: ${transaction.loyaltyAuthorizedBy})` : ''));
@@ -10258,12 +10329,32 @@ async function processVoidTransaction(req, res) {
     }
     transactions = transactions.filter(t => t.id !== transactionId);
     stockReturns.unshift(stockReturn);
+    // AYOS/BUGFIX: dating hindi ibinabalik ang promo "use" kapag na-void ang
+    // isang bentang gumamit ng PROMO discount — dahil buong transaksyon ang
+    // tinatanggal ng VOID (hindi tulad ng partial refund), tama lang na
+    // ibalik ang usedCount/redemptions para hindi "ma-waste" ang isang
+    // legitimate na slot ng customer dahil lang sa isang na-void na benta.
+    let promosForVoid = null;
+    if (targetTx.discountType === 'PROMO' && targetTx.promoCode) {
+        promosForVoid = readData(FILE_PROMOCODES, []);
+        const promoIdx = promosForVoid.findIndex(p => p.code === String(targetTx.promoCode).toUpperCase());
+        if (promoIdx !== -1) {
+            promosForVoid[promoIdx].usedCount = Math.max(0, (parseInt(promosForVoid[promoIdx].usedCount, 10) || 0) - 1);
+            if (targetTx.customerId && promosForVoid[promoIdx].redemptions && typeof promosForVoid[promoIdx].redemptions === 'object') {
+                const custKey = targetTx.customerId;
+                promosForVoid[promoIdx].redemptions[custKey] = Math.max(0, (parseInt(promosForVoid[promoIdx].redemptions[custKey], 10) || 0) - 1);
+            }
+        } else {
+            promosForVoid = null;
+        }
+    }
     try {
         const changes = [
             { module: FILE_STOCK_RETURNS, data: stockReturns },
             { module: FILE_DEBTS, data: debts }
         ];
         if (customers) changes.push({ module: FILE_CUSTOMERS, data: customers });
+        if (promosForVoid) changes.push({ module: FILE_PROMOCODES, data: promosForVoid });
         changes.push({ module: FILE_TRANSACTIONS, data: transactions });
         commitDataModules(changes);
     } catch (error) {
@@ -10727,7 +10818,18 @@ app.get('/api/products/low-stock/export', requirePermission('reorder'), requireF
         res.status(500).json({ success: false, message:'Hindi ma-export ang reorder list.' });
     }
 });
-app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rateLimit('quick-restock', 60, 10 * 60 * 1000), (req, res) => {
+app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rateLimit('quick-restock', 60, 10 * 60 * 1000), async (req, res) => {
+    // AYOS/BUGFIX: dati, hindi ito saklaw ng transactionsMutexRunExclusive
+    // (ang parehong mutex na gamit ng sales/void/refund/stock-return para
+    // protektahan ang product stock laban sa lost-update race). Dahil
+    // read-modify-write sa parehong FILE_PRODUCTS blob din ito, posible
+    // itong ma-interleave sa gitna ng isang kasabay na benta (sa isang
+    // await point nito) at "mawala" ang restock na ito kapag na-overwrite
+    // ng mas lumang in-memory na products array ng benta. Sa parehong
+    // mutex na lang din ito para ligtas.
+    await transactionsMutexRunExclusive(() => processQuickRestock(req, res));
+});
+function processQuickRestock(req, res) {
     const { code } = req.params;
     const qty = parseInt(req.body.qty);
     const username = req.authUser.username;
@@ -10751,7 +10853,7 @@ app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rate
         logAction(username, `Submitted a RESTOCK request for "${target.name}" (+${qty})`);
         return res.json({ success: true, pending: true, message:'Restock request submitted for Admin approval.' });
     }
-});
+}
 app.get('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const orders = readData(FILE_PURCHASE_ORDERS, []).sort((a, b) => (b.createdAt ||'').localeCompare(a.createdAt ||''));
     res.json({ success: true, orders });
@@ -10783,7 +10885,14 @@ app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('p
     logAction(username, `Gumawa ng Purchase Order #${newPO.id} para kay "${newPO.supplier}" (${cleanItems.length} item/s)`);
     res.json({ success: true, message:'Nagawa ang Purchase Order.', po: newPO });
 });
-app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
+app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requireFeature('purchase_orders'), async (req, res) => {
+    // AYOS/BUGFIX: parehong dahilan gaya ng quick-restock sa itaas —
+    // nagsusulat din ito sa FILE_PRODUCTS (nagdaragdag ng stock), kaya
+    // dapat ding sumailalim sa parehong mutex laban sa lost-update race
+    // kontra sa mga kasabay na benta/void/refund/stock-return.
+    await transactionsMutexRunExclusive(() => processPurchaseOrderReceive(req, res));
+});
+function processPurchaseOrderReceive(req, res) {
     const { id } = req.params;
     const username = req.authUser.username;
     let orders = readData(FILE_PURCHASE_ORDERS, []);
@@ -10802,7 +10911,7 @@ app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requi
     writeData(FILE_PURCHASE_ORDERS, orders);
     logAction(username, `Na-receive ang Purchase Order #${po.id} (${po.supplier}) — idinagdag sa stock ang ${po.items.length} item/s`);
     res.json({ success: true, message:'Na-receive ang Purchase Order at na-update ang stock.', po });
-});
+}
 app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const { id } = req.params;
     const username = req.authUser.username;
@@ -11853,17 +11962,79 @@ app.post('/api/customers/lookup-by-card', requirePermission('terminal'), rateLim
         cardMode: check.mode
     });
 });
+// AYOS/BUGFIX: Ang buong promocodes module ay wala talagang usage cap dati
+// (walang maxUses/usedCount/per-customer limit) — kaya once gawa ang isang
+// code, magagamit ito nang walang limitasyon habang buhay at "active" pa ito.
+// Dinagdagan ito ng:
+//   - maxUses / usedCount: pandaigdig (global) na limitasyon sa bilang ng
+//     beses na magagamit ang isang code sa lahat ng benta.
+//   - perCustomerLimit / redemptions{customerId: count}: opsyonal na
+//     limitasyon kung ilang beses puwedeng gamitin ng IISANG customer.
+// Ang paglago ng usedCount/redemptions ay nangyayari LAMANG sa loob ng
+// processTransaction (sa ilalim ng transactionsMutexRunExclusive), kaya
+// hindi ito madoble kahit magkasabay ang dalawang benta na gumagamit ng
+// parehong code. Ang mga CRUD endpoint sa ibaba (create/edit/delete/reset)
+// ay isinama rin ngayon sa parehong mutex dahil sumusulat din sila sa
+// parehong FILE_PROMOCODES blob na ino-increment sa oras ng benta — kung
+// hindi sila naka-mutex, posibleng ma-overwrite/mawala ang usedCount
+// increment ng isang benta kapag sabay itong na-edit ng isang admin
+// (parehong klase ng lost-update race gaya ng sa stock).
+function evaluatePromoUsability(promo, { subtotal = null, customerId = null } = {}) {
+    if (!promo) return { ok: false, message: 'Hindi valid ang promo code na ito.', code: 'PROMO_NOT_FOUND' };
+    if (!promo.active) return { ok: false, message: 'Naka-disable na ang promo code na ito.', code: 'PROMO_INACTIVE' };
+    if (promo.expiresAt && new Date(promo.expiresAt).getTime() < Date.now()) {
+        return { ok: false, message: 'Na-expire na ang promo code na ito.', code: 'PROMO_EXPIRED' };
+    }
+    const maxUses = Math.max(0, parseInt(promo.maxUses, 10) || 0);
+    const usedCount = Math.max(0, parseInt(promo.usedCount, 10) || 0);
+    if (maxUses > 0 && usedCount >= maxUses) {
+        return { ok: false, message: 'Naabot na ang maximum na bilang ng paggamit ng promo code na ito.', code: 'PROMO_LIMIT_REACHED' };
+    }
+    const perCustomerLimit = Math.max(0, parseInt(promo.perCustomerLimit, 10) || 0);
+    if (perCustomerLimit > 0) {
+        if (!customerId) {
+            return { ok: false, message: 'Kailangan munang pumili ng customer — may per-customer na limitasyon ang promo code na ito.', code: 'PROMO_CUSTOMER_REQUIRED' };
+        }
+        const redemptions = (promo.redemptions && typeof promo.redemptions === 'object') ? promo.redemptions : {};
+        const customerUses = Math.max(0, parseInt(redemptions[customerId], 10) || 0);
+        if (customerUses >= perCustomerLimit) {
+            return { ok: false, message: `Naabot na ng customer na ito ang limitasyon (${perCustomerLimit}x) sa promo code na ito.`, code: 'PROMO_CUSTOMER_LIMIT_REACHED' };
+        }
+    }
+    if (subtotal !== null && promo.minSpend && subtotal < promo.minSpend) {
+        return { ok: false, message: `Kailangan ng minimum na ₱${promo.minSpend.toFixed(2)} para magamit ang promo na ito.`, code: 'PROMO_MIN_SPEND' };
+    }
+    return { ok: true };
+}
+function promoRemainingUses(promo) {
+    const maxUses = Math.max(0, parseInt(promo && promo.maxUses, 10) || 0);
+    if (maxUses <= 0) return null;
+    const usedCount = Math.max(0, parseInt(promo && promo.usedCount, 10) || 0);
+    return Math.max(0, maxUses - usedCount);
+}
 app.get('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
-    res.json(readData(FILE_PROMOCODES, []));
+    const promos = readData(FILE_PROMOCODES, []).map(p => ({ ...p, remainingUses: promoRemainingUses(p) }));
+    res.json(promos);
 });
-app.post('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
-    let { code, type, value, description, expiresAt, minSpend } = req.body;
+app.post('/api/promocodes', requirePermission('products'), requireFeature('promo_codes'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processCreatePromoCode(req, res));
+});
+function processCreatePromoCode(req, res) {
+    let { code, type, value, description, expiresAt, minSpend, maxUses, perCustomerLimit } = req.body;
     code = (code ||'').trim().toUpperCase();
     if (!code) return res.status(400).json({ success: false, message:'Kailangan ng promo code.' });
     if (!['percent','fixed'].includes(type)) return res.status(400).json({ success: false, message:'Invalid discount type (percent o fixed lang).' });
     value = parseFloat(value);
     if (isNaN(value) || value <= 0) return res.status(400).json({ success: false, message:'Invalid discount value.' });
     if (type ==='percent' && value > 100) return res.status(400).json({ success: false, message:'Hindi pwedeng lumagpas sa 100% ang percent discount.' });
+    const maxUsesNum = maxUses === undefined || maxUses === null || maxUses === '' ? 0 : parseInt(maxUses, 10);
+    if (isNaN(maxUsesNum) || maxUsesNum < 0) {
+        return res.status(400).json({ success: false, message:'Invalid ang Max Uses — dapat 0 (walang limit) o positibong buong numero.' });
+    }
+    const perCustomerLimitNum = perCustomerLimit === undefined || perCustomerLimit === null || perCustomerLimit === '' ? 0 : parseInt(perCustomerLimit, 10);
+    if (isNaN(perCustomerLimitNum) || perCustomerLimitNum < 0) {
+        return res.status(400).json({ success: false, message:'Invalid ang Per-Customer Limit — dapat 0 (walang limit) o positibong buong numero.' });
+    }
     const promos = readData(FILE_PROMOCODES, []);
     if (promos.some(p => p.code === code)) {
         return res.status(400).json({ success: false, message:'Existing na ang promo code na ito.' });
@@ -11874,29 +12045,72 @@ app.post('/api/promocodes', requirePermission('products'), requireFeature('promo
         active: true,
         expiresAt: expiresAt || null,
         minSpend: parseFloat(minSpend) || 0,
-        createdAt: new Date().toISOString()
+        maxUses: maxUsesNum,
+        usedCount: 0,
+        perCustomerLimit: perCustomerLimitNum,
+        redemptions: {},
+        createdAt: new Date().toISOString(),
+        createdBy: req.authUser.username
     };
     promos.unshift(promo);
     writeData(FILE_PROMOCODES, promos);
-    logAction(req.authUser.username, `Added promo code: ${code}`);
-    res.json({ success: true, promo });
+    logAction(req.authUser.username, `Added promo code: ${code}` + (maxUsesNum > 0 ? ` (max uses: ${maxUsesNum})` : '') + (perCustomerLimitNum > 0 ? ` (per-customer limit: ${perCustomerLimitNum})` : ''));
+    res.json({ success: true, promo: { ...promo, remainingUses: promoRemainingUses(promo) } });
+}
+app.put('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processUpdatePromoCode(req, res));
 });
-app.put('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
+function processUpdatePromoCode(req, res) {
     const codeParam = req.params.code.toUpperCase();
     const promos = readData(FILE_PROMOCODES, []);
     const idx = promos.findIndex(p => p.code === codeParam);
     if (idx === -1) return res.status(404).json({ success: false, message:'Promo code not found.' });
-    const { type, value, description, active, expiresAt, minSpend } = req.body;
+    const { type, value, description, active, expiresAt, minSpend, maxUses, perCustomerLimit } = req.body;
     if (type !== undefined) promos[idx].type = type;
     if (value !== undefined) promos[idx].value = parseFloat(value);
     if (description !== undefined) promos[idx].description = description;
     if (active !== undefined) promos[idx].active = !!active;
     if (expiresAt !== undefined) promos[idx].expiresAt = expiresAt;
     if (minSpend !== undefined) promos[idx].minSpend = parseFloat(minSpend) || 0;
+    if (maxUses !== undefined) {
+        const maxUsesNum = maxUses === null || maxUses === '' ? 0 : parseInt(maxUses, 10);
+        if (isNaN(maxUsesNum) || maxUsesNum < 0) {
+            return res.status(400).json({ success: false, message:'Invalid ang Max Uses — dapat 0 (walang limit) o positibong buong numero.' });
+        }
+        promos[idx].maxUses = maxUsesNum;
+    }
+    if (perCustomerLimit !== undefined) {
+        const perCustomerLimitNum = perCustomerLimit === null || perCustomerLimit === '' ? 0 : parseInt(perCustomerLimit, 10);
+        if (isNaN(perCustomerLimitNum) || perCustomerLimitNum < 0) {
+            return res.status(400).json({ success: false, message:'Invalid ang Per-Customer Limit — dapat 0 (walang limit) o positibong buong numero.' });
+        }
+        promos[idx].perCustomerLimit = perCustomerLimitNum;
+    }
+    if (!promos[idx].redemptions || typeof promos[idx].redemptions !== 'object') promos[idx].redemptions = {};
+    if (typeof promos[idx].usedCount !== 'number') promos[idx].usedCount = 0;
     writeData(FILE_PROMOCODES, promos);
-    res.json({ success: true, promo: promos[idx] });
+    logAction(req.authUser.username, `Updated promo code: ${codeParam}`);
+    res.json({ success: true, promo: { ...promos[idx], remainingUses: promoRemainingUses(promos[idx]) } });
+}
+app.post('/api/promocodes/:code/reset-usage', requirePermission('products'), requireFeature('promo_codes'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processResetPromoUsage(req, res));
 });
-app.delete('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), (req, res) => {
+function processResetPromoUsage(req, res) {
+    const codeParam = req.params.code.toUpperCase();
+    const promos = readData(FILE_PROMOCODES, []);
+    const idx = promos.findIndex(p => p.code === codeParam);
+    if (idx === -1) return res.status(404).json({ success: false, message:'Promo code not found.' });
+    const previousUsedCount = Math.max(0, parseInt(promos[idx].usedCount, 10) || 0);
+    promos[idx].usedCount = 0;
+    promos[idx].redemptions = {};
+    writeData(FILE_PROMOCODES, promos);
+    logAction(req.authUser.username, `Reset usage counter ng promo code: ${codeParam} (dating usedCount: ${previousUsedCount})`);
+    res.json({ success: true, promo: { ...promos[idx], remainingUses: promoRemainingUses(promos[idx]) } });
+}
+app.delete('/api/promocodes/:code', requirePermission('products'), requireFeature('promo_codes'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processDeletePromoCode(req, res));
+});
+function processDeletePromoCode(req, res) {
     const codeParam = req.params.code.toUpperCase();
     let promos = readData(FILE_PROMOCODES, []);
     if (!promos.some(p => p.code === codeParam)) {
@@ -11906,23 +12120,22 @@ app.delete('/api/promocodes/:code', requirePermission('products'), requireFeatur
     writeData(FILE_PROMOCODES, promos);
     logAction(req.authUser.username, `Deleted promo code: ${codeParam}`);
     res.json({ success: true });
-});
+}
 app.get('/api/promocodes/:code/validate', requireFeature('promo_codes'), (req, res) => {
     const codeParam = req.params.code.toUpperCase();
     const subtotal = parseFloat(req.query.subtotal) || 0;
+    const customerId = req.query.customerId ? String(req.query.customerId) : null;
     const promos = readData(FILE_PROMOCODES, []);
     const promo = promos.find(p => p.code === codeParam);
-    if (!promo) return res.json({ success: false, message:'Hindi valid ang promo code na ito.' });
-    if (!promo.active) return res.json({ success: false, message:'Naka-disable na ang promo code na ito.' });
-    if (promo.expiresAt && new Date(promo.expiresAt).getTime() < Date.now()) {
-        return res.json({ success: false, message:'Na-expire na ang promo code na ito.' });
-    }
-    if (promo.minSpend && subtotal < promo.minSpend) {
-        return res.json({ success: false, message: `Kailangan ng minimum na ₱${promo.minSpend.toFixed(2)} para magamit ang promo na ito.` });
-    }
+    const usability = evaluatePromoUsability(promo, { subtotal, customerId });
+    if (!usability.ok) return res.json({ success: false, message: usability.message, code: usability.code });
     let discountAmount = promo.type ==='percent' ? (subtotal * promo.value / 100) : promo.value;
     discountAmount = Math.min(Math.max(discountAmount, 0), subtotal);
-    res.json({ success: true, promo, discountAmount: Math.round(discountAmount * 100) / 100 });
+    res.json({
+        success: true,
+        promo: { ...promo, remainingUses: promoRemainingUses(promo) },
+        discountAmount: Math.round(discountAmount * 100) / 100
+    });
 });
 function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
     const allTx = readData(FILE_TRANSACTIONS);

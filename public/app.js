@@ -5127,6 +5127,7 @@ async function closeCurrentShift() {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
+let _promoManagerCache = [];
 async function openPromoCodesManager() {
     if (guardPremiumFeature('promo_codes')) return;
     let promos = [];
@@ -5137,65 +5138,165 @@ async function openPromoCodesManager() {
         Swal.fire('Connection Error','Could not retrieve the promo codes.','error');
         return;
     }
+    _promoManagerCache = promos;
     renderPromoCodesModal(promos);
 }
-function renderPromoCodesModal(promos) {
-    const rowsHtml = promos.length ? promos.map(p => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid #eee;text-align:left;">
-            <div>
-                <strong>${escapeHtml(p.code)}</strong> ${p.active ?'' :'<span style="color:#ef4444;font-size:0.75rem;">(INACTIVE)</span>'}<br>
-                <small>${p.type ==='percent' ? p.value +'% off' :'₱' + p.value +' off'}${p.minSpend ?' · min ₱' + p.minSpend :''}${p.expiresAt ?' · exp ' + new Date(p.expiresAt).toLocaleDateString() :''}</small>
+function getPromoStatus(p) {
+    if (!p.active) return { key:'inactive', label:'Inactive' };
+    if (p.expiresAt && new Date(p.expiresAt).getTime() < Date.now()) return { key:'expired', label:'Expired' };
+    const maxUses = parseInt(p.maxUses, 10) || 0;
+    const usedCount = parseInt(p.usedCount, 10) || 0;
+    if (maxUses > 0 && usedCount >= maxUses) return { key:'exhausted', label:'Exhausted' };
+    return { key:'active', label:'Active' };
+}
+function renderPromoUsageBlock(p) {
+    const maxUses = parseInt(p.maxUses, 10) || 0;
+    const usedCount = parseInt(p.usedCount, 10) || 0;
+    const perCustomerLimit = parseInt(p.perCustomerLimit, 10) || 0;
+    const perCustomerNote = perCustomerLimit > 0
+        ? `<span title="Max redemptions per individual customer"><i class="fa-solid fa-user-check" style="margin-right:3px;"></i>${perCustomerLimit}x per customer</span>`
+        : '';
+    if (maxUses <= 0) {
+        return `
+            <div class="promo-usage-row">
+                <span class="promo-unlimited-chip"><i class="fa-solid fa-infinity" style="margin-right:4px;"></i>Unlimited uses — used ${usedCount}x</span>
+                ${perCustomerNote ? `<div class="promo-card-meta">${perCustomerNote}</div>` : ''}
             </div>
-            <div>
-                <button class="btn-icon-action delete" onclick="deletePromoCodeConfirm('${escapeHtml(p.code)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+        `;
+    }
+    const pct = Math.min(100, Math.round((usedCount / maxUses) * 100));
+    const isFull = usedCount >= maxUses;
+    return `
+        <div class="promo-usage-row">
+            <div class="promo-usage-label">
+                <span>${usedCount} / ${maxUses} used</span>
+                <span>${isFull ? 'No uses left' : (maxUses - usedCount) + ' left'}</span>
             </div>
+            <div class="promo-usage-track"><div class="promo-usage-fill${isFull ? ' is-full' : ''}" style="width:${pct}%;"></div></div>
+            ${perCustomerNote ? `<div class="promo-card-meta" style="margin-top:5px;">${perCustomerNote}</div>` : ''}
         </div>
-    `).join('') :'<p style="padding:14px;color:#94a3b8;">No promo codes yet.</p>';
+    `;
+}
+function renderPromoCodesModal(promos) {
+    const cardsHtml = promos.length ? promos.map(p => {
+        const status = getPromoStatus(p);
+        const usedCount = parseInt(p.usedCount, 10) || 0;
+        const discountLabel = p.type === 'percent' ? `${p.value}% off` : `₱${p.value} off`;
+        const metaBits = [];
+        if (p.minSpend) metaBits.push(`min ₱${p.minSpend}`);
+        if (p.expiresAt) metaBits.push(`exp ${new Date(p.expiresAt).toLocaleDateString()}`);
+        return `
+        <div class="promo-card${status.key === 'inactive' ? ' is-inactive' : ''}">
+            <div class="promo-card-top">
+                <div>
+                    <span class="promo-code-badge">${escapeHtml(p.code)}</span>
+                    <span class="promo-status-pill ${status.key}">${status.label}</span>
+                    <div class="promo-card-meta">${discountLabel}${metaBits.length ? ' · ' + metaBits.join(' · ') : ''}</div>
+                    ${p.description ? `<div class="promo-card-desc">"${escapeHtml(p.description)}"</div>` : ''}
+                </div>
+                <div class="promo-card-actions">
+                    <button class="btn-icon-action edit" onclick="openEditPromoCodeForm('${escapeHtml(p.code)}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                    ${usedCount > 0 ? `<button class="btn-icon-action reset" onclick="resetPromoUsageConfirm('${escapeHtml(p.code)}')" title="Reset usage counter"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
+                    <button class="btn-icon-action delete" onclick="deletePromoCodeConfirm('${escapeHtml(p.code)}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+            ${renderPromoUsageBlock(p)}
+        </div>
+    `;
+    }).join('') : '<p style="padding:14px;color:#94a3b8;text-align:center;">No promo codes yet. Add your first one below.</p>';
     Swal.fire({
         title:'Discounts & Promo Codes',
         html: `
-            <div style="max-height:280px;overflow-y:auto;margin-bottom:10px;">${rowsHtml}</div>
-            <button type="button" class="swal2-confirm swal2-styled" onclick="openAddPromoCodeForm()">+ Add New Promo Code</button>
+            <div class="promo-manager-list">${cardsHtml}</div>
+            <button type="button" class="swal2-confirm swal2-styled promo-add-btn" onclick="openAddPromoCodeForm()"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Add New Promo Code</button>
         `,
         showConfirmButton: false,
         showCancelButton: true,
         cancelButtonText:'Close',
-        width: 460
+        width: 560
     });
+}
+function promoFormHtml(existing) {
+    const p = existing || {};
+    const maxUsesVal = p.maxUses ? p.maxUses : '';
+    const perCustomerVal = p.perCustomerLimit ? p.perCustomerLimit : '';
+    return `
+        <div class="promo-form-grid">
+            <div class="full-span">
+                <label class="promo-form-label">Promo Code</label>
+                <input type="text" id="swal-promo-code" class="swal2-input" style="margin:0;text-transform:uppercase;width:100%;box-sizing:border-box;" placeholder="e.g. SUMMER20" value="${p.code ? escapeHtml(p.code) : ''}" ${existing ? 'disabled' : ''}>
+            </div>
+            <div>
+                <label class="promo-form-label">Discount Type</label>
+                <select id="swal-promo-type" class="swal2-select" style="margin:0;width:100%;box-sizing:border-box;">
+                    <option value="percent" ${p.type === 'percent' ? 'selected' : ''}>Percent (%)</option>
+                    <option value="fixed" ${p.type === 'fixed' ? 'selected' : ''}>Fixed Amount (₱)</option>
+                </select>
+            </div>
+            <div>
+                <label class="promo-form-label">Value</label>
+                <input type="number" id="swal-promo-value" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" placeholder="e.g. 20" value="${p.value !== undefined ? p.value : ''}">
+            </div>
+            <div>
+                <label class="promo-form-label">Max Uses <span class="promo-form-hint">(blank = unlimited)</span></label>
+                <input type="number" min="0" id="swal-promo-maxuses" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" placeholder="Unlimited" value="${maxUsesVal}">
+            </div>
+            <div>
+                <label class="promo-form-label">Per-Customer Limit <span class="promo-form-hint">(blank = unlimited)</span></label>
+                <input type="number" min="0" id="swal-promo-percustomer" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" placeholder="Unlimited" value="${perCustomerVal}">
+            </div>
+            <div>
+                <label class="promo-form-label">Minimum Spend <span class="promo-form-hint">(optional)</span></label>
+                <input type="number" id="swal-promo-minspend" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" placeholder="₱0" value="${p.minSpend || ''}">
+            </div>
+            <div>
+                <label class="promo-form-label">Expiry Date <span class="promo-form-hint">(optional)</span></label>
+                <input type="date" id="swal-promo-expiry" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" value="${p.expiresAt ? String(p.expiresAt).slice(0,10) : ''}">
+            </div>
+            <div class="full-span">
+                <label class="promo-form-label">Description <span class="promo-form-hint">(optional)</span></label>
+                <input type="text" id="swal-promo-desc" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" placeholder="e.g. Summer sale, first-time buyers only" value="${p.description ? escapeHtml(p.description) : ''}">
+            </div>
+        </div>
+    `;
+}
+function readPromoFormValues() {
+    const code = document.getElementById('swal-promo-code').value.trim();
+    const value = document.getElementById('swal-promo-value').value;
+    if (!code || !value) {
+        Swal.showValidationMessage('Code and value are required.');
+        return false;
+    }
+    const maxUsesRaw = document.getElementById('swal-promo-maxuses').value.trim();
+    const perCustomerRaw = document.getElementById('swal-promo-percustomer').value.trim();
+    if (maxUsesRaw !== '' && (isNaN(maxUsesRaw) || parseInt(maxUsesRaw, 10) < 0)) {
+        Swal.showValidationMessage('Max Uses must be a positive whole number (or blank for unlimited).');
+        return false;
+    }
+    if (perCustomerRaw !== '' && (isNaN(perCustomerRaw) || parseInt(perCustomerRaw, 10) < 0)) {
+        Swal.showValidationMessage('Per-Customer Limit must be a positive whole number (or blank for unlimited).');
+        return false;
+    }
+    return {
+        code,
+        type: document.getElementById('swal-promo-type').value,
+        value,
+        maxUses: maxUsesRaw === '' ? 0 : parseInt(maxUsesRaw, 10),
+        perCustomerLimit: perCustomerRaw === '' ? 0 : parseInt(perCustomerRaw, 10),
+        minSpend: document.getElementById('swal-promo-minspend').value,
+        expiresAt: document.getElementById('swal-promo-expiry').value || null,
+        description: document.getElementById('swal-promo-desc').value.trim()
+    };
 }
 async function openAddPromoCodeForm() {
     const { value: formValues } = await Swal.fire({
         title:'Add Promo Code',
-        html: `
-            <input type="text" id="swal-promo-code" class="swal2-input" placeholder="CODE (e.g. SUMMER20)" style="text-transform:uppercase;width:100%;margin:0 0 10px;box-sizing:border-box;">
-            <select id="swal-promo-type" class="swal2-select" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
-                <option value="percent">Percent (%)</option>
-                <option value="fixed">Fixed Amount (₱)</option>
-            </select>
-            <input type="number" id="swal-promo-value" class="swal2-input" placeholder="Value" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
-            <input type="number" id="swal-promo-minspend" class="swal2-input" placeholder="Minimum Spend (optional)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
-            <input type="date" id="swal-promo-expiry" class="swal2-input" placeholder="Expiry (optional)" style="width:100%;margin:0 0 10px;box-sizing:border-box;">
-            <input type="text" id="swal-promo-desc" class="swal2-input" placeholder="Description (optional)" style="width:100%;margin:0;box-sizing:border-box;">
-        `,
+        html: promoFormHtml(null),
+        width: 520,
         focusConfirm: false,
         showCancelButton: true,
         confirmButtonText:'Save',
-        preConfirm: () => {
-            const code = document.getElementById('swal-promo-code').value.trim();
-            const value = document.getElementById('swal-promo-value').value;
-            if (!code || !value) {
-                Swal.showValidationMessage('Code and value are required.');
-                return false;
-            }
-            return {
-                code,
-                type: document.getElementById('swal-promo-type').value,
-                value,
-                minSpend: document.getElementById('swal-promo-minspend').value,
-                expiresAt: document.getElementById('swal-promo-expiry').value || null,
-                description: document.getElementById('swal-promo-desc').value.trim()
-            };
-        }
+        preConfirm: readPromoFormValues
     });
     if (!formValues) return;
     try {
@@ -5210,6 +5311,61 @@ async function openAddPromoCodeForm() {
                 .then(() => openPromoCodesManager());
         } else {
             Swal.fire('Error', data.message ||'Could not save the promo code.','error');
+        }
+    } catch (e) {
+        Swal.fire('Connection Error','Could not connect to the server.','error');
+    }
+}
+async function openEditPromoCodeForm(code) {
+    const existing = _promoManagerCache.find(p => p.code === code);
+    if (!existing) {
+        Swal.fire('Not Found', 'Could not find that promo code — try reopening the list.', 'error');
+        return;
+    }
+    const { value: formValues } = await Swal.fire({
+        title: `Edit "${code}"`,
+        html: promoFormHtml(existing),
+        width: 520,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText:'Save Changes',
+        preConfirm: readPromoFormValues
+    });
+    if (!formValues) return;
+    try {
+        const res = await authFetch(`${API_URL}/promocodes/${encodeURIComponent(code)}`, {
+            method:'PUT',
+            headers: {'Content-Type':'application/json' },
+            body: JSON.stringify(formValues)
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire({ icon:'success', title:'Promo Code Updated!', timer: 1300, showConfirmButton: false })
+                .then(() => openPromoCodesManager());
+        } else {
+            Swal.fire('Error', data.message ||'Could not update the promo code.','error');
+        }
+    } catch (e) {
+        Swal.fire('Connection Error','Could not connect to the server.','error');
+    }
+}
+async function resetPromoUsageConfirm(code) {
+    const result = await Swal.fire({
+        title: `Reset usage counter for "${code}"?`,
+        html: 'This will set its used count back to 0 and clear per-customer redemption history. The promo code itself will not be deleted.',
+        icon:'warning',
+        showCancelButton: true,
+        confirmButtonText:'Yes, reset usage'
+    });
+    if (!result.isConfirmed) return;
+    try {
+        const res = await authFetch(`${API_URL}/promocodes/${encodeURIComponent(code)}/reset-usage`, { method:'POST' });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire({ icon:'success', title:'Usage Reset', timer: 1200, showConfirmButton: false })
+                .then(() => openPromoCodesManager());
+        } else {
+            Swal.fire('Error', data.message ||'Could not reset usage.','error');
         }
     } catch (e) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
@@ -9190,7 +9346,8 @@ async function applyPromoCodeToCart() {
         return;
     }
     try {
-        const res = await authFetch(`${API_URL}/promocodes/${encodeURIComponent(code)}/validate?subtotal=${subtotal}`);
+        const customerQuery = selectedCartCustomer ? `&customerId=${encodeURIComponent(selectedCartCustomer.id)}` : '';
+        const res = await authFetch(`${API_URL}/promocodes/${encodeURIComponent(code)}/validate?subtotal=${subtotal}${customerQuery}`);
         const data = await res.json();
         if (data.success) {
             const checkbox = document.getElementById('cart-senior-pwd-toggle');
@@ -9205,7 +9362,8 @@ async function applyPromoCodeToCart() {
             discountInput.value = data.discountAmount.toFixed(2);
             discountInput.setAttribute('readonly', true);
             updateCartTotals();
-            Swal.fire({ icon:'success', title:'Promo Applied!', text: `${code}: -₱${data.discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
+            const remainingNote = (typeof data.promo?.remainingUses === 'number') ? ` (${data.promo.remainingUses} use/s left)` : '';
+            Swal.fire({ icon:'success', title:'Promo Applied!', text: `${code}: -₱${data.discountAmount.toFixed(2)}${remainingNote}`, timer: 1800, showConfirmButton: false });
         } else {
             Swal.fire('Invalid Promo Code', data.message ||'This code cannot be used.','error');
         }

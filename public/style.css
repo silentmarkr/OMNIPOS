@@ -12055,3 +12055,132 @@ body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-note,
 body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-status {
     color: #64748b !important;
 }
+
+/* ===== Promo Codes Manager (advanced UI) ===== */
+.promo-manager-list {
+    max-height: 380px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-right: 2px;
+}
+.promo-card {
+    text-align: left;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #fff;
+    transition: box-shadow .15s ease;
+}
+.promo-card:hover { box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08); }
+.promo-card.is-inactive { opacity: 0.65; }
+.promo-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+.promo-code-badge {
+    font-family: 'Courier New', monospace;
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: 0.5px;
+    background: var(--accent-blue-light, #eff6ff);
+    color: var(--primary-blue, #2563eb);
+    padding: 3px 9px;
+    border-radius: 6px;
+    display: inline-block;
+}
+.promo-status-pill {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.promo-status-pill.active { background: #dcfce7; color: #15803d; }
+.promo-status-pill.inactive { background: #f1f5f9; color: #64748b; }
+.promo-status-pill.expired { background: #fef3c7; color: #a16207; }
+.promo-status-pill.exhausted { background: #fee2e2; color: #b91c1c; }
+.promo-card-meta {
+    font-size: 0.78rem;
+    color: var(--text-muted, #64748b);
+    margin-top: 4px;
+    line-height: 1.5;
+}
+.promo-card-desc {
+    font-size: 0.78rem;
+    color: var(--text-muted, #64748b);
+    margin-top: 3px;
+    font-style: italic;
+}
+.promo-usage-row {
+    margin-top: 8px;
+}
+.promo-usage-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: var(--text-muted, #64748b);
+    margin-bottom: 3px;
+}
+.promo-usage-track {
+    height: 6px;
+    border-radius: 999px;
+    background: #eef2f7;
+    overflow: hidden;
+}
+.promo-usage-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--primary-blue, #2563eb), #60a5fa);
+}
+.promo-usage-fill.is-full { background: linear-gradient(90deg, #ef4444, #f87171); }
+.promo-unlimited-chip {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #7c3aed;
+    background: #f3e8ff;
+    padding: 2px 8px;
+    border-radius: 999px;
+    display: inline-block;
+    margin-top: 8px;
+}
+.promo-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.btn-icon-action.reset { background-color: #f59e0b; }
+.promo-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    text-align: left;
+}
+.promo-form-grid .full-span { grid-column: 1 / -1; }
+.promo-form-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 3px;
+    display: block;
+}
+.promo-form-hint {
+    font-size: 0.68rem;
+    color: var(--text-muted, #64748b);
+    margin-top: 2px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.promo-add-btn {
+    width: 100%;
+    margin-top: 2px;
+}
