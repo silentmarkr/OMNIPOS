@@ -8173,6 +8173,11 @@ let branchesPageState = {
     transfers: [],
     pollTimer: null
 };
+const branchesThemeObserver = new MutationObserver(() => {
+    const view = document.getElementById('view-branches');
+    if (view && view.style.display !== 'none') renderBranchesPage();
+});
+branchesThemeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 async function refreshBranchesAlertBadge() {
     const badge = document.getElementById('menu-branches-alert-badge');
     if (!badge) return;
@@ -8218,9 +8223,9 @@ async function loadBranchesPage(silent) {
             const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number' ? locked.subscriptionPrice.monthly : locked.price;
             body.innerHTML = `
                 <div style="text-align:center; padding:40px 15px;">
-                    <i class="fa-solid fa-lock" style="font-size:2rem;color:#f59e0b;margin-bottom:12px;"></i>
+                    <span class="menu-pro-lock" style="display:inline-block;font-size:2rem;margin-bottom:12px;"><i class="fa-solid fa-lock"></i></span>
                     <p style="color:#64748b;margin:0 0 14px;max-width:420px;margin-left:auto;margin-right:auto;">See combined sales, per-branch drill-down, hourly trend charts, offline/low-stock alerts, and inter-branch stock transfer requests — all here on one page.</p>
-                    <button type="button" class="btn-action-outline" id="branches-page-unlock-btn">
+                    <button type="button" class="btn-action-global" id="branches-page-unlock-btn">
                         <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — starting at ₱${monthlyPrice}/mo
                     </button>
                 </div>`;
@@ -8270,11 +8275,12 @@ function renderTrendSvg(history) {
         const y = h - pad - ((v / maxV) * (h - pad * 2));
         return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
+    const lineColor = (typeof ovGetThemeColors === 'function') ? ovGetThemeColors().total : '#2563eb';
     const firstTs = new Date(history[0].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const lastTs = new Date(history[history.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `
         <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:120px;" preserveAspectRatio="none">
-            <polyline points="${points}" fill="none" stroke="#3b82f6" stroke-width="2"></polyline>
+            <polyline points="${points}" fill="none" stroke="${lineColor}" stroke-width="2"></polyline>
         </svg>
         <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#94a3b8;"><span>${firstTs}</span><span>${lastTs}</span></div>`;
 }
