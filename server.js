@@ -2398,7 +2398,18 @@ async function relayFetch(url, options = {}, timeoutMs = 20000) {
 }
 let lastConnectivityProbe = { at: 0, up: true };
 const CONNECTIVITY_PROBE_CACHE_MS = 10 * 1000;
-const CONNECTIVITY_PROBE_TIMEOUT_MS = 1200;
+// AYOS/BUGFIX: 1200ms lang dati ito — sapat sa mabilis na WiFi/broadband,
+// pero madalas hindi sapat para makumpleto ang isang TCP handshake sa
+// mas mabagal/congested na mobile data (karaniwan sa mga lugar na
+// mahina ang cell signal). Resulta: naiisip na "walang internet" ang
+// device kahit totoong konektado lang medyo mabagal — kaya "Could not
+// reach the relay"/"Could not refresh" ang lumalabas kahit may internet
+// naman talaga. Pinalawak ang timeout para bigyan ng puwang ang mas
+// mabagal na koneksyon (isang tunay na offline device, hal. naka-
+// Airplane Mode, ay bibigyan pa rin ng mabilis na sagot — kaagad na
+// tinatanggihan ng OS ang socket connect kapag walang radio talaga, kaya
+// hindi ito mapoprotektahan ng mas mahabang timeout).
+const CONNECTIVITY_PROBE_TIMEOUT_MS = 3000;
 function rawTcpProbe(host, port, timeoutMs) {
     return new Promise((resolve) => {
         const socket = new net.Socket();
