@@ -3632,7 +3632,16 @@ if (!INTEGRITY_MONITOR_DISABLED) {
     setInterval(runRelayIntegrityCheckin, 24 * 60 * 60 * 1000).unref();
 }
 function hashBranchGroupKey(rawKey) {
-    const trimmed = String(rawKey || '').trim();
+    // AYOS/BUGFIX (magkaiba ang case, kaya "hindi nagkikita" ang mga
+    // branch kahit magkapareho ang binisang code): dati, trim() lang ang
+    // ginagawa dito bago i-hash — kung ibang capitalization ang natype sa
+    // isang branch kumpara sa isa pa (hal. dahil sa autocapitalize ng
+    // mobile keyboard), magkaibang SHA-256 hash ang mabubuo, at tahimik
+    // itong tinuturing ng RELAY bilang DALAWANG hiwalay na grupo — walang
+    // error, mukha lang na "walang ibang branch/request na nakikita".
+    // Ginawa nang case-insensitive (lowercase muna bago i-hash) dahil
+    // ganito naman talaga binabasa/kinukumpara ng tao ang code na ito.
+    const trimmed = String(rawKey || '').trim().toLowerCase();
     if (!trimmed) return null;
     return crypto.createHash('sha256').update(trimmed).digest('hex');
 }
@@ -3824,7 +3833,26 @@ app.get('/api/branches/transfers', requirePermission('branches'), requireFeature
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-        const url = `${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}`;
+        // AYOS/BUGFIX (ITO ANG TUNAY NA UGAT kung bakit hindi kailanman
+        // nakikita ng ISANG branch ang mga papasok na transfer request mula
+        // sa iba): ang GET /relay/branch-transfers sa RELAY ay naka-gate ng
+        // requireAllowedDevice middleware, na NANGANGAILANGAN ng
+        // installationId (galing man sa body o sa query string) — kung
+        // wala nito, 403 "device not allowed" agad ang isasauli, ANUMAN
+        // pa ang totoong device. Lahat ng IBANG relay call dito
+        // (branch-summary, branch-trend, branch-checkin) ay tama namang
+        // nagsasama ng "&installationId=..." sa URL — ITO LANG ang
+        // nakalimutan. Resulta: PALAGING nabibigo ang GET na ito, sa LAHAT
+        // ng branch, sa LAHAT ng oras — walang kinalaman sa internet o sa
+        // Business Group Code. Mukhang "gumagana naman" ito para sa
+        // branch na kagagawa lang ng request dahil ang optimistic-update
+        // (sa submitBranchTransferRequest sa app.js) ay direktang
+        // nagpapakita agad ng bagong request mula sa POST response mismo
+        // — hindi na umaasa sa successful GET na ito. Pero ang PENERANG
+        // (destination) branch, na walang ganitong optimistic entry at
+        // umaasa lang dito sa GET, ay hindi kailanman nakakakita ng
+        // kahit ano. Idinagdag na ang nawawalang installationId param.
+        const url = `${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`;
         const relayRes = await relayFetch(url, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
@@ -3921,7 +3949,10 @@ async function processBranchTransferRespond(req, res) {
         let matchedProduct = null;
         let stockNote = '';
         if (action === 'send' || action === 'receive') {
-            const listRes = await relayFetch(`${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}`, {
+            // AYOS/BUGFIX: parehong nawawalang installationId query param gaya
+            // ng na-fix sa GET /api/branches/transfers sa itaas — nagdudulot
+            // din ito ng 403 mula sa requireAllowedDevice sa RELAY.
+            const listRes = await relayFetch(`${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`, {
                 method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY }
             });
             const listData = await parseRelayResponse(listRes);
