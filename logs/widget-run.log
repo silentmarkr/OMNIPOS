@@ -6318,3 +6318,30 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-15 06:52:26] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-15 06:52:29] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-15 06:52:32] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-14T22:43:28.906Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-15 07:44:21] ⚠️  May natirang lock file mula sa dating session (PID 31320, hindi na tumatakbo) — nililinis.
+[2026-09-15 07:44:22] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-15 07:44:25] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-14T23:22:34.891Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-15 10:46:16] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-15 10:46:19] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-15T00:14:27.926Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

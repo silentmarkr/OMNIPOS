@@ -8194,7 +8194,7 @@ async function refreshBranchesAlertBadge() {
             const tRes = await authFetch(`${API_URL}/branches/transfers`);
             if (tRes.ok) {
                 const tData = await tRes.json();
-                if (tData.success) count += (tData.transfers || []).filter(t => t.direction === 'incoming' && t.status === 'pending').length;
+                if (tData.success) count += countActionableBranchTransfers(tData.transfers || []);
             }
         } catch (e) { /* ignore */ }
         if (count > 0) { badge.innerText = count > 99 ? '99+' : count; badge.style.display = 'inline-block'; }
@@ -8203,6 +8203,80 @@ async function refreshBranchesAlertBadge() {
         badge.style.display = 'none';
     }
 }
+// AYOS/BUGFIX: dati, "incoming + pending" (i.e. kailangan pang i-Accept/Reject)
+// lang ang binibilang bilang alert. Pero mayroon na ring dalawang bagong
+// hakbang na nangangailangan ng aksyon mula sa isang branch: "accepted"
+// papunta sa OUTGOING (kailangan nang i-Mark as Sent ng source) at
+// "in_transit" papunta sa INCOMING (kailangan nang i-Confirm Received ng
+// destination). Kasama na rin ngayon ang mga ito sa badge count para hindi
+// makaligtaan ng cashier/manager.
+function countActionableBranchTransfers(transfers) {
+    return (transfers || []).filter(t =>
+        (t.direction === 'incoming' && t.status === 'pending') ||
+        (t.direction === 'outgoing' && t.status === 'accepted') ||
+        (t.direction === 'incoming' && t.status === 'in_transit')
+    ).length;
+}
+// AYOS/BUGFIX (walang real-time notification papunta sa ibang branch): dati,
+// ang listahan/badge ng incoming request ay ini-refresh lang (a) kapag
+// binuksan ang Overview page, o (b) habang nasa Branches page mismo
+// (60-second polling doon). Kung nasa Terminal page lang (karaniwang
+// tinitirahan ng cashier) ang staff, hindi nila makikita agad ang bagong
+// request hangga't hindi sila pumunta mismo sa Overview/Branches. Dinagdagan
+// ng isang GLOBAL, light-weight na poll (gaya ng pattern ng
+// pollMyShiftClosedRemotely/syncOfflineTransactions sa ibaba) na tumatakbo
+// kahit anong page/view ang bukas, hangga't naka-login at naka-unlock ang
+// multi_branch feature. Nagpapakita rin ito ng toast kapag may BAGONG
+// actionable na transfer na lumitaw mula noong huling check.
+let branchTransfersLastActionableIds = null;
+async function pollBranchTransfersGlobally() {
+    if (!currentUser) return;
+    if (typeof isFeatureUnlockedCached === 'function' && !isFeatureUnlockedCached('multi_branch')) return;
+    if (!document.getElementById('menu-branches-alert-badge')) return; // walang 'branches' permission ang menu item na ito kung wala
+    try {
+        const res = await authFetch(`${API_URL}/branches/transfers`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.success) return;
+        const transfers = data.transfers || [];
+        const actionable = transfers.filter(t =>
+            (t.direction === 'incoming' && t.status === 'pending') ||
+            (t.direction === 'outgoing' && t.status === 'accepted') ||
+            (t.direction === 'incoming' && t.status === 'in_transit')
+        );
+        const currentIds = new Set(actionable.map(t => t.id + ':' + t.status));
+        if (branchTransfersLastActionableIds) {
+            const newOnes = actionable.filter(t => !branchTransfersLastActionableIds.has(t.id + ':' + t.status));
+            if (newOnes.length > 0 && typeof Swal !== 'undefined') {
+                const t = newOnes[0];
+                const label = (t.direction === 'incoming' && t.status === 'pending')
+                    ? `New stock transfer request from ${t.fromBranchName || 'another branch'}: ${t.itemName} x${t.qty}`
+                    : (t.direction === 'outgoing' && t.status === 'accepted')
+                        ? `${t.toBranchName || 'Destination branch'} accepted your transfer of ${t.itemName} — ready to Mark as Sent`
+                        : `${t.itemName} has arrived — Confirm Received from ${t.fromBranchName || 'the source branch'}`;
+                Swal.fire({
+                    toast: true, position: 'top-end', icon: 'info',
+                    title: newOnes.length > 1 ? `${label} (+${newOnes.length - 1} more)` : label,
+                    showConfirmButton: false, timer: 4500, timerProgressBar: true
+                });
+            }
+        }
+        branchTransfersLastActionableIds = currentIds;
+        const badge = document.getElementById('menu-branches-alert-badge');
+        if (badge) {
+            // AYOS/BUGFIX: dati, walang else branch dito kaya kapag bumaba na
+            // pabalik sa 0 ang actionable count (hal. na-Accept/na-Cancel/
+            // na-complete na ang huling pending transfer), nananatiling
+            // nakalabas at naka-display ang DATING bilang sa badge — hindi na
+            // ito naa-ayos hangga't hindi pumunta ang user sa Overview o sa
+            // Branches page mismo (doon lang tinatawag ang
+            // refreshBranchesAlertBadge(), na siyang may tamang else branch).
+            if (actionable.length > 0) { badge.innerText = actionable.length > 99 ? '99+' : actionable.length; badge.style.display = 'inline-block'; }
+            else badge.style.display = 'none';
+        }
+    } catch (e) { /* ignore, silent global poll */ }
+}
+setInterval(pollBranchTransfersGlobally, 45000);
 function startBranchesPagePolling() {
     stopBranchesPagePolling();
     branchesPageState.pollTimer = setInterval(() => loadBranchesPage(true), 60000);
@@ -8313,14 +8387,36 @@ function renderBranchTransfersHtml() {
         return header + `<p style="color:#94a3b8;font-size:0.85rem;">There are no transfer requests between branches yet.</p>`;
     }
     const rows = transfers.slice(0, 50).map(t => {
-        const statusColor = t.status === 'pending' ? '#f59e0b' : (t.status === 'accepted' ? '#16a34a' : '#94a3b8');
+        // Status colors: pending=orange, accepted/in_transit=blue (needs another
+        // step before the stock is actually moved), completed=green (stock has
+        // moved on both sides), rejected/cancelled=gray.
+        const statusColor = t.status === 'pending' ? '#f59e0b'
+            : (t.status === 'accepted' || t.status === 'in_transit') ? '#2563eb'
+            : t.status === 'completed' ? '#16a34a'
+            : '#94a3b8';
+        const statusLabel = t.status === 'in_transit' ? 'In Transit' : t.status.charAt(0).toUpperCase() + t.status.slice(1);
         const dirLabel = t.direction === 'incoming' ? `To you from ${escapeHtml(t.fromBranchName)}` : (t.direction === 'outgoing' ? `To ${escapeHtml(t.toBranchName)}` : `${escapeHtml(t.fromBranchName)} \u2192 ${escapeHtml(t.toBranchName)}`);
-        const actions = (t.direction === 'incoming' && t.status === 'pending')
-            ? `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','accept')">Accept</button>
-               <button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;color:#ef4444;border-color:#ef4444;" onclick="respondBranchTransfer('${t.id}','reject')">Reject</button>`
-            : (t.direction === 'outgoing' && t.status === 'pending')
-                ? `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','cancel')">Cancel</button>`
-                : '';
+        // AYOS/BUGFIX (two-sided stock movement): dati, tapos na ang buong flow
+        // pagkatapos ng "Accept" — status na lang ang nagbabago, walang
+        // epekto sa totoong stock. Dalawa na ngayong bagong hakbang bago
+        // matapos ang isang request:
+        //   accepted (outgoing) -> "Mark as Sent" (babawasan ang stock dito, sa source)
+        //   in_transit (incoming) -> "Confirm Received" (dadagdagan ang stock dito, sa destination)
+        let actions = '';
+        if (t.direction === 'incoming' && t.status === 'pending') {
+            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','accept')">Accept</button>
+               <button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;color:#ef4444;border-color:#ef4444;" onclick="respondBranchTransfer('${t.id}','reject')">Reject</button>`;
+        } else if (t.direction === 'outgoing' && t.status === 'pending') {
+            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','cancel')">Cancel</button>`;
+        } else if (t.direction === 'outgoing' && t.status === 'accepted') {
+            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','send')"><i class="fa-solid fa-truck"></i> Mark as Sent</button>`;
+        } else if (t.direction === 'incoming' && t.status === 'accepted') {
+            actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.fromBranchName)} to send the item(s)…</span>`;
+        } else if (t.direction === 'incoming' && t.status === 'in_transit') {
+            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','receive')"><i class="fa-solid fa-box-open"></i> Confirm Received</button>`;
+        } else if (t.direction === 'outgoing' && t.status === 'in_transit') {
+            actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.toBranchName)} to confirm receipt…</span>`;
+        }
         return `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;">
                 <div>
@@ -8329,8 +8425,8 @@ function renderBranchTransfersHtml() {
                     ${t.note ? `<div style="font-size:0.75rem;color:#64748b;margin-top:2px;">"${escapeHtml(t.note)}"</div>` : ''}
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:0.75rem;font-weight:600;text-transform:capitalize;color:${statusColor};">${t.status}</div>
-                    <div style="margin-top:4px;display:flex;gap:6px;">${actions}</div>
+                    <div style="font-size:0.75rem;font-weight:600;color:${statusColor};">${statusLabel}</div>
+                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;">${actions}</div>
                 </div>
             </div>`;
     }).join('');
@@ -8449,6 +8545,26 @@ async function submitBranchTransferRequest(evt) {
         }
         closeModal('branch-transfer-modal');
         if (typeof Swal !== 'undefined') Swal.fire({ icon: 'success', title: 'Transfer request sent', timer: 1600, showConfirmButton: false });
+        // AYOS/BUGFIX (walang nakikita sa page pagkatapos ng "successful" na
+        // transfer request): dati, umaasa lang dito sa isang HIWALAY na
+        // follow-up GET (loadBranchTransfers) para ma-refresh at lumitaw sa
+        // listahan ang bagong request. Kung ma-delay o mabigo ang follow-up
+        // na iyon (tahimik lang itong nabibigo — console.warn lang, walang UI
+        // feedback — at mas maikli pa ang client-side timeout ng authFetch,
+        // 6s, kumpara sa hanggang 20s na pinapayagan ng server papunta sa
+        // relay), maaaring "successful" na ang toast pero walang lumitaw sa
+        // page. Kaya idinagdag dito ang OPTIMISTIC update: gamitin agad ang
+        // `transfer` object na ibinalik na mismo ng successful POST response
+        // (galing na ito sa relay, kumpleto na) para instant lumitaw sa
+        // listahan, bago pa man tumakbo ang background refresh sa ibaba.
+        if (data.transfer) {
+            const optimisticTransfer = { ...data.transfer, direction: 'outgoing' };
+            branchesPageState.transfers = [
+                optimisticTransfer,
+                ...(branchesPageState.transfers || []).filter(t => t.id !== optimisticTransfer.id)
+            ];
+            renderBranchesPage();
+        }
         loadBranchTransfers();
     } catch (err) {
         errEl.textContent = 'Could not reach the server.';
@@ -8459,7 +8575,30 @@ async function submitBranchTransferRequest(evt) {
     }
     return false;
 }
+// AYOS/BUGFIX (two-sided stock movement): 'send' at 'receive' ay parehong
+// nagbabago na ng totoong stock (babawasan sa source, dadagdagan sa
+// destination) sa server, kaya may confirmation prompt muna dito bago
+// tumawag — hindi tulad ng dating "Accept" na wala namang totoong epekto sa
+// inventory. Ipinapakita rin ang `stockNote` warning kapag walang nahanap na
+// tumutugmang lokal na product (hal. iba ang SKU/pangalan sa destination) —
+// kailangan pa ring i-adjust nang manual sa ganung sitwasyon.
 async function respondBranchTransfer(transferId, action) {
+    if (action === 'send' || action === 'receive') {
+        const confirmText = action === 'send'
+            ? 'This will DEDUCT the stock of the matching item from your own Products list here (the source branch). Continue?'
+            : 'This will ADD the stock of the matching item to your own Products list here (the destination branch). Continue?';
+        if (typeof Swal !== 'undefined') {
+            const confirmResult = await Swal.fire({
+                icon: 'question',
+                title: action === 'send' ? 'Mark as Sent?' : 'Confirm Received?',
+                text: confirmText,
+                showCancelButton: true,
+                confirmButtonText: action === 'send' ? 'Yes, mark as sent' : 'Yes, confirm received',
+                cancelButtonText: 'Cancel'
+            });
+            if (!confirmResult.isConfirmed) return;
+        }
+    }
     try {
         const res = await authFetch(`${API_URL}/branches/transfer-respond`, {
             method: 'POST',
@@ -8471,7 +8610,19 @@ async function respondBranchTransfer(transferId, action) {
             if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Could not update', text: data.message || '' });
             return;
         }
+        if (data.stockNote && typeof Swal !== 'undefined') {
+            Swal.fire({ icon: 'warning', title: 'Status updated, but…', text: data.stockNote });
+        } else if (typeof Swal !== 'undefined' && (action === 'send' || action === 'receive')) {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: action === 'send' ? 'Marked as sent — stock deducted here.' : 'Received confirmed — stock added here.', showConfirmButton: false, timer: 2400 });
+        }
         loadBranchTransfers();
+        if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
+        // I-refresh ang lokal na product cache/catalog dahil posibleng nagbago
+        // ang stock ng isang item dito (dahil sa 'send'/'receive' na kababago
+        // lang) — kung hindi ito i-refresh, puwedeng luma pa rin ang
+        // makikitang stock sa Terminal/Products list hangga't hindi
+        // nire-reload ang page.
+        if (typeof loadTerminalCatalog === 'function') loadTerminalCatalog();
     } catch (err) {
         console.warn('respondBranchTransfer failed:', err);
     }
@@ -9438,7 +9589,16 @@ function estimatePromoDiscount(subtotal) {
         : cartActivePromo.value;
     return Math.min(Math.max(discountAmount, 0), subtotal);
 }
-function renderBestDiscountBadge(winner, seniorPwdAmount, promoAmount, otherAvailable) {
+// BUGFIX: dati, ang ipinapakita/ini-compare na "Senior/PWD (₱X)" dito ay ang
+// 20% discount amount LANG (seniorPwdAmount). Pero ang totoong benepisyo ng
+// customer sa isang Senior/PWD sale ay hindi lang ang 20% discount — VAT-exempt
+// din ito (tinatanggal din ang 12% VAT na naka-bake sa presyo). Kaya kapag
+// mas maliit ang 20%-discount-lang kumpara sa promo code, mali ang pagiging
+// "PROMO ang mas malaki" dahil hindi kasama ang VAT-exemption sa comparison —
+// sa totoo lang mas malaki pa rin ang combined Senior/PWD benefit (20% discount
+// + VAT exemption). Ngayon, ang seniorPwdTotalBenefit (discount + VAT exempted
+// amount) na ang ipinapakita/ikinukumpara dito, hindi lang ang discountAmount.
+function renderBestDiscountBadge(winner, seniorPwdBreakdown, promoAmount, otherAvailable) {
     const badge = document.getElementById('cart-discount-best-badge');
     if (!badge) return;
     if (!winner || !otherAvailable) {
@@ -9446,10 +9606,14 @@ function renderBestDiscountBadge(winner, seniorPwdAmount, promoAmount, otherAvai
         badge.innerText = '';
         return;
     }
+    const seniorPwdTotal = seniorPwdBreakdown.discountAmount + seniorPwdBreakdown.vatExemptedAmount;
+    const seniorPwdLabel = seniorPwdBreakdown.vatExemptedAmount > 0.004
+        ? `₱${seniorPwdTotal.toFixed(2)} total — ₱${seniorPwdBreakdown.discountAmount.toFixed(2)} discount + ₱${seniorPwdBreakdown.vatExemptedAmount.toFixed(2)} VAT exemption`
+        : `₱${seniorPwdTotal.toFixed(2)}`;
     if (winner === 'SENIOR_PWD') {
-        badge.innerText = `Auto-applied: Senior/PWD (₱${seniorPwdAmount.toFixed(2)}) — bigger than the promo code (₱${promoAmount.toFixed(2)})`;
+        badge.innerText = `Auto-applied: Senior/PWD (${seniorPwdLabel}) — bigger than the promo code (₱${promoAmount.toFixed(2)})`;
     } else {
-        badge.innerText = `Auto-applied: Promo code (₱${promoAmount.toFixed(2)}) — bigger than Senior/PWD (₱${seniorPwdAmount.toFixed(2)})`;
+        badge.innerText = `Auto-applied: Promo code (₱${promoAmount.toFixed(2)}) — bigger than Senior/PWD (${seniorPwdLabel})`;
     }
     badge.style.display = 'block';
 }
@@ -9488,18 +9652,33 @@ function resolveBestCartDiscount() {
         });
         return resolveBestCartDiscount();
     }
-    const seniorPwdAmount = hasSeniorPwd ? estimateSeniorPwdDiscount(subtotal).discountAmount : 0;
+    // BUGFIX: dati, `seniorPwdAmount` (ang ikinukumpara sa promoAmount para
+    // malaman kung alin ang "mas malaki") ay ang 20% discount amount LANG.
+    // Pero ang totoong pinipiling "pinakamalaking discount" ay dapat ang
+    // KABUUANG babawasin sa Total ng customer — para sa Senior/PWD, kasama
+    // dito ang VAT-exemption (hindi lang ang 20% discount line). Kaya ang
+    // paghahambing sa ibaba ay ginawang batay na sa seniorPwdTotalBenefit
+    // (discountAmount + vatExemptedAmount), hindi sa discountAmount lang —
+    // kung hindi, mapipili ang Promo code kahit mas maliit pala ang totoong
+    // ibinababa nito sa Total kumpara sa Senior/PWD.
+    const seniorPwdBreakdown = hasSeniorPwd ? estimateSeniorPwdDiscount(subtotal) : { discountAmount: 0, vatExemptedAmount: 0 };
+    const seniorPwdAmount = seniorPwdBreakdown.discountAmount;
+    const seniorPwdTotalBenefit = seniorPwdAmount + seniorPwdBreakdown.vatExemptedAmount;
     const promoAmount = hasPromo ? estimatePromoDiscount(subtotal) : 0;
-    if (hasSeniorPwd && (!hasPromo || seniorPwdAmount >= promoAmount)) {
+    if (hasSeniorPwd && (!hasPromo || seniorPwdTotalBenefit >= promoAmount)) {
         cartDiscountType = 'SENIOR_PWD';
+        // Ang "Discount" input field ay panatilihing 20%-discount-lang (hindi
+        // kasama ang VAT-exemption) — ito ang convention na sinusunod na ng
+        // updateCartTotals() (ibinabawas ang vatExemptedAmount nang hiwalay),
+        // gayundin ng authoritative na server-side na computation.
         discountInput.value = seniorPwdAmount.toFixed(2);
         discountInput.setAttribute('readonly', true);
-        renderBestDiscountBadge('SENIOR_PWD', seniorPwdAmount, promoAmount, hasPromo);
+        renderBestDiscountBadge('SENIOR_PWD', seniorPwdBreakdown, promoAmount, hasPromo);
     } else {
         cartDiscountType = 'PROMO';
         discountInput.value = promoAmount.toFixed(2);
         discountInput.setAttribute('readonly', true);
-        renderBestDiscountBadge('PROMO', seniorPwdAmount, promoAmount, hasSeniorPwd);
+        renderBestDiscountBadge('PROMO', seniorPwdBreakdown, promoAmount, hasSeniorPwd);
     }
 }
 function recalculateActiveDiscount() {

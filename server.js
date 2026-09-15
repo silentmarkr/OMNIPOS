@@ -3857,15 +3857,98 @@ app.post('/api/branches/transfer-request', requirePermission('branches'), requir
         res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
     }
 });
+// AYOS/BUGFIX (two-sided stock movement): dati, "Accept"/"Reject" ay
+// nag-uupdate lang ng status sa RELAY (walang access ang RELAY sa totoong
+// Products/Inventory ng kahit anong branch — magkahiwalay na database ang
+// bawat isa). Ibig sabihin kahit ma-Accept, walang nababagong totoong
+// quantity — kailangan pang gawin nang manual (Restock/Adjustment).
+// Ngayon, dalawang bagong hakbang ang idinagdag AFTER "accepted":
+//   1. "send"    — gagawin ng SOURCE branch ("Mark as Sent"): binabawas dito
+//                  ang stock ng item sa sariling Products list bago i-update
+//                  ang status sa RELAY papuntang "in_transit".
+//   2. "receive" — gagawin ng DESTINATION branch ("Confirm Received"):
+//                  dinaragdag dito ang stock ng item sa sariling Products
+//                  list bago i-update ang status sa RELAY papuntang
+//                  "completed".
+// Kaya ang totoong pagbabago ng quantity ay palaging nangyayari sa device na
+// gumagawa ng aksyon (kanya-kanyang lokal na database), hindi sa RELAY —
+// RELAY lang ang nagpapanatili ng magkasabay/tumutugmang status sa dalawang
+// panig. Parehong niprotektahan ng transactionsMutexRunExclusive (parehong
+// mutex na ginagamit ng benta/void/refund/restock) para hindi ito
+// mag-interleave sa kasabay na pagbabago ng FILE_PRODUCTS.
+function findLocalProductForTransfer(products, sku, itemName) {
+    const cleanSku = String(sku || '').trim().toLowerCase();
+    if (cleanSku) {
+        const bySku = products.find(p => String(p.code || '').trim().toLowerCase() === cleanSku);
+        if (bySku) return bySku;
+    }
+    const cleanName = String(itemName || '').trim().toLowerCase();
+    if (cleanName) {
+        const byName = products.find(p => String(p.name || '').trim().toLowerCase() === cleanName);
+        if (byName) return byName;
+    }
+    return null;
+}
 app.post('/api/branches/transfer-respond', requirePermission('branches'), requireFeature('multi_branch'), rateLimit('branches-transfer-respond', 30, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processBranchTransferRespond(req, res));
+});
+async function processBranchTransferRespond(req, res) {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
     if (!groupKeyHash) return res.status(400).json({ success: false, message: 'No Business Group Code has been configured yet.' });
     if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY configured in .env.' });
     const { transferId, action } = req.body || {};
+    const username = req.authUser && req.authUser.username;
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
+        // Kunin muna ang kasalukuyang laman ng transfer mula RELAY (para makuha
+        // ang itemName/sku/qty/direction) bago gumawa ng kahit anong lokal na
+        // pagbabago sa stock — iniiwasan din nito ang double-apply kung
+        // paulit-ulit na na-click ang button (RELAY ang siyang nag-eenforce ng
+        // tamang pagkakasunod-sunod ng status sa ibaba).
+        let matchedProduct = null;
+        let stockNote = '';
+        if (action === 'send' || action === 'receive') {
+            const listRes = await relayFetch(`${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}`, {
+                method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY }
+            });
+            const listData = await parseRelayResponse(listRes);
+            if (!listData.success) {
+                return res.status(listRes.status || 502).json({ success: false, message: listData.message || 'Could not look up the transfer request.' });
+            }
+            const transfer = (listData.transfers || []).find(t => t.id === transferId);
+            if (!transfer) return res.status(404).json({ success: false, message: 'Transfer request not found.' });
+            if (action === 'send' && transfer.fromInstallationId !== installationId) {
+                return res.status(403).json({ success: false, message: 'Only the source branch can mark this transfer as sent.' });
+            }
+            if (action === 'receive' && transfer.toInstallationId !== installationId) {
+                return res.status(403).json({ success: false, message: 'Only the destination branch can confirm receipt of this transfer.' });
+            }
+            let products = readData(FILE_PRODUCTS);
+            matchedProduct = findLocalProductForTransfer(products, transfer.sku, transfer.itemName);
+            if (action === 'send') {
+                if (!matchedProduct) {
+                    stockNote = ` (walang nahanap na tumutugmang product dito sa SKU/pangalan na "${transfer.sku || transfer.itemName}" — hindi na-bawas ang stock, i-adjust nang manual kung kailangan)`;
+                } else {
+                    const currentStock = parseInt(matchedProduct.stock) || 0;
+                    if (currentStock < transfer.qty) {
+                        return res.status(409).json({ success: false, message: `Kulang ang stock ng "${matchedProduct.name}" dito (${currentStock} lang, kailangan ${transfer.qty}). I-adjust muna ang quantity o i-restock bago i-mark as sent.` });
+                    }
+                    matchedProduct.stock = currentStock - transfer.qty;
+                    writeData(FILE_PRODUCTS, products);
+                    logAction(username, `Branch transfer OUT: -${transfer.qty} "${matchedProduct.name}" (bagong stock: ${matchedProduct.stock}) papunta sa ${transfer.toBranchName || 'ibang branch'} [transfer ${transferId}]`);
+                }
+            } else if (action === 'receive') {
+                if (!matchedProduct) {
+                    stockNote = ` (walang nahanap na tumutugmang product dito sa SKU/pangalan na "${transfer.sku || transfer.itemName}" — hindi na-dagdag ang stock; gawa ng bagong Product entry o i-adjust nang manual)`;
+                } else {
+                    matchedProduct.stock = (parseInt(matchedProduct.stock) || 0) + transfer.qty;
+                    writeData(FILE_PRODUCTS, products);
+                    logAction(username, `Branch transfer IN: +${transfer.qty} "${matchedProduct.name}" (bagong stock: ${matchedProduct.stock}) mula sa ${transfer.fromBranchName || 'ibang branch'} [transfer ${transferId}]`);
+                }
+            }
+        }
         const relayRes = await relayFetch(`${RELAY_URL}/relay/branch-transfer-respond`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -3873,13 +3956,19 @@ app.post('/api/branches/transfer-respond', requirePermission('branches'), requir
         });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
+            // NOTE: kung na-deduct/na-dagdag na ang lokal na stock pero nabigo ang
+            // pag-update ng status sa RELAY (hal. network issue), maiiwan itong
+            // hindi magkatugma hanggang sa susunod na tamang pag-retry ng aksyon
+            // (o manual na Restock/Adjustment). Ito ay pinapayagang trade-off
+            // dahil walang distributed transaction sa pagitan ng RELAY (shared
+            // status) at ng lokal na database ng bawat isolated na branch.
             return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'The transfer request could not be updated.' });
         }
-        res.json({ success: true, transfer: relayData.transfer });
+        res.json({ success: true, transfer: relayData.transfer, stockNote: stockNote || undefined });
     } catch (err) {
         res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
     }
-});
+}
 let integrityWatchDebounceTimer = null;
 let integrityWatchLastRunAt = 0;
 const INTEGRITY_WATCH_DEBOUNCE_MS = 800;
