@@ -488,7 +488,7 @@
 
                         <div class="metric-card">
                             <div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div>
-                            <div><p class="metric-label">TOTAL REVENUE</p><h3 id="metric-revenue">₱70</h3></div>
+                            <div><p class="metric-label">TODAY'S SALES</p><h3 id="metric-revenue">₱70</h3></div>
                         </div>
                         <div class="metric-card">
                             <div class="metric-icon neutral"><i class="fa-solid fa-scroll"></i></div>
@@ -961,7 +961,7 @@
                         </div>
                     </div>
                     <div class="metrics-grid">
-                        <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">Gross Income</p><h3 id="report-gross">₱0.00</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">Net Sales</p><h3 id="report-gross">₱0.00</h3></div></div>
                         <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">Transactions Handled</p><h3 id="report-count">0</h3></div></div>
                         <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-chart-line"></i></div><div><p class="metric-label">Estimated Profit</p><h3 id="report-profit">₱0.00</h3></div></div>
                         <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-percent"></i></div><div><p class="metric-label">Avg. Margin %</p><h3 id="report-margin-pct">0%</h3></div></div>
@@ -1109,8 +1109,8 @@
                 <section id="view-branches" class="app-view" style="display:none;">
                     <div class="view-header-row" style="margin-bottom: 15px;">
                         <h2 id="page-title-branches"><i class="fa-solid fa-code-branch"></i> Branches</h2>
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn-action-outline" onclick="loadBranchesPage()" title="Refresh"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        <div class="branches-header-actions" style="display:flex; gap:10px; align-items:center;">
+                            <button class="btn-action-outline" id="branches-header-refresh-btn" onclick="loadBranchesPage()" title="Refresh" aria-label="Refresh branch data"><i class="fa-solid fa-rotate"></i></button>
                             <button class="btn-action-global" id="branches-new-transfer-btn" onclick="openBranchTransferRequestModal()" style="display:none;"><i class="fa-solid fa-right-left"></i> New Transfer Request</button>
                         </div>
                     </div>
@@ -4363,6 +4363,7 @@
 <script src="faq-lang.js"></script>
 <script src="faq-engine.js"></script>
 <script src="app.js"></script>
+<script src="app1.js"></script>
 
 <script>
 

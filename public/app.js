@@ -7487,7 +7487,7 @@ async function loadDashboardMetrics() {
                    txDate.getMonth() === currentMonth &&
                    txDate.getDate() === currentDate;
         });
-        const revenue = todaysTxs.reduce((acc, current) => acc + (parseFloat(current.total) || 0), 0);
+        const revenue = todaysTxs.reduce((acc, current) => acc + ovGetNetSalesAmount(current), 0);
         const totalProductsCount = productsList.length;
         const lowStockItemsCount = productsList.filter(p => {
             const stock = parseInt(p.stock) || 0;
@@ -7509,11 +7509,13 @@ async function loadDashboardMetrics() {
             const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
             return daysLeft < 0;
         }).length;
-        const totalUsersCount = usersList.length;
+        const canViewUsers = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin') || !!(currentPermissions && currentPermissions.users);
+        const totalUsersCount = canViewUsers && resUsers.ok ? usersList.length : null;
         const todayProductRanking = {};
         todaysTxs.forEach(tx => {
+            if (!ovIsCountableSale(tx)) return;
             (tx.items || []).forEach(i => {
-                const qty = parseInt(i.quantity) || 0;
+                const qty = ovGetNetItemQty(tx, i);
                 if (!i.name || qty <= 0) return;
                 todayProductRanking[i.name] = (todayProductRanking[i.name] || 0) + qty;
             });
@@ -7522,7 +7524,7 @@ async function loadDashboardMetrics() {
             .map(([name, qty]) => ({ name, qty }))
             .sort((a, b) => b.qty - a.qty)
             .slice(0, 5);
-        renderDashboardDOM(revenue, todaysTxs.length, totalProductsCount, lowStockItemsCount, noStockItemsCount, totalUsersCount, expiringSoonCount, expiredCount, topProductsToday);
+        renderDashboardDOM(revenue, todaysTxs.filter(ovIsCountableSale).length, totalProductsCount, lowStockItemsCount, noStockItemsCount, totalUsersCount, expiringSoonCount, expiredCount, topProductsToday);
         renderWeeklyTrend(uniqueTxs);
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(uniqueTxs);
@@ -7540,7 +7542,7 @@ async function loadDashboardMetrics() {
             let d = new Date(tx.isoDate || tx.timestamp || tx.date);
             return !isNaN(d.getTime()) && d.getFullYear() === cy && d.getMonth() === cm && d.getDate() === cd;
         });
-        const cachedRevenue = cachedTodayTxs.reduce((acc, curr) => acc + (parseFloat(curr.total) || 0), 0);
+        const cachedRevenue = cachedTodayTxs.reduce((acc, curr) => acc + ovGetNetSalesAmount(curr), 0);
         const lowStockCount = cachedProds.filter(p => {
             const s = parseInt(p.stock) || 0;
             const th = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
@@ -7561,7 +7563,8 @@ async function loadDashboardMetrics() {
             const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
             return daysLeft < 0;
         }).length;
-        renderDashboardDOM(cachedRevenue, cachedTodayTxs.length, cachedProds.length, lowStockCount, noStockCount, 0, cachedExpiringSoonCount, cachedExpiredCount);
+        const canViewUsers = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin') || !!(currentPermissions && currentPermissions.users);
+        renderDashboardDOM(cachedRevenue, cachedTodayTxs.filter(ovIsCountableSale).length, cachedProds.length, lowStockCount, noStockCount, canViewUsers ? 0 : null, cachedExpiringSoonCount, cachedExpiredCount, []);
         renderWeeklyTrend(cachedTxs);
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(cachedTxs);
@@ -7656,6 +7659,46 @@ function replayOverviewEntranceAnimation() {
     void overviewSection.offsetWidth;
     animatedEls.forEach(el => el.classList.add('ov-anim'));
 }
+function ovGetGrossAmount(tx) {
+    return Math.max(0, parseFloat(tx && tx.total) || 0);
+}
+function ovGetRefundedAmount(tx) {
+    const gross = ovGetGrossAmount(tx);
+    if (tx && tx.refundStatus === 'full') return gross;
+    return Math.min(gross, Math.max(0, parseFloat(tx && tx.totalRefunded) || 0));
+}
+function ovGetNetSalesAmount(tx) {
+    return Math.max(0, Math.round((ovGetGrossAmount(tx) - ovGetRefundedAmount(tx)) * 100) / 100);
+}
+function ovIsFullyRefunded(tx) {
+    const gross = ovGetGrossAmount(tx);
+    if (gross <= 0) return false;
+    return !!(tx && tx.refundStatus === 'full') || ovGetRefundedAmount(tx) >= gross - 0.01;
+}
+function ovGetRefundedItemQty(tx, item) {
+    const map = tx && tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
+    const key = item && item.code != null ? String(item.code) : '';
+    return Math.max(0, parseInt(map[key], 10) || 0);
+}
+function ovGetNetItemQty(tx, item) {
+    const sold = Math.max(0, parseInt(item && item.quantity, 10) || 0);
+    return Math.max(0, sold - Math.min(sold, ovGetRefundedItemQty(tx, item)));
+}
+function ovIsCountableSale(tx) {
+    return ovGetNetSalesAmount(tx) > 0.009;
+}
+function ovFindComparisonBucketByRelativePosition(currentBucket, currentBuckets, compareBuckets) {
+    if (!currentBucket || !Array.isArray(currentBuckets) || !currentBuckets.length || !Array.isArray(compareBuckets) || !compareBuckets.length) return null;
+    if (compareBuckets.length === 1) return compareBuckets[0];
+    const first = currentBuckets[0].sortKey;
+    const last = currentBuckets[currentBuckets.length - 1].sortKey;
+    const span = Math.max(1, last - first);
+    const ratio = Math.max(0, Math.min(1, (currentBucket.sortKey - first) / span));
+    const targetIndex = ratio * (compareBuckets.length - 1);
+    const lower = Math.floor(targetIndex);
+    const upper = Math.ceil(targetIndex);
+    return compareBuckets[Math.abs(targetIndex - lower) <= Math.abs(upper - targetIndex) ? lower : upper];
+}
 function renderWeeklyTrend(txList) {
     const container = document.getElementById('overview-trend-bars');
     if (!container) return;
@@ -7675,7 +7718,7 @@ function renderWeeklyTrend(txList) {
             const sameDay = txDate.getFullYear() === day.getFullYear() &&
                             txDate.getMonth() === day.getMonth() &&
                             txDate.getDate() === day.getDate();
-            return sameDay ? sum + (parseFloat(tx.total) || 0) : sum;
+            return sameDay ? sum + ovGetNetSalesAmount(tx) : sum;
         }, 0);
     });
     const maxVal = Math.max(...totals, 1);
@@ -7779,7 +7822,8 @@ function ovComputeBuckets(txs, granularity, from, to) {
     inRange.forEach(tx => {
         const d = ovGetTxDate(tx);
         if (!d) return;
-        const amt = parseFloat(tx.total) || 0;
+        const amt = ovGetNetSalesAmount(tx);
+        if (amt <= 0.009) return;
         let key, label, sortKey;
         if (granularity === 'hour') {
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
@@ -8019,8 +8063,12 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
         });
     });
     let compareSvg = '';
-    if (compareBuckets && compareBuckets.length > 1) {
-        compareSvg = `<path d="${buildLinePath(b => b.total || 0, compareBuckets)}" fill="none" stroke="${colors.compare}" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
+    if (compareBuckets && compareBuckets.length > 0 && buckets.length > 0) {
+        const comparePath = compareBuckets.map((b, i) => {
+            const xIndex = compareBuckets.length === 1 ? 0 : (i * (n - 1) / (compareBuckets.length - 1));
+            return `${i === 0 ? 'M' : 'L'} ${xAt(xIndex).toFixed(1)} ${yAt(b.total || 0).toFixed(1)}`;
+        }).join(' ');
+        compareSvg = `<path d="${comparePath}" fill="none" stroke="${colors.compare}" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
     }
     let hoverSvg = '';
     buckets.forEach((b, i) => {
@@ -8053,7 +8101,7 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
                 const idx = parseInt(col.getAttribute('data-idx'));
                 const b = buckets[idx];
                 if (!b) return;
-                const cmp = compareBuckets && compareBuckets[idx];
+                const cmp = compareBuckets && ovFindComparisonBucketByRelativePosition(b, buckets, compareBuckets);
                 let rows = `<div class="tt-row"><span><span class="tt-dot" style="background:${colors.total};"></span>Total</span><span>${ovFormatPeso(b.total)}</span></div>`;
                 if (metric === 'high' || metric === 'both') rows += `<div class="tt-row"><span><span class="tt-dot" style="background:${colors.high};"></span>High</span><span>${ovFormatPeso(b.high)}</span></div>`;
                 if (metric === 'low' || metric === 'both') rows += `<div class="tt-row"><span><span class="tt-dot" style="background:${colors.low};"></span>Low</span><span>${ovFormatPeso(b.low)}</span></div>`;
@@ -8171,12 +8219,48 @@ let branchesPageState = {
     trendCache: {},
     combinedTrendCache: [],
     transfers: [],
-    transferFilter: 'all', // 'all' | 'incoming' | 'outgoing' | 'action'
+    transferFilter: 'action', // 'all' | 'incoming' | 'outgoing' | 'action' — default: Needs My Action
     pollTimer: null
 };
-// Mga transferId na kasalukuyang may in-flight na accept/reject/cancel/send/
-// receive na request papunta sa server — ginagamit para i-disable ang mga
-// action button ng row na iyon (bantay laban sa paulit-ulit na pag-click).
+window.branchesPageState = branchesPageState;
+// Branch summary request guard: avoid duplicate RELAY calls when the page,
+// refresh button, and menu badge update at nearly the same time. RELAY may
+// rate-limit repeated /branch-summary requests, so reuse a short-lived cache
+// and share one in-flight request.
+let branchesSummaryCache = null;
+let branchesSummaryCacheAt = 0;
+let branchesSummaryRequestPromise = null;
+const BRANCH_SUMMARY_CACHE_MS = 15000;
+async function getBranchesSummary(force = false) {
+    const now = Date.now();
+    if (!force && branchesSummaryCache && (now - branchesSummaryCacheAt) < BRANCH_SUMMARY_CACHE_MS) {
+        return branchesSummaryCache;
+    }
+    if (branchesSummaryRequestPromise) return branchesSummaryRequestPromise;
+    branchesSummaryRequestPromise = (async () => {
+        try {
+            const res = await authFetch(`${API_URL}/branches/summary`);
+            let data = null;
+            try { data = await res.json(); } catch (_) { data = null; }
+            if (!res.ok) {
+                const err = new Error((data && data.message) || `Branch data request failed (HTTP ${res.status})`);
+                err.status = res.status;
+                err.data = data;
+                throw err;
+            }
+            if (!data || typeof data !== 'object') throw new Error('Invalid branch data response.');
+            branchesSummaryCache = data;
+            branchesSummaryCacheAt = Date.now();
+            return data;
+        } finally {
+            branchesSummaryRequestPromise = null;
+        }
+    })();
+    return branchesSummaryRequestPromise;
+}
+// transferIds that currently have an in-flight accept/reject/cancel/send/
+// receive request to the server — used to disable that row's action
+// button(s) (a guard against repeated clicking).
 const branchTransferActionsInFlight = new Set();
 const branchesThemeObserver = new MutationObserver(() => {
     const view = document.getElementById('view-branches');
@@ -8188,9 +8272,7 @@ async function refreshBranchesAlertBadge() {
     if (!badge) return;
     if (!isFeatureUnlockedCached('multi_branch')) { badge.style.display = 'none'; return; }
     try {
-        const res = await authFetch(`${API_URL}/branches/summary`);
-        if (!res.ok) { badge.style.display = 'none'; return; }
-        const data = await res.json();
+        const data = await getBranchesSummary(false);
         if (!data.configured || !data.success) { badge.style.display = 'none'; return; }
         const branches = data.branches || [];
         let count = branches.filter(b => !b.isSelf && (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000)).length;
@@ -8208,32 +8290,31 @@ async function refreshBranchesAlertBadge() {
         badge.style.display = 'none';
     }
 }
-// AYOS/BUGFIX: dati, "incoming + pending" (i.e. kailangan pang i-Accept/Reject)
-// lang ang binibilang bilang alert. Pero mayroon na ring dalawang bagong
-// hakbang na nangangailangan ng aksyon mula sa isang branch: "accepted"
-// papunta sa OUTGOING (kailangan nang i-Mark as Sent ng source) at
-// "in_transit" papunta sa INCOMING (kailangan nang i-Confirm Received ng
-// destination). Kasama na rin ngayon ang mga ito sa badge count para hindi
-// makaligtaan ng cashier/manager.
+// FIX: previously, only "incoming + pending" (i.e. still needs Accept/Reject)
+// was counted as an alert. But there are now also two new steps that need
+// action from a branch: "accepted" on the OUTGOING side (the source needs
+// to Mark as Sent) and "in_transit" on the INCOMING side (the destination
+// needs to Confirm Received). These are now also included in the badge
+// count so a cashier/manager doesn't miss them.
 function countActionableBranchTransfers(transfers) {
     return (transfers || []).filter(isActionableBranchTransfer).length;
 }
-// AYOS/BUGFIX (walang real-time notification papunta sa ibang branch): dati,
-// ang listahan/badge ng incoming request ay ini-refresh lang (a) kapag
-// binuksan ang Overview page, o (b) habang nasa Branches page mismo
-// (60-second polling doon). Kung nasa Terminal page lang (karaniwang
-// tinitirahan ng cashier) ang staff, hindi nila makikita agad ang bagong
-// request hangga't hindi sila pumunta mismo sa Overview/Branches. Dinagdagan
-// ng isang GLOBAL, light-weight na poll (gaya ng pattern ng
-// pollMyShiftClosedRemotely/syncOfflineTransactions sa ibaba) na tumatakbo
-// kahit anong page/view ang bukas, hangga't naka-login at naka-unlock ang
-// multi_branch feature. Nagpapakita rin ito ng toast kapag may BAGONG
-// actionable na transfer na lumitaw mula noong huling check.
+// FIX (no real-time notification to the other branch): previously, the
+// incoming request list/badge was only refreshed (a) when the Overview
+// page was opened, or (b) while actually on the Branches page itself
+// (60-second polling there). If staff stayed on the Terminal page (where
+// a cashier usually is), they wouldn't see a new request right away until
+// they went to Overview/Branches themselves. Added a GLOBAL, lightweight
+// poll (following the same pattern as pollMyShiftClosedRemotely/
+// syncOfflineTransactions below) that runs no matter which page/view is
+// open, as long as the user is logged in and the multi_branch feature is
+// unlocked. This also shows a toast when a NEW actionable transfer has
+// appeared since the last check.
 let branchTransfersLastActionableIds = null;
 async function pollBranchTransfersGlobally() {
     if (!currentUser) return;
     if (typeof isFeatureUnlockedCached === 'function' && !isFeatureUnlockedCached('multi_branch')) return;
-    if (!document.getElementById('menu-branches-alert-badge')) return; // walang 'branches' permission ang menu item na ito kung wala
+    if (!document.getElementById('menu-branches-alert-badge')) return; // this menu item is absent if the current user has no 'branches' permission
     try {
         const res = await authFetch(`${API_URL}/branches/transfers`);
         if (!res.ok) return;
@@ -8261,13 +8342,13 @@ async function pollBranchTransfersGlobally() {
         branchTransfersLastActionableIds = currentIds;
         const badge = document.getElementById('menu-branches-alert-badge');
         if (badge) {
-            // AYOS/BUGFIX: dati, walang else branch dito kaya kapag bumaba na
-            // pabalik sa 0 ang actionable count (hal. na-Accept/na-Cancel/
-            // na-complete na ang huling pending transfer), nananatiling
-            // nakalabas at naka-display ang DATING bilang sa badge — hindi na
-            // ito naa-ayos hangga't hindi pumunta ang user sa Overview o sa
-            // Branches page mismo (doon lang tinatawag ang
-            // refreshBranchesAlertBadge(), na siyang may tamang else branch).
+            // FIX: previously, there was no else branch here, so when the
+            // actionable count dropped back to 0 (e.g. the last pending
+            // transfer was Accepted/Cancelled/completed), the OLD count
+            // stayed showing on the badge — it wouldn't correct itself
+            // until the user went to Overview or the Branches page itself
+            // (only there was refreshBranchesAlertBadge() called, which
+            // did have the correct else branch).
             if (actionable.length > 0) { badge.innerText = actionable.length > 99 ? '99+' : actionable.length; badge.style.display = 'inline-block'; }
             else badge.style.display = 'none';
         }
@@ -8287,26 +8368,56 @@ async function loadBranchesPage(silent) {
     if (!body) return;
     if (!silent) body.innerHTML = '<p style="color:#94a3b8;font-size:0.9rem;">Loading…</p>';
     try {
-        const res = await authFetch(`${API_URL}/branches/summary`);
-        if (res.status === 402) {
-            const locked = await res.json();
-            if (newBtn) newBtn.style.display = 'none';
-            const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number' ? locked.subscriptionPrice.monthly : locked.price;
-            body.innerHTML = `
-                <div style="text-align:center; padding:40px 15px;">
-                    <span class="menu-pro-lock" style="display:inline-block;font-size:2rem;margin-bottom:12px;"><i class="fa-solid fa-lock"></i></span>
-                    <p style="color:#64748b;margin:0 0 14px;max-width:420px;margin-left:auto;margin-right:auto;">See combined sales, per-branch drill-down, hourly trend charts, offline/low-stock alerts, and inter-branch stock transfer requests — all here on one page.</p>
-                    <button type="button" class="btn-action-global" id="branches-page-unlock-btn">
-                        <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — starting at ₱${monthlyPrice}/mo
-                    </button>
-                </div>`;
-            const unlockBtn = document.getElementById('branches-page-unlock-btn');
-            if (unlockBtn) unlockBtn.addEventListener('click', async () => { const ok = await promptModuleSubscription(locked.featureId); if (ok) loadBranchesPage(); });
+        let data;
+        try {
+            // Force one fresh request for an explicit page load/refresh, but
+            // share it with any simultaneous badge refresh instead of sending
+            // multiple RELAY requests. Do NOT retry HTTP 429: that only makes
+            // a rate-limit window worse.
+            data = await getBranchesSummary(true);
+        } catch (err) {
+            const status = Number(err && err.status) || 0;
+            if (status === 402) {
+                const locked = err.data || {};
+                if (newBtn) newBtn.style.display = 'none';
+                const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number' ? locked.subscriptionPrice.monthly : locked.price;
+                body.innerHTML = `
+                    <div style="text-align:center; padding:40px 15px;">
+                        <span class="menu-pro-lock" style="display:inline-block;font-size:2rem;margin-bottom:12px;"><i class="fa-solid fa-lock"></i></span>
+                        <p style="color:#64748b;margin:0 0 14px;max-width:420px;margin-left:auto;margin-right:auto;">See combined sales, per-branch drill-down, hourly trend charts, offline/low-stock alerts, and inter-branch stock transfer requests — all here on one page.</p>
+                        <button type="button" class="btn-action-global" id="branches-page-unlock-btn">
+                            <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — starting at ₱${monthlyPrice}/mo
+                        </button>
+                    </div>`;
+                const unlockBtn = document.getElementById('branches-page-unlock-btn');
+                if (unlockBtn) unlockBtn.addEventListener('click', async () => { const ok = await promptModuleSubscription(locked.featureId); if (ok) loadBranchesPage(); });
+                return;
+            }
+            if (status === 429) {
+                const retryAfter = err.data?.retryAfter || err.data?.retry_after || null;
+                const waitText = retryAfter ? ` Try again in ${retryAfter} seconds.` : ' Please wait a moment before trying again.';
+                if (!silent) {
+                    body.innerHTML = `<div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;"><div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-clock"></i> Branch data is temporarily rate-limited</div><div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">${escapeHtml((err.message || 'Too many requests.') + waitText)}</div><button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button></div>`;
+                }
+                return;
+            }
+            if (status !== 402) {
+                if (!silent) {
+                    body.innerHTML = `<div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;"><div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Unable to load branch data</div><div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">${escapeHtml(err.message || 'Unable to load branch data.')}</div><button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button></div>`;
+                }
+                return;
+            }
+        }
+        if (!data || typeof data !== 'object') {
+            if (!silent) {
+                body.innerHTML = '<div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;"><div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Unable to load branch data</div><div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">Invalid branch data response.</div><button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button></div>';
+            }
             return;
         }
-        if (!res.ok) { if (!silent) body.innerHTML = '<p style="color:#ef4444;">Could not get branch data.</p>'; return; }
-        const data = await res.json();
-        if (!data.configured) {
+        // A 402 response is represented by getBranchesSummary as an error.
+        // The normal feature-lock UI is rendered in that catch path, so a
+        // successful response can continue directly to the configured check.
+        if (!data || !data.configured) {
             if (newBtn) newBtn.style.display = 'none';
             body.innerHTML = `
                 <p style="color:#94a3b8;line-height:1.6;">
@@ -8330,7 +8441,15 @@ async function loadBranchesPage(silent) {
         loadBranchesTrend(true);
     } catch (err) {
         console.warn('loadBranchesPage failed:', err);
-        if (!silent) body.innerHTML = '<p style="color:#ef4444;">Could not reach the server.</p>';
+        if (!silent) {
+            const detail = err && err.message ? String(err.message) : 'Unknown network error';
+            body.innerHTML = `
+                <div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;">
+                    <div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Unable to reach branch service</div>
+                    <div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">${escapeHtml(detail)}</div>
+                    <button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button>
+                </div>`;
+        }
     }
 }
 function renderTrendSvg(history) {
@@ -8378,18 +8497,18 @@ async function loadBranchTransfers(silent) {
         refreshBranchesAlertBadge();
     } catch (e) {
         console.warn('loadBranchTransfers failed:', e);
-        // AYOS/BUGFIX: dati, tahimik lang itong nabibigo dito (console.warn
-        // lang) — walang anumang palatandaan sa user na maaaring luma na
-        // ang nakikita niyang listahan/status. May optimistic update na sa
-        // submit/respond functions para sa AGAD na feedback, pero kung
-        // talagang mabigo itong background sync (hal. tuloy-tuloy na walang
-        // internet), dapat malaman ng user para makapag-manual refresh.
+        // FIX: previously, this silently failed here (only a console.warn)
+        // — no indication to the user that the list/status they're
+        // seeing might be stale. There's already an optimistic update in
+        // the submit/respond functions for IMMEDIATE feedback, but if this
+        // background sync genuinely keeps failing (e.g. persistently no
+        // internet), the user should know so they can manually refresh.
         branchesPageState.transfersSyncError = true;
         renderBranchesPage();
     }
 }
-// Ginagamit parehong ng filter tabs (para malaman kung "needs action" ba ang
-// isang partikular na row) at ng badge/polling code sa itaas.
+// Used by both the filter tabs (to know whether a given row "needs
+// action") and the badge/polling code above.
 function isActionableBranchTransfer(t) {
     return (t.direction === 'incoming' && t.status === 'pending') ||
         (t.direction === 'outgoing' && t.status === 'accepted') ||
@@ -8409,11 +8528,11 @@ function renderBranchTransfersHtml() {
     if (allTransfers.length === 0) {
         return header + syncErrorNote + `<p style="color:#94a3b8;font-size:0.85rem;">There are no transfer requests between branches yet.</p>`;
     }
-    // AYOS/PAGBUTI (filter tabs): dati, isang mahabang listahan lang lahat ng
-    // transfer (parehong incoming/outgoing, parehong tapos na at kailangan
-    // pa ng aksyon) — kailangan pang mag-scroll/maghanap manually. Idinagdag
-    // ngayon ang mabilisang pag-filter para agad makita kung ano ang
-    // kailangan ng pansin.
+    // FIX (filter tabs): previously, it was just one long list of every
+    // transfer (incoming/outgoing mixed together, both finished ones and
+    // ones that still needed action) — had to scroll/search manually.
+    // Quick filtering was added so what needs attention is immediately
+    // visible.
     const filter = branchesPageState.transferFilter || 'all';
     const actionCount = allTransfers.filter(isActionableBranchTransfer).length;
     const filtered = allTransfers.filter(t => {
@@ -8441,12 +8560,12 @@ function renderBranchTransfersHtml() {
         // Status colors: pending=orange, accepted/in_transit=blue (needs another
         // step before the stock is actually moved), completed=green (stock has
         // moved on both sides), rejected/cancelled/unknown=gray.
-        // AYOS/BUGFIX: dati, direktang tinatawag ang `t.status.charAt(0)`
-        // kaya kung sa kahit anong dahilan ay walang `status` field ang isang
-        // record (hal. corrupted/unexpected na relay response), mag-tha-throw
-        // ito ng TypeError sa gitna ng .map() — bumabagsak ang BUONG render
-        // (kasama na ang lahat ng ibang tama namang record). Ginawang safe
-        // gamit ang fallback na 'unknown'.
+        // FIX: previously, `t.status.charAt(0)` was called directly, so
+        // if a record had no `status` field for any reason (e.g. a
+        // corrupted/unexpected relay response), this would throw a
+        // TypeError in the middle of .map() — crashing the ENTIRE render
+        // (including every other perfectly fine record). Made safe with
+        // a fallback of 'unknown'.
         const safeStatus = t.status || 'unknown';
         const statusColor = safeStatus === 'pending' ? '#f59e0b'
             : (safeStatus === 'accepted' || safeStatus === 'in_transit') ? '#2563eb'
@@ -8456,12 +8575,12 @@ function renderBranchTransfersHtml() {
         const dirLabel = t.direction === 'incoming' ? `To you from ${escapeHtml(t.fromBranchName)}` : (t.direction === 'outgoing' ? `To ${escapeHtml(t.toBranchName)}` : `${escapeHtml(t.fromBranchName)} \u2192 ${escapeHtml(t.toBranchName)}`);
         const busy = branchTransferActionsInFlight.has(t.id);
         const actionBtn = (label, action, extraStyle, icon) => `<button class="btn-action-outline" ${busy ? 'disabled' : ''} style="padding:4px 10px;font-size:0.75rem;${busy ? 'opacity:0.5;cursor:not-allowed;' : ''}${extraStyle || ''}" onclick="respondBranchTransfer('${t.id}','${action}')">${icon || ''}${label}</button>`;
-        // AYOS/BUGFIX (two-sided stock movement): dati, tapos na ang buong flow
-        // pagkatapos ng "Accept" — status na lang ang nagbabago, walang
-        // epekto sa totoong stock. Dalawa na ngayong bagong hakbang bago
-        // matapos ang isang request:
-        //   accepted (outgoing) -> "Mark as Sent" (babawasan ang stock dito, sa source)
-        //   in_transit (incoming) -> "Confirm Received" (dadagdagan ang stock dito, sa destination)
+        // FIX (two-sided stock movement): previously, the whole flow was
+        // done after "Accept" — only the status changed, with no effect
+        // on real stock. There are now two new steps before a request is
+        // considered complete:
+        //   accepted (outgoing) -> "Mark as Sent" (deducts stock here, at the source)
+        //   in_transit (incoming) -> "Confirm Received" (adds stock here, at the destination)
         let actions = '';
         if (t.direction === 'incoming' && safeStatus === 'pending') {
             actions = actionBtn('Accept', 'accept') + ' ' + actionBtn('Reject', 'reject', 'color:#ef4444;border-color:#ef4444;');
@@ -8477,7 +8596,7 @@ function renderBranchTransfersHtml() {
             actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.toBranchName)} to confirm receipt…</span>`;
         }
         return `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;${busy ? 'opacity:0.7;' : ''}">
+            <div class="branches-transfer-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;${busy ? 'opacity:0.7;' : ''}">
                 <div>
                     <div style="font-weight:600;">${escapeHtml(t.itemName)} ${t.sku ? `<span style="color:#94a3b8;font-weight:normal;font-size:0.75rem;">(${escapeHtml(t.sku)})</span>` : ''} — ${t.qty} pc(s)</div>
                     <div style="font-size:0.75rem;color:#94a3b8;">${dirLabel} · ${timeAgoLabel(t.createdAt)}</div>
@@ -8489,9 +8608,9 @@ function renderBranchTransfersHtml() {
                 </div>
             </div>`;
     }).join('');
-    // AYOS/PAGBUTI: dati, kung lumampas sa 50 ang mga tugma sa filter,
-    // tahimik lang itong pinuputol nang walang kahit anong palatandaan —
-    // parang kumpleto na ang listahan kahit hindi pala.
+    // FIX: previously, if the filtered matches exceeded 50, it was
+    // silently cut off with no indication at all — the list looked
+    // complete even though it wasn't.
     const overflowNote = filtered.length > BRANCH_TRANSFER_LIST_LIMIT
         ? `<p style="color:#94a3b8;font-size:0.75rem;margin:8px 0 0;text-align:center;">Showing the latest ${BRANCH_TRANSFER_LIST_LIMIT} of ${filtered.length} matching requests.</p>`
         : '';
@@ -8544,7 +8663,7 @@ function renderBranchesPage() {
                     </div>
                 </div>
                 ${expanded ? `
-                    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color);">
+                    <div class="bi-expanded-panel" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color);">
                         <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;">
                             <div><div style="font-weight:700;">${currency}${(b.summary?.netSalesToday || 0).toFixed(2)}</div><div style="font-size:0.7rem;color:#94a3b8;">Net Sales Today</div></div>
                             <div><div style="font-weight:700;">${b.summary?.activeShiftCount || 0}</div><div style="font-size:0.7rem;color:#94a3b8;">Active Shifts</div></div>
@@ -8556,7 +8675,7 @@ function renderBranchesPage() {
     }).join('');
     body.innerHTML = combinedCard + alertsHtml +
         `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-code-branch"></i> Per-Branch Detail</h3>` +
-        branchRows + renderBranchTransfersHtml();
+        branchRows + `<div id="branches-transfers-section">${renderBranchTransfersHtml()}</div>`;
     populateBranchTransferDestinations();
 }
 function toggleBranchDrilldown(installationId) {
@@ -8594,18 +8713,18 @@ async function submitBranchTransferRequest(evt) {
     const note = document.getElementById('bt-form-note').value.trim();
     if (!toInstallationId) { errEl.textContent = 'No destination branch is available.'; errEl.style.display = 'block'; return false; }
     if (!itemName || !qty || qty < 1) { errEl.textContent = 'Fill in the item name and quantity.'; errEl.style.display = 'block'; return false; }
-    // AYOS/PAGBUTI: ang relay ay tahimik na pinuputol (slice) ang itemName sa
-    // 120, sku sa 60, at note sa 300 characters — kung hindi ito
-    // ipapaalam dito sa client, hindi malalaman ng user kung bakit
-    // "nabawasan" ang naitype niya pagkatapos ma-submit.
+    // FIX: RELAY silently truncates (slices) itemName to 120, sku to 60,
+    // and note to 300 characters — if this isn't communicated to the
+    // client here, the user won't know why what they typed got
+    // "shortened" after submitting.
     if (itemName.length > 120) { errEl.textContent = 'Item name is too long (max 120 characters).'; errEl.style.display = 'block'; return false; }
     if (sku.length > 60) { errEl.textContent = 'SKU / Product Code is too long (max 60 characters).'; errEl.style.display = 'block'; return false; }
     if (note.length > 300) { errEl.textContent = 'Note is too long (max 300 characters).'; errEl.style.display = 'block'; return false; }
-    // AYOS/PAGBUTI (soft duplicate-request check): dati, wala talagang
-    // babala kung mayroon nang open (pending/accepted/in_transit) na
-    // outgoing request papunta sa parehong branch para sa parehong item —
-    // madaling makapagpadala ng aksidenteng duplicate (hal. double-submit,
-    // o nakalimutan na may nakabinbin na pala).
+    // FIX (soft duplicate-request check): previously, there was no
+    // warning at all if there was already an open (pending/accepted/
+    // in_transit) outgoing request to the same branch for the same item
+    // — it was easy to accidentally send a duplicate (e.g. double-submit,
+    // or forgetting one was already pending).
     const dupe = (branchesPageState.transfers || []).find(t =>
         t.direction === 'outgoing' &&
         t.toInstallationId === toInstallationId &&
@@ -8641,18 +8760,18 @@ async function submitBranchTransferRequest(evt) {
         }
         closeModal('branch-transfer-modal');
         if (typeof Swal !== 'undefined') Swal.fire({ icon: 'success', title: 'Transfer request sent', timer: 1600, showConfirmButton: false });
-        // AYOS/BUGFIX (walang nakikita sa page pagkatapos ng "successful" na
-        // transfer request): dati, umaasa lang dito sa isang HIWALAY na
-        // follow-up GET (loadBranchTransfers) para ma-refresh at lumitaw sa
-        // listahan ang bagong request. Kung ma-delay o mabigo ang follow-up
-        // na iyon (tahimik lang itong nabibigo — console.warn lang, walang UI
-        // feedback — at mas maikli pa ang client-side timeout ng authFetch,
-        // 6s, kumpara sa hanggang 20s na pinapayagan ng server papunta sa
-        // relay), maaaring "successful" na ang toast pero walang lumitaw sa
-        // page. Kaya idinagdag dito ang OPTIMISTIC update: gamitin agad ang
-        // `transfer` object na ibinalik na mismo ng successful POST response
-        // (galing na ito sa relay, kumpleto na) para instant lumitaw sa
-        // listahan, bago pa man tumakbo ang background refresh sa ibaba.
+        // FIX (nothing visible on the page after a "successful" transfer
+        // request): previously, this relied only on a SEPARATE follow-up
+        // GET (loadBranchTransfers) to refresh and show the new request
+        // in the list. If that follow-up was delayed or silently failed
+        // (it only logged console.warn — no UI feedback — and authFetch's
+        // client-side timeout, 6s, is shorter than the up to 20s the
+        // server allows toward the relay), the toast could say
+        // "successful" while nothing showed up on the page. So an
+        // OPTIMISTIC update was added here: use the `transfer` object
+        // that the successful POST response itself already returns
+        // (already came from the relay, complete) so it appears in the
+        // list instantly, even before the background refresh below runs.
         if (data.transfer) {
             const optimisticTransfer = { ...data.transfer, direction: 'outgoing' };
             branchesPageState.transfers = [
@@ -8671,18 +8790,18 @@ async function submitBranchTransferRequest(evt) {
     }
     return false;
 }
-// AYOS/BUGFIX (two-sided stock movement): 'send' at 'receive' ay parehong
-// nagbabago na ng totoong stock (babawasan sa source, dadagdagan sa
-// destination) sa server, kaya may confirmation prompt muna dito bago
-// tumawag — hindi tulad ng dating "Accept" na wala namang totoong epekto sa
-// inventory. Ipinapakita rin ang `stockNote` warning kapag walang nahanap na
-// tumutugmang lokal na product (hal. iba ang SKU/pangalan sa destination) —
-// kailangan pa ring i-adjust nang manual sa ganung sitwasyon.
+// FIX (two-sided stock movement): 'send' and 'receive' both now change
+// real stock (deduct at the source, add at the destination) on the
+// server, so there's a confirmation prompt before calling — unlike the
+// old "Accept", which had no real effect on inventory. The `stockNote`
+// warning is also shown when no matching local product is found (e.g.
+// the SKU/name differs at the destination) — it still needs to be
+// adjusted manually in that case.
 async function respondBranchTransfer(transferId, action) {
-    // AYOS/BUGFIX: dati, walang bantay dito laban sa paulit-ulit na
-    // pag-click sa parehong button bago pa man makabalik ang unang request
-    // (hal. mabilis na double-click sa "Mark as Sent" habang naglo-load pa
-    // ang unang tawag) — puwedeng makapagpadala ng duplicate na request.
+    // FIX: previously, there was no guard here against repeated clicking
+    // of the same button before the first request could even come back
+    // (e.g. a quick double-click on "Mark as Sent" while the first call
+    // is still loading) — this could send a duplicate request.
     if (branchTransferActionsInFlight.has(transferId)) return;
     if (action === 'send' || action === 'receive') {
         const confirmText = action === 'send'
@@ -8701,7 +8820,7 @@ async function respondBranchTransfer(transferId, action) {
         }
     }
     branchTransferActionsInFlight.add(transferId);
-    renderBranchesPage(); // ipakita agad ang disabled/"Updating…" na state ng row na ito
+    renderBranchesPage(); // show the disabled/"Updating…" state of this row right away
     try {
         const res = await authFetch(`${API_URL}/branches/transfer-respond`, {
             method: 'POST',
@@ -8718,11 +8837,11 @@ async function respondBranchTransfer(transferId, action) {
         } else if (typeof Swal !== 'undefined' && (action === 'send' || action === 'receive')) {
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: action === 'send' ? 'Marked as sent — stock deducted here.' : 'Received confirmed — stock added here.', showConfirmButton: false, timer: 2400 });
         }
-        // AYOS/BUGFIX (parehong dahilan gaya ng sa submitBranchTransferRequest):
-        // huwag umasa lang sa isang hiwalay na follow-up GET (na puwede ring
-        // mabigo/ma-delay nang tahimik) bago mag-update ang status/actions ng
-        // row na ito sa screen — i-merge agad ang `transfer` object na
-        // ibinalik na mismo ng successful response.
+        // FIX (same reason as in submitBranchTransferRequest): don't rely
+        // only on a separate follow-up GET (which can also silently fail/
+        // be delayed) before updating this row's status/actions on
+        // screen — merge in the `transfer` object that the successful
+        // response itself already returns, right away.
         if (data.transfer) {
             branchesPageState.transfers = (branchesPageState.transfers || []).map(t =>
                 t.id === data.transfer.id ? { ...t, ...data.transfer } : t
@@ -8730,18 +8849,17 @@ async function respondBranchTransfer(transferId, action) {
         }
         loadBranchTransfers();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
-        // I-refresh ang lokal na product cache/catalog dahil posibleng nagbago
-        // ang stock ng isang item dito (dahil sa 'send'/'receive' na kababago
-        // lang) — kung hindi ito i-refresh, puwedeng luma pa rin ang
-        // makikitang stock sa Terminal/Products list hangga't hindi
-        // nire-reload ang page.
+        // Refresh the local product cache/catalog since an item's stock
+        // may have just changed here (due to the 'send'/'receive' that
+        // just happened) — if this isn't refreshed, the Terminal/Products
+        // list could keep showing stale stock until the page is reloaded.
         if (typeof loadTerminalCatalog === 'function') loadTerminalCatalog();
     } catch (err) {
         console.warn('respondBranchTransfer failed:', err);
-        // AYOS/BUGFIX: dati, tahimik lang itong nabibigo (console.warn lang)
-        // kapag hindi maabot ang server (hal. timeout, walang internet) —
-        // walang anumang ipinapakita sa user, kaya mukhang walang nangyari
-        // kahit na-click na niya ang button.
+        // FIX: previously, this silently failed (only a console.warn)
+        // when the server couldn't be reached (e.g. timeout, no
+        // internet) — nothing was shown to the user, so it looked like
+        // nothing happened even though they clicked the button.
         if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Could not reach the server', text: 'Please check your connection and try again.' });
     } finally {
         branchTransferActionsInFlight.delete(transferId);
@@ -8774,7 +8892,7 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
     if (productsElem) productsElem.innerText = products;
     if (lowStockElem) lowStockElem.innerText = lowStock;
     if (noStockElem) noStockElem.innerText = noStock;
-    if (usersElem) usersElem.innerText = users;
+    if (usersElem) usersElem.innerText = users === null || users === undefined ? '—' : users;
     if (expiringSoonElem) expiringSoonElem.innerText = expiringSoon;
     if (expiredElem) expiredElem.innerText = expired;
     const ovTopSellerElem = document.getElementById('metric-ov-top-seller');
@@ -16742,7 +16860,7 @@ async function loadSalesAnalyticsReport() {
         }
         const data = await res.json();
         if (!data.success) return;
-        document.getElementById('report-gross').innerText = `₱${data.gross.toFixed(2)}`;
+        document.getElementById('report-gross').innerText = `₱${(Number(data.netSales) || 0).toFixed(2)}`;
         document.getElementById('report-count').innerText = data.transactionCount;
         document.getElementById('report-profit').innerText = data.hasCostData ? `₱${data.estimatedProfit.toFixed(2)}` : '₱0.00 (no cost data)';
         document.getElementById('report-margin-pct').innerText = data.hasCostData ? `${data.marginPct.toFixed(1)}%` : '—';
@@ -17005,8 +17123,12 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
         });
     }
     let compareSvg = '';
-    if (compareBuckets && compareBuckets.length > 1) {
-        compareSvg = `<path d="${buildLinePath(b => b.total || 0, compareBuckets)}" fill="none" stroke="${colors.compare}" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
+    if (compareBuckets && compareBuckets.length > 0 && buckets.length > 0) {
+        const comparePath = compareBuckets.map((b, i) => {
+            const xIndex = compareBuckets.length === 1 ? 0 : (i * (n - 1) / (compareBuckets.length - 1));
+            return `${i === 0 ? 'M' : 'L'} ${xAt(xIndex).toFixed(1)} ${yAt(b.total || 0).toFixed(1)}`;
+        }).join(' ');
+        compareSvg = `<path d="${comparePath}" fill="none" stroke="${colors.compare}" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
     }
     let hoverSvg = '';
     buckets.forEach((b, i) => {
@@ -17034,7 +17156,7 @@ function saDrawChart(wrapEl, buckets, compareBuckets) {
                 const idx = parseInt(col.getAttribute('data-idx'));
                 const b = buckets[idx];
                 if (!b) return;
-                const cmp = compareBuckets && compareBuckets[idx];
+                const cmp = compareBuckets && ovFindComparisonBucketByRelativePosition(b, buckets, compareBuckets);
                 let rows = '';
                 metrics.forEach(m => {
                     const c = colors[m] || colors.total;
@@ -17131,8 +17253,14 @@ function initSalesAnalyticsChartToolbar() {
                 if (typeof Swal !== 'undefined') Swal.fire({ icon: 'warning', title: 'Please select both From and To dates.', timer: 1800, showConfirmButton: false });
                 return;
             }
-            salesAnalyticsChartState.fromDate = new Date(fromVal);
-            salesAnalyticsChartState.toDate = new Date(toVal);
+            const fromDate = new Date(`${fromVal}T00:00:00`);
+            const toDate = new Date(`${toVal}T00:00:00`);
+            if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()) || fromDate > toDate) {
+                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'warning', title: 'Invalid date range', text: 'The From date must be on or before the To date.', timer: 2200, showConfirmButton: false });
+                return;
+            }
+            salesAnalyticsChartState.fromDate = fromDate;
+            salesAnalyticsChartState.toDate = toDate;
             salesAnalyticsChartState.rangePreset = 'custom';
             renderAdvancedSalesAnalyticsChart();
         });

@@ -1239,4 +1239,111 @@ window.OMNIPOS_FAQ_KB_EN = [
   <p>This is not real-time syncing of inventory/products between branches — it's summary/reporting only.</p>`
 },
 
+{
+  id: 'faq-how-search-works', category: 'FAQ & Support',
+  question: 'How can I find an FAQ answer when my wording is not exact?',
+  keywords: ['faq search', 'find answer', 'search faq', 'different wording', 'typo', 'misspelling'],
+  answer: `<p>You do not need to use the exact wording from the FAQ. The search uses <strong>keywords, related terms, synonyms, and typo-tolerant matching</strong> to find the closest documented answer.</p><p>For example, a typo such as <em>“viod transaction”</em> or a phrase like <em>“cancel a sale”</em> can still lead to the <strong>Void</strong> FAQ.</p><p>If several results look possible, choose the closest one or make your question more specific.</p>`
+},
+{
+  id: 'faq-ai-vs-search', category: 'FAQ & Support',
+  question: 'What is the difference between Keyword Search and the AI Assistant?',
+  keywords: ['keyword search', 'ai assistant', 'ai vs search', 'faq mode', 'search mode', 'chatbot mode'],
+  answer: `<p><strong>Keyword Search</strong> quickly searches the built-in FAQ Knowledge Base and shows the closest documented answer.</p><p>The <strong>AI Assistant</strong> is more conversational: it can understand natural questions, follow-ups, and the context of the current conversation. When context is provided, it is grounded on the available FAQ or live system information.</p><p>Use Keyword Search for a direct documented answer; use AI Assistant when you want a more conversational helper.</p>`
+},
+{
+  id: 'faq-ai-followup', category: 'FAQ & Support',
+  question: 'Can I ask a follow-up question without repeating the whole question?',
+  keywords: ['follow up ai', 'follow-up question', 'context', 'multi turn', 'continue question', 'same conversation'],
+  answer: `<p>Yes. The <strong>AI Assistant</strong> can use recent messages as conversation context.</p><p>For example, after asking how to void a transaction, you can ask <em>“What if I am only a cashier?”</em> and the assistant can understand that it refers to the same topic.</p><p>Use <strong>New Conversation</strong> when you want to start a fresh topic.</p>`
+},
+{
+  id: 'faq-ai-try-again-copy-feedback', category: 'FAQ & Support',
+  question: 'What do Try Again, Copy, and thumbs up/down do on an AI answer?',
+  keywords: ['try again', 'regenerate', 'copy answer', 'thumbs up', 'thumbs down', 'feedback ai'],
+  answer: `<p>AI answers provide several quick actions:</p><ul><li><strong>Try Again</strong> generates another response for the same question.</li><li><strong>Copy</strong> copies the answer so you can paste it elsewhere.</li><li><strong>👍 / 👎</strong> lets you provide feedback about whether the answer helped.</li></ul><p>If the answer is unclear, a more specific follow-up question can also improve the result.</p>`
+},
+{
+  id: 'faq-ai-attachment', category: 'FAQ & Support',
+  question: 'Can I attach a screenshot or file to the AI Assistant?',
+  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
+  answer: `<p>Yes, when the attachment control is available in your AI Assistant. You can attach a <strong>screenshot or supported file</strong> to give the assistant more context about a problem.</p><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
+},
+{
+  id: 'faq-ai-voice', category: 'FAQ & Support',
+  question: 'How do I use voice input in the FAQ AI Assistant?',
+  keywords: ['voice input', 'microphone', 'speak to ai', 'voice search', 'speech to text', 'mic'],
+  answer: `<p>If your browser supports voice input, tap the <strong>microphone</strong> button in the FAQ search box and speak. The recognized text is placed into the question field so you can submit it to Search or the AI Assistant.</p><p>If it does not work, check the browser microphone permission. Some browsers/devices do not support speech recognition, so typing may be required.</p>`
+},
+{
+  id: 'faq-ai-credits', category: 'Premium Features',
+  question: 'What are AI credits and why can I sometimes not ask the AI?',
+  keywords: ['ai credits', 'credit limit', 'ai exhausted', 'monthly ai', 'ai quota', 'ai usage'],
+  answer: `<p><strong>AI credits</strong> are the usage allowance for the store's AI Assistant. When the monthly allowance is exhausted, new AI requests may be blocked until the next reset or until the Admin/developer adjusts the subscription or allowance.</p><p>This does not remove the FAQ Knowledge Base. Keyword Search may still be available.</p>`
+},
+{
+  id: 'faq-void-refund-stock', category: 'Transactions',
+  question: 'When an item is voided or refunded, is it automatically returned to stock?',
+  keywords: ['void restock', 'refund restock', 'automatic restock', 'return to stock', 'voided refunded stock', 'stock return inspection'],
+  verdict: 'hindi',
+  answer: `<p>Voided or refunded items should not automatically become sellable stock. The item may need to be <strong>verified first</strong>, especially if it was opened, damaged, or is no longer suitable for sale.</p><p>Use the <strong>Voided/Refunded</strong> stock-return inspection workflow to review the item before treating it as sellable inventory.</p>`
+},
+{
+  id: 'faq-transaction-records', category: 'Transactions',
+  question: 'Where can I find transaction records and sale details?',
+  keywords: ['transaction records', 'transaction database', 'sales history', 'sale details', 'transaction history', 'receipt history'],
+  answer: `<p>The <strong>Transaction</strong> page contains recorded sales and the available details for each transaction. Use its search/filter tools when you need to locate a specific sale.</p><p>For voids or refunds, also review the related record and the <strong>Voided/Refunded</strong> workflow when a stock-return inspection is needed.</p>`
+},
+{
+  id: 'faq-receipt-customization', category: 'Receipt Settings',
+  question: 'What can I customize on the receipt?',
+  keywords: ['receipt customization', 'customize receipt', 'receipt design', 'edit receipt', 'receipt layout', 'receipt settings'],
+  answer: `<p>Depending on the available Receipt Settings and unlocked features, you may be able to customize areas such as <strong>store/header information, logo, template/layout, QR placement, and other receipt presentation settings</strong>.</p><p>If a customization is premium or credit-based, the system should show its unlock or credit requirement before it can be used.</p>`
+},
+{
+  id: 'faq-receipt-email', category: 'Receipt Settings',
+  question: 'Why is my e-receipt not being sent by email?',
+  keywords: ['email receipt not sending', 'e receipt', 'gmail receipt', 'receipt email error', 'email receipt', 'receipt not received'],
+  verdict: 'depende',
+  answer: `<p>E-receipts normally require an <strong>internet connection</strong> and correct email configuration.</p><p>Check that the recipient email is correct and that the store's Gmail/receipt email configuration is properly set up. Configuration or server-side problems may require the Admin/developer to investigate.</p><p>If the sale succeeded but the email did not arrive, check the spam/junk folder before trying again.</p>`
+},
+{
+  id: 'faq-cloud-backup-tokens', category: 'Cloud Tokens & Payments',
+  question: 'What happens when I do not have enough Cloud Tokens for backup or restore?',
+  keywords: ['low token', 'insufficient tokens', 'backup token insufficient', 'restore token', 'token purchase', 'cloud backup balance'],
+  answer: `<p>If the token balance is not enough for a billable Cloud Backup operation, the operation should not proceed until there is enough balance.</p><p>The usual flow is <strong>check token balance → purchase/top up tokens if needed → retry the backup or restore</strong>.</p><p>The actual token requirement depends on the configured Cloud Backup tier and operation.</p>`
+},
+{
+  id: 'faq-cloud-backup-internet', category: 'Premium Features',
+  question: 'Does Cloud Backup and Restore require internet?',
+  keywords: ['cloud backup internet', 'backup offline', 'restore internet', 'cloud restore connection'],
+  verdict: 'oo',
+  answer: `<p>Yes. Cloud Backup/Restore connects to online storage/Relay infrastructure, so an <strong>active internet connection</strong> is required.</p><p>This is separate from normal local POS operations, which can still work over the local network depending on the installation setup.</p>`
+},
+{
+  id: 'faq-settings-per-device', category: 'Store & Appearance Settings',
+  question: 'Are all settings the same on every device?',
+  keywords: ['per device settings', 'device settings', 'settings per device', 'same settings', 'local settings'],
+  verdict: 'hindi',
+  answer: `<p>No. Some settings are <strong>per-device</strong>, especially certain Appearance & UX preferences such as dark mode, scanner sound, dashboard widgets, and terminal layout preferences.</p><p>Other store/system settings are intended for the installation as a whole. If you are unsure whether a setting is local or shared, check its description in Settings or ask an Admin.</p>`
+},
+{
+  id: 'faq-pwa-install', category: 'Overview',
+  question: 'Why can I not see Install App or Add to Home Screen?',
+  keywords: ['install app missing', 'pwa install missing', 'add home screen missing', 'install banner', 'pwa not showing'],
+  answer: `<p>The install option may not appear if the browser/device does not currently meet the PWA install requirements, the app is already installed, or the install prompt was dismissed previously.</p><p>On Android/Chrome, check the browser menu for <strong>Install app</strong> or <strong>Add to Home screen</strong>. On iPhone/iPad, use Safari <strong>Share → Add to Home Screen</strong>.</p>`
+},
+{
+  id: 'faq-user-permission', category: 'Roles & Permissions',
+  question: 'Why can I not see or perform a menu/action as staff?',
+  keywords: ['permission denied', 'staff cannot access', 'menu missing', 'no access', 'permission', 'role access'],
+  answer: `<p>This is usually related to your account's <strong>role/permission</strong>. Admin, Staff, Cashier, and custom roles can have different access.</p><p>If you need a feature for work, ask the Admin to review your role permissions. If the action uses an approval workflow, you may need to submit a <strong>Staff Request</strong> first.</p>`
+},
+{
+  id: 'faq-support-ticket-guidance', category: 'FAQ & Support',
+  question: 'When should I create a Support Ticket?',
+  keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
+  answer: `<p>Create a <strong>Support Ticket</strong> when the FAQ or normal troubleshooting does not resolve the problem — for example, repeated system errors, unexpected behavior, or a feature that should work but does not.</p><p>If the AI Assistant ticket flow is available, the current conversation and basic device information may be attached to help the Admin/developer investigate faster. Never include passwords, API keys, tokens, or other secrets.</p>`
+},
+
 ];

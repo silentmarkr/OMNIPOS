@@ -3632,54 +3632,47 @@ if (!INTEGRITY_MONITOR_DISABLED) {
     setInterval(runRelayIntegrityCheckin, 24 * 60 * 60 * 1000).unref();
 }
 function hashBranchGroupKey(rawKey) {
-    // AYOS/BUGFIX (magkaiba ang case, kaya "hindi nagkikita" ang mga
-    // branch kahit magkapareho ang binisang code): dati, trim() lang ang
-    // ginagawa dito bago i-hash — kung ibang capitalization ang natype sa
-    // isang branch kumpara sa isa pa (hal. dahil sa autocapitalize ng
-    // mobile keyboard), magkaibang SHA-256 hash ang mabubuo, at tahimik
-    // itong tinuturing ng RELAY bilang DALAWANG hiwalay na grupo — walang
-    // error, mukha lang na "walang ibang branch/request na nakikita".
-    // Ginawa nang case-insensitive (lowercase muna bago i-hash) dahil
-    // ganito naman talaga binabasa/kinukumpara ng tao ang code na ito.
+    // FIX (different casing made branches "not see" each other even
+    // when the typed code was meant to match): previously, only trim()
+    // was applied here before hashing — if one branch typed a different
+    // capitalization than another (e.g. due to a mobile keyboard's
+    // autocapitalize), a different SHA-256 hash would result, and RELAY
+    // would silently treat it as TWO separate groups — no error, it just
+    // looks like "no other branch/request is visible". Made case-
+    // insensitive (lowercase before hashing) since that's how people
+    // actually read/compare this code in practice anyway.
     const trimmed = String(rawKey || '').trim().toLowerCase();
     if (!trimmed) return null;
     return crypto.createHash('sha256').update(trimmed).digest('hex');
 }
 function computeBranchSummaryPayload() {
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayY = now.getFullYear(), todayM = now.getMonth(), todayD = now.getDate();
     const transactions = readData(FILE_TRANSACTIONS);
-    let grossSalesToday = 0;
-    let transactionCountToday = 0;
+    let grossSalesToday = 0, netSalesToday = 0, transactionCountToday = 0;
     transactions.forEach((t) => {
-        const dayKey = (t.isoDate ? t.isoDate.slice(0, 10) : (t.timestamp || '').slice(0, 10)) || null;
-        if (dayKey !== todayKey) return;
-        grossSalesToday += parseFloat(t.total) || 0;
-        transactionCountToday += 1;
+        const raw = t.isoDate || t.timestamp || t.date;
+        const d = raw ? new Date(raw) : null;
+        if (!d || Number.isNaN(d.getTime())) return;
+        if (d.getFullYear() !== todayY || d.getMonth() !== todayM || d.getDate() !== todayD) return;
+        const gross = Math.max(0, parseFloat(t.total) || 0);
+        const refunded = t.refundStatus === 'full' ? gross : Math.min(gross, Math.max(0, parseFloat(t.totalRefunded) || 0));
+        const net = Math.max(0, gross - refunded);
+        grossSalesToday += gross;
+        netSalesToday += net;
+        if (net > 0.009) transactionCountToday += 1;
     });
     let lowStockCount = 0;
-    try {
-        lowStockCount = computeLowStockItems().length;
-    } catch (err) {
-        lowStockCount = 0;
-    }
+    try { lowStockCount = computeLowStockItems().length; } catch (err) { lowStockCount = 0; }
     let activeShiftCount = 0;
     try {
         const shiftMeta = readData(FILE_SHIFT_META, { cashiers: {} });
         const cashiers = (shiftMeta && shiftMeta.cashiers) || {};
-        activeShiftCount = Object.values(cashiers).filter(
-            (m) => m && m.beginningCash !== undefined && m.beginningCash !== null
-        ).length;
-    } catch (err) {
-        activeShiftCount = 0;
-    }
-    return {
-        grossSalesToday: Math.round(grossSalesToday * 100) / 100,
-        netSalesToday: Math.round(grossSalesToday * 100) / 100,
-        transactionCountToday,
-        lowStockCount,
-        activeShiftCount
-    };
+        activeShiftCount = Object.values(cashiers).filter((m) => m && m.beginningCash !== undefined && m.beginningCash !== null).length;
+    } catch (err) { activeShiftCount = 0; }
+    return { grossSalesToday: Math.round(grossSalesToday * 100) / 100, netSalesToday: Math.round(netSalesToday * 100) / 100, transactionCountToday, lowStockCount, activeShiftCount };
 }
+
 const relayBranchStatus = {
     state: 'orange',
     lastAttemptAt: null,
@@ -3833,25 +3826,25 @@ app.get('/api/branches/transfers', requirePermission('branches'), requireFeature
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-        // AYOS/BUGFIX (ITO ANG TUNAY NA UGAT kung bakit hindi kailanman
-        // nakikita ng ISANG branch ang mga papasok na transfer request mula
-        // sa iba): ang GET /relay/branch-transfers sa RELAY ay naka-gate ng
-        // requireAllowedDevice middleware, na NANGANGAILANGAN ng
-        // installationId (galing man sa body o sa query string) — kung
-        // wala nito, 403 "device not allowed" agad ang isasauli, ANUMAN
-        // pa ang totoong device. Lahat ng IBANG relay call dito
-        // (branch-summary, branch-trend, branch-checkin) ay tama namang
-        // nagsasama ng "&installationId=..." sa URL — ITO LANG ang
-        // nakalimutan. Resulta: PALAGING nabibigo ang GET na ito, sa LAHAT
-        // ng branch, sa LAHAT ng oras — walang kinalaman sa internet o sa
-        // Business Group Code. Mukhang "gumagana naman" ito para sa
-        // branch na kagagawa lang ng request dahil ang optimistic-update
-        // (sa submitBranchTransferRequest sa app.js) ay direktang
-        // nagpapakita agad ng bagong request mula sa POST response mismo
-        // — hindi na umaasa sa successful GET na ito. Pero ang PENERANG
-        // (destination) branch, na walang ganitong optimistic entry at
-        // umaasa lang dito sa GET, ay hindi kailanman nakakakita ng
-        // kahit ano. Idinagdag na ang nawawalang installationId param.
+        // FIX (THIS WAS THE ACTUAL ROOT CAUSE of why a branch never saw
+        // incoming transfer requests from another branch): GET
+        // /relay/branch-transfers on RELAY is gated by the
+        // requireAllowedDevice middleware, which REQUIRES installationId
+        // (from either the body or the query string) — without it, a 403
+        // "device not allowed" is returned immediately, regardless of
+        // whether the device is actually allowed. Every OTHER relay call
+        // here (branch-summary, branch-trend, branch-checkin) correctly
+        // includes "&installationId=..." in the URL — this was the ONLY
+        // one that forgot it. Result: this GET ALWAYS failed, for EVERY
+        // branch, ALL the time — unrelated to internet connectivity or
+        // the Business Group Code. It looked like it "worked" for the
+        // branch that just made the request because the optimistic
+        // update (in submitBranchTransferRequest in app.js) shows the
+        // new request immediately from the POST response itself — it
+        // doesn't rely on this GET succeeding. But the RECEIVING
+        // (destination) branch, which has no such optimistic entry and
+        // relies solely on this GET, never saw anything at all. The
+        // missing installationId param has now been added.
         const url = `${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`;
         const relayRes = await relayFetch(url, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } });
         const relayData = await parseRelayResponse(relayRes);
@@ -3896,25 +3889,24 @@ app.post('/api/branches/transfer-request', requirePermission('branches'), requir
         res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
     }
 });
-// AYOS/BUGFIX (two-sided stock movement): dati, "Accept"/"Reject" ay
-// nag-uupdate lang ng status sa RELAY (walang access ang RELAY sa totoong
-// Products/Inventory ng kahit anong branch — magkahiwalay na database ang
-// bawat isa). Ibig sabihin kahit ma-Accept, walang nababagong totoong
-// quantity — kailangan pang gawin nang manual (Restock/Adjustment).
-// Ngayon, dalawang bagong hakbang ang idinagdag AFTER "accepted":
-//   1. "send"    — gagawin ng SOURCE branch ("Mark as Sent"): binabawas dito
-//                  ang stock ng item sa sariling Products list bago i-update
-//                  ang status sa RELAY papuntang "in_transit".
-//   2. "receive" — gagawin ng DESTINATION branch ("Confirm Received"):
-//                  dinaragdag dito ang stock ng item sa sariling Products
-//                  list bago i-update ang status sa RELAY papuntang
-//                  "completed".
-// Kaya ang totoong pagbabago ng quantity ay palaging nangyayari sa device na
-// gumagawa ng aksyon (kanya-kanyang lokal na database), hindi sa RELAY —
-// RELAY lang ang nagpapanatili ng magkasabay/tumutugmang status sa dalawang
-// panig. Parehong niprotektahan ng transactionsMutexRunExclusive (parehong
-// mutex na ginagamit ng benta/void/refund/restock) para hindi ito
-// mag-interleave sa kasabay na pagbabago ng FILE_PRODUCTS.
+// FIX (two-sided stock movement): previously, "Accept"/"Reject" only
+// updated the status on RELAY (RELAY has no access to the real
+// Products/Inventory of any branch — each one has its own separate
+// database). That meant even after "Accept", no real quantity actually
+// changed — it still had to be done manually (Restock/Adjustment).
+// Now, two new steps have been added AFTER "accepted":
+//   1. "send"    — done by the SOURCE branch ("Mark as Sent"): deducts
+//                  the item's stock in its own Products list here before
+//                  updating the status on RELAY to "in_transit".
+//   2. "receive" — done by the DESTINATION branch ("Confirm Received"):
+//                  adds the item's stock to its own Products list here
+//                  before updating the status on RELAY to "completed".
+// So the real quantity change always happens on the device performing the
+// action (its own local database), not on RELAY — RELAY only keeps the
+// status in sync/consistent on both sides. Both are protected by
+// transactionsMutexRunExclusive (the same mutex used by sale/void/refund/
+// restock) so this doesn't interleave with a concurrent change to
+// FILE_PRODUCTS.
 function findLocalProductForTransfer(products, sku, itemName) {
     const cleanSku = String(sku || '').trim().toLowerCase();
     if (cleanSku) {
@@ -3941,17 +3933,18 @@ async function processBranchTransferRespond(req, res) {
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-        // Kunin muna ang kasalukuyang laman ng transfer mula RELAY (para makuha
-        // ang itemName/sku/qty/direction) bago gumawa ng kahit anong lokal na
-        // pagbabago sa stock — iniiwasan din nito ang double-apply kung
-        // paulit-ulit na na-click ang button (RELAY ang siyang nag-eenforce ng
-        // tamang pagkakasunod-sunod ng status sa ibaba).
+        // First fetch the transfer's current contents from RELAY (to get
+        // itemName/sku/qty/direction) before making any local stock
+        // change — this also avoids a double-apply if the button is
+        // clicked repeatedly (RELAY is what enforces the correct status
+        // sequence below).
         let matchedProduct = null;
         let stockNote = '';
+        let stockMutation = null;
         if (action === 'send' || action === 'receive') {
-            // AYOS/BUGFIX: parehong nawawalang installationId query param gaya
-            // ng na-fix sa GET /api/branches/transfers sa itaas — nagdudulot
-            // din ito ng 403 mula sa requireAllowedDevice sa RELAY.
+            // FIX: same missing installationId query param as fixed in
+            // GET /api/branches/transfers above — this also caused a 403
+            // from requireAllowedDevice on RELAY.
             const listRes = await relayFetch(`${RELAY_URL}/relay/branch-transfers?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`, {
                 method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY }
             });
@@ -3971,23 +3964,27 @@ async function processBranchTransferRespond(req, res) {
             matchedProduct = findLocalProductForTransfer(products, transfer.sku, transfer.itemName);
             if (action === 'send') {
                 if (!matchedProduct) {
-                    stockNote = ` (walang nahanap na tumutugmang product dito sa SKU/pangalan na "${transfer.sku || transfer.itemName}" — hindi na-bawas ang stock, i-adjust nang manual kung kailangan)`;
+                    stockNote = ` (no matching product found here for SKU/name "${transfer.sku || transfer.itemName}" — stock was not deducted, adjust manually if needed)`;
                 } else {
                     const currentStock = parseInt(matchedProduct.stock) || 0;
                     if (currentStock < transfer.qty) {
-                        return res.status(409).json({ success: false, message: `Kulang ang stock ng "${matchedProduct.name}" dito (${currentStock} lang, kailangan ${transfer.qty}). I-adjust muna ang quantity o i-restock bago i-mark as sent.` });
+                        return res.status(409).json({ success: false, message: `Not enough stock of "${matchedProduct.name}" here (only ${currentStock}, need ${transfer.qty}). Adjust the quantity or restock before marking as sent.` });
                     }
+                    const originalStock = currentStock;
                     matchedProduct.stock = currentStock - transfer.qty;
                     writeData(FILE_PRODUCTS, products);
-                    logAction(username, `Branch transfer OUT: -${transfer.qty} "${matchedProduct.name}" (bagong stock: ${matchedProduct.stock}) papunta sa ${transfer.toBranchName || 'ibang branch'} [transfer ${transferId}]`);
+                    stockMutation = { productCode: matchedProduct.code, originalStock };
+                    logAction(username, `Branch transfer OUT: -${transfer.qty} "${matchedProduct.name}" (new stock: ${matchedProduct.stock}) to ${transfer.toBranchName || 'another branch'} [transfer ${transferId}]`);
                 }
             } else if (action === 'receive') {
                 if (!matchedProduct) {
-                    stockNote = ` (walang nahanap na tumutugmang product dito sa SKU/pangalan na "${transfer.sku || transfer.itemName}" — hindi na-dagdag ang stock; gawa ng bagong Product entry o i-adjust nang manual)`;
+                    stockNote = ` (no matching product found here for SKU/name "${transfer.sku || transfer.itemName}" — stock was not added; create a new Product entry or adjust manually)`;
                 } else {
-                    matchedProduct.stock = (parseInt(matchedProduct.stock) || 0) + transfer.qty;
+                    const originalStock = parseInt(matchedProduct.stock) || 0;
+                    matchedProduct.stock = originalStock + transfer.qty;
                     writeData(FILE_PRODUCTS, products);
-                    logAction(username, `Branch transfer IN: +${transfer.qty} "${matchedProduct.name}" (bagong stock: ${matchedProduct.stock}) mula sa ${transfer.fromBranchName || 'ibang branch'} [transfer ${transferId}]`);
+                    stockMutation = { productCode: matchedProduct.code, originalStock };
+                    logAction(username, `Branch transfer IN: +${transfer.qty} "${matchedProduct.name}" (new stock: ${matchedProduct.stock}) from ${transfer.fromBranchName || 'another branch'} [transfer ${transferId}]`);
                 }
             }
         }
@@ -3998,13 +3995,14 @@ async function processBranchTransferRespond(req, res) {
         });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
-            // NOTE: kung na-deduct/na-dagdag na ang lokal na stock pero nabigo ang
-            // pag-update ng status sa RELAY (hal. network issue), maiiwan itong
-            // hindi magkatugma hanggang sa susunod na tamang pag-retry ng aksyon
-            // (o manual na Restock/Adjustment). Ito ay pinapayagang trade-off
-            // dahil walang distributed transaction sa pagitan ng RELAY (shared
-            // status) at ng lokal na database ng bawat isolated na branch.
-            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'The transfer request could not be updated.' });
+            if (stockMutation) {
+                try {
+                    const rollbackProducts = readData(FILE_PRODUCTS);
+                    const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
+                    if (rollbackProduct) { rollbackProduct.stock = stockMutation.originalStock; writeData(FILE_PRODUCTS, rollbackProducts); }
+                } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
+            }
+            return res.status(relayRes.status || 502).json({ success: false, rolledBack: !!stockMutation, message: relayData.message || 'The transfer request could not be updated.' });
         }
         res.json({ success: true, transfer: relayData.transfer, stockNote: stockNote || undefined });
     } catch (err) {
@@ -10985,53 +10983,126 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
         const rangeParam = (req.query.range || 'all').toString();
         const transactions = readData(FILE_TRANSACTIONS);
         const now = Date.now();
-        const RANGE_MS = { today: 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000, '30d': 30 * 24 * 60 * 60 * 1000 };
+        const RANGE_MS = {
+            today: 24 * 60 * 60 * 1000,
+            '7d': 7 * 24 * 60 * 60 * 1000,
+            '30d': 30 * 24 * 60 * 60 * 1000,
+            '90d': 90 * 24 * 60 * 60 * 1000,
+            year: 365 * 24 * 60 * 60 * 1000
+        };
         const cutoffMs = RANGE_MS[rangeParam] || null;
-        const txs = cutoffMs
+        const txs = rangeParam === 'today'
             ? transactions.filter(t => {
-                const ts = t.isoDate ? Date.parse(t.isoDate) : NaN;
-                return !isNaN(ts) && (now - ts) <= cutoffMs;
+                const raw = t.isoDate || t.timestamp || t.date || '';
+                const dt = new Date(raw);
+                if (isNaN(dt.getTime())) return false;
+                const nowLocal = new Date(now);
+                return dt.getFullYear() === nowLocal.getFullYear() &&
+                    dt.getMonth() === nowLocal.getMonth() &&
+                    dt.getDate() === nowLocal.getDate();
             })
-            : transactions;
+            : cutoffMs
+                ? transactions.filter(t => {
+                    const ts = t.isoDate ? Date.parse(t.isoDate) : Date.parse(t.timestamp || t.date || '');
+                    return Number.isFinite(ts) && (now - ts) >= 0 && (now - ts) <= cutoffMs;
+                })
+                : transactions;
+
+        const roundMoney = value => Math.round((Number(value) || 0) * 100) / 100;
+        const grossAmount = tx => Math.max(0, parseFloat(tx && tx.total) || 0);
+        const refundedAmount = tx => {
+            const gross = grossAmount(tx);
+            if (tx && tx.refundStatus === 'full') return gross;
+            return Math.min(gross, Math.max(0, parseFloat(tx && tx.totalRefunded) || 0));
+        };
+        const netAmount = tx => Math.max(0, roundMoney(grossAmount(tx) - refundedAmount(tx)));
+        const refundedQty = (tx, item) => {
+            const map = tx && tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
+            return Math.max(0, parseInt(map[item && item.code != null ? String(item.code) : ''], 10) || 0);
+        };
+        const netQty = (tx, item) => {
+            const sold = Math.max(0, parseInt(item && item.quantity, 10) || 0);
+            return Math.max(0, sold - Math.min(sold, refundedQty(tx, item)));
+        };
+        const countable = tx => netAmount(tx) > 0.009;
+
         let gross = 0;
+        let netSales = 0;
         let totalRevenue = 0;
         let totalCost = 0;
         let anyCostRecorded = false;
+        let transactionCount = 0;
         const rankingMap = {};
         const profitByProduct = {};
         const paymentBreakdown = {};
         const dailyTrendMap = {};
+
         txs.forEach(t => {
-            const total = parseFloat(t.total) || 0;
-            gross += total;
+            const grossTx = grossAmount(t);
+            const netTx = netAmount(t);
+            gross += grossTx;
+            netSales += netTx;
+            if (countable(t)) transactionCount += 1;
+
             const method = (t.method || t.payment_method || 'OTHER').toString().toUpperCase();
-            paymentBreakdown[method] = (paymentBreakdown[method] || 0) + total;
-            const dayKey = (t.isoDate ? t.isoDate.slice(0, 10) : (t.timestamp || '').slice(0, 10)) || 'unknown';
-            dailyTrendMap[dayKey] = (dailyTrendMap[dayKey] || 0) + total;
+            if (netTx > 0) paymentBreakdown[method] = roundMoney((paymentBreakdown[method] || 0) + netTx);
+
+            const rawDate = t.isoDate || t.timestamp || t.date || '';
+            const parsedDate = new Date(rawDate);
+            const dayKey = !isNaN(parsedDate.getTime()) ? parsedDate.toISOString().slice(0, 10) : 'unknown';
+            if (netTx > 0 && dayKey !== 'unknown') dailyTrendMap[dayKey] = roundMoney((dailyTrendMap[dayKey] || 0) + netTx);
+
             (t.items || []).forEach(i => {
-                const qty = parseInt(i.quantity) || 0;
-                rankingMap[i.name] = (rankingMap[i.name] || 0) + qty;
-                const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
-                const revenue = ((parseFloat(i.price) || 0) * qty) - itemDiscount;
-                const cost = (parseFloat(i.cost) || 0) * qty;
-                if (parseFloat(i.cost) > 0) anyCostRecorded = true;
-                totalRevenue += revenue;
-                totalCost += cost;
+                const soldQty = Math.max(0, parseInt(i.quantity, 10) || 0);
+                const remainingQty = netQty(t, i);
+                if (!i.name || remainingQty <= 0) return;
+
+                rankingMap[i.name] = (rankingMap[i.name] || 0) + remainingQty;
+
+                const itemGross = Math.max(0, (parseFloat(i.price) || 0) * soldQty - Math.max(0, parseFloat(i.itemDiscount) || 0));
+                // Allocate a line's original gross proportionally to the quantity still sold.
+                // This keeps product profit consistent with partial refunds without inventing a
+                // refund price that may differ from the transaction's actual refund allocation.
+                const itemNetRevenue = soldQty > 0 ? itemGross * (remainingQty / soldQty) : 0;
+                const unitCost = Math.max(0, parseFloat(i.cost) || 0);
+                const itemNetCost = unitCost * remainingQty;
+                if (unitCost > 0) anyCostRecorded = true;
+
+                totalRevenue += itemNetRevenue;
+                totalCost += itemNetCost;
                 if (!profitByProduct[i.name]) profitByProduct[i.name] = { revenue: 0, cost: 0, qty: 0 };
-                profitByProduct[i.name].revenue += revenue;
-                profitByProduct[i.name].cost += cost;
-                profitByProduct[i.name].qty += qty;
+                profitByProduct[i.name].revenue += itemNetRevenue;
+                profitByProduct[i.name].cost += itemNetCost;
+                profitByProduct[i.name].qty += remainingQty;
             });
         });
-        const estimatedProfit = totalRevenue - totalCost;
-        const marginPct = totalRevenue > 0 ? (estimatedProfit / totalRevenue) * 100 : 0;
-        const sortedByQty = Object.keys(rankingMap).sort((a, b) => rankingMap[b] - rankingMap[a]);
+
+        // Prefer transaction-level net sales for the report headline. Product-level revenue
+        // remains item-based so cost/profit can still be calculated accurately.
+        netSales = roundMoney(netSales);
+        gross = roundMoney(gross);
+        totalRevenue = roundMoney(totalRevenue);
+        totalCost = roundMoney(totalCost);
+        const estimatedProfit = roundMoney(totalRevenue - totalCost);
+        const marginPct = totalRevenue > 0 ? roundMoney((estimatedProfit / totalRevenue) * 1000) / 10 : 0;
+
+        const sortedByQty = Object.keys(rankingMap).sort((a, b) => {
+            const diff = rankingMap[b] - rankingMap[a];
+            return diff !== 0 ? diff : a.localeCompare(b);
+        });
         const topProducts = sortedByQty.slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
-        const slowProducts = [...sortedByQty].reverse().slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
+        const slowProducts = [...sortedByQty].sort((a, b) => {
+            const diff = rankingMap[a] - rankingMap[b];
+            return diff !== 0 ? diff : a.localeCompare(b);
+        }).slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
         const profitEntries = Object.entries(profitByProduct)
-            .map(([name, d]) => ({ name, profit: Math.round((d.revenue - d.cost) * 100) / 100, qty: d.qty }))
-            .sort((a, b) => b.profit - a.profit)
+            .map(([name, d]) => ({ name, profit: roundMoney(d.revenue - d.cost), qty: d.qty }))
+            .sort((a, b) => {
+                const diff = b.profit - a.profit;
+                return diff !== 0 ? diff : a.name.localeCompare(b.name);
+            })
             .slice(0, 5);
+
         const dailyTrend = [];
         for (let d = 6; d >= 0; d--) {
             const dt = new Date(now - d * 24 * 60 * 60 * 1000);
@@ -11039,16 +11110,18 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
             dailyTrend.push({
                 date: key,
                 label: dt.toLocaleDateString('en-PH', { weekday: 'short' }),
-                total: Math.round((dailyTrendMap[key] || 0) * 100) / 100
+                total: roundMoney(dailyTrendMap[key] || 0)
             });
         }
+
         res.json({
             success: true,
             range: rangeParam,
-            gross: Math.round(gross * 100) / 100,
-            transactionCount: txs.length,
-            estimatedProfit: Math.round(estimatedProfit * 100) / 100,
-            marginPct: Math.round(marginPct * 10) / 10,
+            gross,
+            netSales,
+            transactionCount,
+            estimatedProfit,
+            marginPct,
             hasCostData: anyCostRecorded,
             topProducts,
             slowProducts,

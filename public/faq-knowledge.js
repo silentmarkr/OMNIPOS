@@ -1239,4 +1239,131 @@ window.OMNIPOS_FAQ_KB_TL = [
   <p>Hindi ito real-time syncing ng inventory/products sa pagitan ng branches — summary/reporting lang ang ginagawa nito.</p>`
 },
 
+{
+  id: 'faq-how-search-works',
+  category: 'FAQ & Support',
+  question: 'Paano maghanap ng sagot sa FAQ kahit hindi eksakto ang tanong ko?',
+  keywords: ['faq search', 'hanap sagot', 'search faq', 'hindi eksaktong tanong', 'ibang wording', 'typo', 'maling spelling'],
+  answer: `<p>Hindi kailangang eksaktong pareho ang wording ng tanong mo. Ang FAQ search ay gumagamit ng <strong>keywords, related terms, synonyms, at typo-tolerant matching</strong> para mahanap ang pinakamalapit na sagot.</p><p>Halimbawa, kahit <em>“viod transaction”</em> o <em>“paano i-cancel ang sale”</em> ang itanong mo, maaari pa rin nitong mahanap ang FAQ tungkol sa <strong>Void</strong>.</p><p>Kung maraming posibleng sagot, piliin ang resultang pinaka-akma o gawing mas specific ang tanong.</p>`
+},
+{
+  id: 'faq-ai-vs-search',
+  category: 'FAQ & Support',
+  question: 'Ano ang pagkakaiba ng Keyword Search at AI Assistant?',
+  keywords: ['keyword search', 'ai assistant', 'ai vs search', 'faq mode', 'search mode', 'chatbot mode'],
+  answer: `<p><strong>Keyword Search</strong> ay mabilis na naghahanap sa built-in FAQ Knowledge Base at ipinapakita ang pinaka-angkop na documented answer.</p><p><strong>AI Assistant</strong> naman ay mas conversational: kaya nitong intindihin ang natural na tanong, follow-up questions, at ang context ng naunang usapan. Kapag may sapat na FAQ o live system context, iyon ang pagbabasehan nito.</p><p>Kung kailangan mo ng eksaktong documented instructions, gamitin ang Keyword Search. Kung gusto mong magtanong na parang nakikipag-usap sa isang helper, mas bagay ang AI Assistant.</p>`
+},
+{
+  id: 'faq-ai-followup',
+  category: 'FAQ & Support',
+  question: 'Pwede ba akong mag-follow-up sa AI nang hindi inuulit ang buong tanong?',
+  keywords: ['follow up ai', 'follow-up question', 'context', 'multi turn', 'ituloy ang tanong', 'same conversation'],
+  answer: `<p>Oo. Sa <strong>AI Assistant</strong>, maaaring gamitin ang naunang messages bilang context ng kasalukuyang usapan.</p><p>Halimbawa: una mong itanong kung paano mag-void, tapos sabihin mong <em>“paano naman kung cashier lang ako?”</em> Maiintindihan ng AI na tungkol pa rin iyon sa naunang topic.</p><p>Kung gusto mong magsimula ng ibang topic nang malinis, gamitin ang <strong>New Conversation</strong>.</p>`
+},
+{
+  id: 'faq-ai-try-again-copy-feedback',
+  category: 'FAQ & Support',
+  question: 'Para saan ang Try Again, Copy, at thumbs up/down sa AI answer?',
+  keywords: ['try again', 'regenerate', 'copy answer', 'thumbs up', 'thumbs down', 'feedback ai'],
+  answer: `<p>Pagkatapos ng AI response, may ilang quick actions:</p><ul><li><strong>Try Again</strong> — humihingi ng bagong generation para sa parehong tanong.</li><li><strong>Copy</strong> — kinokopya ang sagot para ma-paste sa ibang app.</li><li><strong>👍 / 👎</strong> — nagbibigay ng feedback kung nakatulong ang sagot.</li></ul><p>Kung hindi malinaw ang sagot, mas makakatulong din ang isang mas specific na follow-up question.</p>`
+},
+{
+  id: 'faq-ai-attachment',
+  category: 'FAQ & Support',
+  question: 'Pwede bang mag-attach ng screenshot o file sa AI Assistant?',
+  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
+  answer: `<p>Oo, kung available ang attachment control sa iyong AI Assistant. Maaari kang mag-attach ng <strong>screenshot o supported file</strong> para maunawaan ng assistant ang problemang ipinapakita mo.</p><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
+},
+{
+  id: 'faq-ai-voice',
+  category: 'FAQ & Support',
+  question: 'Paano gamitin ang voice input sa FAQ AI Assistant?',
+  keywords: ['voice input', 'microphone', 'magsalita sa ai', 'voice search', 'speech to text', 'mic'],
+  answer: `<p>Kung supported ng browser ang voice input, i-tap ang <strong>microphone</strong> button sa FAQ search box at magsalita. Ang nakuha nitong text ay ilalagay sa tanong para maaari mo itong i-submit sa search o AI Assistant.</p><p>Kung hindi gumagana, tiyaking may microphone permission ang browser. May ilang browser/device na hindi sumusuporta sa speech recognition, kaya maaaring kailanganing mag-type na lang.</p>`
+},
+{
+  id: 'faq-ai-credits',
+  category: 'Premium Features',
+  question: 'Ano ang AI credits at bakit minsan hindi ako makapagtanong sa AI?',
+  keywords: ['ai credits', 'credit limit', 'naubos ai', 'monthly ai', 'ai quota', 'ai usage'],
+  answer: `<p>Ang <strong>AI credits</strong> ang usage allowance para sa AI Assistant ng store. Kapag naabot na ang available monthly allowance, hindi muna makakagawa ng bagong AI request hanggang sa susunod na reset o hanggang sa maayos ng Admin/developer ang subscription o allowance.</p><p>Hindi nito binubura ang existing FAQ Knowledge Base. Maaari mo pa ring gamitin ang <strong>Keyword Search</strong> kung available ito.</p>`
+},
+{
+  id: 'faq-void-refund-stock',
+  category: 'Transactions',
+  question: 'Kapag nag-void o refund, automatic bang bumabalik sa stock ang produkto?',
+  keywords: ['void restock', 'refund restock', 'automatic restock', 'balik stock', 'voided refunded stock', 'stock return inspection'],
+  verdict: 'hindi',
+  answer: `<p>Hindi dapat awtomatikong ibalik sa sellable stock ang voided o refunded item. Ang item ay maaaring kailanganing <strong>i-verify muna</strong> bago maibalik sa inventory, lalo na kung nabuksan, nasira, o hindi na puwedeng ibenta.</p><p>Gamitin ang <strong>Voided/Refunded</strong> stock-return inspection workflow para ma-review ang item bago ito tuluyang ituring na stock na puwedeng ibenta.</p>`
+},
+{
+  id: 'faq-transaction-records',
+  category: 'Transactions',
+  question: 'Saan ko makikita ang transaction records at detalye ng isang sale?',
+  keywords: ['transaction records', 'transaction database', 'sales history', 'sale details', 'transaction history', 'resibo history'],
+  answer: `<p>Sa <strong>Transaction</strong> page mo makikita ang recorded sales at ang available na detalye ng bawat transaction. Gamitin ang search/filter tools kung kailangan mong hanapin ang isang partikular na sale.</p><p>Para sa void o refund, tingnan din ang kaugnay na record at ang <strong>Voided/Refunded</strong> workflow kung kailangan ng stock-return inspection.</p>`
+},
+{
+  id: 'faq-receipt-customization',
+  category: 'Receipt Settings',
+  question: 'Ano ang puwedeng i-customize sa resibo?',
+  keywords: ['receipt customization', 'customize receipt', 'receipt design', 'edit receipt', 'resibo layout', 'receipt settings'],
+  answer: `<p>Depende sa available na Receipt Settings at sa unlocked features ng iyong system, maaaring i-customize ang mga bahagi gaya ng <strong>store/header information, logo, template/layout, QR placement, at ibang receipt presentation settings</strong>.</p><p>Kung premium o credit-based ang isang customization feature, ipapakita ng system ang kaukulang unlock/credit requirement bago ito magamit.</p>`
+},
+{
+  id: 'faq-receipt-email',
+  category: 'Receipt Settings',
+  question: 'Bakit hindi nagpapadala ng e-receipt sa email?',
+  keywords: ['email receipt not sending', 'e receipt', 'gmail receipt', 'receipt email error', 'email resibo', 'hindi dumating resibo'],
+  verdict: 'depende',
+  answer: `<p>Karaniwang kailangan ng <strong>internet connection</strong> at tamang email configuration para gumana ang e-receipt.</p><p>Kung may error, tingnan kung tama ang recipient email at kung naka-configure nang maayos ang Gmail/receipt email credentials ng system. Kung configuration o server-side issue ang problema, Admin/developer ang dapat mag-check nito.</p><p>Kung successful ang sale pero hindi dumating ang email, tingnan muna ang spam/junk folder bago mag-resend.</p>`
+},
+{
+  id: 'faq-cloud-backup-tokens',
+  category: 'Cloud Tokens & Payments',
+  question: 'Ano ang mangyayari kapag kulang ang Cloud Tokens para sa backup o restore?',
+  keywords: ['kulang token', 'insufficient tokens', 'backup token insufficient', 'restore token', 'token purchase', 'cloud backup balance'],
+  verdict: 'depende',
+  answer: `<p>Kung hindi sapat ang token balance para sa isang billable Cloud Backup operation, hindi dapat ituloy ang operation hanggang may sapat na balance.</p><p>Karaniwang flow ay <strong>check muna ng token balance → kung kulang, mag-top up/purchase ng tokens → saka ulitin ang backup o restore</strong>.</p><p>Ang aktuwal na token requirement ay depende sa configured Cloud Backup tier at sa operation.</p>`
+},
+{
+  id: 'faq-cloud-backup-internet',
+  category: 'Premium Features',
+  question: 'Kailangan ba ng internet ang Cloud Backup at Restore?',
+  keywords: ['cloud backup internet', 'backup offline', 'restore internet', 'cloud restore connection'],
+  verdict: 'oo',
+  answer: `<p>Oo. Dahil ang Cloud Backup/Restore ay kumokonekta sa online storage/Relay infrastructure, kailangan ng <strong>active internet connection</strong>.</p><p>Ang normal na local POS operations ay ibang bagay: maaari pa ring gumana ang local sales/inventory workflow kahit walang internet, depende sa local network setup.</p>`
+},
+{
+  id: 'faq-settings-per-device',
+  category: 'Store & Appearance Settings',
+  question: 'Pareho ba ang lahat ng settings sa bawat device?',
+  keywords: ['per device settings', 'device settings', 'settings bawat device', 'same settings', 'local settings'],
+  verdict: 'hindi',
+  answer: `<p>Hindi lahat. May mga setting na <strong>per-device</strong>, lalo na ang ilang Appearance & UX preferences gaya ng dark mode, scanner sound, dashboard widgets, at terminal layout preferences.</p><p>Mayroon ding store/system settings na intended para sa buong installation. Kung hindi ka sigurado kung local o shared ang isang setting, tingnan ang description nito sa Settings o itanong sa Admin.</p>`
+},
+{
+  id: 'faq-pwa-install',
+  category: 'Overview',
+  question: 'Bakit hindi ko makita ang Install App o Add to Home Screen?',
+  keywords: ['install app missing', 'pwa install missing', 'add home screen missing', 'install banner', 'pwa not showing'],
+  verdict: 'depende',
+  answer: `<p>Maaaring hindi lumabas ang install option kung hindi pa natutugunan ng browser/device ang PWA install requirements, naka-install na ang app, o na-dismiss na dati ang install prompt.</p><p>Sa Android/Chrome, tingnan ang browser menu para sa <strong>Install app</strong> o <strong>Add to Home screen</strong>. Sa iPhone/iPad, gamitin ang Safari <strong>Share → Add to Home Screen</strong>.</p>`
+},
+{
+  id: 'faq-user-permission',
+  category: 'Roles & Permissions',
+  question: 'Bakit hindi ko makita o magawa ang isang menu/action bilang staff?',
+  keywords: ['permission denied', 'staff cannot access', 'menu missing', 'walang access', 'permission', 'role access'],
+  verdict: 'depende',
+  answer: `<p>Karaniwan itong dahil sa <strong>role/permission</strong> ng account mo. Hindi pare-pareho ang access ng Admin, Staff, Cashier, at custom roles.</p><p>Kung kailangan mo ng feature para sa trabaho, ipasuri sa Admin ang permission ng role mo. Kung may approval workflow ang action, maaaring kailangan munang gumawa ng <strong>Staff Request</strong> bago ito ma-apply.</p>`
+},
+{
+  id: 'faq-support-ticket-guidance',
+  category: 'FAQ & Support',
+  question: 'Kailan dapat gumawa ng Support Ticket?',
+  keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
+  answer: `<p>Gumawa ng <strong>Support Ticket</strong> kapag may problemang hindi mo maayos gamit ang FAQ o normal troubleshooting — halimbawa, paulit-ulit na system error, unexpected behavior, o feature na dapat gumana pero hindi.</p><p>Kung available ang AI Assistant ticket flow, maaaring maisama ang kasalukuyang conversation at basic device information para mas mabilis ma-review ng Admin/developer. Huwag isama sa ticket ang password, API key, token, o ibang secret.</p>`
+},
+
 ];
