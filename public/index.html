@@ -3416,19 +3416,20 @@
                     </div>
                     <div class="input-field-group">
                         <label>Item Name</label>
-                        <input type="text" id="bt-form-item" required placeholder="e.g. Fresh Milk 1L" autocomplete="off">
+                        <input type="text" id="bt-form-item" required maxlength="120" placeholder="e.g. Fresh Milk 1L" autocomplete="off">
                     </div>
                     <div class="input-field-group">
                         <label>SKU / Product Code <span style="font-weight:normal;color:#94a3b8;">(optional)</span></label>
-                        <input type="text" id="bt-form-sku" placeholder="e.g. PRDT20250006" autocomplete="off">
+                        <input type="text" id="bt-form-sku" maxlength="60" placeholder="e.g. PRDT20250006" autocomplete="off">
                     </div>
                     <div class="input-field-group">
                         <label>Quantity</label>
-                        <input type="number" id="bt-form-qty" min="1" step="1" required placeholder="0" autocomplete="off">
+                        <input type="number" id="bt-form-qty" min="1" max="99999" step="1" required placeholder="0" autocomplete="off">
                     </div>
                     <div class="input-field-group">
                         <label>Note <span style="font-weight:normal;color:#94a3b8;">(optional)</span></label>
-                        <textarea id="bt-form-note" placeholder="e.g. urgent, for weekend promo, etc."></textarea>
+                        <textarea id="bt-form-note" maxlength="300" oninput="const c=document.getElementById('bt-form-note-count'); if(c) c.textContent = this.value.length + '/300';" placeholder="e.g. urgent, for weekend promo, etc."></textarea>
+                        <div id="bt-form-note-count" style="text-align:right;font-size:0.7rem;color:#94a3b8;margin-top:2px;">0/300</div>
                     </div>
                     <p id="bt-form-error" style="color:#ef4444;font-size:0.85rem;display:none;margin:0;"></p>
                 </div>

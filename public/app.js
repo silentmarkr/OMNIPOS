@@ -8171,8 +8171,13 @@ let branchesPageState = {
     trendCache: {},
     combinedTrendCache: [],
     transfers: [],
+    transferFilter: 'all', // 'all' | 'incoming' | 'outgoing' | 'action'
     pollTimer: null
 };
+// Mga transferId na kasalukuyang may in-flight na accept/reject/cancel/send/
+// receive na request papunta sa server — ginagamit para i-disable ang mga
+// action button ng row na iyon (bantay laban sa paulit-ulit na pag-click).
+const branchTransferActionsInFlight = new Set();
 const branchesThemeObserver = new MutationObserver(() => {
     const view = document.getElementById('view-branches');
     if (view && view.style.display !== 'none') renderBranchesPage();
@@ -8211,11 +8216,7 @@ async function refreshBranchesAlertBadge() {
 // destination). Kasama na rin ngayon ang mga ito sa badge count para hindi
 // makaligtaan ng cashier/manager.
 function countActionableBranchTransfers(transfers) {
-    return (transfers || []).filter(t =>
-        (t.direction === 'incoming' && t.status === 'pending') ||
-        (t.direction === 'outgoing' && t.status === 'accepted') ||
-        (t.direction === 'incoming' && t.status === 'in_transit')
-    ).length;
+    return (transfers || []).filter(isActionableBranchTransfer).length;
 }
 // AYOS/BUGFIX (walang real-time notification papunta sa ibang branch): dati,
 // ang listahan/badge ng incoming request ay ini-refresh lang (a) kapag
@@ -8239,11 +8240,7 @@ async function pollBranchTransfersGlobally() {
         const data = await res.json();
         if (!data.success) return;
         const transfers = data.transfers || [];
-        const actionable = transfers.filter(t =>
-            (t.direction === 'incoming' && t.status === 'pending') ||
-            (t.direction === 'outgoing' && t.status === 'accepted') ||
-            (t.direction === 'incoming' && t.status === 'in_transit')
-        );
+        const actionable = transfers.filter(isActionableBranchTransfer);
         const currentIds = new Set(actionable.map(t => t.id + ':' + t.status));
         if (branchTransfersLastActionableIds) {
             const newOnes = actionable.filter(t => !branchTransfersLastActionableIds.has(t.id + ':' + t.status));
@@ -8372,30 +8369,93 @@ async function loadBranchesTrend(silent) {
 async function loadBranchTransfers(silent) {
     try {
         const res = await authFetch(`${API_URL}/branches/transfers`);
-        if (!res.ok) return;
+        if (!res.ok) { branchesPageState.transfersSyncError = true; renderBranchesPage(); return; }
         const data = await res.json();
-        if (!data.success) return;
+        if (!data.success) { branchesPageState.transfersSyncError = true; renderBranchesPage(); return; }
         branchesPageState.transfers = data.transfers || [];
+        branchesPageState.transfersSyncError = false;
         renderBranchesPage();
         refreshBranchesAlertBadge();
-    } catch (e) { console.warn('loadBranchTransfers failed:', e); }
-}
-function renderBranchTransfersHtml() {
-    const transfers = branchesPageState.transfers || [];
-    const header = `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-right-left"></i> Stock Transfer Requests</h3>`;
-    if (transfers.length === 0) {
-        return header + `<p style="color:#94a3b8;font-size:0.85rem;">There are no transfer requests between branches yet.</p>`;
+    } catch (e) {
+        console.warn('loadBranchTransfers failed:', e);
+        // AYOS/BUGFIX: dati, tahimik lang itong nabibigo dito (console.warn
+        // lang) — walang anumang palatandaan sa user na maaaring luma na
+        // ang nakikita niyang listahan/status. May optimistic update na sa
+        // submit/respond functions para sa AGAD na feedback, pero kung
+        // talagang mabigo itong background sync (hal. tuloy-tuloy na walang
+        // internet), dapat malaman ng user para makapag-manual refresh.
+        branchesPageState.transfersSyncError = true;
+        renderBranchesPage();
     }
-    const rows = transfers.slice(0, 50).map(t => {
+}
+// Ginagamit parehong ng filter tabs (para malaman kung "needs action" ba ang
+// isang partikular na row) at ng badge/polling code sa itaas.
+function isActionableBranchTransfer(t) {
+    return (t.direction === 'incoming' && t.status === 'pending') ||
+        (t.direction === 'outgoing' && t.status === 'accepted') ||
+        (t.direction === 'incoming' && t.status === 'in_transit');
+}
+function setBranchTransferFilter(filter) {
+    branchesPageState.transferFilter = filter;
+    renderBranchesPage();
+}
+const BRANCH_TRANSFER_LIST_LIMIT = 50;
+function renderBranchTransfersHtml() {
+    const allTransfers = branchesPageState.transfers || [];
+    const header = `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-right-left"></i> Stock Transfer Requests</h3>`;
+    const syncErrorNote = branchesPageState.transfersSyncError
+        ? `<p style="color:#f59e0b;font-size:0.8rem;margin:0 0 10px;"><i class="fa-solid fa-triangle-exclamation"></i> Could not refresh the transfer list from the server — what you see below may be out of date. <a href="#" onclick="loadBranchTransfers(); return false;" style="color:#2563eb;">Retry now</a></p>`
+        : '';
+    if (allTransfers.length === 0) {
+        return header + syncErrorNote + `<p style="color:#94a3b8;font-size:0.85rem;">There are no transfer requests between branches yet.</p>`;
+    }
+    // AYOS/PAGBUTI (filter tabs): dati, isang mahabang listahan lang lahat ng
+    // transfer (parehong incoming/outgoing, parehong tapos na at kailangan
+    // pa ng aksyon) — kailangan pang mag-scroll/maghanap manually. Idinagdag
+    // ngayon ang mabilisang pag-filter para agad makita kung ano ang
+    // kailangan ng pansin.
+    const filter = branchesPageState.transferFilter || 'all';
+    const actionCount = allTransfers.filter(isActionableBranchTransfer).length;
+    const filtered = allTransfers.filter(t => {
+        if (filter === 'incoming') return t.direction === 'incoming';
+        if (filter === 'outgoing') return t.direction === 'outgoing';
+        if (filter === 'action') return isActionableBranchTransfer(t);
+        return true;
+    });
+    const tabs = [
+        { key: 'all', label: 'All', count: allTransfers.length },
+        { key: 'action', label: 'Needs My Action', count: actionCount },
+        { key: 'incoming', label: 'Incoming', count: allTransfers.filter(t => t.direction === 'incoming').length },
+        { key: 'outgoing', label: 'Outgoing', count: allTransfers.filter(t => t.direction === 'outgoing').length }
+    ];
+    const tabsHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tabs.map(tab => `
+        <button type="button" onclick="setBranchTransferFilter('${tab.key}')"
+            style="padding:4px 10px;font-size:0.75rem;border-radius:20px;border:1px solid ${filter === tab.key ? '#2563eb' : 'var(--border-color)'};background:${filter === tab.key ? '#2563eb' : 'transparent'};color:${filter === tab.key ? '#fff' : 'inherit'};cursor:pointer;">
+            ${tab.label}${tab.count > 0 ? ` (${tab.count})` : ''}
+        </button>`).join('')}</div>`;
+    if (filtered.length === 0) {
+        return header + syncErrorNote + tabsHtml + `<p style="color:#94a3b8;font-size:0.85rem;">No transfer requests match this filter.</p>`;
+    }
+    const shown = filtered.slice(0, BRANCH_TRANSFER_LIST_LIMIT);
+    const rows = shown.map(t => {
         // Status colors: pending=orange, accepted/in_transit=blue (needs another
         // step before the stock is actually moved), completed=green (stock has
-        // moved on both sides), rejected/cancelled=gray.
-        const statusColor = t.status === 'pending' ? '#f59e0b'
-            : (t.status === 'accepted' || t.status === 'in_transit') ? '#2563eb'
-            : t.status === 'completed' ? '#16a34a'
+        // moved on both sides), rejected/cancelled/unknown=gray.
+        // AYOS/BUGFIX: dati, direktang tinatawag ang `t.status.charAt(0)`
+        // kaya kung sa kahit anong dahilan ay walang `status` field ang isang
+        // record (hal. corrupted/unexpected na relay response), mag-tha-throw
+        // ito ng TypeError sa gitna ng .map() — bumabagsak ang BUONG render
+        // (kasama na ang lahat ng ibang tama namang record). Ginawang safe
+        // gamit ang fallback na 'unknown'.
+        const safeStatus = t.status || 'unknown';
+        const statusColor = safeStatus === 'pending' ? '#f59e0b'
+            : (safeStatus === 'accepted' || safeStatus === 'in_transit') ? '#2563eb'
+            : safeStatus === 'completed' ? '#16a34a'
             : '#94a3b8';
-        const statusLabel = t.status === 'in_transit' ? 'In Transit' : t.status.charAt(0).toUpperCase() + t.status.slice(1);
+        const statusLabel = safeStatus === 'in_transit' ? 'In Transit' : safeStatus.charAt(0).toUpperCase() + safeStatus.slice(1);
         const dirLabel = t.direction === 'incoming' ? `To you from ${escapeHtml(t.fromBranchName)}` : (t.direction === 'outgoing' ? `To ${escapeHtml(t.toBranchName)}` : `${escapeHtml(t.fromBranchName)} \u2192 ${escapeHtml(t.toBranchName)}`);
+        const busy = branchTransferActionsInFlight.has(t.id);
+        const actionBtn = (label, action, extraStyle, icon) => `<button class="btn-action-outline" ${busy ? 'disabled' : ''} style="padding:4px 10px;font-size:0.75rem;${busy ? 'opacity:0.5;cursor:not-allowed;' : ''}${extraStyle || ''}" onclick="respondBranchTransfer('${t.id}','${action}')">${icon || ''}${label}</button>`;
         // AYOS/BUGFIX (two-sided stock movement): dati, tapos na ang buong flow
         // pagkatapos ng "Accept" — status na lang ang nagbabago, walang
         // epekto sa totoong stock. Dalawa na ngayong bagong hakbang bago
@@ -8403,22 +8463,21 @@ function renderBranchTransfersHtml() {
         //   accepted (outgoing) -> "Mark as Sent" (babawasan ang stock dito, sa source)
         //   in_transit (incoming) -> "Confirm Received" (dadagdagan ang stock dito, sa destination)
         let actions = '';
-        if (t.direction === 'incoming' && t.status === 'pending') {
-            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','accept')">Accept</button>
-               <button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;color:#ef4444;border-color:#ef4444;" onclick="respondBranchTransfer('${t.id}','reject')">Reject</button>`;
-        } else if (t.direction === 'outgoing' && t.status === 'pending') {
-            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','cancel')">Cancel</button>`;
-        } else if (t.direction === 'outgoing' && t.status === 'accepted') {
-            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','send')"><i class="fa-solid fa-truck"></i> Mark as Sent</button>`;
-        } else if (t.direction === 'incoming' && t.status === 'accepted') {
+        if (t.direction === 'incoming' && safeStatus === 'pending') {
+            actions = actionBtn('Accept', 'accept') + ' ' + actionBtn('Reject', 'reject', 'color:#ef4444;border-color:#ef4444;');
+        } else if (t.direction === 'outgoing' && safeStatus === 'pending') {
+            actions = actionBtn('Cancel', 'cancel');
+        } else if (t.direction === 'outgoing' && safeStatus === 'accepted') {
+            actions = actionBtn('Mark as Sent', 'send', '', '<i class="fa-solid fa-truck"></i> ');
+        } else if (t.direction === 'incoming' && safeStatus === 'accepted') {
             actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.fromBranchName)} to send the item(s)…</span>`;
-        } else if (t.direction === 'incoming' && t.status === 'in_transit') {
-            actions = `<button class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="respondBranchTransfer('${t.id}','receive')"><i class="fa-solid fa-box-open"></i> Confirm Received</button>`;
-        } else if (t.direction === 'outgoing' && t.status === 'in_transit') {
+        } else if (t.direction === 'incoming' && safeStatus === 'in_transit') {
+            actions = actionBtn('Confirm Received', 'receive', '', '<i class="fa-solid fa-box-open"></i> ');
+        } else if (t.direction === 'outgoing' && safeStatus === 'in_transit') {
             actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.toBranchName)} to confirm receipt…</span>`;
         }
         return `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;${busy ? 'opacity:0.7;' : ''}">
                 <div>
                     <div style="font-weight:600;">${escapeHtml(t.itemName)} ${t.sku ? `<span style="color:#94a3b8;font-weight:normal;font-size:0.75rem;">(${escapeHtml(t.sku)})</span>` : ''} — ${t.qty} pc(s)</div>
                     <div style="font-size:0.75rem;color:#94a3b8;">${dirLabel} · ${timeAgoLabel(t.createdAt)}</div>
@@ -8426,11 +8485,17 @@ function renderBranchTransfersHtml() {
                 </div>
                 <div style="text-align:right;">
                     <div style="font-size:0.75rem;font-weight:600;color:${statusColor};">${statusLabel}</div>
-                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;">${actions}</div>
+                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;justify-content:flex-end;">${busy ? '<span style="font-size:0.75rem;color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin"></i> Updating…</span>' : actions}</div>
                 </div>
             </div>`;
     }).join('');
-    return header + `<div class="overview-trend-card">${rows}</div>`;
+    // AYOS/PAGBUTI: dati, kung lumampas sa 50 ang mga tugma sa filter,
+    // tahimik lang itong pinuputol nang walang kahit anong palatandaan —
+    // parang kumpleto na ang listahan kahit hindi pala.
+    const overflowNote = filtered.length > BRANCH_TRANSFER_LIST_LIMIT
+        ? `<p style="color:#94a3b8;font-size:0.75rem;margin:8px 0 0;text-align:center;">Showing the latest ${BRANCH_TRANSFER_LIST_LIMIT} of ${filtered.length} matching requests.</p>`
+        : '';
+    return header + syncErrorNote + tabsHtml + `<div class="overview-trend-card">${rows}</div>` + overflowNote;
 }
 function renderBranchesPage() {
     const body = document.getElementById('branches-page-body');
@@ -8511,6 +8576,8 @@ function openBranchTransferRequestModal() {
     if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
     const form = document.getElementById('branch-transfer-form');
     if (form) form.reset();
+    const noteCount = document.getElementById('bt-form-note-count');
+    if (noteCount) noteCount.textContent = '0/300';
     populateBranchTransferDestinations();
     document.getElementById('branch-transfer-modal').style.display = 'flex';
 }
@@ -8527,6 +8594,35 @@ async function submitBranchTransferRequest(evt) {
     const note = document.getElementById('bt-form-note').value.trim();
     if (!toInstallationId) { errEl.textContent = 'No destination branch is available.'; errEl.style.display = 'block'; return false; }
     if (!itemName || !qty || qty < 1) { errEl.textContent = 'Fill in the item name and quantity.'; errEl.style.display = 'block'; return false; }
+    // AYOS/PAGBUTI: ang relay ay tahimik na pinuputol (slice) ang itemName sa
+    // 120, sku sa 60, at note sa 300 characters — kung hindi ito
+    // ipapaalam dito sa client, hindi malalaman ng user kung bakit
+    // "nabawasan" ang naitype niya pagkatapos ma-submit.
+    if (itemName.length > 120) { errEl.textContent = 'Item name is too long (max 120 characters).'; errEl.style.display = 'block'; return false; }
+    if (sku.length > 60) { errEl.textContent = 'SKU / Product Code is too long (max 60 characters).'; errEl.style.display = 'block'; return false; }
+    if (note.length > 300) { errEl.textContent = 'Note is too long (max 300 characters).'; errEl.style.display = 'block'; return false; }
+    // AYOS/PAGBUTI (soft duplicate-request check): dati, wala talagang
+    // babala kung mayroon nang open (pending/accepted/in_transit) na
+    // outgoing request papunta sa parehong branch para sa parehong item —
+    // madaling makapagpadala ng aksidenteng duplicate (hal. double-submit,
+    // o nakalimutan na may nakabinbin na pala).
+    const dupe = (branchesPageState.transfers || []).find(t =>
+        t.direction === 'outgoing' &&
+        t.toInstallationId === toInstallationId &&
+        ['pending', 'accepted', 'in_transit'].includes(t.status) &&
+        String(t.itemName || '').trim().toLowerCase() === itemName.toLowerCase()
+    );
+    if (dupe && typeof Swal !== 'undefined') {
+        const proceed = await Swal.fire({
+            icon: 'warning',
+            title: 'Existing request found',
+            text: `You already have an open transfer request for "${itemName}" to ${toBranchName || 'this branch'} (status: ${dupe.status}). Send another one anyway?`,
+            showCancelButton: true,
+            confirmButtonText: 'Yes, send another',
+            cancelButtonText: 'Cancel'
+        });
+        if (!proceed.isConfirmed) return false;
+    }
     errEl.style.display = 'none';
     btn.disabled = true;
     const originalText = btn.textContent;
@@ -8583,6 +8679,11 @@ async function submitBranchTransferRequest(evt) {
 // tumutugmang lokal na product (hal. iba ang SKU/pangalan sa destination) —
 // kailangan pa ring i-adjust nang manual sa ganung sitwasyon.
 async function respondBranchTransfer(transferId, action) {
+    // AYOS/BUGFIX: dati, walang bantay dito laban sa paulit-ulit na
+    // pag-click sa parehong button bago pa man makabalik ang unang request
+    // (hal. mabilis na double-click sa "Mark as Sent" habang naglo-load pa
+    // ang unang tawag) — puwedeng makapagpadala ng duplicate na request.
+    if (branchTransferActionsInFlight.has(transferId)) return;
     if (action === 'send' || action === 'receive') {
         const confirmText = action === 'send'
             ? 'This will DEDUCT the stock of the matching item from your own Products list here (the source branch). Continue?'
@@ -8599,6 +8700,8 @@ async function respondBranchTransfer(transferId, action) {
             if (!confirmResult.isConfirmed) return;
         }
     }
+    branchTransferActionsInFlight.add(transferId);
+    renderBranchesPage(); // ipakita agad ang disabled/"Updating…" na state ng row na ito
     try {
         const res = await authFetch(`${API_URL}/branches/transfer-respond`, {
             method: 'POST',
@@ -8615,6 +8718,16 @@ async function respondBranchTransfer(transferId, action) {
         } else if (typeof Swal !== 'undefined' && (action === 'send' || action === 'receive')) {
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: action === 'send' ? 'Marked as sent — stock deducted here.' : 'Received confirmed — stock added here.', showConfirmButton: false, timer: 2400 });
         }
+        // AYOS/BUGFIX (parehong dahilan gaya ng sa submitBranchTransferRequest):
+        // huwag umasa lang sa isang hiwalay na follow-up GET (na puwede ring
+        // mabigo/ma-delay nang tahimik) bago mag-update ang status/actions ng
+        // row na ito sa screen — i-merge agad ang `transfer` object na
+        // ibinalik na mismo ng successful response.
+        if (data.transfer) {
+            branchesPageState.transfers = (branchesPageState.transfers || []).map(t =>
+                t.id === data.transfer.id ? { ...t, ...data.transfer } : t
+            );
+        }
         loadBranchTransfers();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         // I-refresh ang lokal na product cache/catalog dahil posibleng nagbago
@@ -8625,6 +8738,14 @@ async function respondBranchTransfer(transferId, action) {
         if (typeof loadTerminalCatalog === 'function') loadTerminalCatalog();
     } catch (err) {
         console.warn('respondBranchTransfer failed:', err);
+        // AYOS/BUGFIX: dati, tahimik lang itong nabibigo (console.warn lang)
+        // kapag hindi maabot ang server (hal. timeout, walang internet) —
+        // walang anumang ipinapakita sa user, kaya mukhang walang nangyari
+        // kahit na-click na niya ang button.
+        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Could not reach the server', text: 'Please check your connection and try again.' });
+    } finally {
+        branchTransferActionsInFlight.delete(transferId);
+        renderBranchesPage();
     }
 }
 function timeAgoLabel(ts) {
