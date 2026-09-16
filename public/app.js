@@ -5599,6 +5599,7 @@ function toggleUserWidgetMenu(event) {
     if (isOpen) {
         closeAllSidebarMenuDropdowns();
         updateActiveUsersBadge();
+        refreshLanAccessStatus();
     } else {
         document.getElementById('uw-themes-submenu')?.classList.remove('open');
         document.getElementById('uw-themes-caret')?.classList.remove('rotated');
@@ -5886,6 +5887,192 @@ async function openCloudflareNamedTunnelConfigModal(event) {
     } catch (err) {
         Swal.fire('Error', err.message ||'Could not save the configuration.','error');
     }
+}
+let lanAccessActionInFlight = false;
+let lanAccessCurrentlyEnabled = false;
+function setLanAccessStatusDot(enabled) {
+    const dot = document.getElementById('uw-lanaccess-status-dot');
+    if (!dot) return;
+    dot.classList.toggle('uw-lan-on', !!enabled);
+    dot.title = enabled ?'LAN Access is currently ON' :'LAN Access is currently off';
+}
+async function refreshLanAccessStatus() {
+    try {
+        const res = await authFetch(`${API_URL}/system/lan-connection/status`);
+        const data = await res.json();
+        if (data.success) {
+            lanAccessCurrentlyEnabled = !!data.enabled;
+            setLanAccessStatusDot(lanAccessCurrentlyEnabled);
+        }
+    } catch (err) {}
+}
+function pollLanConnectionStatus() {
+    return new Promise((resolve) => {
+        let attempts = 0;
+        const maxAttempts = 40;
+        const check = async () => {
+            attempts++;
+            try {
+                const res = await authFetch(`${API_URL}/system/lan-connection/status`);
+                const data = await res.json();
+                if (data.success && data.enabled) {
+                    return resolve(data);
+                }
+            } catch (err) {
+
+            }
+            if (attempts >= maxAttempts) return resolve({ success: false });
+            setTimeout(check, 1000);
+        };
+        check();
+    });
+}
+function pollLanConnectionServerBack() {
+    return new Promise((resolve) => {
+        let attempts = 0;
+        const maxAttempts = 40;
+        const check = async () => {
+            attempts++;
+            try {
+                const res = await fetch(`${API_URL}/system/network-info`);
+                if (res.ok) return resolve(true);
+            } catch (err) {
+
+            }
+            if (attempts >= maxAttempts) return resolve(false);
+            setTimeout(check, 1000);
+        };
+        check();
+    });
+}
+async function handleLanAccessLinkClick(event) {
+    if (event) event.stopPropagation();
+    if (lanAccessActionInFlight) return;
+    if (currentUser && (currentUser.role ||'').toLowerCase() !=='admin') {
+        Swal.fire('Admins Only','Only an Admin account can turn on LAN Access.','warning');
+        return;
+    }
+    if (lanAccessCurrentlyEnabled) {
+        showLanAccessQrModal();
+        return;
+    }
+    const icon = document.getElementById('uw-lanaccess-icon');
+    lanAccessActionInFlight = true;
+    if (icon) icon.classList.add('fa-spin');
+    try {
+        const startRes = await authFetch(`${API_URL}/system/lan-connection/start`, { method:'POST' });
+        const startData = await startRes.json();
+        if (!startData.success) {
+            throw new Error(startData.message ||'Could not turn on LAN Access.');
+        }
+        if (!startData.restarting) {
+            lanAccessCurrentlyEnabled = true;
+            setLanAccessStatusDot(true);
+            showLanAccessQrModal(startData);
+            return;
+        }
+        Swal.fire({
+            title:'Turning on LAN Access…',
+            html:'<p style="font-size:0.85rem;color:#94a3b8;">The server is restarting to apply this — this only takes a few seconds.</p>',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => Swal.showLoading()
+        });
+        const polled = await pollLanConnectionStatus();
+        if (!polled || !polled.success || !polled.enabled) {
+            Swal.fire('Not Available Yet','The server took longer than expected to come back. Please try again in a moment.','error');
+            return;
+        }
+        lanAccessCurrentlyEnabled = true;
+        setLanAccessStatusDot(true);
+        showLanAccessQrModal(polled);
+    } catch (err) {
+        Swal.fire('Error', err.message ||'An error occurred while turning on LAN Access.','error');
+    } finally {
+        lanAccessActionInFlight = false;
+        if (icon) icon.classList.remove('fa-spin');
+    }
+}
+async function handleLanAccessStopClick() {
+    if (lanAccessActionInFlight) return { success: false, message:'Already busy — please wait.' };
+    lanAccessActionInFlight = true;
+    try {
+        const res = await authFetch(`${API_URL}/system/lan-connection/stop`, { method:'POST' });
+        const data = await res.json();
+        if (!data.success) return { success: false, message: data.message ||'Could not turn off LAN Access.' };
+        if (data.restarting) {
+            await pollLanConnectionServerBack();
+        }
+        lanAccessCurrentlyEnabled = false;
+        setLanAccessStatusDot(false);
+        return { success: true };
+    } catch (err) {
+        return { success: false, message: err.message ||'Could not turn off LAN Access.' };
+    } finally {
+        lanAccessActionInFlight = false;
+    }
+}
+async function showLanAccessQrModal(data) {
+    let addresses = (data && data.addresses) ||[];
+    let port = (data && data.port) || null;
+    if (!addresses.length) {
+        try {
+            const res = await authFetch(`${API_URL}/system/lan-connection/status`);
+            const fresh = await res.json();
+            if (fresh.success) {
+                addresses = fresh.addresses ||[];
+                port = fresh.port || port;
+            }
+        } catch (err) {}
+    }
+    if (!addresses.length || !port) {
+        Swal.fire('Not Available','No LAN address has been detected yet. Please make sure this device is connected to the WiFi/LAN, then try again.','warning');
+        return;
+    }
+    const url = `http://${addresses[0]}:${port}`;
+    const containerId ='lan-access-qr-render-' + Date.now();
+    Swal.fire({
+        title:'LAN Access Link',
+        html: `
+            <p style="margin:2px 0 6px;font-weight:600;word-break:break-all;">${escapeHtml(url)}</p>
+            <p style="font-size:0.75rem;margin:0 0 10px;color:#94a3b8;">Works only on the SAME WiFi/network as this device — no internet connection needed.</p>
+            <div style="display:inline-block;background:#ffffff;padding:18px;border-radius:14px;box-shadow:0 0 0 1px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.25);">
+                <div id="${containerId}" style="display:flex;justify-content:center;align-items:center;line-height:0;"></div>
+            </div>
+            <p style="font-size:0.8rem;color:#94a3b8;margin-top:10px;">Scan with another device on the same WiFi/LAN to open OmniPOS directly — the "OmniPOS-LAN" Termux shortcut is no longer needed. Use "Stop LAN Access" below to turn it back off (localhost-only) anytime.</p>
+        `,
+        confirmButtonText:'Close',
+        showCancelButton: false,
+        showDenyButton: true,
+        denyButtonText:'Stop LAN Access',
+        denyButtonColor:'#dc2626',
+        didOpen: () => {
+            const el = document.getElementById(containerId);
+            if (el && typeof QRCode !=='undefined') {
+                new QRCode(el, {
+                    text: url,
+                    width: 220,
+                    height: 220,
+                    colorDark:'#000000',
+                    colorLight:'#ffffff',
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            }
+        },
+        preDeny: async () => {
+            Swal.showLoading();
+            const result = await handleLanAccessStopClick();
+            if (!result.success) {
+                Swal.showValidationMessage(result.message);
+                return false;
+            }
+        }
+    }).then((result) => {
+        if (result.isDenied) {
+            Swal.fire({ toast: true, position:'top-end', icon:'success', title:'LAN Access turned off', showConfirmButton: false, timer: 1800 });
+        }
+    });
 }
 function toggleThemesSubmenu(event) {
     if (event) event.stopPropagation();

@@ -704,9 +704,6 @@ body:not(.dark-mode) .sidebar {
 }
 .uw-item.uw-remoteaccess {
     justify-content: space-between;
-    margin-bottom: 6px;
-    padding-bottom: 10px;
-    border-bottom: 1px dashed rgba(255, 255, 255, 0.12);
 }
 .uw-item.uw-remoteaccess span {
     display: flex;
@@ -719,6 +716,28 @@ body:not(.dark-mode) .sidebar {
 }
 .uw-remoteaccess-config-icon:hover {
     color: #cbd5e1;
+}
+.uw-item.uw-lanaccess {
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.12);
+}
+.uw-item.uw-lanaccess span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.uw-lanaccess-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #64748b;
+    flex-shrink: 0;
+}
+.uw-lanaccess-status-dot.uw-lan-on {
+    background-color: #4ade80;
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
 }
 .uw-item.uw-logout {
     color: #f87171;

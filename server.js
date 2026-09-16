@@ -9845,6 +9845,65 @@ app.post('/api/system/cloudflare-tunnel/config', (req, res) => {
         :'Removed the Cloudflare Named Tunnel custom domain — falling back to the Quick Tunnel.');
     res.json({ success: true, hasNamedTunnel: bothFilled, provider:'cloudflare', hostname });
 });
+const FILE_LAN_ACCESS_CONFIG ='lanAccessConfig';
+function getLanAccessConfig() {
+    const cfg = readData(FILE_LAN_ACCESS_CONFIG, {});
+    return { enabled: !!(cfg && cfg.enabled) };
+}
+function saveLanAccessConfig(enabled) {
+    writeData(FILE_LAN_ACCESS_CONFIG, { enabled: !!enabled, updatedAt: Date.now() });
+}
+function isLanAccessEnvForced() {
+    return process.env.NODE_ENV ==='production';
+}
+function getLanAccessNetworkInfo() {
+    const subnets = getServerLanSubnets();
+    return { addresses: subnets.map(s => s.address), port: PORT };
+}
+let lanAccessRestartInFlight = false;
+app.get('/api/system/lan-connection/status', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Only Admin privileges can view the LAN Access Link status.' });
+    }
+    const envForced = isLanAccessEnvForced();
+    const enabled = envForced || getLanAccessConfig().enabled;
+    const netInfo = getLanAccessNetworkInfo();
+    res.json({ success: true, enabled, envForced, restarting: lanAccessRestartInFlight, addresses: netInfo.addresses, port: netInfo.port });
+});
+app.post('/api/system/lan-connection/start', rateLimit('system-lan-connection-start', 5, 10 * 60 * 1000), (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Only Admin privileges can turn on LAN Access.' });
+    }
+    const envForced = isLanAccessEnvForced();
+    const alreadyEnabled = envForced || getLanAccessConfig().enabled;
+    const netInfo = getLanAccessNetworkInfo();
+    if (alreadyEnabled) {
+        return res.json({ success: true, restarting: false, alreadyEnabled: true, addresses: netInfo.addresses, port: netInfo.port });
+    }
+    saveLanAccessConfig(true);
+    logAction(req.authUser.username,'Turned ON LAN Access Link (other devices on the same WiFi/network can now open OmniPOS directly) — restarting the server to apply.');
+    lanAccessRestartInFlight = true;
+    res.json({ success: true, restarting: true, alreadyEnabled: false });
+    scheduleSelfRestart();
+});
+app.post('/api/system/lan-connection/stop', (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+        return res.status(403).json({ success: false, message:'Only Admin privileges can turn off LAN Access.' });
+    }
+    const envForced = isLanAccessEnvForced();
+    if (envForced) {
+        return res.status(400).json({ success: false, message:'LAN Access was turned on via the device\'s environment settings (NODE_ENV=production), not from here — it cannot be turned off from this menu.' });
+    }
+    const wasEnabled = getLanAccessConfig().enabled;
+    if (!wasEnabled) {
+        return res.json({ success: true, restarting: false });
+    }
+    saveLanAccessConfig(false);
+    logAction(req.authUser.username,'Turned OFF LAN Access Link (back to localhost-only access) — restarting the server to apply.');
+    lanAccessRestartInFlight = true;
+    res.json({ success: true, restarting: true });
+    scheduleSelfRestart();
+});
 app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagamit ng Check for Updates.' });
@@ -12778,7 +12837,7 @@ app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_m
         hasMore: offset + page.length < scopedShifts.length
     });
 });
-const isProduction = process.env.NODE_ENV ==='production';
+const isProduction = isLanAccessEnvForced() || getLanAccessConfig().enabled;
 const HOST = isProduction ?'0.0.0.0' :'localhost';
 const PORT = process.env.PORT || 3000;
 const HTTPS_CERT_FILE = process.env.HTTPS_CERT_FILE || '';

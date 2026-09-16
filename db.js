@@ -491,7 +491,7 @@ function mirrorBackupToDownloads() {
 // additional (non-PayMongo) Online Payment gateways added alongside
 // PayMongo (e.g. Xendit) — same class of secret as 'paymongoCredentials'
 // above, so it is excluded here for the exact same reason.
-const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials']);
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig', 'lanAccessConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 // BUG FIX: dating ginagamit ng AI Assistant database snapshot (see
 // getAiKnowledgeSnapshot() sa ibaba) ang PAREHONG

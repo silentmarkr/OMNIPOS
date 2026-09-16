@@ -324,6 +324,10 @@
                         <span><i class="fa-solid fa-globe" id="uw-remoteaccess-icon"></i> Remote Access Link</span>
                         <i class="fa-solid fa-gear uw-remoteaccess-config-icon" id="uw-remoteaccess-config-icon" onclick="openCloudflareNamedTunnelConfigModal(event)" title="Configure a custom domain (optional — if a domain has been purchased)"></i>
                     </div>
+                    <div class="uw-item uw-lanaccess" id="uw-lanaccess" onclick="handleLanAccessLinkClick(event)" title="Turn on LAN Access so other devices on the same WiFi/network can open OmniPOS directly — no Termux shortcut needed">
+                        <span><i class="fa-solid fa-network-wired" id="uw-lanaccess-icon"></i> LAN Access Link</span>
+                        <span class="uw-lanaccess-status-dot" id="uw-lanaccess-status-dot" title="LAN Access is currently off"></span>
+                    </div>
                     <div class="uw-submenu uw-au-submenu" id="uw-activeusers-submenu">
 
                         <div class="uw-item uw-networkinfo" id="uw-networkinfo" onclick="showServerIpQrModal(event)" title="Tap to show QR code">
