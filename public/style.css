@@ -4346,6 +4346,52 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]
     transition: filter 0.2s;
 }
 .btn-action-global:hover { filter: brightness(1.08); }
+/* "New Transfer Request" on the Branches page: reads as an inter-branch
+   connection action rather than a plain form button. The pulse/glow color
+   comes from --dm-accent-soft, which is already defined for every theme
+   (day, dark, and every Pro accent) and updates automatically if the user
+   picks a custom accent color — no per-theme colors are hardcoded here. */
+.btn-branch-transfer {
+    position: relative;
+    border-radius: 999px;
+    animation: branchConnectPulse 2.6s ease-out infinite;
+}
+.btn-branch-transfer:hover,
+.btn-branch-transfer:focus-visible {
+    animation-play-state: paused;
+}
+.btn-branch-transfer i {
+    transition: transform 0.35s ease;
+}
+.btn-branch-transfer:hover i,
+.btn-branch-transfer:focus-visible i {
+    transform: rotate(180deg);
+}
+@keyframes branchConnectPulse {
+    0% { box-shadow: 0 0 0 0 var(--dm-accent-soft, rgba(37, 99, 235, 0.35)); }
+    70% { box-shadow: 0 0 0 10px rgba(0, 0, 0, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .btn-branch-transfer { animation: none; }
+    .btn-branch-transfer:hover i, .btn-branch-transfer:focus-visible i { transform: none; }
+}
+@media screen and (max-width: 640px) {
+    .btn-branch-transfer {
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        gap: 0;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .btn-branch-transfer .btn-action-label {
+        display: none;
+    }
+    .btn-branch-transfer i {
+        font-size: 1.05rem;
+    }
+}
 .btn-action-icon-only {
     position: relative;
     padding: 10px 12px;
@@ -4416,6 +4462,9 @@ body.dark-mode .reorder-header-actions-freeze {
 body.dark-mode .btn-action-global {
     background: linear-gradient(135deg, var(--dm-accent), var(--dm-accent-hover));
     border-radius: var(--dm-radius-sm, 6px);
+}
+body.dark-mode .btn-action-global.btn-branch-transfer {
+    border-radius: 999px;
 }
 body.dark-mode .btn-action-outline {
     color: var(--dm-accent);
@@ -5077,6 +5126,7 @@ body.dark-mode .avatar-photo-box {
     animation: slideUp 0.2s ease-out;
     display: flex;
     flex-direction: column;
+    color-scheme: light;
 }
 @keyframes slideUp {
     from { transform: translateY(15px); opacity: 0; }
@@ -5130,13 +5180,17 @@ body.dark-mode .avatar-photo-box {
     margin-bottom: 6px;
     color: #475569;
 }
-.input-field-group input, .input-field-group select {
+.input-field-group input, .input-field-group select, .input-field-group textarea {
     width: 100%;
     padding: 10px 14px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     outline: none;
     font-size: 0.95rem;
+    font-family: inherit;
+}
+.input-field-group textarea {
+    resize: vertical;
 }
 /* Theme-aware highlighted callout for optional "calculate for me" style fields
    (e.g. the Net Profit/VAT-Exclusive helper on the product form). Uses the same
@@ -5175,6 +5229,9 @@ body.dark-mode .theme-callout-box-subtext {
     display: flex;
     justify-content: flex-end;
     flex-shrink: 0;
+}
+#branch-transfer-modal .modal-footer {
+    justify-content: center;
 }
 .btn-fullscreen-toggle {
     display: flex;
@@ -6791,6 +6848,7 @@ body.dark-mode .modal-card {
     color: var(--dm-text-secondary);
     border: var(--dm-border-width, 1px) solid var(--dm-border);
     border-radius: var(--dm-radius-lg, 12px);
+    color-scheme: dark;
 }
 body.dark-mode .modal-header {
     border-bottom-color: var(--dm-border);
@@ -6815,13 +6873,15 @@ body.dark-mode .input-label-field {
     color: var(--dm-text-secondary);
 }
 body.dark-mode .input-field-group input,
-body.dark-mode .input-field-group select {
+body.dark-mode .input-field-group select,
+body.dark-mode .input-field-group textarea {
     background-color: var(--dm-bg);
     border-color: var(--dm-border);
     color: var(--dm-text-primary);
     border-radius: var(--dm-radius-sm, 8px);
 }
-body.dark-mode .input-field-group input::placeholder {
+body.dark-mode .input-field-group input::placeholder,
+body.dark-mode .input-field-group textarea::placeholder {
     color: var(--dm-text-muted);
 }
 body.dark-mode .input-field-group select option {

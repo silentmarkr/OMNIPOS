@@ -171,6 +171,14 @@ body.dark-mode #view-branches .branches-transfer-row .secondary,
 body.dark-mode #view-branches .branches-transfer-row .muted{color:var(--dm-text-secondary);}
 @media (pointer:coarse){#branches-intel-toolbar input,#branches-intel-toolbar select,#branches-intel-toolbar .bi-btn{min-height:44px;touch-action:manipulation}.bi-branch-card [onclick]{min-height:52px}}
 @media(max-width:900px){.bi-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}#branches-intel-toolbar{grid-template-columns:1fr 1fr}.bi-export{grid-column:span 2}}
+/* Desktop: match the fixed-width search box already used on the Transactions
+   page (see #view-transactions .terminal-top-controls .search-box-container
+   in style.css) instead of letting the grid's 1fr column stretch this input
+   across all the free space in the toolbar row. */
+@media(min-width:1025px){
+  #branches-intel-toolbar{grid-template-columns:400px auto auto auto}
+  #bi-branch-search{max-width:400px}
+}
 @media(max-width:600px){
   #view-branches{padding-left:8px;padding-right:8px}
   #view-branches .view-header-row{position:sticky;top:0;z-index:5;background:var(--bg-page,#fff);padding:8px 0;margin-bottom:10px!important}
