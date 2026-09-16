@@ -3923,6 +3923,38 @@ function findLocalProductForTransfer(products, sku, itemName) {
 app.post('/api/branches/transfer-respond', requirePermission('branches'), requireFeature('multi_branch'), rateLimit('branches-transfer-respond', 30, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processBranchTransferRespond(req, res));
 });
+// Clears the FINISHED (completed/rejected/cancelled) transfer requests from
+// the shared history on RELAY. Admin-only: this history is shared across
+// the whole branch group (not per-device), so clearing it here also clears
+// it for every other branch in the group — same reason it is intentionally
+// left OUT of the local Hard Reset (Hard Reset only wipes this device's own
+// local data; it never touches shared RELAY data belonging to other
+// branches). Pending/accepted/in_transit transfers are never deleted here.
+app.post('/api/branches/transfers/clear-history', requirePermission('branches'), requireFeature('multi_branch'), rateLimit('branches-transfer-clear', 10, 10 * 60 * 1000), async (req, res) => {
+    if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Access Denied: Only Admin can clear the shared transfer history (it affects every branch in the group).' });
+    }
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash) return res.status(400).json({ success: false, message: 'No Business Group Code has been configured yet.' });
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY configured in .env.' });
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/branch-transfers/clear-finished`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, branchGroupKeyHash: groupKeyHash })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'The transfer history could not be cleared.' });
+        }
+        res.json({ success: true, clearedCount: relayData.clearedCount || 0, remainingCount: relayData.remainingCount || 0 });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
+    }
+});
 async function processBranchTransferRespond(req, res) {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);

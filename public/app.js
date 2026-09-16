@@ -8526,9 +8526,56 @@ function setBranchTransferFilter(filter) {
     renderBranchesPage();
 }
 const BRANCH_TRANSFER_LIST_LIMIT = 50;
+// FIX: there was previously no way at all to clear old FINISHED transfer
+// requests (completed/rejected/cancelled) out of this list — it just kept
+// growing forever, and neither the local "Clear History" actions elsewhere
+// in the app nor a System Hard Reset touch this, since this history lives
+// on RELAY (shared with the OTHER branch), not in this device's own local
+// database. This button calls the new admin-only clear-history endpoint,
+// which only ever removes finished requests — pending/accepted/in_transit
+// ones are always left alone.
+const BRANCH_TRANSFER_FINISHED_STATUSES = ['completed', 'rejected', 'cancelled'];
+async function clearBranchTransferHistory() {
+    const allTransfers = branchesPageState.transfers || [];
+    const finishedCount = allTransfers.filter(t => BRANCH_TRANSFER_FINISHED_STATUSES.includes(t.status)).length;
+    if (finishedCount === 0) {
+        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'info', title: 'Nothing to clear', text: 'There are no finished (completed/rejected/cancelled) transfer requests to clear right now.' });
+        return;
+    }
+    if (typeof Swal !== 'undefined') {
+        const confirmResult = await Swal.fire({
+            icon: 'warning',
+            title: 'Clear finished transfer history?',
+            text: `This will permanently delete ${finishedCount} finished (completed/rejected/cancelled) transfer request(s) from the SHARED history — this also removes them for every other branch in your group, not just this device. Requests still pending/accepted/in transit are never affected. This cannot be undone.`,
+            showCancelButton: true,
+            confirmButtonText: 'Yes, clear finished history',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#ef4444'
+        });
+        if (!confirmResult.isConfirmed) return;
+    }
+    try {
+        const res = await authFetch(`${API_URL}/branches/transfers/clear-history`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Could not clear history', text: data.message || '' });
+            return;
+        }
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: `Cleared ${data.clearedCount} finished transfer request(s).`, showConfirmButton: false, timer: 2600 });
+        }
+        loadBranchTransfers();
+    } catch (err) {
+        console.warn('clearBranchTransferHistory failed:', err);
+        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network error', text: 'Could not reach the server to clear the transfer history.' });
+    }
+}
 function renderBranchTransfersHtml() {
     const allTransfers = branchesPageState.transfers || [];
-    const header = `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-right-left"></i> Stock Transfer Requests</h3>`;
+    const header = `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span><i class="fa-solid fa-right-left"></i> Stock Transfer Requests</span>
+        ${allTransfers.length > 0 ? `<button type="button" class="btn-action-outline" style="padding:4px 10px;font-size:0.72rem;color:#ef4444;border-color:#ef4444;" onclick="clearBranchTransferHistory()" title="Deletes only finished (completed/rejected/cancelled) requests — shared across the group"><i class="fa-solid fa-trash-can"></i> Clear Finished History</button>` : ''}
+    </h3>`;
     const syncErrorNote = branchesPageState.transfersSyncError
         ? `<p style="color:#f59e0b;font-size:0.8rem;margin:0 0 10px;"><i class="fa-solid fa-triangle-exclamation"></i> Could not refresh the transfer list from the server — what you see below may be out of date. <a href="#" onclick="loadBranchTransfers(); return false;" style="color:#2563eb;">Retry now</a></p>`
         : '';
