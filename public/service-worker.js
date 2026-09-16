@@ -1,6 +1,6 @@
 
 
-const CACHE_VERSION = 'omnipos-shell-v53';
+const CACHE_VERSION = 'omnipos-shell-v54';
 
 const SHELL_FILES = [
   '/',
