@@ -4954,9 +4954,16 @@ async function loadShiftReportView() {
                     listEl.innerHTML ='';
                 } else {
                     const methods = Object.keys(s.paymentBreakdown || {});
+                    const pmbIcon = (m) => {
+                        const key = String(m || '').toLowerCase();
+                        if (key.includes('cash')) return 'fa-money-bill-wave';
+                        if (key.includes('card')) return 'fa-credit-card';
+                        if (key.includes('gcash') || key.includes('wallet') || key.includes('pay')) return 'fa-mobile-screen-button';
+                        return 'fa-circle-dot';
+                    };
                     listEl.innerHTML = methods.length
-                        ? methods.map(m => `<li>${escapeHtml(m)}: ${s.paymentBreakdown[m].count} tx — ₱${s.paymentBreakdown[m].total.toFixed(2)}</li>`).join('')
-                        :'<li style="color:#94a3b8;">No transactions yet on this open shift.</li>';
+                        ? methods.map(m => `<li><span class="pmb-method"><i class="fa-solid ${pmbIcon(m)}"></i> ${escapeHtml(m)}</span><span class="pmb-count">${s.paymentBreakdown[m].count} tx</span><span class="pmb-amount">₱${s.paymentBreakdown[m].total.toFixed(2)}</span></li>`).join('')
+                        : '<li class="pmb-empty">No transactions yet on this open shift.</li>';
                 }
             }
         }

@@ -460,7 +460,7 @@
                   <div class="view-header-row" style="margin-bottom: 25px;" id="dashboard-title-row">
         <h2 id="page-title-dashboard"><i class="fa-solid fa-gauge-high" style="color: #3b82f6; margin-right: 10px;"></i> Inventory Dashboard Overview</h2>
                   </div>
-                    <div class="metrics-grid">
+                    <div class="metrics-grid dashboard-metrics-grid">
                         <div class="metric-card">
                             <div class="metric-icon neutral"><i class="fa-solid fa-box"></i></div>
                             <div><p class="metric-label">PRODUCTS</p><h3 id="metric-products-count">5</h3></div>
@@ -960,7 +960,7 @@
                             <button class="chip-range" data-range="today" onclick="setAnalyticsRange('today')">Today</button>
                         </div>
                     </div>
-                    <div class="metrics-grid">
+                    <div class="metrics-grid reports-metrics-grid">
                         <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">Net Sales</p><h3 id="report-gross">₱0.00</h3></div></div>
                         <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">Transactions Handled</p><h3 id="report-count">0</h3></div></div>
                         <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-chart-line"></i></div><div><p class="metric-label">Estimated Profit</p><h3 id="report-profit">₱0.00</h3></div></div>
@@ -1168,31 +1168,33 @@
                         <div id="shift-close-target-notice" style="margin-top:10px; font-weight:600;"></div>
                     </div>
 
-                    <div class="metrics-grid" id="shift-current-metrics">
-                        <div class="metric-card"><div><p class="metric-label">Transactions (Open Shift)</p><h3 id="shift-tx-count">0</h3></div></div>
-                        <div class="metric-card" id="shift-gross-card"><div><p class="metric-label">Gross Sales</p><h3 id="shift-gross">₱0.00</h3></div></div>
-                        <div class="metric-card" id="shift-discount-card"><div><p class="metric-label">Total Discount</p><h3 id="shift-discount">₱0.00</h3></div></div>
-                        <div class="metric-card" id="shift-net-card"><div><p class="metric-label">Net Sales</p><h3 id="shift-net">₱0.00</h3></div></div>
+                    <div class="metrics-grid shift-metrics-grid" id="shift-current-metrics">
+                        <div class="metric-card" id="shift-tx-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label" title="Transactions (Open Shift)">Transactions</p><h3 id="shift-tx-count">0</h3></div></div>
+                        <div class="metric-card" id="shift-gross-card"><div class="metric-icon accent"><i class="fa-solid fa-sack-dollar"></i></div><div><p class="metric-label">Gross Sales</p><h3 id="shift-gross">₱0.00</h3></div></div>
+                        <div class="metric-card" id="shift-discount-card"><div class="metric-icon warning"><i class="fa-solid fa-tags"></i></div><div><p class="metric-label">Total Discount</p><h3 id="shift-discount">₱0.00</h3></div></div>
+                        <div class="metric-card" id="shift-net-card"><div class="metric-icon green"><i class="fa-solid fa-wallet"></i></div><div><p class="metric-label">Net Sales</p><h3 id="shift-net">₱0.00</h3></div></div>
                     </div>
-                    <div class="report-container" id="shift-payment-breakdown-container" style="margin-top: 20px; padding: 20px;">
-                        <h3>Payment Method Breakdown (Open Shift)</h3>
-                        <ul id="shift-payment-breakdown-list" style="margin-top:15px; padding-left:20px; line-height:2;"></ul>
-                    </div>
-                    <div class="report-container" style="margin-top: 20px; padding: 20px; margin-bottom: 20px;">
-                        <h3><i class="fa-solid fa-cash-register"></i> Close Shift (Z-Reading)</h3>
-                        <p class="recovery-desc">This closes the current shift and starts a new shift period. This action cannot be undone.</p>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin: 15px 0;">
-                            <div>
-                                <label class="input-label-field">Beginning Cash Float <small style="opacity:.7;">(set at the start of the shift by the cashier)</small></label>
-                                <input type="number" id="shift-beginning-cash" class="large-payment-input" placeholder="0.00" readonly autocomplete="off">
-                            </div>
-                            <div>
-                                <label class="input-label-field">Ending Cash (Physical Count)</label>
-                                <input type="number" id="shift-ending-cash" class="large-payment-input" placeholder="0.00" autocomplete="off">
-                            </div>
+                    <div class="shift-columns-grid">
+                        <div class="report-container" id="shift-payment-breakdown-container" style="padding: 20px;">
+                            <h3><i class="fa-solid fa-credit-card"></i> Payment Method Breakdown <small>(Open Shift)</small></h3>
+                            <ul id="shift-payment-breakdown-list"></ul>
                         </div>
-                        <textarea id="shift-close-notes" placeholder="Optional notes..." style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-color); margin-bottom:12px;"></textarea>
-                        <button class="btn-confirm-payment-action" onclick="closeCurrentShift()"><i class="fa-solid fa-lock"></i> Close Shift Now</button>
+                        <div class="report-container" style="padding: 20px;">
+                            <h3><i class="fa-solid fa-cash-register"></i> Close Shift (Z-Reading)</h3>
+                            <p class="recovery-desc">This closes the current shift and starts a new shift period. This action cannot be undone.</p>
+                            <div class="shift-cash-input-grid">
+                                <div>
+                                    <label class="input-label-field">Beginning Cash Float <small style="opacity:.7;">(set at the start of the shift by the cashier)</small></label>
+                                    <input type="number" id="shift-beginning-cash" class="large-payment-input" placeholder="0.00" readonly autocomplete="off">
+                                </div>
+                                <div>
+                                    <label class="input-label-field">Ending Cash (Physical Count)</label>
+                                    <input type="number" id="shift-ending-cash" class="large-payment-input" placeholder="0.00" autocomplete="off">
+                                </div>
+                            </div>
+                            <textarea id="shift-close-notes" placeholder="Optional notes..." style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-color); margin-bottom:12px;"></textarea>
+                            <button class="btn-confirm-payment-action" onclick="closeCurrentShift()"><i class="fa-solid fa-lock"></i> Close Shift Now</button>
+                        </div>
                     </div>
                   <h2 style="margin-left: 7px;">Shift History</h2>
                     <div class="table-container" style="margin-top: 4px;">
@@ -3655,7 +3657,7 @@
     </div>
 
     <div id="bulk-image-search-modal" class="modal-overlay" style="display:none;">
-        <div class="modal-card" style="max-width:760px;">
+        <div class="modal-card bulk-imgsearch-modal-card" style="max-width:760px;">
             <div class="modal-header">
                 <h3>Bulk Search Images</h3>
                 <div class="modal-header-btn-group">
@@ -3664,44 +3666,50 @@
                 </div>
             </div>
             <div class="modal-body">
-                <p style="font-size:13px;color:#64748b;margin-top:0;">
-                    Automatically searches an image for each product and proposes the top match — nothing is saved yet. Review the proposals below, uncheck any that look wrong, then apply.
-                </p>
-                <div class="input-field-group" style="margin-bottom:14px;">
-                    <label style="font-size:0.8rem;">Image Quality <span style="font-weight:normal;color:#94a3b8;">(applies to Bulk Search Images and Omni Search Images below — same setting as the single product Search Image modal)</span></label>
-                    <select class="image-quality-pref-select" onchange="setImageQualityPref(this.value)">
-                        <option value="standard">Standard (720px, mas maliit na file)</option>
-                        <option value="hd">HD (1280px)</option>
-                        <option value="fullhd">Full HD (1920px, pinakamalinaw)</option>
-                    </select>
-                </div>
-                <div class="input-field-group" style="display:flex;align-items:center;gap:8px;">
-                    <input type="checkbox" id="bulk-imgsearch-only-missing" checked style="width:auto;">
-                    <label for="bulk-imgsearch-only-missing" style="margin:0;font-weight:normal;">Only products that don't have a photo yet</label>
-                </div>
-                <div class="input-field-group">
-                    <label>Products to process this run <span style="font-weight:normal;color:#94a3b8;">(max 100 — search-provider quotas are usually limited; run again for the rest)</span></label>
-                    <input type="number" id="bulk-imgsearch-limit" value="50" min="1" max="100" style="max-width:120px;">
-                </div>
-                <button type="button" class="btn-action-outline" id="bulk-imgsearch-start-btn" onclick="startBulkImageSearch()">
-                    <i class="fa-solid fa-magnifying-glass"></i> Start Search
-                </button>
+                <details class="bulk-imgsearch-intro-details">
+                    <summary>How this works</summary>
+                    <p class="bulk-imgsearch-intro">
+                        Automatically searches an image for each product and proposes the top match — nothing is saved yet. Review the proposals below, uncheck any that look wrong, then apply.
+                    </p>
+                </details>
 
-                <div id="bulk-imgsearch-progress-wrap" style="display:none;margin-top:12px;">
-                    <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;">
-                        <div id="bulk-imgsearch-progress-bar" style="background:#3b82f6;height:100%;width:0%;transition:width 0.3s ease;"></div>
+                <div class="bulk-imgsearch-panel">
+                    <div class="input-field-group bulk-imgsearch-field">
+                        <label>Image Quality <span class="bulk-imgsearch-hint">(applies to Bulk Search Images and Omni Search Images below — same setting as the single product Search Image modal)</span></label>
+                        <select class="image-quality-pref-select" onchange="setImageQualityPref(this.value)">
+                            <option value="standard">Standard (720px, smaller file size)</option>
+                            <option value="hd">HD (1280px)</option>
+                            <option value="fullhd">Full HD (1920px, sharpest quality)</option>
+                        </select>
                     </div>
-                    <div id="bulk-imgsearch-progress-text" style="font-size:12px;color:#64748b;margin-top:6px;"></div>
+                    <label class="bulk-imgsearch-checkbox-row" for="bulk-imgsearch-only-missing">
+                        <input type="checkbox" id="bulk-imgsearch-only-missing" checked>
+                        <span>Only products that don't have a photo yet</span>
+                    </label>
+                    <div class="input-field-group bulk-imgsearch-field">
+                        <label>Products to process this run <span class="bulk-imgsearch-hint">(max 100 — search-provider quotas are usually limited; run again for the rest)</span></label>
+                        <input type="number" id="bulk-imgsearch-limit" value="50" min="1" max="100" class="bulk-imgsearch-limit-input">
+                    </div>
+                    <button type="button" class="btn-action-outline" id="bulk-imgsearch-start-btn" onclick="startBulkImageSearch()">
+                        <i class="fa-solid fa-magnifying-glass"></i> Start Search
+                    </button>
+
+                    <div id="bulk-imgsearch-progress-wrap" style="display:none;margin-top:12px;">
+                        <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;">
+                            <div id="bulk-imgsearch-progress-bar" style="background:#3b82f6;height:100%;width:0%;transition:width 0.3s ease;"></div>
+                        </div>
+                        <div id="bulk-imgsearch-progress-text" style="font-size:12px;color:#64748b;margin-top:6px;"></div>
+                    </div>
+
+                    <div id="bulk-imgsearch-status" style="font-size:13px;color:#64748b;margin-top:12px;"></div>
+
+                    <div class="prod-photo-upload-actions" id="bulk-imgsearch-selectall-row" style="display:none;margin-top:10px;">
+                        <button type="button" class="btn-action-outline" onclick="setAllBulkImageSearchSelections(true)">Select All Found</button>
+                        <button type="button" class="btn-action-outline" onclick="setAllBulkImageSearchSelections(false)">Deselect All</button>
+                    </div>
+
+                    <div id="bulk-imgsearch-preview-list" class="bulk-photo-preview-list"></div>
                 </div>
-
-                <div id="bulk-imgsearch-status" style="font-size:13px;color:#64748b;margin-top:12px;"></div>
-
-                <div class="prod-photo-upload-actions" id="bulk-imgsearch-selectall-row" style="display:none;margin-top:10px;">
-                    <button type="button" class="btn-action-outline" onclick="setAllBulkImageSearchSelections(true)">Select All Found</button>
-                    <button type="button" class="btn-action-outline" onclick="setAllBulkImageSearchSelections(false)">Deselect All</button>
-                </div>
-
-                <div id="bulk-imgsearch-preview-list" class="bulk-photo-preview-list"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn-action-global" id="bulk-imgsearch-apply-btn" style="display:none;" onclick="applyBulkImageSearchSelections()">
@@ -3709,34 +3717,33 @@
                 </button>
             </div>
 
-            <div class="modal-body" style="border-top:1px solid #e2e8f0;margin-top:4px;padding-top:16px;">
-                <h4 style="margin:0 0 4px;font-size:14px;">
-                    <i class="fa-solid fa-globe"></i> Omni Search Images <span style="font-weight:normal;color:#16a34a;font-size:12px;">(Free)</span>
-                </h4>
-                <p style="font-size:13px;color:#64748b;margin-top:0;">
- Sources: (DuckDuckGo, Bing, Openverse, Wikimedia Commons, Yandex)
-                </p>
-                <div class="input-field-group" style="margin-bottom:10px;">
-                    <label style="font-size:0.8rem;">Omni Search Source <span style="font-weight:normal;color:#94a3b8;">(piliin kung aling libreng site ang gagamitin sa lahat ng produkto sa run na ito)</span></label>
-                    <select id="omni-imgsearch-provider" class="omni-provider-pref-select" onchange="setOmniImageProviderPref(this.value)">
-                        <option value="auto">Auto (try all free sources — recommended)</option>
-                        <option value="duckduckgo">DuckDuckGo</option>
-                        <option value="bing_free">Bing (free)</option>
-                        <option value="openverse">Openverse</option>
-                        <option value="wikimedia">Wikimedia Commons</option>
-                        <option value="yandex">Yandex</option>
-                    </select>
-                </div>
-                <button type="button" class="btn-action-outline" id="omni-imgsearch-start-btn" onclick="startOmniImageSearch()">
-                    <i class="fa-solid fa-magnifying-glass-plus"></i> Start Omni Search Images
-                </button>
-
-                <div id="omni-imgsearch-progress-wrap" style="display:none;margin-top:12px;">
-                    <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;">
-                        <div id="omni-imgsearch-progress-bar" style="background:#16a34a;height:100%;width:0%;transition:width 0.3s ease;"></div>
+            <div class="modal-body bulk-imgsearch-omni-body">
+                <div class="bulk-imgsearch-panel bulk-imgsearch-panel-alt">
+                    <h4 class="bulk-imgsearch-section-title">
+                        <i class="fa-solid fa-globe"></i> Omni Search Images <span class="bulk-imgsearch-free-badge">Free</span>
+                    </h4>
+                    <p class="bulk-imgsearch-sources-note">Sources: DuckDuckGo, Bing, Openverse, Wikimedia Commons, Yandex</p>
+                    <div class="input-field-group bulk-imgsearch-field">
+                        <label>Omni Search Source <span class="bulk-imgsearch-hint">(choose which free source to use for all products in this run)</span></label>
+                        <select id="omni-imgsearch-provider" class="omni-provider-pref-select" onchange="setOmniImageProviderPref(this.value)">
+                            <option value="auto">Auto (try all free sources — recommended)</option>
+                            <option value="duckduckgo">DuckDuckGo</option>
+                            <option value="bing_free">Bing (free)</option>
+                            <option value="openverse">Openverse</option>
+                            <option value="wikimedia">Wikimedia Commons</option>
+                            <option value="yandex">Yandex</option>
+                        </select>
                     </div>
-                    <div id="omni-imgsearch-progress-text" style="font-size:12px;color:#64748b;margin-top:6px;"></div>
-                </div>
+                    <button type="button" class="btn-action-outline" id="omni-imgsearch-start-btn" onclick="startOmniImageSearch()">
+                        <i class="fa-solid fa-magnifying-glass-plus"></i> Start Omni Search Images
+                    </button>
+
+                    <div id="omni-imgsearch-progress-wrap" style="display:none;margin-top:12px;">
+                        <div style="background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden;">
+                            <div id="omni-imgsearch-progress-bar" style="background:#16a34a;height:100%;width:0%;transition:width 0.3s ease;"></div>
+                        </div>
+                        <div id="omni-imgsearch-progress-text" style="font-size:12px;color:#64748b;margin-top:6px;"></div>
+                    </div>
 
                 <div id="omni-imgsearch-status" style="font-size:13px;color:#64748b;margin-top:12px;"></div>
 
