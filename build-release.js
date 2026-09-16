@@ -68,6 +68,13 @@ const SERVER_TARGETS = new Set([
   "_fix_project.js",
   "mailer.js",
   "verify-gmail-connection.js",
+  // SYNC FIX: idinagdag ang cloud-snapshot.js at webauthn.js — pareho
+  // itong direktang require()-d ng server.js (Postgres backup/restore
+  // logic at WebAuthn/passkey verification, kasama ang CBOR decode) pero
+  // nakaligtaan dati, kaya na-e-excempt sa obfuscation at pumupunta
+  // plain-text sa release/OMNIPOS.
+  "cloud-snapshot.js",
+  "webauthn.js",
 ]);
 
 const ENV_LOADER_FILENAME = "env-loader.js";
