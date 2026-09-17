@@ -4887,7 +4887,7 @@ async function loadShiftOpenListPicker() {
         const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
         const myUsername = (activeUser && activeUser.username) ||'';
         const previousSelection = shiftControlSelectedCashier;
-        const options = ['<option value="">— Sariling Shift Ko —</option>'].concat(
+        const options = ['<option value="">— My own shift —</option>'].concat(
             (data.openShifts || [])
                 .filter(o => o.username.toLowerCase() !== myUsername.toLowerCase())
                 .map(o => `<option value="${escapeHtml(o.username)}">${escapeHtml(o.username)} (Beginning Cash: ₱${(parseFloat(o.beginningCash) || 0).toFixed(2)})</option>`)
@@ -21708,46 +21708,68 @@ function initQuickAccessFishEye() {
     } else if (typeof fishEyeActive.addListener === 'function') {
         fishEyeActive.addListener(handleMediaChange);
     }
+
+    // Touch screens: drive the same fisheye magnification from the
+    // finger's position instead of the mouse.
+    function onTouchMove(e) {
+        if (dock.classList.contains('qa-dock-collapsed')) return;
+        if (!e.touches || !e.touches.length) return;
+        const pointerX = e.touches[0].clientX;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => applyFishEye(pointerX));
+    }
+    function onTouchEnd() {
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        resetCards();
+    }
+    dock.addEventListener('touchstart', onTouchMove, { passive: true });
+    dock.addEventListener('touchmove', onTouchMove, { passive: true });
+    dock.addEventListener('touchend', onTouchEnd, { passive: true });
+    dock.addEventListener('touchcancel', onTouchEnd, { passive: true });
 }
 document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
 (function initQuickAccessDockWidthSync() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
     const desktopQuery = window.matchMedia('(min-width: 1025px)');
-    let rafId = null;
+    // The dock's width is computed once per "desktop session" and then
+    // locked in place — it is intentionally NOT recalculated when the
+    // browser window or device screen is resized, so the dock keeps a
+    // fixed width on desktop no matter how the screen size changes. It
+    // only recomputes if the viewport drops below the desktop breakpoint
+    // and later comes back above it (a genuine mode change, not a resize).
+    let widthLocked = false;
     function getReferenceCard() {
         return document.getElementById('ov-adv-chart-card') ||
             document.querySelector('#view-overview .overview-trend-card');
     }
     function syncDockWidth() {
         if (!desktopQuery.matches) {
+            widthLocked = false;
             dock.classList.remove('qa-dock-synced');
             dock.style.removeProperty('--qa-dock-width');
             return;
         }
+        if (widthLocked) return;
         const ref = getReferenceCard();
         if (!ref) return;
         const rect = ref.getBoundingClientRect();
         if (!rect.width) return; 
         dock.style.setProperty('--qa-dock-width', rect.width + 'px');
         dock.classList.add('qa-dock-synced');
+        widthLocked = true;
     }
     function requestSync() {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(syncDockWidth);
+        syncDockWidth();
     }
-    window.addEventListener('resize', requestSync, { passive: true });
     window.addEventListener('load', requestSync);
     if (typeof desktopQuery.addEventListener === 'function') {
         desktopQuery.addEventListener('change', requestSync);
     } else if (typeof desktopQuery.addListener === 'function') {
         desktopQuery.addListener(requestSync); 
-    }
-    if (typeof ResizeObserver !== 'undefined') {
-        const ro = new ResizeObserver(requestSync);
-        ro.observe(document.body);
-        const ref = getReferenceCard();
-        if (ref) ro.observe(ref);
     }
     if (typeof window.switchView === 'function') {
         const originalSwitchView = window.switchView;
@@ -21758,6 +21780,61 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
         };
     }
     requestSync();
+})();
+// Quick Access dock auto-hide: the dock starts shrunk down to a thin strip
+// on every page, and hovering over it (desktop) or tapping it (touch)
+// reveals the cards again. It auto-closes (shrinks back) after being idle
+// for a while, so it never sits open and in the way.
+(function initQuickAccessAutoHide() {
+    const dock = document.getElementById('quick-access-dock');
+    if (!dock) return;
+    const AUTO_CLOSE_MS = 10000;
+    let closeTimer = null;
+
+    function clearCloseTimer() {
+        if (closeTimer) {
+            clearTimeout(closeTimer);
+            closeTimer = null;
+        }
+    }
+    function scheduleAutoClose() {
+        clearCloseTimer();
+        closeTimer = setTimeout(() => {
+            dock.classList.add('qa-dock-collapsed');
+            closeTimer = null;
+        }, AUTO_CLOSE_MS);
+    }
+    function openDock() {
+        dock.classList.remove('qa-dock-collapsed');
+        scheduleAutoClose();
+    }
+
+    // Shrunk by default.
+    dock.classList.add('qa-dock-collapsed');
+
+    // Desktop: hovering over the (collapsed) strip or the open dock reveals
+    // it, and keeps resetting the auto-close countdown while the pointer
+    // stays over it.
+    dock.addEventListener('mouseenter', openDock);
+    dock.addEventListener('mousemove', () => {
+        if (!dock.classList.contains('qa-dock-collapsed')) scheduleAutoClose();
+    });
+
+    // Touch/tap: while collapsed the cards have pointer-events disabled (see
+    // CSS), so a tap can only land on the strip itself — treat it as "open"
+    // rather than letting it fall through to whatever is behind the dock.
+    dock.addEventListener('click', (e) => {
+        if (dock.classList.contains('qa-dock-collapsed')) {
+            e.preventDefault();
+            e.stopPropagation();
+            openDock();
+        } else {
+            scheduleAutoClose();
+        }
+    });
+    dock.addEventListener('touchstart', () => {
+        if (dock.classList.contains('qa-dock-collapsed')) openDock();
+    }, { passive: true });
 })();
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

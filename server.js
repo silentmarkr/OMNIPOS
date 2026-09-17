@@ -589,7 +589,7 @@ function requirePermission(menuKey) {
         if (role && role.toLowerCase() ==='admin') return next();
         const perms = getPermissionsForRole(role);
         if (!perms[menuKey]) {
-            return res.status(403).json({ success: false, message:'Akses Denied: Wala kang pahintulot na gamitin ang feature na ito.' });
+            return res.status(403).json({ success: false, message:'Authorization Required: You do not have permission to perform this action.' });
         }
         next();
     };

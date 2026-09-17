@@ -1211,6 +1211,11 @@ body.dark-mode .uw-theme-option.is-locked:hover {
     color: var(--text-primary);
     flex-shrink: 0;
 }
+@media screen and (min-width: 1025px) {
+    .hamburger-menu {
+        display: none !important;
+    }
+}
 .terminal-brand-header {
     display: none;
     align-items: center;
@@ -2003,10 +2008,8 @@ body.dark-mode .rank-row .rank-name {
     .adv-compare-toggle { margin-left: 0; }
     .adv-chart-svg-wrap { height: 220px; }
 }
-.quick-access-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 16px;
+.content-body {
+    padding-bottom: 150px;
 }
 .qa-card {
     background: #ffffff;
@@ -2038,94 +2041,179 @@ body.dark-mode .rank-row .rank-name {
     background-color: #eff6ff;
     border-color: #bfdbfe;
 }
-@media screen and (min-width: 1025px) {
-    #view-overview {
-        padding-bottom: 96px;
-    }
-    #quick-access-title {
-        display: none;
-    }
+/* Quick Access dock: persistent on every page (lives outside the per-view
+   sections in the markup), shown as a floating, collapsible pill. Default
+   state is collapsed (thin strip); hover (desktop) or tap (touch) reveals
+   it, and it auto-closes again after being idle — see
+   initQuickAccessAutoHide() in app.js. */
+#quick-access-dock {
+    position: fixed;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+    z-index: 400;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 10px;
+    width: max-content;
+    max-width: 680px;
+    min-height: 80px;
+    max-height: 320px;
+    padding: 34px 16px 10px;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+    border-radius: 22px;
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+@media screen and (max-width: 1024px) {
     #quick-access-dock {
-        position: fixed;
-        left: 50%;
-        bottom: 20px;
-        transform: translateX(-50%);
-        z-index: 400;
-        display: flex;
-        flex-direction: row;
-        align-items: flex-end;
-        justify-content: center;
-        grid-template-columns: none;
-        gap: 10px;
-        width: max-content;
-        max-width: min(680px, calc(100vw - 300px));
-        min-height: 80px;
-        padding: 34px 16px 10px;
-        overflow-x: auto;
-        overflow-y: visible;
-        scrollbar-width: none;
-        border-radius: 22px;
-        background: rgba(255, 255, 255, 0.72);
-        border: 1px solid rgba(226, 232, 240, 0.9);
-        box-shadow: 0 18px 38px -14px rgba(15, 23, 42, 0.28), 0 3px 10px -2px rgba(15, 23, 42, 0.08);
-        -webkit-backdrop-filter: blur(18px) saturate(180%);
-        backdrop-filter: blur(18px) saturate(180%);
+        display: none !important;
     }
-    #quick-access-dock.qa-dock-synced {
-        left: 50%;
-        transform: translateX(-50%);
-        width: var(--qa-dock-width, max-content);
-        max-width: var(--qa-dock-width, min(680px, calc(100vw - 300px)));
+    .content-body {
+        padding-bottom: 30px;
     }
-    #quick-access-dock::-webkit-scrollbar {
-        display: none;
+}
+/* Auto-hide (shrink-to-line) state: collapses the dock down to a thin
+   hover/tap strip anchored at the dock's bottom edge (bottom offset is
+   unchanged, so only the top recedes). Toggled by
+   initQuickAccessAutoHide() in app.js. */
+#quick-access-dock.qa-dock-collapsed {
+    max-height: 10px;
+    min-height: 0;
+    overflow: hidden;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    cursor: pointer;
+}
+#quick-access-dock.qa-dock-collapsed::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 3px;
+    transform: translateX(-50%);
+    width: 56px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(100, 116, 139, 0.55);
+    transition: background 0.2s ease, width 0.2s ease;
+    pointer-events: none;
+}
+#quick-access-dock.qa-dock-collapsed:hover::after {
+    background: rgba(59, 130, 246, 0.7);
+    width: 68px;
+}
+#quick-access-dock.qa-dock-collapsed .qa-card {
+    opacity: 0;
+    pointer-events: none;
+}
+/* Touch/coarse-pointer devices (no real hover): give the collapsed
+   strip a taller, easier-to-tap hit area than the thin mouse-hover line. */
+@media (hover: none) {
+    #quick-access-dock.qa-dock-collapsed {
+        max-height: 26px;
     }
-    body.dark-mode #quick-access-dock {
-        background: color-mix(in srgb, var(--dm-surface) 72%, transparent);
-        border-color: var(--dm-border);
-        box-shadow: 0 18px 38px -14px rgba(0, 0, 0, 0.55), 0 3px 10px -2px rgba(0, 0, 0, 0.35);
-    }
-    #quick-access-dock .qa-card {
-        flex: 0 0 auto;
-        width: 72px;
-        padding: 10px 6px 8px !important;
-        border-radius: 14px;
-        gap: 4px;
-        transform-origin: bottom center;
-        will-change: transform;
-    }
-    #quick-access-dock .qa-card p {
-        font-size: 0.62rem;
-        line-height: 1.15;
-        white-space: normal;
-        overflow: visible;
-        text-overflow: clip;
-        word-break: break-word;
-        max-width: 100%;
-        text-align: center;
-    }
-    #quick-access-dock .qa-card i {
-        font-size: 1.25rem;
-    }
-    #quick-access-dock .qa-card {
-        transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease;
-    }
-    #quick-access-dock .qa-card:hover,
-    #quick-access-dock .qa-card:focus-visible {
-        box-shadow: 0 10px 20px -8px rgba(15, 23, 42, 0.35);
-    }
-    #view-overview #quick-access-dock.ov-anim {
-        animation-name: qaDockRiseIn;
-    }
+}
+body.dark-mode #quick-access-dock.qa-dock-collapsed {
+    background: transparent;
+    border-color: transparent;
+}
+body.dark-mode #quick-access-dock.qa-dock-collapsed::after {
+    background: rgba(148, 163, 184, 0.5);
+}
+body.dark-mode #quick-access-dock.qa-dock-collapsed:hover::after {
+    background: rgba(96, 165, 250, 0.75);
+}
+#quick-access-dock.qa-dock-synced {
+    left: 50%;
+    transform: translateX(-50%);
+    width: var(--qa-dock-width, max-content);
+    max-width: var(--qa-dock-width, 680px);
+}
+#quick-access-dock::-webkit-scrollbar {
+    display: none;
+}
+body.dark-mode #quick-access-dock {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+#quick-access-dock .qa-card {
+    flex: 0 0 auto;
+    width: 72px;
+    padding: 10px 6px 8px !important;
+    border-radius: 14px;
+    gap: 4px;
+    transform-origin: bottom center;
+    will-change: transform;
+    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease, opacity 0.15s ease;
+}
+#quick-access-dock .qa-card p {
+    font-size: 0.62rem;
+    line-height: 1.15;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+    max-width: 100%;
+    text-align: center;
+}
+#quick-access-dock .qa-card i {
+    font-size: 1.25rem;
+}
+#quick-access-dock .qa-card:hover,
+#quick-access-dock .qa-card:focus-visible {
+    box-shadow: 0 10px 20px -8px rgba(15, 23, 42, 0.35);
 }
 @keyframes qaDockRiseIn {
     from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.985); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
-@media screen and (min-width: 1025px) and (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
     #quick-access-dock .qa-card {
         transition: none !important;
         transform: none !important;
+    }
+    /* Motion-sensitive users: never auto-shrink the dock, even if the
+       collapsed class ends up applied; keep it fully visible and static.
+       The container itself stays transparent — only its size/visibility
+       behavior is being forced here, not its background. */
+    #quick-access-dock,
+    #quick-access-dock.qa-dock-collapsed {
+        transition: none !important;
+        max-height: 320px !important;
+        min-height: 80px !important;
+        overflow-y: visible !important;
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+    }
+    body.dark-mode #quick-access-dock,
+    body.dark-mode #quick-access-dock.qa-dock-collapsed {
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+    }
+    #quick-access-dock.qa-dock-collapsed {
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+    }
+    #quick-access-dock.qa-dock-collapsed::after {
+        display: none !important;
+    }
+    #quick-access-dock.qa-dock-collapsed .qa-card {
+        opacity: 1 !important;
+        pointer-events: auto !important;
     }
 }
 @keyframes ovRiseIn {
@@ -2175,16 +2263,16 @@ body.dark-mode .rank-row .rank-name {
     filter: brightness(1.08);
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
 }
-#view-overview .qa-card {
+#quick-access-dock .qa-card {
     transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, border-color 0.25s ease;
 }
-#view-overview .qa-card:active {
+#quick-access-dock .qa-card:active {
     transform: translateY(-1px) scale(0.97);
 }
-#view-overview .qa-card:hover i {
+#quick-access-dock .qa-card:hover i {
     transform: scale(1.12);
 }
-#view-overview .qa-card i {
+#quick-access-dock .qa-card i {
     transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2194,8 +2282,8 @@ body.dark-mode .rank-row .rank-name {
     #view-overview .metric-card,
     #view-overview .metric-icon,
     #view-overview .trend-bar,
-    #view-overview .qa-card,
-    #view-overview .qa-card i {
+    #quick-access-dock .qa-card,
+    #quick-access-dock .qa-card i {
         animation: none !important;
         transition: none !important;
         opacity: 1 !important;

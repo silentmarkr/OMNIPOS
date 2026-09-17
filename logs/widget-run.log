@@ -6749,3 +6749,181 @@ Omni Search Images error for BLB-002: Error: DuckDuckGo failed: DuckDuckGo image
     at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
   statusCode: 502
 }
+[2026-09-17 07:02:27] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-16T22:56:40.819Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-17 07:02:34] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-16T23:02:29.958Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 07:30:01] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-16T23:29:57.205Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-17 07:30:05] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-16T23:30:05.507Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for TIR-005: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2270:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
+  statusCode: 502
+}
+Omni Search Images error for BLB-001: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2270:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
+  statusCode: 502
+}
+Omni Search Images error for BLB-002: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2270:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
+  statusCode: 502
+}
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-17 09:13:11] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-17 09:13:13] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-17 09:13:16] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T01:12:16.061Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-17 09:39:49] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-17 09:39:51] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-17 09:39:54] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T01:39:13.463Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 10:21:30] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T02:17:19.476Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-17 10:22:38] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T02:21:37.510Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 10:22:44] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T02:22:42.137Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+[2026-09-17 11:01:15] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:01:02.990Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 11:12:28] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:12:25.565Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-17 11:13:48] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:13:34.640Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 11:22:22] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:22:06.025Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-17 11:22:25] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:22:24.971Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 11:23:19] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:22:27.371Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-17 11:23:23] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:23:21.707Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 11:29:28] ⚠️  May natirang lock file mula sa dating session (PID 26954, hindi na tumatakbo) — nililinis.
+[2026-09-17 11:29:29] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-17 11:29:32] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:24:59.231Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-17 11:45:54] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T03:39:59.736Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+Omni Search Images error for BAT-002: Error: Wikimedia Commons failed: Wikimedia Commons returned no image results. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2270:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
+  statusCode: 502
+}
+Omni Search Images error for BAT-002: Error: Openverse failed: Openverse returned no image results. — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2270:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
+  statusCode: 502
+}
+Omni Search Images error for BAT-002: Error: Yandex failed: Yandex returned no parsable image results (likely blocked/CAPTCHA on this network). — subukan ang ibang site o piliin ang "Auto".
+    at omniFreeImageSearch (/data/data/com.termux/files/home/OMNIPOS/server.js:2270:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2344:47) {
+  statusCode: 502
+}
+[2026-09-17 12:48:18] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-17T04:46:07.152Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

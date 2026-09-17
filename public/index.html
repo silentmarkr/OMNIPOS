@@ -458,6 +458,20 @@
                 </div>
             </header>
 
+            <div class="quick-access-grid" id="quick-access-dock">
+                <div class="qa-card" onclick="switchView('reports')"><i class="fa-solid fa-chart-column" style="color:#10b981;"></i><p>Sales Report</p></div>
+                <div class="qa-card" onclick="switchView('transactions')"><i class="fa-solid fa-credit-card" style="color:#06b6d4;"></i><p>Transactions</p></div>
+                <div class="qa-card" onclick="switchView('customers')"><i class="fa-solid fa-address-book" style="color:#ec4899;"></i><p>Customers</p></div>
+                <div class="qa-card" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar" style="color:#f97316;"></i><p>Debtors</p></div>
+                <div class="qa-card" onclick="switchView('products')"><i class="fa-solid fa-box-open" style="color:#f59e0b;"></i><p>Inventory</p></div>
+                <div class="qa-card active" onclick="switchView('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
+                <div class="qa-card" onclick="openSidebarMenu()"><i class="fa-solid fa-bars" style="color:#6366f1;"></i><p>Menu</p></div>
+                <div class="qa-card" onclick="switchView('logs')"><i class="fa-solid fa-stopwatch" style="color:#64748b;"></i><p>User Logs</p></div>
+                <div class="qa-card" onclick="switchView('branches')"><i class="fa-solid fa-code-branch" style="color:#14b8a6;"></i><p>Branches</p></div>
+                <div class="qa-card" onclick="switchView('users')"><i class="fa-solid fa-gear" style="color:#8b5cf6;"></i><p>Settings</p></div>
+                <div class="qa-card text-danger" onclick="handleLogout()"><i class="fa-solid fa-door-open" style="color:#ef4444;"></i><p>Sign Out</p></div>
+            </div>
+
             <div class="content-body">
 
                 <section id="view-dashboard" class="app-view">
@@ -615,16 +629,6 @@
                         </ul>
                     </div>
 
-                    <h2 class="section-title ov-anim" id="quick-access-title" style="--ov-delay:7"><i class="fa-solid fa-grip"></i> Quick Access</h2>
-                    <div class="quick-access-grid ov-anim" id="quick-access-dock" style="--ov-delay:7">
-                        <div class="qa-card" onclick="switchView('products')"><i class="fa-solid fa-box-open" style="color:#f59e0b;"></i><p>Inventory</p></div>
-                        <div class="qa-card" onclick="switchView('reports')"><i class="fa-solid fa-chart-column" style="color:#10b981;"></i><p>Sales Report</p></div>
-                        <div class="qa-card" onclick="switchView('transactions')"><i class="fa-solid fa-credit-card" style="color:#06b6d4;"></i><p>Transactions</p></div>
-                        <div class="qa-card active" onclick="switchView('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
-                        <div class="qa-card" onclick="switchView('users')"><i class="fa-solid fa-gear" style="color:#8b5cf6;"></i><p>Settings</p></div>
-                        <div class="qa-card" onclick="switchView('logs')"><i class="fa-solid fa-stopwatch" style="color:#64748b;"></i><p>User Logs</p></div>
-                        <div class="qa-card text-danger" onclick="handleLogout()"><i class="fa-solid fa-door-open" style="color:#ef4444;"></i><p>Sign Out</p></div>
-                    </div>
                 </section>
 
                 <section id="view-terminal" class="app-view terminal-theme" style="display:none;">
@@ -3508,7 +3512,7 @@
                         <small id="p-form-net-price-hint" class="theme-callout-box-result"></small>
                     </div>
                     <div class="input-field-group">
-                        <label>Cost Price (₱) <span style="font-weight:normal;color:#94a3b8;">(optional — para sa Profit Margin report, hindi makikita ng cashier)</span></label>
+                        <label>Cost Price (₱) <span style="font-weight:normal;color:#94a3b8;">(optional — Shift-Specific Profit Margin Report (Management View Only)</span></label>
                         <input type="number" id="p-form-cost" step="0.01" placeholder="0.00" autocomplete="off">
                     </div>
                     <div class="input-field-group">
