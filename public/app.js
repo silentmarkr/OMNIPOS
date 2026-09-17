@@ -21653,6 +21653,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 })();
+function switchViewFromDock(viewKey) {
+    const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
+    const userRole = (activeUser && activeUser.role ||'').toLowerCase();
+    const isAdmin = userRole ==='admin';
+    if (!isAdmin && Object.prototype.hasOwnProperty.call(currentPermissions || {}, viewKey) && !currentPermissions[viewKey]) {
+        Swal.fire('Restricted Access','Authorized personnel only. Your current role does not have permission to open this.','warning');
+        return;
+    }
+    switchView(viewKey);
+}
 function initQuickAccessFishEye() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;

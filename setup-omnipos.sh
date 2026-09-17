@@ -390,13 +390,23 @@ EOF
 
     cat > "$HOME/.shortcuts/OmniPOS-LAN.sh" << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# RECREATE_WIDGETS_VERSION:3
+# RECREATE_WIDGETS_VERSION:4
+# AYOS: LAN Access ay built-in na ngayon sa loob mismo ng OmniPOS (Settings >
+# LAN Access Link — naka-toggle On/Off, naka-save sa database, at gumagana
+# na kahit anong widget/shortcut ang ginamit para mag-start). Kaya TINANGGAL
+# na ang dating "NODE_ENV=production" forcing dito — kung ipipilit pa rin
+# ito, mananatiling naka-LAN ang session na ito kahit i-off ito ng user sa
+# loob ng Settings (sasabihin pa nga ng app na "hindi ito puwedeng i-off dito
+# dahil naka-force via environment settings"), kaya nagkokonflik ito sa
+# bagong built-in toggle. Ito na lamang ngayon ay isang normal na starter na
+# nagpapakita lang ng LAN IP address — ang aktwal na pag-enable/disable ng
+# LAN Access ay ginagawa na sa loob ng app (Settings > LAN Access Link).
 command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
 cd ~/OMNIPOS || { echo "❌ Could not find the ~/OMNIPOS folder."; exit 1; }
 mkdir -p logs
 
 echo ""
-echo "⏳ Starting the OmniPOS server (LAN mode), please wait..."
+echo "⏳ Starting the OmniPOS server, please wait..."
 echo ""
 echo "🔎 Getting the LAN IP..."
 
@@ -411,7 +421,6 @@ fi
 if [ -z "$LAN_IP" ]; then
     command -v termux-toast >/dev/null 2>&1 && termux-toast "⚠️ No LAN IP found — make sure the phone is on WiFi."
     echo "⚠️  No LAN IP found. Is the phone in Airplane Mode?"
-    exit 1
 fi
 echo ""
 
@@ -438,11 +447,17 @@ echo ""
 ) &
 disown
 
-echo "🌐 Open on another device (same WiFi): http://$LAN_IP:3000"
+if [ -n "$LAN_IP" ]; then
+    echo "🌐 Kapag naka-ON na ang LAN Access Link (Settings > LAN Access Link"
+    echo "   sa loob ng OmniPOS), puwede nang buksan sa ibang device (same WiFi):"
+    echo "   http://$LAN_IP:3000"
+fi
 echo ""
 
-# Fix: `exec` instead of disown+exit — see Start-OmniPOS.sh.
-exec env NODE_ENV=production ./start.sh >> logs/widget-run.log 2>&1
+# Fix: `exec` instead of disown+exit — see Start-OmniPOS.sh. Wala nang
+# NODE_ENV=production dito — ang HOST binding (localhost vs 0.0.0.0) ay
+# awtomatiko nang base sa naka-save na LAN Access toggle sa loob ng app.
+exec ./start.sh >> logs/widget-run.log 2>&1
 EOF
     chmod +x "$HOME/.shortcuts/OmniPOS-LAN.sh"
 
@@ -554,11 +569,19 @@ EOF
 
     cat > "$INSTALL_DIR/omnipos-lan.sh" << EOF
 #!/usr/bin/env bash
+# AYOS: LAN Access ay built-in na ngayon sa loob mismo ng OmniPOS (Settings >
+# LAN Access Link — naka-toggle On/Off, naka-save sa database, gumagana na
+# rin kahit anong launcher script ang ginamit). Tinanggal na ang dating
+# "NODE_ENV=production" forcing dito dahil nagkokonflik ito sa bagong
+# built-in toggle — kung ipipilit pa rin ang env var, sasabihin ng app na
+# hindi ito puwedeng i-off sa loob ng Settings dahil naka-force via
+# environment settings. Ito na lamang ngayon ay normal na starter na
+# nagpapakita lang ng LAN IP address bilang paalala.
 cd "\$(dirname "\$0")" || exit 1
 mkdir -p logs
 
 echo ""
-echo "⏳ Starting the OmniPOS server (LAN mode), please wait..."
+echo "⏳ Starting the OmniPOS server, please wait..."
 echo ""
 echo "🔎 Getting the LAN IP..."
 
@@ -570,13 +593,12 @@ fi
 
 if [ -z "\$LAN_IP" ]; then
     echo "⚠️  No LAN IP found. Are you connected via WiFi/Ethernet?"
-    exit 1
 fi
 
 if command -v setsid >/dev/null 2>&1; then
-    NODE_ENV=production setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
+    setsid nohup ./start.sh > logs/widget-run.log 2>&1 &
 else
-    NODE_ENV=production nohup ./start.sh > logs/widget-run.log 2>&1 &
+    nohup ./start.sh > logs/widget-run.log 2>&1 &
 fi
 disown 2>/dev/null || true
 
@@ -589,8 +611,12 @@ for i in \$(seq 1 60); do
 done
 
 echo ""
-echo "🌐 Open on another device (same WiFi/network): http://\$LAN_IP:3000"
 echo "🌐 On this PC: http://localhost:3000"
+if [ -n "\$LAN_IP" ]; then
+    echo "🌐 Kapag naka-ON na ang LAN Access Link (Settings > LAN Access Link"
+    echo "   sa loob ng OmniPOS), puwede nang buksan sa ibang device (same"
+    echo "   WiFi/network): http://\$LAN_IP:3000"
+fi
 echo ""
 
 if command -v $OPEN_CMD >/dev/null 2>&1; then
@@ -622,10 +648,15 @@ if [ "$PLATFORM" = "termux" ]; then
     echo "  3. Find and drag 'Termux:Widget' — 4 TIMES (once per shortcut)"
     echo "  4. Choose 'Start-OmniPOS', 'Stop-OmniPOS', 'Restart-OmniPOS', and 'OmniPOS-LAN'"
     echo ""
-    echo "  - 'Start-OmniPOS'   = normal, same device only (localhost; Android app chooser stays open)"
-    echo "  - 'OmniPOS-LAN'     = can be accessed by ANOTHER device (same WiFi)"
+    echo "  - 'Start-OmniPOS'   = normal start (localhost; Android app chooser stays open)"
+    echo "  - 'OmniPOS-LAN'     = same start, but also prints the LAN IP as a reminder"
     echo "  - 'Stop-OmniPOS'    = to stop the server if needed"
     echo "  - 'Restart-OmniPOS' = one tap to restart (stops first, then starts again)"
+    echo ""
+    echo "NOTE: LAN Access (so other devices on the same WiFi can open OmniPOS)"
+    echo "is now a built-in toggle inside the app itself — Settings > LAN Access"
+    echo "Link. Turn it ON there once; it stays ON across restarts no matter"
+    echo "which shortcut above you use to start the server."
     echo ""
     echo "REMINDER: open the Termux:API app once and grant the Notification"
     echo "permission (Settings > Apps > Termux:API > Notifications > Allow)"
@@ -642,13 +673,18 @@ else
     echo "Next steps on this PC:"
     echo "  cd \"$INSTALL_DIR\""
     echo "  ./start-omnipos.sh      — starts the server, automatically opens in the browser"
-    echo "  ./omnipos-lan.sh        — so another device on the same network can also access it"
+    echo "  ./omnipos-lan.sh        — same start, but also prints the LAN IP as a reminder"
     echo "  ./stop-omnipos.sh       — to stop the server"
     echo "  ./restart-omnipos.sh    — to restart (stops first, then starts again)"
     if [ "$PLATFORM" = "linux" ] && [ -f "$HOME/Desktop/Start-OmniPOS.desktop" ]; then
         echo ""
         echo "A shortcut was also added to the Desktop: 'Start OmniPOS'."
     fi
+    echo ""
+    echo "NOTE: LAN Access (so other devices on the same network can open"
+    echo "OmniPOS) is now a built-in toggle inside the app itself — Settings >"
+    echo "LAN Access Link. Turn it ON there once; it stays ON across restarts"
+    echo "no matter which script above you use to start the server."
     echo ""
     echo "IMPORTANT: always use \"localhost:3000\" when opening OmniPOS"
     echo "on this same PC — Fingerprint/WebAuthn Login behaves differently"

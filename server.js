@@ -401,6 +401,7 @@ const MENU_REGISTRY = [
     { key:'customers', label:'Customers & Loyalty', group:'Customers & Loyalty' },
     { key:'loyalty_card_issue', label:'Customers & Loyalty — Issue/Regenerate Loyalty Card or QR (Authorized Personnel Only, e.g. New Customer Enrollment or Lost Card Replacement)', group:'Customers & Loyalty' },
     { key:'loyalty_redeem_own_password', label:'Transactions — Authorize MANUAL Loyalty Points Redemption With Own Password (No Card/QR Scan, Admin Password Not Required)', group:'Customers & Loyalty' },
+    { key:'debts', label:'Debtors / Debts (Customer Credit / Utang Tracking, Premium Feature)', group:'Customers & Loyalty' },
     { key:'shiftreport', label:'Shift / Z-Reading', group:'Shift / Z-Reading' },
     { key:'shiftreport_view_all', label:'Shift / Z-Reading — View All Cashiers', group:'Shift / Z-Reading' },
     { key:'shiftreport_view_amounts', label:'Shift / Z-Reading — View Sales Amounts (Gross/Discount/Net)', group:'Shift / Z-Reading' },
@@ -429,6 +430,7 @@ const MENU_REGISTRY = [
     { key:'reset_restore', label:'Users — Reset/Restore Tab', group:'Settings' },
     { key:'fraud_alerts_view', label:'Users — Fraud & Anomaly Alerts Tab (view access to flagged transactions/voids/refunds)', group:'Settings' },
     { key:'relay_unlock_request', label:'Features/Themes — Pwedeng Mag-send ng Unlock/Demo OTP Request sa Relay', group:'Features & Themes' },
+    { key:'cloud_tokens_view', label:'Omni Tokens / Cloud Backup Billing — View-Only (Balance, Transaction History; HINDI kasama ang Bumili ng Tokens o Auto-Sync Toggle — Admin lang talaga ang pwede doon)', group:'Settings' },
 ];
 const FILE_ROLES ='roles';
 const DEFAULT_ROLES = [
@@ -440,12 +442,12 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, cloud_tokens_view: false }
     },
     {
         name:'Cashier',
         protected: false,
-        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false }
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, cloud_tokens_view: false }
     }
 ];
 function getRoles() {
@@ -881,7 +883,7 @@ app.get('/api/categories', (req, res) => {
     const data = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
     res.json(data);
 });
-app.post('/api/categories', (req, res) => {
+app.post('/api/categories', requirePermission('products'), (req, res) => {
     const { category } = req.body;
     let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
     if (!categories.includes(category)) {
@@ -4506,10 +4508,7 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupUploadInFlight = false;
     }
 }
-app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
-    if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
-        return res.status(403).json({ success: false, message: 'Admin privileges only can view this page.' });
-    }
+app.get('/api/admin/cloud-tokens/overview', requirePermission('cloud_tokens_view'), async (req, res) => {
     try {
     await refreshCloudBackupPricingIfStale();
     const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
@@ -4614,7 +4613,7 @@ app.get('/api/admin/cloud-tokens/overview', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to load the Omni Tokens overview. Please try again.' });
     }
 });
-app.get('/api/admin/cloud-tokens/transaction-categories', async (req, res) => {
+app.get('/api/admin/cloud-tokens/transaction-categories', requirePermission('cloud_tokens_view'), async (req, res) => {
     if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Cloud Backup / Omni Tokens is not configured on this device.' });
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/transaction-categories`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
@@ -4625,7 +4624,7 @@ app.get('/api/admin/cloud-tokens/transaction-categories', async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 });
-app.get('/api/admin/cloud-tokens/transaction-history', async (req, res) => {
+app.get('/api/admin/cloud-tokens/transaction-history', requirePermission('cloud_tokens_view'), async (req, res) => {
     if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Cloud Backup / Omni Tokens is not configured on this device.' });
     const featureData = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(featureData);
@@ -6955,7 +6954,7 @@ function verifyAdmin(req, res, next) {
     }
     next();
 }
-app.get('/api/roles', (req, res) => {
+app.get('/api/roles', requirePermission('roles_permissions_view'), (req, res) => {
     res.json({ success: true, roles: getRoles(), menuRegistry: MENU_REGISTRY });
 });
 app.post('/api/roles', requireFeature('rbac_management'), verifyAdmin, (req, res) => {
@@ -7446,7 +7445,7 @@ app.get('/api/products', (req, res) => {
     res.set('X-Active-Terminals', String(SESSIONS.size));
     res.json(readData(FILE_PRODUCTS));
 });
-app.get('/api/products/export', requireFeature('advanced_reports'), (req, res) => {
+app.get('/api/products/export', requirePermission('products'), requireFeature('advanced_reports'), (req, res) => {
     try {
         const products = readData(FILE_PRODUCTS);
         const escapeCsv = (val) => {
@@ -7732,7 +7731,7 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
         res.status(500).json({ success: false, message:'Hindi mabasa ang file. Siguraduhing wastong .xlsx o .csv format ang ginamit (gamitin ang Download Template button).' });
     }
 });
-app.post('/api/products', (req, res) => {
+app.post('/api/products', requirePermission('products'), (req, res) => {
     const { product } = req.body;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
@@ -7773,7 +7772,7 @@ app.post('/api/products/deduct', (req, res) => {
         message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin ng kahit sinong naka-login para baguhin ang stock nang walang permission check at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
 });
-app.put('/api/products/:code', async (req, res) => {
+app.put('/api/products/:code', requirePermission('products'), async (req, res) => {
     // AYOS/BUGFIX: parehong dahilan gaya ng quick-restock/PO-receive sa itaas —
     // ang general na "edit product" form ay pwede ring direktang magbago ng
     // stock (buong-object merge ng updatedData sa FILE_PRODUCTS), kaya may
@@ -7803,7 +7802,7 @@ function processProductUpdate(req, res) {
         return res.json({ success: true, message:'Update request submitted for Admin approval' });
     }
 }
-app.delete('/api/products/:code', (req, res) => {
+app.delete('/api/products/:code', requirePermission('products'), (req, res) => {
     const { code } = req.params;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
