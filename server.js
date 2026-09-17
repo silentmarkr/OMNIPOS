@@ -11181,10 +11181,21 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
             return diff !== 0 ? diff : a.localeCompare(b);
         });
         const topProducts = sortedByQty.slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
-        const slowProducts = [...sortedByQty].sort((a, b) => {
-            const diff = rankingMap[a] - rankingMap[b];
+
+        // Slow-moving items must be judged against the FULL product catalog, not just
+        // products that happened to appear in transactions during this range. Otherwise,
+        // with few transactions, every sold item is tied at the same qty and this list
+        // ends up identical to Top Selling. Unsold catalog products are the true slowest
+        // movers (qty 0), so include them here.
+        const fullRankingMap = Object.assign({}, rankingMap);
+        (readData(FILE_PRODUCTS) || []).forEach(p => {
+            if (p && p.name && !(p.name in fullRankingMap)) fullRankingMap[p.name] = 0;
+        });
+        const slowSortedByQty = Object.keys(fullRankingMap).sort((a, b) => {
+            const diff = fullRankingMap[a] - fullRankingMap[b];
             return diff !== 0 ? diff : a.localeCompare(b);
-        }).slice(0, 5).map(name => ({ name, qty: rankingMap[name] }));
+        });
+        const slowProducts = slowSortedByQty.slice(0, 5).map(name => ({ name, qty: fullRankingMap[name] }));
         const profitEntries = Object.entries(profitByProduct)
             .map(([name, d]) => ({ name, profit: roundMoney(d.revenue - d.cost), qty: d.qty }))
             .sort((a, b) => {

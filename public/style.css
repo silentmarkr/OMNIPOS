@@ -1550,6 +1550,11 @@ body.dark-mode .header-page-title {
 }
 .analytics-panel {
     padding: 20px;
+    min-width: 0; /* grid items default to min-width:auto (content size), which
+                     stopped this card from shrinking to the 1-column track on
+                     mobile and pushed it past the viewport edge */
+    overflow: hidden; /* safety net so nothing inside can force this card wider
+                          than its grid track, regardless of content */
 }
 .analytics-panel h3 {
     font-size: 1rem;
@@ -1578,6 +1583,8 @@ body.dark-mode .rank-row .rank-name {
     gap: 12px;
     padding: 10px 0;
     border-bottom: 1px dashed var(--border-color);
+    min-width: 0; /* let this flex row shrink inside .analytics-panel instead
+                     of stretching it to fit the row's content */
 }
 .rank-row:last-child { border-bottom: none; }
 .rank-row .rank-index {
@@ -1590,6 +1597,9 @@ body.dark-mode .rank-row .rank-name {
 }
 .rank-row .rank-name {
     flex: 1;
+    min-width: 0; /* flex items default to min-width:auto, which was overriding
+                     the ellipsis truncation below and letting long product
+                     names expand the row past the screen */
     font-size: 0.92rem;
     color: #1e293b;
     overflow: hidden;
@@ -4593,7 +4603,19 @@ body.dark-mode .btn-action-outline:hover {
         justify-content: center;
     }
 }
-@media screen and (max-width: 640px) {
+@media screen and (max-width: 1024px) {
+    /* Icon-only compact toolbar for the whole mobile/tablet range (was
+       max-width:640px only). Below 1024px the bottom-nav dock is shown
+       and #view-products locks its height to
+       calc(100vh - 69px - 70px). Between 641px-1024px this toolbar used
+       to render full text labels, which wrapped onto 2-4 rows depending
+       on the exact width — that extra, unpredictable height didn't fit
+       inside the fixed-height flex column, so it pushed the table out
+       past the viewport and behind/over the fixed bottom-nav whenever
+       the width was resized within that range. Forcing icon-only +
+       nowrap across the full mobile range keeps this toolbar a single
+       fixed-height row at any width, so the fixed height calc always
+       holds and the dock/table never gets cut off again. */
     #view-products .header-action-group {
         flex-wrap: nowrap;
         justify-content: space-between;
@@ -4606,7 +4628,10 @@ body.dark-mode .btn-action-outline:hover {
         border-radius: 16px;
         padding: 8px 10px;
         box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+        overflow-x: auto;
+        scrollbar-width: none;
     }
+    #view-products .header-action-group::-webkit-scrollbar { display: none; }
     #view-products .header-action-group .btn-action-outline {
         position: relative;
         flex: 0 0 auto;
@@ -6303,6 +6328,24 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
         min-height: 0 !important;
         max-height: none !important;
         margin-bottom: 18px !important;
+    }
+    /* Product page: pull the header row, icon toolbar and search box
+       tight together so the wasted vertical space goes to the table
+       instead. The table is already flex:1 (auto-height, fills whatever
+       is left), so shrinking the stuff above it is what actually grows
+       it. Bottom gap above the bottom-nav dock is trimmed to 5px. */
+    #view-products.app-view:not(.terminal-theme) {
+        gap: 6px;
+    }
+    #view-products.app-view:not(.terminal-theme) .view-header-row {
+        margin-bottom: 0;
+    }
+    #view-products.app-view:not(.terminal-theme) .terminal-top-controls {
+        margin-bottom: 0;
+        padding: 6px 8px;
+    }
+    #view-products.app-view:not(.terminal-theme) .table-container {
+        margin-bottom: 5px !important;
     }
     #view-shiftreport.app-view:not(.terminal-theme) > .metrics-grid,
     #view-shiftreport.app-view:not(.terminal-theme) > .report-container {
@@ -12774,6 +12817,146 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     .reports-metrics-grid .metric-card h3,
     .overview-stats-grid .metric-card h3 {
         font-size: 0.92rem;
+    }
+}
+
+/* =========================================================
+   Overview page — compress vertical rhythm on mobile.
+   Scoped to #view-overview / #ov-* ids only, so the shared
+   .overview-trend-card / .adv-chart-* classes used elsewhere
+   (e.g. Sales Analytics) are not affected.
+   ========================================================= */
+@media screen and (max-width: 768px) {
+    #view-overview .overview-greeting-row {
+        padding: 14px 16px;
+        margin-bottom: 14px;
+    }
+    #view-overview .overview-greeting {
+        font-size: 1.15rem;
+        margin: 0 0 2px;
+    }
+    #view-overview .overview-subdate {
+        font-size: 0.8rem;
+    }
+    #view-overview .overview-role-badge {
+        padding: 4px 10px;
+        font-size: 0.66rem;
+    }
+    #view-overview .overview-stats-grid {
+        margin-bottom: 14px;
+    }
+    #view-overview .overview-trend-card {
+        padding: 14px 16px;
+        margin-bottom: 16px !important; /* overrides the inline
+                                            margin-top:15px on the
+                                            second trend card */
+    }
+    #view-overview .overview-trend-header h3 {
+        font-size: 0.92rem;
+        margin: 0 0 10px;
+    }
+    #view-overview #ov-adv-chart-card {
+        padding-bottom: 14px;
+    }
+    #view-overview #ov-chart-summary-bar {
+        margin-bottom: 8px;
+    }
+    #view-overview #ov-chart-svg-wrap {
+        height: 170px;
+    }
+    #view-overview .adv-chart-legend {
+        margin-top: 6px;
+    }
+    #view-overview .adv-chart-summary {
+        margin-top: 10px;
+        padding-top: 10px;
+        gap: 8px;
+    }
+    #view-overview #overview-top-products-list {
+        line-height: 1.6 !important; /* overrides the inline
+                                         line-height:2 in the HTML */
+        margin-top: 8px !important;
+    }
+}
+@media screen and (max-width: 420px) {
+    #view-overview .overview-greeting-row {
+        padding: 12px 14px;
+        margin-bottom: 12px;
+    }
+    #view-overview .overview-greeting {
+        font-size: 1.05rem;
+    }
+    #view-overview .overview-trend-card {
+        padding: 12px 14px;
+    }
+    #view-overview #ov-chart-svg-wrap {
+        height: 150px;
+    }
+}
+
+/* =========================================================
+   Sales Analytics page — compress vertical rhythm on mobile,
+   same treatment as Overview. Scoped to #view-reports / #sa-*
+   ids so the shared .overview-trend-card / .adv-chart-* /
+   .analytics-panel classes used elsewhere are not affected.
+   ========================================================= */
+@media screen and (max-width: 768px) {
+    #view-reports .view-header-row {
+        margin-bottom: 14px !important; /* overrides inline margin-bottom:18px */
+    }
+    #view-reports .reports-metrics-grid {
+        margin-bottom: 14px;
+    }
+    #view-reports #sa-adv-chart-card {
+        padding: 14px 16px;
+        padding-bottom: 14px;
+        margin-bottom: 16px;
+    }
+    #view-reports .overview-trend-header h3 {
+        font-size: 0.92rem;
+        margin: 0 0 10px;
+    }
+    #view-reports #sa-chart-summary-bar {
+        margin-bottom: 8px;
+    }
+    #view-reports #sa-chart-svg-wrap {
+        height: 170px;
+    }
+    #view-reports .adv-chart-legend {
+        margin-top: 6px;
+    }
+    #view-reports .adv-chart-summary {
+        margin-top: 10px;
+        padding-top: 10px;
+        gap: 8px;
+    }
+    #view-reports .analytics-two-col {
+        gap: 12px;
+        margin-top: 12px;
+    }
+    #view-reports .analytics-panel {
+        padding: 14px 16px;
+    }
+    #view-reports .analytics-panel h3 {
+        margin: 0 0 8px;
+        font-size: 0.92rem;
+    }
+    #view-reports .rank-list {
+        margin-top: 4px;
+    }
+    #view-reports .rank-row {
+        padding: 7px 0;
+    }
+}
+@media screen and (max-width: 420px) {
+    #view-reports #sa-adv-chart-card {
+        padding: 12px 14px;
+    }
+    #view-reports #sa-chart-svg-wrap {
+        height: 150px;
+    }
+    #view-reports .analytics-panel {
+        padding: 12px 14px;
     }
 }
 
