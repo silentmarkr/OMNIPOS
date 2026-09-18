@@ -2386,7 +2386,7 @@ async function runOmniImageSearchInProcess(nonce, targets, username, providerId)
 }
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
     if (!(await isInternetLikelyUp())) {
-        const err = new Error('Walang internet connection na na-detect sa device na ito.');
+        const err = new Error('No internet connection has been detected on this device.');
         err.code = 'NO_INTERNET';
         throw err;
     }
@@ -3346,7 +3346,7 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
         return { ok: false, reason: 'no_api_key', message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
     }
     if (!(await isInternetLikelyUp())) {
-        return { ok: false, reason: 'unreachable', message: 'Walang internet connection na na-detect sa device na ito.' };
+        return { ok: false, reason: 'unreachable', message: 'No internet connection has been detected on this device.' };
     }
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/verify-login`, {
@@ -5711,7 +5711,7 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         return { success: true, answer: data.answer.trim(), credits: data.credits || null, creditCost: Number(data.creditCost) || 0 };
     } catch (err) {
         if (err && err.code === 'NO_INTERNET') {
-            return { success: false, message: 'Walang internet connection na na-detect sa device na ito — kailangan ito ng AI Assistant.' };
+            return { success: false, message: 'No internet connection has been detected on this device — this needed AI Assistant.' };
         }
         return {
             success: false,

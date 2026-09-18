@@ -2068,7 +2068,7 @@ body.dark-mode .rank-row .rank-name {
     justify-content: center;
     gap: 10px;
     width: max-content;
-    max-width: 680px;
+    max-width: calc(100vw - 60px);
     min-height: 80px;
     max-height: 320px;
     padding: 34px 16px 10px;

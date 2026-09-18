@@ -6623,11 +6623,56 @@ const CT_CATEGORY_META = {
     STORAGE_HOLDING_FEE: { icon: 'fa-server', color: '#ef4444' },
     REFUND: { icon: 'fa-rotate-left', color: '#22c55e' }
 };
+// "Clear" only hides older entries from THIS device's view (localStorage cutoff).
+// It never deletes anything from the server — the real Omni Tokens ledger
+// (cloud_token_ledger) stays intact for auditing/dispute purposes.
+let ctLedgerHiddenBefore = localStorage.getItem('ct_ledger_hidden_before') || null;
+function ctFilterHiddenLedgerRows(rows) {
+    if (!ctLedgerHiddenBefore || !Array.isArray(rows)) return rows;
+    const cutoff = new Date(ctLedgerHiddenBefore).getTime();
+    return rows.filter(r => {
+        if (!r || !r.created_at) return true;
+        const t = new Date(r.created_at).getTime();
+        return Number.isNaN(t) || t >= cutoff;
+    });
+}
+function updateCtClearViewButtonState() {
+    const showBtn = document.getElementById('ct-clear-view-btn');
+    if (showBtn) showBtn.style.display = ctLedgerHiddenBefore ? 'inline-flex' : 'none';
+}
+function clearOmniTokenHistoryView() {
+    Swal.fire({
+        title: 'Clear Recent Activity view?',
+        html: `This will only hide these entries from view from now on — <b>the record on the server will NOT be deleted</b>. The official transaction history stays intact for auditing or in case of a payment dispute. You can still see older activity using the date filter in "View All / Transaction History", or click "Show Again" to bring the view back.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, hide it',
+        cancelButtonText: 'Cancel'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        ctLedgerHiddenBefore = new Date().toISOString();
+        localStorage.setItem('ct_ledger_hidden_before', ctLedgerHiddenBefore);
+        updateCtClearViewButtonState();
+        loadCloudTokensView();
+        const historyModal = document.getElementById('ct-history-modal');
+        if (historyModal && historyModal.style.display === 'flex') reloadTransactionHistory();
+        Swal.fire({ title: 'View cleared', text: 'The full history is still saved on the server.', icon: 'success', timer: 2000, showConfirmButton: false });
+    });
+}
+function showAllOmniTokenHistoryView() {
+    ctLedgerHiddenBefore = null;
+    localStorage.removeItem('ct_ledger_hidden_before');
+    updateCtClearViewButtonState();
+    loadCloudTokensView();
+    const historyModal = document.getElementById('ct-history-modal');
+    if (historyModal && historyModal.style.display === 'flex') reloadTransactionHistory();
+}
 let ctHistoryState = { offset: 0, limit: 20, category: 'ALL', dateFrom: '', dateTo: '', loading: false };
 function openTransactionHistoryModal() {
     const modal = document.getElementById('ct-history-modal');
     if (!modal) return;
     modal.style.display = 'flex';
+    updateCtClearViewButtonState();
     if (!ctHistoryState.categoriesLoaded) {
         loadTransactionCategoriesIntoDropdown();
     }
@@ -6685,7 +6730,7 @@ async function fetchTransactionHistoryPage(append) {
             if (listEl && !append) listEl.innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data && data.message) || 'Could not load transaction history.'}</span></div>`;
             return;
         }
-        renderTransactionHistoryRows(data.transactions || [], append);
+        renderTransactionHistoryRows(ctFilterHiddenLedgerRows(data.transactions || []), append);
         ctHistoryState.offset += (data.transactions || []).length;
         if (loadMoreBtn) loadMoreBtn.style.display = data.hasMore ? 'inline-block' : 'none';
     } catch (e) {
@@ -6695,8 +6740,8 @@ async function fetchTransactionHistoryPage(append) {
         ctHistoryState.loading = false;
     }
 }
-function renderTransactionHistoryRows(rows, append) {
-    const listEl = document.getElementById('ct-history-list');
+function renderTransactionHistoryRows(rows, append, targetId) {
+    const listEl = document.getElementById(targetId || 'ct-history-list');
     if (!listEl) return;
     if (rows.length === 0 && !append) {
         listEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">No activity found for this filter.</div>`;
@@ -6710,7 +6755,7 @@ function renderTransactionHistoryRows(rows, append) {
         const triggerLabel = entry.trigger_type ? ` (${entry.trigger_type === 'automatic' ? 'Auto' : 'Manual'})` : '';
         const amountDisplay = entry.category === 'SYNC_FRACTION'
             ? `~${Math.abs(tokens).toFixed(3)}`
-            : `${isCredit ? '+' : ''}${tokens}`;
+            : `${isCredit ? '+' : ''}${ctFmtNum(tokens)}`;
         return `<div class="ct-ledger-row">
             <i class="fa-solid ${meta.icon}" style="color:${meta.color};"></i>
             <div style="flex:1;">
@@ -6725,6 +6770,13 @@ function renderTransactionHistoryRows(rows, append) {
     } else {
         listEl.innerHTML = html;
     }
+}
+let ctLastPackagesSignature = null;
+let ctLastLedgerSignature = null;
+function ctFmtNum(n) {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return n;
+    return num.toLocaleString('en-PH', { maximumFractionDigits: 3 });
 }
 function renderCloudTokensOverview(data) {
     const statusEl = document.getElementById('ct-google-app-status');
@@ -6805,7 +6857,7 @@ function renderCloudTokensOverview(data) {
     const balanceEl = document.getElementById('ct-balance-number');
     const banner = document.getElementById('ct-insufficient-banner');
     if (data.wallet && data.wallet.available) {
-        if (balanceEl) balanceEl.textContent = data.wallet.balanceTokens;
+        if (balanceEl) balanceEl.textContent = ctFmtNum(data.wallet.balanceTokens);
         if (banner) banner.style.display = data.wallet.sufficientForSync === false ? 'flex' : 'none';
         if (toggleEl) toggleEl.disabled = data.wallet.sufficientForSync === false;
     } else {
@@ -6818,19 +6870,31 @@ function renderCloudTokensOverview(data) {
     }
     const ledgerListEl = document.getElementById('ct-ledger-list');
     if (ledgerListEl) {
-        const ledger = (data.wallet && data.wallet.ledger) || [];
-        if (ledger.length === 0) {
-            ledgerListEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">No activity yet.</div>`;
-        } else {
-            renderTransactionHistoryRows(ledger, false);
+        const ledger = ctFilterHiddenLedgerRows((data.wallet && data.wallet.ledger) || []);
+        const ledgerSignature = JSON.stringify(ledger);
+        if (ledgerSignature !== ctLastLedgerSignature) {
+            ctLastLedgerSignature = ledgerSignature;
+            if (ledger.length === 0) {
+                ledgerListEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem;">No activity yet.</div>`;
+            } else {
+                renderTransactionHistoryRows(ledger, false, 'ct-ledger-list');
+            }
         }
     }
+    updateCtClearViewButtonState();
     const availableMethods = (data.packages && data.packages.paymentMethods) || [];
     const paymentOptionsHtml = availableMethods.length
         ? availableMethods.map(m => `<option value="${m.id}">${m.label}</option>`).join('')
         : `<option value="" disabled selected>No payment method configured yet</option>`;
     const packagesGrid = document.getElementById('ct-packages-grid');
     if (packagesGrid) {
+        const packagesSignature = JSON.stringify(data.packages || null);
+        if (packagesSignature === ctLastPackagesSignature) {
+            // Nothing about the packages actually changed since the last render — skip
+            // rebuilding the grid so the person's selected payment dropdown and any
+            // in-progress "Buy" click state aren't wiped out on every background poll.
+        } else {
+        ctLastPackagesSignature = packagesSignature;
         if (data.packages && data.packages.available && data.packages.items) {
             const items = data.packages.items;
             packagesGrid.innerHTML = Object.keys(items).filter(tier => items[tier].isBundle).map(tier => {
@@ -6840,34 +6904,35 @@ function renderCloudTokensOverview(data) {
                 const hasYearlyBreakdown = typeof pkg.estSyncTokensPerYear === 'number' && typeof pkg.estTotalYearlyTokens === 'number';
                 const hasRestoreRef = typeof pkg.estRestoreTokensPerRestore === 'number';
                 const breakdown = hasBreakdown ? `<div class="ct-package-breakdown">
-                        <div><span>Maintenance fee</span><span>${pkg.maintenanceFeeTokens} tokens</span></div>
-                        <div><span>Est. sync cost (1 mo.)</span><span>~${pkg.estSyncTokensPerMonth} tokens</span></div>
-                        <div class="ct-package-breakdown-total"><span>Est. total needed/mo.</span><span>~${pkg.estTotalMonthlyTokens} tokens</span></div>
-                        ${hasYearlyBreakdown ? `<div><span>Maintenance fee (yearly, discounted)</span><span>${pkg.maintenanceFeeTokensYearly} tokens</span></div>
-                        <div><span>Est. sync cost (1 yr.)</span><span>~${pkg.estSyncTokensPerYear} tokens</span></div>
-                        <div class="ct-package-breakdown-total"><span>Est. total needed/yr.</span><span>~${pkg.estTotalYearlyTokens} tokens</span></div>` : ''}
-                        ${hasRestoreRef ? `<div style="margin-top:0.35rem;padding-top:0.35rem;border-top:1px dashed var(--border-color, #444);"><span>Est. cost per restore</span><span>~${pkg.estRestoreTokensPerRestore} token(s)</span></div>
-                        <div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/mo.</span><span>~${pkg.estTotalMonthlyTokensWithOneRestore} tokens</span></div>
-                        ${hasYearlyBreakdown ? `<div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/yr.</span><span>~${pkg.estTotalYearlyTokensWithOneRestore} tokens</span></div>` : ''}` : ''}
-                        <div class="ct-package-breakdown-note" style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem;">Approximate estimate, not a guaranteed final cost. Recommended extra balance on top of the maintenance fee: ~${pkg.estSyncTokensPerMonth} token(s)/mo., ~${pkg.estSyncTokensPerYear || pkg.estSyncTokensPerMonth * 12} token(s)/yr. Restore cost is a reference only — restores are rare/unscheduled, so it is not included in the totals above unless noted.</div>
+                        <div><span>Maintenance fee</span><span>${ctFmtNum(pkg.maintenanceFeeTokens)} tokens</span></div>
+                        <div><span>Est. sync cost (1 mo.)</span><span>~${ctFmtNum(pkg.estSyncTokensPerMonth)} tokens</span></div>
+                        <div class="ct-package-breakdown-total"><span>Est. total needed/mo.</span><span>~${ctFmtNum(pkg.estTotalMonthlyTokens)} tokens</span></div>
+                        ${hasYearlyBreakdown ? `<div><span>Maintenance fee (yearly, discounted)</span><span>${ctFmtNum(pkg.maintenanceFeeTokensYearly)} tokens</span></div>
+                        <div><span>Est. sync cost (1 yr.)</span><span>~${ctFmtNum(pkg.estSyncTokensPerYear)} tokens</span></div>
+                        <div class="ct-package-breakdown-total"><span>Est. total needed/yr.</span><span>~${ctFmtNum(pkg.estTotalYearlyTokens)} tokens</span></div>` : ''}
+                        ${hasRestoreRef ? `<div style="margin-top:0.35rem;padding-top:0.35rem;border-top:1px dashed var(--border-color, #444);"><span>Est. cost per restore</span><span>~${ctFmtNum(pkg.estRestoreTokensPerRestore)} token(s)</span></div>
+                        <div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/mo.</span><span>~${ctFmtNum(pkg.estTotalMonthlyTokensWithOneRestore)} tokens</span></div>
+                        ${hasYearlyBreakdown ? `<div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/yr.</span><span>~${ctFmtNum(pkg.estTotalYearlyTokensWithOneRestore)} tokens</span></div>` : ''}` : ''}
+                        <div class="ct-package-breakdown-note" style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem;">Approximate estimate, not a guaranteed final cost. Recommended extra balance on top of the maintenance fee: ~${ctFmtNum(pkg.estSyncTokensPerMonth)} token(s)/mo., ~${ctFmtNum(pkg.estSyncTokensPerYear || pkg.estSyncTokensPerMonth * 12)} token(s)/yr. Restore cost is a reference only — restores are rare/unscheduled, so it is not included in the totals above unless noted.</div>
                     </div>` : '';
                 return `<div class="ct-package-option ${pkg.isBundle ? 'ct-package-bundle' : ''}">
                     ${bundleBadge}
                     <div class="ct-package-name">${pkg.name || tier}</div>
-                    <div class="ct-package-tokens"><i class="fa-solid fa-gem"></i> ${pkg.tokens} tokens</div>
-                    <div class="ct-package-price">₱${pkg.amountPHP}</div>
+                    <div class="ct-package-tokens"><i class="fa-solid fa-gem"></i> ${ctFmtNum(pkg.tokens)} tokens</div>
+                    <div class="ct-package-price">₱${ctFmtNum(pkg.amountPHP)}</div>
                     <div class="ct-package-tagline">${pkg.tagline || ''}</div>
                     ${breakdown}
                     <select class="ct-payment-select" id="ct-method-${tier}" ${availableMethods.length ? '' : 'disabled'}>
                         ${paymentOptionsHtml}
                     </select>
-                    <button type="button" class="ct-btn ct-btn-primary" onclick="buyCloudTokensPackage('${tier}')" ${availableMethods.length ? '' : 'disabled'}>
+                    <button type="button" class="ct-btn ct-btn-primary" id="ct-buy-btn-${tier}" onclick="buyCloudTokensPackage('${tier}')" ${availableMethods.length ? '' : 'disabled'}>
                         <i class="fa-solid fa-cart-shopping"></i> Buy
                     </button>
                 </div>`;
             }).join('');
         } else {
             packagesGrid.innerHTML = `<div class="ct-banner ct-banner-warn" style="display:flex;"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data.packages && data.packages.unavailableReason) || 'Could not load token packages.'}</span></div>`;
+        }
         }
     }
     const customMethodEl = document.getElementById('ct-custom-method');
@@ -6895,7 +6960,18 @@ async function toggleCloudAutoSync(enabled) {
         Swal.fire('Error', 'Could not reach the server to update Auto-Sync.', 'error');
     }
 }
+let ctPurchaseInFlight = false;
 async function startCloudTokenPurchase(packageId, customTokens, method) {
+    if (ctPurchaseInFlight) return;
+    ctPurchaseInFlight = true;
+    const buyBtn = packageId ? document.getElementById(`ct-buy-btn-${packageId}`) : document.querySelector('.ct-custom-purchase .ct-btn-primary');
+    const btnsToDisable = Array.from(document.querySelectorAll('#ct-packages-grid .ct-btn-primary, .ct-custom-purchase .ct-btn-primary'));
+    const originalHtml = new Map();
+    btnsToDisable.forEach(btn => {
+        originalHtml.set(btn, btn.innerHTML);
+        btn.disabled = true;
+        if (btn === buyBtn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing…`;
+    });
     try {
         const res = await authFetch(`${API_URL}/admin/cloud-tokens/purchase`, {
             method: 'POST',
@@ -6908,7 +6984,7 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
             return;
         }
         if (data.checkoutUrl) {
-            Swal.fire({ title: 'Redirecting to checkout', text: `Complete the ${method.toUpperCase()} payment for ${data.tokens} tokens (₱${data.amountPHP}) in the new tab that just opened.`, icon: 'info', timer: 3000, showConfirmButton: false });
+            Swal.fire({ title: 'Redirecting to checkout', text: `Complete the ${method.toUpperCase()} payment for ${ctFmtNum(data.tokens)} tokens (₱${ctFmtNum(data.amountPHP)}) in the new tab that just opened.`, icon: 'info', timer: 3000, showConfirmButton: false });
             window.open(data.checkoutUrl, '_blank');
             let pollCount = 0;
             clearInterval(cloudTokensPollTimer);
@@ -6924,7 +7000,7 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
             Swal.fire({
                 title: 'Scan the QR Ph code',
                 html: `<div class="paymongo-qr-content">
-                       <p class="paymongo-qr-description">Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to pay <b>₱${data.amountPHP}</b> for ${data.tokens} tokens.${expiresNote}</p>
+                       <p class="paymongo-qr-description">Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to pay <b>₱${ctFmtNum(data.amountPHP)}</b> for ${ctFmtNum(data.tokens)} tokens.${expiresNote}</p>
                        <img class="paymongo-qr-image paymongo-qr-image-token" src="${data.qrCodeImageUrl}" alt="QR Ph code" />
                        <p class="paymongo-qr-note">This will update automatically once the payment is confirmed — no need to keep this window open.</p>
                        </div>`,
@@ -6944,6 +7020,12 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
         }
     } catch (e) {
         Swal.fire('Error', 'Could not reach the server to start the purchase.', 'error');
+    } finally {
+        ctPurchaseInFlight = false;
+        btnsToDisable.forEach(btn => {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml.get(btn);
+        });
     }
 }
 function buyCloudTokensPackage(tier) {
@@ -9239,9 +9321,38 @@ async function silentRefreshTerminalStock() {
         } catch (cacheErr) {
             console.warn('Silent stock refresh: hindi na-cache sa localStorage (malamang quota) — hindi ito problema, ipi-proceed pa rin ang render gamit ang fresh data.', cacheErr);
         }
-        renderTerminalProducts();
+        patchTerminalProductsInPlace();
     } catch (e) {
     }
+}
+// Patches currently-rendered product cards without rebuilding the grid, so
+// photos don't flicker/reload every poll cycle. Falls back to a full
+// re-render only when the visible set of products actually changed
+// (added/removed/filtered), which is rare compared to routine stock ticks.
+function patchTerminalProductsInPlace() {
+    const gridOutput = document.getElementById('terminal-grid-output');
+    if (!gridOutput) return;
+    const searchBox = document.getElementById('terminal-search');
+    const searchString = searchBox ? searchBox.value.toLowerCase() : '';
+    const sanitizedProducts = Array.isArray(globalProducts) ? globalProducts.filter(p => p && typeof p === 'object') : [];
+    const filtered = sanitizedProducts.filter(p => {
+        const matchesCategory = (activeTerminalCategory === 'All' || p.category === activeTerminalCategory);
+        const pName = (p.name || '').toLowerCase();
+        const pCode = (p.code || '').toLowerCase();
+        const matchesQuery = (pName.includes(searchString) || pCode.includes(searchString));
+        return matchesCategory && matchesQuery;
+    });
+    const renderedCards = Array.from(gridOutput.querySelectorAll('.t-product-card'));
+    const renderedCodes = renderedCards.map(c => c.dataset.code || '');
+    const freshCodes = filtered.map(p => p.code || '');
+    const sameSet = renderedCodes.length === freshCodes.length && renderedCodes.every((code, i) => code === freshCodes[i]);
+    if (!sameSet) {
+        renderTerminalProducts();
+        return;
+    }
+    freshCodes.forEach(code => {
+        if (code) updateProductCardInPlace(code);
+    });
 }
 let inventoryStockPollTimer = null;
 let inventoryStockPollActive = false;
@@ -9274,8 +9385,122 @@ async function silentRefreshInventoryStock() {
         const freshProducts = await res.json();
         if (!Array.isArray(freshProducts)) return;
         cachedInventoryProducts = freshProducts;
-        renderInventoryProductsTable();
+        patchInventoryProductsTableInPlace();
     } catch (e) {
+    }
+}
+// Patches existing rows in the Products/Inventory table without rebuilding
+// the whole tbody, so product photos don't flicker on every silent poll.
+// Falls back to a full render only when the visible row set actually
+// changed (search/filter, or products added/removed).
+function patchInventoryProductsTableInPlace() {
+    const tbody = document.getElementById('products-table-body');
+    if (!tbody) return;
+    const searchBox = document.getElementById('inventory-search');
+    const query = searchBox ? searchBox.value.trim().toLowerCase() : '';
+    const products = cachedInventoryProducts.filter(p => {
+        if (query && !((p.name || '').toLowerCase().includes(query) || (p.code || '').toLowerCase().includes(query))) return false;
+        for (const field in columnFilters) {
+            if (columnFilters[field].size > 0 && !columnFilters[field].has(getColumnDisplayValue(field, p))) return false;
+        }
+        return true;
+    });
+    const renderedRows = Array.from(tbody.querySelectorAll('tr'));
+    const renderedCodes = renderedRows.map(r => r.getAttribute('data-code') || '');
+    const freshCodes = products.map(p => p.code || '');
+    const sameSet = renderedCodes.length === freshCodes.length && renderedCodes.every((code, i) => code === freshCodes[i]);
+    if (!sameSet) {
+        renderInventoryProductsTable();
+        return;
+    }
+    for (let i = 0; i < renderedRows.length; i++) {
+        const row = renderedRows[i];
+        const p = products[i];
+        if (!p) continue;
+        const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') ? parseInt(p.lowStockThreshold) : 5;
+        const stockNum = parseInt(p.stock) || 0;
+        const isLowStock = stockNum > 0 && stockNum <= threshold;
+        const cells = row.querySelectorAll('td');
+        // Column order: [0]=image [1]=code [2]=name [3]=category [4]=supplier [5]=price [6]=stock [7]=expiry [8]=view [9]=actions
+        const imgEl = cells[0] && cells[0].querySelector('img.inv-thumb');
+        const wantsImage = !!p.image;
+        const hasImage = !!imgEl;
+        if (wantsImage !== hasImage || (wantsImage && imgEl.getAttribute('src') !== p.image)) {
+            // Image actually changed — safest to do one full rebuild and stop patching.
+            renderInventoryProductsTable();
+            return;
+        }
+        const priceCell = cells[5];
+        if (priceCell) {
+            const priceText = `₱${parseFloat(p.price).toFixed(2)}`;
+            if (priceCell.textContent !== priceText) priceCell.textContent = priceText;
+        }
+        const stockCell = cells[6];
+        if (stockCell) {
+            if (stockCell.textContent !== String(p.stock)) stockCell.textContent = String(p.stock);
+            stockCell.style.color = isLowStock ? '#f59e0b' : '';
+            stockCell.style.fontWeight = isLowStock ? '600' : '';
+        }
+        const nameCell = cells[2];
+        if (nameCell) {
+            const nameText = p.name || '';
+            if (nameCell.textContent !== nameText) nameCell.textContent = nameText;
+        }
+        const categoryCell = cells[3];
+        if (categoryCell) {
+            const badgeSpan = categoryCell.querySelector('.badge-role');
+            const categoryText = p.category || '';
+            if (badgeSpan) {
+                if (badgeSpan.textContent !== categoryText) badgeSpan.textContent = categoryText;
+            } else if (categoryCell.textContent !== categoryText) {
+                categoryCell.innerHTML = `<span class="badge-role cashier">${escapeHtml(categoryText)}</span>`;
+            }
+        }
+        const supplierCell = cells[4];
+        if (supplierCell) {
+            const supplierRaw = p.supplier || '';
+            if (supplierCell.dataset.rawSupplier !== supplierRaw) {
+                supplierCell.dataset.rawSupplier = supplierRaw;
+                supplierCell.innerHTML = supplierRaw ? escapeHtml(supplierRaw) : '<span style="color:#94a3b8;">—</span>';
+            }
+        }
+        const expiryCell = cells[7];
+        if (expiryCell) {
+            let expiryHtml = '<span style="color:#94a3b8;">—</span>';
+            let expirySignature = 'none';
+            if (p.expiryDate) {
+                const expiryDate = new Date(p.expiryDate);
+                if (!isNaN(expiryDate.getTime())) {
+                    const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
+                    const isExpiringSoon = daysLeft <= 7;
+                    const isExpired = daysLeft < 0;
+                    const color = isExpired ? '#dc2626' : (isExpiringSoon ? '#f59e0b' : '#334155');
+                    const weight = (isExpired || isExpiringSoon) ? '600' : '400';
+                    expiryHtml = `<span style="color:${color};font-weight:${weight};">${p.expiryDate}</span>`;
+                    expirySignature = `${p.expiryDate}|${color}|${weight}`;
+                } else {
+                    expirySignature = `invalid:${p.expiryDate}`;
+                }
+            }
+            if (expiryCell.dataset.expirySig !== expirySignature) {
+                expiryCell.dataset.expirySig = expirySignature;
+                expiryCell.innerHTML = expiryHtml;
+            }
+        }
+        const viewCell = cells[8];
+        if (viewCell) {
+            const viewBtn = viewCell.querySelector('button');
+            if (viewBtn) {
+                const wantsDot = productHasDetails(p);
+                const hasDot = !!viewBtn.querySelector('.details-has-specs-dot');
+                if (wantsDot && !hasDot) {
+                    viewBtn.insertAdjacentHTML('beforeend', ' <span class="details-has-specs-dot" title="May naka-save na Specs/Description"></span>');
+                } else if (!wantsDot && hasDot) {
+                    const dot = viewBtn.querySelector('.details-has-specs-dot');
+                    if (dot) dot.remove();
+                }
+            }
+        }
     }
 }
 let reorderPollTimer = null;
@@ -9453,6 +9678,31 @@ function updateProductCardInPlace(code) {
             stockEl.title = `Stock: ${availableStock}`;
             stockEl.setAttribute('aria-label', `Stock: ${availableStock}`);
             stockEl.innerHTML = `<i class="fa-solid fa-box" aria-hidden="true"></i> ${availableStock}`;
+        }
+        const priceEl = card.querySelector('.t-prod-price');
+        if (priceEl) {
+            const priceText = `₱${(parseFloat(p.price) || 0).toFixed(2)}`;
+            if (priceEl.textContent !== priceText) priceEl.textContent = priceText;
+        }
+        const nameEl = card.querySelector('h4');
+        if (nameEl) {
+            const nameText = p.name || 'Unnamed Product';
+            if (nameEl.textContent !== nameText) nameEl.textContent = nameText;
+        }
+        const iconEl = card.querySelector('.t-prod-icon img, .t-prod-icon i');
+        const wantsImage = !!p.image;
+        const hasImage = !!(iconEl && iconEl.tagName === 'IMG');
+        if (wantsImage !== hasImage || (wantsImage && iconEl.getAttribute('src') !== p.image)) {
+            // Image presence/source actually changed (rare) — safe to touch just this node.
+            const iconBox = card.querySelector('.t-prod-icon');
+            if (iconBox) {
+                const previewBtn = iconBox.querySelector('.t-prod-preview-btn');
+                if (iconEl) iconEl.remove();
+                const newNode = wantsImage
+                    ? Object.assign(document.createElement('img'), { src: p.image, alt: p.name || 'Product', draggable: false })
+                    : Object.assign(document.createElement('i'), { className: getCategoryIconClass(p.category) });
+                iconBox.insertBefore(newNode, previewBtn || null);
+            }
         }
         let badge = card.querySelector('.t-prod-cart-badge');
         if (qtyInCart > 0) {
@@ -21751,10 +22001,33 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
     // fixed width on desktop no matter how the screen size changes. It
     // only recomputes if the viewport drops below the desktop breakpoint
     // and later comes back above it (a genuine mode change, not a resize).
+    //
+    // AYOS/BAGO: dating sinusukat ito gamit ang isang chart card na NASA
+    // Overview page lang (#ov-adv-chart-card) — kaya gumana lang ito nang
+    // tama habang nasa Overview, at nabigo (silently) sa ibang page dahil
+    // walang mahanap na reference element doon, na nagre-resulta sa
+    // masyadong makitid na default max-width (680px) at pagka-cut ng mga
+    // icon doon.
+    //
+    // Ang Overview reference card ay talagang MAS MALAPAD kaysa sa
+    // eksaktong kailangan ng dock (may extra room), kaya doon lang laging
+    // maluwag at hindi nacucut ang view. Kaya PANATILIHIN ang Overview
+    // card bilang UNANG pagpipilian (walang binago ang gawi nito) kapag
+    // ito'y available/visible (ibig sabihin, habang nasa Overview page).
+    // Kapag wala/hidden ito (lahat ng IBANG page), saka lang gagamitin
+    // bilang fallback ang natural na scrollWidth ng dock mismo (may
+    // konting extra buffer para maiwasan ang pag-cut dahil sa
+    // sub-pixel/rounding sa sukat) — kaya hindi na ito basta nabibigo
+    // (silent no-op) tulad ng dati.
     let widthLocked = false;
-    function getReferenceCard() {
-        return document.getElementById('ov-adv-chart-card') ||
+    function measureDockWidth() {
+        const ref = document.getElementById('ov-adv-chart-card') ||
             document.querySelector('#view-overview .overview-trend-card');
+        if (ref) {
+            const rect = ref.getBoundingClientRect();
+            if (rect.width) return rect.width;
+        }
+        return dock.scrollWidth ? dock.scrollWidth + 8 : 0;
     }
     function syncDockWidth() {
         if (!desktopQuery.matches) {
@@ -21764,11 +22037,9 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
             return;
         }
         if (widthLocked) return;
-        const ref = getReferenceCard();
-        if (!ref) return;
-        const rect = ref.getBoundingClientRect();
-        if (!rect.width) return; 
-        dock.style.setProperty('--qa-dock-width', rect.width + 'px');
+        const width = measureDockWidth();
+        if (!width) return;
+        dock.style.setProperty('--qa-dock-width', width + 'px');
         dock.classList.add('qa-dock-synced');
         widthLocked = true;
     }

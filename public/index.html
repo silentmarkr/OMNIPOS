@@ -2883,9 +2883,17 @@
 
                             <div style="display:flex; align-items:center; justify-content:space-between; margin:22px 0 10px; flex-wrap:wrap; gap:8px;">
                                 <h3 style="margin:0; font-size:1rem;">Recent Activity</h3>
-                                <button type="button" class="ct-btn" style="font-size:0.8rem; padding:6px 12px;" onclick="openTransactionHistoryModal()">
-                                    <i class="fa-solid fa-clock-rotate-left"></i> View All / Transaction History
-                                </button>
+                                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                    <button type="button" class="ct-btn" id="ct-clear-view-btn" style="font-size:0.8rem; padding:6px 12px; display:none;" onclick="showAllOmniTokenHistoryView()" title="Show hidden entries again">
+                                        <i class="fa-solid fa-eye"></i> Show Again
+                                    </button>
+                                    <button type="button" class="ct-btn" style="font-size:0.8rem; padding:6px 12px;" onclick="clearOmniTokenHistoryView()" title="Only hides from view — does not permanently delete the record">
+                                        <i class="fa-solid fa-broom"></i> Clear
+                                    </button>
+                                    <button type="button" class="ct-btn" style="font-size:0.8rem; padding:6px 12px;" onclick="openTransactionHistoryModal()">
+                                        <i class="fa-solid fa-clock-rotate-left"></i> View All / Transaction History
+                                    </button>
+                                </div>
                             </div>
                             <div id="ct-ledger-list" class="ct-ledger-list">
                                 <div style="color:var(--text-muted); font-size:0.85rem;">No activity yet.</div>
