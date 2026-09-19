@@ -2700,8 +2700,32 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
     }
 };
 const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
-const MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS = 7;
-const MODULE_SUBSCRIPTION_GRACE_PERIOD_MS = MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+// BAGO: dating hardcoded (7 araw), ngayon naka-overlay mula sa RELAY
+// admin-configurable na setting (GET /relay/pricing -> moduleSubscriptionGracePeriodDays,
+// GET/POST /relay/admin/api/grace-periods sa RELAY side) — tingnan ang
+// applyModuleSubscriptionGracePeriodOverlay() sa ibaba. Local fallback pa
+// rin ito hanggang matagumpay ang unang fetch (o kung offline).
+let MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS = 7;
+let MODULE_SUBSCRIPTION_GRACE_PERIOD_MS = MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+function applyModuleSubscriptionGracePeriodOverlay(remoteDays) {
+    const days = Number(remoteDays);
+    if (!isFinite(days) || days < 0) return;
+    MODULE_SUBSCRIPTION_GRACE_PERIOD_DAYS = days;
+    MODULE_SUBSCRIPTION_GRACE_PERIOD_MS = days * 24 * 60 * 60 * 1000;
+}
+// BAGO: kaparehong overlay pattern — ilang araw pagkatapos mag-expire
+// ng Cloud Backup subscription bago PERMANENTENG mabura ang backup data
+// sa Neon (RELAY-side na ang tunay na nagpapatupad nito via ang
+// runCloudBackupRetentionAutoPurgeSweep na naka-schedule doon; dito sa
+// OMNIPOS, para lang ito sa "Your backed-up data will be permanently
+// deleted in Xd" countdown display sa Settings > Cloud Backup —
+// tingnan ang /api/cloud-backup/status sa baba).
+let CLOUD_BACKUP_DATA_RETENTION_DAYS = 90;
+function applyCloudBackupRetentionDaysOverlay(remoteDays) {
+    const days = Number(remoteDays);
+    if (!isFinite(days) || days <= 0) return;
+    CLOUD_BACKUP_DATA_RETENTION_DAYS = days;
+}
 let MODULE_SUBSCRIPTION_PLANS = JSON.parse(JSON.stringify(MODULE_SUBSCRIPTION_PLANS_FALLBACK));
 function getModuleSubscriptionPrice(featureId, billingCycle) {
     const plan = MODULE_SUBSCRIPTION_PLANS[featureId];
@@ -2950,6 +2974,12 @@ function loadCloudBackupPricingCache() {
         if (cached && cached.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(cached.moduleSubscriptions);
         }
+        if (cached && typeof cached.moduleSubscriptionGracePeriodDays !== 'undefined') {
+            applyModuleSubscriptionGracePeriodOverlay(cached.moduleSubscriptionGracePeriodDays);
+        }
+        if (cached && typeof cached.cloudBackupDataRetentionDays !== 'undefined') {
+            applyCloudBackupRetentionDaysOverlay(cached.cloudBackupDataRetentionDays);
+        }
         if (cached && cached.activationFlags) {
             applyActivationFlagsOverlay(cached.activationFlags);
         }
@@ -2990,6 +3020,12 @@ async function fetchCloudBackupPricing() {
         }
         if (data && data.success && data.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(data.moduleSubscriptions);
+        }
+        if (data && data.success && typeof data.moduleSubscriptionGracePeriodDays !== 'undefined') {
+            applyModuleSubscriptionGracePeriodOverlay(data.moduleSubscriptionGracePeriodDays);
+        }
+        if (data && data.success && typeof data.cloudBackupDataRetentionDays !== 'undefined') {
+            applyCloudBackupRetentionDaysOverlay(data.cloudBackupDataRetentionDays);
         }
         if (data && data.success && data.activationFlags) {
             applyActivationFlagsOverlay(data.activationFlags);
@@ -4157,13 +4193,28 @@ function getCloudBackupSubscriptionInfo() {
     const active = !!(token && verifyUnlockToken(token, installationId, CLOUD_BACKUP_FEATURE_ID));
     const expiresAt = (token && typeof token.payload.expiresAt === 'number') ? token.payload.expiresAt : null; 
     const plan = (data.cloudBackupPlan && CLOUD_BACKUP_PLANS[data.cloudBackupPlan.tier]) ? data.cloudBackupPlan : null;
-    return {
+    const info = {
         active,
         expiresAt,
         tier: plan ? plan.tier : (active ? 'basic' : null), 
         billingCycle: plan ? plan.billingCycle : null,
         isLegacyLifetime: active && expiresAt === null && !plan
     };
+    // BAGO: kapag inactive/expired na ang subscription (hindi Lifetime),
+    // ibinabalik din dito ang retention countdown papunta sa PERMANENTENG
+    // pagbura ng backup data ng installation na ito sa Neon (tingnan ang
+    // CLOUD_BACKUP_DATA_RETENTION_DAYS/applyCloudBackupRetentionDaysOverlay
+    // sa itaas, at ang runCloudBackupRetentionAutoPurgeSweep sa RELAY side
+    // na aktwal na nagpapatupad nito) — ginagamit ito ng OMNIPOS client
+    // (Settings > Cloud Backup) para ipakita ang "Your backed-up data will
+    // be permanently deleted in Xd" na babala.
+    if (!active && !info.isLegacyLifetime && typeof expiresAt === 'number') {
+        const dataDeletionAt = expiresAt + (CLOUD_BACKUP_DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+        info.retentionDays = CLOUD_BACKUP_DATA_RETENTION_DAYS;
+        info.dataDeletionAt = dataDeletionAt;
+        info.daysUntilDataDeletion = Math.ceil((dataDeletionAt - Date.now()) / (24 * 60 * 60 * 1000));
+    }
+    return info;
 }
 async function fetchCloudBackupLiveUsage(installationId) {
     if (!RELAY_API_KEY) return null;

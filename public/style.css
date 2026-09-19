@@ -2150,6 +2150,23 @@ body.dark-mode #quick-access-dock.qa-dock-collapsed:hover::after {
     width: var(--qa-dock-width, max-content);
     max-width: var(--qa-dock-width, 680px);
 }
+/* Kapag naka-collapse (thin strip lang ang makikita), dapat ang lapad ng
+   invisible hover/tap hit-area ay tumugma lang sa mismong display line na
+   nakikita (yung munting pill sa ::after), hindi yung buong lapad ng
+   naka-sync na dock (na maaaring sumaklaw halos buong ibaba ng screen).
+   Kung hindi ito nilimitahan, ang pag-hover sa ibang button na nakapatong
+   sa parehong linya (pero wala talaga sa loob ng nakikitang strip) ay
+   nagbubukas pa rin ng dock at humaharang sa target na dapat i-click.
+   Kailangan ng dalawang class sa selector (hindi lang isa) para hindi
+   ma-override ito ng .qa-dock-synced sa itaas, dahil pareho lang sila ng
+   specificity at ang huling nadedeklara ang mananalo kung magkapareho. */
+#quick-access-dock.qa-dock-collapsed,
+#quick-access-dock.qa-dock-collapsed.qa-dock-synced {
+    left: 50%;
+    transform: translateX(-50%);
+    width: 96px;
+    max-width: 96px;
+}
 #quick-access-dock::-webkit-scrollbar {
     display: none;
 }
@@ -2203,10 +2220,21 @@ body.dark-mode #quick-access-dock {
         transition: none !important;
         max-height: 320px !important;
         min-height: 80px !important;
+        overflow-x: auto !important;
         overflow-y: visible !important;
         background: transparent !important;
         border-color: transparent !important;
         box-shadow: none !important;
+        /* Bug fix: dating naka-hardcode ang collapsed width sa 96px (yung
+           bagong "display line lang" na hit-area para sa hover), pero hindi
+           kasama dati ang reset na ito dito — kaya kahit "laging bukas at
+           buo" na dapat ang dock para sa prefers-reduced-motion users
+           (walang shrink), na-clip pa rin ito pababa sa 96px lapad
+           (overflow hidden pa rin ang natitira mula sa .qa-dock-collapsed),
+           kaya karamihan sa mga icon ay hindi makikita/maii-click. I-reset
+           dito pabalik sa buong synced width. */
+        width: var(--qa-dock-width, max-content) !important;
+        max-width: var(--qa-dock-width, 680px) !important;
     }
     body.dark-mode #quick-access-dock,
     body.dark-mode #quick-access-dock.qa-dock-collapsed {
@@ -11262,6 +11290,32 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     margin-bottom: 16px;
     font-size: 0.82rem;
 }
+/* Monthly/Yearly tabs para sa "Current Plan" breakdown boxes. Default:
+   hidden — sa desktop walang tabs at walang filter (parehong nasa loob ng
+   max-width:768px media query sa ibaba), kaya pareho pa rin lalabas ang
+   dalawang box (Monthly at Yearly) tulad ng dati kapag may active plan. */
+.ct-estimate-tabs {
+    display: none;
+}
+@media screen and (max-width: 768px) {
+    .ct-estimate-tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+    .ct-estimate-tabs .tab-btn {
+        flex: 1;
+        text-align: center;
+    }
+    /* !important dahil ang aktwal na pagpapakita/pagtatago ng bawat box ay
+       kontrolado ng JS sa pamamagitan ng inline style.display (depende kung
+       may data), kaya kailangang i-override nito ang inline style tuwing
+       hindi tugma ang box sa kasalukuyang piniling tab. */
+    #ct-estimate-group[data-active-cycle="monthly"] [data-cycle="yearly"],
+    #ct-estimate-group[data-active-cycle="yearly"] [data-cycle="monthly"] {
+        display: none !important;
+    }
+}
 .ct-monthly-estimate-title {
     font-weight: 700;
     display: flex;
@@ -11334,6 +11388,36 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 14px;
     margin-bottom: 20px;
+}
+/* Basic/Standard/Pro tabs para sa Omni Token "Starter Bundle" cards.
+   Default: hidden — sa desktop, hindi ito lumalabas at hindi rin gumagana
+   ang [data-active-tier] filter sa ibaba dahil laman ito ng parehong
+   max-width:768px media query, kaya eksaktong pareho pa rin ang
+   makikita sa desktop gaya ng dati (lahat ng 3 bundle card, magkatabi). */
+.ct-package-tabs {
+    display: none;
+}
+@media screen and (max-width: 768px) {
+    .ct-package-tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 12px;
+    }
+    .ct-package-tabs .tab-btn {
+        flex: 1;
+        text-align: center;
+    }
+    /* Itago ang bundle card na hindi tugma sa kasalukuyang napiling tab
+       (data-tier ng card vs. data-active-tier ng grid container). Ito lang
+       ang gumagawa ng aktwal na pag-iisang-card-lang sa mobile, kaya
+       maiksi na ang pag-scroll — hindi na kailangang mag-JS ng show/hide,
+       ang setOmniTokenPackageTab() sa app.js ay nagse-set lang ng
+       data-active-tier attribute at ang CSS na ito ang bahalang mag-toggle. */
+    #ct-packages-grid[data-active-tier="basic"] .ct-package-option:not([data-tier="basic"]),
+    #ct-packages-grid[data-active-tier="standard"] .ct-package-option:not([data-tier="standard"]),
+    #ct-packages-grid[data-active-tier="pro"] .ct-package-option:not([data-tier="pro"]) {
+        display: none;
+    }
 }
 .ct-package-option {
     border: 1px solid var(--border-color);

@@ -1699,8 +1699,14 @@ async function refreshCloudBackupSubscriptionBadge() {
         if (!sub || !sub.active) {
             const costShareWrap = document.getElementById('cloud-backup-cost-share-wrap');
             if (costShareWrap) costShareWrap.style.display = 'none';
+            if (sub && typeof sub.expiresAt === 'number') {
+                const expiredDate = new Date(sub.expiresAt).toLocaleDateString();
+                statusBox.innerHTML = `<i class="fa-solid fa-circle-exclamation" style="color:#dc2626;"></i> Cloud Backup: <strong style="color:#dc2626;">Expired</strong> (${expiredDate})`;
+            }
+            renderCloudBackupRetentionWarning(sub);
             return;
         }
+        renderCloudBackupRetentionWarning(null);
         renderCloudBackupStorageBar(data && data.storageUsage);
         refreshCloudBackupCostShare();
         if (sub.isLegacyLifetime) {
@@ -1720,6 +1726,55 @@ async function refreshCloudBackupSubscriptionBadge() {
         }
         statusBox.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Cloud Backup: <strong>${planInfo.name}</strong> (${cycleLabel})${expiryText}`;
     } catch (err) {
+    }
+}
+// BAGO: hiwalay ito sa existing "subscription expires in Xd" countdown
+// (renderModuleSubscriptionBadge/refreshCloudBackupSubscriptionBadge sa
+// itaas) — lumalabas lang ito kapag EXPIRED na (hindi active) ang Cloud
+// Backup subscription, at ang binibilang ay hindi ang renewal deadline
+// kundi ang PERMANENT DELETION deadline ng backup data mismo sa Neon
+// (subscription expiresAt + retentionDays — tinutukoy sa server side,
+// tingnan ang getCloudBackupSubscriptionInfo() sa OMNIPOS server.js, na
+// naka-sync sa RELAY admin-configurable na CLOUD_BACKUP_DATA_RETENTION_DAYS).
+// Sinusunod nito ang parehong daysLeft <= 7 = red-warning na convention
+// na ginagamit na sa buong app.
+function renderCloudBackupRetentionWarning(sub) {
+    const box = document.getElementById('cloud-backup-retention-warning');
+    if (!box) return;
+    if (!sub || sub.active || sub.isLegacyLifetime || typeof sub.daysUntilDataDeletion !== 'number') {
+        box.style.display = 'none';
+        return;
+    }
+    const daysLeft = sub.daysUntilDataDeletion;
+    const deletionDate = new Date(sub.dataDeletionAt).toLocaleDateString();
+    box.style.display = 'flex';
+    if (daysLeft <= 0) {
+        box.style.background = 'rgba(220,38,38,0.1)';
+        box.style.borderColor = 'rgba(220,38,38,0.35)';
+        box.innerHTML = `
+            <i class="fa-solid fa-triangle-exclamation" style="color:#dc2626; font-size:1.1rem; flex-shrink:0; margin-top:1px;"></i>
+            <div>
+                <div style="font-weight:700; color:#dc2626;">Your backed-up data may already be permanently deleted</div>
+                <div style="margin-top:2px; color:var(--text-muted);">Your Cloud Backup subscription's ${sub.retentionDays}-day data retention period ended on ${deletionDate}. Renew now — if your data hasn't been purged yet, renewing keeps it safe.</div>
+            </div>`;
+    } else if (daysLeft <= 7) {
+        box.style.background = 'rgba(220,38,38,0.08)';
+        box.style.borderColor = 'rgba(220,38,38,0.28)';
+        box.innerHTML = `
+            <i class="fa-solid fa-triangle-exclamation" style="color:#dc2626; font-size:1.1rem; flex-shrink:0; margin-top:1px;"></i>
+            <div>
+                <div style="font-weight:700; color:#dc2626;">Your backed-up data will be permanently deleted in ${daysLeft} day${daysLeft === 1 ? '' : 's'}</div>
+                <div style="margin-top:2px; color:var(--text-muted);">Your Cloud Backup subscription expired. Your data on the cloud will be permanently removed on ${deletionDate} unless you renew before then.</div>
+            </div>`;
+    } else {
+        box.style.background = 'rgba(217,119,6,0.08)';
+        box.style.borderColor = 'rgba(217,119,6,0.25)';
+        box.innerHTML = `
+            <i class="fa-solid fa-cloud-arrow-down" style="color:#b45309; font-size:1.1rem; flex-shrink:0; margin-top:1px;"></i>
+            <div>
+                <div style="font-weight:700; color:#b45309;">Your backed-up data will be permanently deleted in ${daysLeft} days</div>
+                <div style="margin-top:2px; color:var(--text-muted);">Your Cloud Backup subscription expired. Renew any time before ${deletionDate} to keep your backed-up data.</div>
+            </div>`;
     }
 }
 function renderCloudBackupStorageBar(usage) {
@@ -6773,6 +6828,37 @@ function renderTransactionHistoryRows(rows, append, targetId) {
 }
 let ctLastPackagesSignature = null;
 let ctLastLedgerSignature = null;
+// Mobile-only Basic/Standard/Pro tabs sa itaas ng Omni Token packages grid
+// (tingnan ang .ct-package-tabs sa style.css). Ang function na ito ay
+// nagse-set lang ng data-active-tier attribute sa #ct-packages-grid mismo
+// (hindi sa mga card) — dahil nasa mismong container ito (hindi bahagi ng
+// innerHTML na pana-panahong pinapalitan ng renderCloudTokensOverview()),
+// nananatili ang napiling tab kahit mag-refresh/mag-poll ulit ang data.
+// Mobile-only Monthly/Yearly tabs sa itaas ng "Current Plan" breakdown
+// (tingnan ang .ct-estimate-tabs sa style.css). Ito ay nagse-set lang ng
+// data-active-cycle sa #ct-estimate-group (isang container na hindi bahagi
+// ng anumang innerHTML na pinapalitan ng renderCloudTokensOverview), kaya
+// nananatili ang napiling tab kahit mag-refresh/mag-poll ulit ang data.
+function setCtEstimateTab(cycle, btnEl) {
+    const tabsWrap = document.getElementById('ct-estimate-tabs');
+    if (tabsWrap) {
+        tabsWrap.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        const activeBtn = btnEl || tabsWrap.querySelector(`.tab-btn[data-cycle="${cycle}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
+    }
+    const group = document.getElementById('ct-estimate-group');
+    if (group) group.setAttribute('data-active-cycle', cycle);
+}
+function setOmniTokenPackageTab(tier, btnEl) {
+    const tabsWrap = document.getElementById('ct-package-tabs');
+    if (tabsWrap) {
+        tabsWrap.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        const activeBtn = btnEl || tabsWrap.querySelector(`.tab-btn[data-tier="${tier}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
+    }
+    const grid = document.getElementById('ct-packages-grid');
+    if (grid) grid.setAttribute('data-active-tier', tier);
+}
 function ctFmtNum(n) {
     const num = Number(n);
     if (!Number.isFinite(num)) return n;
@@ -6915,7 +7001,7 @@ function renderCloudTokensOverview(data) {
                         ${hasYearlyBreakdown ? `<div style="font-size:0.72rem; color:var(--text-muted);"><span>If a restore is needed — total/yr.</span><span>~${ctFmtNum(pkg.estTotalYearlyTokensWithOneRestore)} tokens</span></div>` : ''}` : ''}
                         <div class="ct-package-breakdown-note" style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem;">Approximate estimate, not a guaranteed final cost. Recommended extra balance on top of the maintenance fee: ~${ctFmtNum(pkg.estSyncTokensPerMonth)} token(s)/mo., ~${ctFmtNum(pkg.estSyncTokensPerYear || pkg.estSyncTokensPerMonth * 12)} token(s)/yr. Restore cost is a reference only — restores are rare/unscheduled, so it is not included in the totals above unless noted.</div>
                     </div>` : '';
-                return `<div class="ct-package-option ${pkg.isBundle ? 'ct-package-bundle' : ''}">
+                return `<div class="ct-package-option ${pkg.isBundle ? 'ct-package-bundle' : ''}" data-tier="${pkg.baseTier || tier}">
                     ${bundleBadge}
                     <div class="ct-package-name">${pkg.name || tier}</div>
                     <div class="ct-package-tokens"><i class="fa-solid fa-gem"></i> ${ctFmtNum(pkg.tokens)} tokens</div>

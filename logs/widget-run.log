@@ -7090,3 +7090,207 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+[2026-09-18 17:59:31] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-18 17:59:34] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-18T09:52:42.875Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+🚫 DEVICE REVOKED: inalis ng developer/owner ang device na ito sa allowed list ng RELAY — na-force-logout ang 2 aktibong session.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-18 20:43:20] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-18 20:43:24] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-18 20:43:27] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-18T12:27:02.326Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 503). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+[2026-09-18 21:27:21] ⚠️  May natirang lock file mula sa dating session (PID 17069, hindi na tumatakbo) — nililinis.
+[2026-09-18 21:27:21] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-18 21:27:24] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-18T13:13:28.668Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-19 04:15:13] ⚠️  May natirang lock file mula sa dating session (PID 12865, hindi na tumatakbo) — nililinis.
+[2026-09-19 04:15:13] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-19 04:15:16] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-18T13:57:26.348Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-19 04:31:09] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-19 04:31:11] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-19 04:31:14] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-18T13:57:26.348Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️ May sira sa SQLite data ng module "aiAssistantLogs". Ibinalik ang default data. Error: database disk image is malformed
+    at readData (/data/data/com.termux/files/home/OMNIPOS/db.js:174:36)
+    at getFullDatabaseSnapshot (/data/data/com.termux/files/home/OMNIPOS/db.js:565:22)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10235:34
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10382:7
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:134:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:291:5)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:368:5 {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 11,
+  errstr: 'database disk image is malformed'
+}
+Error writing SQLite data para sa module "products": Error: database disk image is malformed
+    at writeData (/data/data/com.termux/files/home/OMNIPOS/db.js:205:20)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10314:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 11,
+  errstr: 'database disk image is malformed'
+}
+⚠️ Hindi na-vacuum ang database pagkatapos ng reset: Error: database disk image is malformed
+    at vacuumDatabase (/data/data/com.termux/files/home/OMNIPOS/db.js:284:12)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10345:34
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 11,
+  errstr: 'database disk image is malformed'
+}
+⚠️  Nabigo ang pag-vacuum matapos ang hard reset (hindi ito pumipigil sa reset — nabura pa rin ang data, malaki lang pa rin ang .db file sa disk): database disk image is malformed
+⚠️ May sira sa SQLite data ng module "aiAssistantLogs". Ibinalik ang default data. Error: database disk image is malformed
+    at readData (/data/data/com.termux/files/home/OMNIPOS/db.js:174:36)
+    at getFullDatabaseSnapshot (/data/data/com.termux/files/home/OMNIPOS/db.js:565:22)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10235:34
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10382:7
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:134:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:291:5)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:368:5 {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 11,
+  errstr: 'database disk image is malformed'
+}
+Error writing SQLite data para sa module "products": Error: database disk image is malformed
+    at writeData (/data/data/com.termux/files/home/OMNIPOS/db.js:205:20)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10314:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 11,
+  errstr: 'database disk image is malformed'
+}
+⚠️ Hindi na-vacuum ang database pagkatapos ng reset: Error: database disk image is malformed
+    at vacuumDatabase (/data/data/com.termux/files/home/OMNIPOS/db.js:284:12)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10345:34
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 11,
+  errstr: 'database disk image is malformed'
+}
+⚠️  Nabigo ang pag-vacuum matapos ang hard reset (hindi ito pumipigil sa reset — nabura pa rin ang data, malaki lang pa rin ang .db file sa disk): database disk image is malformed
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-19 05:44:56] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-19 05:44:58] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-19 05:45:01] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-18T21:44:03.373Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
