@@ -22155,7 +22155,7 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
 (function initQuickAccessAutoHide() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
-    const AUTO_CLOSE_MS = 10000;
+    const AUTO_CLOSE_MS = 3000;
     let closeTimer = null;
 
     function clearCloseTimer() {

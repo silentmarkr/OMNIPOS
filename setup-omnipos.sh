@@ -2,6 +2,10 @@ ZIP_NAME="omnipos-client.zip"
 
 set -e
 
+# Fix: with `set -e` the script used to stop with NO message when any
+# step failed (pkg update/upgrade, npm install, ...). Now it explains.
+trap 'echo ""; echo "❌ Setup stopped unexpectedly (script line $LINENO). Check your internet connection, then run the setup again."; echo "   (The zip in Downloads is kept unless the install had already finished.)"' ERR
+
 # NOTE: this script is no longer necessarily run as a real file with a
 # meaningful $0 — omnipos-installer.sh extracts it from inside the zip
 # into a temp dir, reads it into memory, and runs it via
@@ -30,16 +34,23 @@ if [ "$PLATFORM" = "termux" ]; then
     # Termux in the background while the user is off granting a
     # permission, which is part of why the setup used to appear to
     # "hang" needing a Y/n answer by the time they came back.
-    command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
+    command -v termux-wake-lock >/dev/null 2>&1 && { timeout 3 termux-wake-lock || true; }
 
-    echo "🔧 [1/5] Requesting storage access..."
+    echo "🔧 [1/6] Requesting storage access..."
     termux-setup-storage
     sleep 2
+    # Fix: give the user time to tap "Allow" on the storage permission
+    # dialog (the Downloads shortcut only appears after that).
+    for _i in $(seq 1 "${STORAGE_WAIT:-30}"); do
+        [ -d "$HOME/storage/downloads" ] && break
+        [ "$_i" = 1 ] && echo "   ⏳ Waiting for storage permission — tap 'Allow' on the popup..."
+        sleep 1
+    done
 else
-    echo "🔧 [1/5] Skip — storage permission not needed on PC."
+    echo "🔧 [1/6] Skip — storage permission not needed on PC."
 fi
 
-echo "📦 [2/5] Checking/installing required tools (node, unzip, curl)..."
+echo "📦 [2/6] Checking/installing required tools (node, unzip, curl)..."
 
 if [ "$PLATFORM" = "termux" ]; then
     export DEBIAN_FRONTEND=noninteractive
@@ -131,23 +142,44 @@ fi
 echo "   Node version: $(node -v 2>/dev/null || echo 'NOT FOUND — there was a problem installing nodejs')"
 echo ""
 
-# NEW: auto-install "cloudflared" (Cloudflare Tunnel binary) — this is
-# what creates the public link (https://xxxx.trycloudflare.com) for the
-# new "Remote Access Link" (globe icon) in the OMNIPOS profile menu, so
-# it needs to be installed before running the app. It's a static Go
-# binary, straight from Cloudflare's GitHub releases (no need to go
-# through Termux's pkg repo), so it works directly on Termux/Android
-# with no extra dependency.
+# Auto-install "cloudflared" (Cloudflare Tunnel binary) — this is what
+# creates the public link (https://xxxx.trycloudflare.com) for the
+# "Remote Access Link" (globe icon) in the OMNIPOS profile menu.
+#
+# Fix: the old version downloaded the binary from GitHub with
+# `curl -fsSL ... 2>/dev/null` — no timeout, no progress bar, and errors
+# hidden — so on a slow/blocked GitHub connection the setup looked
+# "stuck" forever on "Downloading cloudflared...". Now:
+#   - Termux: installed with `pkg install cloudflared` (same Termux repo
+#     that installs nodejs — fast, and it is the build that works on
+#     Android).
+#   - Linux PC: GitHub download, but with a progress bar, timeouts and
+#     retries. macOS: brew.
+#   - It is optional — if it fails, setup continues (only the globe icon
+#     "Remote Access Link" is affected).
 echo "🌐 Checking/installing cloudflared (for the Remote Access Link / globe icon)..."
-if [ "$PLATFORM" = "termux" ]; then
-    CF_BIN_DIR="$PREFIX/bin"
+if command -v cloudflared >/dev/null 2>&1 || [ -x "$HOME/.local/bin/cloudflared" ]; then
+    echo "   ✅ cloudflared already found — skipping install."
+
+elif [ "$PLATFORM" = "termux" ]; then
+    echo "   Installing cloudflared (pkg install cloudflared)..."
+    yes | timeout 300 pkg install cloudflared -y $APT_NONINTERACTIVE_OPTS || true
+    if command -v cloudflared >/dev/null 2>&1; then
+        echo "   ✅ cloudflared installed."
+    else
+        echo "   ⚠️  Could not install cloudflared right now. OmniPOS will still work — only the 'Remote Access Link' (globe icon) won't work until it is installed. Later, run:  pkg install cloudflared"
+    fi
+
+elif [ "$PLATFORM" = "macos" ]; then
+    if command -v brew >/dev/null 2>&1; then
+        brew install cloudflared || echo "   ⚠️  Could not install cloudflared — run later:  brew install cloudflared"
+    else
+        echo "   ⚠️  Homebrew not found — install cloudflared later with:  brew install cloudflared"
+    fi
+
 else
     CF_BIN_DIR="$HOME/.local/bin"
     mkdir -p "$CF_BIN_DIR" 2>/dev/null
-fi
-if command -v cloudflared >/dev/null 2>&1 || [ -x "$CF_BIN_DIR/cloudflared" ]; then
-    echo "   ✅ cloudflared already found — skipping install."
-else
     CF_ARCH="$(uname -m 2>/dev/null)"
     case "$CF_ARCH" in
         aarch64|arm64) CF_ASSET="cloudflared-linux-arm64" ;;
@@ -158,13 +190,21 @@ else
     esac
     if [ -n "$CF_ASSET" ]; then
         CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_ASSET}"
-        echo "   Downloading cloudflared ($CF_ASSET)..."
-        if curl -fsSL "$CF_URL" -o "$CF_BIN_DIR/cloudflared" 2>/dev/null && [ -s "$CF_BIN_DIR/cloudflared" ]; then
-            chmod +x "$CF_BIN_DIR/cloudflared"
-            echo "   ✅ cloudflared installed at $CF_BIN_DIR/cloudflared"
+        CF_TMP="$CF_BIN_DIR/.cloudflared.download"
+        echo "   Downloading cloudflared ($CF_ASSET) from GitHub (max ~3 minutes)..."
+        rm -f "$CF_TMP" 2>/dev/null
+        if curl -fL --progress-bar --connect-timeout 15 --max-time 180 --retry 2 --retry-delay 2 "$CF_URL" -o "$CF_TMP" && [ -s "$CF_TMP" ]; then
+            chmod +x "$CF_TMP"
+            if "$CF_TMP" --version >/dev/null 2>&1; then
+                mv -f "$CF_TMP" "$CF_BIN_DIR/cloudflared"
+                echo "   ✅ cloudflared installed at $CF_BIN_DIR/cloudflared"
+            else
+                rm -f "$CF_TMP" 2>/dev/null
+                echo "   ⚠️  The downloaded cloudflared file cannot run on this device — skipped."
+            fi
         else
-            rm -f "$CF_BIN_DIR/cloudflared" 2>/dev/null
-            echo "   ⚠️  Could not download cloudflared right now (no internet, or GitHub is blocked). OmniPOS will still work — only the 'Remote Access Link' (globe icon) won't work until this is installed. You can re-run this script later, or install it manually: curl -fsSL $CF_URL -o $CF_BIN_DIR/cloudflared && chmod +x $CF_BIN_DIR/cloudflared"
+            rm -f "$CF_TMP" 2>/dev/null
+            echo "   ⚠️  Could not download cloudflared (slow/no internet, or GitHub is blocked). OmniPOS will still work — only the 'Remote Access Link' (globe icon) won't work. Later, try:  curl -fL $CF_URL -o $CF_BIN_DIR/cloudflared && chmod +x $CF_BIN_DIR/cloudflared"
         fi
     else
         echo "   ⚠️  Could not detect the CPU architecture ($CF_ARCH) for auto-installing cloudflared. Install it manually if you want to use the 'Remote Access Link' (globe icon)."
@@ -180,9 +220,15 @@ else
     INSTALL_DIR="$HOME/OMNIPOS"
 fi
 
-echo "📂 [3/5] Looking for \"$ZIP_NAME\" in $DOWNLOADS_DIR..."
+echo "📂 [3/6] Looking for \"$ZIP_NAME\" in $DOWNLOADS_DIR..."
 ZIP_PATH="$DOWNLOADS_DIR/$ZIP_NAME"
 if [ ! -f "$ZIP_PATH" ]; then
+    if [ "$PLATFORM" = "termux" ] && [ ! -d "$DOWNLOADS_DIR" ]; then
+        echo "❌ No access to the Downloads folder — the storage permission was not granted."
+        echo "   Fix: Android Settings > Apps > Termux > Permissions > Files/Storage > Allow,"
+        echo "   then run:  termux-setup-storage   and run this setup again."
+        exit 1
+    fi
     echo "❌ Not found: $ZIP_PATH"
     echo ""
     echo "   Zip files found in Downloads:"
@@ -200,11 +246,46 @@ if ! unzip -tq "$ZIP_PATH" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "📤 [4/5] Extracting OMNIPOS to $INSTALL_DIR..."
+# Fix: this used to `rm -rf` the whole existing install FIRST — which
+# deleted the live database/ (sales data + installationId/deviceSeed
+# license info) whenever the setup was re-run on a device already in use.
+# Now: refuse to run while the server is up, back up the user's data,
+# and restore it after extracting.
+PRESERVE_DIR=""
+if [ -d "$INSTALL_DIR" ]; then
+    OLD_LOCK="$INSTALL_DIR/.start.sh.lock"
+    if [ -f "$OLD_LOCK" ]; then
+        OLD_PID="$(cat "$OLD_LOCK" 2>/dev/null)"
+        if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "❌ OmniPOS is still running (PID $OLD_PID). Stop it first (widget: Stop-OmniPOS), then run this setup again."
+            exit 1
+        fi
+    fi
+    if [ -e "$INSTALL_DIR/database" ] || [ -e "$INSTALL_DIR/.omnipos-device-seed" ]; then
+        PRESERVE_DIR="$HOME/omnipos-data-backup-$(date +%Y%m%d-%H%M%S)"
+        echo "💾 Existing OmniPOS install found — backing up your data to $PRESERVE_DIR ..."
+        mkdir -p "$PRESERVE_DIR"
+        for _item in database .omnipos-device-seed .env .env.key; do
+            if [ -e "$INSTALL_DIR/$_item" ]; then
+                cp -a "$INSTALL_DIR/$_item" "$PRESERVE_DIR/" || { echo "❌ Could not back up $_item — nothing was deleted. Stopping."; exit 1; }
+            fi
+        done
+    fi
+fi
 
+echo "📤 [4/6] Extracting OMNIPOS to $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 unzip -q "$ZIP_PATH" -d "$INSTALL_DIR"
+
+if [ -n "$PRESERVE_DIR" ]; then
+    if [ -d "$PRESERVE_DIR/database" ]; then
+        rm -rf "$INSTALL_DIR/database"
+        cp -a "$PRESERVE_DIR/database" "$INSTALL_DIR/database"
+    fi
+    [ -e "$PRESERVE_DIR/.omnipos-device-seed" ] && cp -a "$PRESERVE_DIR/.omnipos-device-seed" "$INSTALL_DIR/.omnipos-device-seed"
+    echo "♻️  Your database was kept. (A safety copy is in $PRESERVE_DIR — the old .env is there too; the new .env comes from the zip.)"
+fi
 
 # Safety net: remove any stray .start.sh.lock that may have shipped
 # inside the zip, so start.sh doesn't mistake it for an already-running
@@ -223,14 +304,21 @@ if [ -f "$INSTALL_DIR/logs/omni-search-worker.log" ]; then
     rm -f "$INSTALL_DIR/logs/omni-search-worker.log"
 fi
 
-echo "🗑️  Removing the zip file from Downloads..."
-rm -f "$ZIP_PATH"
-
-echo "📥 [5/5] Installing dependencies (npm install)..."
+echo "📥 [5/6] Installing dependencies (npm install)..."
 cd "$INSTALL_DIR"
 rm -rf node_modules package-lock.json
-npm install
+if ! npm install; then
+    echo ""
+    echo "❌ npm install failed (usually a slow/dropped internet connection)."
+    echo "   The zip is still in Downloads — just run the setup again."
+    exit 1
+fi
 chmod +x start.sh 2>/dev/null || true
+
+# Fix: the zip is now removed only AFTER the dependencies installed
+# successfully, so a failed npm install no longer forces a re-download.
+echo "🗑️  Removing the zip file from Downloads..."
+rm -f "$ZIP_PATH"
 
 # Safety net: the AI Assistant's document-reading feature (PDF/DOCX
 # attachments) needs "pdf-parse" and "mammoth". These SHOULD already be
@@ -705,7 +793,7 @@ if [ "$PLATFORM" = "termux" ]; then
     cd "$INSTALL_DIR" || exit 1
     mkdir -p logs
 
-    command -v termux-wake-lock >/dev/null 2>&1 && timeout 3 termux-wake-lock
+    command -v termux-wake-lock >/dev/null 2>&1 && { timeout 3 termux-wake-lock || true; }
 
     # PWA AUTO-DEFAULT REMOVED.
     # The installer only opens the normal Android URL chooser. It does not
