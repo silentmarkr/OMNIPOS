@@ -7318,3 +7318,110 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+[2026-09-19 22:44:35] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T14:44:32.027Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-09-19 22:44:41] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T14:44:37.660Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-20 01:29:48] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 01:29:52] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T14:44:42.885Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-20 01:30:10] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-20 01:30:12] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 01:30:15] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T14:44:42.885Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: fetch failed
+Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-20 03:56:50] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-20 03:56:53] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 03:56:56] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T19:44:20.616Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Email receipt failed [MAIL_NETWORK_ERROR]: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-20 04:52:01] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-20 04:52:03] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 04:52:06] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T20:26:57.860Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-20 04:58:16] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-20 04:58:19] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 04:58:22] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T20:56:22.566Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-20 05:15:01] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-20 05:15:04] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 05:15:07] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T21:14:59.565Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-20 05:57:00] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 05:57:03] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T21:18:09.848Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Forgot-password OTP send failure: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+Forgot-password OTP send failure: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: fetch failed
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-20 06:44:36] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-20 06:44:38] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-20 06:44:41] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-19T22:36:36.214Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

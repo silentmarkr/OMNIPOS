@@ -38,7 +38,7 @@ const transactionsMutexRunExclusive = createAsyncMutex();
 process.on('unhandledRejection', (reason) => {
     console.error('🔥 [CRASH-SAFETY] Unhandled Promise Rejection (hindi pinatay ang server):', reason);
 });
-const { sendMailSmart, verifyMailCredentialsSmart, SMTP_TIMEOUTS } = require('./mailer');
+const { sendMailSmart, verifyMailCredentialsSmart, describeMailError, SMTP_TIMEOUTS } = require('./mailer');
 const app = express();
 app.set('trust proxy', true);
 function getClientIp(req) {
@@ -329,7 +329,7 @@ function extractToken(req) {
     if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
     return req.headers['x-auth-token'] ||'';
 }
-const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset']);
+const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm']);
 app.use((req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
@@ -606,8 +606,8 @@ function getCloudTokenPrefs() {
 function saveCloudTokenPrefs(prefs) {
     writeData(FILE_CLOUD_TOKEN_PREFS, { autoSyncEnabled: prefs.autoSyncEnabled !== false });
 }
-const FREE_CUSTOMIZE_LIMIT = 2;
-// Price per additional Receipt Customization credit once the 2 free attempts are used up. Adjust as needed.
+const FREE_CUSTOMIZE_LIMIT = 2; // Fallback only; authoritative value comes from RELAY (receiptCreditPricingCache.freeCustomizeLimit below).
+// Price per additional Receipt Customization credit once the free attempts are used up. Adjust as needed.
 const CUSTOMIZE_CREDIT_PRICE_PHP = 59; // Fallback only; authoritative pricing comes from RELAY.
 const OTP_RECIPIENT_EMAIL = Buffer.from('cml2ZXJvbWFyazE3QGdtYWlsLmNvbQ==','base64').toString('utf8');
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -801,6 +801,12 @@ let receiptCreditPricingCache = {
     discountMinQuantity: 2,
     discountPercent: 5,
     maxQuantity: 100,
+    // BAGO: dating hardcoded (FREE_CUSTOMIZE_LIMIT = 2), ngayon naka-overlay
+    // mula sa RELAY (admin-configurable sa /relay/admin/api/pricing/receipt-credits
+    // sa RELAY side, tingnan ang feature-pricing.html doon) — tingnan ang
+    // refreshReceiptCreditPricingFromRelay() sa ibaba. FREE_CUSTOMIZE_LIMIT
+    // pa rin ang local fallback kapag hindi maabot ang RELAY.
+    freeCustomizeLimit: FREE_CUSTOMIZE_LIMIT,
     updatedAt: 0
 };
 async function refreshReceiptCreditPricingFromRelay(installationId = null) {
@@ -818,10 +824,12 @@ async function refreshReceiptCreditPricingFromRelay(installationId = null) {
             const discountMinQuantity = Number(r.discountMinQuantity);
             const discountPercent = Number(r.discountPercent);
             const maxQuantity = Number(r.maxQuantity);
+            const freeCustomizeLimit = Number(r.freeCustomizeLimit);
             if (Number.isFinite(pricePHP) && pricePHP >= 0) receiptCreditPricingCache.pricePHP = pricePHP;
             if (Number.isInteger(discountMinQuantity) && discountMinQuantity >= 2) receiptCreditPricingCache.discountMinQuantity = discountMinQuantity;
             if (Number.isFinite(discountPercent) && discountPercent >= 0 && discountPercent <= 90) receiptCreditPricingCache.discountPercent = discountPercent;
             if (Number.isInteger(maxQuantity) && maxQuantity >= 1 && maxQuantity <= 1000) receiptCreditPricingCache.maxQuantity = maxQuantity;
+            if (Number.isInteger(freeCustomizeLimit) && freeCustomizeLimit >= 0 && freeCustomizeLimit <= 1000) receiptCreditPricingCache.freeCustomizeLimit = freeCustomizeLimit;
             receiptCreditPricingCache.updatedAt = Date.now();
         }
     } catch (err) {
@@ -852,14 +860,15 @@ function getReceiptSettingsPublic(rawSettings) {
         transactionIdSettings: sanitizeTransactionIdSettings(s.transactionIdSettings),
         customizeCount: customizeCount,
         firstCustomizedAt: s.firstCustomizedAt || null,
-        freeAttemptsRemaining: Math.max(0, FREE_CUSTOMIZE_LIMIT - customizeCount),
-        otpRequired: customizeCount >= FREE_CUSTOMIZE_LIMIT,
+        freeCustomizeLimit: receiptCreditPricingCache.freeCustomizeLimit,
+        freeAttemptsRemaining: Math.max(0, receiptCreditPricingCache.freeCustomizeLimit - customizeCount),
+        otpRequired: customizeCount >= receiptCreditPricingCache.freeCustomizeLimit,
         customizeCredits: customizeCredits,
         creditPricePHP: receiptCreditPricingCache.pricePHP,
         creditDiscountMinQuantity: receiptCreditPricingCache.discountMinQuantity,
         creditDiscountPercent: receiptCreditPricingCache.discountPercent,
         creditMaxQuantity: receiptCreditPricingCache.maxQuantity,
-        creditNeeded: customizeCount >= FREE_CUSTOMIZE_LIMIT && customizeCredits <= 0,
+        creditNeeded: customizeCount >= receiptCreditPricingCache.freeCustomizeLimit && customizeCredits <= 0,
         otpSenderConfigured: !!(s.otpSenderEmail && s.otpSenderAppPassword),
         otpSenderEmailMasked: maskEmail(s.otpSenderEmail)
     };
@@ -1097,7 +1106,14 @@ app.post('/api/receipt-settings/otp-sender/clear', rateLimit('otp-sender-clear',
 app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-    if ((settings.customizeCount || 0) < FREE_CUSTOMIZE_LIMIT) {
+    let installationId = null;
+    try {
+        const featureData = readFeatureUnlocks();
+        installationId = getOrCreateInstallationId(featureData);
+    } catch (_) {}
+    await refreshReceiptCreditPricingFromRelay(installationId);
+    const freeLimit = receiptCreditPricingCache.freeCustomizeLimit;
+    if ((settings.customizeCount || 0) < freeLimit) {
         return res.json({ success: true, otpNeeded: false, message:'You still have free customizations left — no OTP needed.' });
     }
     const otpCode = String(Math.floor(100000 + Math.random() * 900000));
@@ -1112,7 +1128,7 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
         console.error('⚠️ Unable to send the Receipt Customization OTP: no Sender Gmail / App Password has been configured yet in the Receipt Customization panel (or OTP_MAIL_USER/OTP_MAIL_PASS env vars).');
         return res.status(500).json({
             success: false,
-            message:'The OTP sender email is not configured yet. Please set up the Gmail + App Password in the Receipt Customization panel first (this is showing now because the 2 free attempts have been used up).'
+            message: `The OTP sender email is not configured yet. Please set up the Gmail + App Password in the Receipt Customization panel first (this is showing now because the ${freeLimit} free attempts have been used up).`
         });
     }
     const senderUser = otpMailCreds.user;
@@ -1122,20 +1138,20 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
             from: `"OmniPOS Receipt Customization" <${senderUser}>`,
             to: OTP_RECIPIENT_EMAIL,
             subject: `🔐 OmniPOS: OTP for Receipt Customization Request`,
-            text: `Someone requested a receipt customization (Store Name/Address/Contact/Header/Footer) after using up the 2 free attempts.\n\n` +
+            text: `Someone requested a receipt customization (Store Name/Address/Contact/Header/Footer) after using up the ${freeLimit} free attempts.\n\n` +
                   `Requested by: ${username ||'Unknown'}\n` +
                   `OTP Code: ${otpCode}\n` +
                   `This will expire in 10 minutes.\n\n` +
                   `If you did not request this, you can ignore this email.`
         });
-        logAction(username ||'Unknown','Requested an OTP for Receipt Customization (2 free attempts used up)');
+        logAction(username ||'Unknown', `Requested an OTP for Receipt Customization (${freeLimit} free attempts used up)`);
         res.json({ success: true, otpNeeded: true, message:'The OTP was successfully sent to the registered email.' });
     } catch (err) {
         console.error('OTP send failure:', err);
         res.status(500).json({ success: false, message: `Failed to send the OTP: ${err.message}` });
     }
 });
-app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 1000), requirePermission('receipt_settings_view'), (req, res) => {
+app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { storeName, storeAddress, storeContact, headerText, footerText, headerType, headerImage, headerImageStyle, otp, username } = req.body;
     if (!storeName || !storeName.trim()) {
         return res.status(400).json({ success: false, message:'Store Name is required.' });
@@ -1174,8 +1190,15 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
         return res.json({ success: true, pending: true, message:'The Receipt Customization request has been submitted for Admin approval.' });
     }
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    let installationIdForPricing = null;
+    try {
+        const featureDataForPricing = readFeatureUnlocks();
+        installationIdForPricing = getOrCreateInstallationId(featureDataForPricing);
+    } catch (_) {}
+    await refreshReceiptCreditPricingFromRelay(installationIdForPricing);
     const currentCount = settings.customizeCount || 0;
-    const needsOtp = currentCount >= FREE_CUSTOMIZE_LIMIT;
+    const freeLimit = receiptCreditPricingCache.freeCustomizeLimit;
+    const needsOtp = currentCount >= freeLimit;
     const availableCredits = settings.customizeCredits || 0;
     let consumeCredit = false;
     if (needsOtp) {
@@ -1188,8 +1211,8 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
                     success: false,
                     requiresOtp: true,
                     requiresCredit: true,
-                    creditPricePHP: CUSTOMIZE_CREDIT_PRICE_PHP,
-                    message: `You've used up your 2 free customizations and have no purchased credits left. Buy a Receipt Customization credit (₱${CUSTOMIZE_CREDIT_PRICE_PHP} each) or enter an OTP to continue.`
+                    creditPricePHP: receiptCreditPricingCache.pricePHP,
+                    message: `You've used up your ${freeLimit} free customizations and have no purchased credits left. Buy a Receipt Customization credit (₱${receiptCreditPricingCache.pricePHP} each) or enter an OTP to continue.`
                 });
             }
             const pending = settings.pendingOtp;
@@ -1393,10 +1416,17 @@ app.post('/api/receipt-settings/token-activate/confirm', requirePermission('rece
 app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
-    if ((settings.customizeCount || 0) < FREE_CUSTOMIZE_LIMIT) {
+    let installationIdForPricing = null;
+    try {
+        const featureDataForPricing = readFeatureUnlocks();
+        installationIdForPricing = getOrCreateInstallationId(featureDataForPricing);
+    } catch (_) {}
+    await refreshReceiptCreditPricingFromRelay(installationIdForPricing);
+    const freeLimit = receiptCreditPricingCache.freeCustomizeLimit;
+    if ((settings.customizeCount || 0) < freeLimit) {
         return res.status(400).json({
             success: false,
-            message: `You still have ${FREE_CUSTOMIZE_LIMIT - (settings.customizeCount || 0)} free customization(s) left — no need to reset the counter yet.`
+            message: `You still have ${freeLimit - (settings.customizeCount || 0)} free customization(s) left — no need to reset the counter yet.`
         });
     }
     if (!RELAY_API_KEY) {
@@ -1454,8 +1484,8 @@ app.post('/api/receipt-settings/reset-counter', rateLimit('otp-reset-verify', 12
         settings.resetHistory = Array.isArray(settings.resetHistory) ? settings.resetHistory : [];
         settings.resetHistory.push({ resetAt: new Date().toISOString(), resetBy: username || 'Unknown' });
         writeData(FILE_RECEIPT_SETTINGS, settings);
-        logAction(username || 'Unknown', 'Reset the Receipt Customization counter (back to 2 free attempts, via Relay-verified OTP)');
-        res.json({ success: true, message:'Counter reset — 2 free customizations are available again.', settings: getReceiptSettingsPublic(settings) });
+        logAction(username || 'Unknown', `Reset the Receipt Customization counter (back to ${receiptCreditPricingCache.freeCustomizeLimit} free attempts, via Relay-verified OTP)`);
+        res.json({ success: true, message: `Counter reset — ${receiptCreditPricingCache.freeCustomizeLimit} free customizations are available again.`, settings: getReceiptSettingsPublic(settings) });
     } catch (err) {
         console.error('Hindi ma-abot ang Unlock Relay (receipt-reset):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}.` });
@@ -3041,6 +3071,23 @@ async function refreshCloudBackupPricingIfStale() {
         fetchCloudBackupPricing(),
         new Promise(resolve => setTimeout(resolve, CLOUD_BACKUP_ON_DEMAND_REFRESH_DEADLINE_MS))
     ]);
+}
+const ACTIVATION_FLAGS_LIVE_CHECK_DEADLINE_MS = 2500;
+// Forces a fresh read of the RELAY "Allow Send Request" flag (bypasses the 60s throttle above).
+// Never throws: when the relay is slow/unreachable we simply keep the last known flags and let
+// the relay itself enforce the flag on the actual request.
+async function refreshActivationFlagsLive() {
+    if (!RELAY_API_KEY) return;
+    let timer;
+    try {
+        await Promise.race([
+            fetchCloudBackupPricing(),
+            new Promise(resolve => { timer = setTimeout(resolve, ACTIVATION_FLAGS_LIVE_CHECK_DEADLINE_MS); })
+        ]);
+    } catch (err) {
+    } finally {
+        clearTimeout(timer);
+    }
 }
 async function fetchGroupDiscount(installationId) {
     if (!RELAY_API_KEY || !installationId) return { deviceCount: 1, discountPercent: 0 };
@@ -6142,6 +6189,9 @@ function relayRejectionResponse(res, relayData, fallbackMessage) {
             message: 'Naipadala na ang device na ito papuntang developer/store owner para sa authorization. Wala pang access ang device na ito — maghintay lang na ma-\"Allow\" ka sa Relay admin panel, at awtomatiko na itong susubukan ulit.'
         });
     }
+    if (relayData && relayData.code === 'DEVELOPER_UNAVAILABLE') {
+        return res.status(503).json({ success: false, code: 'DEVELOPER_UNAVAILABLE', message: relayData.message || 'Developer is unavailable at this time.' });
+    }
     return res.status(502).json({ success: false, message: (relayData && relayData.message) || fallbackMessage });
 }
 app.post('/api/features/request-unlock', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
@@ -6355,6 +6405,168 @@ app.post('/api/admin/confirm-password-reset',
         }
     }
 );
+
+// ---------------------------------------------------------------------------
+// "Forgot password?" — Gmail App Password self-service flow.
+//
+// This is a *local* alternative to the Relay-based Admin reset above (the
+// hidden 7x-logo-tap gesture). It only works when this installation already
+// has a verified Sender Gmail + App Password configured (Users > Receipt
+// Customization > Google App Verification). The code is sent to the Recovery
+// email (Advanced Settings > Two-Factor Authentication) when one is set;
+// otherwise it is sent to the Sender Gmail itself. When no Sender Gmail is
+// configured, /status reports unavailable and the client directs the user to
+// the 7x-logo-tap developer-assisted reset instead.
+// ---------------------------------------------------------------------------
+const FORGOT_PW_OTP_TTL_MS = 10 * 60 * 1000;
+const FORGOT_PW_CHALLENGES = new Map();
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of FORGOT_PW_CHALLENGES.entries()) if (now > v.expiresAt) FORGOT_PW_CHALLENGES.delete(k);
+}, 60 * 1000).unref();
+function generateForgotPasswordToken() {
+    return 'FPW-' + Date.now().toString(36) + '-' + crypto.randomBytes(8).toString('hex');
+}
+function getForgotPasswordRecipientEmail() {
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // 1) Preferred: the dedicated recovery/2FA recipient email, if the Admin set one.
+    const advSettings = readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS) || {};
+    const configured = typeof advSettings.twoFactorRecipientEmail === 'string' ? advSettings.twoFactorRecipientEmail.trim() : '';
+    if (emailPattern.test(configured)) return configured;
+    // 2) Fallback: the Sender Gmail that is already signed in on this system. Its
+    //    App Password was verified by the owner, so the inbox belongs to them.
+    const creds = getOtpMailCredentials();
+    const senderEmail = creds && typeof creds.user === 'string' ? creds.user.trim() : '';
+    return emailPattern.test(senderEmail) ? senderEmail : '';
+}
+function isForgotPasswordAvailable() {
+    return !!(getOtpMailCredentials() && getForgotPasswordRecipientEmail());
+}
+
+// Public: tells the login page whether the Gmail-based self-service flow can
+// be offered right now, without revealing the recipient email or any other
+// configuration detail to an unauthenticated caller.
+app.get('/api/admin/forgot-password/status', rateLimit('forgot-pw-status', 30, 10 * 60 * 1000, (sec) => `Too many requests. Please try again in ${sec} seconds.`), (req, res) => {
+    res.json({ success: true, available: isForgotPasswordAvailable() });
+});
+
+app.post('/api/admin/forgot-password/request-otp',
+    rateLimit('forgot-pw-request', 3, 15 * 60 * 1000, (sec) => `Too many verification code requests. Please wait ${Math.ceil(sec / 60)} minute(s) before trying again, or use the developer-assisted reset (tap the logo seven times).`),
+    async (req, res) => {
+        if (!isForgotPasswordAvailable()) {
+            return res.status(400).json({
+                success: false,
+                available: false,
+                message: 'Self-service email recovery is not available yet because no Sender Gmail + App Password has been configured on this installation. Please use the developer-assisted reset instead: tap the OmniPOS logo on the sign-in screen seven times in quick succession and follow the prompts.'
+            });
+        }
+        const users = readData(FILE_USERS) || [];
+        const adminUser = users.find(u => u.role === 'Admin');
+        if (!adminUser) {
+            return res.status(404).json({ success: false, message: 'No Admin account exists on this installation.' });
+        }
+        const recipientEmail = getForgotPasswordRecipientEmail();
+        const otpMailCreds = getOtpMailCredentials();
+        const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+        const token = generateForgotPasswordToken();
+        // Only one active code at a time: a new request invalidates any earlier one.
+        FORGOT_PW_CHALLENGES.clear();
+        FORGOT_PW_CHALLENGES.set(token, {
+            code: otpCode,
+            expiresAt: Date.now() + FORGOT_PW_OTP_TTL_MS,
+            attempts: 0,
+            ip: getClientIp(req)
+        });
+        try {
+            await sendMailSmart(otpMailCreds.user, otpMailCreds.pass, {
+                from: `"OmniPOS Account Recovery" <${otpMailCreds.user}>`,
+                to: recipientEmail,
+                subject: `🔐 OmniPOS: Admin Password Reset Verification Code`,
+                text: `A password reset was requested for the Admin account "${adminUser.username}" on your OmniPOS system.\n\n` +
+                      `Verification Code: ${otpCode}\n` +
+                      `This code will expire in 10 minutes.\n\n` +
+                      `If you did not request this, no action is required — your password will remain unchanged. ` +
+                      `For your security, never share this code with anyone, including anyone claiming to be OmniPOS support.`
+            });
+            logAction('System (Forgot Password)', `An Admin password reset code was requested and sent to ${maskEmail(recipientEmail)}.`);
+            res.json({
+                success: true,
+                token,
+                maskedEmail: maskEmail(recipientEmail),
+                message: `A 6-digit verification code has been sent to ${maskEmail(recipientEmail)}. Enter it below along with your new password.`
+            });
+        } catch (err) {
+            console.error('Forgot-password OTP send failure:', err.message);
+            FORGOT_PW_CHALLENGES.delete(token);
+            const described = describeMailError(err);
+            res.status(described.httpStatus || 500).json({ success: false, message: described.message || `Failed to send the verification code: ${err.message}` });
+        }
+    }
+);
+
+app.post('/api/admin/forgot-password/confirm',
+    rateLimit('forgot-pw-confirm', 10, 15 * 60 * 1000, (sec) => `Too many attempts. Please wait ${Math.ceil(sec / 60)} minute(s) and request a new verification code.`),
+    (req, res) => {
+        const { token, otp } = req.body;
+        const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : req.body.newPassword;
+        if (!token || !otp || !newPassword) {
+            return res.status(400).json({ success: false, message: 'Missing token, otp, or newPassword.' });
+        }
+        if (String(newPassword).length < 8) {
+            return res.status(400).json({ success: false, message: 'The new password must be at least 8 characters.' });
+        }
+        const challenge = FORGOT_PW_CHALLENGES.get(token);
+        if (!challenge || Date.now() > challenge.expiresAt) {
+            FORGOT_PW_CHALLENGES.delete(token);
+            return res.status(400).json({ success: false, message: 'This verification session has expired or is invalid. Please request a new code.' });
+        }
+        challenge.attempts = (challenge.attempts || 0) + 1;
+        if (challenge.attempts > 5) {
+            FORGOT_PW_CHALLENGES.delete(token);
+            return res.status(429).json({ success: false, message: 'Too many incorrect attempts. Please request a new verification code.' });
+        }
+        const submittedOtp = Buffer.from(String(otp).trim());
+        const expectedOtp = Buffer.from(challenge.code);
+        if (submittedOtp.length !== expectedOtp.length || !crypto.timingSafeEqual(submittedOtp, expectedOtp)) {
+            return res.status(400).json({ success: false, message: 'Incorrect verification code. Please try again.' });
+        }
+        // NOTE: the challenge is deleted only AFTER the new password is saved, so a
+        // transient database failure does not burn a valid code.
+        let users = readData(FILE_USERS) || [];
+        const adminIndex = users.findIndex(u => u.role === 'Admin');
+        if (adminIndex === -1) {
+            return res.status(404).json({ success: false, message: 'No Admin account exists on this installation.' });
+        }
+        users[adminIndex].password = bcrypt.hashSync(newPassword, 10);
+        const adminUsername = users[adminIndex].username;
+        const writeOk = writeData(FILE_USERS, users);
+        const verifyUsers = readData(FILE_USERS) || [];
+        const verifyUser = verifyUsers.find(u => u.username === adminUsername);
+        const verified = writeOk && verifyUser && (() => {
+            try { return bcrypt.compareSync(newPassword, verifyUser.password); }
+            catch (e) { return false; }
+        })();
+        if (!verified) {
+            console.error(`⚠️ Failed to persist the new Admin password for "${adminUsername}" — the new hash could not be verified after writeData(). There may be a local database (SQLite lock/disk) issue.`);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to save the new password to the local database. Your password was not changed — please try again, and if this keeps happening, check the device storage/permissions.'
+            });
+        }
+        FORGOT_PW_CHALLENGES.delete(token);
+        // Security: sign out every existing session of the Admin account so that a
+        // previously stolen/forgotten session cannot outlive the password change.
+        for (const [sessToken, session] of SESSIONS.entries()) {
+            if (session.username && session.username.toLowerCase() === adminUsername.toLowerCase()) {
+                SESSIONS.delete(sessToken);
+            }
+        }
+        persistSessions();
+        logAction('System (Forgot Password)', 'The Admin password was reset via the Gmail-verified self-service recovery flow.');
+        res.json({ success: true, message: 'Your Admin password has been updated. You can now sign in with your new password.' });
+    }
+);
+
 app.post('/api/features/request-demo', requirePermission('relay_unlock_request'), rateLimit('feature-demo-request', 3, 10 * 60 * 1000), async (req, res) => {
     const { username, photo } = req.body;
     if (!RELAY_API_KEY) {
@@ -6364,6 +6576,12 @@ app.post('/api/features/request-demo', requirePermission('relay_unlock_request')
     const installationId = getOrCreateInstallationId(data);
     if (isDemoActive()) {
         return res.json({ success: true, alreadyActive: true, message:'Aktibo na ang Demo Mode.', demoExpiresAt: getDemoExpiry() });
+    }
+    // Bago magpadala ng OTP request sa relay: alamin muna (fresh) kung naka-ON pa ang
+    // "Allow Send Request" sa Relay admin panel. Kapag OFF, huwag nang ituloy ang request.
+    await refreshActivationFlagsLive();
+    if (!activationFlagsCache.otpRequestsEnabled) {
+        return res.status(503).json({ success: false, code: 'DEVELOPER_UNAVAILABLE', message: 'Developer is unavailable at this time.' });
     }
     try {
         const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
@@ -9109,12 +9327,12 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
     const { toEmail, transaction: clientTx, receiptImage, loyaltyQr: loyaltyQrInput } = req.body;
     const emailPattern =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!toEmail || !emailPattern.test(toEmail)) {
-        return res.status(400).json({ success: false, message:'Di-wastong email address.' });
+        return res.status(400).json({ success: false, message:'Invalid email address.' });
     }
     const transactions = readData(FILE_TRANSACTIONS, []);
     const tx = transactions.find(t => t.id === transactionId) || clientTx;
     if (!tx) {
-        return res.status(404).json({ success: false, message:'Hindi mahanap ang transaction record na ito.' });
+        return res.status(404).json({ success: false, message:'Transaction record not found.' });
     }
     const isPersistedTransaction = transactions.some(t => t.id === transactionId);
     if (isPersistedTransaction) {
@@ -9126,7 +9344,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
         const isOwnTransaction = (tx.cashier || '').toLowerCase() === requester.toLowerCase();
         if (!canViewAll && !isOwnTransaction) {
-            return res.status(403).json({ success: false, message: 'Akses Denied: Hindi mo pwedeng i-email ang resibo ng transaksyon na hindi sa iyo.' });
+            return res.status(403).json({ success: false, message: 'Access Denied: You can only email receipts for your own transactions.' });
         }
     }
     const rawReceiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
@@ -9253,11 +9471,12 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         }
         if (attachments.length > 0) mailOptions.attachments = attachments;
         await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
-        logAction(req.authUser ? req.authUser.username :'Unknown', `Naipadala ang resibo ${tx.id} sa email (${maskEmail(toEmail)})`);
-        res.json({ success: true, message:'Naipadala ang resibo.' });
+        logAction(req.authUser ? req.authUser.username :'Unknown', `Emailed receipt ${tx.id} to ${maskEmail(toEmail)}`);
+        res.json({ success: true, message:'Receipt sent.' });
     } catch (err) {
-        console.error('Email receipt failed:', err.message);
-        res.status(500).json({ success: false, message: `Hindi naipadala ang resibo: ${err.message}` });
+        const mailErr = describeMailError(err);
+        console.error(`Email receipt failed [${mailErr.code}]:`, err.message);
+        res.status(mailErr.httpStatus).json({ success: false, errorCode: mailErr.code, retryable: mailErr.retryable, message: mailErr.message });
     }
 });
 app.get('/api/logs', requirePermission('logs'), (req, res) => {
@@ -12400,11 +12619,12 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
             html: htmlBody
         };
         await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
-        logAction(req.authUser ? req.authUser.username : 'Unknown', `Naipadala ang debt e-receipt ${debt.id} sa email (${maskEmail(toEmail)})`);
+        logAction(req.authUser ? req.authUser.username : 'Unknown', `Emailed debt e-receipt ${debt.id} to ${maskEmail(toEmail)}`);
         res.json({ success: true, message: 'The e-receipt has been sent.' });
     } catch (err) {
-        console.error('Debt email receipt failed:', err.message);
-        res.status(500).json({ success: false, message: `Could not send the e-receipt: ${err.message}` });
+        const mailErr = describeMailError(err);
+        console.error(`Debt email receipt failed [${mailErr.code}]:`, err.message);
+        res.status(mailErr.httpStatus).json({ success: false, errorCode: mailErr.code, retryable: mailErr.retryable, message: mailErr.message });
     }
 });
 app.post('/api/customers/:id/loyalty-card', requirePermission('loyalty_card_issue'), requireFeature('customer_crm'), rateLimit('loyalty-card-issue', 20, 10 * 60 * 1000), (req, res) => {

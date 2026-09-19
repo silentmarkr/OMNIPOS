@@ -89,7 +89,33 @@ function blockIfOffline(featureLabel) {
     }
     return true;
 }
+function showDeveloperUnavailableModal() {
+    return Swal.fire({
+        icon: 'warning',
+        iconHtml: '<i class="fa-solid fa-user-clock"></i>',
+        title: 'Developer Unavailable',
+        html:
+'<div style="text-align:center;">' +
+    '<p style="margin:0 0 10px;font-size:0.95rem;font-weight:600;line-height:1.5;">The developer is unavailable at this time.</p>' +
+    '<p style="margin:0 0 16px;font-size:0.83rem;line-height:1.55;opacity:0.75;">Demo Mode requests are not being accepted right now, so your request was not sent. Please try again in a little while.</p>' +
+    '<div style="display:flex;flex-direction:column;gap:8px;text-align:left;padding:10px 14px;border-radius:10px;border:1px solid rgba(148,163,184,0.35);background:rgba(148,163,184,0.10);font-size:0.78rem;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><span style="opacity:0.7;">Developer status</span><span style="font-weight:700;color:#d97706;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;"></span>Unavailable</span></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><span style="opacity:0.7;">Demo request</span><span style="font-weight:700;">Not sent</span></div>' +
+    '</div>' +
+'</div>',
+        showConfirmButton: true,
+        showCancelButton: false,
+        showDenyButton: false,
+        confirmButtonText: 'OK',
+        confirmButtonColor: '#2563eb',
+        focusConfirm: true
+    });
+}
 function showUnlockRequestError(reqData, fallbackMessage) {
+    if (reqData && reqData.code === 'DEVELOPER_UNAVAILABLE') {
+        showDeveloperUnavailableModal();
+        return;
+    }
     if (reqData && reqData.pendingAuthorization) {
         Swal.fire({
             icon:'info',
@@ -2084,6 +2110,7 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
         let attemptsLeft = maxAttempts;
         let settled = false;
         let submitting = false;
+        let closing = false;
         const overlay = document.createElement('div');
         overlay.className = 'otp-verify-overlay';
         overlay.innerHTML =
@@ -2095,9 +2122,10 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 '<div class="otp-verify-desc">' + (descriptionHtml || '') + '</div>' +
                 '<div class="otp-verify-boxes">' +
                     Array.from({ length: 6 }).map((_, i) =>
-                        '<input class="otp-verify-box" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" data-index="' + i + '">'
+                        '<input class="otp-verify-box" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-label="Digit ' + (i + 1) + '" data-index="' + i + '">'
                     ).join('') +
                 '</div>' +
+                '<div class="otp-verify-paste-row" style="text-align:center;margin:-4px 0 12px;"><button type="button" class="otp-verify-paste-btn" style="background:none;border:none;color:var(--primary-blue,#3b82f6);font-size:0.8rem;font-weight:600;text-decoration:underline;cursor:pointer;padding:4px 8px;"><i class="fa-regular fa-clipboard"></i> Paste code from clipboard</button></div>' +
                 '<div class="otp-verify-status"></div>' +
                 '<div class="otp-verify-attempts"></div>' +
                 '<div class="otp-verify-actions">' +
@@ -2110,12 +2138,51 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
         const statusEl = overlay.querySelector('.otp-verify-status');
         const attemptsEl = overlay.querySelector('.otp-verify-attempts');
         const submitBtn = overlay.querySelector('.otp-verify-submit-btn');
+        const pasteBtn = overlay.querySelector('.otp-verify-paste-btn');
         const cancelBtn = overlay.querySelector('.otp-verify-cancel-btn');
         const closeBtn = overlay.querySelector('.otp-verify-close');
         const card = overlay.querySelector('.otp-verify-card');
         function currentCode() { return boxes.map(b => b.value).join(''); }
+        function isLocked() { return submitting || closing || settled; }
         function updateSubmitState() {
-            submitBtn.disabled = currentCode().length !== 6 || submitting;
+            submitBtn.disabled = currentCode().length !== 6 || submitting || closing;
+            pasteBtn.disabled = submitting || closing;
+            pasteBtn.style.opacity = pasteBtn.disabled ? '0.5' : '1';
+            pasteBtn.style.cursor = pasteBtn.disabled ? 'not-allowed' : 'pointer';
+        }
+        function setStatusError(message) {
+            statusEl.textContent = message;
+            statusEl.className = 'otp-verify-status is-error';
+        }
+        function clearStatus() {
+            statusEl.textContent = '';
+            statusEl.className = 'otp-verify-status';
+        }
+        // Advanced pasting: accepts a whole code (or text that contains one, e.g.
+        // "Your code is 123456") pasted / autofilled / read from the clipboard.
+        // A full code fills all 6 boxes; a shorter one fills from `fromIndex`.
+        // Returns true when the text was handled (even if the dialog is busy).
+        function applyOtpText(text, fromIndex) {
+            if (isLocked()) return true;
+            const code = extractOtpFromText(text);
+            if (!code) return false;
+            clearBoxesState();
+            clearStatus();
+            if (code.length >= 6) {
+                setBoxesValue(code.slice(0, 6));
+            } else {
+                for (let k = 0; k < code.length && fromIndex + k < boxes.length; k++) boxes[fromIndex + k].value = code[k];
+            }
+            updateSubmitState();
+            if (currentCode().length === boxes.length) {
+                focusBox(boxes.length - 1);
+                // Only auto-verify when the text clearly contained a 6-digit code, so a stray
+                // number in the clipboard can never burn one of the limited attempts.
+                if (code.length >= 6 && otpTextHasCleanCode(text)) doSubmit();
+            } else {
+                focusBox(Math.min(fromIndex + code.length, boxes.length - 1));
+            }
+            return true;
         }
         function clearBoxesState() { boxes.forEach(b => b.classList.remove('is-error', 'is-success')); }
         function focusBox(i) { if (boxes[i]) boxes[i].focus(); }
@@ -2144,10 +2211,11 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             resolve(null);
         }
         async function doSubmit() {
-            if (submitting || settled) return;
+            if (submitting || settled || closing) return;
             const code = currentCode();
             if (code.length !== 6) return;
             submitting = true;
+            updateSubmitState();
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying...';
             cancelBtn.disabled = true;
@@ -2168,6 +2236,8 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             cancelBtn.disabled = false;
             closeBtn.disabled = false;
             if (result && (result.success || result.pending)) {
+                closing = true;
+                updateSubmitState();
                 boxes.forEach(b => { b.value = '✓'; b.disabled = true; b.classList.add('is-success'); });
                 statusEl.textContent = result.pending ? 'Code verified — waiting for approval' : 'Code verified';
                 statusEl.className = 'otp-verify-status is-success';
@@ -2175,6 +2245,8 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 return;
             }
             if (result && result.insufficient) {
+                closing = true;
+                updateSubmitState();
                 statusEl.textContent = result.message || 'Insufficient balance.';
                 statusEl.className = 'otp-verify-status is-error';
                 setTimeout(() => finish(Object.assign({}, result, { _verifiedOtp: code })), 500);
@@ -2194,6 +2266,8 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             statusEl.className = 'otp-verify-status is-error';
             updateAttemptsLabel();
             if (attemptsLeft <= 0) {
+                closing = true;
+                updateSubmitState();
                 statusEl.textContent = 'Too many incorrect attempts';
                 setTimeout(() => finishWithExpire(), 850);
                 return;
@@ -2203,11 +2277,18 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             focusBox(0);
         }
         boxes.forEach((box, i) => {
+            box.addEventListener('focus', () => { try { box.select(); } catch (e) {   } });
             box.addEventListener('input', () => {
-                box.value = box.value.replace(/[^0-9]/g, '').slice(-1);
+                const rawValue = box.value;
+                const digits = rawValue.replace(/[^0-9]/g, '');
                 clearBoxesState();
-                statusEl.textContent = '';
-                statusEl.className = 'otp-verify-status';
+                clearStatus();
+                if (digits.length >= 6 && !isLocked()) {
+                    // A whole code landed in one box (SMS / keyboard autofill) -> spread it over all boxes.
+                    applyOtpText(rawValue, 0);
+                    return;
+                }
+                box.value = digits.slice(-1);
                 if (box.value && i < 5) focusBox(i + 1);
                 updateSubmitState();
             });
@@ -2219,16 +2300,24 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             });
             box.addEventListener('paste', (e) => {
                 const text = (e.clipboardData || window.clipboardData).getData('text') || '';
-                const digits = text.replace(/[^0-9]/g, '').slice(0, 6);
-                if (digits.length) {
-                    e.preventDefault();
-                    setBoxesValue(digits);
-                    clearBoxesState();
-                    updateSubmitState();
-                    focusBox(Math.min(digits.length, 6) - 1);
-                    if (digits.length === 6) doSubmit();
-                }
+                if (applyOtpText(text, i)) e.preventDefault();
             });
+        });
+        pasteBtn.addEventListener('click', async () => {
+            if (isLocked()) return;
+            let text = '';
+            try {
+                if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') throw new Error('Clipboard API unavailable');
+                text = await navigator.clipboard.readText();
+            } catch (e) {
+                if (!isLocked()) {
+                    setStatusError('Clipboard access was blocked by the browser. Long-press a box and choose Paste instead.');
+                    focusBox(0);
+                }
+                return;
+            }
+            if (isLocked()) return;
+            if (!applyOtpText(text, 0)) setStatusError('No 6-digit code was found in your clipboard.');
         });
         function onKeyDown(e) {
             if (e.key === 'Escape' && !settled && !submitting) finishWithExpire();
@@ -3155,7 +3244,8 @@ async function promptDemoMode() {
         const reqRes = await authFetch(`${API_URL}/features/request-demo`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ username: requestingUsername })
+            body: JSON.stringify({ username: requestingUsername }),
+            timeoutMs: 15000
         });
         const reqData = await reqRes.json();
         if (!reqData.success) {
@@ -6544,18 +6634,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
 });
 async function promptLoginOtp(loginToken, errorBanner) {
-    const { value: otpCode, isDismissed } = await Swal.fire({
+    const otpCode = await promptOtpBoxesOnly({
         title: '🔐 Admin Login OTP',
-        html: 'A 6-digit OTP code has been sent to the configured email for Two-Factor Authentication. Enter it to complete login:',
-        input: 'text',
-        inputPlaceholder: '000000',
-        showCancelButton: true,
-        confirmButtonText: 'Verify',
-        confirmButtonColor: '#2563eb',
-        cancelButtonColor: '#64748b',
-        allowOutsideClick: false
+        descriptionHtml: 'A 6-digit OTP code has been sent to the configured email for Two-Factor Authentication. Enter it to complete login:',
+        confirmButtonText: 'Verify'
     });
-    if (isDismissed || !otpCode || !otpCode.trim()) return;
+    if (!otpCode || !otpCode.trim()) return;
     try {
         const verifyRes = await authFetch(`${API_URL}/auth/login/verify-otp`, {
             method: 'POST',
@@ -11837,6 +11921,8 @@ async function loadReceiptCustomizationPanel() {
     await fetchReceiptSettings();
     const s = receiptSettingsCache;
     if (!s) return;
+    const freeLimitDisplay = Number.isFinite(Number(s.freeCustomizeLimit)) ? Number(s.freeCustomizeLimit) : 2;
+    document.querySelectorAll('.rc-free-limit-num').forEach(el => { el.textContent = String(freeLimitDisplay); });
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ||''; };
     setVal('rc-form-storename', s.storeName);
     setVal('rc-form-address', s.storeAddress);
@@ -11964,7 +12050,7 @@ async function loadReceiptCustomizationPanel() {
             resetBtn.title ='';
         }
     } else {
-        if (statusEl) statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check"></i> Remaining Custom Credits: ${s.freeAttemptsRemaining} / 2</span>`;
+        if (statusEl) statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check"></i> Remaining Custom Credits: ${s.freeAttemptsRemaining} / ${freeLimitDisplay}</span>`;
         if (resetBtn) {
             resetBtn.disabled = true;
             resetBtn.style.opacity ='0.4';
@@ -11978,8 +12064,8 @@ async function loadReceiptCustomizationPanel() {
     const displayPrice = Number.isFinite(price) && price >= 1 ? Math.round(price) : 59;
     if (creditStatusEl) {
         creditStatusEl.innerHTML = s.customizeCredits > 0
-            ? `<i class="fa-solid fa-coins" style="color:#2563eb;"></i> You have <strong>${s.customizeCredits}</strong> purchased credit(s) left — 1 credit = 1 customization save beyond the free 2, no OTP needed. Price: ₱${displayPrice} per credit.`
-            : `Used up the 2 free customizations? Buy a credit instead of asking for an OTP — 1 credit = 1 additional Receipt Customization save. Price: ₱${displayPrice} per credit.`;
+            ? `<i class="fa-solid fa-coins" style="color:#2563eb;"></i> You have <strong>${s.customizeCredits}</strong> purchased credit(s) left — 1 credit = 1 customization save beyond the free ${freeLimitDisplay}, no OTP needed. Price: ₱${displayPrice} per credit.`
+            : `Used up the ${freeLimitDisplay} free customizations? Buy a credit instead of asking for an OTP — 1 credit = 1 additional Receipt Customization save. Price: ₱${displayPrice} per credit.`;
     }
     if (buyCreditBtnLabel) buyCreditBtnLabel.textContent = `💎 Use Omni Token (₱${displayPrice})`;
 }
@@ -12831,7 +12917,7 @@ async function saveReceiptCustomization() {
             }
             const otpModalResult = await showOtpVerificationModal({
                 title:'OTP Required',
-                descriptionHtml:'You have reached the free limit for Receipt Customization (2/2). A 6-digit OTP has been sent to the developer\'s registered email. Enter the code below to continue.',
+                descriptionHtml: `You have reached the free limit for Receipt Customization (${Number.isFinite(Number(receiptSettingsCache?.freeCustomizeLimit)) ? Number(receiptSettingsCache.freeCustomizeLimit) : 2}/${Number.isFinite(Number(receiptSettingsCache?.freeCustomizeLimit)) ? Number(receiptSettingsCache.freeCustomizeLimit) : 2}). A 6-digit OTP has been sent to the developer's registered email. Enter the code below to continue.`,
                 maxAttempts: 3,
                 verify: async (otp) => {
                     payload.otp = otp;
@@ -14155,7 +14241,8 @@ async function requestReceiptCounterReset() {
         }
         if (resetData.cancelled) return;
         if (resetData.success) {
-            Swal.fire('Reset!','You now have 2 free customizations again.','success');
+            const resetFreeLimit = Number(resetData.settings?.freeCustomizeLimit);
+            Swal.fire('Reset!', `You now have ${Number.isFinite(resetFreeLimit) ? resetFreeLimit : 2} free customizations again.`, 'success');
             receiptSettingsCache = resetData.settings || receiptSettingsCache;
             applyReceiptBranding();
             loadReceiptCustomizationPanel();
@@ -21905,6 +21992,214 @@ document.addEventListener('DOMContentLoaded', function () {
         handleHardwareScanProductForm
     );
 });
+// ---------------------------------------------------------------------------
+// Shared "6-box verification code + new password" dialog.
+//
+// Used by BOTH password-recovery flows (Gmail "Forgot password?" and the
+// developer-assisted 7x logo tap). It reuses the .otp-verify-box styling of the
+// other OTP dialogs and supports:
+//   - pasting a code into ANY box  -> all 6 boxes fill automatically
+//   - one-tap "Paste code from clipboard" button (mobile friendly)
+//   - SMS / keyboard autofill that delivers several digits at once
+//   - server-side verification INSIDE the dialog, so a wrong code shows an
+//     inline error and lets the user retry without restarting the whole flow.
+// ---------------------------------------------------------------------------
+function extractOtpFromText(text) {
+    const raw = String(text || '');
+    const exact = raw.match(/(^|\D)(\d{6})(?!\d)/);
+    if (exact) return exact[2];
+    const spaced = raw.match(/(^|\D)(\d{3})[\s-](\d{3})(?!\d)/);
+    if (spaced) return spaced[2] + spaced[3];
+    return raw.replace(/\D/g, '').slice(0, 6);
+}
+// True only when the text really contains a standalone 6-digit code (or "123 456" / "123-456"),
+// as opposed to extractOtpFromText() falling back to "the first 6 digits of whatever is there".
+function otpTextHasCleanCode(text) {
+    const raw = String(text || '');
+    return /(^|\D)\d{6}(?!\d)/.test(raw) || /(^|\D)\d{3}[\s-]\d{3}(?!\d)/.test(raw);
+}
+function wireOtpBoxes(root) {
+    const boxes = Array.from(root.querySelectorAll('.fpw-otp-box'));
+    const last = boxes.length - 1;
+    const pwInput = root.querySelector('#swal-fpw-new-pw');
+    const pasteBtn = root.querySelector('#swal-fpw-paste');
+    const resetMsg = () => { try { Swal.resetValidationMessage(); } catch (e) {   } };
+    const clearErrorState = () => boxes.forEach(b => b.classList.remove('is-error'));
+    const getCode = () => boxes.map(b => b.value).join('');
+    const clear = () => boxes.forEach(b => { b.value = ''; });
+    function fillFrom(startIndex, digits) {
+        for (let k = 0; k < digits.length && startIndex + k <= last; k++) boxes[startIndex + k].value = digits[k];
+        const next = startIndex + digits.length;
+        if (next > last) {
+            if (pwInput && !pwInput.value) pwInput.focus(); else boxes[last].focus();
+        } else {
+            boxes[next].focus();
+        }
+    }
+    function applyPastedText(text, fromIndex) {
+        const code = extractOtpFromText(text);
+        if (!code) return false;
+        resetMsg();
+        clearErrorState();
+        if (code.length >= 6) { clear(); fillFrom(0, code.slice(0, 6)); }
+        else fillFrom(fromIndex, code);
+        return true;
+    }
+    boxes.forEach((box, i) => {
+        box.addEventListener('focus', () => { try { box.select(); } catch (e) {   } });
+        box.addEventListener('input', () => {
+            resetMsg();
+            clearErrorState();
+            const rawValue = box.value;
+            const digits = rawValue.replace(/\D/g, '');
+            if (digits.length >= 6) {
+                // A whole code landed in one box (paste / SMS autofill / keyboard suggestion).
+                // Read it BEFORE clearing, because clear() also empties this box.
+                const fullCode = extractOtpFromText(rawValue).slice(0, 6);
+                clear();
+                fillFrom(0, fullCode);
+                return;
+            }
+            box.value = digits.slice(-1);
+            if (box.value) {
+                if (i < last) boxes[i + 1].focus();
+                else if (pwInput) pwInput.focus();
+            }
+        });
+        box.addEventListener('keydown', (e) => {
+            if ((e.key === 'Backspace' || e.keyCode === 8) && !box.value && i > 0) {
+                e.preventDefault();
+                boxes[i - 1].value = '';
+                boxes[i - 1].focus();
+            } else if (e.key === 'ArrowLeft' && i > 0) {
+                e.preventDefault();
+                boxes[i - 1].focus();
+            } else if (e.key === 'ArrowRight' && i < last) {
+                e.preventDefault();
+                boxes[i + 1].focus();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (getCode().length === boxes.length) {
+                    if (!pwInput || pwInput.value) Swal.clickConfirm(); else pwInput.focus();
+                }
+            }
+        });
+        box.addEventListener('paste', (e) => {
+            const data = e.clipboardData || window.clipboardData;
+            const text = data ? (data.getData('text') || '') : '';
+            if (applyPastedText(text, i)) e.preventDefault();
+        });
+    });
+    if (pwInput) {
+        pwInput.addEventListener('input', resetMsg);
+        pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); Swal.clickConfirm(); } });
+    }
+    if (pasteBtn) {
+        pasteBtn.addEventListener('click', async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (!applyPastedText(text, 0)) Swal.showValidationMessage('No 6-digit code was found in your clipboard.');
+            } catch (e) {
+                Swal.showValidationMessage('Clipboard access was blocked by the browser. Long-press a box and choose Paste instead.');
+            }
+        });
+    }
+    return {
+        boxes, pwInput, getCode, clear,
+        focusFirst: () => { if (boxes[0]) boxes[0].focus(); },
+        markError: () => { boxes.forEach(b => { b.value = ''; b.classList.add('is-error'); }); }
+    };
+}
+// submit(otp, newPassword) must resolve to the server's JSON ({ success | pending, message }).
+// Resolves to that JSON (plus _otp/_newPassword) on success/pending, or null if cancelled.
+async function promptOtpBoxesAndNewPassword({ title, descriptionHtml, confirmButtonText, submit }) {
+    let api = null;
+    const boxesHtml = Array.from({ length: 6 }).map((_, i) =>
+        '<input class="otp-verify-box fpw-otp-box" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="' + (i === 0 ? 'one-time-code' : 'off') + '" aria-label="Digit ' + (i + 1) + '" data-index="' + i + '">'
+    ).join('');
+    const result = await Swal.fire({
+        title: title || 'Enter Verification Code',
+        html:
+            '<div style="text-align:left;font-size:0.85rem;line-height:1.55;color:#64748b;margin:0 0 14px;">' + (descriptionHtml || '') + '</div>' +
+            '<div class="otp-verify-boxes" style="margin-bottom:6px;">' + boxesHtml + '</div>' +
+            '<div style="text-align:center;margin:0 0 14px;"><button type="button" id="swal-fpw-paste" style="background:none;border:none;color:var(--primary-blue,#3b82f6);font-size:0.8rem;font-weight:600;text-decoration:underline;cursor:pointer;padding:4px 8px;"><i class="fa-regular fa-clipboard"></i> Paste code from clipboard</button></div>' +
+            '<input id="swal-fpw-new-pw" type="password" class="swal2-input" placeholder="New Password (min 8 chars)" autocomplete="new-password" style="width:100%;margin:0;box-sizing:border-box;">',
+        focusConfirm: false,
+        allowOutsideClick: false,
+        showCancelButton: true,
+        showLoaderOnConfirm: true,
+        confirmButtonText: confirmButtonText || 'Reset Password',
+        cancelButtonText: 'Cancel',
+        didOpen: (popup) => { api = wireOtpBoxes(popup); api.focusFirst(); },
+        preConfirm: async () => {
+            const otp = api.getCode();
+            const newPassword = api.pwInput.value.trim();
+            if (otp.length !== 6) {
+                Swal.showValidationMessage('Please enter all 6 digits of the verification code.');
+                const empty = api.boxes.find(b => !b.value);
+                if (empty) empty.focus();
+                return false;
+            }
+            if (newPassword.length < 8) {
+                Swal.showValidationMessage('The new password must be at least 8 characters.');
+                api.pwInput.focus();
+                return false;
+            }
+            let data;
+            try {
+                data = await submit(otp, newPassword);
+            } catch (err) {
+                Swal.showValidationMessage('Could not reach the server: ' + err.message);
+                return false;
+            }
+            if (data && (data.success || data.pending)) {
+                return Object.assign({}, data, { _otp: otp, _newPassword: newPassword });
+            }
+            Swal.showValidationMessage((data && data.message) || 'The password reset failed. Please try again.');
+            api.markError();
+            api.focusFirst();
+            return false;
+        }
+    });
+    return result.isConfirmed ? result.value : null;
+}
+
+// "6-box verification code" dialog WITHOUT a password field (used by the Admin Login OTP).
+// Same advanced pasting as promptOtpBoxesAndNewPassword (wireOtpBoxes). Resolves to the
+// 6-digit code string, or null when the user cancels / dismisses the dialog.
+async function promptOtpBoxesOnly({ title, descriptionHtml, confirmButtonText }) {
+    let api = null;
+    const boxesHtml = Array.from({ length: 6 }).map((_, i) =>
+        '<input class="otp-verify-box fpw-otp-box" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="' + (i === 0 ? 'one-time-code' : 'off') + '" aria-label="Digit ' + (i + 1) + '" data-index="' + i + '">'
+    ).join('');
+    const result = await Swal.fire({
+        title: title || 'Enter Verification Code',
+        html:
+            '<div style="text-align:left;font-size:0.85rem;line-height:1.55;color:#64748b;margin:0 0 14px;">' + (descriptionHtml || '') + '</div>' +
+            '<div class="otp-verify-boxes" style="margin-bottom:6px;">' + boxesHtml + '</div>' +
+            '<div style="text-align:center;margin:0 0 4px;"><button type="button" id="swal-fpw-paste" style="background:none;border:none;color:var(--primary-blue,#3b82f6);font-size:0.8rem;font-weight:600;text-decoration:underline;cursor:pointer;padding:4px 8px;"><i class="fa-regular fa-clipboard"></i> Paste code from clipboard</button></div>',
+        focusConfirm: false,
+        allowOutsideClick: false,
+        showCancelButton: true,
+        confirmButtonText: confirmButtonText || 'Verify',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        didOpen: (popup) => { api = wireOtpBoxes(popup); api.focusFirst(); },
+        preConfirm: () => {
+            const otp = api.getCode();
+            if (otp.length !== 6) {
+                Swal.showValidationMessage('Please enter all 6 digits of the verification code.');
+                const empty = api.boxes.find(b => !b.value);
+                if (empty) empty.focus();
+                return false;
+            }
+            return otp;
+        }
+    });
+    return result.isConfirmed ? result.value : null;
+}
+
 (function setupHiddenAdminResetGesture() {
     const TAP_TARGET_SELECTOR = '.brand-title';
     const TAPS_REQUIRED = 7;
@@ -21927,11 +22222,14 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     async function openAdminResetModal() {
         const confirm = await Swal.fire({
-            title: 'Reset Admin Password',
-            text: 'This will send a reset request to the developer. You will need an OTP from them to continue.',
+            title: 'Developer-Assisted Password Recovery',
+            html:
+                '<p style="text-align:left;line-height:1.55;margin:0 0 10px;">This pathway is reserved for installations where no Sender Gmail Account has been configured for self-service recovery.</p>' +
+                '<p style="text-align:left;line-height:1.55;margin:0;">Proceeding will transmit a verified reset request to the OmniPOS development team via the secure Relay service. A one-time verification code will subsequently be issued to you upon developer review and approval.</p>',
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonText: 'Send Request'
+            confirmButtonText: 'Send Request',
+            cancelButtonText: 'Cancel'
         });
         if (!confirm.isConfirmed) return;
         try {
@@ -21945,38 +22243,23 @@ document.addEventListener('DOMContentLoaded', function () {
             Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
             return;
         }
-        const { value: formValues } = await Swal.fire({
-            title: 'Enter OTP + New Password',
-            html:
-                '<input id="swal-otp" class="swal2-input" placeholder="6-digit OTP" maxlength="6" style="width:100%;margin:0 0 10px;box-sizing:border-box;">' +
-                '<input id="swal-new-pw" type="password" class="swal2-input" placeholder="New Password (min 8 chars)" style="width:100%;margin:0;box-sizing:border-box;">',
-            focusConfirm: false,
-            showCancelButton: true,
-            confirmButtonText: 'Reset Password',
-            preConfirm: () => {
-                const otp = document.getElementById('swal-otp').value.trim();
-                const newPassword = document.getElementById('swal-new-pw').value.trim();
-                if (!otp || otp.length !== 6) {
-                    Swal.showValidationMessage('Please enter the 6-digit OTP.');
-                    return false;
-                }
-                if (!newPassword || newPassword.length < 8) {
-                    Swal.showValidationMessage('The new password must be at least 8 characters.');
-                    return false;
-                }
-                return { otp, newPassword };
+        const otpResult = await promptOtpBoxesAndNewPassword({
+            title: 'Enter Verification Code',
+            descriptionHtml: 'Your reset request has been securely transmitted to the OmniPOS development team. To protect your account, <strong>please contact the developer directly to verify your identity</strong>. Once approved, you will be provided with a 6-digit one-time code to enter below along with your new password.',
+            submit: async (otp, newPassword) => {
+                const confirmRes = await authFetch('/api/admin/confirm-password-reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ otp, newPassword })
+                });
+                return confirmRes.json();
             }
         });
-        if (!formValues) return;
+        if (!otpResult) return;
         try {
-            let confirmRes = await authFetch('/api/admin/confirm-password-reset', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formValues)
-            });
-            let confirmData = await confirmRes.json();
+            let confirmData = otpResult;
             if (confirmData.pending) {
-                confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', formValues);
+                confirmData = await pollUntilApproved('/api/admin/confirm-password-reset', { otp: otpResult._otp, newPassword: otpResult._newPassword });
             }
             if (confirmData.cancelled) return;
             if (!confirmData.success) {
@@ -21989,6 +22272,86 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 })();
+
+// ---------------------------------------------------------------------------
+// "Forgot password?" — Gmail App Password self-service recovery flow.
+//
+// Clicking the link first asks the server whether a Sender Gmail + App
+// Password AND a recovery recipient email are already configured on this
+// installation (see /api/admin/forgot-password/status). When available, a
+// verification code is emailed straight to the configured recovery address
+// and the Admin can set a new password immediately, without developer
+// involvement. When unavailable, the user is redirected to the existing
+// developer-assisted pathway (tap the logo seven times).
+// ---------------------------------------------------------------------------
+async function openForgotPasswordFlow() {
+    Swal.fire({ title: 'Checking recovery options…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    let status;
+    try {
+        const res = await fetch('/api/admin/forgot-password/status');
+        status = await res.json();
+    } catch (err) {
+        Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
+        return;
+    }
+    if (!status || !status.available) {
+        await Swal.fire({
+            title: 'Email Recovery Unavailable',
+            html:
+                '<p style="text-align:left;line-height:1.55;margin:0 0 10px;">No Sender Gmail Account with an App Password has been connected to this installation yet, so a verification code cannot be issued by email at this time.</p>' +
+                '<p style="text-align:left;line-height:1.55;margin:0;">To proceed, please tap the OmniPOS logo on this screen <strong>seven times in quick succession</strong>. This will initiate a secure, developer-assisted reset request through the Relay service.</p>',
+            icon: 'info',
+            confirmButtonText: 'Understood'
+        });
+        return;
+    }
+    const confirmSend = await Swal.fire({
+        title: 'Forgot Password?',
+        text: 'A 6-digit verification code will be sent to the email address linked to this system.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Send Verification Code',
+        cancelButtonText: 'Cancel'
+    });
+    if (!confirmSend.isConfirmed) return;
+    Swal.fire({ title: 'Sending verification code…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    let requestData;
+    try {
+        const reqRes = await fetch('/api/admin/forgot-password/request-otp', { method: 'POST' });
+        requestData = await reqRes.json();
+        if (!requestData.success) {
+            if (requestData.available === false) {
+                Swal.close();
+                await Swal.fire({
+                    title: 'Email Recovery Unavailable',
+                    text: requestData.message || 'Please use the developer-assisted reset instead (tap the logo seven times).',
+                    icon: 'info'
+                });
+                return;
+            }
+            Swal.fire('Not Sent', requestData.message || 'The verification code could not be sent.', 'error');
+            return;
+        }
+    } catch (err) {
+        Swal.fire('Error', `Could not reach the server: ${err.message}`, 'error');
+        return;
+    }
+    const otpResult = await promptOtpBoxesAndNewPassword({
+        title: 'Enter Verification Code',
+        descriptionHtml: escapeHtml(requestData.message || ''),
+        submit: async (otp, newPassword) => {
+            const confirmRes = await fetch('/api/admin/forgot-password/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: requestData.token, otp, newPassword })
+            });
+            return confirmRes.json();
+        }
+    });
+    if (!otpResult) return;
+    Swal.fire('Success!', otpResult.message || 'Your Admin password has been updated. You can now log in using the new one.', 'success');
+}
+
 function switchViewFromDock(viewKey) {
     const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const userRole = (activeUser && activeUser.role ||'').toLowerCase();
