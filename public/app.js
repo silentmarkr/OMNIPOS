@@ -1434,7 +1434,9 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'create-po-lock':'purchase_orders',
 'reorder-export-csv-lock':'purchase_orders',
 'menu-reorder-lock':'purchase_orders',
-'menu-branches-lock':'multi_branch'
+'menu-branches-lock':'multi_branch',
+'menu-attendance-lock':'remote_operations',
+'menu-remoteops-lock':'remote_operations'
 };
 function updateRolesPermissionsLockState() {
     const wrap = document.getElementById('roles-permissions-matrix-wrap');
@@ -3435,7 +3437,7 @@ function switchView(viewKey, opts) {
         console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
     }
-    const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch' };
+    const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
             guardShiftReportAccess(isAdmin);
@@ -3515,6 +3517,14 @@ function switchView(viewKey, opts) {
     if (viewKey ==='reorder') loadReorderView();
     if (viewKey === 'cloudtokens') loadCloudTokensView();
     if (viewKey === 'branches') { loadBranchesPage(); startBranchesPagePolling(); } else { stopBranchesPagePolling(); }
+    if (viewKey === 'attendance') loadAttendanceView();
+    if (viewKey === 'remoteops') {
+        loadRemoteOperationsView();
+        if (!remoteOperationsRefreshTimer) remoteOperationsRefreshTimer = setInterval(loadRemoteOperationsView, 60 * 1000);
+    } else if (remoteOperationsRefreshTimer) {
+        clearInterval(remoteOperationsRefreshTimer);
+        remoteOperationsRefreshTimer = null;
+    }
     sessionStorage.setItem('currentView', viewKey);
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
     if (typeof syncColorSchemeDeclaration ==='function') syncColorSchemeDeclaration();
@@ -3537,6 +3547,8 @@ const MOBILE_HEADER_TITLE_MAP = {
     faq:          { text:'FAQ',                 icon:'fa-circle-question',    hideIds: ['page-title-faq'] },
     stock_return_inspection: { text:'Void / Refund', icon:'fa-clipboard-check', hideIds: ['page-title-stock_return_inspection'] },
     branches:     { text:'Branches',            icon:'fa-code-branch',       hideIds: ['page-title-branches'] },
+    attendance:   { text:'Staff Attendance',     icon:'fa-camera',            hideIds: [] },
+    remoteops:    { text:'Remote Operations',    icon:'fa-mobile-screen-button', hideIds: [] },
     cloudtokens:  { text:'Omni Tokens',         icon:'fa-gem',                hideIds: ['page-title-cloudtokens'] },
     users:        { text:'Settings',            icon:'fa-gear',              hideIds: [] }
 };
@@ -3627,6 +3639,164 @@ window.addEventListener('resize', () => {
 });
 let _responsiveRecoveryCardResizeTimer = null;
 let globalCustomers = [];
+let attendancePendingAction = null;
+let attendancePendingSelfie = null;
+let remoteOperationsRefreshTimer = null;
+function attendanceNotice(message, icon = 'info') {
+    if (window.Swal && typeof Swal.fire === 'function') {
+        return Swal.fire({ icon, text: message, confirmButtonColor: '#2563eb' });
+    }
+    window.alert(message);
+}
+function renderAttendanceStatus(attendance) {
+    const card = document.getElementById('attendance-current-card');
+    const timeInButton = document.getElementById('attendance-time-in-btn');
+    const timeOutButton = document.getElementById('attendance-time-out-btn');
+    if (!card) return;
+    if (attendance) {
+        const started = new Date(attendance.timeInAt).toLocaleString();
+        card.innerHTML = `<strong><i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> You are currently clocked in.</strong><br><span style="color:var(--text-muted,#64748b);">Started ${escapeHtml(started)}</span>`;
+        if (timeInButton) timeInButton.disabled = true;
+        if (timeOutButton) timeOutButton.disabled = false;
+    } else {
+        card.innerHTML = '<strong><i class="fa-solid fa-circle-info" style="color:#2563eb;"></i> You are not clocked in.</strong><br><span style="color:var(--text-muted,#64748b);">Use the button below to start your shift.</span>';
+        if (timeInButton) timeInButton.disabled = false;
+        if (timeOutButton) timeOutButton.disabled = true;
+    }
+}
+async function loadAttendanceView() {
+    const card = document.getElementById('attendance-current-card');
+    if (!card) return;
+    try {
+        const response = await authFetch(`${API_URL}/attendance/current`);
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            card.innerHTML = `<span style="color:#b91c1c;">${escapeHtml(data.message || 'Could not load attendance status.')}</span>`;
+            return;
+        }
+        renderAttendanceStatus(data.attendance);
+    } catch (error) {
+        card.innerHTML = '<span style="color:#b91c1c;">Could not reach the server. Please try again.</span>';
+    }
+}
+function chooseAttendanceSelfie(action) {
+    attendancePendingAction = action;
+    attendancePendingSelfie = null;
+    const input = document.getElementById('attendance-selfie-input');
+    if (input) {
+        input.value = '';
+        input.click();
+    }
+}
+function handleAttendanceSelfieSelected(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file || !file.type.startsWith('image/')) {
+        attendanceNotice('Please choose a valid image for your attendance selfie.', 'warning');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        const image = new Image();
+        image.onload = () => {
+            const maxSide = 720;
+            const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(image.width * scale));
+            canvas.height = Math.max(1, Math.round(image.height * scale));
+            canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+            attendancePendingSelfie = canvas.toDataURL('image/jpeg', 0.78);
+            const preview = document.getElementById('attendance-selfie-preview');
+            const wrap = document.getElementById('attendance-selfie-preview-wrap');
+            if (preview) preview.src = attendancePendingSelfie;
+            if (wrap) wrap.style.display = '';
+        };
+        image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
+function cancelAttendanceSelfie() {
+    attendancePendingAction = null;
+    attendancePendingSelfie = null;
+    const wrap = document.getElementById('attendance-selfie-preview-wrap');
+    if (wrap) wrap.style.display = 'none';
+}
+async function submitAttendanceAction() {
+    if (!attendancePendingAction || !attendancePendingSelfie) {
+        attendanceNotice('Take a selfie before submitting attendance.', 'warning');
+        return;
+    }
+    const action = attendancePendingAction;
+    try {
+        const response = await authFetch(`${API_URL}/attendance/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selfie: attendancePendingSelfie })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            await attendanceNotice(data.message || 'Attendance could not be saved.', 'error');
+            return;
+        }
+        cancelAttendanceSelfie();
+        renderAttendanceStatus(action === 'time-in' ? data.attendance : null);
+        await attendanceNotice(action === 'time-in' ? 'You are now clocked in.' : 'You are now clocked out.', 'success');
+    } catch (error) {
+        await attendanceNotice('Could not reach the server. Please try again.', 'error');
+    }
+}
+function formatRemoteCurrency(value) {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(Number(value) || 0);
+}
+function formatRemoteTime(value) {
+    const timestamp = Number(value);
+    return timestamp ? new Date(timestamp).toLocaleString() : '—';
+}
+async function loadRemoteOperationsView() {
+    const metrics = document.getElementById('remoteops-metrics');
+    const branchesBody = document.getElementById('remoteops-branches-body');
+    const transactionsBody = document.getElementById('remoteops-transactions-body');
+    const staffBody = document.getElementById('remoteops-staff-body');
+    const attendanceBody = document.getElementById('remoteops-attendance-body');
+    if (!metrics || !branchesBody || !transactionsBody || !staffBody || !attendanceBody) return;
+    metrics.innerHTML = '<div class="metric-card"><div><p class="metric-label">STATUS</p><h3>Loading…</h3></div></div>';
+    try {
+        const [summaryResponse, reportResponse] = await Promise.all([
+            authFetch(`${API_URL}/remote-operations/summary`),
+            authFetch(`${API_URL}/attendance/report`)
+        ]);
+        const summary = await summaryResponse.json();
+        const report = await reportResponse.json();
+        if (!summaryResponse.ok || !summary.success) throw new Error(summary.message || 'Could not load remote operations.');
+        const combined = summary.combined || {};
+        metrics.innerHTML = `
+            <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">TODAY'S SALES</p><h3>${formatRemoteCurrency(combined.todaySales)}</h3></div></div>
+            <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">TRANSACTIONS</p><h3>${Number(combined.todayTransactions) || 0}</h3></div></div>
+            <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-user-check"></i></div><div><p class="metric-label">STAFF CLOCKED IN</p><h3>${Number(combined.activeStaffCount) || 0}</h3></div></div>
+            <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-code-branch"></i></div><div><p class="metric-label">BRANCHES REPORTING</p><h3>${Number(summary.branchCount) || 0}</h3></div></div>`;
+        branchesBody.innerHTML = (summary.branches || []).map((branch) => {
+            const operations = branch.remoteOperations || {};
+            return `<tr><td>${escapeHtml(branch.branchName || 'Unnamed Branch')}</td><td>${Number(operations.activeStaffCount) || 0}</td><td>${formatRemoteCurrency(operations.todaySales)}</td><td>${Number(operations.todayTransactions) || 0}</td><td>${escapeHtml(formatRemoteTime(branch.updatedAt))}</td></tr>`;
+        }).join('') || '<tr><td colspan="5">No branches have reported remote operations data yet.</td></tr>';
+        transactionsBody.innerHTML = (combined.recentTransactions || []).map((transaction) =>
+            `<tr><td>${escapeHtml(formatRemoteTime(transaction.at))}</td><td>${escapeHtml(transaction.branchName || '—')}</td><td>${escapeHtml(transaction.cashier || 'Unknown')}</td><td>${escapeHtml(transaction.paymentMethod || '—')}</td><td>${formatRemoteCurrency(transaction.total)}</td></tr>`
+        ).join('') || '<tr><td colspan="5">No recent transactions.</td></tr>';
+        staffBody.innerHTML = (report.staffReport || []).map((staff) =>
+            `<tr><td>${escapeHtml(staff.displayName || staff.username)}</td><td>${Number(staff.completedShifts) || 0}</td><td>${Number(staff.totalHours || 0).toFixed(2)}</td><td>${Number(staff.transactions) || 0}</td><td>${formatRemoteCurrency(staff.netSales)}</td></tr>`
+        ).join('') || '<tr><td colspan="5">No staff activity for today.</td></tr>';
+        attendanceBody.innerHTML = (report.records || []).map((record) => {
+            const photo = (value, label) => value
+                ? `<img src="${escapeHtml(value)}" alt="${label}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color,#cbd5e1);">`
+                : '<span style="color:var(--text-muted,#64748b);">—</span>';
+            return `<tr><td>${escapeHtml(record.displayName || record.username || 'Unknown')}</td><td>${escapeHtml(formatRemoteTime(new Date(record.timeInAt).getTime()))}</td><td>${photo(record.timeInSelfie, 'Time-in selfie')}</td><td>${record.timeOutAt ? escapeHtml(formatRemoteTime(new Date(record.timeOutAt).getTime())) : '<span style="color:#16a34a;">Active</span>'}</td><td>${photo(record.timeOutSelfie, 'Time-out selfie')}</td></tr>`;
+        }).join('') || '<tr><td colspan="5">No attendance records for today.</td></tr>';
+    } catch (error) {
+        metrics.innerHTML = `<div class="card" style="color:#b91c1c;">${escapeHtml(error.message || 'Could not load remote operations.')}</div>`;
+        branchesBody.innerHTML = '<tr><td colspan="5">Remote operations data is unavailable.</td></tr>';
+        transactionsBody.innerHTML = '<tr><td colspan="5">Remote operations data is unavailable.</td></tr>';
+        staffBody.innerHTML = '<tr><td colspan="5">Staff activity data is unavailable.</td></tr>';
+        attendanceBody.innerHTML = '<tr><td colspan="5">Attendance evidence is unavailable.</td></tr>';
+    }
+}
 async function loadCustomersView() {
     try {
         const res = await authFetch(`${API_URL}/customers`);

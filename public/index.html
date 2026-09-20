@@ -384,6 +384,8 @@
                 <a href="#" class="menu-item" id="menu-debts" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar"></i> Debtors <span id="menu-debts-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-debts-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-branches" onclick="switchView('branches')"><i class="fa-solid fa-code-branch"></i> Branches <span id="menu-branches-alert-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span> <span id="menu-branches-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-branches-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-attendance" onclick="switchView('attendance')"><i class="fa-solid fa-camera"></i> Staff Attendance <span id="menu-attendance-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span></a>
+                <a href="#" class="menu-item" id="menu-remoteops" onclick="switchView('remoteops')"><i class="fa-solid fa-mobile-screen-button"></i> Remote Operations <span id="menu-remoteops-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span></a>
                 <a href="#" class="menu-item" id="menu-logs" onclick="switchView('logs')"><i class="fa-solid fa-clock-rotate-left"></i> User Logs</a>
                 <a href="#" class="menu-item" id="menu-users" onclick="switchView('users')"><i class="fa-solid fa-gear"></i> Settings</a>
 
@@ -3108,6 +3110,53 @@
                    body.dark-mode .faq-lang-option, .dark .faq-lang-option { color: var(--dm-text-secondary, #9a9ba8); }
                    body.dark-mode .faq-lang-option.active, .dark .faq-lang-option.active { color: #fff; }
                </style>
+
+                <section id="view-attendance" class="app-view" style="display:none;">
+                    <div class="view-header-row">
+                        <h2><i class="fa-solid fa-camera" style="color:#0ea5e9;margin-right:10px;"></i>Staff Attendance</h2>
+                    </div>
+                    <div class="card" style="max-width:760px;">
+                        <p style="margin-top:0;color:var(--text-muted,#64748b);">Record your shift with a selfie at time in and time out. Photos are stored with the attendance record for manager review.</p>
+                        <div id="attendance-current-card" style="padding:18px;border:1px solid var(--border-color,#e2e8f0);border-radius:12px;margin-bottom:16px;">Loading attendance status…</div>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <button type="button" class="btn-action-global" id="attendance-time-in-btn" onclick="chooseAttendanceSelfie('time-in')"><i class="fa-solid fa-right-to-bracket"></i> Time In With Selfie</button>
+                            <button type="button" class="btn-action-outline" id="attendance-time-out-btn" onclick="chooseAttendanceSelfie('time-out')" disabled><i class="fa-solid fa-right-from-bracket"></i> Time Out With Selfie</button>
+                        </div>
+                        <input type="file" id="attendance-selfie-input" accept="image/*" capture="user" style="display:none;" onchange="handleAttendanceSelfieSelected(event)">
+                        <div id="attendance-selfie-preview-wrap" style="display:none;margin-top:18px;">
+                            <img id="attendance-selfie-preview" alt="Attendance selfie preview" style="display:block;width:180px;height:180px;object-fit:cover;border-radius:14px;border:1px solid var(--border-color,#cbd5e1);">
+                            <div style="display:flex;gap:10px;margin-top:10px;">
+                                <button type="button" class="btn-action-global" onclick="submitAttendanceAction()"><i class="fa-solid fa-check"></i> Submit Attendance</button>
+                                <button type="button" class="btn-action-outline" onclick="cancelAttendanceSelfie()">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="view-remoteops" class="app-view" style="display:none;">
+                    <div class="view-header-row">
+                        <h2><i class="fa-solid fa-mobile-screen-button" style="color:#0f766e;margin-right:10px;"></i>Remote Operations</h2>
+                        <button type="button" class="btn-action-outline" onclick="loadRemoteOperationsView()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                    </div>
+                    <p style="color:var(--text-muted,#64748b);margin-top:-10px;">Monitor branch sales, live staff attendance, recent transactions, and staff performance from a phone or any authorized browser.</p>
+                    <div id="remoteops-metrics" class="metrics-grid" style="margin-bottom:18px;"></div>
+                    <div class="card" style="margin-bottom:18px;">
+                        <h3 style="margin-top:0;">Branches and Live Staff</h3>
+                        <div class="table-container"><table class="data-table"><thead><tr><th>Branch</th><th>Live Staff</th><th>Today’s Sales</th><th>Transactions</th><th>Updated</th></tr></thead><tbody id="remoteops-branches-body"></tbody></table></div>
+                    </div>
+                    <div class="card">
+                        <h3 style="margin-top:0;">Recent Transactions</h3>
+                        <div class="table-container"><table class="data-table"><thead><tr><th>Time</th><th>Branch</th><th>Cashier</th><th>Payment</th><th>Total</th></tr></thead><tbody id="remoteops-transactions-body"></tbody></table></div>
+                    </div>
+                    <div class="card" style="margin-top:18px;">
+                        <h3 style="margin-top:0;">Staff Activity Report</h3>
+                        <div class="table-container"><table class="data-table"><thead><tr><th>Staff</th><th>Shifts</th><th>Hours</th><th>Transactions</th><th>Net Sales</th></tr></thead><tbody id="remoteops-staff-body"></tbody></table></div>
+                    </div>
+                    <div class="card" style="margin-top:18px;">
+                        <h3 style="margin-top:0;">Attendance Evidence</h3>
+                        <div class="table-container"><table class="data-table"><thead><tr><th>Staff</th><th>Time In</th><th>Time-In Selfie</th><th>Time Out</th><th>Time-Out Selfie</th></tr></thead><tbody id="remoteops-attendance-body"></tbody></table></div>
+                    </div>
+                </section>
 
                 <section id="view-logs" class="app-view" style="display:none;">
                     <h2 id="page-title-logs">System Audit Activity Log Logs</h2>

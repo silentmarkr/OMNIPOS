@@ -384,6 +384,7 @@ const FILE_SHIFT_META ='shiftMeta';
 const FILE_PURCHASE_ORDERS ='purchaseOrders';
 const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
 const FILE_STOCK_RETURNS ='stockReturns';
+const FILE_ATTENDANCE = 'attendanceRecords';
 const MENU_REGISTRY = [
     { key:'overview',     label:'Overview / Home Dashboard (Landing Page After Login)', group:'Core' },
     { key:'terminal',     label:'POS Terminal', group:'Core' },
@@ -412,6 +413,8 @@ const MENU_REGISTRY = [
     { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
     { key:'stock_return_manager_review', label:'Inventory — Finalize Manager Review sa Damaged/Non-Restockable Items (2nd Reviewer, hiwalay sa unang Inspect)', group:'Reorder / Purchase Orders' },
     { key:'branches', label:'Branches Page (View Combined Sales, Per-Branch Drilldown, Trends, Alerts, and Stock Transfers From Other Branches, Premium Feature)', group:'Multi-Branch' },
+    { key:'remoteops', label:'Remote Operations & Staff Attendance (Phone Monitoring, Selfie Time In/Out, Staff Activity Reports)', group:'Remote Operations' },
+    { key:'attendance', label:'Staff Attendance — Time In / Time Out With Selfie', group:'Remote Operations' },
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
     { key:'pending_requests', label:'Users — Pending Requests Tab', group:'Users & Access' },
@@ -442,12 +445,12 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, cloud_tokens_view: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
     },
     {
         name:'Cashier',
         protected: false,
-        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, cloud_tokens_view: false }
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
     }
 ];
 function getRoles() {
@@ -457,7 +460,9 @@ function getRoles() {
         if (!r.permissions) { r.permissions = {}; changed = true; }
         MENU_REGISTRY.forEach(m => {
             if (!(m.key in r.permissions)) {
-                r.permissions[m.key] = !!r.protected;
+                r.permissions[m.key] = m.key === 'attendance'
+                    ? ['staff', 'cashier'].includes(String(r.name || '').toLowerCase())
+                    : !!r.protected;
                 changed = true;
             }
         });
@@ -2702,7 +2707,7 @@ function isVersionNewer(candidate, current) {
     return false;
 }
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
-const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations'];
 function isModuleSubscriptionFeature(featureId) {
     return MODULE_SUBSCRIPTION_FEATURE_IDS.includes(featureId);
 }
@@ -2727,6 +2732,12 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
         name: 'OmniPOS AI Assistant',
         description: 'An advanced AI-powered assistant, embedded right inside the FAQ page, that reads/understands the store\'s OmniPOS FAQ Knowledge Base and answers Admin/user questions about how to use the system in natural language (Tagalog/English).',
         price: { monthly: 179, yearly: 1790 }
+    },
+    remote_operations: {
+        id: 'remote_operations',
+        name: 'Remote Operations & Attendance',
+        description: 'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports powered by the Relay service.',
+        price: { monthly: 249, yearly: 2490 }
     }
 };
 const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
@@ -3177,6 +3188,15 @@ const FEATURE_CATALOG = {
         get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.ai_assistant.price; },
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
         description: 'An advanced AI-powered assistant embedded in the FAQ page. It answers Admin/user questions about the system\'s flow/features in natural language, grounded on the OmniPOS FAQ Knowledge Base. Billed as a monthly or yearly subscription.'
+    },
+    remote_operations: {
+        name: 'Remote Operations & Attendance',
+        category: 'module',
+        isSubscription: true,
+        get price() { return MODULE_SUBSCRIPTION_PLANS.remote_operations.price.monthly; },
+        get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.remote_operations.price; },
+        billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
+        description: 'Monitor sales and transaction activity from a phone, record staff time in/out with selfie evidence, and review staff activity reports. Billed as a monthly or yearly subscription.'
     },
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
@@ -3758,6 +3778,171 @@ function computeBranchSummaryPayload() {
     return { grossSalesToday: Math.round(grossSalesToday * 100) / 100, netSalesToday: Math.round(netSalesToday * 100) / 100, transactionCountToday, lowStockCount, activeShiftCount };
 }
 
+const MAX_ATTENDANCE_SELFIE_LENGTH = 500 * 1024;
+const ATTENDANCE_RECORD_CAP = 20000;
+function sanitizeAttendanceSelfie(value) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const normalized = value.trim();
+    if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(normalized)) return null;
+    if (normalized.length > MAX_ATTENDANCE_SELFIE_LENGTH) return null;
+    return normalized;
+}
+function getAttendanceDateKey(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+function getAttendanceRecords() {
+    const records = readData(FILE_ATTENDANCE, []);
+    return Array.isArray(records) ? records : [];
+}
+function getCurrentUserRecord(username) {
+    const normalized = String(username || '').trim().toLowerCase();
+    return (readData(FILE_USERS, []) || []).find((user) => String(user.username || '').toLowerCase() === normalized) || null;
+}
+function getActiveAttendanceForUser(username) {
+    const normalized = String(username || '').trim().toLowerCase();
+    return getAttendanceRecords().find((record) =>
+        String(record.username || '').toLowerCase() === normalized &&
+        !record.timeOutAt
+    ) || null;
+}
+function attendancePublicRecord(record, includeSelfies = true) {
+    if (!record) return null;
+    const result = { ...record };
+    if (!includeSelfies) {
+        delete result.timeInSelfie;
+        delete result.timeOutSelfie;
+    }
+    return result;
+}
+function buildStaffActivityReport(fromDate, toDate) {
+    const start = fromDate ? new Date(`${fromDate}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0));
+    const end = toDate ? new Date(`${toDate}T23:59:59.999`) : new Date();
+    const startMs = Number.isNaN(start.getTime()) ? 0 : start.getTime();
+    const endMs = Number.isNaN(end.getTime()) ? Date.now() : end.getTime();
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const attendance = getAttendanceRecords().filter((record) => {
+        const at = new Date(record.timeInAt || record.createdAt || 0).getTime();
+        return at >= startMs && at <= endMs;
+    });
+    const summary = new Map();
+    const ensure = (username) => {
+        const key = String(username || 'Unknown').trim() || 'Unknown';
+        if (!summary.has(key)) summary.set(key, {
+            username: key,
+            displayName: getCurrentUserRecord(key)?.displayName || key,
+            attendanceDays: 0,
+            attendanceRecords: 0,
+            completedShifts: 0,
+            totalHours: 0,
+            transactions: 0,
+            grossSales: 0,
+            netSales: 0
+        });
+        return summary.get(key);
+    };
+    attendance.forEach((record) => {
+        const row = ensure(record.username);
+        row.attendanceRecords += 1;
+        if (record.timeInAt) row.attendanceDays += 1;
+        if (record.timeOutAt) {
+            row.completedShifts += 1;
+            const hours = (new Date(record.timeOutAt).getTime() - new Date(record.timeInAt).getTime()) / 3600000;
+            if (Number.isFinite(hours) && hours >= 0 && hours <= 24) row.totalHours += hours;
+        }
+    });
+    transactions.forEach((transaction) => {
+        const at = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime();
+        if (at < startMs || at > endMs) return;
+        const row = ensure(transaction.cashier || transaction.username || 'Unknown');
+        const gross = Math.max(0, Number(transaction.total) || 0);
+        const refunded = transaction.refundStatus === 'full'
+            ? gross
+            : Math.min(gross, Math.max(0, Number(transaction.totalRefunded) || 0));
+        row.transactions += 1;
+        row.grossSales += gross;
+        row.netSales += Math.max(0, gross - refunded);
+    });
+    return Array.from(summary.values())
+        .map((row) => ({
+            ...row,
+            totalHours: Math.round(row.totalHours * 100) / 100,
+            grossSales: Math.round(row.grossSales * 100) / 100,
+            netSales: Math.round(row.netSales * 100) / 100
+        }))
+        .sort((a, b) => b.netSales - a.netSales || a.username.localeCompare(b.username));
+}
+app.get('/api/attendance/current', requirePermission('attendance'), requireFeature('remote_operations'), (req, res) => {
+    res.json({
+        success: true,
+        attendance: attendancePublicRecord(getActiveAttendanceForUser(req.authUser.username), true)
+    });
+});
+app.post('/api/attendance/time-in', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-in', 12, 60 * 60 * 1000), (req, res) => {
+    const selfie = sanitizeAttendanceSelfie(req.body?.selfie);
+    if (!selfie) {
+        return res.status(400).json({ success: false, message: 'A valid selfie photo is required to time in.' });
+    }
+    if (getActiveAttendanceForUser(req.authUser.username)) {
+        return res.status(409).json({ success: false, message: 'You already have an active attendance session. Time out first.' });
+    }
+    const user = getCurrentUserRecord(req.authUser.username);
+    const now = new Date().toISOString();
+    const record = {
+        id: crypto.randomUUID(),
+        username: req.authUser.username,
+        displayName: user?.displayName || req.authUser.username,
+        role: user?.role || req.authUser.role || 'Staff',
+        dateKey: getAttendanceDateKey(),
+        timeInAt: now,
+        timeInSelfie: selfie,
+        timeOutAt: null,
+        timeOutSelfie: null,
+        createdAt: now,
+        ip: getClientIp(req)
+    };
+    const records = getAttendanceRecords();
+    records.unshift(record);
+    writeData(FILE_ATTENDANCE, records.slice(0, ATTENDANCE_RECORD_CAP));
+    logAction(req.authUser.username, 'Staff timed in with selfie attendance.');
+    res.json({ success: true, attendance: attendancePublicRecord(record, true) });
+});
+app.post('/api/attendance/time-out', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-out', 12, 60 * 60 * 1000), (req, res) => {
+    const selfie = sanitizeAttendanceSelfie(req.body?.selfie);
+    if (!selfie) {
+        return res.status(400).json({ success: false, message: 'A valid selfie photo is required to time out.' });
+    }
+    const records = getAttendanceRecords();
+    const index = records.findIndex((record) =>
+        String(record.username || '').toLowerCase() === String(req.authUser.username || '').toLowerCase() &&
+        !record.timeOutAt
+    );
+    if (index === -1) {
+        return res.status(409).json({ success: false, message: 'No active attendance session was found. Time in first.' });
+    }
+    records[index].timeOutAt = new Date().toISOString();
+    records[index].timeOutSelfie = selfie;
+    writeData(FILE_ATTENDANCE, records);
+    logAction(req.authUser.username, 'Staff timed out with selfie attendance.');
+    res.json({ success: true, attendance: attendancePublicRecord(records[index], true) });
+});
+app.get('/api/attendance/report', requirePermission('remoteops'), requireFeature('remote_operations'), (req, res) => {
+    const from = typeof req.query.from === 'string' ? req.query.from.slice(0, 10) : '';
+    const to = typeof req.query.to === 'string' ? req.query.to.slice(0, 10) : '';
+    const records = getAttendanceRecords()
+        .filter((record) => {
+            const at = new Date(record.timeInAt || record.createdAt || 0).getTime();
+            const start = from ? new Date(`${from}T00:00:00`).getTime() : 0;
+            const end = to ? new Date(`${to}T23:59:59.999`).getTime() : Date.now();
+            return at >= start && at <= end;
+        })
+        .slice(0, 100)
+        .map((record) => attendancePublicRecord(record, true));
+    res.json({ success: true, records, staffReport: buildStaffActivityReport(from, to) });
+});
+
 const relayBranchStatus = {
     state: 'orange',
     lastAttemptAt: null,
@@ -3817,8 +4002,98 @@ async function runRelayBranchCheckin() {
 }
 setTimeout(runRelayBranchCheckin, 50 * 1000);
 setInterval(runRelayBranchCheckin, 5 * 60 * 1000).unref();
+const relayRemoteOperationsStatus = {
+    state: 'orange',
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastError: null,
+    featureLocked: true
+};
+function computeRemoteOperationsPayload() {
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const now = new Date();
+    const todayKey = getAttendanceDateKey(now);
+    const todaysTransactions = transactions.filter((transaction) => {
+        const date = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0);
+        return !Number.isNaN(date.getTime()) && getAttendanceDateKey(date) === todayKey;
+    });
+    const activeStaffCount = getAttendanceRecords().filter((record) => !record.timeOutAt).length;
+    const recentTransactions = transactions
+        .slice()
+        .sort((a, b) => new Date(b.isoDate || b.timestamp || b.date || 0).getTime() - new Date(a.isoDate || a.timestamp || a.date || 0).getTime())
+        .slice(0, 25)
+        .map((transaction, index) => ({
+            id: String(transaction.id || transaction.transactionId || transaction.isoDate || `transaction-${index}`),
+            cashier: String(transaction.cashier || transaction.username || 'Unknown'),
+            total: Math.max(0, Number(transaction.total) || 0),
+            paymentMethod: String(transaction.paymentMethod || transaction.payment || ''),
+            at: new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime() || Date.now()
+        }));
+    return {
+        activeStaffCount,
+        todaySales: todaysTransactions.reduce((sum, transaction) => sum + Math.max(0, Number(transaction.total) || 0), 0),
+        todayTransactions: todaysTransactions.length,
+        recentTransactions
+    };
+}
+async function runRelayRemoteOperationsCheckin() {
+    const featureUnlocked = getUnlockedFeatureIds().includes('remote_operations');
+    relayRemoteOperationsStatus.featureLocked = !featureUnlocked;
+    if (!featureUnlocked) return;
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash || getConnectivityMode() === 'offline' || !RELAY_API_KEY) return;
+    relayRemoteOperationsStatus.lastAttemptAt = Date.now();
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/remote-operations/checkin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({
+                installationId,
+                branchGroupKeyHash: groupKeyHash,
+                branchName: storeSettings.branchName || null,
+                remoteOperations: computeRemoteOperationsPayload()
+            })
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) {
+            relayRemoteOperationsStatus.state = 'orange';
+            relayRemoteOperationsStatus.lastError = relayData.message || 'The Relay rejected the remote operations check-in.';
+            return;
+        }
+        relayRemoteOperationsStatus.state = 'green';
+        relayRemoteOperationsStatus.lastSuccessAt = Date.now();
+        relayRemoteOperationsStatus.lastError = null;
+    } catch (err) {
+        relayRemoteOperationsStatus.state = 'orange';
+        relayRemoteOperationsStatus.lastError = err.message;
+    }
+}
+setTimeout(runRelayRemoteOperationsCheckin, 65 * 1000);
+setInterval(runRelayRemoteOperationsCheckin, 2 * 60 * 1000).unref();
 app.get('/api/relay-branch/status', (req, res) => {
     res.json({ success: true, ...relayBranchStatus });
+});
+app.get('/api/remote-operations/status', (req, res) => {
+    res.json({ success: true, ...relayRemoteOperationsStatus });
+});
+app.get('/api/remote-operations/summary', requirePermission('remoteops'), requireFeature('remote_operations'), async (req, res) => {
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
+    if (!groupKeyHash) return res.json({ success: true, configured: false, branches: [], combined: null });
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Remote monitoring is not connected to the Relay yet.' });
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/remote-operations/summary?groupKeyHash=${encodeURIComponent(groupKeyHash)}&installationId=${encodeURIComponent(installationId)}`, {
+            headers: { 'x-relay-key': RELAY_API_KEY }
+        });
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayData.success) return res.status(relayRes.status || 502).json(relayData);
+        res.json({ success: true, configured: true, ...relayData });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach the Relay: ${err.message}` });
+    }
 });
 app.post('/api/relay-branch/checkin-now', requirePermission('store_settings_view'), requireFeature('multi_branch'), rateLimit('relay-branch-checkin-now', 10, 10 * 60 * 1000), async (req, res) => {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
