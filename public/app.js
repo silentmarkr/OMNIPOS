@@ -216,7 +216,7 @@ async function loginWithBiometric() {
             window.__logoutInProgress = false;
             window.__sessionExpiredShown = false;
             errorBanner.style.display ='none';
-            showMainSystemInterface().catch(err => {
+            showMainSystemInterface({ preferAttendance: true }).catch(err => {
                 console.error('Unexpected error during biometric login:', err);
             });
         } else {
@@ -3520,10 +3520,9 @@ function switchView(viewKey, opts) {
     if (viewKey === 'attendance') loadAttendanceView();
     if (viewKey === 'remoteops') {
         loadRemoteOperationsView();
-        if (!remoteOperationsRefreshTimer) remoteOperationsRefreshTimer = setInterval(loadRemoteOperationsView, 60 * 1000);
+        if (!remoteOperationsRefreshTimer) remoteOperationsRefreshTimer = setInterval(() => { if (!document.hidden) loadRemoteOperationsView(); }, 60 * 1000);
     } else if (remoteOperationsRefreshTimer) {
-        clearInterval(remoteOperationsRefreshTimer);
-        remoteOperationsRefreshTimer = null;
+        stopRemoteOperationsAutoRefresh();
     }
     sessionStorage.setItem('currentView', viewKey);
     if (typeof updateTerminalThemesMenuVisibility ==='function') updateTerminalThemesMenuVisibility();
@@ -3641,25 +3640,79 @@ let _responsiveRecoveryCardResizeTimer = null;
 let globalCustomers = [];
 let attendancePendingAction = null;
 let attendancePendingSelfie = null;
+let attendanceClockTimer = null;
+let attendanceSubmitInFlight = false;
 let remoteOperationsRefreshTimer = null;
+let remoteOperationsRequestInFlight = false;
+let remoteOperationsReloadPending = false;
+let remoteOpsReportDate = '';
+const attendancePhotoCache = new Map(); // "recordId:kind" -> object URL
+let attendancePhotoObserver = null;
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && remoteOperationsRefreshTimer) loadRemoteOperationsView();
+});
 function attendanceNotice(message, icon = 'info') {
     if (window.Swal && typeof Swal.fire === 'function') {
         return Swal.fire({ icon, text: message, confirmButtonColor: '#2563eb' });
     }
     window.alert(message);
 }
+function parseOperationsTimestamp(value) {
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) return Number(value);
+    return Date.parse(value);
+}
+function formatAttendanceElapsed(startValue) {
+    const start = parseOperationsTimestamp(startValue);
+    if (!Number.isFinite(start)) return '—';
+    const elapsed = Math.max(0, Date.now() - start);
+    const totalMinutes = Math.floor(elapsed / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
+}
+function updateAttendanceLiveClock() {
+    const elapsed = document.querySelector('[data-attendance-elapsed]');
+    if (elapsed) elapsed.textContent = formatAttendanceElapsed(elapsed.dataset.attendanceStart);
+}
 function renderAttendanceStatus(attendance) {
     const card = document.getElementById('attendance-current-card');
     const timeInButton = document.getElementById('attendance-time-in-btn');
     const timeOutButton = document.getElementById('attendance-time-out-btn');
     if (!card) return;
+    if (attendanceClockTimer) {
+        clearInterval(attendanceClockTimer);
+        attendanceClockTimer = null;
+    }
     if (attendance) {
-        const started = new Date(attendance.timeInAt).toLocaleString();
-        card.innerHTML = `<strong><i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> You are currently clocked in.</strong><br><span style="color:var(--text-muted,#64748b);">Started ${escapeHtml(started)}</span>`;
+        const startedAt = parseOperationsTimestamp(attendance.timeInAt);
+        const started = Number.isFinite(startedAt) ? new Date(startedAt).toLocaleString() : 'an unknown time';
+        card.className = 'attendance-status-card attendance-status-active';
+        card.innerHTML = `
+            <div class="attendance-status-icon"><i class="fa-solid fa-person-circle-check"></i></div>
+            <div class="attendance-status-copy">
+                <span class="attendance-status-label"><span class="attendance-pulse-dot"></span> Shift in progress</span>
+                <strong>You are currently clocked in</strong>
+                <span>Started ${escapeHtml(started)}</span>
+            </div>
+            <div class="attendance-elapsed">
+                <small>Elapsed</small>
+                <strong data-attendance-elapsed data-attendance-start="${escapeHtml(attendance.timeInAt)}">${formatAttendanceElapsed(attendance.timeInAt)}</strong>
+            </div>`;
+        updateAttendanceLiveClock();
+        attendanceClockTimer = setInterval(updateAttendanceLiveClock, 60000);
         if (timeInButton) timeInButton.disabled = true;
         if (timeOutButton) timeOutButton.disabled = false;
     } else {
-        card.innerHTML = '<strong><i class="fa-solid fa-circle-info" style="color:#2563eb;"></i> You are not clocked in.</strong><br><span style="color:var(--text-muted,#64748b);">Use the button below to start your shift.</span>';
+        card.className = 'attendance-status-card attendance-status-idle';
+        card.innerHTML = `
+            <div class="attendance-status-icon"><i class="fa-solid fa-clock"></i></div>
+            <div class="attendance-status-copy">
+                <span class="attendance-status-label">Ready for your next shift</span>
+                <strong>You are not clocked in</strong>
+                <span>Take a selfie to start your shift.</span>
+            </div>
+            <div class="attendance-status-side"><i class="fa-solid fa-arrow-down"></i></div>`;
         if (timeInButton) timeInButton.disabled = false;
         if (timeOutButton) timeOutButton.disabled = true;
     }
@@ -3667,21 +3720,29 @@ function renderAttendanceStatus(attendance) {
 async function loadAttendanceView() {
     const card = document.getElementById('attendance-current-card');
     if (!card) return;
+    const dateLabel = document.getElementById('attendance-today-label');
+    if (dateLabel) dateLabel.textContent = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' }).format(new Date());
     try {
         const response = await authFetch(`${API_URL}/attendance/current`);
         const data = await response.json();
         if (!response.ok || !data.success) {
-            card.innerHTML = `<span style="color:#b91c1c;">${escapeHtml(data.message || 'Could not load attendance status.')}</span>`;
+            card.className = 'attendance-status-card attendance-status-error';
+            card.innerHTML = `<div class="attendance-status-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="attendance-status-copy"><strong>Attendance status unavailable</strong><span>${escapeHtml(data.message || 'Could not load attendance status.')}</span></div>`;
             return;
         }
         renderAttendanceStatus(data.attendance);
     } catch (error) {
-        card.innerHTML = '<span style="color:#b91c1c;">Could not reach the server. Please try again.</span>';
+        card.className = 'attendance-status-card attendance-status-error';
+        card.innerHTML = '<div class="attendance-status-icon"><i class="fa-solid fa-cloud-slash"></i></div><div class="attendance-status-copy"><strong>Could not reach the server</strong><span>Please try again when your connection is stable.</span></div><button type="button" class="btn-action-outline attendance-retry-btn" onclick="loadAttendanceView()"><i class="fa-solid fa-rotate"></i> Retry</button>';
     }
 }
 function chooseAttendanceSelfie(action) {
     attendancePendingAction = action;
     attendancePendingSelfie = null;
+    const stepPill = document.getElementById('attendance-review-step');
+    if (stepPill) stepPill.textContent = action === 'time-out' ? 'Time out' : 'Time in';
+    const oldWrap = document.getElementById('attendance-selfie-preview-wrap');
+    if (oldWrap) oldWrap.style.display = 'none';
     const input = document.getElementById('attendance-selfie-input');
     if (input) {
         input.value = '';
@@ -3690,7 +3751,8 @@ function chooseAttendanceSelfie(action) {
 }
 function handleAttendanceSelfieSelected(event) {
     const file = event.target.files && event.target.files[0];
-    if (!file || !file.type.startsWith('image/')) {
+    if (!file) return; // camera closed without taking a photo — nothing to report
+    if (!file.type.startsWith('image/')) {
         attendanceNotice('Please choose a valid image for your attendance selfie.', 'warning');
         return;
     }
@@ -3703,15 +3765,25 @@ function handleAttendanceSelfieSelected(event) {
             const canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(image.width * scale));
             canvas.height = Math.max(1, Math.round(image.height * scale));
-            canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+            const context = canvas.getContext('2d');
+            if (!context) {
+                attendanceNotice('Your browser could not prepare the selfie. Please try again.', 'error');
+                return;
+            }
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
             attendancePendingSelfie = canvas.toDataURL('image/jpeg', 0.78);
             const preview = document.getElementById('attendance-selfie-preview');
             const wrap = document.getElementById('attendance-selfie-preview-wrap');
             if (preview) preview.src = attendancePendingSelfie;
-            if (wrap) wrap.style.display = '';
+            if (wrap) {
+                wrap.style.display = '';
+                try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+            }
         };
+        image.onerror = () => attendanceNotice('The selected image could not be read. Please take another selfie.', 'error');
         image.src = reader.result;
     };
+    reader.onerror = () => attendanceNotice('The selected image could not be read. Please take another selfie.', 'error');
     reader.readAsDataURL(file);
 }
 function cancelAttendanceSelfie() {
@@ -3719,13 +3791,19 @@ function cancelAttendanceSelfie() {
     attendancePendingSelfie = null;
     const wrap = document.getElementById('attendance-selfie-preview-wrap');
     if (wrap) wrap.style.display = 'none';
+    const input = document.getElementById('attendance-selfie-input');
+    if (input) input.value = '';
 }
 async function submitAttendanceAction() {
+    if (attendanceSubmitInFlight) return;
     if (!attendancePendingAction || !attendancePendingSelfie) {
         attendanceNotice('Take a selfie before submitting attendance.', 'warning');
         return;
     }
     const action = attendancePendingAction;
+    const submitButton = document.querySelector('button[onclick="submitAttendanceAction()"]');
+    attendanceSubmitInFlight = true;
+    if (submitButton) submitButton.disabled = true;
     try {
         const response = await authFetch(`${API_URL}/attendance/${action}`, {
             method: 'POST',
@@ -3735,21 +3813,142 @@ async function submitAttendanceAction() {
         const data = await response.json();
         if (!response.ok || !data.success) {
             await attendanceNotice(data.message || 'Attendance could not be saved.', 'error');
+            // 409 = the shift state changed elsewhere (another device/tab): resync so the buttons are correct.
+            if (response.status === 409) {
+                cancelAttendanceSelfie();
+                loadAttendanceView();
+            }
             return;
         }
         cancelAttendanceSelfie();
         renderAttendanceStatus(action === 'time-in' ? data.attendance : null);
-        await attendanceNotice(action === 'time-in' ? 'You are now clocked in.' : 'You are now clocked out.', 'success');
+        const successMessage = action === 'time-in'
+            ? (data.autoClosedPrevious
+                ? 'You are now clocked in. Your previous shift had no time-out, so it was closed automatically and flagged for review.'
+                : 'You are now clocked in.')
+            : 'You are now clocked out.';
+        await attendanceNotice(successMessage, 'success');
     } catch (error) {
         await attendanceNotice('Could not reach the server. Please try again.', 'error');
+    } finally {
+        attendanceSubmitInFlight = false;
+        if (submitButton) submitButton.disabled = false;
     }
 }
 function formatRemoteCurrency(value) {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(Number(value) || 0);
 }
 function formatRemoteTime(value) {
-    const timestamp = Number(value);
-    return timestamp ? new Date(timestamp).toLocaleString() : '—';
+    const timestamp = parseOperationsTimestamp(value);
+    return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+}
+function stopRemoteOperationsAutoRefresh() {
+    if (remoteOperationsRefreshTimer) {
+        clearInterval(remoteOperationsRefreshTimer);
+        remoteOperationsRefreshTimer = null;
+    }
+}
+async function fetchRemoteOperationsJson(url, timeoutMs = 30000) {
+    // The server may wait up to ~20s for the Relay, so the default 6s client timeout is too short here.
+    let response;
+    try {
+        response = await authFetch(url, { timeoutMs });
+    } catch (networkError) {
+        throw new Error(networkError && networkError.name === 'AbortError'
+            ? 'The request timed out. The server or Relay may be slow — please try again.'
+            : 'Could not reach the server. Check your connection and try again.');
+    }
+    let data = null;
+    try {
+        data = await response.json();
+    } catch (parseError) {
+        data = null;
+    }
+    if (!response.ok || !data || !data.success) {
+        throw new Error((data && data.message) || 'The request could not be completed.');
+    }
+    return data;
+}
+function attendancePhotoCell(record, kind, label) {
+    const has = kind === 'in' ? (record.hasTimeInSelfie || record.timeInSelfie) : (record.hasTimeOutSelfie || record.timeOutSelfie);
+    if (!has || !record.id) return '<span class="remoteops-muted">Not available</span>';
+    const cached = attendancePhotoCache.get(`${record.id}:${kind}`);
+    const who = record.displayName || record.username || 'Staff';
+    return `<button type="button" class="attendance-evidence-btn" data-selfie-id="${escapeHtml(record.id)}" data-selfie-kind="${kind}" data-caption="${escapeHtml(`${label} — ${who}`)}" title="Tap to enlarge" aria-label="View ${escapeHtml(label)} of ${escapeHtml(who)}" onclick="openAttendancePhoto(this)">${cached ? `<img class="attendance-evidence-photo" src="${cached}" alt="${escapeHtml(label)}">` : '<i class="fa-solid fa-image"></i>'}</button>`;
+}
+async function loadAttendancePhoto(button) {
+    if (!button || button.dataset.loading || button.querySelector('img')) return;
+    const id = button.dataset.selfieId;
+    const kind = button.dataset.selfieKind;
+    const key = `${id}:${kind}`;
+    button.dataset.loading = '1';
+    try {
+        let url = attendancePhotoCache.get(key);
+        if (!url) {
+            const response = await authFetch(`${API_URL}/attendance/selfie/${encodeURIComponent(id)}/${kind}`, { timeoutMs: 20000 });
+            if (!response.ok) throw new Error('photo unavailable');
+            url = URL.createObjectURL(await response.blob());
+            attendancePhotoCache.set(key, url);
+            if (attendancePhotoCache.size > 200) {
+                const oldest = attendancePhotoCache.keys().next().value;
+                URL.revokeObjectURL(attendancePhotoCache.get(oldest));
+                attendancePhotoCache.delete(oldest);
+            }
+        }
+        button.innerHTML = `<img class="attendance-evidence-photo" src="${url}" alt="${escapeHtml(button.dataset.caption || 'Attendance selfie')}">`;
+        button.title = 'Tap to enlarge';
+    } catch (err) {
+        button.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+        button.title = 'Could not load the photo — tap to retry';
+    } finally {
+        delete button.dataset.loading;
+    }
+}
+function openAttendancePhoto(button) {
+    const img = button && button.querySelector('img');
+    if (!img) { loadAttendancePhoto(button); return; }
+    if (window.Swal && typeof Swal.fire === 'function') {
+        Swal.fire({ title: button.dataset.caption || 'Attendance selfie', imageUrl: img.src, imageAlt: img.alt, showConfirmButton: false, showCloseButton: true, width: 'auto' });
+    } else {
+        window.open(img.src, '_blank');
+    }
+}
+function observeAttendancePhotos() {
+    const buttons = Array.from(document.querySelectorAll('#remoteops-attendance-body .attendance-evidence-btn'));
+    if (!('IntersectionObserver' in window)) { buttons.forEach(loadAttendancePhoto); return; }
+    if (attendancePhotoObserver) attendancePhotoObserver.disconnect();
+    attendancePhotoObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            attendancePhotoObserver.unobserve(entry.target);
+            loadAttendancePhoto(entry.target);
+        });
+    }, { rootMargin: '120px' });
+    buttons.forEach((button) => { if (!button.querySelector('img')) attendancePhotoObserver.observe(button); });
+}
+function formatRemoteReportDate(value) {
+    const d = new Date(`${value}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+function syncRemoteOpsReportDateUi() {
+    const todayBtn = document.getElementById('remoteops-report-today-btn');
+    if (todayBtn) todayBtn.style.display = remoteOpsReportDate ? '' : 'none';
+    const staffKicker = document.getElementById('remoteops-staff-kicker');
+    const evidenceKicker = document.getElementById('remoteops-evidence-kicker');
+    if (staffKicker) staffKicker.textContent = remoteOpsReportDate ? `${formatRemoteReportDate(remoteOpsReportDate)} workforce` : 'Today’s workforce';
+    if (evidenceKicker) evidenceKicker.textContent = remoteOpsReportDate ? formatRemoteReportDate(remoteOpsReportDate) : 'Manager review';
+}
+function onRemoteOpsReportDateChange() {
+    const input = document.getElementById('remoteops-report-date');
+    const value = input ? input.value : '';
+    remoteOpsReportDate = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+    syncRemoteOpsReportDateUi();
+    loadRemoteOperationsView();
+}
+function resetRemoteOpsReportDate() {
+    const input = document.getElementById('remoteops-report-date');
+    if (input) input.value = '';
+    onRemoteOpsReportDateChange();
 }
 async function loadRemoteOperationsView() {
     const metrics = document.getElementById('remoteops-metrics');
@@ -3758,43 +3957,124 @@ async function loadRemoteOperationsView() {
     const staffBody = document.getElementById('remoteops-staff-body');
     const attendanceBody = document.getElementById('remoteops-attendance-body');
     if (!metrics || !branchesBody || !transactionsBody || !staffBody || !attendanceBody) return;
-    metrics.innerHTML = '<div class="metric-card"><div><p class="metric-label">STATUS</p><h3>Loading…</h3></div></div>';
+    if (remoteOperationsRequestInFlight) { remoteOperationsReloadPending = true; return; }
+    remoteOperationsRequestInFlight = true;
+    const reportDateAtStart = remoteOpsReportDate;
+    const reportUrl = `${API_URL}/attendance/report?limit=100${reportDateAtStart ? `&from=${reportDateAtStart}&to=${reportDateAtStart}` : ''}`;
+    const syncStatus = document.getElementById('remoteops-sync-status');
+    const lastUpdated = document.getElementById('remoteops-last-updated');
+    const refreshButton = document.getElementById('remoteops-refresh-btn');
+    if (syncStatus) syncStatus.textContent = 'Syncing live data…';
+    if (lastUpdated) lastUpdated.textContent = 'Updating now';
+    if (refreshButton) {
+        refreshButton.disabled = true;
+        refreshButton.classList.add('is-loading');
+        refreshButton.querySelector('i')?.classList.add('fa-spin');
+    }
+    if (!metrics.dataset.loaded) {
+        metrics.innerHTML = '<div class="metric-card remoteops-metric-card remoteops-metric-loading"><div class="operations-spinner"></div><div><p class="metric-label">LIVE STATUS</p><h3>Loading network data…</h3></div></div>';
+    }
     try {
-        const [summaryResponse, reportResponse] = await Promise.all([
-            authFetch(`${API_URL}/remote-operations/summary`),
-            authFetch(`${API_URL}/attendance/report`)
+        // The network summary (Relay) and the attendance report (this device) are independent:
+        // one failing must not blank the other.
+        const [summaryResult, reportResult] = await Promise.allSettled([
+            fetchRemoteOperationsJson(`${API_URL}/remote-operations/summary`),
+            fetchRemoteOperationsJson(reportUrl, 20000)
         ]);
-        const summary = await summaryResponse.json();
-        const report = await reportResponse.json();
-        if (!summaryResponse.ok || !summary.success) throw new Error(summary.message || 'Could not load remote operations.');
-        const combined = summary.combined || {};
-        metrics.innerHTML = `
-            <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">TODAY'S SALES</p><h3>${formatRemoteCurrency(combined.todaySales)}</h3></div></div>
-            <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">TRANSACTIONS</p><h3>${Number(combined.todayTransactions) || 0}</h3></div></div>
-            <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-user-check"></i></div><div><p class="metric-label">STAFF CLOCKED IN</p><h3>${Number(combined.activeStaffCount) || 0}</h3></div></div>
-            <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-code-branch"></i></div><div><p class="metric-label">BRANCHES REPORTING</p><h3>${Number(summary.branchCount) || 0}</h3></div></div>`;
-        branchesBody.innerHTML = (summary.branches || []).map((branch) => {
-            const operations = branch.remoteOperations || {};
-            return `<tr><td>${escapeHtml(branch.branchName || 'Unnamed Branch')}</td><td>${Number(operations.activeStaffCount) || 0}</td><td>${formatRemoteCurrency(operations.todaySales)}</td><td>${Number(operations.todayTransactions) || 0}</td><td>${escapeHtml(formatRemoteTime(branch.updatedAt))}</td></tr>`;
-        }).join('') || '<tr><td colspan="5">No branches have reported remote operations data yet.</td></tr>';
-        transactionsBody.innerHTML = (combined.recentTransactions || []).map((transaction) =>
-            `<tr><td>${escapeHtml(formatRemoteTime(transaction.at))}</td><td>${escapeHtml(transaction.branchName || '—')}</td><td>${escapeHtml(transaction.cashier || 'Unknown')}</td><td>${escapeHtml(transaction.paymentMethod || '—')}</td><td>${formatRemoteCurrency(transaction.total)}</td></tr>`
-        ).join('') || '<tr><td colspan="5">No recent transactions.</td></tr>';
-        staffBody.innerHTML = (report.staffReport || []).map((staff) =>
-            `<tr><td>${escapeHtml(staff.displayName || staff.username)}</td><td>${Number(staff.completedShifts) || 0}</td><td>${Number(staff.totalHours || 0).toFixed(2)}</td><td>${Number(staff.transactions) || 0}</td><td>${formatRemoteCurrency(staff.netSales)}</td></tr>`
-        ).join('') || '<tr><td colspan="5">No staff activity for today.</td></tr>';
-        attendanceBody.innerHTML = (report.records || []).map((record) => {
-            const photo = (value, label) => value
-                ? `<img src="${escapeHtml(value)}" alt="${label}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color,#cbd5e1);">`
-                : '<span style="color:var(--text-muted,#64748b);">—</span>';
-            return `<tr><td>${escapeHtml(record.displayName || record.username || 'Unknown')}</td><td>${escapeHtml(formatRemoteTime(new Date(record.timeInAt).getTime()))}</td><td>${photo(record.timeInSelfie, 'Time-in selfie')}</td><td>${record.timeOutAt ? escapeHtml(formatRemoteTime(new Date(record.timeOutAt).getTime())) : '<span style="color:#16a34a;">Active</span>'}</td><td>${photo(record.timeOutSelfie, 'Time-out selfie')}</td></tr>`;
-        }).join('') || '<tr><td colspan="5">No attendance records for today.</td></tr>';
+        const summary = summaryResult.status === 'fulfilled' ? summaryResult.value : null;
+        const report = reportResult.status === 'fulfilled' ? reportResult.value : null;
+        const summaryError = summary ? null : ((summaryResult.reason && summaryResult.reason.message) || 'Could not load remote operations.');
+        const reportError = report ? null : ((reportResult.reason && reportResult.reason.message) || 'Could not load attendance report.');
+        const notConfigured = !!summary && summary.configured === false;
+        const unavailableRow = '<tr><td colspan="5">Remote operations data is unavailable.</td></tr>';
+        const notConfiguredRow = '<tr><td colspan="5">No Business Group Code has been set yet.</td></tr>';
+        if (summaryError) {
+            metrics.innerHTML = `<div class="card remoteops-error-card"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>Live network data is unavailable</strong><span>${escapeHtml(summaryError)}</span></div></div>`;
+            branchesBody.innerHTML = unavailableRow;
+            transactionsBody.innerHTML = unavailableRow;
+        } else if (notConfigured) {
+            metrics.innerHTML = '<div class="card remoteops-error-card"><i class="fa-solid fa-circle-info"></i><div><strong>Remote Operations is not set up yet</strong><span>Set the Business Group Code in the Multi-Branch settings to see network-wide sales and live staff.</span></div></div>';
+            branchesBody.innerHTML = notConfiguredRow;
+            transactionsBody.innerHTML = notConfiguredRow;
+        } else {
+            const combined = summary.combined || {};
+            const offlineCount = Number(summary.offlineCount) || 0;
+            const totalBranches = Number(summary.branchCount) || 0;
+            const staffCaption = offlineCount
+                ? `<i class="fa-solid fa-plug-circle-xmark"></i> ${offlineCount} offline branch${offlineCount === 1 ? '' : 'es'} not counted`
+                : '<span class="remoteops-inline-dot"></span> Live attendance';
+            metrics.innerHTML = `
+            <div class="metric-card remoteops-metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">TODAY'S SALES</p><h3>${formatRemoteCurrency(combined.todaySales)}</h3><small class="remoteops-metric-caption"><i class="fa-solid fa-arrow-trend-up"></i> Across all reporting branches</small></div></div>
+            <div class="metric-card remoteops-metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">TRANSACTIONS</p><h3>${Number(combined.todayTransactions) || 0}</h3><small class="remoteops-metric-caption">Processed today</small></div></div>
+            <div class="metric-card remoteops-metric-card"><div class="metric-icon accent"><i class="fa-solid fa-user-check"></i></div><div><p class="metric-label">STAFF CLOCKED IN</p><h3>${Number(combined.activeStaffCount) || 0}</h3><small class="remoteops-metric-caption">${staffCaption}</small></div></div>
+            <div class="metric-card remoteops-metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-code-branch"></i></div><div><p class="metric-label">BRANCHES REPORTING</p><h3>${Math.max(0, totalBranches - offlineCount)}</h3><small class="remoteops-metric-caption">${offlineCount ? `of ${totalBranches} connected` : 'Connected to command center'}</small></div></div>`;
+            branchesBody.innerHTML = (summary.branches || []).map((branch) => {
+                const operations = branch.remoteOperations || {};
+                const tags = (branch.isSelf ? '<span class="remoteops-tag">This device</span>' : '')
+                    + (branch.offline ? '<span class="remoteops-tag remoteops-tag-warn" title="No check-in for over 10 minutes">Offline</span>' : '');
+                const staffCell = branch.offline
+                    ? '<span class="remoteops-muted" title="Offline — live staff unknown">—</span>'
+                    : `<span class="remoteops-value-badge">${Number(operations.activeStaffCount) || 0}</span>`;
+                const salesCell = branch.previousDay
+                    ? '<span class="remoteops-muted" title="No report yet today">—</span>'
+                    : formatRemoteCurrency(operations.todaySales);
+                const txCell = branch.previousDay ? '<span class="remoteops-muted">—</span>' : (Number(operations.todayTransactions) || 0);
+                return `<tr><td data-label="Branch"><span class="remoteops-primary-cell"><span class="remoteops-row-icon"><i class="fa-solid fa-code-branch"></i></span>${escapeHtml(branch.branchName || 'Unnamed Branch')}${tags}</span></td><td data-label="Live staff">${staffCell}</td><td data-label="Today’s sales">${salesCell}</td><td data-label="Transactions">${txCell}</td><td data-label="Updated">${escapeHtml(formatRemoteTime(branch.updatedAt))}</td></tr>`;
+            }).join('') || '<tr><td colspan="5">No branches have reported remote operations data yet.</td></tr>';
+            transactionsBody.innerHTML = ((summary.combined && summary.combined.recentTransactions) || []).map((transaction) =>
+                `<tr><td data-label="Time">${escapeHtml(formatRemoteTime(transaction.at))}</td><td data-label="Branch">${escapeHtml(transaction.branchName || '—')}</td><td data-label="Cashier">${escapeHtml(transaction.cashier || 'Unknown')}</td><td data-label="Payment">${escapeHtml(transaction.paymentMethod || '—')}</td><td data-label="Total"><strong class="remoteops-money">${formatRemoteCurrency(transaction.total)}</strong></td></tr>`
+            ).join('') || '<tr><td colspan="5">No recent transactions.</td></tr>';
+        }
+        if (reportError) {
+            staffBody.innerHTML = '<tr><td colspan="5">Staff activity data is unavailable.</td></tr>';
+            attendanceBody.innerHTML = '<tr><td colspan="5">Attendance evidence is unavailable.</td></tr>';
+        } else {
+            staffBody.innerHTML = (report.staffReport || []).map((staff) => {
+                const flagged = Number(staff.flaggedShifts) || 0;
+                const flaggedNote = flagged
+                    ? ` <span class="remoteops-muted" title="Auto-closed or missing time-out. Not counted as worked hours.">(+${flagged} flagged)</span>`
+                    : '';
+                return `<tr><td data-label="Staff"><span class="remoteops-primary-cell"><span class="remoteops-avatar">${escapeHtml(String(staff.displayName || staff.username || '?').trim().slice(0, 1).toUpperCase())}</span>${escapeHtml(staff.displayName || staff.username || 'Unknown')}</span></td><td data-label="Shifts">${Number(staff.completedShifts) || 0}${flaggedNote}</td><td data-label="Hours">${Number(staff.totalHours || 0).toFixed(2)}</td><td data-label="Transactions">${Number(staff.transactions) || 0}</td><td data-label="Net sales"><strong class="remoteops-money">${formatRemoteCurrency(staff.netSales)}</strong></td></tr>`;
+            }).join('') || `<tr><td colspan="5">No staff activity for ${reportDateAtStart ? 'this date' : 'today'}.</td></tr>`;
+            attendanceBody.innerHTML = (report.records || []).map((record) => {
+                const timeOutCell = record.timeOutAt
+                    ? `${escapeHtml(formatRemoteTime(record.timeOutAt))}${record.autoClosed ? ' <span class="remoteops-muted" title="No time-out was recorded, so the shift was closed automatically.">(auto-closed)</span>' : ''}`
+                    : '<span class="remoteops-active-label"><span class="remoteops-inline-dot"></span>Active</span>';
+                return `<tr><td data-label="Staff"><span class="remoteops-primary-cell"><span class="remoteops-avatar">${escapeHtml(String(record.displayName || record.username || '?').trim().slice(0, 1).toUpperCase())}</span>${escapeHtml(record.displayName || record.username || 'Unknown')}</span></td><td data-label="Time in">${escapeHtml(formatRemoteTime(record.timeInAt))}</td><td data-label="Time-in selfie">${attendancePhotoCell(record, 'in', 'Time-in selfie')}</td><td data-label="Time out">${timeOutCell}</td><td data-label="Time-out selfie">${attendancePhotoCell(record, 'out', 'Time-out selfie')}</td></tr>`;
+            }).join('') || `<tr><td colspan="5">No attendance records for ${reportDateAtStart ? 'this date' : 'today'}.</td></tr>`;
+            observeAttendancePhotos();
+        }
+        metrics.dataset.loaded = '1';
+        if (syncStatus) {
+            syncStatus.textContent = (summaryError || reportError)
+                ? 'Connection needs attention'
+                : (notConfigured ? 'Business Group Code not set' : 'Live data connected');
+        }
+        if (lastUpdated) {
+            lastUpdated.textContent = (summaryError || reportError)
+                ? 'Retry when your connection is stable'
+                : `Updated ${formatRemoteTime(Date.now())}`;
+        }
     } catch (error) {
-        metrics.innerHTML = `<div class="card" style="color:#b91c1c;">${escapeHtml(error.message || 'Could not load remote operations.')}</div>`;
+        metrics.innerHTML = `<div class="card remoteops-error-card"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>Live data is unavailable</strong><span>${escapeHtml(error.message || 'Could not load remote operations.')}</span></div></div>`;
         branchesBody.innerHTML = '<tr><td colspan="5">Remote operations data is unavailable.</td></tr>';
         transactionsBody.innerHTML = '<tr><td colspan="5">Remote operations data is unavailable.</td></tr>';
         staffBody.innerHTML = '<tr><td colspan="5">Staff activity data is unavailable.</td></tr>';
         attendanceBody.innerHTML = '<tr><td colspan="5">Attendance evidence is unavailable.</td></tr>';
+        metrics.dataset.loaded = '1';
+        if (syncStatus) syncStatus.textContent = 'Connection needs attention';
+        if (lastUpdated) lastUpdated.textContent = 'Retry when your connection is stable';
+    } finally {
+        remoteOperationsRequestInFlight = false;
+        if (remoteOperationsReloadPending) {
+            remoteOperationsReloadPending = false;
+            setTimeout(loadRemoteOperationsView, 0);
+        }
+        if (refreshButton) {
+            refreshButton.disabled = false;
+            refreshButton.classList.remove('is-loading');
+            refreshButton.querySelector('i')?.classList.remove('fa-spin');
+        }
     }
 }
 async function loadCustomersView() {
@@ -6855,7 +7135,7 @@ async function completeLoginSuccess(data) {
     window.__sessionExpiredShown = false;
     const errorBanner = document.getElementById('login-error');
     if (errorBanner) errorBanner.style.display = 'none';
-    showMainSystemInterface().catch(err => {
+    showMainSystemInterface({ preferAttendance: true }).catch(err => {
         console.error('Unexpected error during login (showMainSystemInterface):', err);
     });
     const loginCountKey = `omnipos_login_count_${(currentUser.username || currentUser.name ||'').toLowerCase()}`;
@@ -18472,6 +18752,7 @@ async function loadRolesPermissionMatrix() {
     }
 }
 function getEffectivePermission(role, menuKey) {
+    if (role && role.protected) return true; // Admin always has full access (its checkboxes are locked)
     if (pendingMatrixEdits[role.name] && (menuKey in pendingMatrixEdits[role.name])) {
         return pendingMatrixEdits[role.name][menuKey];
     }
@@ -21370,6 +21651,16 @@ async function handleLogout(type ='manual') {
     try { stopInventoryStockPolling(); } catch (e) {}
     try { stopReorderPolling(); } catch (e) {}
     try { stopCloudBackupCostShareAutoRefresh(); } catch (e) {}
+    try { stopRemoteOperationsAutoRefresh(); } catch (e) {}
+    // Staff selfies are sensitive: drop cached photo blobs and the chosen report date when the session ends.
+    try {
+        attendancePhotoCache.forEach((url) => URL.revokeObjectURL(url));
+        attendancePhotoCache.clear();
+        remoteOpsReportDate = '';
+        const reportDateInput = document.getElementById('remoteops-report-date');
+        if (reportDateInput) reportDateInput.value = '';
+        if (typeof syncRemoteOpsReportDateUi === 'function') syncRemoteOpsReportDateUi();
+    } catch (e) {}
     try {
         if (demoCountdownInterval) { clearInterval(demoCountdownInterval); demoCountdownInterval = null; }
         const demoWidget = document.getElementById('demo-mode-banner-container');
@@ -21450,7 +21741,13 @@ async function handleLogout(type ='manual') {
         }, 5000);
     })();
 }
-async function showMainSystemInterface() {
+function canUseAttendanceAsPostLoginView() {
+    const role = String(currentUser?.role || '').toLowerCase();
+    const isAdmin = role === 'admin';
+    const hasAttendancePermission = isAdmin || !!currentPermissions?.attendance;
+    return hasAttendancePermission && isFeatureUnlockedCached('remote_operations');
+}
+async function showMainSystemInterface(options = {}) {
     document.getElementById('auth-view').style.display ='none';
     document.getElementById('main-view').style.display ='flex';
     if (typeof updateMetaThemeColor ==='function') updateMetaThemeColor();
@@ -21507,6 +21804,10 @@ async function showMainSystemInterface() {
             if (shortcutView && ALLOWED_SHORTCUT_VIEWS.includes(shortcutView)) {
                 switchView(shortcutView);
                 history.replaceState({ view: shortcutView }, '', window.location.pathname);
+            } else if (options.preferAttendance) {
+                const firstView = canUseAttendanceAsPostLoginView() ? 'attendance' : 'overview';
+                switchView(firstView);
+                history.replaceState({ view: firstView }, '', '');
             } else if (savedView && savedView !=='auth-view') {
                 switchView(savedView);
                 history.replaceState({ view: savedView },'','');

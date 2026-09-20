@@ -506,7 +506,9 @@ const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 // listahan ito, dagdag lang sa REDACTED_FIELDS_BY_MODULE sa itaas, at
 // GINAGAMIT LANG sa AI snapshot path — hindi nito naaapektuhan ang
 // cloud backup.
-const AI_SNAPSHOT_EXTRA_REDACTED_FIELDS_BY_MODULE = { users: ['webauthnCredentials', 'webauthnUserHandle'] };
+const AI_SNAPSHOT_EXTRA_REDACTED_FIELDS_BY_MODULE = { users: ['webauthnCredentials', 'webauthnUserHandle'], attendanceRecords: ['timeInSelfie', 'timeOutSelfie'] };
+// Per-day attendance selfie modules hold staff face photos; they must never reach the third-party AI provider.
+const AI_ASSISTANT_EXCLUDED_MODULE_PREFIXES = ['attendanceSelfies_'];
 function stripFieldsForAiSnapshot(moduleName, data) {
     const extraFields = AI_SNAPSHOT_EXTRA_REDACTED_FIELDS_BY_MODULE[moduleName];
     if (!extraFields || !Array.isArray(data)) return data;
@@ -622,7 +624,7 @@ const AI_ASSISTANT_MAX_RECORDS_PER_MODULE = 30;
 
 function getAiKnowledgeSnapshot(scope, focusModules) {
     const isFull = scope === 'full';
-    const allModuleNames = getAllModuleNames().filter((m) => !AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES.has(m));
+    const allModuleNames = getAllModuleNames().filter((m) => !AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES.has(m) && !AI_ASSISTANT_EXCLUDED_MODULE_PREFIXES.some((prefix) => m.startsWith(prefix)));
     const allowedSet = isFull ? new Set(allModuleNames) : new Set(allModuleNames.filter((m) => AI_ASSISTANT_LIMITED_ROLE_MODULES.has(m)));
 
     // AI context routing: kapag may explicit na listahan ng relevant modules,

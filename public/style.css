@@ -13267,3 +13267,925 @@ body.dark-mode .bulk-imgsearch-modal-card .modal-footer:has(button:not([style*="
         padding-top: 16px;
     }
 }
+
+/* =========================================================
+   Workforce operations center
+   Scoped to Staff Attendance and Remote Operations so the
+   responsive treatment does not alter the rest of the POS.
+   ========================================================= */
+.operations-view {
+    --ops-ink: #10213d;
+    --ops-muted: #64748b;
+    --ops-border: rgba(148, 163, 184, 0.22);
+    --ops-surface: rgba(255, 255, 255, 0.92);
+    --ops-surface-soft: #f8fbff;
+    --ops-blue: #2563eb;
+    --ops-teal: #0f766e;
+    --ops-green: #16a34a;
+    --ops-shadow: 0 18px 40px rgba(30, 64, 175, 0.07);
+    color: var(--ops-ink);
+}
+.operations-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 24px 26px;
+    margin: -4px 0 22px;
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    border-radius: 22px;
+    background:
+        radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.14), transparent 34%),
+        linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,246,255,0.84));
+    box-shadow: var(--ops-shadow);
+    overflow: hidden;
+    position: relative;
+}
+.operations-hero::after {
+    content: "";
+    position: absolute;
+    width: 180px;
+    height: 180px;
+    right: 14%;
+    bottom: -138px;
+    border-radius: 50%;
+    border: 1px solid rgba(37, 99, 235, 0.12);
+    box-shadow: 0 0 0 18px rgba(37, 99, 235, 0.035), 0 0 0 36px rgba(37, 99, 235, 0.025);
+    pointer-events: none;
+}
+.operations-hero-copy {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+}
+.operations-eyebrow,
+.operations-section-kicker {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--ops-blue);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+.operations-live-dot,
+.remoteops-sync-dot,
+.remoteops-inline-dot,
+.attendance-pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
+    flex: 0 0 auto;
+}
+.operations-hero h2 {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin: 7px 0 5px;
+    color: var(--ops-ink);
+    font-size: clamp(1.55rem, 2.5vw, 2.15rem);
+    letter-spacing: -0.035em;
+}
+.operations-hero h2 i {
+    color: var(--ops-blue);
+    font-size: 0.8em;
+}
+.operations-hero p {
+    max-width: 690px;
+    margin: 0;
+    color: var(--ops-muted);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+.operations-date-chip,
+.attendance-secure-badge,
+.remoteops-sync-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--ops-border);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.7);
+    color: var(--ops-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.operations-date-chip {
+    position: relative;
+    z-index: 1;
+    padding: 10px 13px;
+}
+.operations-date-chip i { color: var(--ops-blue); }
+.attendance-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+    gap: 20px;
+    align-items: start;
+}
+.operations-view .card {
+    border: 1px solid var(--ops-border);
+    border-radius: 18px;
+    box-shadow: var(--ops-shadow);
+}
+.attendance-control-card,
+.attendance-info-card,
+.attendance-checklist-card,
+.remoteops-panel {
+    padding: 22px;
+    background: var(--ops-surface);
+}
+.operations-card-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.operations-card-heading h3 {
+    margin: 4px 0 0;
+    color: var(--ops-ink);
+    font-size: 1rem;
+    letter-spacing: -0.015em;
+}
+.attendance-secure-badge {
+    padding: 6px 10px;
+    color: var(--ops-green);
+    border-color: rgba(34, 197, 94, 0.2);
+    background: rgba(240, 253, 244, 0.9);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.attendance-status-card {
+    min-height: 106px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 17px;
+    margin-bottom: 17px;
+    border: 1px solid var(--ops-border);
+    border-radius: 15px;
+    background: var(--ops-surface-soft);
+}
+.attendance-status-active {
+    border-color: rgba(34, 197, 94, 0.25);
+    background: linear-gradient(135deg, rgba(240, 253, 244, 0.95), rgba(239, 246, 255, 0.72));
+}
+.attendance-status-idle {
+    border-color: rgba(37, 99, 235, 0.17);
+}
+.attendance-status-error {
+    border-color: rgba(239, 68, 68, 0.25);
+    background: rgba(254, 242, 242, 0.82);
+}
+.attendance-status-icon {
+    display: grid;
+    place-items: center;
+    width: 47px;
+    height: 47px;
+    flex: 0 0 auto;
+    border-radius: 14px;
+    color: var(--ops-blue);
+    background: rgba(219, 234, 254, 0.78);
+    font-size: 1.15rem;
+}
+.attendance-status-active .attendance-status-icon {
+    color: var(--ops-green);
+    background: rgba(187, 247, 208, 0.72);
+}
+.attendance-status-error .attendance-status-icon {
+    color: #dc2626;
+    background: rgba(254, 202, 202, 0.72);
+}
+.attendance-status-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.attendance-status-copy strong {
+    color: var(--ops-ink);
+    font-size: 0.95rem;
+}
+.attendance-status-copy > span:last-child {
+    color: var(--ops-muted);
+    font-size: 0.76rem;
+}
+.attendance-status-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--ops-green);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.attendance-status-idle .attendance-status-label { color: var(--ops-blue); }
+.attendance-status-error .attendance-status-copy > span:last-child { color: #b91c1c; }
+.attendance-elapsed {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin-left: auto;
+    padding-left: 12px;
+    border-left: 1px solid rgba(22, 163, 74, 0.18);
+}
+.attendance-elapsed small {
+    color: var(--ops-muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.attendance-elapsed strong {
+    color: var(--ops-green);
+    font-size: 1.05rem;
+}
+.attendance-status-side {
+    margin-left: auto;
+    color: var(--ops-blue);
+}
+.attendance-status-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ops-muted);
+    font-size: 0.82rem;
+}
+.operations-spinner {
+    width: 17px;
+    height: 17px;
+    border: 2px solid rgba(37, 99, 235, 0.18);
+    border-top-color: var(--ops-blue);
+    border-radius: 50%;
+    animation: operationsSpin 0.75s linear infinite;
+}
+@keyframes operationsSpin { to { transform: rotate(360deg); } }
+.attendance-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 11px;
+}
+.attendance-action {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+    padding: 13px;
+    border: 1px solid var(--ops-border);
+    border-radius: 14px;
+    color: var(--ops-ink);
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease, opacity .2s ease;
+}
+.attendance-action:hover:not(:disabled),
+.attendance-action:focus-visible:not(:disabled) {
+    border-color: rgba(37, 99, 235, 0.46);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.11);
+    transform: translateY(-1px);
+}
+.attendance-action:disabled {
+    opacity: 0.46;
+    cursor: not-allowed;
+}
+.attendance-action-icon {
+    display: grid;
+    place-items: center;
+    width: 37px;
+    height: 37px;
+    flex: 0 0 auto;
+    border-radius: 11px;
+    color: #fff;
+    background: linear-gradient(135deg, #2563eb, #38bdf8);
+}
+.attendance-action-out .attendance-action-icon { background: linear-gradient(135deg, #0f766e, #14b8a6); }
+.attendance-action > span:nth-child(2) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.attendance-action strong { font-size: 0.8rem; }
+.attendance-action small { color: var(--ops-muted); font-size: 0.68rem; }
+.attendance-action-arrow { margin-left: auto; color: #94a3b8; font-size: 0.73rem; }
+.attendance-trust-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 13px;
+    color: var(--ops-muted);
+    font-size: 0.7rem;
+    line-height: 1.5;
+}
+.attendance-trust-note i { margin-top: 2px; color: var(--ops-blue); }
+.attendance-info-stack { display: grid; gap: 14px; }
+.attendance-info-primary {
+    min-height: 215px;
+    background:
+        radial-gradient(circle at 90% 10%, rgba(45, 212, 191, 0.22), transparent 36%),
+        linear-gradient(145deg, #0f2d4b, #0f766e);
+    color: #e0f2fe;
+}
+.attendance-info-icon {
+    display: grid;
+    place-items: center;
+    width: 39px;
+    height: 39px;
+    margin-bottom: 24px;
+    border-radius: 12px;
+    color: #a7f3d0;
+    background: rgba(255,255,255,0.12);
+}
+.attendance-info-primary .operations-section-kicker { color: #99f6e4; }
+.attendance-info-primary h3 {
+    max-width: 250px;
+    margin: 6px 0 8px;
+    color: #fff;
+    font-size: 1.15rem;
+    line-height: 1.25;
+}
+.attendance-info-primary p { margin: 0; color: rgba(224, 242, 254, 0.76); font-size: 0.78rem; line-height: 1.55; }
+.attendance-checklist-card { padding: 17px 19px; }
+.attendance-checklist-card .operations-card-heading { margin-bottom: 6px; }
+.attendance-checklist-card .operations-card-heading h3 { margin-top: 0; }
+.attendance-checklist-card .operations-card-heading > i { color: var(--ops-blue); }
+.attendance-checklist { display: grid; gap: 9px; padding: 0; margin: 0; list-style: none; }
+.attendance-checklist li { display: flex; align-items: center; gap: 9px; color: var(--ops-muted); font-size: 0.77rem; }
+.attendance-checklist li i {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: var(--ops-green);
+    background: #dcfce7;
+    font-size: 0.58rem;
+}
+.attendance-review-card {
+    padding: 16px;
+    margin-top: 18px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    border-radius: 16px;
+    background: linear-gradient(135deg, #f8fbff, #eff6ff);
+}
+.attendance-review-heading,
+.attendance-review-body,
+.attendance-review-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.attendance-review-heading { justify-content: space-between; margin-bottom: 13px; }
+.attendance-review-heading > div { display: grid; gap: 3px; }
+.attendance-review-heading strong { color: var(--ops-ink); font-size: 0.82rem; }
+.attendance-review-step {
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: var(--ops-blue);
+    background: #dbeafe;
+    font-size: 0.62rem;
+    font-weight: 800;
+}
+.attendance-review-body { align-items: flex-start; }
+.attendance-preview-frame {
+    width: 112px;
+    height: 112px;
+    flex: 0 0 auto;
+    padding: 4px;
+    border-radius: 15px;
+    background: #fff;
+    box-shadow: 0 5px 16px rgba(30, 64, 175, 0.12);
+}
+.attendance-preview-frame img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 11px; }
+.attendance-review-copy { display: flex; gap: 8px; color: var(--ops-muted); font-size: 0.73rem; line-height: 1.5; }
+.attendance-review-copy i { color: var(--ops-blue); margin-top: 2px; }
+.attendance-review-actions { margin-top: 14px; }
+.attendance-review-actions button { flex: 1; justify-content: center; }
+
+.remoteops-hero { align-items: center; }
+.remoteops-hero-actions { display: flex; align-items: center; gap: 13px; position: relative; z-index: 1; }
+.remoteops-sync-meta { flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 12px; border: 0; background: rgba(255,255,255,0.64); }
+.remoteops-sync-meta > span:nth-of-type(2) { display: inline-flex; align-items: center; gap: 6px; color: var(--ops-green); font-size: 0.72rem; }
+.remoteops-sync-meta small { color: var(--ops-muted); font-size: 0.62rem; }
+.remoteops-refresh-btn { min-height: 39px; white-space: nowrap; }
+.remoteops-refresh-btn.is-loading { opacity: 0.72; cursor: wait; }
+.remoteops-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 13px;
+    margin-bottom: 18px !important;
+}
+.remoteops-metric-card {
+    min-width: 0;
+    padding: 17px;
+    gap: 13px;
+    border-color: var(--ops-border);
+    box-shadow: var(--ops-shadow);
+}
+.remoteops-metric-card > div:last-child { min-width: 0; }
+.remoteops-metric-card .metric-icon { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 11px; }
+.remoteops-metric-card .metric-label { margin-bottom: 4px; font-size: 0.61rem; letter-spacing: 0.06em; }
+.remoteops-metric-card h3 { overflow: hidden; text-overflow: ellipsis; font-size: clamp(1.05rem, 1.9vw, 1.42rem); white-space: nowrap; }
+.remoteops-metric-caption { display: block; overflow: hidden; margin-top: 5px; color: var(--ops-muted); font-size: 0.62rem; text-overflow: ellipsis; white-space: nowrap; }
+.remoteops-metric-caption i { color: var(--ops-green); }
+.remoteops-metric-loading { align-items: center; min-height: 85px; grid-column: 1 / -1; }
+.remoteops-metric-loading .operations-spinner { flex: 0 0 auto; }
+.remoteops-section-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 18px; }
+.remoteops-section-grid-bottom { margin-top: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.remoteops-panel { min-width: 0; padding: 19px; }
+.remoteops-panel .operations-card-heading { margin-bottom: 14px; }
+.operations-panel-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+    color: var(--ops-blue);
+    background: #eff6ff;
+    font-size: 0.78rem;
+}
+.remoteops-table-container { min-height: 150px; max-height: 390px; border-color: var(--ops-border); box-shadow: none; }
+.remoteops-scroll-hint { display: none; }
+.remoteops-table { min-width: 620px; }
+.remoteops-table th { padding: 11px 13px; color: var(--ops-muted); font-size: 0.64rem; letter-spacing: 0.045em; }
+.remoteops-table td { padding: 12px 13px; color: #475569; font-size: 0.78rem; }
+.remoteops-table tbody tr { transition: background-color .16s ease; }
+.remoteops-table tbody tr:hover { background: #f8fbff; }
+.remoteops-primary-cell { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ops-ink); }
+.remoteops-row-icon,
+.remoteops-avatar {
+    display: inline-grid;
+    place-items: center;
+    width: 25px;
+    height: 25px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    color: var(--ops-blue);
+    background: #eff6ff;
+    font-size: 0.65rem;
+}
+.remoteops-avatar { border-radius: 50%; color: #0f766e; background: #ccfbf1; font-size: 0.68rem; }
+.remoteops-value-badge {
+    display: inline-flex;
+    min-width: 26px;
+    justify-content: center;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: var(--ops-green);
+    background: #dcfce7;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+.remoteops-money { color: var(--ops-ink); font-variant-numeric: tabular-nums; }
+.remoteops-muted { color: #94a3b8; font-size: 0.7rem; }
+.remoteops-active-label { display: inline-flex; align-items: center; gap: 6px; color: var(--ops-green); font-weight: 700; }
+.attendance-evidence-photo {
+    display: block;
+    width: 42px;
+    height: 42px;
+    object-fit: cover;
+    border: 1px solid var(--ops-border);
+    border-radius: 10px;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+.remoteops-error-card {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    grid-column: 1 / -1;
+    padding: 17px 19px;
+    color: #b91c1c;
+    background: #fff7f7;
+}
+.remoteops-error-card > i { font-size: 1.35rem; }
+.remoteops-error-card > div { display: grid; gap: 3px; }
+.remoteops-error-card strong { font-size: 0.86rem; }
+.remoteops-error-card span { color: #991b1b; font-size: 0.74rem; }
+
+body.dark-mode .operations-view,
+.dark .operations-view {
+    --ops-ink: #f1f5f9;
+    --ops-muted: #9aa7ba;
+    --ops-border: rgba(148, 163, 184, 0.2);
+    --ops-surface: rgba(30, 41, 59, 0.88);
+    --ops-surface-soft: rgba(15, 23, 42, 0.5);
+    --ops-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+}
+body.dark-mode .operations-hero,
+.dark .operations-hero {
+    border-color: rgba(96, 165, 250, 0.2);
+    background:
+        radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.2), transparent 34%),
+        linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.92));
+}
+body.dark-mode .operations-hero h2,
+.dark .operations-hero h2,
+body.dark-mode .operations-card-heading h3,
+.dark .operations-card-heading h3,
+body.dark-mode .attendance-status-copy strong,
+.dark .attendance-status-copy strong,
+body.dark-mode .attendance-review-heading strong,
+.dark .attendance-review-heading strong { color: var(--ops-ink); }
+body.dark-mode .operations-date-chip,
+.dark .operations-date-chip,
+body.dark-mode .remoteops-sync-meta,
+.dark .remoteops-sync-meta,
+body.dark-mode .attendance-action,
+.dark .attendance-action,
+body.dark-mode .attendance-review-card,
+.dark .attendance-review-card { background: rgba(15, 23, 42, 0.62); }
+body.dark-mode .attendance-secure-badge,
+.dark .attendance-secure-badge { background: rgba(20, 83, 45, 0.34); }
+body.dark-mode .attendance-info-primary,
+.dark .attendance-info-primary { background: linear-gradient(145deg, #102a47, #115e59); }
+body.dark-mode .operations-panel-icon,
+.dark .operations-panel-icon,
+body.dark-mode .remoteops-row-icon,
+.dark .remoteops-row-icon { background: rgba(37, 99, 235, 0.16); }
+body.dark-mode .remoteops-avatar,
+.dark .remoteops-avatar { background: rgba(20, 184, 166, 0.17); }
+body.dark-mode .remoteops-table tbody tr:hover,
+.dark .remoteops-table tbody tr:hover { background: rgba(37, 99, 235, 0.08); }
+body.dark-mode .remoteops-error-card,
+.dark .remoteops-error-card { background: rgba(127, 29, 29, 0.25); }
+
+@media screen and (max-width: 1100px) {
+    .remoteops-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .remoteops-section-grid,
+    .remoteops-section-grid-bottom { grid-template-columns: 1fr; }
+}
+@media screen and (max-width: 768px) {
+    .operations-hero { padding: 19px; margin-bottom: 16px; border-radius: 18px; }
+    .operations-hero h2 { font-size: 1.45rem; }
+    .operations-hero p { font-size: 0.79rem; }
+    .operations-date-chip { align-self: flex-start; padding: 8px 10px; }
+    .attendance-layout { grid-template-columns: 1fr; gap: 14px; }
+    .attendance-control-card,
+    .attendance-info-card,
+    .attendance-checklist-card,
+    .remoteops-panel { padding: 16px; border-radius: 15px; }
+    .attendance-info-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .attendance-info-primary { min-height: 0; }
+    .attendance-info-icon { margin-bottom: 14px; }
+    .attendance-info-primary h3 { font-size: 1rem; }
+    .attendance-info-primary p { font-size: 0.72rem; }
+    .remoteops-hero { align-items: flex-start; flex-direction: column; gap: 14px; }
+    .remoteops-hero-actions { width: 100%; justify-content: space-between; }
+    .remoteops-metrics { gap: 10px; }
+    .remoteops-metric-card { padding: 13px; gap: 9px; }
+    .remoteops-metric-card .metric-icon { width: 31px; height: 31px; font-size: 0.78rem; }
+    .remoteops-metric-card .metric-label { font-size: 0.56rem; }
+    .remoteops-metric-card h3 { font-size: 0.98rem; }
+    .remoteops-metric-caption { font-size: 0.57rem; }
+}
+@media screen and (max-width: 600px) {
+    .operations-hero { display: block; }
+    .operations-date-chip { display: inline-flex; margin-top: 13px; }
+    .attendance-actions-grid { grid-template-columns: 1fr; }
+    .attendance-action { padding: 12px; }
+    .attendance-info-stack { grid-template-columns: 1fr; }
+    .attendance-review-body { align-items: center; }
+    .attendance-review-actions { flex-direction: column; align-items: stretch; gap: 8px; }
+    .attendance-review-actions button { width: 100%; }
+    .remoteops-hero-actions { align-items: stretch; flex-direction: column; }
+    .remoteops-sync-meta { width: 100%; }
+    .remoteops-refresh-btn { justify-content: center; width: 100%; }
+    .remoteops-section-grid-bottom { margin-top: 14px; }
+    .remoteops-panel .operations-card-heading { margin-bottom: 11px; }
+    .remoteops-table-container {
+        min-height: 0;
+        max-height: 330px;
+        overflow-x: auto;
+        overflow-y: auto;
+        border: 1px solid var(--ops-border);
+        border-radius: 10px;
+        background: var(--ops-surface-soft);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+        scrollbar-width: thin;
+        scrollbar-color: #334155 transparent;
+        position: relative;
+    }
+    .remoteops-table-container::-webkit-scrollbar {
+        width: 7px;
+        height: 7px;
+    }
+    .remoteops-table-container::-webkit-scrollbar-track { background: transparent; margin-top: 0; }
+    .remoteops-table-container::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: #334155;
+    }
+    .remoteops-table-container::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .remoteops-scroll-hint {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        width: max-content;
+        min-height: 25px;
+        margin-left: auto;
+        padding: 4px 8px;
+        border: 1px solid rgba(96, 165, 250, 0.18);
+        border-top: 0;
+        border-radius: 0 0 7px 7px;
+        color: #93c5fd;
+        background: rgba(15, 23, 42, 0.94);
+        font-size: 0.56rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        pointer-events: none;
+        white-space: nowrap;
+    }
+    .remoteops-scroll-hint i { font-size: 0.6rem; }
+    .remoteops-table {
+        display: table;
+        width: 760px;
+        min-width: 760px;
+        table-layout: fixed;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    .remoteops-table th,
+    .remoteops-table td {
+        width: auto;
+        height: 42px;
+        padding: 9px 12px;
+        overflow: hidden;
+        border-bottom: 1px solid var(--ops-border);
+        font-size: 0.7rem;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .remoteops-table th {
+        position: sticky;
+        top: 25px;
+        z-index: 6;
+        height: 35px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        color: var(--ops-muted);
+        background: var(--ops-surface-soft);
+        box-shadow: inset 0 -1px 0 var(--ops-border);
+        font-size: 0.59rem;
+        letter-spacing: 0.06em;
+    }
+    .remoteops-table th:first-child,
+    .remoteops-table td:first-child {
+        position: sticky;
+        left: 0;
+        width: 154px;
+        min-width: 154px;
+        max-width: 154px;
+        z-index: 5;
+        background: var(--ops-surface-soft);
+        box-shadow: 7px 0 10px -10px rgba(15,23,42,0.55);
+    }
+    .remoteops-table th:first-child {
+        z-index: 7;
+        background: var(--ops-surface-soft);
+    }
+    .remoteops-table th:nth-child(2),
+    .remoteops-table td:nth-child(2) { width: 142px; min-width: 142px; }
+    .remoteops-table th:nth-child(3),
+    .remoteops-table td:nth-child(3) { width: 145px; min-width: 145px; }
+    .remoteops-table th:nth-child(4),
+    .remoteops-table td:nth-child(4) { width: 132px; min-width: 132px; }
+    .remoteops-table th:nth-child(5),
+    .remoteops-table td:nth-child(5) { width: 150px; min-width: 150px; }
+    .remoteops-table tbody { display: table-row-group; }
+    .remoteops-table tbody tr { display: table-row; background: var(--ops-surface); }
+    .remoteops-table tbody tr:hover { background: var(--ops-surface-soft); }
+    .remoteops-table tbody tr:hover td:first-child { background: var(--ops-surface-soft); }
+    .remoteops-table td { display: table-cell; color: var(--ops-ink); }
+    .remoteops-table td::before { display: none; }
+    .remoteops-table tbody td:first-child {
+        display: table-cell;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        margin: 0;
+        border-bottom: 1px solid var(--ops-border);
+        text-align: left;
+    }
+    .remoteops-table tbody td[colspan] {
+        display: table-cell;
+        width: 760px;
+        max-width: none;
+        padding: 20px 12px;
+        border: 0;
+        color: var(--ops-muted);
+        text-align: center;
+        white-space: normal;
+    }
+    .remoteops-primary-cell { font-size: 0.7rem; }
+    .remoteops-row-icon,
+    .remoteops-avatar { width: 22px; height: 22px; font-size: 0.58rem; }
+    .remoteops-value-badge { min-width: 23px; padding: 2px 6px; font-size: 0.63rem; }
+    .remoteops-money { font-size: 0.7rem; }
+    .attendance-evidence-photo { width: 34px; height: 34px; }
+    .remoteops-error-card { padding: 14px; }
+}
+@media screen and (max-width: 600px) {
+    body.dark-mode .remoteops-table-container,
+    .dark .remoteops-table-container { background: #0d1117; border-color: #30363d; }
+    body.dark-mode .remoteops-table th,
+    .dark .remoteops-table th {
+        color: #8b949e;
+        background: #161b22;
+        box-shadow: inset 0 -1px 0 #30363d;
+    }
+    body.dark-mode .remoteops-table th:first-child,
+    .dark .remoteops-table th:first-child,
+    body.dark-mode .remoteops-table td:first-child,
+    .dark .remoteops-table td:first-child { background: #0d1117; }
+    body.dark-mode .remoteops-table th:first-child,
+    .dark .remoteops-table th:first-child { background: #161b22; }
+    body.dark-mode .remoteops-table tbody tr,
+    .dark .remoteops-table tbody tr { background: #0d1117; }
+    body.dark-mode .remoteops-table tbody tr:hover,
+    .dark .remoteops-table tbody tr:hover,
+    body.dark-mode .remoteops-table tbody tr:hover td:first-child,
+    .dark .remoteops-table tbody tr:hover td:first-child { background: #161b22; }
+    body.dark-mode .remoteops-table td,
+    .dark .remoteops-table td { color: #c9d1d9; border-bottom-color: #212936; }
+    body.dark-mode .remoteops-table tbody td:first-child,
+    .dark .remoteops-table tbody td:first-child { border-bottom-color: #212936; }
+}
+@media screen and (max-width: 420px) {
+    .remoteops-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .remoteops-metric-card { min-height: 72px; padding: 10px; }
+    .attendance-status-card { align-items: flex-start; padding: 13px; }
+    .attendance-status-icon { width: 40px; height: 40px; border-radius: 11px; font-size: 0.95rem; }
+    .attendance-elapsed { padding-left: 8px; }
+    .attendance-elapsed strong { font-size: 0.9rem; }
+    .attendance-status-copy strong { font-size: 0.85rem; }
+    .attendance-status-copy > span:last-child { font-size: 0.68rem; }
+    .attendance-preview-frame { width: 92px; height: 92px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .operations-spinner { animation: none; }
+    .attendance-action { transition: none; }
+}
+
+/* === Remote Operations / Staff Attendance polish (2026-09-21) === */
+.sidebar-pro-badge { margin-left: auto; }
+.remoteops-report-filter {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+    padding: 10px 14px;
+    border: 1px solid var(--ops-border, #e2e8f0);
+    border-radius: 14px;
+    background: var(--ops-surface, #fff);
+}
+.remoteops-report-filter label { display: inline-flex; align-items: center; gap: 7px; color: var(--ops-muted, #64748b); font-size: 0.74rem; font-weight: 700; }
+.remoteops-report-filter input[type="date"] {
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid var(--ops-border, #e2e8f0);
+    border-radius: 10px;
+    color: var(--ops-ink, #0f172a);
+    background: transparent;
+    font: inherit;
+    font-size: 0.8rem;
+}
+.remoteops-report-filter .btn-action-outline { min-height: 36px; padding: 6px 12px; font-size: 0.75rem; }
+.remoteops-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: var(--ops-blue, #2563eb);
+    background: #dbeafe;
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+.remoteops-tag-warn { color: #b45309; background: #fef3c7; }
+.attendance-evidence-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border: 1px dashed var(--ops-border, #cbd5e1);
+    border-radius: 10px;
+    color: #94a3b8;
+    background: transparent;
+    cursor: zoom-in;
+}
+.attendance-evidence-btn:has(img) { border: 0; }
+.attendance-evidence-btn:focus-visible { outline: 2px solid var(--ops-blue, #2563eb); outline-offset: 2px; }
+.attendance-retry-btn { flex: 0 0 auto; margin-left: auto; white-space: nowrap; }
+body.dark-mode .remoteops-tag { color: #bfdbfe; background: rgba(59, 130, 246, 0.22); }
+body.dark-mode .remoteops-tag-warn { color: #fcd34d; background: rgba(245, 158, 11, 0.2); }
+@media (max-width: 640px) {
+    .remoteops-report-filter { padding: 9px 11px; }
+    .remoteops-report-filter input[type="date"] { flex: 1 1 140px; }
+    .attendance-evidence-btn { width: 34px; height: 34px; }
+}
+
+/* === Remote Operations / Staff Attendance — follow ALL themes (2026-09-21) ===
+   The two pages are built on the --ops-* variables. Day mode keeps its own palette (but honours a custom
+   accent colour); every dark theme (Dark, Ocean, Emerald, Sunset, Rose Gold, Cyber, Coffee Noir, Mint Frost,
+   Liquid Glass, Galaxy Ambient) feeds them from that theme's --dm-* palette instead of a fixed slate/blue.
+   (Day mode is untouched: --ops-blue stays the original blue there.) */
+.operations-view .operations-panel-icon,
+.operations-view .remoteops-row-icon,
+.operations-view .attendance-status-idle .attendance-status-icon { background: color-mix(in srgb, var(--ops-blue) 12%, transparent); }
+.operations-view .attendance-review-step,
+.operations-view .remoteops-tag { background: color-mix(in srgb, var(--ops-blue) 14%, transparent); color: var(--ops-blue); }
+.operations-view .remoteops-tag-warn { color: #b45309; background: #fef3c7; }
+
+body.dark-mode .operations-view {
+    --ops-ink: var(--dm-text-primary, #f1f5f9);
+    --ops-muted: var(--dm-text-secondary, #9aa7ba);
+    --ops-border: var(--dm-border, rgba(148, 163, 184, 0.2));
+    --ops-surface: var(--dm-surface, rgba(30, 41, 59, 0.88));
+    --ops-surface-soft: var(--dm-surface-alt, rgba(15, 23, 42, 0.5));
+    --ops-blue: var(--dm-accent, #60a5fa);
+    --ops-teal: var(--dm-accent, #2dd4bf);
+    --ops-green: #4ade80;
+    --ops-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+body.dark-mode .operations-view .operations-hero {
+    border-color: color-mix(in srgb, var(--ops-blue) 30%, transparent);
+    border-radius: var(--dm-radius-lg, 22px);
+    background:
+        radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--ops-blue) 24%, transparent), transparent 36%),
+        linear-gradient(135deg, var(--ops-surface), var(--ops-surface-soft));
+}
+body.dark-mode .operations-view .operations-hero::after {
+    box-shadow: 0 0 0 18px color-mix(in srgb, var(--ops-blue) 5%, transparent), 0 0 0 36px color-mix(in srgb, var(--ops-blue) 3%, transparent);
+}
+body.dark-mode .operations-view .card { border-radius: var(--dm-radius-lg, 18px); border-width: var(--dm-border-width, 1px); }
+body.dark-mode .operations-view .operations-date-chip,
+body.dark-mode .operations-view .remoteops-sync-meta { background: var(--ops-surface-soft); }
+body.dark-mode .operations-view .attendance-secure-badge { background: rgba(34, 197, 94, 0.14); border-color: rgba(34, 197, 94, 0.3); }
+body.dark-mode .operations-view .attendance-status-card { background: var(--ops-surface-soft); border-radius: var(--dm-radius, 15px); }
+body.dark-mode .operations-view .attendance-status-active {
+    border-color: rgba(34, 197, 94, 0.35);
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.16), var(--ops-surface-soft));
+}
+body.dark-mode .operations-view .attendance-status-idle { border-color: color-mix(in srgb, var(--ops-blue) 32%, transparent); }
+body.dark-mode .operations-view .attendance-status-error { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.14); }
+body.dark-mode .operations-view .attendance-status-error .attendance-status-copy > span:last-child { color: #fca5a5; }
+body.dark-mode .operations-view .attendance-status-icon { background: color-mix(in srgb, var(--ops-blue) 18%, transparent); }
+body.dark-mode .operations-view .attendance-status-active .attendance-status-icon { background: rgba(34, 197, 94, 0.2); }
+body.dark-mode .operations-view .attendance-status-error .attendance-status-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+body.dark-mode .operations-view .attendance-action { background: var(--ops-surface-soft); border-radius: var(--dm-radius, 14px); }
+body.dark-mode .operations-view .attendance-action:hover:not(:disabled),
+body.dark-mode .operations-view .attendance-action:focus-visible:not(:disabled) {
+    border-color: color-mix(in srgb, var(--ops-blue) 60%, transparent);
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--ops-blue) 18%, transparent);
+}
+body.dark-mode .operations-view .attendance-action-icon { background: var(--ops-blue); color: var(--dm-bg, #0f172a); }
+body.dark-mode .operations-view .attendance-action-out .attendance-action-icon { background: var(--dm-accent-hover, var(--ops-blue)); }
+body.dark-mode .operations-view .attendance-action-arrow { color: var(--ops-muted); }
+body.dark-mode .operations-view .attendance-info-primary {
+    background:
+        radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--ops-blue) 28%, transparent), transparent 40%),
+        linear-gradient(145deg, var(--dm-surface-alt, #102a47), color-mix(in srgb, var(--ops-blue) 34%, var(--dm-bg, #0f172a)));
+    color: var(--ops-ink);
+}
+body.dark-mode .operations-view .attendance-info-icon { color: var(--ops-blue); background: color-mix(in srgb, var(--ops-blue) 20%, transparent); }
+body.dark-mode .operations-view .attendance-info-primary .operations-section-kicker { color: var(--ops-blue); }
+body.dark-mode .operations-view .attendance-info-primary h3 { color: var(--ops-ink); }
+body.dark-mode .operations-view .attendance-info-primary p { color: var(--ops-muted); }
+body.dark-mode .operations-view .attendance-checklist li i { background: rgba(34, 197, 94, 0.18); }
+body.dark-mode .operations-view .attendance-review-card {
+    border-color: color-mix(in srgb, var(--ops-blue) 32%, transparent);
+    background: var(--ops-surface-soft);
+    border-radius: var(--dm-radius-lg, 16px);
+}
+body.dark-mode .operations-view .attendance-preview-frame { background: var(--dm-surface, #1e293b); box-shadow: 0 5px 16px rgba(0, 0, 0, 0.35); }
+body.dark-mode .operations-view .attendance-review-step,
+body.dark-mode .operations-view .remoteops-tag { background: var(--dm-accent-soft, color-mix(in srgb, var(--ops-blue) 20%, transparent)); color: var(--ops-blue); }
+body.dark-mode .operations-view .remoteops-tag-warn { color: #fcd34d; background: rgba(245, 158, 11, 0.2); }
+body.dark-mode .operations-view .operations-panel-icon,
+body.dark-mode .operations-view .remoteops-row-icon,
+body.dark-mode .operations-view .remoteops-avatar { background: color-mix(in srgb, var(--ops-blue) 18%, transparent); color: var(--ops-blue); }
+body.dark-mode .operations-view .remoteops-value-badge { background: rgba(34, 197, 94, 0.18); }
+body.dark-mode .operations-view .remoteops-table td { color: var(--ops-ink); }
+body.dark-mode .operations-view .remoteops-table tbody tr:hover { background: color-mix(in srgb, var(--ops-blue) 9%, transparent); }
+body.dark-mode .operations-view .remoteops-muted { color: var(--ops-muted); }
+body.dark-mode .operations-view .remoteops-error-card { background: rgba(239, 68, 68, 0.14); color: #fca5a5; }
+body.dark-mode .operations-view .remoteops-error-card span { color: #fecaca; }
+body.dark-mode .operations-view .remoteops-report-filter { border-radius: var(--dm-radius, 14px); }
+body.dark-mode .operations-view .attendance-evidence-btn { color: var(--ops-muted); }
+body.dark-mode .operations-view .remoteops-metric-card .metric-icon { color: var(--ops-blue); background: color-mix(in srgb, var(--ops-blue) 18%, transparent); }
+body.dark-mode .operations-view .remoteops-metric-card .metric-icon.neutral { color: var(--ops-muted); background: var(--ops-surface-soft); }
+body.dark-mode .operations-view .remoteops-report-filter input[type="date"] { color-scheme: dark; }
+/* Liquid Glass gives .btn-action-global a see-through background; keep the page's main buttons solid. */
+body[data-theme="liquidglass"] .operations-view .btn-action-global { background-color: var(--dm-accent); color: #fff; }

@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
+const { db: sqliteDb, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
 const webauthn = require('./webauthn');
 try {
     require('./env-loader')();
@@ -112,10 +112,14 @@ if (helmet) {
     });
 }
 const RATE_LIMIT_BUCKETS = new Map();
-function rateLimit(routeKey, maxAttempts, windowMs, customMessage) {
+function rateLimit(routeKey, maxAttempts, windowMs, customMessage, keyFn) {
     return (req, res, next) => {
         const ip = req.ip || req.connection?.remoteAddress ||'unknown';
-        const key = `${routeKey}:${ip}`;
+        let bucketId = ip;
+        if (typeof keyFn === 'function') {
+            try { bucketId = String(keyFn(req) || ip); } catch (err) { bucketId = ip; }
+        }
+        const key = `${routeKey}:${bucketId}`;
         const now = Date.now();
         let attempts = RATE_LIMIT_BUCKETS.get(key) || [];
         attempts = attempts.filter(ts => now - ts < windowMs);
@@ -197,6 +201,16 @@ app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
         return callback(new Error(`CORS: hindi pinapayagang origin — ${origin}`));
     }
 } : undefined));
+// Attendance selfies are at most ~500 KB, so refuse anything bigger BEFORE the (very large)
+// global JSON limit below buffers it in memory.
+app.use('/api/attendance', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    const declaredLength = Number(req.headers['content-length']);
+    if (Number.isFinite(declaredLength) && declaredLength > 1024 * 1024) {
+        return res.status(413).json({ success: false, message: 'The attendance photo is too large. Please take the selfie again.' });
+    }
+    next();
+});
 app.use(express.json({ limit:'5gb' }));
 app.use((err, req, res, next) => {
     if (err && err.type ==='entity.too.large') {
@@ -461,8 +475,14 @@ function getRoles() {
         MENU_REGISTRY.forEach(m => {
             if (!(m.key in r.permissions)) {
                 r.permissions[m.key] = m.key === 'attendance'
-                    ? ['staff', 'cashier'].includes(String(r.name || '').toLowerCase())
+                    ? (!!r.protected || ['staff', 'cashier'].includes(String(r.name || '').toLowerCase()))
                     : !!r.protected;
+                changed = true;
+            }
+            // The protected Admin role can't be edited in the UI, so a wrongly-saved "false" would stay
+            // forever (older versions defaulted new keys such as "attendance" to false for Admin). Heal it.
+            if (r.protected && r.permissions[m.key] !== true) {
+                r.permissions[m.key] = true;
                 changed = true;
             }
         });
@@ -3780,6 +3800,28 @@ function computeBranchSummaryPayload() {
 
 const MAX_ATTENDANCE_SELFIE_LENGTH = 500 * 1024;
 const ATTENDANCE_RECORD_CAP = 20000;
+// A shift that has been open longer than this is treated as "forgotten time-out":
+// it is auto-closed (flagged) so the staff member can time in again and so it stops
+// inflating the "staff clocked in" counters. Override with ATTENDANCE_MAX_SHIFT_HOURS (1-24).
+const ATTENDANCE_MAX_SHIFT_HOURS = (() => {
+    const raw = Number(process.env.ATTENDANCE_MAX_SHIFT_HOURS);
+    return Number.isFinite(raw) && raw >= 1 && raw <= 24 ? raw : 16;
+})();
+const ATTENDANCE_MAX_SHIFT_MS = ATTENDANCE_MAX_SHIFT_HOURS * 60 * 60 * 1000;
+// Selfie photos older than this many days are removed (timestamps are kept). 0 = keep forever.
+const ATTENDANCE_SELFIE_RETENTION_DAYS = (() => {
+    const raw = Number(process.env.ATTENDANCE_SELFIE_RETENTION_DAYS);
+    return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 365;
+})();
+// Selfies live in their own per-day modules (attendanceSelfies_YYYY-MM-DD) instead of inside the
+// attendance records blob, so the records blob stays small and fast to parse.
+const ATTENDANCE_SELFIE_MODULE_PREFIX = 'attendanceSelfies_';
+const ATTENDANCE_REPORT_DEFAULT_LIMIT = 50;
+const ATTENDANCE_REPORT_MAX_LIMIT = 200;
+// Short-lived in-memory copy of a day's selfie module. The report page now loads each thumbnail with its
+// own request, so without this every image would re-parse the same multi-MB day module from SQLite.
+const ATTENDANCE_SELFIE_DAY_CACHE_MS = 30 * 1000;
+const attendanceSelfieDayCache = new Map(); // dayKey -> { at, data }
 function sanitizeAttendanceSelfie(value) {
     if (typeof value !== 'string' || !value.trim()) return null;
     const normalized = value.trim();
@@ -3793,41 +3835,156 @@ function getAttendanceDateKey(date = new Date()) {
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
 }
+function attendanceUsernameKey(value) {
+    return String(value || '').trim().toLowerCase();
+}
 function getAttendanceRecords() {
     const records = readData(FILE_ATTENDANCE, []);
     return Array.isArray(records) ? records : [];
+}
+function saveAttendanceRecords(records) {
+    const list = Array.isArray(records) ? records.slice(0, ATTENDANCE_RECORD_CAP) : [];
+    return writeData(FILE_ATTENDANCE, list) !== false;
 }
 function getCurrentUserRecord(username) {
     const normalized = String(username || '').trim().toLowerCase();
     return (readData(FILE_USERS, []) || []).find((user) => String(user.username || '').toLowerCase() === normalized) || null;
 }
-function getActiveAttendanceForUser(username) {
-    const normalized = String(username || '').trim().toLowerCase();
-    return getAttendanceRecords().find((record) =>
-        String(record.username || '').toLowerCase() === normalized &&
-        !record.timeOutAt
-    ) || null;
+function isAttendanceSessionStale(record, nowMs = Date.now()) {
+    if (!record || record.timeOutAt) return false;
+    const startedAt = new Date(record.timeInAt || record.createdAt || 0).getTime();
+    if (!Number.isFinite(startedAt) || startedAt <= 0) return true;
+    return nowMs - startedAt > ATTENDANCE_MAX_SHIFT_MS;
 }
-function attendancePublicRecord(record, includeSelfies = true) {
+// Closes (in memory) every stale open session, optionally only for one user. Returns how many were closed.
+// The caller must persist the array afterwards.
+function autoCloseStaleAttendanceSessions(records, username) {
+    const onlyUser = username == null ? null : attendanceUsernameKey(username);
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    let closed = 0;
+    records.forEach((record) => {
+        if (!isAttendanceSessionStale(record, nowMs)) return;
+        if (onlyUser !== null && attendanceUsernameKey(record.username) !== onlyUser) return;
+        record.timeOutAt = nowIso;
+        record.autoClosed = true;
+        record.autoClosedReason = `No time-out was recorded within ${ATTENDANCE_MAX_SHIFT_HOURS} hours of time-in.`;
+        closed += 1;
+    });
+    return closed;
+}
+function findActiveAttendanceIndex(records, username) {
+    const key = attendanceUsernameKey(username);
+    const nowMs = Date.now();
+    return records.findIndex((record) =>
+        attendanceUsernameKey(record.username) === key &&
+        !record.timeOutAt &&
+        !isAttendanceSessionStale(record, nowMs)
+    );
+}
+function getActiveAttendanceForUser(username) {
+    const records = getAttendanceRecords();
+    const index = findActiveAttendanceIndex(records, username);
+    return index === -1 ? null : records[index];
+}
+function getAttendanceSelfieDayKey(record) {
+    const stored = String((record && record.dateKey) || '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(stored)) return stored;
+    const parsed = new Date((record && (record.timeInAt || record.createdAt)) || 0);
+    return Number.isNaN(parsed.getTime()) ? 'unknown' : getAttendanceDateKey(parsed);
+}
+function readAttendanceSelfieDay(dayKey) {
+    const data = readData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, {});
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+}
+function readAttendanceSelfieDayCached(dayKey) {
+    const hit = attendanceSelfieDayCache.get(dayKey);
+    if (hit && Date.now() - hit.at < ATTENDANCE_SELFIE_DAY_CACHE_MS) return hit.data;
+    const data = readAttendanceSelfieDay(dayKey);
+    attendanceSelfieDayCache.set(dayKey, { at: Date.now(), data });
+    while (attendanceSelfieDayCache.size > 4) {
+        attendanceSelfieDayCache.delete(attendanceSelfieDayCache.keys().next().value);
+    }
+    return data;
+}
+function saveAttendanceSelfie(record, kind, selfie) {
+    const dayKey = getAttendanceSelfieDayKey(record);
+    const day = readAttendanceSelfieDay(dayKey);
+    const entry = day[record.id] && typeof day[record.id] === 'object' ? day[record.id] : {};
+    entry[kind] = selfie;
+    day[record.id] = entry;
+    attendanceSelfieDayCache.delete(dayKey);
+    return writeData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, day) !== false;
+}
+function discardAttendanceSelfie(record, kind) {
+    try {
+        const dayKey = getAttendanceSelfieDayKey(record);
+        const day = readAttendanceSelfieDay(dayKey);
+        const entry = day[record.id];
+        if (!entry || typeof entry !== 'object') return;
+        delete entry[kind];
+        if (!entry.in && !entry.out) delete day[record.id];
+        attendanceSelfieDayCache.delete(dayKey);
+        writeData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, day);
+    } catch (err) {
+        console.error('[ATTENDANCE] Could not discard an orphaned selfie:', err);
+    }
+}
+function attendancePublicRecord(record, includeSelfies = false, selfieDays = null) {
     if (!record) return null;
     const result = { ...record };
     if (!includeSelfies) {
         delete result.timeInSelfie;
         delete result.timeOutSelfie;
+        return result;
     }
+    const dayKey = getAttendanceSelfieDayKey(record);
+    let day;
+    if (selfieDays instanceof Map) {
+        if (!selfieDays.has(dayKey)) selfieDays.set(dayKey, readAttendanceSelfieDay(dayKey));
+        day = selfieDays.get(dayKey);
+    } else {
+        day = readAttendanceSelfieDay(dayKey);
+    }
+    const stored = (day && day[record.id]) || {};
+    result.timeInSelfie = record.timeInSelfie || stored.in || null;
+    result.timeOutSelfie = record.timeOutSelfie || stored.out || null;
     return result;
 }
+// Tells the report which photos exist WITHOUT shipping the (large) base64 images inside the list.
+// The page then loads each thumbnail on demand from /api/attendance/selfie/:id/:kind.
+function attendanceSelfieAvailability(record, selfieDays) {
+    const dayKey = getAttendanceSelfieDayKey(record);
+    if (!selfieDays.has(dayKey)) selfieDays.set(dayKey, readAttendanceSelfieDay(dayKey));
+    const stored = (selfieDays.get(dayKey) || {})[record.id] || {};
+    return {
+        hasTimeInSelfie: !!(record.timeInSelfie || stored.in),
+        hasTimeOutSelfie: !!(record.timeOutSelfie || stored.out)
+    };
+}
+// One place that turns the optional ?from=&to= (YYYY-MM-DD) values into a time range, so the
+// attendance list and the staff summary always agree. Default = today. Only "to" = that single day.
+function resolveAttendanceRange(fromDate, toDate) {
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const from = typeof fromDate === 'string' && datePattern.test(fromDate.trim()) ? fromDate.trim() : '';
+    const to = typeof toDate === 'string' && datePattern.test(toDate.trim()) ? toDate.trim() : '';
+    const effectiveFrom = from || to;
+    const startOfToday = new Date().setHours(0, 0, 0, 0);
+    let startMs = effectiveFrom ? new Date(`${effectiveFrom}T00:00:00`).getTime() : startOfToday;
+    let endMs = to ? new Date(`${to}T23:59:59.999`).getTime() : Date.now();
+    if (!Number.isFinite(startMs)) startMs = startOfToday;
+    if (!Number.isFinite(endMs)) endMs = Date.now();
+    return { startMs, endMs, from, to };
+}
 function buildStaffActivityReport(fromDate, toDate) {
-    const start = fromDate ? new Date(`${fromDate}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0));
-    const end = toDate ? new Date(`${toDate}T23:59:59.999`) : new Date();
-    const startMs = Number.isNaN(start.getTime()) ? 0 : start.getTime();
-    const endMs = Number.isNaN(end.getTime()) ? Date.now() : end.getTime();
+    const { startMs, endMs } = resolveAttendanceRange(fromDate, toDate);
     const transactions = readData(FILE_TRANSACTIONS, []);
     const attendance = getAttendanceRecords().filter((record) => {
         const at = new Date(record.timeInAt || record.createdAt || 0).getTime();
-        return at >= startMs && at <= endMs;
+        return Number.isFinite(at) && at >= startMs && at <= endMs;
     });
     const summary = new Map();
+    const daysByUser = new Map();
     const ensure = (username) => {
         const key = String(username || 'Unknown').trim() || 'Unknown';
         if (!summary.has(key)) summary.set(key, {
@@ -3836,6 +3993,7 @@ function buildStaffActivityReport(fromDate, toDate) {
             attendanceDays: 0,
             attendanceRecords: 0,
             completedShifts: 0,
+            flaggedShifts: 0,
             totalHours: 0,
             transactions: 0,
             grossSales: 0,
@@ -3846,16 +4004,25 @@ function buildStaffActivityReport(fromDate, toDate) {
     attendance.forEach((record) => {
         const row = ensure(record.username);
         row.attendanceRecords += 1;
-        if (record.timeInAt) row.attendanceDays += 1;
+        if (record.timeInAt) {
+            const dayKey = getAttendanceSelfieDayKey(record);
+            if (!daysByUser.has(row.username)) daysByUser.set(row.username, new Set());
+            daysByUser.get(row.username).add(dayKey);
+        }
         if (record.timeOutAt) {
-            row.completedShifts += 1;
             const hours = (new Date(record.timeOutAt).getTime() - new Date(record.timeInAt).getTime()) / 3600000;
-            if (Number.isFinite(hours) && hours >= 0 && hours <= 24) row.totalHours += hours;
+            if (!record.autoClosed && Number.isFinite(hours) && hours >= 0 && hours <= ATTENDANCE_MAX_SHIFT_HOURS) {
+                row.completedShifts += 1;
+                row.totalHours += hours;
+            } else {
+                // Auto-closed or implausible length: not counted as worked hours, surfaced for review.
+                row.flaggedShifts += 1;
+            }
         }
     });
-    transactions.forEach((transaction) => {
+    (Array.isArray(transactions) ? transactions : []).forEach((transaction) => {
         const at = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime();
-        if (at < startMs || at > endMs) return;
+        if (!Number.isFinite(at) || at < startMs || at > endMs) return;
         const row = ensure(transaction.cashier || transaction.username || 'Unknown');
         const gross = Math.max(0, Number(transaction.total) || 0);
         const refunded = transaction.refundStatus === 'full'
@@ -3868,24 +4035,155 @@ function buildStaffActivityReport(fromDate, toDate) {
     return Array.from(summary.values())
         .map((row) => ({
             ...row,
+            attendanceDays: daysByUser.has(row.username) ? daysByUser.get(row.username).size : 0,
             totalHours: Math.round(row.totalHours * 100) / 100,
             grossSales: Math.round(row.grossSales * 100) / 100,
             netSales: Math.round(row.netSales * 100) / 100
         }))
         .sort((a, b) => b.netSales - a.netSales || a.username.localeCompare(b.username));
 }
+function sweepStaleAttendanceSessions() {
+    try {
+        const records = getAttendanceRecords();
+        const closed = autoCloseStaleAttendanceSessions(records, null);
+        if (closed > 0) {
+            if (saveAttendanceRecords(records)) {
+                console.log(`[ATTENDANCE] Auto-closed ${closed} stale session(s) that had no time-out after ${ATTENDANCE_MAX_SHIFT_HOURS} hours.`);
+            } else {
+                console.error('[ATTENDANCE] Could not save the auto-closed stale sessions.');
+                return 0;
+            }
+        }
+        return closed;
+    } catch (err) {
+        console.error('[ATTENDANCE] Stale-session sweep failed:', err);
+        return 0;
+    }
+}
+// One-time (idempotent) move of selfies that are still embedded inside attendance records
+// (older versions) into the per-day selfie modules. Records are only stripped after the
+// selfie modules were written successfully, so nothing can be lost.
+function migrateAttendanceSelfiesToDayModules() {
+    try {
+        const records = getAttendanceRecords();
+        const legacy = records.filter((record) => record && record.id && (record.timeInSelfie || record.timeOutSelfie));
+        if (!legacy.length) return;
+        const byDay = new Map();
+        legacy.forEach((record) => {
+            const dayKey = getAttendanceSelfieDayKey(record);
+            if (!byDay.has(dayKey)) byDay.set(dayKey, readAttendanceSelfieDay(dayKey));
+            const day = byDay.get(dayKey);
+            const entry = day[record.id] && typeof day[record.id] === 'object' ? day[record.id] : {};
+            if (record.timeInSelfie && !entry.in) entry.in = record.timeInSelfie;
+            if (record.timeOutSelfie && !entry.out) entry.out = record.timeOutSelfie;
+            day[record.id] = entry;
+        });
+        const failedDays = new Set();
+        byDay.forEach((day, dayKey) => {
+            if (writeData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, day) === false) failedDays.add(dayKey);
+        });
+        let moved = 0;
+        legacy.forEach((record) => {
+            if (failedDays.has(getAttendanceSelfieDayKey(record))) return;
+            delete record.timeInSelfie;
+            delete record.timeOutSelfie;
+            moved += 1;
+        });
+        if (moved > 0) {
+            if (saveAttendanceRecords(records)) {
+                console.log(`[ATTENDANCE] Moved the selfies of ${moved} attendance record(s) out of the records blob.`);
+            } else {
+                console.error('[ATTENDANCE] Could not save the slimmed-down attendance records; will retry on the next maintenance run.');
+            }
+        }
+    } catch (err) {
+        console.error('[ATTENDANCE] Selfie migration failed:', err);
+    }
+}
+// Every day that may hold selfies: the modules that really exist in the database plus the days of the
+// records we know about (covers selfies whose record was already dropped by the record cap).
+function listAttendanceSelfieDays() {
+    const days = new Set();
+    try {
+        sqliteDb.prepare('SELECT module FROM store WHERE module LIKE ?').all(`${ATTENDANCE_SELFIE_MODULE_PREFIX}%`).forEach((row) => {
+            const moduleName = String((row && row.module) || '');
+            if (moduleName.startsWith(ATTENDANCE_SELFIE_MODULE_PREFIX)) days.add(moduleName.slice(ATTENDANCE_SELFIE_MODULE_PREFIX.length));
+        });
+    } catch (err) {
+        // Fall back to the days derived from the records below.
+    }
+    getAttendanceRecords().forEach((record) => days.add(getAttendanceSelfieDayKey(record)));
+    return Array.from(days);
+}
+function purgeOldAttendanceSelfies() {
+    if (!ATTENDANCE_SELFIE_RETENTION_DAYS) return 0;
+    attendanceSelfieDayCache.clear();
+    try {
+        const cutoff = new Date();
+        cutoff.setHours(0, 0, 0, 0);
+        cutoff.setDate(cutoff.getDate() - ATTENDANCE_SELFIE_RETENTION_DAYS);
+        const cutoffKey = getAttendanceDateKey(cutoff);
+        let purged = 0;
+        listAttendanceSelfieDays().forEach((dayKey) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || dayKey >= cutoffKey) return;
+            if (!Object.keys(readAttendanceSelfieDay(dayKey)).length) return;
+            if (writeData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, {}) !== false) purged += 1;
+        });
+        if (purged > 0) console.log(`[ATTENDANCE] Removed selfies of ${purged} day(s) older than ${ATTENDANCE_SELFIE_RETENTION_DAYS} days.`);
+        return purged;
+    } catch (err) {
+        console.error('[ATTENDANCE] Selfie retention cleanup failed:', err);
+        return 0;
+    }
+}
+// Used by the Hard Factory Reset so no attendance records or staff selfies survive it.
+function clearAllAttendanceData() {
+    attendanceSelfieDayCache.clear();
+    try {
+        listAttendanceSelfieDays().forEach((dayKey) => {
+            if (!Object.keys(readAttendanceSelfieDay(dayKey)).length) return;
+            writeData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, {});
+        });
+        writeData(FILE_ATTENDANCE, []);
+    } catch (err) {
+        console.error('[ATTENDANCE] Could not clear attendance data during reset:', err);
+    }
+}
+function runAttendanceMaintenance() {
+    migrateAttendanceSelfiesToDayModules();
+    sweepStaleAttendanceSessions();
+    purgeOldAttendanceSelfies();
+}
+setTimeout(runAttendanceMaintenance, 3 * 1000);
+setInterval(runAttendanceMaintenance, 30 * 60 * 1000).unref();
+// After a time-in/out, push fresh numbers to the Relay soon (debounced, min 15s apart) so the
+// "staff clocked in" count on other devices doesn't lag by the 2-minute interval.
+let remoteOperationsCheckinTimer = null;
+let lastRemoteOperationsCheckinStartedAt = 0;
+function queueRemoteOperationsCheckin() {
+    if (remoteOperationsCheckinTimer) return;
+    const wait = Math.max(3000, 15000 - (Date.now() - lastRemoteOperationsCheckinStartedAt));
+    remoteOperationsCheckinTimer = setTimeout(() => {
+        remoteOperationsCheckinTimer = null;
+        runRelayRemoteOperationsCheckin().catch(() => {});
+    }, wait);
+    if (remoteOperationsCheckinTimer.unref) remoteOperationsCheckinTimer.unref();
+}
+const attendanceUserRateKey = (req) => `user:${attendanceUsernameKey(req.authUser && req.authUser.username) || 'unknown'}`;
 app.get('/api/attendance/current', requirePermission('attendance'), requireFeature('remote_operations'), (req, res) => {
     res.json({
         success: true,
-        attendance: attendancePublicRecord(getActiveAttendanceForUser(req.authUser.username), true)
+        attendance: attendancePublicRecord(getActiveAttendanceForUser(req.authUser.username), false)
     });
 });
-app.post('/api/attendance/time-in', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-in', 12, 60 * 60 * 1000), (req, res) => {
+app.post('/api/attendance/time-in', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-in', 12, 60 * 60 * 1000, undefined, attendanceUserRateKey), (req, res) => {
     const selfie = sanitizeAttendanceSelfie(req.body?.selfie);
     if (!selfie) {
         return res.status(400).json({ success: false, message: 'A valid selfie photo is required to time in.' });
     }
-    if (getActiveAttendanceForUser(req.authUser.username)) {
+    const records = getAttendanceRecords();
+    const autoClosedCount = autoCloseStaleAttendanceSessions(records, req.authUser.username);
+    if (findActiveAttendanceIndex(records, req.authUser.username) !== -1) {
         return res.status(409).json({ success: false, message: 'You already have an active attendance session. Time out first.' });
     }
     const user = getCurrentUserRecord(req.authUser.username);
@@ -3897,49 +4195,89 @@ app.post('/api/attendance/time-in', requirePermission('attendance'), requireFeat
         role: user?.role || req.authUser.role || 'Staff',
         dateKey: getAttendanceDateKey(),
         timeInAt: now,
-        timeInSelfie: selfie,
         timeOutAt: null,
-        timeOutSelfie: null,
         createdAt: now,
         ip: getClientIp(req)
     };
-    const records = getAttendanceRecords();
+    if (!saveAttendanceSelfie(record, 'in', selfie)) {
+        return res.status(500).json({ success: false, message: 'Attendance could not be saved (the selfie could not be stored). Please try again.' });
+    }
     records.unshift(record);
-    writeData(FILE_ATTENDANCE, records.slice(0, ATTENDANCE_RECORD_CAP));
+    if (!saveAttendanceRecords(records)) {
+        discardAttendanceSelfie(record, 'in');
+        return res.status(500).json({ success: false, message: 'Attendance could not be saved. Please try again.' });
+    }
+    if (autoClosedCount > 0) {
+        logAction(req.authUser.username, `A previous attendance session had no time-out and was auto-closed (flagged for review).`);
+    }
     logAction(req.authUser.username, 'Staff timed in with selfie attendance.');
-    res.json({ success: true, attendance: attendancePublicRecord(record, true) });
+    queueRemoteOperationsCheckin();
+    res.json({ success: true, attendance: attendancePublicRecord(record, false), autoClosedPrevious: autoClosedCount > 0 });
 });
-app.post('/api/attendance/time-out', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-out', 12, 60 * 60 * 1000), (req, res) => {
+app.post('/api/attendance/time-out', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-out', 12, 60 * 60 * 1000, undefined, attendanceUserRateKey), (req, res) => {
     const selfie = sanitizeAttendanceSelfie(req.body?.selfie);
     if (!selfie) {
         return res.status(400).json({ success: false, message: 'A valid selfie photo is required to time out.' });
     }
     const records = getAttendanceRecords();
-    const index = records.findIndex((record) =>
-        String(record.username || '').toLowerCase() === String(req.authUser.username || '').toLowerCase() &&
-        !record.timeOutAt
-    );
+    const index = findActiveAttendanceIndex(records, req.authUser.username);
     if (index === -1) {
         return res.status(409).json({ success: false, message: 'No active attendance session was found. Time in first.' });
     }
-    records[index].timeOutAt = new Date().toISOString();
-    records[index].timeOutSelfie = selfie;
-    writeData(FILE_ATTENDANCE, records);
+    const record = records[index];
+    if (!saveAttendanceSelfie(record, 'out', selfie)) {
+        return res.status(500).json({ success: false, message: 'Attendance could not be saved (the selfie could not be stored). Please try again.' });
+    }
+    record.timeOutAt = new Date().toISOString();
+    if (!saveAttendanceRecords(records)) {
+        discardAttendanceSelfie(record, 'out');
+        return res.status(500).json({ success: false, message: 'Attendance could not be saved. Please try again.' });
+    }
     logAction(req.authUser.username, 'Staff timed out with selfie attendance.');
-    res.json({ success: true, attendance: attendancePublicRecord(records[index], true) });
+    queueRemoteOperationsCheckin();
+    res.json({ success: true, attendance: attendancePublicRecord(record, false) });
+});
+app.get('/api/attendance/selfie/:id/:kind', requirePermission('remoteops'), requireFeature('remote_operations'), (req, res) => {
+    const kind = req.params.kind === 'in' ? 'in' : (req.params.kind === 'out' ? 'out' : null);
+    const id = String(req.params.id || '');
+    if (!kind || !/^[A-Za-z0-9-]{8,64}$/.test(id)) {
+        return res.status(400).json({ success: false, message: 'Invalid attendance photo request.' });
+    }
+    const record = getAttendanceRecords().find((item) => item && item.id === id);
+    if (!record) return res.status(404).json({ success: false, message: 'Attendance record not found.' });
+    const stored = readAttendanceSelfieDayCached(getAttendanceSelfieDayKey(record))[record.id] || {};
+    const dataUrl = kind === 'in' ? (record.timeInSelfie || stored.in) : (record.timeOutSelfie || stored.out);
+    const comma = typeof dataUrl === 'string' ? dataUrl.indexOf(',') : -1;
+    const header = comma > 0 ? dataUrl.slice(0, comma) : '';
+    const mime = /^data:image\/(jpeg|jpg|png|webp);base64$/i.exec(header);
+    if (!mime) return res.status(404).json({ success: false, message: 'No photo was recorded.' });
+    res.set('Content-Type', `image/${mime[1].toLowerCase() === 'jpg' ? 'jpeg' : mime[1].toLowerCase()}`);
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.send(Buffer.from(dataUrl.slice(comma + 1), 'base64'));
 });
 app.get('/api/attendance/report', requirePermission('remoteops'), requireFeature('remote_operations'), (req, res) => {
-    const from = typeof req.query.from === 'string' ? req.query.from.slice(0, 10) : '';
-    const to = typeof req.query.to === 'string' ? req.query.to.slice(0, 10) : '';
+    sweepStaleAttendanceSessions();
+    const from = typeof req.query.from === 'string' ? req.query.from.trim().slice(0, 10) : '';
+    const to = typeof req.query.to === 'string' ? req.query.to.trim().slice(0, 10) : '';
+    const { startMs, endMs } = resolveAttendanceRange(from, to);
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit)
+        ? Math.min(Math.max(requestedLimit, 1), ATTENDANCE_REPORT_MAX_LIMIT)
+        : ATTENDANCE_REPORT_DEFAULT_LIMIT;
+    const isDefaultRange = !from && !to;
+    const embedSelfies = req.query.selfies === '1';
+    const selfieDays = new Map();
     const records = getAttendanceRecords()
         .filter((record) => {
+            if (isDefaultRange && !record.timeOutAt) return true;
             const at = new Date(record.timeInAt || record.createdAt || 0).getTime();
-            const start = from ? new Date(`${from}T00:00:00`).getTime() : 0;
-            const end = to ? new Date(`${to}T23:59:59.999`).getTime() : Date.now();
-            return at >= start && at <= end;
+            return Number.isFinite(at) && at >= startMs && at <= endMs;
         })
-        .slice(0, 100)
-        .map((record) => attendancePublicRecord(record, true));
+        .slice(0, limit)
+        .map((record) => embedSelfies
+            ? attendancePublicRecord(record, true, selfieDays)
+            : { ...attendancePublicRecord(record, false), ...attendanceSelfieAvailability(record, selfieDays) });
     res.json({ success: true, records, staffReport: buildStaffActivityReport(from, to) });
 });
 
@@ -4010,39 +4348,84 @@ const relayRemoteOperationsStatus = {
     featureLocked: true
 };
 function computeRemoteOperationsPayload() {
-    const transactions = readData(FILE_TRANSACTIONS, []);
-    const now = new Date();
-    const todayKey = getAttendanceDateKey(now);
-    const todaysTransactions = transactions.filter((transaction) => {
-        const date = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0);
-        return !Number.isNaN(date.getTime()) && getAttendanceDateKey(date) === todayKey;
+    const rawTransactions = readData(FILE_TRANSACTIONS, []);
+    const transactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+    const todayKey = getAttendanceDateKey(new Date());
+    let todaySales = 0;
+    let todayTransactions = 0;
+    const dated = [];
+    transactions.forEach((transaction, index) => {
+        if (!transaction) return;
+        const at = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime();
+        if (!Number.isFinite(at) || at <= 0) return;
+        const gross = Math.max(0, Number(transaction.total) || 0);
+        const refunded = transaction.refundStatus === 'full'
+            ? gross
+            : Math.min(gross, Math.max(0, Number(transaction.totalRefunded) || 0));
+        const net = Math.max(0, gross - refunded);
+        if (getAttendanceDateKey(new Date(at)) === todayKey) {
+            // Net of refunds, same rule as computeBranchSummaryPayload(), so both screens agree.
+            todaySales += net;
+            if (net > 0.009) todayTransactions += 1;
+        }
+        dated.push({ transaction, at, gross, index });
     });
-    const activeStaffCount = getAttendanceRecords().filter((record) => !record.timeOutAt).length;
-    const recentTransactions = transactions
-        .slice()
-        .sort((a, b) => new Date(b.isoDate || b.timestamp || b.date || 0).getTime() - new Date(a.isoDate || a.timestamp || a.date || 0).getTime())
+    const nowMs = Date.now();
+    const activeStaff = new Set();
+    getAttendanceRecords().forEach((record) => {
+        if (!record.timeOutAt && !isAttendanceSessionStale(record, nowMs)) {
+            activeStaff.add(attendanceUsernameKey(record.username));
+        }
+    });
+    const recentTransactions = dated
+        .sort((a, b) => b.at - a.at)
         .slice(0, 25)
-        .map((transaction, index) => ({
+        .map(({ transaction, at, gross, index }) => ({
             id: String(transaction.id || transaction.transactionId || transaction.isoDate || `transaction-${index}`),
             cashier: String(transaction.cashier || transaction.username || 'Unknown'),
-            total: Math.max(0, Number(transaction.total) || 0),
+            total: gross,
             paymentMethod: String(transaction.paymentMethod || transaction.payment || ''),
-            at: new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime() || Date.now()
+            at
         }));
     return {
-        activeStaffCount,
-        todaySales: todaysTransactions.reduce((sum, transaction) => sum + Math.max(0, Number(transaction.total) || 0), 0),
-        todayTransactions: todaysTransactions.length,
+        activeStaffCount: activeStaff.size,
+        todaySales: Math.round(todaySales * 100) / 100,
+        todayTransactions,
         recentTransactions
     };
 }
+let relayRemoteOperationsInFlight = false;
 async function runRelayRemoteOperationsCheckin() {
+    if (relayRemoteOperationsInFlight) return;
+    relayRemoteOperationsInFlight = true;
+    lastRemoteOperationsCheckinStartedAt = Date.now();
+    try {
+        await runRelayRemoteOperationsCheckinInner();
+    } finally {
+        relayRemoteOperationsInFlight = false;
+    }
+}
+async function runRelayRemoteOperationsCheckinInner() {
     const featureUnlocked = getUnlockedFeatureIds().includes('remote_operations');
     relayRemoteOperationsStatus.featureLocked = !featureUnlocked;
     if (!featureUnlocked) return;
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
-    if (!groupKeyHash || getConnectivityMode() === 'offline' || !RELAY_API_KEY) return;
+    if (!groupKeyHash) {
+        relayRemoteOperationsStatus.state = 'orange';
+        relayRemoteOperationsStatus.lastError = 'No Business Group Code has been set — remote monitoring cannot check in yet.';
+        return;
+    }
+    if (getConnectivityMode() === 'offline') {
+        relayRemoteOperationsStatus.state = 'orange';
+        relayRemoteOperationsStatus.lastError = 'Currently in OFFLINE mode — intentionally not calling the Relay for now.';
+        return;
+    }
+    if (!RELAY_API_KEY) {
+        relayRemoteOperationsStatus.state = 'orange';
+        relayRemoteOperationsStatus.lastError = 'No RELAY_API_KEY configured — cannot check in to the Relay.';
+        return;
+    }
     relayRemoteOperationsStatus.lastAttemptAt = Date.now();
     try {
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
@@ -4078,6 +4461,48 @@ app.get('/api/relay-branch/status', (req, res) => {
 app.get('/api/remote-operations/status', (req, res) => {
     res.json({ success: true, ...relayRemoteOperationsStatus });
 });
+// A branch that hasn't checked in for this long can't be trusted as "live": its staff are not counted
+// as clocked in, and a report from a previous day contributes nothing to "today's" sales.
+const REMOTE_OPS_STALE_MS = 10 * 60 * 1000;
+function decorateRemoteOperationsSummary(relayData, installationId, ownBranchName) {
+    const nowMs = Date.now();
+    const todayKey = getAttendanceDateKey(new Date(nowMs));
+    const local = computeRemoteOperationsPayload();
+    let hasSelf = false;
+    const branches = (Array.isArray(relayData.branches) ? relayData.branches : []).map((branch) => {
+        const isSelf = branch.installationId === installationId;
+        let operations = branch.remoteOperations || {};
+        let updatedAt = Number(branch.updatedAt) || Number(operations.updatedAt) || 0;
+        if (isSelf) {
+            hasSelf = true;
+            operations = { ...operations, ...local, updatedAt: nowMs };
+            updatedAt = nowMs;
+        }
+        const offline = !isSelf && (!updatedAt || nowMs - updatedAt > REMOTE_OPS_STALE_MS);
+        const previousDay = !!updatedAt && getAttendanceDateKey(new Date(updatedAt)) !== todayKey;
+        return { ...branch, isSelf, remoteOperations: operations, updatedAt, offline, previousDay };
+    });
+    if (!hasSelf) {
+        branches.push({
+            installationId, branchName: ownBranchName || 'This device', isSelf: true,
+            remoteOperations: { ...local, updatedAt: nowMs }, updatedAt: nowMs, offline: false, previousDay: false
+        });
+    }
+    branches.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const combined = { activeStaffCount: 0, todaySales: 0, todayTransactions: 0, recentTransactions: [] };
+    branches.forEach((branch) => {
+        const ops = branch.remoteOperations || {};
+        if (!branch.offline) combined.activeStaffCount += Number(ops.activeStaffCount) || 0;
+        if (!branch.previousDay) {
+            combined.todaySales += Number(ops.todaySales) || 0;
+            combined.todayTransactions += Number(ops.todayTransactions) || 0;
+        }
+        (ops.recentTransactions || []).forEach((t) => combined.recentTransactions.push({ ...t, branchName: branch.branchName }));
+    });
+    combined.todaySales = Math.round(combined.todaySales * 100) / 100;
+    combined.recentTransactions = combined.recentTransactions.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 50);
+    return { ...relayData, branchCount: branches.length, branches, combined, offlineCount: branches.filter((b) => b.offline).length, serverTime: nowMs };
+}
 app.get('/api/remote-operations/summary', requirePermission('remoteops'), requireFeature('remote_operations'), async (req, res) => {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
@@ -4090,7 +4515,7 @@ app.get('/api/remote-operations/summary', requirePermission('remoteops'), requir
         });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) return res.status(relayRes.status || 502).json(relayData);
-        res.json({ success: true, configured: true, ...relayData });
+        res.json({ success: true, configured: true, ...decorateRemoteOperationsSummary(relayData, installationId, storeSettings.branchName) });
     } catch (err) {
         res.status(502).json({ success: false, message: `Could not reach the Relay: ${err.message}` });
     }
@@ -10835,6 +11260,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 deviceSeed: preResetIdentity.deviceSeed
             });
             writeData(FILE_USERLOGS, []);
+            clearAllAttendanceData();
             updateResetJob(jobId, { percent: 96, message: 'Compacting the database file to reclaim disk space...' });
             const vacuumResult = vacuumDatabase();
             if (!vacuumResult.success) {
