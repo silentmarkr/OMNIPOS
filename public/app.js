@@ -3482,6 +3482,8 @@ function switchView(viewKey, opts) {
         if (typeof replayOverviewEntranceAnimation ==='function') {
             replayOverviewEntranceAnimation();
         }
+        // redraw from the data we already have (no blank flash); the fresh data replaces it right after
+        if (typeof renderAdvancedOverviewChart === 'function' && overviewChartState.lastTxs.length) renderAdvancedOverviewChart();
         if (typeof loadDashboardMetrics ==='function') {
             loadDashboardMetrics();
         }
@@ -3537,7 +3539,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     products:     { text:'Products',            icon:'fa-box',                hideIds: ['page-title-products'] },
     barcode:      { text:'Barcode Generator',   icon:'fa-barcode',            hideIds: ['page-title-barcode'] },
     reorder:      { text:'Reorder Alerts',      icon:'fa-truck-fast',         hideIds: ['page-title-reorder'] },
-    reports:      { text:'Sales Analytics',     icon:'fa-chart-line',         hideIds: ['page-title-reports'] },
+    reports:      { text:'Sales Analytics',     icon:'fa-chart-line',         hideIds: [] },
     transactions: { text:'Transaction',         icon:'fa-receipt',            hideIds: ['page-title-transactions'] },
     customers:    { text:'Customers',           icon:'fa-address-book',       hideIds: ['page-title-customers'] },
     debts:        { text:'Debtors',             icon:'fa-hand-holding-dollar',hideIds: ['page-title-debts'] },
@@ -3545,7 +3547,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     logs:         { text:'System Audit Logs',   icon:'fa-clock-rotate-left',  hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 icon:'fa-circle-question',    hideIds: ['page-title-faq'] },
     stock_return_inspection: { text:'Void / Refund', icon:'fa-clipboard-check', hideIds: ['page-title-stock_return_inspection'] },
-    branches:     { text:'Branches',            icon:'fa-code-branch',       hideIds: ['page-title-branches'] },
+    branches:     { text:'Branches',            icon:'fa-code-branch',       hideIds: [] },
     attendance:   { text:'Staff Attendance',     icon:'fa-camera',            hideIds: [] },
     remoteops:    { text:'Remote Operations',    icon:'fa-mobile-screen-button', hideIds: [] },
     cloudtokens:  { text:'Omni Tokens',         icon:'fa-gem',                hideIds: ['page-title-cloudtokens'] },
@@ -8331,139 +8333,355 @@ function printReorderList() {
     win.focus();
     setTimeout(() => win.print(), 300);
 }
+// === Overview / Dashboard data pipeline ==================================
+// FIX (race): loadDashboardMetrics() is fired from many places (sale done, product edited, branch
+// transfer, tab switch...). Two overlapping runs used to let an OLDER response overwrite a newer
+// one. Now only one run is in flight; extra calls just queue ONE more run afterwards.
+let ovMetricsInFlight = null;
+let ovMetricsReloadPending = false;
 async function loadDashboardMetrics() {
+    if (ovMetricsInFlight) {
+        ovMetricsReloadPending = true;
+        return ovMetricsInFlight;
+    }
+    ovMetricsInFlight = (async () => {
+        try {
+            do {
+                ovMetricsReloadPending = false;
+                await ovRunDashboardMetricsCycle();
+            } while (ovMetricsReloadPending);
+        } finally {
+            ovMetricsInFlight = null;
+        }
+    })();
+    return ovMetricsInFlight;
+}
+function ovReadJsonCache(key, fallback) {
     try {
-        const resTx = await authFetch(`${API_URL}/transactions`);
-        const resProd = await authFetch(`${API_URL}/products`);
-        const currentUsername = currentUser?.username ||'admin';
-        const resUsers = await authFetch(`${API_URL}/users?requester=${currentUsername}`);
-        let serverTxs = resTx.ok ? await resTx.json() : [];
-        let productsList = resProd.ok ? await resProd.json() : [];
-        const usersList = resUsers.ok ? await resUsers.json() : [];
-        if (resTx.ok) {
-            localStorage.setItem('cached_transactions', JSON.stringify(serverTxs));
-        } else {
-            serverTxs = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
-        }
-        if (resProd.ok) {
-            localStorage.setItem('cached_products', JSON.stringify(productsList));
-        } else {
-            productsList = JSON.parse(localStorage.getItem('cached_products') ||'[]');
-        }
-        const rawOffline = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
-        const offlineTxs = rawOffline.map(item => item.transaction || item);
-        const allTxs = [...offlineTxs, ...serverTxs];
-        const uniqueMap = new Map();
-        allTxs.forEach(tx => { if (tx && tx.id) uniqueMap.set(tx.id, tx); });
-        const uniqueTxs = Array.from(uniqueMap.values());
-        const today = new Date();
-        const currentYear = today.getFullYear();
-        const currentMonth = today.getMonth();
-        const currentDate = today.getDate();
-        const todaysTxs = uniqueTxs.filter(tx => {
-            const timestamp = tx.timestamp || tx.date;
-            if (!timestamp) return false;
-            let txDate = tx.isoDate ? new Date(tx.isoDate) : new Date(timestamp);
-            if (isNaN(txDate.getTime())) {
-                const numbers = timestamp.match(/\d+/g);
-                if (numbers && numbers.length >= 3) {
-                    const year = parseInt(numbers[2]);
-                    const val1 = parseInt(numbers[0]);
-                    const val2 = parseInt(numbers[1]);
-                    if (year === currentYear) {
-                        if ((val1 === currentMonth + 1 && val2 === currentDate) ||
-                            (val2 === currentMonth + 1 && val1 === currentDate)) {
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            }
-            return txDate.getFullYear() === currentYear &&
-                   txDate.getMonth() === currentMonth &&
-                   txDate.getDate() === currentDate;
-        });
-        const revenue = todaysTxs.reduce((acc, current) => acc + ovGetNetSalesAmount(current), 0);
-        const totalProductsCount = productsList.length;
-        const lowStockItemsCount = productsList.filter(p => {
-            const stock = parseInt(p.stock) || 0;
-            const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
-            return stock > 0 && stock <= threshold;
-        }).length;
-        const noStockItemsCount = productsList.filter(p => (parseInt(p.stock) || 0) <= 0).length;
-        const expiringSoonCount = productsList.filter(p => {
-            if (!p.expiryDate) return false;
-            const expiryDate = new Date(p.expiryDate);
-            if (isNaN(expiryDate.getTime())) return false;
-            const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
-            return daysLeft >= 0 && daysLeft <= 7;
-        }).length;
-        const expiredCount = productsList.filter(p => {
-            if (!p.expiryDate) return false;
-            const expiryDate = new Date(p.expiryDate);
-            if (isNaN(expiryDate.getTime())) return false;
-            const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
-            return daysLeft < 0;
-        }).length;
+        const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+        return parsed === null || parsed === undefined ? fallback : parsed;
+    } catch (e) {
+        return fallback;
+    }
+}
+// FIX: caching used to be un-guarded — when localStorage was full (product photos are big) the
+// setItem threw, and the whole run wrongly fell into the "offline" fallback even though the server
+// had answered fine.
+function ovWriteJsonCache(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota — not a problem */ }
+}
+async function ovFetchJsonOrNull(url) {
+    try {
+        const res = await authFetch(url);
+        if (!res || !res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
+}
+async function ovRunDashboardMetricsCycle() {
+    ovSetSyncState('loading');
+    let usedCache = false;
+    let liveOk = false;
+    try {
+        const currentUsername = currentUser?.username || 'admin';
         const canViewUsers = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin') || !!(currentPermissions && currentPermissions.users);
-        const totalUsersCount = canViewUsers && resUsers.ok ? usersList.length : null;
-        const todayProductRanking = {};
-        todaysTxs.forEach(tx => {
-            if (!ovIsCountableSale(tx)) return;
-            (tx.items || []).forEach(i => {
-                const qty = ovGetNetItemQty(tx, i);
-                if (!i.name || qty <= 0) return;
-                todayProductRanking[i.name] = (todayProductRanking[i.name] || 0) + qty;
-            });
-        });
-        const topProductsToday = Object.entries(todayProductRanking)
-            .map(([name, qty]) => ({ name, qty }))
-            .sort((a, b) => b.qty - a.qty)
-            .slice(0, 5);
-        renderDashboardDOM(revenue, todaysTxs.filter(ovIsCountableSale).length, totalProductsCount, lowStockItemsCount, noStockItemsCount, totalUsersCount, expiringSoonCount, expiredCount, topProductsToday);
+        // The three requests are independent — run them together, and let each one fall back on its own.
+        const [txData, prodData, usersData] = await Promise.all([
+            ovFetchJsonOrNull(`${API_URL}/transactions`),
+            ovFetchJsonOrNull(`${API_URL}/products`),
+            canViewUsers ? ovFetchJsonOrNull(`${API_URL}/users?requester=${encodeURIComponent(currentUsername)}`) : Promise.resolve(null)
+        ]);
+        let serverTxs;
+        if (Array.isArray(txData)) {
+            serverTxs = txData;
+            liveOk = true;
+            ovWriteJsonCache('cached_transactions', serverTxs);
+        } else {
+            serverTxs = ovReadJsonCache('cached_transactions', []);
+            usedCache = true;
+        }
+        let productsList;
+        let productsFresh = false;
+        if (Array.isArray(prodData)) {
+            productsList = prodData;
+            productsFresh = true;
+            ovWriteJsonCache('cached_products', productsList);
+        } else {
+            productsList = ovReadJsonCache('cached_products', []);
+            usedCache = true;
+        }
+        if (!Array.isArray(serverTxs)) serverTxs = [];
+        if (!Array.isArray(productsList)) productsList = [];
+        const rawOffline = ovReadJsonCache('offline_transactions', []);
+        const offlineTxs = (Array.isArray(rawOffline) ? rawOffline : []).map(item => item && (item.transaction || item)).filter(Boolean);
+        const serverIds = new Set(serverTxs.filter(tx => tx && tx.id).map(tx => tx.id));
+        const uniqueMap = new Map();
+        [...offlineTxs, ...serverTxs].forEach(tx => { if (tx && tx.id) uniqueMap.set(tx.id, tx); });
+        const uniqueTxs = Array.from(uniqueMap.values());
+        const pendingIds = new Set(offlineTxs.filter(tx => tx && tx.id && !serverIds.has(tx.id)).map(tx => tx.id));
+        const stats = ovBuildOverviewStats(uniqueTxs, productsList);
+        // FIX: when the users list could not be loaded the Dashboard used to show "0" — show "—" instead.
+        const totalUsersCount = canViewUsers && Array.isArray(usersData) ? usersData.length : null;
+        renderDashboardDOM(stats.revenue, stats.orders, stats.totalProducts, stats.lowStock, stats.noStock, totalUsersCount, stats.expiringSoon, stats.expired, stats.topProductsToday);
+        renderOverviewDOM(stats, { txs: uniqueTxs, pendingIds, usedCache });
         renderWeeklyTrend(uniqueTxs);
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(uniqueTxs);
-        if (productsList.length > 0) globalProducts = productsList;
-        refreshLowStockBadge();
-        checkBackupHealthBanner();
-        refreshBranchesAlertBadge();
+        if (productsFresh && productsList.length > 0) globalProducts = productsList;
+        if (liveOk) {
+            refreshLowStockBadge();
+            checkBackupHealthBanner();
+            refreshBranchesAlertBadge();
+        }
+        ovSetSyncState(usedCache ? 'cache' : 'ok', { pending: pendingIds.size });
     } catch (e) {
-        console.warn('Dashboard Analytics Pipeline Fallback Invoked:', e);
-        const cachedTxs = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
-        const cachedProds = JSON.parse(localStorage.getItem('cached_products') ||'[]');
-        const today = new Date();
-        const cy = today.getFullYear(), cm = today.getMonth(), cd = today.getDate();
-        const cachedTodayTxs = cachedTxs.filter(tx => {
-            let d = new Date(tx.isoDate || tx.timestamp || tx.date);
-            return !isNaN(d.getTime()) && d.getFullYear() === cy && d.getMonth() === cm && d.getDate() === cd;
+        console.warn('Dashboard Analytics Pipeline failed:', e);
+        ovSetSyncState('error');
+    }
+}
+function ovSetSyncState(state, info) {
+    const statusEl = document.getElementById('overview-sync-status');
+    const updatedEl = document.getElementById('overview-last-updated');
+    const btn = document.getElementById('overview-refresh-btn');
+    if (state === 'loading') {
+        if (statusEl) { statusEl.textContent = 'Syncing live data…'; statusEl.classList.remove('is-warn'); }
+        if (updatedEl) updatedEl.textContent = 'Updating now';
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            btn.querySelector('i')?.classList.add('fa-spin');
+        }
+        return;
+    }
+    const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const pending = info && info.pending ? ` · ${info.pending} unsynced sale${info.pending === 1 ? '' : 's'}` : '';
+    if (state === 'ok') {
+        if (statusEl) { statusEl.textContent = 'Live data connected'; statusEl.classList.remove('is-warn'); }
+        if (updatedEl) updatedEl.textContent = `Updated ${time}${pending}`;
+    } else if (state === 'cache') {
+        if (statusEl) { statusEl.textContent = 'Offline — Server Down'; statusEl.classList.add('is-warn'); }
+        if (updatedEl) updatedEl.textContent = `Checked ${time}${pending}`;
+    } else {
+        if (statusEl) { statusEl.textContent = 'Could not refresh'; statusEl.classList.add('is-warn'); }
+        if (updatedEl) updatedEl.textContent = 'Tap Refresh to retry';
+    }
+    if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        btn.querySelector('i')?.classList.remove('fa-spin');
+    }
+}
+// --- Overview: numbers ------------------------------------------------------
+function ovTxIsOnDay(tx, day) {
+    if (!tx) return false;
+    const timestamp = tx.timestamp || tx.date;
+    if (!timestamp && !tx.isoDate) return false;
+    const y = day.getFullYear(), m = day.getMonth(), d = day.getDate();
+    const txDate = tx.isoDate ? new Date(tx.isoDate) : new Date(timestamp);
+    if (isNaN(txDate.getTime())) {
+        const numbers = String(timestamp || '').match(/\d+/g);
+        if (numbers && numbers.length >= 3) {
+            const year = parseInt(numbers[2]);
+            const val1 = parseInt(numbers[0]);
+            const val2 = parseInt(numbers[1]);
+            if (year === y) {
+                return (val1 === m + 1 && val2 === d) || (val2 === m + 1 && val1 === d);
+            }
+        }
+        return false;
+    }
+    return txDate.getFullYear() === y && txDate.getMonth() === m && txDate.getDate() === d;
+}
+function ovProductState(p) {
+    const stock = parseInt(p && p.stock) || 0;
+    const threshold = (p && p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') ? parseInt(p.lowStockThreshold) : 5;
+    let daysLeft = null;
+    if (p && p.expiryDate) {
+        const exp = new Date(p.expiryDate);
+        if (!isNaN(exp.getTime())) daysLeft = Math.ceil((exp - new Date()) / (1000 * 60 * 60 * 24));
+    }
+    return { stock, threshold, daysLeft };
+}
+function ovBuildOverviewStats(txs, products) {
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const todaysTxs = txs.filter(tx => ovTxIsOnDay(tx, now));
+    const countableToday = todaysTxs.filter(ovIsCountableSale);
+    const revenue = Math.round(todaysTxs.reduce((acc, tx) => acc + ovGetNetSalesAmount(tx), 0) * 100) / 100;
+    const yesterdayRevenue = Math.round(txs.filter(tx => ovTxIsOnDay(tx, yesterday)).reduce((acc, tx) => acc + ovGetNetSalesAmount(tx), 0) * 100) / 100;
+    const ranking = {};
+    countableToday.forEach(tx => {
+        (tx.items || []).forEach(i => {
+            const qty = ovGetNetItemQty(tx, i);
+            if (!i.name || qty <= 0) return;
+            ranking[i.name] = (ranking[i.name] || 0) + qty;
         });
-        const cachedRevenue = cachedTodayTxs.reduce((acc, curr) => acc + ovGetNetSalesAmount(curr), 0);
-        const lowStockCount = cachedProds.filter(p => {
-            const s = parseInt(p.stock) || 0;
-            const th = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
-            return s > 0 && s <= th;
-        }).length;
-        const noStockCount = cachedProds.filter(p => (parseInt(p.stock) || 0) <= 0).length;
-        const cachedExpiringSoonCount = cachedProds.filter(p => {
-            if (!p.expiryDate) return false;
-            const expiryDate = new Date(p.expiryDate);
-            if (isNaN(expiryDate.getTime())) return false;
-            const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
-            return daysLeft >= 0 && daysLeft <= 7;
-        }).length;
-        const cachedExpiredCount = cachedProds.filter(p => {
-            if (!p.expiryDate) return false;
-            const expiryDate = new Date(p.expiryDate);
-            if (isNaN(expiryDate.getTime())) return false;
-            const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
-            return daysLeft < 0;
-        }).length;
-        const canViewUsers = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin') || !!(currentPermissions && currentPermissions.users);
-        renderDashboardDOM(cachedRevenue, cachedTodayTxs.filter(ovIsCountableSale).length, cachedProds.length, lowStockCount, noStockCount, canViewUsers ? 0 : null, cachedExpiringSoonCount, cachedExpiredCount, []);
-        renderWeeklyTrend(cachedTxs);
-        initOverviewAdvancedChartToolbar();
-        renderAdvancedOverviewChart(cachedTxs);
+    });
+    const topProductsToday = Object.entries(ranking)
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+    let lowStock = 0, noStock = 0, expiringSoon = 0, expired = 0;
+    const attention = [];
+    (products || []).forEach(p => {
+        const st = ovProductState(p);
+        if (st.stock > 0 && st.stock <= st.threshold) lowStock++;
+        if (st.stock <= 0) noStock++;
+        if (st.daysLeft !== null && st.daysLeft >= 0 && st.daysLeft <= 7) expiringSoon++;
+        if (st.daysLeft !== null && st.daysLeft < 0) expired++;
+        let entry = null;
+        if (st.daysLeft !== null && st.daysLeft < 0) entry = { severity: 0, tag: 'expired', label: 'Expired' };
+        else if (st.stock <= 0) entry = { severity: 1, tag: 'nostock', label: 'No stock' };
+        else if (st.daysLeft !== null && st.daysLeft <= 7) entry = { severity: 2, tag: 'expiring', label: st.daysLeft === 0 ? 'Expires today' : `${st.daysLeft}d left` };
+        else if (st.stock <= st.threshold) entry = { severity: 3, tag: 'low', label: `${st.stock} left` };
+        if (entry) attention.push({ name: p.name || 'Unnamed product', stock: st.stock, ...entry });
+    });
+    attention.sort((a, b) => (a.severity - b.severity) || (a.stock - b.stock) || String(a.name).localeCompare(String(b.name)));
+    return {
+        revenue, yesterdayRevenue,
+        orders: countableToday.length,
+        totalProducts: (products || []).length,
+        topProductsToday, lowStock, noStock, expiringSoon, expired, attention
+    };
+}
+function ovCurrencySymbol() {
+    return (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
+}
+function ovFormatMoney(val) {
+    return ovCurrencySymbol() + (Number(val) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function ovIsOwnSalesOnly() {
+    const activeUser = currentUser || JSON.parse(localStorage.getItem('omnipos_user') || 'null');
+    if (activeUser && String(activeUser.role || '').toLowerCase() === 'admin') return false;
+    return !(currentPermissions && currentPermissions.transactions_view_all);
+}
+const OV_PAYMENT_LABELS = { CASH: 'Cash', GCASH: 'GCash', MAYA: 'Maya', CARD: 'Card', CCREDIT: 'Credit (Utang)', SPLIT: 'Split' };
+function ovPaymentLabel(tx) {
+    if (Array.isArray(tx.payments) && tx.payments.length > 1) return 'Split';
+    const raw = String(tx.method || tx.payment_method || (Array.isArray(tx.payments) && tx.payments[0] && tx.payments[0].method) || '').toUpperCase();
+    return OV_PAYMENT_LABELS[raw] || raw || '—';
+}
+function ovSetCaption(id, html, tone) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = html;
+    el.classList.toggle('is-warn', tone === 'warn');
+    el.classList.toggle('is-down', tone === 'down');
+}
+function renderOverviewDOM(stats, ctx) {
+    if (!document.getElementById('view-overview')) return;
+    ctx = ctx || {};
+    const own = ovIsOwnSalesOnly();
+    const salesLabel = document.getElementById('metric-ov-sales-label');
+    const ordersLabel = document.getElementById('metric-ov-orders-label');
+    if (salesLabel) salesLabel.textContent = own ? 'YOUR SALES TODAY' : "TODAY'S SALES";
+    if (ordersLabel) ordersLabel.textContent = own ? 'YOUR ORDERS TODAY' : "TODAY'S ORDERS";
+    // Sales
+    const salesEl = document.getElementById('metric-ov-sales');
+    if (salesEl) { salesEl.textContent = ovFormatMoney(stats.revenue); salesEl.title = salesEl.textContent; }
+    if (stats.yesterdayRevenue > 0) {
+        const pct = ((stats.revenue - stats.yesterdayRevenue) / stats.yesterdayRevenue) * 100;
+        const up = pct >= 0;
+        ovSetCaption('metric-ov-sales-caption', `<i class="fa-solid fa-arrow-trend-${up ? 'up' : 'down'}"></i> ${up ? '+' : '−'}${Math.abs(pct).toFixed(1)}% vs yesterday`, up ? '' : 'down');
+    } else if (stats.revenue > 0) {
+        ovSetCaption('metric-ov-sales-caption', '<i class="fa-solid fa-arrow-trend-up"></i> No sales yesterday', '');
+    } else {
+        ovSetCaption('metric-ov-sales-caption', 'No sales yet today', '');
+    }
+    // Orders
+    const ordersEl = document.getElementById('metric-ov-orders');
+    if (ordersEl) animateOverviewCountUp(ordersEl, stats.orders);
+    ovSetCaption('metric-ov-orders-caption', stats.orders > 0 ? `Avg. order ${escapeHtml(ovFormatMoney(stats.revenue / stats.orders))}` : 'No orders yet', '');
+    // Top seller
+    const topEl = document.getElementById('metric-ov-top-seller');
+    const top = stats.topProductsToday[0];
+    if (topEl) {
+        topEl.textContent = top ? top.name : 'No sale';
+        topEl.title = top ? top.name : '';
+    }
+    ovSetCaption('metric-ov-top-seller-caption', top ? `<i class="fa-solid fa-fire"></i> ${Number(top.qty)} unit${Number(top.qty) === 1 ? '' : 's'} sold today` : 'Waiting for the first sale', '');
+    // Low stock
+    const lowEl = document.getElementById('metric-ov-lowstock');
+    if (lowEl) animateOverviewCountUp(lowEl, stats.lowStock);
+    const lowIcon = document.getElementById('metric-ov-lowstock-icon');
+    const needsStock = stats.lowStock > 0 || stats.noStock > 0;
+    if (lowIcon) {
+        lowIcon.classList.toggle('warning', needsStock);
+        lowIcon.classList.toggle('neutral', !needsStock);
+    }
+    if (stats.noStock > 0) {
+        ovSetCaption('metric-ov-lowstock-caption', `<i class="fa-solid fa-triangle-exclamation"></i> ${stats.noStock} out of stock`, 'warn');
+    } else if (stats.lowStock > 0) {
+        ovSetCaption('metric-ov-lowstock-caption', '<i class="fa-solid fa-triangle-exclamation"></i> Restock soon', 'warn');
+    } else {
+        ovSetCaption('metric-ov-lowstock-caption', '<i class="fa-solid fa-circle-check"></i> All items stocked', '');
+    }
+    // Top selling products
+    const topList = document.getElementById('overview-top-products-list');
+    if (topList) {
+        if (!stats.topProductsToday.length) {
+            topList.innerHTML = '<li class="overview-empty"><i class="fa-solid fa-store"></i> No sale/transaction done today.</li>';
+        } else {
+            const maxQty = Math.max(...stats.topProductsToday.map(p => Number(p.qty) || 0), 1);
+            topList.innerHTML = stats.topProductsToday.map((p, idx) => {
+                const qty = Number(p.qty) || 0;
+                const pct = Math.max(6, Math.round((qty / maxQty) * 100));
+                return `<li class="overview-rank-row"><span class="overview-rank-pos${idx === 0 ? ' is-first' : ''}">${idx + 1}</span><div class="overview-rank-main"><div class="overview-rank-top"><strong title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</strong><span>${qty} unit${qty === 1 ? '' : 's'}</span></div><div class="overview-rank-bar"><span style="width:${pct}%"></span></div></div></li>`;
+            }).join('');
+        }
+    }
+    // Stock watchlist
+    const chipsEl = document.getElementById('overview-attention-chips');
+    const listEl = document.getElementById('overview-attention-list');
+    const iconEl = document.getElementById('overview-attention-icon');
+    if (iconEl) iconEl.classList.toggle('is-warn', stats.attention.length > 0);
+    if (chipsEl) {
+        const chips = [
+            { n: stats.noStock, label: 'Out of stock', tone: 'danger' },
+            { n: stats.lowStock, label: 'Low stock', tone: 'warn' },
+            { n: stats.expiringSoon, label: 'Expiring soon', tone: 'warn' },
+            { n: stats.expired, label: 'Expired', tone: 'danger' }
+        ].filter(c => c.n > 0);
+        chipsEl.innerHTML = chips.map(c => `<span class="overview-chip is-${c.tone}"><strong>${c.n}</strong> ${c.label}</span>`).join('');
+    }
+    if (listEl) {
+        if (!stats.attention.length) {
+            listEl.innerHTML = '<div class="branches-empty"><i class="fa-solid fa-circle-check"></i> All items are stocked and fresh.</div>';
+        } else {
+            const shown = stats.attention.slice(0, 6);
+            listEl.innerHTML = shown.map(e => `<div class="overview-attention-row"><span class="overview-attention-dot is-${e.tag}"></span><span class="overview-attention-name" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span><span class="overview-attention-tag is-${e.tag}">${escapeHtml(e.label)}</span></div>`).join('')
+                + (stats.attention.length > shown.length ? `<p class="overview-more-note">+${stats.attention.length - shown.length} more — see Inventory</p>` : '');
+        }
+    }
+    // Recent sales
+    const recentBody = document.getElementById('overview-recent-body');
+    if (recentBody) {
+        const txs = (ctx.txs || []).filter(tx => tx && tx.id);
+        const recent = txs.map(tx => ({ tx, d: ovGetTxDate(tx) }))
+            .sort((a, b) => (b.d ? b.d.getTime() : 0) - (a.d ? a.d.getTime() : 0))
+            .slice(0, 6);
+        if (!recent.length) {
+            recentBody.innerHTML = '<tr><td colspan="5">No transactions yet.</td></tr>';
+        } else {
+            const now = new Date();
+            recentBody.innerHTML = recent.map(({ tx, d }) => {
+                let when = '—';
+                if (d) {
+                    const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+                    when = sameDay
+                        ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                        : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                } else if (tx.timestamp) {
+                    when = String(tx.timestamp);
+                }
+                const tags = (ctx.pendingIds && ctx.pendingIds.has(tx.id) ? '<span class="remoteops-tag remoteops-tag-warn" title="Saved on this device — not yet synced to the server">Pending sync</span>' : '')
+                    + (tx.refundStatus === 'full' || ovIsFullyRefunded(tx) ? '<span class="remoteops-tag remoteops-tag-warn">Refunded</span>' : (ovGetRefundedAmount(tx) > 0 ? '<span class="remoteops-tag remoteops-tag-warn">Partial refund</span>' : ''));
+                const cashierName = String(tx.cashierDisplayName || tx.cashier || 'Unknown');
+                return `<tr><td data-label="Time">${escapeHtml(when)}</td><td data-label="Receipt"><span class="remoteops-primary-cell"><span class="remoteops-row-icon"><i class="fa-solid fa-receipt"></i></span>${escapeHtml(tx.id)}${tags}</span></td><td data-label="Cashier"><span class="remoteops-primary-cell"><span class="remoteops-avatar">${escapeHtml(cashierName.trim().slice(0, 1).toUpperCase() || '?')}</span>${escapeHtml(cashierName)}</span></td><td data-label="Payment">${escapeHtml(ovPaymentLabel(tx))}</td><td data-label="Total"><strong class="remoteops-money">${escapeHtml(ovFormatMoney(ovGetNetSalesAmount(tx)))}</strong></td></tr>`;
+            }).join('');
+        }
     }
 }
 let backupHealthWarningShown = false;
@@ -8703,6 +8921,77 @@ function ovResolveDateRange() {
     }
     return { from, to };
 }
+function ovBucketDescriptor(d, granularity) {
+    let key, label, sortKey;
+    if (granularity === 'hour') {
+        key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
+        label = d.toLocaleTimeString('en-PH', { hour: 'numeric', hour12: true }) + ' ' + d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+        sortKey = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+    } else if (granularity === 'shift') {
+        const shiftHour = d.getHours();
+        const shiftDef = ovGetShiftForHour(shiftHour);
+        const bucketDate = new Date(d);
+        if (shiftDef.key === 3 && shiftHour < 6) bucketDate.setDate(bucketDate.getDate() - 1);
+        key = `${bucketDate.getFullYear()}-${bucketDate.getMonth()}-${bucketDate.getDate()}-S${shiftDef.key}`;
+        label = `${bucketDate.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })} • ${shiftDef.label}`;
+        sortKey = new Date(bucketDate.getFullYear(), bucketDate.getMonth(), bucketDate.getDate()).getTime() + shiftDef.key;
+    } else if (granularity === 'week') {
+        const weekStart = ovStartOfWeek(d);
+        key = ovISOWeekKey(d);
+        label = 'Wk of ' + weekStart.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+        sortKey = weekStart.getTime();
+    } else if (granularity === 'month') {
+        key = `${d.getFullYear()}-${d.getMonth()}`;
+        label = d.toLocaleDateString('en-PH', { month: 'short', year: '2-digit' });
+        sortKey = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    } else if (granularity === 'year') {
+        key = `${d.getFullYear()}`;
+        label = `${d.getFullYear()}`;
+        sortKey = new Date(d.getFullYear(), 0, 1).getTime();
+    } else {
+        key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        label = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+        sortKey = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+    return { key, label, sortKey };
+}
+// Representative dates (one per bucket) between from..to — used to add the periods that had NO sales,
+// so the chart has a real, evenly-spaced timeline instead of only the days that happened to have sales.
+const OV_MAX_FILLED_BUCKETS = 800;
+function ovEnumerateBucketDates(granularity, from, to) {
+    const now = new Date();
+    const limit = to.getTime() > now.getTime() ? now : to; // never plot the future
+    if (limit.getTime() < from.getTime()) return [];
+    const out = [];
+    const push = (d) => { out.push(d); return out.length <= OV_MAX_FILLED_BUCKETS; };
+    if (granularity === 'hour') {
+        const d = new Date(from); d.setMinutes(0, 0, 0);
+        while (d.getTime() <= limit.getTime()) { if (!push(new Date(d))) return null; d.setHours(d.getHours() + 1); }
+    } else if (granularity === 'shift') {
+        const day = new Date(from); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - 1);
+        while (day.getTime() <= limit.getTime()) {
+            for (const hr of [6, 14, 22]) {
+                const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hr);
+                const end = new Date(start.getTime() + 8 * 3600000);
+                if (end.getTime() > from.getTime() && start.getTime() <= limit.getTime()) { if (!push(start)) return null; }
+            }
+            day.setDate(day.getDate() + 1);
+        }
+    } else if (granularity === 'week') {
+        const d = ovStartOfWeek(from);
+        while (d.getTime() <= limit.getTime()) { if (!push(new Date(d))) return null; d.setDate(d.getDate() + 7); }
+    } else if (granularity === 'month') {
+        const d = new Date(from.getFullYear(), from.getMonth(), 1);
+        while (d.getTime() <= limit.getTime()) { if (!push(new Date(d))) return null; d.setMonth(d.getMonth() + 1); }
+    } else if (granularity === 'year') {
+        const d = new Date(from.getFullYear(), 0, 1);
+        while (d.getTime() <= limit.getTime()) { if (!push(new Date(d))) return null; d.setFullYear(d.getFullYear() + 1); }
+    } else {
+        const d = new Date(from); d.setHours(0, 0, 0, 0);
+        while (d.getTime() <= limit.getTime()) { if (!push(new Date(d))) return null; d.setDate(d.getDate() + 1); }
+    }
+    return out;
+}
 function ovComputeBuckets(txs, granularity, from, to) {
     const inRange = (txs || []).filter(tx => {
         const d = ovGetTxDate(tx);
@@ -8720,43 +9009,22 @@ function ovComputeBuckets(txs, granularity, from, to) {
         if (!d) return;
         const amt = ovGetNetSalesAmount(tx);
         if (amt <= 0.009) return;
-        let key, label, sortKey;
-        if (granularity === 'hour') {
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
-            label = d.toLocaleTimeString('en-PH', { hour: 'numeric', hour12: true }) + ' ' + d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-            sortKey = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
-        } else if (granularity === 'shift') {
-            const shiftHour = d.getHours();
-            const shiftDef = ovGetShiftForHour(shiftHour);
-            const bucketDate = new Date(d);
-            if (shiftDef.key === 3 && shiftHour < 6) bucketDate.setDate(bucketDate.getDate() - 1);
-            key = `${bucketDate.getFullYear()}-${bucketDate.getMonth()}-${bucketDate.getDate()}-S${shiftDef.key}`;
-            label = `${bucketDate.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })} • ${shiftDef.label}`;
-            sortKey = new Date(bucketDate.getFullYear(), bucketDate.getMonth(), bucketDate.getDate()).getTime() + shiftDef.key;
-        } else if (granularity === 'week') {
-            const weekStart = ovStartOfWeek(d);
-            key = ovISOWeekKey(d);
-            label = 'Wk of ' + weekStart.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-            sortKey = weekStart.getTime();
-        } else if (granularity === 'month') {
-            key = `${d.getFullYear()}-${d.getMonth()}`;
-            label = d.toLocaleDateString('en-PH', { month: 'short', year: '2-digit' });
-            sortKey = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
-        } else if (granularity === 'year') {
-            key = `${d.getFullYear()}`;
-            label = `${d.getFullYear()}`;
-            sortKey = new Date(d.getFullYear(), 0, 1).getTime();
-        } else {
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-            label = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-            sortKey = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-        }
-        const bucket = touchBucket(key, label, sortKey);
+        const desc = ovBucketDescriptor(d, granularity);
+        const bucket = touchBucket(desc.key, desc.label, desc.sortKey);
         bucket.total += amt;
         bucket.count += 1;
         if (amt > bucket.high) bucket.high = amt;
         if (amt < bucket.low) bucket.low = amt;
     });
+    // FIX: periods without any sale used to be skipped, so the line jumped straight between the days that
+    // had sales. Add them as empty (0) buckets. If the range would need too many points, keep it sparse.
+    const fillDates = ovEnumerateBucketDates(granularity, from, to);
+    if (fillDates) {
+        fillDates.forEach(d => {
+            const desc = ovBucketDescriptor(d, granularity);
+            touchBucket(desc.key, desc.label, desc.sortKey);
+        });
+    }
     const buckets = Array.from(bucketMap.values()).sort((a, b) => a.sortKey - b.sortKey);
     buckets.forEach(b => {
         b.total = Math.round(b.total * 100) / 100;
@@ -8772,7 +9040,7 @@ function ovGetComparisonRange(from, to) {
     return { from: prevFrom, to: prevTo };
 }
 function ovFormatPeso(val) {
-    return '₱' + (Number(val) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return ovFormatMoney(val);
 }
 function ovGetThemeColors() {
     const isDark = document.body.classList.contains('dark-mode');
@@ -8812,12 +9080,29 @@ function renderAdvancedOverviewChart(txList) {
     const wrap = document.getElementById('ov-chart-svg-wrap');
     if (!wrap) return;
     if (Array.isArray(txList)) overviewChartState.lastTxs = txList;
+    // FIX: while the Overview is hidden the wrapper has no size — drawing then used a 600px fallback and
+    // (with preserveAspectRatio="none") came out stretched once shown. Skip; the ResizeObserver and
+    // switchView() redraw it as soon as it is visible.
+    if (!wrap.clientWidth) return;
     const txs = overviewChartState.lastTxs;
-    const { from, to } = ovResolveDateRange();
+    let { from, to } = ovResolveDateRange();
+    if (overviewChartState.rangePreset === 'all' && !(overviewChartState.fromDate && overviewChartState.toDate)) {
+        let earliest = null;
+        (txs || []).forEach(tx => {
+            const d = ovGetTxDate(tx);
+            if (d && (!earliest || d < earliest)) earliest = d;
+        });
+        from = new Date(earliest || new Date());
+        from.setHours(0, 0, 0, 0);
+    }
     const buckets = ovComputeBuckets(txs, overviewChartState.granularity, from, to);
     let compareBuckets = null;
     if (overviewChartState.compare) {
         const prevRange = ovGetComparisonRange(from, to);
+        // Like-for-like: if the current period is still running, compare only the same elapsed part.
+        const nowMs = Date.now();
+        const elapsed = Math.max(0, Math.min(to.getTime(), nowMs) - from.getTime());
+        prevRange.to = new Date(Math.min(prevRange.to.getTime(), prevRange.from.getTime() + elapsed));
         compareBuckets = ovComputeBuckets(txs, overviewChartState.granularity, prevRange.from, prevRange.to);
     }
     const rangeLabelEl = document.getElementById('ov-chart-range-label');
@@ -8896,7 +9181,7 @@ function ovRenderSummary(buckets, compareBuckets) {
             <h4 class="stat-value down">${ovFormatPeso(lowest.total === Infinity ? 0 : lowest.total)}</h4>
         </div>
         <div class="adv-summary-stat">
-            <p class="stat-label">Average / Bucket</p>
+            <p class="stat-label">Avg per period</p>
             <h4 class="stat-value">${ovFormatPeso(avg)}</h4>
         </div>
         ${compareHtml}
@@ -8954,7 +9239,7 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
             seriesSvg += `<path d="${buildLinePath(getVal, buckets)}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
         }
         buckets.forEach((b, i) => {
-            if (b.count === 0 && s.key !== 'total') return;
+            if (b.count === 0 || buckets.length > 120) return;
             seriesSvg += `<circle class="adv-chart-pt" data-idx="${i}" data-series="${s.key}" cx="${xAt(i).toFixed(1)}" cy="${yAt(getVal(b)).toFixed(1)}" r="3.5" fill="${s.color}" stroke="${colors.pointStroke}" stroke-width="1.5"/>`;
         });
     });
@@ -9008,17 +9293,29 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
             });
             col.addEventListener('mousemove', (e) => {
                 const rect = wrapEl.getBoundingClientRect();
-                tooltip.style.left = `${e.clientX - rect.left}px`;
-                tooltip.style.top = `${e.clientY - rect.top}px`;
+                // keep the tooltip inside the chart (it is centred on the pointer)
+                const half = (tooltip.offsetWidth || 0) / 2;
+                const x = Math.min(Math.max(e.clientX - rect.left, half), Math.max(half, rect.width - half));
+                tooltip.style.left = `${x}px`;
+                tooltip.style.top = `${Math.max(e.clientY - rect.top, tooltip.offsetHeight || 0)}px`;
             });
             col.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
         });
     }
 }
 function ovFormatShortPeso(val) {
-    if (val >= 1000000) return '₱' + (val / 1000000).toFixed(1) + 'M';
-    if (val >= 1000) return '₱' + (val / 1000).toFixed(1) + 'K';
-    return '₱' + Math.round(val);
+    const sym = ovCurrencySymbol();
+    if (val >= 1000000) return sym + (val / 1000000).toFixed(1) + 'M';
+    if (val >= 1000) return sym + (val / 1000).toFixed(1) + 'K';
+    return sym + Math.round(val);
+}
+function ovParseDateInput(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+}
+function ovFormatDateInput(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 function initOverviewAdvancedChartToolbar() {
     const card = document.getElementById('ov-adv-chart-card');
@@ -9071,8 +9368,16 @@ function initOverviewAdvancedChartToolbar() {
                 if (typeof Swal !== 'undefined') Swal.fire({ icon: 'warning', title: 'Please select both From and To dates.', timer: 1800, showConfirmButton: false });
                 return;
             }
-            overviewChartState.fromDate = new Date(fromVal);
-            overviewChartState.toDate = new Date(toVal);
+            // FIX: new Date('YYYY-MM-DD') is UTC midnight -> off by one day in timezones behind UTC.
+            const fromD = ovParseDateInput(fromVal);
+            const toD = ovParseDateInput(toVal);
+            // same validation/message as the Sales Analytics chart
+            if (isNaN(fromD.getTime()) || isNaN(toD.getTime()) || fromD > toD) {
+                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'warning', title: 'Invalid date range', text: 'The From date must be on or before the To date.', timer: 2200, showConfirmButton: false });
+                return;
+            }
+            overviewChartState.fromDate = fromD;
+            overviewChartState.toDate = toD;
             overviewChartState.rangePreset = 'custom';
             renderAdvancedOverviewChart();
         });
@@ -9098,11 +9403,25 @@ function initOverviewAdvancedChartToolbar() {
             if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         });
     }
+    // Redraw whenever the chart area really changes size (window resize, sidebar, orientation) or
+    // becomes visible again after being hidden.
+    const chartWrap = document.getElementById('ov-chart-svg-wrap');
     let ovResizeTimer = null;
-    window.addEventListener('resize', () => {
-        clearTimeout(ovResizeTimer);
-        ovResizeTimer = setTimeout(() => renderAdvancedOverviewChart(), 200);
-    });
+    if (chartWrap && typeof ResizeObserver === 'function') {
+        let lastSize = '';
+        new ResizeObserver(() => {
+            const size = `${chartWrap.clientWidth}x${chartWrap.clientHeight}`;
+            if (size === lastSize || !chartWrap.clientWidth) return;
+            lastSize = size;
+            clearTimeout(ovResizeTimer);
+            ovResizeTimer = setTimeout(() => renderAdvancedOverviewChart(), 80);
+        }).observe(chartWrap);
+    } else {
+        window.addEventListener('resize', () => {
+            clearTimeout(ovResizeTimer);
+            ovResizeTimer = setTimeout(() => renderAdvancedOverviewChart(), 200);
+        });
+    }
     const themeObserver = new MutationObserver(() => renderAdvancedOverviewChart());
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 }
@@ -9115,7 +9434,17 @@ let branchesPageState = {
     trendCache: {},
     combinedTrendCache: [],
     transfers: [],
+    transfersSyncError: false,
     transferFilter: 'action', // 'all' | 'incoming' | 'outgoing' | 'action' — default: Needs My Action
+    // Branch list controls (search / health filter / sort). These used to live
+    // in app1.js ("Branch Intelligence"), which patched the DOM AFTER this file
+    // rendered it — see the FIX note above renderBranchesList() for why that
+    // caused the wrong branch to open.
+    query: '',
+    health: 'all',
+    sort: 'status',
+    lastSyncAt: 0,
+    animateBranchId: null,
     pollTimer: null
 };
 window.branchesPageState = branchesPageState;
@@ -9258,11 +9587,56 @@ function startBranchesPagePolling() {
 function stopBranchesPagePolling() {
     if (branchesPageState.pollTimer) { clearInterval(branchesPageState.pollTimer); branchesPageState.pollTimer = null; }
 }
+// --- Branches page UI helpers (Remote Operations design language) ---------
+// Same building blocks as the Remote Operations page: hero + sync meta,
+// metric cards, `.remoteops-panel` cards with kicker/heading/icon.
+function setBranchesHeroStatus(status, sub) {
+    const statusEl = document.getElementById('branches-sync-status');
+    const updatedEl = document.getElementById('branches-last-updated');
+    if (statusEl) statusEl.textContent = status;
+    if (updatedEl) updatedEl.textContent = sub;
+}
+function branchesNoticeHtml(opts) {
+    const o = opts || {};
+    const variant = o.variant || 'error';
+    return `
+        <div class="card remoteops-error-card branches-notice is-${variant}" role="${variant === 'error' ? 'alert' : 'status'}">
+            <i class="fa-solid ${o.icon || 'fa-triangle-exclamation'}"></i>
+            <div><strong>${escapeHtml(o.title || '')}</strong><span>${o.textHtml != null ? o.textHtml : escapeHtml(o.text || '')}</span></div>
+            ${o.actionLabel ? `<button type="button" class="btn-action-outline branches-notice-btn" data-action="reload"><i class="fa-solid fa-rotate-right"></i> ${escapeHtml(o.actionLabel)}</button>` : ''}
+        </div>`;
+}
+function branchesLoadingHtml() {
+    return '<div class="metrics-grid remoteops-metrics branches-metrics"><div class="metric-card remoteops-metric-card remoteops-metric-loading"><div class="operations-spinner"></div><div><p class="metric-label">LIVE STATUS</p><h3>Loading branch data…</h3></div></div></div>';
+}
 async function loadBranchesPage(silent) {
     const body = document.getElementById('branches-page-body');
-    const newBtn = document.getElementById('branches-new-transfer-btn');
     if (!body) return;
-    if (!silent) body.innerHTML = '<p style="color:#94a3b8;font-size:0.9rem;">Loading…</p>';
+    const refreshBtn = document.getElementById('branches-header-refresh-btn');
+    if (!silent) {
+        setBranchesHeroStatus('Syncing live data…', 'Updating now');
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.classList.add('is-loading');
+            refreshBtn.querySelector('i')?.classList.add('fa-spin');
+        }
+        // Only show the big "Loading…" state when nothing is on screen yet.
+        // If the page is already rendered, keep it visible while refreshing
+        // instead of wiping and rebuilding everything (that was the blinking).
+        if (!body.querySelector('#branches-list')) body.innerHTML = branchesLoadingHtml();
+    }
+    try {
+        await loadBranchesPageInner(body, !!silent);
+    } finally {
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('is-loading');
+            refreshBtn.querySelector('i')?.classList.remove('fa-spin');
+        }
+    }
+}
+async function loadBranchesPageInner(body, silent) {
+    const newBtn = document.getElementById('branches-new-transfer-btn');
     try {
         let data;
         try {
@@ -9276,12 +9650,14 @@ async function loadBranchesPage(silent) {
             if (status === 402) {
                 const locked = err.data || {};
                 if (newBtn) newBtn.style.display = 'none';
+                setBranchesHeroStatus('Feature locked', 'Subscription required');
                 const monthlyPrice = locked.subscriptionPrice && typeof locked.subscriptionPrice.monthly === 'number' ? locked.subscriptionPrice.monthly : locked.price;
                 body.innerHTML = `
-                    <div style="text-align:center; padding:40px 15px;">
-                        <span class="menu-pro-lock" style="display:inline-block;font-size:2rem;margin-bottom:12px;"><i class="fa-solid fa-lock"></i></span>
-                        <p style="color:#64748b;margin:0 0 14px;max-width:420px;margin-left:auto;margin-right:auto;">See combined sales, per-branch drill-down, hourly trend charts, offline/low-stock alerts, and inter-branch stock transfer requests — all here on one page.</p>
-                        <button type="button" class="btn-action-global" id="branches-page-unlock-btn">
+                    <div class="card remoteops-panel branches-locked">
+                        <span class="branches-locked-icon"><i class="fa-solid fa-lock"></i></span>
+                        <h3>Multi-Branch Dashboard is locked</h3>
+                        <p>See combined sales, per-branch drill-down, hourly trend charts, offline/low-stock alerts, and inter-branch stock transfer requests — all here on one page.</p>
+                        <button type="button" class="btn-action-global" id="branches-page-unlock-btn" style="margin:0 auto;">
                             <i class="fa-solid fa-unlock"></i> Unlock Multi-Branch Dashboard — starting at ₱${monthlyPrice}/mo
                         </button>
                     </div>`;
@@ -9289,47 +9665,57 @@ async function loadBranchesPage(silent) {
                 if (unlockBtn) unlockBtn.addEventListener('click', async () => { const ok = await promptModuleSubscription(locked.featureId); if (ok) loadBranchesPage(); });
                 return;
             }
+            if (silent) return;
             if (status === 429) {
                 const retryAfter = err.data?.retryAfter || err.data?.retry_after || null;
                 const waitText = retryAfter ? ` Try again in ${retryAfter} seconds.` : ' Please wait a moment before trying again.';
-                if (!silent) {
-                    body.innerHTML = `<div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;"><div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-clock"></i> Branch data is temporarily rate-limited</div><div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">${escapeHtml((err.message || 'Too many requests.') + waitText)}</div><button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button></div>`;
-                }
+                setBranchesHeroStatus('Connection needs attention', 'Rate-limited — retry shortly');
+                body.innerHTML = branchesNoticeHtml({ icon: 'fa-clock', title: 'Branch data is temporarily rate-limited', text: (err.message || 'Too many requests.') + waitText, actionLabel: 'Try Again' });
                 return;
             }
-            if (status !== 402) {
-                if (!silent) {
-                    body.innerHTML = `<div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;"><div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Unable to load branch data</div><div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">${escapeHtml(err.message || 'Unable to load branch data.')}</div><button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button></div>`;
-                }
-                return;
-            }
+            setBranchesHeroStatus('Connection needs attention', 'Retry when your connection is stable');
+            body.innerHTML = branchesNoticeHtml({ title: 'Unable to load branch data', text: err.message || 'Unable to load branch data.', actionLabel: 'Try Again' });
+            return;
         }
         if (!data || typeof data !== 'object') {
             if (!silent) {
-                body.innerHTML = '<div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;"><div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Unable to load branch data</div><div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">Invalid branch data response.</div><button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button></div>';
+                setBranchesHeroStatus('Connection needs attention', 'Retry when your connection is stable');
+                body.innerHTML = branchesNoticeHtml({ title: 'Unable to load branch data', text: 'Invalid branch data response.', actionLabel: 'Try Again' });
             }
             return;
         }
         // A 402 response is represented by getBranchesSummary as an error.
         // The normal feature-lock UI is rendered in that catch path, so a
         // successful response can continue directly to the configured check.
-        if (!data || !data.configured) {
+        if (!data.configured) {
             if (newBtn) newBtn.style.display = 'none';
-            body.innerHTML = `
-                <p style="color:#94a3b8;line-height:1.6;">
-                    No Business Group Code has been configured yet. If your business has 2+ branches, set this up in
-                    <a href="#" onclick="switchView('users'); setTimeout(()=>{ document.getElementById('store-settings-tab-btn')?.click(); }, 50); return false;" style="color:#3b82f6;">Store &amp; Sales Settings</a>
-                    (same code on every branch) to see the combined dashboard here.
-                </p>`;
+            setBranchesHeroStatus('Business Group Code not set', 'Set it up to connect your branches');
+            body.innerHTML = branchesNoticeHtml({
+                variant: 'info',
+                icon: 'fa-circle-info',
+                title: 'Multi-Branch is not set up yet',
+                textHtml: 'No Business Group Code has been configured yet. If your business has 2+ branches, set this up in <a href="#" data-action="open-store-settings">Store &amp; Sales Settings</a> (same code on every branch) to see the combined dashboard here.'
+            });
             return;
         }
-        if (!data.success) { body.innerHTML = `<p style="color:#ef4444;">${escapeHtml(data.message || 'Could not get the branch summary.')}</p>`; return; }
+        if (!data.success) {
+            setBranchesHeroStatus('Connection needs attention', 'Retry when your connection is stable');
+            body.innerHTML = branchesNoticeHtml({ title: 'Could not get the branch summary', text: data.message || 'Could not get the branch summary.', actionLabel: 'Try Again' });
+            return;
+        }
         branchesPageState.branches = data.branches || [];
         branchesPageState.combined = data.combined || {};
         branchesPageState.installationId = (branchesPageState.branches.find(b => b.isSelf) || {}).installationId || null;
+        branchesPageState.lastSyncAt = Date.now();
         if (newBtn) newBtn.style.display = branchesPageState.branches.length > 1 ? '' : 'none';
         if (branchesPageState.branches.length === 0) {
-            body.innerHTML = `<p style="color:#94a3b8;">The Business Group Code is configured, but no other branch has checked in with the same code yet. Make sure the code matches on every branch device (each one also needs an internet connection).</p>`;
+            setBranchesHeroStatus('Waiting for branches', 'No branch has checked in yet');
+            body.innerHTML = branchesNoticeHtml({
+                variant: 'info',
+                icon: 'fa-circle-info',
+                title: 'No branches have checked in yet',
+                text: 'The Business Group Code is configured, but no other branch has checked in with the same code yet. Make sure the code matches on every branch device (each one also needs an internet connection).'
+            });
             return;
         }
         renderBranchesPage();
@@ -9339,36 +9725,35 @@ async function loadBranchesPage(silent) {
         console.warn('loadBranchesPage failed:', err);
         if (!silent) {
             const detail = err && err.message ? String(err.message) : 'Unknown network error';
-            body.innerHTML = `
-                <div class="overview-trend-card branches-error-state" role="alert" style="text-align:center;">
-                    <div class="branches-error-title" style="font-weight:700;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> Unable to reach branch service</div>
-                    <div class="branches-error-detail" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">${escapeHtml(detail)}</div>
-                    <button type="button" class="btn-action-outline branches-refresh-btn" style="margin:0 auto;" onclick="loadBranchesPage(false)"><i class="fa-solid fa-rotate-right"></i> Try Again</button>
-                </div>`;
+            setBranchesHeroStatus('Connection needs attention', 'Retry when your connection is stable');
+            body.innerHTML = branchesNoticeHtml({ title: 'Unable to reach branch service', text: detail, actionLabel: 'Try Again' });
         }
     }
 }
 function renderTrendSvg(history) {
     if (!history || history.length < 2) {
-        return '<p style="color:#94a3b8;font-size:0.8rem;margin:6px 0;">Not enough data yet for the trend chart (needs a few check-ins throughout the day).</p>';
+        return '<div class="branches-trend-empty"><i class="fa-solid fa-chart-line"></i><span>Not enough data yet for the trend chart (needs a few check-ins throughout the day).</span></div>';
     }
     const w = 600, h = 140, pad = 10;
     const values = history.map(p => Number(p.grossSalesToday) || 0);
     const maxV = Math.max(...values, 1);
     const stepX = (w - pad * 2) / (values.length - 1);
-    const points = values.map((v, i) => {
+    const coords = values.map((v, i) => {
         const x = pad + i * stepX;
         const y = h - pad - ((v / maxV) * (h - pad * 2));
         return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
+    });
+    const line = coords.join(' ');
+    const area = `${pad},${h - pad} ${line} ${(pad + (values.length - 1) * stepX).toFixed(1)},${h - pad}`;
     const lineColor = (typeof ovGetThemeColors === 'function') ? ovGetThemeColors().total : '#2563eb';
     const firstTs = new Date(history[0].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const lastTs = new Date(history[history.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `
-        <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:120px;" preserveAspectRatio="none">
-            <polyline points="${points}" fill="none" stroke="${lineColor}" stroke-width="2"></polyline>
+        <svg class="branches-trend-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Hourly sales trend">
+            <polygon points="${area}" fill="${lineColor}" fill-opacity="0.12"></polygon>
+            <polyline points="${line}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>
         </svg>
-        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#94a3b8;"><span>${firstTs}</span><span>${lastTs}</span></div>`;
+        <div class="branches-trend-axis"><span>${firstTs}</span><span>${lastTs}</span></div>`;
 }
 async function loadBranchesTrend(silent) {
     try {
@@ -9412,7 +9797,9 @@ function isActionableBranchTransfer(t) {
 }
 function setBranchTransferFilter(filter) {
     branchesPageState.transferFilter = filter;
-    renderBranchesPage();
+    // Only the transfers panel depends on the filter — re-render just that
+    // section instead of the whole page (no blinking of the branch list).
+    setBranchesSection('branches-transfers-section', renderBranchTransfersHtml());
 }
 const BRANCH_TRANSFER_LIST_LIMIT = 50;
 // FIX: there was previously no way at all to clear old FINISHED transfer
@@ -9461,15 +9848,20 @@ async function clearBranchTransferHistory() {
 }
 function renderBranchTransfersHtml() {
     const allTransfers = branchesPageState.transfers || [];
-    const header = `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <span><i class="fa-solid fa-right-left"></i> Stock Transfer Requests</span>
-        ${allTransfers.length > 0 ? `<button type="button" class="btn-action-outline" style="padding:4px 10px;font-size:0.72rem;color:#ef4444;border-color:#ef4444;" onclick="clearBranchTransferHistory()" title="Deletes only finished (completed/rejected/cancelled) requests — shared across the group"><i class="fa-solid fa-trash-can"></i> Clear Finished History</button>` : ''}
-    </h3>`;
+    const header = `
+        <div class="operations-card-heading">
+            <div><span class="operations-section-kicker">Stock movement</span><h3>Stock transfer requests</h3></div>
+            <div class="branches-heading-actions">
+                ${allTransfers.length > 0 ? `<button type="button" class="btn-action-outline branches-mini-btn is-danger" data-action="clear-transfer-history" title="Deletes only finished (completed/rejected/cancelled) requests — shared across the group"><i class="fa-solid fa-trash-can"></i> Clear finished history</button>` : ''}
+                <span class="operations-panel-icon"><i class="fa-solid fa-right-left"></i></span>
+            </div>
+        </div>`;
     const syncErrorNote = branchesPageState.transfersSyncError
-        ? `<p style="color:#f59e0b;font-size:0.8rem;margin:0 0 10px;"><i class="fa-solid fa-triangle-exclamation"></i> Could not refresh the transfer list from the server — what you see below may be out of date. <a href="#" onclick="loadBranchTransfers(); return false;" style="color:#2563eb;">Retry now</a></p>`
+        ? `<p class="branches-sync-warning"><i class="fa-solid fa-triangle-exclamation"></i> Could not refresh the transfer list from the server — what you see below may be out of date. <a href="#" data-action="retry-transfers">Retry now</a></p>`
         : '';
+    const emptyHtml = (text) => `<div class="branches-empty"><i class="fa-solid fa-inbox"></i><span>${text}</span></div>`;
     if (allTransfers.length === 0) {
-        return header + syncErrorNote + `<p style="color:#94a3b8;font-size:0.85rem;">There are no transfer requests between branches yet.</p>`;
+        return header + syncErrorNote + emptyHtml('There are no transfer requests between branches yet.');
     }
     // FIX (filter tabs): previously, it was just one long list of every
     // transfer (incoming/outgoing mixed together, both finished ones and
@@ -9490,19 +9882,18 @@ function renderBranchTransfersHtml() {
         { key: 'incoming', label: 'Incoming', count: allTransfers.filter(t => t.direction === 'incoming').length },
         { key: 'outgoing', label: 'Outgoing', count: allTransfers.filter(t => t.direction === 'outgoing').length }
     ];
-    const tabsHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tabs.map(tab => `
-        <button type="button" onclick="setBranchTransferFilter('${tab.key}')"
-            style="padding:4px 10px;font-size:0.75rem;border-radius:20px;border:1px solid ${filter === tab.key ? '#2563eb' : 'var(--border-color)'};background:${filter === tab.key ? '#2563eb' : 'transparent'};color:${filter === tab.key ? '#fff' : 'inherit'};cursor:pointer;">
-            ${tab.label}${tab.count > 0 ? ` (${tab.count})` : ''}
+    const tabsHtml = `<div class="branches-tabs" role="tablist">${tabs.map(tab => `
+        <button type="button" role="tab" aria-selected="${filter === tab.key}" class="branches-tab${filter === tab.key ? ' is-active' : ''}" data-action="transfer-filter" data-filter="${tab.key}">
+            ${tab.label}${tab.count > 0 ? `<span class="branches-tab-count">${tab.count}</span>` : ''}
         </button>`).join('')}</div>`;
     if (filtered.length === 0) {
-        return header + syncErrorNote + tabsHtml + `<p style="color:#94a3b8;font-size:0.85rem;">No transfer requests match this filter.</p>`;
+        return header + syncErrorNote + tabsHtml + emptyHtml('No transfer requests match this filter.');
     }
     const shown = filtered.slice(0, BRANCH_TRANSFER_LIST_LIMIT);
     const rows = shown.map(t => {
-        // Status colors: pending=orange, accepted/in_transit=blue (needs another
+        // Status colors: pending=amber, accepted/in_transit=accent (needs another
         // step before the stock is actually moved), completed=green (stock has
-        // moved on both sides), rejected/cancelled/unknown=gray.
+        // moved on both sides), rejected/cancelled/unknown=muted.
         // FIX: previously, `t.status.charAt(0)` was called directly, so
         // if a record had no `status` field for any reason (e.g. a
         // corrupted/unexpected relay response), this would throw a
@@ -9510,14 +9901,11 @@ function renderBranchTransfersHtml() {
         // (including every other perfectly fine record). Made safe with
         // a fallback of 'unknown'.
         const safeStatus = t.status || 'unknown';
-        const statusColor = safeStatus === 'pending' ? '#f59e0b'
-            : (safeStatus === 'accepted' || safeStatus === 'in_transit') ? '#2563eb'
-            : safeStatus === 'completed' ? '#16a34a'
-            : '#94a3b8';
+        const statusClass = ['pending', 'accepted', 'in_transit', 'completed'].includes(safeStatus) ? safeStatus : 'muted';
         const statusLabel = safeStatus === 'in_transit' ? 'In Transit' : safeStatus.charAt(0).toUpperCase() + safeStatus.slice(1);
         const dirLabel = t.direction === 'incoming' ? `To you from ${escapeHtml(t.fromBranchName)}` : (t.direction === 'outgoing' ? `To ${escapeHtml(t.toBranchName)}` : `${escapeHtml(t.fromBranchName)} \u2192 ${escapeHtml(t.toBranchName)}`);
         const busy = branchTransferActionsInFlight.has(t.id);
-        const actionBtn = (label, action, extraStyle, icon) => `<button class="btn-action-outline" ${busy ? 'disabled' : ''} style="padding:4px 10px;font-size:0.75rem;${busy ? 'opacity:0.5;cursor:not-allowed;' : ''}${extraStyle || ''}" onclick="respondBranchTransfer('${t.id}','${action}')">${icon || ''}${label}</button>`;
+        const actionBtn = (label, action, extraClass, icon) => `<button type="button" class="btn-action-outline branches-mini-btn${extraClass ? ' ' + extraClass : ''}" ${busy ? 'disabled' : ''} data-action="transfer-respond" data-transfer-id="${escapeHtml(t.id)}" data-transfer-action="${action}">${icon || ''}${label}</button>`;
         // FIX (two-sided stock movement): previously, the whole flow was
         // done after "Accept" — only the status changed, with no effect
         // on real stock. There are now two new steps before a request is
@@ -9526,28 +9914,31 @@ function renderBranchTransfersHtml() {
         //   in_transit (incoming) -> "Confirm Received" (adds stock here, at the destination)
         let actions = '';
         if (t.direction === 'incoming' && safeStatus === 'pending') {
-            actions = actionBtn('Accept', 'accept') + ' ' + actionBtn('Reject', 'reject', 'color:#ef4444;border-color:#ef4444;');
+            actions = actionBtn('Accept', 'accept') + actionBtn('Reject', 'reject', 'is-danger');
         } else if (t.direction === 'outgoing' && safeStatus === 'pending') {
             actions = actionBtn('Cancel', 'cancel');
         } else if (t.direction === 'outgoing' && safeStatus === 'accepted') {
             actions = actionBtn('Mark as Sent', 'send', '', '<i class="fa-solid fa-truck"></i> ');
         } else if (t.direction === 'incoming' && safeStatus === 'accepted') {
-            actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.fromBranchName)} to send the item(s)…</span>`;
+            actions = `<span class="branches-wait-note">Waiting for ${escapeHtml(t.fromBranchName)} to send the item(s)…</span>`;
         } else if (t.direction === 'incoming' && safeStatus === 'in_transit') {
             actions = actionBtn('Confirm Received', 'receive', '', '<i class="fa-solid fa-box-open"></i> ');
         } else if (t.direction === 'outgoing' && safeStatus === 'in_transit') {
-            actions = `<span style="font-size:0.75rem;color:#94a3b8;">Waiting for ${escapeHtml(t.toBranchName)} to confirm receipt…</span>`;
+            actions = `<span class="branches-wait-note">Waiting for ${escapeHtml(t.toBranchName)} to confirm receipt…</span>`;
         }
+        const needsAction = isActionableBranchTransfer(t);
+        const dirIcon = t.direction === 'incoming' ? 'fa-arrow-down' : (t.direction === 'outgoing' ? 'fa-arrow-up' : 'fa-right-left');
         return `
-            <div class="branches-transfer-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);gap:10px;flex-wrap:wrap;${busy ? 'opacity:0.7;' : ''}">
-                <div>
-                    <div style="font-weight:600;">${escapeHtml(t.itemName)} ${t.sku ? `<span style="color:#94a3b8;font-weight:normal;font-size:0.75rem;">(${escapeHtml(t.sku)})</span>` : ''} — ${t.qty} pc(s)</div>
-                    <div style="font-size:0.75rem;color:#94a3b8;">${dirLabel} · ${timeAgoLabel(t.createdAt)}</div>
-                    ${t.note ? `<div style="font-size:0.75rem;color:#64748b;margin-top:2px;">"${escapeHtml(t.note)}"</div>` : ''}
+            <div class="branches-transfer-row${busy ? ' is-busy' : ''}${needsAction ? ' is-action' : ''}" data-transfer-id="${escapeHtml(t.id)}">
+                <span class="remoteops-row-icon branches-transfer-icon"><i class="fa-solid ${dirIcon}"></i></span>
+                <div class="branches-transfer-main">
+                    <div class="branches-transfer-title">${escapeHtml(t.itemName)}${t.sku ? ` <span class="remoteops-muted">(${escapeHtml(t.sku)})</span>` : ''}<span class="branches-qty-chip">${Number(t.qty) || 0} pc(s)</span></div>
+                    <div class="branches-transfer-sub">${dirLabel} · ${timeAgoLabel(t.createdAt)}</div>
+                    ${t.note ? `<div class="branches-transfer-note">“${escapeHtml(t.note)}”</div>` : ''}
                 </div>
-                <div style="text-align:right;">
-                    <div style="font-size:0.75rem;font-weight:600;color:${statusColor};">${statusLabel}</div>
-                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;justify-content:flex-end;">${busy ? '<span style="font-size:0.75rem;color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin"></i> Updating…</span>' : actions}</div>
+                <div class="branches-transfer-side">
+                    <span class="branches-status is-${statusClass}">${statusLabel}</span>
+                    <div class="branches-transfer-actions">${busy ? '<span class="branches-wait-note"><i class="fa-solid fa-spinner fa-spin"></i> Updating…</span>' : actions}</div>
                 </div>
             </div>`;
     }).join('');
@@ -9555,76 +9946,345 @@ function renderBranchTransfersHtml() {
     // silently cut off with no indication at all — the list looked
     // complete even though it wasn't.
     const overflowNote = filtered.length > BRANCH_TRANSFER_LIST_LIMIT
-        ? `<p style="color:#94a3b8;font-size:0.75rem;margin:8px 0 0;text-align:center;">Showing the latest ${BRANCH_TRANSFER_LIST_LIMIT} of ${filtered.length} matching requests.</p>`
+        ? `<p class="branches-overflow-note">Showing the latest ${BRANCH_TRANSFER_LIST_LIMIT} of ${filtered.length} matching requests.</p>`
         : '';
-    return header + syncErrorNote + tabsHtml + `<div class="overview-trend-card">${rows}</div>` + overflowNote;
+    return header + syncErrorNote + tabsHtml + `<div class="branches-transfer-list">${rows}</div>` + overflowNote;
+}
+
+// === Branches page: helpers ================================================
+const BRANCH_STALE_MS = 30 * 60 * 1000;
+const BRANCH_SELF_ATTENTION_MS = 15 * 60 * 1000;
+function branchAgeMs(ts) { return ts ? Math.max(0, Date.now() - Number(ts)) : Infinity; }
+function isBranchStale(b) { return !b.isSelf && branchAgeMs(b.updatedAt) > BRANCH_STALE_MS; }
+function getBranchHealth(b) {
+    if (b.isSelf && branchAgeMs(b.updatedAt) > BRANCH_SELF_ATTENTION_MS) return 'attention';
+    if (isBranchStale(b)) return 'offline';
+    if ((Number(b.summary && b.summary.lowStockCount) || 0) > 0) return 'low';
+    return 'online';
+}
+function formatBranchMoney(n) {
+    const symbol = (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
+    return symbol + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+// Only touch the DOM when the section's HTML actually changed, so background
+// refreshes (polling, transfers, trend) never replace nodes under the user's
+// finger / cursor.
+function setBranchesSection(id, html) {
+    const el = document.getElementById(id);
+    if (!el || el.__branchesHtml === html) return;
+    el.innerHTML = html;
+    el.__branchesHtml = html;
+}
+function branchesSkeletonHtml() {
+    return `
+        <div id="branches-metrics" class="metrics-grid remoteops-metrics branches-metrics" aria-live="polite"></div>
+        <div id="branches-alerts"></div>
+        <div class="remoteops-section-grid branches-section-grid">
+            <div class="card remoteops-panel branches-panel-list">
+                <div class="operations-card-heading">
+                    <div><span class="operations-section-kicker">Network overview</span><h3>Per-branch detail</h3></div>
+                    <span class="operations-panel-icon"><i class="fa-solid fa-code-branch"></i></span>
+                </div>
+                <div id="branches-intel-toolbar" class="branches-toolbar">
+                    <label class="branches-search"><i class="fa-solid fa-magnifying-glass"></i><input id="bi-branch-search" type="search" placeholder="Search branch or installation ID…" autocomplete="off" aria-label="Search branches"></label>
+                    <select id="bi-branch-health" aria-label="Filter by health">
+                        <option value="all">All health</option><option value="online">Online</option><option value="low">Low stock</option><option value="attention">Attention</option><option value="offline">Offline</option>
+                    </select>
+                    <select id="bi-branch-sort" aria-label="Sort branches">
+                        <option value="status">Sort: Health</option><option value="sales">Sort: Net sales</option><option value="name">Sort: Name</option><option value="updated">Sort: Last update</option>
+                    </select>
+                    <button type="button" class="btn-action-outline branches-export-btn" id="bi-export-branches" data-action="export-branches"><i class="fa-solid fa-file-csv"></i><span>Export CSV</span></button>
+                </div>
+                <div id="branches-list" class="branches-list"></div>
+            </div>
+            <div class="card remoteops-panel branches-panel-trend">
+                <div class="operations-card-heading">
+                    <div><span class="operations-section-kicker">Combined · today</span><h3>Hourly sales trend</h3></div>
+                    <span class="operations-panel-icon"><i class="fa-solid fa-chart-line"></i></span>
+                </div>
+                <div id="branches-trend"></div>
+            </div>
+        </div>
+        <div class="card remoteops-panel branches-transfers-panel"><div id="branches-transfers-section"></div></div>`;
+}
+function syncBranchesToolbarFromState() {
+    const st = branchesPageState;
+    const search = document.getElementById('bi-branch-search');
+    const health = document.getElementById('bi-branch-health');
+    const sort = document.getElementById('bi-branch-sort');
+    if (search) search.value = st.query || '';
+    if (health) health.value = st.health || 'all';
+    if (sort) sort.value = st.sort || 'status';
+}
+function renderBranchMetricsHtml() {
+    const st = branchesPageState;
+    const branches = st.branches || [];
+    const c = st.combined || {};
+    const net = branches.reduce((n, b) => n + (Number(b.summary && b.summary.netSalesToday) || 0), 0);
+    const lowCount = Number(c.lowStockCount) || 0;
+    const lowBranches = branches.filter(b => (Number(b.summary && b.summary.lowStockCount) || 0) > 0).length;
+    const lowCaption = lowCount > 0
+        ? `<i class="fa-solid fa-triangle-exclamation"></i> In ${lowBranches} branch${lowBranches === 1 ? '' : 'es'}`
+        : '<i class="fa-solid fa-circle-check"></i> All branches stocked';
+    return `
+        <div class="metric-card remoteops-metric-card"><div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div><div><p class="metric-label">TODAY'S SALES</p><h3>${formatBranchMoney(c.grossSalesToday)}</h3><small class="remoteops-metric-caption"><i class="fa-solid fa-arrow-trend-up"></i> Net ${formatBranchMoney(net)} combined</small></div></div>
+        <div class="metric-card remoteops-metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div><div><p class="metric-label">TRANSACTIONS</p><h3>${(Number(c.transactionCountToday) || 0).toLocaleString()}</h3><small class="remoteops-metric-caption">Processed today</small></div></div>
+        <div class="metric-card remoteops-metric-card"><div class="metric-icon accent"><i class="fa-solid fa-user-check"></i></div><div><p class="metric-label">ACTIVE SHIFTS</p><h3>${(Number(c.activeShiftCount) || 0).toLocaleString()}</h3><small class="remoteops-metric-caption"><span class="remoteops-inline-dot"></span> Staff clocked in</small></div></div>
+        <div class="metric-card remoteops-metric-card"><div class="metric-icon ${lowCount > 0 ? 'warning' : 'neutral'}"><i class="fa-solid fa-box-open"></i></div><div><p class="metric-label">LOW STOCK ITEMS</p><h3>${lowCount.toLocaleString()}</h3><small class="remoteops-metric-caption${lowCount > 0 ? ' is-warn' : ''}">${lowCaption}</small></div></div>`;
+}
+function renderBranchAlertsHtml() {
+    const branches = branchesPageState.branches || [];
+    const stale = branches.filter(isBranchStale);
+    const low = branches.filter(b => (Number(b.summary && b.summary.lowStockCount) || 0) > 0);
+    if (stale.length === 0 && low.length === 0) return '';
+    const items = [
+        ...stale.map(b => `<li class="branches-alert is-danger"><i class="fa-solid fa-plug-circle-xmark"></i><span><strong>${escapeHtml(b.branchName || 'Unnamed Branch')}</strong> may be offline — last check-in ${escapeHtml(timeAgoLabel(b.updatedAt))}.</span></li>`),
+        ...low.map(b => `<li class="branches-alert is-warn"><i class="fa-solid fa-box-open"></i><span><strong>${escapeHtml(b.branchName || 'Unnamed Branch')}</strong> has ${Number(b.summary && b.summary.lowStockCount) || 0} low-stock item(s).</span></li>`)
+    ];
+    return `
+        <div class="card remoteops-panel branches-alerts-panel">
+            <div class="operations-card-heading">
+                <div><span class="operations-section-kicker">Needs attention</span><h3>Alerts</h3></div>
+                <span class="operations-panel-icon is-warn"><i class="fa-solid fa-triangle-exclamation"></i></span>
+            </div>
+            <ul class="branches-alert-list">${items.join('')}</ul>
+        </div>`;
+}
+function renderBranchCombinedTrendHtml() {
+    const hist = branchesPageState.combinedTrendCache || [];
+    const count = (branchesPageState.branches || []).length;
+    let stats = '';
+    if (hist.length >= 2) {
+        const vals = hist.map(p => Number(p.grossSalesToday) || 0);
+        stats = `
+            <div class="branches-trend-stats">
+                <div><span>Latest</span><strong>${formatBranchMoney(vals[vals.length - 1])}</strong></div>
+                <div><span>Peak</span><strong>${formatBranchMoney(Math.max(...vals))}</strong></div>
+                <div><span>Branches</span><strong>${count}</strong></div>
+            </div>`;
+    }
+    return stats + renderTrendSvg(hist);
+}
+// FIX (wrong branch opens when tapping a collapsed branch):
+// The branch list used to be built here, then app1.js ("Branch Intelligence")
+// re-tagged every card with data-branch-id BY POSITION (cards[i] <-> branches[i])
+// and re-sorted the cards in the DOM by health. Once the DOM order differed
+// from the data order (e.g. an offline branch floated to the top), the second
+// enhance pass paired the wrong branch id with the wrong card — so tapping one
+// branch expanded a different one, filled with the other branch's numbers.
+// The RELAY also returns branches ordered by "last check-in", so the order
+// changed on every poll as well.
+// Now the list is rendered ONCE, from data, already filtered + sorted with a
+// deterministic tie-breaker (name, then id), and every row carries its own
+// data-branch-id. The click handler reads the id from the row that was
+// actually tapped, so a card can never open the wrong branch.
+function getVisibleBranches() {
+    const st = branchesPageState;
+    const q = String(st.query || '').trim().toLowerCase();
+    const rank = { offline: 0, attention: 1, low: 2, online: 3 };
+    const nameOf = (b) => String(b.branchName || '');
+    const salesOf = (b) => Number((b.summary && (b.summary.netSalesToday ?? b.summary.grossSalesToday))) || 0;
+    const list = (st.branches || []).filter(b => {
+        const matchQ = !q || nameOf(b).toLowerCase().includes(q) || String(b.installationId || '').toLowerCase().includes(q);
+        const matchH = st.health === 'all' || getBranchHealth(b) === st.health;
+        return matchQ && matchH;
+    });
+    list.sort((a, z) => {
+        let d = 0;
+        if (st.sort === 'sales') d = salesOf(z) - salesOf(a);
+        else if (st.sort === 'updated') d = (Number(z.updatedAt) || 0) - (Number(a.updatedAt) || 0);
+        else if (st.sort === 'name') d = 0;
+        else d = (rank[getBranchHealth(a)] ?? 9) - (rank[getBranchHealth(z)] ?? 9);
+        if (d) return d;
+        d = nameOf(a).localeCompare(nameOf(z), undefined, { sensitivity: 'base', numeric: true });
+        if (d) return d;
+        return String(a.installationId).localeCompare(String(z.installationId));
+    });
+    return list;
+}
+function renderBranchRowHtml(b) {
+    const id = String(b.installationId);
+    const s = b.summary || {};
+    const health = getBranchHealth(b);
+    const stale = isBranchStale(b);
+    const expanded = branchesPageState.expandedBranchId === id;
+    const lowCount = Number(s.lowStockCount) || 0;
+    const tags = (b.isSelf ? '<span class="remoteops-tag">This device</span>' : '')
+        + (stale ? '<span class="remoteops-tag remoteops-tag-warn">Offline</span>' : '')
+        + (health === 'attention' ? '<span class="remoteops-tag remoteops-tag-warn">Attention</span>' : '')
+        + (lowCount > 0 ? `<span class="remoteops-tag remoteops-tag-warn">${lowCount} low stock</span>` : '');
+    const detail = expanded ? `
+        <div class="branch-row-detail${branchesPageState.animateBranchId === id ? ' is-entering' : ''}">
+            <div class="branch-detail-stats">
+                <div class="branch-detail-stat"><span>Net sales</span><strong>${formatBranchMoney(s.netSalesToday)}</strong></div>
+                <div class="branch-detail-stat"><span>Gross sales</span><strong>${formatBranchMoney(s.grossSalesToday)}</strong></div>
+                <div class="branch-detail-stat"><span>Transactions</span><strong>${(Number(s.transactionCountToday) || 0).toLocaleString()}</strong></div>
+                <div class="branch-detail-stat"><span>Active shifts</span><strong>${Number(s.activeShiftCount) || 0}</strong></div>
+                <div class="branch-detail-stat${lowCount > 0 ? ' is-warn' : ''}"><span>Low stock</span><strong>${lowCount}</strong></div>
+            </div>
+            <div class="branch-detail-trend">
+                <span class="operations-section-kicker">Hourly sales trend</span>
+                ${renderTrendSvg(branchesPageState.trendCache[b.installationId])}
+            </div>
+        </div>` : '';
+    return `
+        <div class="branch-row${expanded ? ' is-open' : ''}${stale ? ' is-offline' : ''}" data-branch-id="${escapeHtml(id)}">
+            <button type="button" class="branch-row-head" data-action="toggle-branch" aria-expanded="${expanded}">
+                <span class="remoteops-row-icon branch-row-icon"><i class="fa-solid fa-code-branch"></i></span>
+                <span class="branch-row-main">
+                    <span class="branch-row-name"><span class="branch-row-title">${escapeHtml(b.branchName || 'Unnamed Branch')}</span>${tags}</span>
+                    <span class="branch-row-sub${stale ? ' is-stale' : ''}"><span class="branches-health-dot is-${health}"></span>Updated ${escapeHtml(timeAgoLabel(b.updatedAt))}${stale ? ' — may be offline' : ''}</span>
+                </span>
+                <span class="branch-row-stats">
+                    <span class="branch-row-sales">${formatBranchMoney(s.grossSalesToday)}</span>
+                    <span class="branch-row-meta">${(Number(s.transactionCountToday) || 0).toLocaleString()} tx today</span>
+                </span>
+                <i class="fa-solid fa-chevron-down branch-row-chevron" aria-hidden="true"></i>
+            </button>
+            ${detail}
+        </div>`;
+}
+// Keyed reconcile: reuse the existing element of every row whose HTML did not
+// change, and only rebuild the rows that did (usually none, or the two rows
+// involved in an expand/collapse). Order is applied without re-inserting
+// nodes that are already in the right place.
+function renderBranchesList() {
+    const container = document.getElementById('branches-list');
+    if (!container) return;
+    const visible = getVisibleBranches();
+    if (visible.length === 0) {
+        if (!container.querySelector('.branches-empty')) {
+            container.innerHTML = '<div class="branches-empty"><i class="fa-solid fa-magnifying-glass"></i><span>No branches match your search or filter.</span></div>';
+        }
+        return;
+    }
+    const existing = new Map();
+    Array.from(container.children).forEach(el => {
+        if (el.dataset && el.dataset.branchId) existing.set(el.dataset.branchId, el);
+        else container.removeChild(el);
+    });
+    const desired = visible.map(b => {
+        const id = String(b.installationId);
+        const html = renderBranchRowHtml(b);
+        const old = existing.get(id);
+        if (old && old.__branchHtml === html) return old;
+        const tpl = document.createElement('template');
+        tpl.innerHTML = html.trim();
+        const fresh = tpl.content.firstElementChild;
+        fresh.__branchHtml = html;
+        return fresh;
+    });
+    const current = Array.from(container.children);
+    const sameOrder = current.length === desired.length && current.every((el, i) => el === desired[i]);
+    if (!sameOrder) {
+        while (container.firstChild) container.removeChild(container.firstChild);
+        desired.forEach(el => container.appendChild(el));
+    }
+}
+function updateBranchesHeroStatus() {
+    const st = branchesPageState;
+    const total = (st.branches || []).length;
+    const online = (st.branches || []).filter(b => !isBranchStale(b)).length;
+    const when = st.lastSyncAt && typeof formatRemoteTime === 'function' ? formatRemoteTime(st.lastSyncAt) : '—';
+    setBranchesHeroStatus(`${online} of ${total} branch${total === 1 ? '' : 'es'} online`, `Updated ${when}`);
 }
 function renderBranchesPage() {
     const body = document.getElementById('branches-page-body');
     if (!body) return;
-    const { branches, combined } = branchesPageState;
-    const currency = (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
-    const staleBranches = branches.filter(b => !b.isSelf && (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000));
-    const lowStockAlerts = branches.filter(b => (b.summary?.lowStockCount || 0) > 0);
-    const combinedCard = `
-        <div class="overview-trend-card" style="margin-bottom:15px;">
-            <div class="overview-trend-header"><h3><i class="fa-solid fa-chart-simple"></i> Combined (${branches.length} branch${branches.length > 1 ? 'es' : ''})</h3></div>
-            <div style="display:flex;flex-wrap:wrap;gap:20px;margin:10px 0 16px;">
-                <div><div style="font-size:1.4rem;font-weight:700;">${currency}${(combined.grossSalesToday || 0).toFixed(2)}</div><div style="font-size:0.75rem;color:#94a3b8;">Gross Sales Today</div></div>
-                <div><div style="font-size:1.4rem;font-weight:700;">${combined.transactionCountToday || 0}</div><div style="font-size:0.75rem;color:#94a3b8;">Transactions Today</div></div>
-                <div><div style="font-size:1.4rem;font-weight:700;">${combined.lowStockCount || 0}</div><div style="font-size:0.75rem;color:#94a3b8;">Low Stock Items</div></div>
-                <div><div style="font-size:1.4rem;font-weight:700;">${combined.activeShiftCount || 0}</div><div style="font-size:0.75rem;color:#94a3b8;">Active Shifts</div></div>
-            </div>
-            <div style="font-size:0.75rem;color:#64748b;margin-bottom:4px;">Hourly Sales Trend (Combined, Today)</div>
-            ${renderTrendSvg(branchesPageState.combinedTrendCache)}
-        </div>`;
-    const alertsHtml = (staleBranches.length === 0 && lowStockAlerts.length === 0) ? '' : `
-        <div class="overview-trend-card" style="margin-bottom:15px;border-left:3px solid #f59e0b;">
-            <div class="overview-trend-header"><h3><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;"></i> Alerts</h3></div>
-            <ul style="margin:10px 0 0;padding-left:20px;line-height:1.9;font-size:0.85rem;">
-                ${staleBranches.map(b => `<li style="color:#ef4444;">${escapeHtml(b.branchName || 'Unnamed Branch')} may be offline — no check-in for ${timeAgoLabel(b.updatedAt)}.</li>`).join('')}
-                ${lowStockAlerts.map(b => `<li style="color:#f59e0b;">${escapeHtml(b.branchName || 'Unnamed Branch')} has ${b.summary?.lowStockCount || 0} low-stock item(s).</li>`).join('')}
-            </ul>
-        </div>`;
-    const branchRows = branches.map(b => {
-        const ago = timeAgoLabel(b.updatedAt);
-        const stale = !b.isSelf && (Date.now() - (b.updatedAt || 0)) > (30 * 60 * 1000);
-        const expanded = branchesPageState.expandedBranchId === b.installationId;
-        return `
-            <div class="overview-trend-card" style="margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:10px;" onclick="toggleBranchDrilldown('${b.installationId}')">
-                    <div>
-                        <div style="font-weight:600;">${escapeHtml(b.branchName || 'Unnamed Branch')}${b.isSelf ? ' <span style="font-weight:normal;color:#3b82f6;font-size:0.75rem;">(this device)</span>' : ''}</div>
-                        <div style="font-size:0.75rem;color:${stale ? '#ef4444' : '#94a3b8'};">Updated ${ago}${stale ? ' — may be offline' : ''}</div>
-                    </div>
-                    <div style="text-align:right;display:flex;align-items:center;gap:10px;">
-                        <div>
-                            <div style="font-weight:600;">${currency}${(b.summary?.grossSalesToday || 0).toFixed(2)}</div>
-                            <div style="font-size:0.75rem;color:#94a3b8;">${b.summary?.transactionCountToday || 0} tx · ${b.summary?.lowStockCount || 0} low stock</div>
-                        </div>
-                        <i class="fa-solid ${expanded ? 'fa-chevron-up' : 'fa-chevron-down'}" style="color:#94a3b8;"></i>
-                    </div>
-                </div>
-                ${expanded ? `
-                    <div class="bi-expanded-panel" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color);">
-                        <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;">
-                            <div><div style="font-weight:700;">${currency}${(b.summary?.netSalesToday || 0).toFixed(2)}</div><div style="font-size:0.7rem;color:#94a3b8;">Net Sales Today</div></div>
-                            <div><div style="font-weight:700;">${b.summary?.activeShiftCount || 0}</div><div style="font-size:0.7rem;color:#94a3b8;">Active Shifts</div></div>
-                        </div>
-                        <div style="font-size:0.75rem;color:#64748b;margin-bottom:4px;">Hourly Sales Trend</div>
-                        ${renderTrendSvg(branchesPageState.trendCache[b.installationId])}
-                    </div>` : ''}
-            </div>`;
-    }).join('');
-    body.innerHTML = combinedCard + alertsHtml +
-        `<h3 style="margin:20px 0 10px;font-size:0.95rem;color:#64748b;"><i class="fa-solid fa-code-branch"></i> Per-Branch Detail</h3>` +
-        branchRows + `<div id="branches-transfers-section">${renderBranchTransfersHtml()}</div>`;
+    // Nothing to draw (yet) — leave any loading / error / "not set up" notice alone.
+    if (!Array.isArray(branchesPageState.branches) || branchesPageState.branches.length === 0) return;
+    if (!body.querySelector('#branches-list')) {
+        body.innerHTML = branchesSkeletonHtml();
+        syncBranchesToolbarFromState();
+    }
+    setBranchesSection('branches-metrics', renderBranchMetricsHtml());
+    setBranchesSection('branches-alerts', renderBranchAlertsHtml());
+    renderBranchesList();
+    setBranchesSection('branches-trend', renderBranchCombinedTrendHtml());
+    setBranchesSection('branches-transfers-section', renderBranchTransfersHtml());
+    updateBranchesHeroStatus();
     populateBranchTransferDestinations();
 }
 function toggleBranchDrilldown(installationId) {
-    branchesPageState.expandedBranchId = branchesPageState.expandedBranchId === installationId ? null : installationId;
-    renderBranchesPage();
+    const id = String(installationId);
+    const opening = branchesPageState.expandedBranchId !== id;
+    branchesPageState.expandedBranchId = opening ? id : null;
+    branchesPageState.animateBranchId = opening ? id : null;
+    renderBranchesList();
+    branchesPageState.animateBranchId = null;
 }
+function exportBranchesCsv() {
+    const branches = Array.isArray(branchesPageState.branches) ? branchesPageState.branches : [];
+    if (!branches.length) return;
+    const rows = [['Branch', 'Installation ID', 'Status', 'Last Update', 'Net Sales Today', 'Transactions Today', 'Low Stock', 'Active Shifts']];
+    branches.forEach(b => rows.push([
+        b.branchName || 'Unnamed Branch', b.installationId || '', getBranchHealth(b), b.updatedAt ? new Date(b.updatedAt).toISOString() : '',
+        Number(b.summary && (b.summary.netSalesToday ?? b.summary.grossSalesToday)) || 0,
+        Number(b.summary && b.summary.transactionCountToday) || 0,
+        Number(b.summary && b.summary.lowStockCount) || 0,
+        Number(b.summary && b.summary.activeShiftCount) || 0
+    ]));
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `omnipos-branches-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// One delegated set of listeners for the whole page (bound once). Every action
+// reads its target from the element that was actually clicked, never from an
+// index or a value captured at render time.
+function bindBranchesPageEvents() {
+    if (window.__branchesPageEventsBound) return;
+    window.__branchesPageEventsBound = true;
+    document.addEventListener('click', (e) => {
+        const el = e.target && e.target.closest ? e.target.closest('#branches-page-body [data-action]') : null;
+        if (!el) return;
+        const action = el.dataset.action;
+        if (el.tagName === 'A') e.preventDefault();
+        if (action === 'toggle-branch') {
+            const row = el.closest('[data-branch-id]');
+            if (!row) return;
+            const hadFocus = document.activeElement === el;
+            const id = row.dataset.branchId;
+            toggleBranchDrilldown(id);
+            if (hadFocus) {
+                const list = document.getElementById('branches-list');
+                const freshRow = list && Array.from(list.children).find(r => r.dataset.branchId === id);
+                const freshBtn = freshRow && freshRow.querySelector('.branch-row-head');
+                if (freshBtn) freshBtn.focus({ preventScroll: true });
+            }
+        } else if (action === 'transfer-filter') {
+            setBranchTransferFilter(el.dataset.filter);
+        } else if (action === 'transfer-respond') {
+            respondBranchTransfer(el.dataset.transferId, el.dataset.transferAction);
+        } else if (action === 'clear-transfer-history') {
+            clearBranchTransferHistory();
+        } else if (action === 'export-branches') {
+            exportBranchesCsv();
+        } else if (action === 'reload') {
+            loadBranchesPage(false);
+        } else if (action === 'retry-transfers') {
+            loadBranchTransfers();
+        } else if (action === 'open-store-settings') {
+            switchView('users');
+            setTimeout(() => { document.getElementById('store-settings-tab-btn')?.click(); }, 50);
+        }
+    });
+    document.addEventListener('input', (e) => {
+        if (e.target && e.target.id === 'bi-branch-search') {
+            branchesPageState.query = e.target.value;
+            renderBranchesList();
+        }
+    });
+    document.addEventListener('change', (e) => {
+        if (!e.target) return;
+        if (e.target.id === 'bi-branch-health') { branchesPageState.health = e.target.value; renderBranchesList(); }
+        else if (e.target.id === 'bi-branch-sort') { branchesPageState.sort = e.target.value; renderBranchesList(); }
+    });
+}
+bindBranchesPageEvents();
 function populateBranchTransferDestinations() {
     const sel = document.getElementById('bt-form-to-branch');
     if (!sel) return;
@@ -9838,26 +10498,6 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
     if (usersElem) usersElem.innerText = users === null || users === undefined ? '—' : users;
     if (expiringSoonElem) expiringSoonElem.innerText = expiringSoon;
     if (expiredElem) expiredElem.innerText = expired;
-    const ovTopSellerElem = document.getElementById('metric-ov-top-seller');
-    const ovOrdersElem = document.getElementById('metric-ov-orders');
-    const ovLowStockElem = document.getElementById('metric-ov-lowstock');
-    if (ovTopSellerElem) {
-        ovTopSellerElem.innerText = (topProductsToday && topProductsToday.length > 0)
-            ? `${topProductsToday[0].name} (${topProductsToday[0].qty})`
-            :'No sale';
-    }
-    if (ovOrdersElem) animateOverviewCountUp(ovOrdersElem, orders);
-    if (ovLowStockElem) animateOverviewCountUp(ovLowStockElem, lowStock);
-    const ovTopProductsListEl = document.getElementById('overview-top-products-list');
-    if (ovTopProductsListEl) {
-        if (!topProductsToday || topProductsToday.length === 0) {
-            ovTopProductsListEl.innerHTML ='<li style="color:#94a3b8; list-style:none; padding-left:0;">No sale/transaction done today.</li>';
-        } else {
-            ovTopProductsListEl.innerHTML = topProductsToday.map((p, idx) =>
-                `<li><strong>#${idx + 1} ${escapeHtml(p.name)}</strong> — ${p.qty} units sold today</li>`
-            ).join('');
-        }
-    }
 }
 async function loadTerminalCatalog() {
     try {
@@ -16490,7 +17130,7 @@ function removeProductPhoto() {
 async function handleProductFormSubmit(e) {
     e.preventDefault();
     const mode = document.getElementById('p-form-mode').value;
-    const code = document.getElementById('p-form-code').value;
+    const code = document.getElementById('p-form-code').value.trim();
     const payload = {
         code: code,
         name: document.getElementById('p-form-name').value,

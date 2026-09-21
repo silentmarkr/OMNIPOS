@@ -162,7 +162,8 @@
             var savedView = sessionStorage.getItem('currentView');
 
             var KNOWN_VIEWS = ['overview','dashboard','terminal','products','barcode',
-                'reorder','stock_return_inspection','reports','customers','transactions','users','faq','logs'];
+                'reorder','stock_return_inspection','reports','customers','transactions','users','faq','logs',
+                'debts','shiftreport','cloudtokens','branches','attendance','remoteops'];
             if (savedView && KNOWN_VIEWS.indexOf(savedView) !== -1) {
                 document.documentElement.setAttribute('data-preload-view', savedView);
             }
@@ -187,6 +188,12 @@
         html.has-session[data-preload-view="users"] #view-users { display: block !important; }
         html.has-session[data-preload-view="faq"] #view-faq { display: block !important; }
         html.has-session[data-preload-view="logs"] #view-logs { display: block !important; }
+        html.has-session[data-preload-view="debts"] #view-debts { display: block !important; }
+        html.has-session[data-preload-view="shiftreport"] #view-shiftreport { display: block !important; }
+        html.has-session[data-preload-view="cloudtokens"] #view-cloudtokens { display: block !important; }
+        html.has-session[data-preload-view="branches"] #view-branches { display: block !important; }
+        html.has-session[data-preload-view="attendance"] #view-attendance { display: block !important; }
+        html.has-session[data-preload-view="remoteops"] #view-remoteops { display: block !important; }
     </style>
 
     <meta charset="UTF-8">
@@ -207,7 +214,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260921-1">
+    <link rel="stylesheet" href="style.css?v=20260921-3">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -524,39 +531,49 @@
                         </div>
                     </div></section>
 
-<section id="view-overview" class="app-view">
+<section id="view-overview" class="app-view operations-view remoteops-view overview-view">
 
-                    <div class="overview-greeting-row ov-anim" style="--ov-delay:0">
-                        <div>
-                            <h2 class="overview-greeting" id="overview-greeting">Magandang araw!</h2>
+                    <div class="operations-hero remoteops-hero overview-hero ov-anim" style="--ov-delay:0">
+                        <div class="operations-hero-copy">
+                            <span class="operations-eyebrow"><span class="operations-live-dot"></span> Store overview</span>
+                            <h2><i class="fa-solid fa-laptop-house"></i><span class="overview-greeting" id="overview-greeting">Magandang araw!</span></h2>
                             <p class="overview-subdate" id="overview-subdate">&nbsp;</p>
                         </div>
-                        <span class="overview-role-badge" id="overview-role-badge">Admin</span>
+                        <div class="remoteops-hero-actions overview-hero-actions">
+                            <span class="overview-role-badge" id="overview-role-badge">Admin</span>
+                            <div class="remoteops-sync-meta"><span class="remoteops-sync-dot"></span><span id="overview-sync-status">Connecting…</span><small id="overview-last-updated">Waiting for first sync</small></div>
+                            <button type="button" class="btn-action-outline remoteops-refresh-btn" id="overview-refresh-btn" onclick="loadDashboardMetrics()" title="Refresh" aria-label="Refresh overview data"><i class="fa-solid fa-rotate"></i><span>Refresh data</span></button>
+                        </div>
                     </div>
 
-                    <div class="metrics-grid overview-stats-grid">
-                        <div class="metric-card ov-anim" style="--ov-delay:1">
-                            <div class="metric-icon accent"><i class="fa-solid fa-crown"></i></div>
-                            <div><p class="metric-label">TOP SELLER TODAY</p><h3 id="metric-ov-top-seller">—</h3></div>
+                    <div class="metrics-grid remoteops-metrics overview-metrics" aria-live="polite">
+                        <div class="metric-card remoteops-metric-card ov-anim" style="--ov-delay:1">
+                            <div class="metric-icon accent"><i class="fa-solid fa-peso-sign"></i></div>
+                            <div><p class="metric-label" id="metric-ov-sales-label">TODAY'S SALES</p><h3 id="metric-ov-sales">—</h3><small class="remoteops-metric-caption" id="metric-ov-sales-caption">Waiting for data</small></div>
                         </div>
-                        <div class="metric-card ov-anim" style="--ov-delay:2">
+                        <div class="metric-card remoteops-metric-card ov-anim" style="--ov-delay:2">
                             <div class="metric-icon neutral"><i class="fa-solid fa-receipt"></i></div>
-                            <div><p class="metric-label">TODAY'S ORDERS</p><h3 id="metric-ov-orders" data-count="0">0</h3></div>
+                            <div><p class="metric-label" id="metric-ov-orders-label">TODAY'S ORDERS</p><h3 id="metric-ov-orders" data-count="0">0</h3><small class="remoteops-metric-caption" id="metric-ov-orders-caption">Waiting for data</small></div>
                         </div>
-                        <div class="metric-card ov-anim" style="--ov-delay:3">
-                            <div class="metric-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                            <div><p class="metric-label">LOW STOCK ITEMS</p><h3 id="metric-ov-lowstock" data-count="0">0</h3></div>
+                        <div class="metric-card remoteops-metric-card ov-anim" style="--ov-delay:3">
+                            <div class="metric-icon accent"><i class="fa-solid fa-crown"></i></div>
+                            <div><p class="metric-label">TOP SELLER TODAY</p><h3 id="metric-ov-top-seller">—</h3><small class="remoteops-metric-caption" id="metric-ov-top-seller-caption">Waiting for data</small></div>
+                        </div>
+                        <div class="metric-card remoteops-metric-card ov-anim" style="--ov-delay:4">
+                            <div class="metric-icon neutral" id="metric-ov-lowstock-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                            <div><p class="metric-label">LOW STOCK ITEMS</p><h3 id="metric-ov-lowstock" data-count="0">0</h3><small class="remoteops-metric-caption" id="metric-ov-lowstock-caption">Waiting for data</small></div>
                         </div>
                     </div>
 
-                    <div class="overview-trend-card ov-anim adv-chart-card" style="--ov-delay:4" id="ov-adv-chart-card">
-                        <div class="overview-trend-header adv-chart-header">
-                            <h3><i class="fa-solid fa-chart-line"></i> Sales Trend <span id="ov-chart-range-label" class="adv-chart-range-label">(Last 7 Days)</span></h3>
+                    <div class="card remoteops-panel overview-chart-panel adv-chart-card ov-anim" style="--ov-delay:5" id="ov-adv-chart-card">
+                        <div class="operations-card-heading">
+                            <div><span class="operations-section-kicker">Performance</span><h3>Sales trend <span id="ov-chart-range-label" class="adv-chart-range-label">(Last 30 Days)</span></h3></div>
                             <div class="adv-header-actions">
                                 <button type="button" class="adv-chart-refresh-btn adv-filters-toggle-btn" id="ov-chart-filters-toggle" title="Show/Hide Filters" aria-expanded="false">
                                     <i class="fa-solid fa-sliders"></i> <span>Filters</span> <i class="fa-solid fa-chevron-down adv-filters-chevron"></i>
                                 </button>
-                                <button type="button" class="adv-chart-refresh-btn" id="ov-chart-refresh-btn" title="Refresh"><i class="fa-solid fa-rotate"></i></button>
+                                <button type="button" class="adv-chart-refresh-btn" id="ov-chart-refresh-btn" title="Refresh" aria-label="Refresh chart"><i class="fa-solid fa-rotate"></i></button>
+                                <span class="operations-panel-icon"><i class="fa-solid fa-chart-line"></i></span>
                             </div>
                         </div>
 
@@ -626,13 +643,36 @@
                         <div class="adv-chart-summary" id="ov-chart-summary"></div>
                     </div>
 
-                    <div class="overview-trend-card ov-anim" style="margin-top:15px; --ov-delay:5">
-                        <div class="overview-trend-header">
-                            <h3><i class="fa-solid fa-ranking-star"></i> Top Selling Products (Today)</h3>
+                    <div class="remoteops-section-grid overview-section-grid">
+                        <div class="card remoteops-panel ov-anim" style="--ov-delay:6">
+                            <div class="operations-card-heading">
+                                <div><span class="operations-section-kicker">Today</span><h3>Top selling products</h3></div>
+                                <span class="operations-panel-icon"><i class="fa-solid fa-ranking-star"></i></span>
+                            </div>
+                            <ul id="overview-top-products-list" class="overview-rank-list">
+                                <li class="overview-empty">No sale today.</li>
+                            </ul>
                         </div>
-                        <ul id="overview-top-products-list" style="margin:10px 0 0 0; padding-left:20px; line-height:2;">
-                            <li style="color:#94a3b8; list-style:none; padding-left:0;">No sale today.</li>
-                        </ul>
+                        <div class="card remoteops-panel overview-attention-panel ov-anim" style="--ov-delay:7">
+                            <div class="operations-card-heading">
+                                <div><span class="operations-section-kicker">Needs attention</span><h3>Stock watchlist</h3></div>
+                                <span class="operations-panel-icon" id="overview-attention-icon"><i class="fa-solid fa-boxes-stacked"></i></span>
+                            </div>
+                            <div class="overview-attention-chips" id="overview-attention-chips"></div>
+                            <div class="overview-attention-list" id="overview-attention-list"><p class="overview-empty">Loading…</p></div>
+                            <button type="button" class="btn-action-outline overview-panel-link" onclick="switchView('products')"><span>Open inventory</span> <i class="fa-solid fa-arrow-right"></i></button>
+                        </div>
+                    </div>
+
+                    <div class="card remoteops-panel overview-recent-panel ov-anim" style="--ov-delay:8">
+                        <div class="operations-card-heading">
+                            <div><span class="operations-section-kicker">Latest activity</span><h3>Recent sales</h3></div>
+                            <div class="overview-heading-actions">
+                                <button type="button" class="btn-action-outline overview-panel-link overview-panel-link-inline" onclick="switchView('transactions')"><span>View all</span> <i class="fa-solid fa-arrow-right"></i></button>
+                                <span class="operations-panel-icon"><i class="fa-solid fa-receipt"></i></span>
+                            </div>
+                        </div>
+                        <div class="table-container remoteops-table-container"><div class="remoteops-scroll-hint"><i class="fa-solid fa-arrows-left-right"></i> Swipe horizontally to explore</div><table class="data-table remoteops-table"><thead><tr><th>Time</th><th>Receipt</th><th>Cashier</th><th>Payment</th><th>Total</th></tr></thead><tbody id="overview-recent-body"><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
                     </div>
 
                 </section>
@@ -964,9 +1004,12 @@
                     </div>
                 </section>
 
-                <section id="view-reports" class="app-view" style="display:none;">
-                    <div class="view-header-row" style="margin-bottom: 18px;">
-                        <h2 id="page-title-reports">Sales Analytics</h2>
+                <section id="view-reports" class="app-view analytics-view" style="display:none;">
+                    <div class="view-header-row analytics-hero" style="margin-bottom: 18px;">
+                        <div class="analytics-hero-copy">
+                            <h2 id="page-title-reports"><i class="fa-solid fa-chart-line"></i>Sales Analytics</h2>
+                            <p class="analytics-hero-sub">Net sales, profit, and product performance for the period you select.</p>
+                        </div>
                         <div class="analytics-range-chips" id="analytics-range-chips">
                             <button class="chip-range active" data-range="all" onclick="setAnalyticsRange('all')">All Time</button>
                             <button class="chip-range" data-range="30d" onclick="setAnalyticsRange('30d')">30 Days</button>
@@ -1120,16 +1163,21 @@
                     </div>
                 </section>
 
-                <section id="view-branches" class="app-view" style="display:none;">
-                    <div class="view-header-row" style="margin-bottom: 15px;">
-                        <h2 id="page-title-branches"><i class="fa-solid fa-code-branch"></i> Branches</h2>
-                        <div class="branches-header-actions" style="display:flex; gap:10px; align-items:center;">
-                            <button class="btn-action-outline" id="branches-header-refresh-btn" onclick="loadBranchesPage()" title="Refresh" aria-label="Refresh branch data"><i class="fa-solid fa-rotate"></i></button>
-                            <button class="btn-action-global btn-branch-transfer" id="branches-new-transfer-btn" onclick="openBranchTransferRequestModal()" style="display:none;" title="New Transfer Request" aria-label="New Transfer Request"><i class="fa-solid fa-right-left"></i><span class="btn-action-label">New Transfer Request</span></button>
+                <section id="view-branches" class="app-view operations-view remoteops-view branches-view" style="display:none;">
+                    <div class="operations-hero remoteops-hero branches-hero">
+                        <div class="operations-hero-copy">
+                            <span class="operations-eyebrow"><span class="operations-live-dot"></span> Multi-branch network</span>
+                            <h2><i class="fa-solid fa-code-branch"></i>Branches</h2>
+                            <p>Compare sales, health, low-stock alerts, and stock transfers across every branch in your business group.</p>
+                        </div>
+                        <div class="remoteops-hero-actions branches-hero-actions">
+                            <div class="remoteops-sync-meta"><span class="remoteops-sync-dot"></span><span id="branches-sync-status">Connecting…</span><small id="branches-last-updated">Waiting for first sync</small></div>
+                            <button type="button" class="btn-action-outline remoteops-refresh-btn" id="branches-header-refresh-btn" onclick="loadBranchesPage()" title="Refresh" aria-label="Refresh branch data"><i class="fa-solid fa-rotate"></i><span>Refresh data</span></button>
+                            <button type="button" class="btn-action-global branches-transfer-btn" id="branches-new-transfer-btn" onclick="openBranchTransferRequestModal()" style="display:none;" title="New Transfer Request" aria-label="New Transfer Request"><i class="fa-solid fa-right-left"></i><span class="btn-action-label">New transfer</span></button>
                         </div>
                     </div>
                     <div id="branches-page-body">
-                        <p style="color:#94a3b8;font-size:0.9rem;">Loading…</p>
+                        <div class="metrics-grid remoteops-metrics branches-metrics"><div class="metric-card remoteops-metric-card remoteops-metric-loading"><div class="operations-spinner"></div><div><p class="metric-label">LIVE STATUS</p><h3>Loading branch data…</h3></div></div></div>
                     </div>
                 </section>
 
@@ -4548,8 +4596,8 @@
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js"></script>
 <script src="faq-engine.js"></script>
-<script src="app.js"></script>
-<script src="app1.js"></script>
+<script src="app.js?v=20260921-3"></script>
+<script src="app1.js?v=20260921-2"></script>
 
 <script>
 
