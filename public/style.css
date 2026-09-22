@@ -13589,6 +13589,15 @@ body.dark-mode .bulk-imgsearch-modal-card .modal-footer:has(button:not([style*="
     box-shadow: 0 5px 16px rgba(30, 64, 175, 0.12);
 }
 .attendance-preview-frame img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 11px; }
+/* Mirrored so it feels like a normal selfie/mirror view while framing the shot; the captured photo
+   itself is saved unmirrored (see captureAttendanceSelfieFromCamera in app.js). */
+.attendance-preview-frame video { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 11px; transform: scaleX(-1); background: #0f172a; }
+/* The 112px box below is a fine size for reviewing a already-taken thumbnail, but too small to
+   frame a live shot in — enlarge it only while the camera is actively streaming. */
+#attendance-selfie-preview-wrap.attendance-camera-live .attendance-preview-frame { width: 220px; height: 220px; }
+@media (max-width: 480px) {
+    #attendance-selfie-preview-wrap.attendance-camera-live .attendance-preview-frame { width: 180px; height: 180px; }
+}
 .attendance-review-copy { display: flex; gap: 8px; color: var(--ops-muted); font-size: 0.73rem; line-height: 1.5; }
 .attendance-review-copy i { color: var(--ops-blue); margin-top: 2px; }
 .attendance-review-actions { margin-top: 14px; }
@@ -13623,6 +13632,7 @@ body.dark-mode .bulk-imgsearch-modal-card .modal-footer:has(button:not([style*="
 .remoteops-metric-loading .operations-spinner { flex: 0 0 auto; }
 .remoteops-section-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 18px; }
 .remoteops-section-grid-bottom { margin-top: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.remoteops-roster-panel { margin-top: 18px; }
 .remoteops-panel { min-width: 0; padding: 19px; }
 .remoteops-panel .operations-card-heading { margin-bottom: 14px; }
 .operations-panel-icon {
@@ -13671,6 +13681,9 @@ body.dark-mode .bulk-imgsearch-modal-card .modal-footer:has(button:not([style*="
 .remoteops-money { color: var(--ops-ink); font-variant-numeric: tabular-nums; }
 .remoteops-muted { color: #94a3b8; font-size: 0.7rem; }
 .remoteops-active-label { display: inline-flex; align-items: center; gap: 6px; color: var(--ops-green); font-weight: 700; }
+.remoteops-selfie-flags { display: inline-flex; align-items: center; gap: 8px; font-size: 0.7rem; }
+.remoteops-selfie-flags span { display: inline-flex; align-items: center; gap: 4px; }
+.remoteops-selfie-yes { color: var(--ops-green); font-weight: 700; }
 .attendance-evidence-photo {
     display: block;
     width: 42px;
@@ -13783,6 +13796,7 @@ body.dark-mode .remoteops-error-card,
     .remoteops-sync-meta { width: 100%; }
     .remoteops-refresh-btn { justify-content: center; width: 100%; }
     .remoteops-section-grid-bottom { margin-top: 14px; }
+    .remoteops-roster-panel { margin-top: 14px; }
     .remoteops-panel .operations-card-heading { margin-bottom: 11px; }
     .remoteops-table-container {
         min-height: 0;

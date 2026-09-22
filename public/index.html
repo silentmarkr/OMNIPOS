@@ -3193,6 +3193,9 @@
                                 </button>
                             </div>
                             <div class="attendance-trust-note"><i class="fa-solid fa-circle-info"></i><span>Your local time and selfie are recorded together to help prevent missed or duplicate punches.</span></div>
+                            <!-- Fallback only: used when the live camera API is unavailable (old browser/device).
+                                 The live getUserMedia path below is what normally runs, since a plain file
+                                 picker would let someone submit an old photo instead of a live selfie. -->
                             <input type="file" id="attendance-selfie-input" accept="image/*" capture="user" style="display:none;" onchange="handleAttendanceSelfieSelected(event)">
                             <div id="attendance-selfie-preview-wrap" class="attendance-review-card" style="display:none;">
                                 <div class="attendance-review-heading">
@@ -3200,11 +3203,15 @@
                                     <span class="attendance-review-step" id="attendance-review-step">Time in</span>
                                 </div>
                                 <div class="attendance-review-body">
-                                    <div class="attendance-preview-frame"><img id="attendance-selfie-preview" alt="Attendance selfie preview"></div>
+                                    <div class="attendance-preview-frame">
+                                        <video id="attendance-camera-video" autoplay playsinline muted style="display:none;"></video>
+                                        <img id="attendance-selfie-preview" alt="Attendance selfie preview" style="display:none;">
+                                    </div>
                                     <div class="attendance-review-copy"><i class="fa-solid fa-camera-retro"></i><span>This photo will be submitted with your attendance action.</span></div>
                                 </div>
                                 <div class="attendance-review-actions">
-                                    <button type="button" class="btn-action-global" onclick="submitAttendanceAction()"><i class="fa-solid fa-check"></i> Submit attendance</button>
+                                    <button type="button" class="btn-action-global" id="attendance-capture-btn" onclick="captureAttendanceSelfieFromCamera()" style="display:none;"><i class="fa-solid fa-camera"></i> Capture photo</button>
+                                    <button type="button" class="btn-action-global" id="attendance-submit-btn" onclick="submitAttendanceAction()" style="display:none;"><i class="fa-solid fa-check"></i> Submit attendance</button>
                                     <button type="button" class="btn-action-outline" onclick="cancelAttendanceSelfie()">Retake / cancel</button>
                                 </div>
                             </div>
@@ -3256,6 +3263,13 @@
                             </div>
                             <div class="table-container remoteops-table-container"><div class="remoteops-scroll-hint"><i class="fa-solid fa-arrows-left-right"></i> Swipe horizontally to explore</div><table class="data-table remoteops-table"><thead><tr><th>Time</th><th>Branch</th><th>Cashier</th><th>Payment</th><th>Total</th></tr></thead><tbody id="remoteops-transactions-body"></tbody></table></div>
                         </div>
+                    </div>
+                    <div class="card remoteops-panel remoteops-roster-panel">
+                        <div class="operations-card-heading">
+                            <div><span class="operations-section-kicker">Cross-branch</span><h3>Live attendance across branches</h3></div>
+                            <span class="operations-panel-icon"><i class="fa-solid fa-users-rectangle"></i></span>
+                        </div>
+                        <div class="table-container remoteops-table-container"><div class="remoteops-scroll-hint"><i class="fa-solid fa-arrows-left-right"></i> Swipe horizontally to explore</div><table class="data-table remoteops-table"><thead><tr><th>Staff</th><th>Branch</th><th>Time in</th><th>Time out</th><th>Selfie</th></tr></thead><tbody id="remoteops-roster-body"></tbody></table></div>
                     </div>
                     <div class="remoteops-report-filter" id="remoteops-report-filter">
                         <label for="remoteops-report-date"><i class="fa-regular fa-calendar"></i> Workforce report date</label>

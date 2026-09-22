@@ -35,6 +35,9 @@ function createAsyncMutex() {
     };
 }
 const transactionsMutexRunExclusive = createAsyncMutex();
+// Separate from transactionsMutexRunExclusive on purpose: attendance time-in/out is a distinct
+// domain from sales, so it gets its own lock instead of queueing behind checkout traffic.
+const attendanceMutexRunExclusive = createAsyncMutex();
 process.on('unhandledRejection', (reason) => {
     console.error('🔥 [CRASH-SAFETY] Unhandled Promise Rejection (hindi pinatay ang server):', reason);
 });
@@ -203,6 +206,11 @@ app.use(cors(ALLOWED_ORIGINS.length > 0 ? {
 } : undefined));
 // Attendance selfies are at most ~500 KB, so refuse anything bigger BEFORE the (very large)
 // global JSON limit below buffers it in memory.
+// SECURITY: Content-Length is client-declared and can be spoofed or simply omitted (e.g. chunked
+// transfer-encoding), which would let an oversized body slip past this check and be buffered in
+// full by the 5gb global parser below (memory-exhaustion DoS). This early check is kept as a fast
+// reject for the common case, but the real cap is the route-scoped express.json({limit}) right
+// after it, which enforces the limit against actual bytes read off the socket, not a header.
 app.use('/api/attendance', (req, res, next) => {
     if (req.method !== 'POST') return next();
     const declaredLength = Number(req.headers['content-length']);
@@ -211,6 +219,7 @@ app.use('/api/attendance', (req, res, next) => {
     }
     next();
 });
+app.use('/api/attendance', express.json({ limit: '2mb' }));
 app.use(express.json({ limit:'5gb' }));
 app.use((err, req, res, next) => {
     if (err && err.type ==='entity.too.large') {
@@ -3770,6 +3779,50 @@ function hashBranchGroupKey(rawKey) {
     if (!trimmed) return null;
     return crypto.createHash('sha256').update(trimmed).digest('hex');
 }
+// --- Blind-relay encryption for Remote Operations (attendance + live sales snapshot) ---
+// RELAY still routes this data between branches (there is no direct branch-to-branch network
+// path — see the architecture discussion this was built from), but it should not be able to
+// read the contents. The identifier sent to RELAY is hashBranchGroupKey() above; the key used
+// here is derived with a DIFFERENT label from the SAME raw group code, so someone holding only
+// what RELAY stores (the hash) cannot reconstruct this encryption key from it.
+function deriveRemoteOpsEncryptionKey(rawKey) {
+    const trimmed = String(rawKey || '').trim().toLowerCase();
+    if (!trimmed) return null;
+    return crypto.createHash('sha256').update(`omnipos-remote-ops-encryption-key-v1:${trimmed}`).digest();
+}
+function encryptForGroup(payloadObj, rawKey) {
+    const key = deriveRemoteOpsEncryptionKey(rawKey);
+    if (!key) return null;
+    try {
+        const iv = crypto.randomBytes(12);
+        const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+        const plaintext = Buffer.from(JSON.stringify(payloadObj == null ? {} : payloadObj), 'utf8');
+        const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+        const tag = cipher.getAuthTag();
+        return `v1:${iv.toString('base64')}:${tag.toString('base64')}:${ciphertext.toString('base64')}`;
+    } catch (err) {
+        return null;
+    }
+}
+function decryptForGroup(blob, rawKey) {
+    const key = deriveRemoteOpsEncryptionKey(rawKey);
+    if (!key || typeof blob !== 'string') return null;
+    const parts = blob.split(':');
+    if (parts.length !== 4 || parts[0] !== 'v1') return null;
+    try {
+        const iv = Buffer.from(parts[1], 'base64');
+        const tag = Buffer.from(parts[2], 'base64');
+        const ciphertext = Buffer.from(parts[3], 'base64');
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(tag);
+        const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+        return JSON.parse(plaintext.toString('utf8'));
+    } catch (err) {
+        // Wrong/rotated group code, corrupted blob, or tampering — fail closed and silent;
+        // the caller treats a null return as "this branch's data could not be read".
+        return null;
+    }
+}
 function computeBranchSummaryPayload() {
     const now = new Date();
     const todayY = now.getFullYear(), todayM = now.getMonth(), todayD = now.getDate();
@@ -3822,11 +3875,34 @@ const ATTENDANCE_REPORT_MAX_LIMIT = 200;
 // own request, so without this every image would re-parse the same multi-MB day module from SQLite.
 const ATTENDANCE_SELFIE_DAY_CACHE_MS = 30 * 1000;
 const attendanceSelfieDayCache = new Map(); // dayKey -> { at, data }
+// Confirms the decoded bytes actually start with the magic number for the declared image type,
+// instead of trusting the client-supplied "data:image/xxx" label at face value. Without this, a
+// payload could be labeled e.g. image/png while containing arbitrary bytes; this endpoint's
+// response already forces Content-Type from the stored label + nosniff, so this isn't an active
+// XSS route today, but validating the bytes closes the gap for good and rejects corrupt uploads.
+function attendanceSelfieBytesMatchType(buffer, type) {
+    if (!buffer || buffer.length < 4) return false;
+    const sig = buffer.subarray(0, 4);
+    if (type === 'png') return sig[0] === 0x89 && sig[1] === 0x50 && sig[2] === 0x4e && sig[3] === 0x47;
+    if (type === 'jpeg' || type === 'jpg') return sig[0] === 0xff && sig[1] === 0xd8 && sig[2] === 0xff;
+    if (type === 'webp') return buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+    return false;
+}
 function sanitizeAttendanceSelfie(value) {
     if (typeof value !== 'string' || !value.trim()) return null;
     const normalized = value.trim();
-    if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(normalized)) return null;
     if (normalized.length > MAX_ATTENDANCE_SELFIE_LENGTH) return null;
+    const match = /^data:image\/(jpeg|jpg|png|webp);base64,([a-z0-9+/]+={0,2})$/i.exec(normalized);
+    if (!match) return null;
+    const [, type, payload] = match;
+    if (payload.length % 4 !== 0) return null;
+    let buffer;
+    try {
+        buffer = Buffer.from(payload, 'base64');
+    } catch (err) {
+        return null;
+    }
+    if (!buffer.length || !attendanceSelfieBytesMatchType(buffer, type.toLowerCase())) return null;
     return normalized;
 }
 function getAttendanceDateKey(date = new Date()) {
@@ -4176,66 +4252,75 @@ app.get('/api/attendance/current', requirePermission('attendance'), requireFeatu
         attendance: attendancePublicRecord(getActiveAttendanceForUser(req.authUser.username), false)
     });
 });
-app.post('/api/attendance/time-in', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-in', 12, 60 * 60 * 1000, undefined, attendanceUserRateKey), (req, res) => {
+app.post('/api/attendance/time-in', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-in', 12, 60 * 60 * 1000, undefined, attendanceUserRateKey), async (req, res) => {
     const selfie = sanitizeAttendanceSelfie(req.body?.selfie);
     if (!selfie) {
         return res.status(400).json({ success: false, message: 'A valid selfie photo is required to time in.' });
     }
-    const records = getAttendanceRecords();
-    const autoClosedCount = autoCloseStaleAttendanceSessions(records, req.authUser.username);
-    if (findActiveAttendanceIndex(records, req.authUser.username) !== -1) {
-        return res.status(409).json({ success: false, message: 'You already have an active attendance session. Time out first.' });
-    }
-    const user = getCurrentUserRecord(req.authUser.username);
-    const now = new Date().toISOString();
-    const record = {
-        id: crypto.randomUUID(),
-        username: req.authUser.username,
-        displayName: user?.displayName || req.authUser.username,
-        role: user?.role || req.authUser.role || 'Staff',
-        dateKey: getAttendanceDateKey(),
-        timeInAt: now,
-        timeOutAt: null,
-        createdAt: now,
-        ip: getClientIp(req)
-    };
-    if (!saveAttendanceSelfie(record, 'in', selfie)) {
-        return res.status(500).json({ success: false, message: 'Attendance could not be saved (the selfie could not be stored). Please try again.' });
-    }
-    records.unshift(record);
-    if (!saveAttendanceRecords(records)) {
-        discardAttendanceSelfie(record, 'in');
-        return res.status(500).json({ success: false, message: 'Attendance could not be saved. Please try again.' });
-    }
-    if (autoClosedCount > 0) {
-        logAction(req.authUser.username, `A previous attendance session had no time-out and was auto-closed (flagged for review).`);
-    }
-    logAction(req.authUser.username, 'Staff timed in with selfie attendance.');
-    queueRemoteOperationsCheckin();
-    res.json({ success: true, attendance: attendancePublicRecord(record, false), autoClosedPrevious: autoClosedCount > 0 });
+    // SECURITY: the read-check-write below (no active session -> create one) must be atomic, or a
+    // double-tap / flaky-retry / multi-tab race can slip two "active" sessions past the check before
+    // either has saved, breaking the single-active-session invariant the rest of this feature relies on.
+    await attendanceMutexRunExclusive(async () => {
+        const records = getAttendanceRecords();
+        const autoClosedCount = autoCloseStaleAttendanceSessions(records, req.authUser.username);
+        if (findActiveAttendanceIndex(records, req.authUser.username) !== -1) {
+            return res.status(409).json({ success: false, message: 'You already have an active attendance session. Time out first.' });
+        }
+        const user = getCurrentUserRecord(req.authUser.username);
+        const now = new Date().toISOString();
+        const record = {
+            id: crypto.randomUUID(),
+            username: req.authUser.username,
+            displayName: user?.displayName || req.authUser.username,
+            role: user?.role || req.authUser.role || 'Staff',
+            dateKey: getAttendanceDateKey(),
+            timeInAt: now,
+            timeOutAt: null,
+            createdAt: now,
+            ip: getClientIp(req)
+        };
+        if (!saveAttendanceSelfie(record, 'in', selfie)) {
+            return res.status(500).json({ success: false, message: 'Attendance could not be saved (the selfie could not be stored). Please try again.' });
+        }
+        records.unshift(record);
+        if (!saveAttendanceRecords(records)) {
+            discardAttendanceSelfie(record, 'in');
+            return res.status(500).json({ success: false, message: 'Attendance could not be saved. Please try again.' });
+        }
+        if (autoClosedCount > 0) {
+            logAction(req.authUser.username, `A previous attendance session had no time-out and was auto-closed (flagged for review).`);
+        }
+        logAction(req.authUser.username, 'Staff timed in with selfie attendance.');
+        queueRemoteOperationsCheckin();
+        res.json({ success: true, attendance: attendancePublicRecord(record, false), autoClosedPrevious: autoClosedCount > 0 });
+    });
 });
-app.post('/api/attendance/time-out', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-out', 12, 60 * 60 * 1000, undefined, attendanceUserRateKey), (req, res) => {
+app.post('/api/attendance/time-out', requirePermission('attendance'), requireFeature('remote_operations'), rateLimit('attendance-time-out', 12, 60 * 60 * 1000, undefined, attendanceUserRateKey), async (req, res) => {
     const selfie = sanitizeAttendanceSelfie(req.body?.selfie);
     if (!selfie) {
         return res.status(400).json({ success: false, message: 'A valid selfie photo is required to time out.' });
     }
-    const records = getAttendanceRecords();
-    const index = findActiveAttendanceIndex(records, req.authUser.username);
-    if (index === -1) {
-        return res.status(409).json({ success: false, message: 'No active attendance session was found. Time in first.' });
-    }
-    const record = records[index];
-    if (!saveAttendanceSelfie(record, 'out', selfie)) {
-        return res.status(500).json({ success: false, message: 'Attendance could not be saved (the selfie could not be stored). Please try again.' });
-    }
-    record.timeOutAt = new Date().toISOString();
-    if (!saveAttendanceRecords(records)) {
-        discardAttendanceSelfie(record, 'out');
-        return res.status(500).json({ success: false, message: 'Attendance could not be saved. Please try again.' });
-    }
-    logAction(req.authUser.username, 'Staff timed out with selfie attendance.');
-    queueRemoteOperationsCheckin();
-    res.json({ success: true, attendance: attendancePublicRecord(record, false) });
+    // SECURITY: same atomicity concern as time-in above — lock so a duplicate time-out request can't
+    // race the "already closed" check.
+    await attendanceMutexRunExclusive(async () => {
+        const records = getAttendanceRecords();
+        const index = findActiveAttendanceIndex(records, req.authUser.username);
+        if (index === -1) {
+            return res.status(409).json({ success: false, message: 'No active attendance session was found. Time in first.' });
+        }
+        const record = records[index];
+        if (!saveAttendanceSelfie(record, 'out', selfie)) {
+            return res.status(500).json({ success: false, message: 'Attendance could not be saved (the selfie could not be stored). Please try again.' });
+        }
+        record.timeOutAt = new Date().toISOString();
+        if (!saveAttendanceRecords(records)) {
+            discardAttendanceSelfie(record, 'out');
+            return res.status(500).json({ success: false, message: 'Attendance could not be saved. Please try again.' });
+        }
+        logAction(req.authUser.username, 'Staff timed out with selfie attendance.');
+        queueRemoteOperationsCheckin();
+        res.json({ success: true, attendance: attendancePublicRecord(record, false) });
+    });
 });
 app.get('/api/attendance/selfie/:id/:kind', requirePermission('remoteops'), requireFeature('remote_operations'), (req, res) => {
     const kind = req.params.kind === 'in' ? 'in' : (req.params.kind === 'out' ? 'out' : null);
@@ -4313,7 +4398,15 @@ async function runRelayBranchCheckin() {
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-        const summary = computeBranchSummaryPayload();
+        // Blind relay: RELAY only ever sees an opaque, authenticated ciphertext blob for the
+        // branch sales/stock snapshot below — same pattern as the Remote Operations check-in
+        // (see encryptForGroup / decorateBranchSummary / decorateBranchTrend).
+        const encryptedSummary = encryptForGroup(computeBranchSummaryPayload(), storeSettings.branchGroupKey);
+        if (!encryptedSummary) {
+            relayBranchStatus.state = 'orange';
+            relayBranchStatus.lastError = 'Could not encrypt the branch check-in payload.';
+            return;
+        }
         const relayRes = await relayFetch(`${RELAY_URL}/relay/branch-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -4321,7 +4414,7 @@ async function runRelayBranchCheckin() {
                 installationId,
                 branchGroupKeyHash: groupKeyHash,
                 branchName: storeSettings.branchName || null,
-                summary
+                encryptedSummary
             })
         });
         const relayData = await parseRelayResponse(relayRes);
@@ -4372,11 +4465,31 @@ function computeRemoteOperationsPayload() {
     });
     const nowMs = Date.now();
     const activeStaff = new Set();
+    // Roster of today's attendance, shared cross-branch (via the encrypted Remote Operations
+    // check-in) so an admin with the "remoteops" permission can see who's clocked in at OTHER
+    // branches too, not just this one. Selfie photos themselves are never sent to RELAY — only
+    // whether one was captured (hasSelfieIn/hasSelfieOut) — to keep this payload small and to
+    // avoid shipping biometric-adjacent images off the device that took them.
+    const attendanceRoster = [];
     getAttendanceRecords().forEach((record) => {
-        if (!record.timeOutAt && !isAttendanceSessionStale(record, nowMs)) {
-            activeStaff.add(attendanceUsernameKey(record.username));
-        }
+        if (!record) return;
+        const isActive = !record.timeOutAt && !isAttendanceSessionStale(record, nowMs);
+        if (isActive) activeStaff.add(attendanceUsernameKey(record.username));
+        const recordDateKey = record.dateKey || getAttendanceSelfieDayKey(record);
+        if (recordDateKey !== todayKey && !isActive) return; // keep it to "today" plus any still-open session
+        attendanceRoster.push({
+            id: String(record.id || ''),
+            displayName: String(record.displayName || record.username || 'Unknown'),
+            role: String(record.role || ''),
+            timeInAt: record.timeInAt || null,
+            timeOutAt: record.timeOutAt || null,
+            autoClosed: !!record.autoClosed,
+            hasSelfieIn: !!record.timeInSelfie,
+            hasSelfieOut: !!record.timeOutSelfie
+        });
     });
+    attendanceRoster.sort((a, b) => new Date(b.timeInAt || 0) - new Date(a.timeInAt || 0));
+    if (attendanceRoster.length > 50) attendanceRoster.length = 50;
     const recentTransactions = dated
         .sort((a, b) => b.at - a.at)
         .slice(0, 25)
@@ -4391,7 +4504,8 @@ function computeRemoteOperationsPayload() {
         activeStaffCount: activeStaff.size,
         todaySales: Math.round(todaySales * 100) / 100,
         todayTransactions,
-        recentTransactions
+        recentTransactions,
+        attendanceRoster
     };
 }
 let relayRemoteOperationsInFlight = false;
@@ -4429,6 +4543,15 @@ async function runRelayRemoteOperationsCheckinInner() {
     relayRemoteOperationsStatus.lastAttemptAt = Date.now();
     try {
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        // Blind relay: RELAY only ever sees an opaque, authenticated ciphertext blob for the
+        // attendance/sales snapshot below. Only devices that know the same raw Business Group
+        // Code can decrypt it (see decryptForGroup / decorateRemoteOperationsSummary).
+        const encryptedRemoteOperations = encryptForGroup(computeRemoteOperationsPayload(), storeSettings.branchGroupKey);
+        if (!encryptedRemoteOperations) {
+            relayRemoteOperationsStatus.state = 'orange';
+            relayRemoteOperationsStatus.lastError = 'Could not encrypt the remote operations check-in payload.';
+            return;
+        }
         const relayRes = await relayFetch(`${RELAY_URL}/relay/remote-operations/checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -4436,7 +4559,7 @@ async function runRelayRemoteOperationsCheckinInner() {
                 installationId,
                 branchGroupKeyHash: groupKeyHash,
                 branchName: storeSettings.branchName || null,
-                remoteOperations: computeRemoteOperationsPayload()
+                encryptedRemoteOperations
             })
         });
         const relayData = await parseRelayResponse(relayRes);
@@ -4464,44 +4587,142 @@ app.get('/api/remote-operations/status', (req, res) => {
 // A branch that hasn't checked in for this long can't be trusted as "live": its staff are not counted
 // as clocked in, and a report from a previous day contributes nothing to "today's" sales.
 const REMOTE_OPS_STALE_MS = 10 * 60 * 1000;
-function decorateRemoteOperationsSummary(relayData, installationId, ownBranchName) {
+function decorateRemoteOperationsSummary(relayData, installationId, ownBranchName, rawGroupKey) {
     const nowMs = Date.now();
     const todayKey = getAttendanceDateKey(new Date(nowMs));
     const local = computeRemoteOperationsPayload();
     let hasSelf = false;
     const branches = (Array.isArray(relayData.branches) ? relayData.branches : []).map((branch) => {
         const isSelf = branch.installationId === installationId;
-        let operations = branch.remoteOperations || {};
+        let operations;
+        let undecryptable = false;
+        if (isSelf) {
+            operations = local;
+        } else if (typeof branch.encryptedRemoteOperations === 'string') {
+            // Blind relay: RELAY forwarded this as an opaque blob. Decrypt it locally using a key
+            // derived from OUR OWN raw Business Group Code — if another branch is (correctly or
+            // not) using a different code, this simply fails closed rather than showing garbage.
+            operations = decryptForGroup(branch.encryptedRemoteOperations, rawGroupKey);
+            if (!operations) undecryptable = true;
+        } else {
+            // Backward-compat fallback in case an older, not-yet-upgraded branch is still
+            // sending the legacy plaintext field.
+            operations = branch.remoteOperations || null;
+        }
+        operations = operations || {};
         let updatedAt = Number(branch.updatedAt) || Number(operations.updatedAt) || 0;
         if (isSelf) {
             hasSelf = true;
-            operations = { ...operations, ...local, updatedAt: nowMs };
             updatedAt = nowMs;
         }
         const offline = !isSelf && (!updatedAt || nowMs - updatedAt > REMOTE_OPS_STALE_MS);
         const previousDay = !!updatedAt && getAttendanceDateKey(new Date(updatedAt)) !== todayKey;
-        return { ...branch, isSelf, remoteOperations: operations, updatedAt, offline, previousDay };
+        return { ...branch, isSelf, remoteOperations: operations, updatedAt, offline, previousDay, undecryptable };
     });
     if (!hasSelf) {
         branches.push({
             installationId, branchName: ownBranchName || 'This device', isSelf: true,
-            remoteOperations: { ...local, updatedAt: nowMs }, updatedAt: nowMs, offline: false, previousDay: false
+            remoteOperations: { ...local, updatedAt: nowMs }, updatedAt: nowMs, offline: false, previousDay: false, undecryptable: false
         });
     }
     branches.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    const combined = { activeStaffCount: 0, todaySales: 0, todayTransactions: 0, recentTransactions: [] };
+    const combined = { activeStaffCount: 0, todaySales: 0, todayTransactions: 0, recentTransactions: [], attendanceRoster: [] };
     branches.forEach((branch) => {
         const ops = branch.remoteOperations || {};
+        if (branch.undecryptable) return; // can't safely count numbers we couldn't decrypt
         if (!branch.offline) combined.activeStaffCount += Number(ops.activeStaffCount) || 0;
         if (!branch.previousDay) {
             combined.todaySales += Number(ops.todaySales) || 0;
             combined.todayTransactions += Number(ops.todayTransactions) || 0;
         }
         (ops.recentTransactions || []).forEach((t) => combined.recentTransactions.push({ ...t, branchName: branch.branchName }));
+        // Cross-branch staff attendance roster: an admin (permission "remoteops") sees who
+        // clocked in/out at EVERY branch in the group here, not only their own — this is on top
+        // of the existing aggregate activeStaffCount, which only gave a number, not names.
+        (ops.attendanceRoster || []).forEach((entry) => combined.attendanceRoster.push({ ...entry, branchName: branch.branchName, isSelf: branch.isSelf }));
     });
     combined.todaySales = Math.round(combined.todaySales * 100) / 100;
     combined.recentTransactions = combined.recentTransactions.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 50);
-    return { ...relayData, branchCount: branches.length, branches, combined, offlineCount: branches.filter((b) => b.offline).length, serverTime: nowMs };
+    combined.attendanceRoster = combined.attendanceRoster
+        .sort((a, b) => new Date(b.timeInAt || 0) - new Date(a.timeInAt || 0))
+        .slice(0, 100);
+    const undecryptableCount = branches.filter((b) => b.undecryptable).length;
+    return { ...relayData, branchCount: branches.length, branches, combined, offlineCount: branches.filter((b) => b.offline).length, undecryptableCount, serverTime: nowMs };
+}
+// Same numeric fields computeBranchSummaryPayload() produces, kept here (rather than imported
+// from RELAY) since RELAY no longer knows what's inside the encrypted blob it forwards.
+const BRANCH_SUMMARY_NUMERIC_FIELDS = ['grossSalesToday', 'netSalesToday', 'transactionCountToday', 'lowStockCount', 'activeShiftCount'];
+// Blind relay for the Branches sales/stock summary — same shape of problem, and same fix, as
+// decorateRemoteOperationsSummary() above: RELAY forwards each branch's figures as an opaque
+// ciphertext blob (or, from an installation that hasn't upgraded, the legacy plaintext object),
+// and the combined network-wide totals are computed HERE, after decrypting each branch locally
+// with our own raw Business Group Code.
+function decorateBranchSummary(relayData, installationId, rawGroupKey) {
+    const local = computeBranchSummaryPayload();
+    const branches = (Array.isArray(relayData.branches) ? relayData.branches : []).map((branch) => {
+        const isSelf = branch.installationId === installationId;
+        let summary;
+        let undecryptable = false;
+        if (isSelf) {
+            summary = local;
+        } else if (typeof branch.encryptedSummary === 'string') {
+            summary = decryptForGroup(branch.encryptedSummary, rawGroupKey);
+            if (!summary) undecryptable = true;
+        } else {
+            // Backward-compat fallback in case an older, not-yet-upgraded branch is still
+            // sending the legacy plaintext field.
+            summary = branch.summary || null;
+        }
+        return { ...branch, isSelf, summary, undecryptable };
+    });
+    const combined = {};
+    for (const field of BRANCH_SUMMARY_NUMERIC_FIELDS) combined[field] = 0;
+    branches.forEach((branch) => {
+        if (branch.undecryptable) return; // can't safely count numbers we couldn't decrypt
+        const s = branch.summary || {};
+        for (const field of BRANCH_SUMMARY_NUMERIC_FIELDS) combined[field] += Number(s[field]) || 0;
+    });
+    return { branchCount: branches.length, branches, combined };
+}
+// Same idea as decorateBranchSummary(), but for the hourly trend chart: decrypt each branch's
+// history points locally, then reproduce the bucket-and-sum-last-known-value algorithm that used
+// to run on RELAY (see the comment that was on /relay/branch-trend before this moved here) to
+// derive the combined "total sales curve" across the day.
+function decorateBranchTrend(relayData, installationId, rawGroupKey) {
+    const branches = (Array.isArray(relayData.branches) ? relayData.branches : []).map((branch) => {
+        const rawHistory = Array.isArray(branch.history) ? branch.history : [];
+        // Same points RELAY used to store and bucket itself — just decrypted here instead, since
+        // RELAY can no longer read them. Points from before this rollout (legacy installations)
+        // arrive already in plaintext { ts, ...summaryFields } shape and pass through unchanged.
+        const history = rawHistory.map((point) => {
+            if (typeof point.encryptedSummary === 'string') {
+                const decrypted = decryptForGroup(point.encryptedSummary, rawGroupKey);
+                return decrypted ? { ts: point.ts, ...decrypted } : null;
+            }
+            return point;
+        }).filter(Boolean);
+        return { installationId: branch.installationId, branchName: branch.branchName, history };
+    });
+    const bucketMap = new Map();
+    for (const b of branches) {
+        for (const point of b.history) {
+            const bucketTs = Math.floor(point.ts / (60 * 60 * 1000)) * (60 * 60 * 1000);
+            if (!bucketMap.has(bucketTs)) bucketMap.set(bucketTs, {});
+            bucketMap.get(bucketTs)[b.installationId] = point;
+        }
+    }
+    const sortedBuckets = Array.from(bucketMap.keys()).sort((a, b) => a - b);
+    const lastKnown = {};
+    const combinedHistory = sortedBuckets.map((ts) => {
+        const atBucket = bucketMap.get(ts);
+        for (const [id, point] of Object.entries(atBucket)) lastKnown[id] = point;
+        const acc = { ts };
+        for (const field of BRANCH_SUMMARY_NUMERIC_FIELDS) {
+            acc[field] = Object.values(lastKnown).reduce((sum, p) => sum + (Number(p[field]) || 0), 0);
+        }
+        return acc;
+    });
+    return { branches, combinedHistory };
 }
 app.get('/api/remote-operations/summary', requirePermission('remoteops'), requireFeature('remote_operations'), async (req, res) => {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
@@ -4515,7 +4736,7 @@ app.get('/api/remote-operations/summary', requirePermission('remoteops'), requir
         });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) return res.status(relayRes.status || 502).json(relayData);
-        res.json({ success: true, configured: true, ...decorateRemoteOperationsSummary(relayData, installationId, storeSettings.branchName) });
+        res.json({ success: true, configured: true, ...decorateRemoteOperationsSummary(relayData, installationId, storeSettings.branchName, storeSettings.branchGroupKey) });
     } catch (err) {
         res.status(502).json({ success: false, message: `Could not reach the Relay: ${err.message}` });
     }
@@ -4563,18 +4784,20 @@ app.get('/api/branches/summary', requirePermission('branches'), requireFeature('
                 message: relayData.message || 'Could not get the branch summary from the relay.'
             });
         }
+        // Blind relay: decrypt+combine locally now — RELAY only ever forwarded opaque blobs.
+        const decorated = decorateBranchSummary(relayData, installationId, storeSettings.branchGroupKey);
         res.json({
             success: true,
             configured: true,
-            branchCount: relayData.branchCount || 0,
-            branches: (relayData.branches || []).map((b) => ({
+            branchCount: decorated.branchCount,
+            branches: decorated.branches.map((b) => ({
                 installationId: b.installationId,
-                isSelf: b.installationId === installationId,
+                isSelf: b.isSelf,
                 branchName: b.branchName,
                 summary: b.summary,
                 updatedAt: b.updatedAt
             })),
-            combined: relayData.combined || null
+            combined: decorated.combined
         });
     } catch (err) {
         res.status(502).json({ success: false, configured: true, message: `Could not reach the relay: ${err.message}` });
@@ -4596,7 +4819,10 @@ app.get('/api/branches/trend', requirePermission('branches'), requireFeature('mu
         if (!relayData.success) {
             return res.status(relayRes.status || 502).json({ success: false, configured: true, message: relayData.message || 'Could not get the branch trend from the relay.' });
         }
-        res.json({ success: true, configured: true, branches: relayData.branches || [], combinedHistory: relayData.combinedHistory || [] });
+        // Blind relay: decrypt each branch's history points and reproduce the bucket-and-sum
+        // combined trend locally — RELAY only ever forwarded opaque per-point blobs.
+        const decorated = decorateBranchTrend(relayData, installationId, storeSettings.branchGroupKey);
+        res.json({ success: true, configured: true, branches: decorated.branches, combinedHistory: decorated.combinedHistory });
     } catch (err) {
         res.status(502).json({ success: false, configured: true, message: `Could not reach the relay: ${err.message}` });
     }

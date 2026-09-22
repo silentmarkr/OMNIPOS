@@ -1559,6 +1559,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
     ai_assistant: { name:'OmniPOS AI Assistant', description:'An advanced AI-powered assistant, embedded in the FAQ page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
+    remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
     basic: { name:'Basic', autoBackupIntervalMs: 24 * 60 * 60 * 1000, extra:'30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
@@ -1629,11 +1630,12 @@ function guardPremiumFeature(featureId) {
     promptUnlockFeature(featureId, fallback.name, undefined, fallback.description);
     return true;
 }
-const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations'];
 const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } },
-    ai_assistant: { tagline: 'AI-powered help assistant on the FAQ page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } }
+    ai_assistant: { tagline: 'AI-powered help assistant on the FAQ page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } },
+    remote_operations: { tagline: 'Remote sales monitoring, staff time in/out with selfie evidence, and staff activity reports.', price: { monthly: 249, yearly: 2490 } }
 };
 const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
 async function promptModuleSubscription(featureId) {
@@ -3644,6 +3646,7 @@ let attendancePendingAction = null;
 let attendancePendingSelfie = null;
 let attendanceClockTimer = null;
 let attendanceSubmitInFlight = false;
+let attendanceCameraStream = null; // active getUserMedia stream while the live selfie preview is open
 let remoteOperationsRefreshTimer = null;
 let remoteOperationsRequestInFlight = false;
 let remoteOperationsReloadPending = false;
@@ -3652,6 +3655,9 @@ const attendancePhotoCache = new Map(); // "recordId:kind" -> object URL
 let attendancePhotoObserver = null;
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && remoteOperationsRefreshTimer) loadRemoteOperationsView();
+    // Release the camera (and drop whatever half-finished capture was in progress) if the staff
+    // member switches tabs/apps mid-selfie, instead of leaving the camera light on in the background.
+    if (document.hidden && attendanceCameraStream) cancelAttendanceSelfie();
 });
 function attendanceNotice(message, icon = 'info') {
     if (window.Swal && typeof Swal.fire === 'function') {
@@ -3738,17 +3744,101 @@ async function loadAttendanceView() {
         card.innerHTML = '<div class="attendance-status-icon"><i class="fa-solid fa-cloud-slash"></i></div><div class="attendance-status-copy"><strong>Could not reach the server</strong><span>Please try again when your connection is stable.</span></div><button type="button" class="btn-action-outline attendance-retry-btn" onclick="loadAttendanceView()"><i class="fa-solid fa-rotate"></i> Retry</button>';
     }
 }
-function chooseAttendanceSelfie(action) {
+// Attendance integrity: a plain file picker (even with the capture="user" hint) can be used on
+// desktop/tablet browsers to pick an old photo instead of taking one live, which defeats the point
+// of a selfie check. So the live camera is now the primary path; the hidden file input below is
+// only a fallback for browsers/devices without a usable camera API.
+async function startAttendanceCamera() {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') return false;
+    try {
+        stopAttendanceCameraStream();
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'user' }, width: { ideal: 720 }, height: { ideal: 720 } },
+            audio: false
+        });
+        const video = document.getElementById('attendance-camera-video');
+        if (!video) { stream.getTracks().forEach(t => t.stop()); return false; }
+        attendanceCameraStream = stream;
+        video.srcObject = stream;
+        try { await video.play(); } catch (e) {}
+        video.style.display = '';
+        const preview = document.getElementById('attendance-selfie-preview');
+        const captureBtn = document.getElementById('attendance-capture-btn');
+        const submitBtn = document.getElementById('attendance-submit-btn');
+        const wrap = document.getElementById('attendance-selfie-preview-wrap');
+        if (preview) preview.style.display = 'none';
+        if (captureBtn) captureBtn.style.display = '';
+        if (submitBtn) submitBtn.style.display = 'none';
+        if (wrap) wrap.classList.add('attendance-camera-live'); // bigger frame while framing the live shot
+        return true;
+    } catch (err) {
+        stopAttendanceCameraStream();
+        return false;
+    }
+}
+function stopAttendanceCameraStream() {
+    if (attendanceCameraStream) {
+        try { attendanceCameraStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        attendanceCameraStream = null;
+    }
+    const video = document.getElementById('attendance-camera-video');
+    if (video) {
+        try { video.pause(); } catch (e) {}
+        video.srcObject = null;
+        video.style.display = 'none';
+    }
+    const captureBtn = document.getElementById('attendance-capture-btn');
+    if (captureBtn) captureBtn.style.display = 'none';
+    const wrap = document.getElementById('attendance-selfie-preview-wrap');
+    if (wrap) wrap.classList.remove('attendance-camera-live');
+}
+function captureAttendanceSelfieFromCamera() {
+    const video = document.getElementById('attendance-camera-video');
+    if (!video || !video.videoWidth || !video.videoHeight) {
+        attendanceNotice('Camera is not ready yet. Please wait a moment and try again.', 'warning');
+        return;
+    }
+    const maxSide = 720;
+    const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) {
+        attendanceNotice('Your browser could not prepare the selfie. Please try again.', 'error');
+        return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    attendancePendingSelfie = canvas.toDataURL('image/jpeg', 0.78);
+    stopAttendanceCameraStream();
+    const preview = document.getElementById('attendance-selfie-preview');
+    const submitBtn = document.getElementById('attendance-submit-btn');
+    if (preview) { preview.src = attendancePendingSelfie; preview.style.display = ''; }
+    if (submitBtn) submitBtn.style.display = '';
+}
+async function chooseAttendanceSelfie(action) {
     attendancePendingAction = action;
     attendancePendingSelfie = null;
     const stepPill = document.getElementById('attendance-review-step');
     if (stepPill) stepPill.textContent = action === 'time-out' ? 'Time out' : 'Time in';
-    const oldWrap = document.getElementById('attendance-selfie-preview-wrap');
-    if (oldWrap) oldWrap.style.display = 'none';
-    const input = document.getElementById('attendance-selfie-input');
-    if (input) {
-        input.value = '';
-        input.click();
+    const wrap = document.getElementById('attendance-selfie-preview-wrap');
+    const preview = document.getElementById('attendance-selfie-preview');
+    const submitBtn = document.getElementById('attendance-submit-btn');
+    if (preview) { preview.removeAttribute('src'); preview.style.display = 'none'; }
+    if (submitBtn) submitBtn.style.display = 'none';
+    if (wrap) {
+        wrap.style.display = '';
+        try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    }
+    const cameraStarted = await startAttendanceCamera();
+    if (!cameraStarted) {
+        // No usable camera API on this device/browser — fall back to the classic file picker.
+        if (wrap) wrap.style.display = 'none';
+        const input = document.getElementById('attendance-selfie-input');
+        if (input) {
+            input.value = '';
+            input.click();
+        }
     }
 }
 function handleAttendanceSelfieSelected(event) {
@@ -3776,7 +3866,9 @@ function handleAttendanceSelfieSelected(event) {
             attendancePendingSelfie = canvas.toDataURL('image/jpeg', 0.78);
             const preview = document.getElementById('attendance-selfie-preview');
             const wrap = document.getElementById('attendance-selfie-preview-wrap');
-            if (preview) preview.src = attendancePendingSelfie;
+            const submitBtn = document.getElementById('attendance-submit-btn');
+            if (preview) { preview.src = attendancePendingSelfie; preview.style.display = ''; }
+            if (submitBtn) submitBtn.style.display = '';
             if (wrap) {
                 wrap.style.display = '';
                 try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
@@ -3791,6 +3883,7 @@ function handleAttendanceSelfieSelected(event) {
 function cancelAttendanceSelfie() {
     attendancePendingAction = null;
     attendancePendingSelfie = null;
+    stopAttendanceCameraStream();
     const wrap = document.getElementById('attendance-selfie-preview-wrap');
     if (wrap) wrap.style.display = 'none';
     const input = document.getElementById('attendance-selfie-input');
@@ -3958,7 +4051,8 @@ async function loadRemoteOperationsView() {
     const transactionsBody = document.getElementById('remoteops-transactions-body');
     const staffBody = document.getElementById('remoteops-staff-body');
     const attendanceBody = document.getElementById('remoteops-attendance-body');
-    if (!metrics || !branchesBody || !transactionsBody || !staffBody || !attendanceBody) return;
+    const rosterBody = document.getElementById('remoteops-roster-body');
+    if (!metrics || !branchesBody || !transactionsBody || !staffBody || !attendanceBody || !rosterBody) return;
     if (remoteOperationsRequestInFlight) { remoteOperationsReloadPending = true; return; }
     remoteOperationsRequestInFlight = true;
     const reportDateAtStart = remoteOpsReportDate;
@@ -3994,10 +4088,12 @@ async function loadRemoteOperationsView() {
             metrics.innerHTML = `<div class="card remoteops-error-card"><i class="fa-solid fa-triangle-exclamation"></i><div><strong>Live network data is unavailable</strong><span>${escapeHtml(summaryError)}</span></div></div>`;
             branchesBody.innerHTML = unavailableRow;
             transactionsBody.innerHTML = unavailableRow;
+            rosterBody.innerHTML = unavailableRow;
         } else if (notConfigured) {
             metrics.innerHTML = '<div class="card remoteops-error-card"><i class="fa-solid fa-circle-info"></i><div><strong>Remote Operations is not set up yet</strong><span>Set the Business Group Code in the Multi-Branch settings to see network-wide sales and live staff.</span></div></div>';
             branchesBody.innerHTML = notConfiguredRow;
             transactionsBody.innerHTML = notConfiguredRow;
+            rosterBody.innerHTML = notConfiguredRow;
         } else {
             const combined = summary.combined || {};
             const offlineCount = Number(summary.offlineCount) || 0;
@@ -4026,6 +4122,17 @@ async function loadRemoteOperationsView() {
             transactionsBody.innerHTML = ((summary.combined && summary.combined.recentTransactions) || []).map((transaction) =>
                 `<tr><td data-label="Time">${escapeHtml(formatRemoteTime(transaction.at))}</td><td data-label="Branch">${escapeHtml(transaction.branchName || '—')}</td><td data-label="Cashier">${escapeHtml(transaction.cashier || 'Unknown')}</td><td data-label="Payment">${escapeHtml(transaction.paymentMethod || '—')}</td><td data-label="Total"><strong class="remoteops-money">${formatRemoteCurrency(transaction.total)}</strong></td></tr>`
             ).join('') || '<tr><td colspan="5">No recent transactions.</td></tr>';
+            // Network-wide roster: who's clocked in/out at EVERY branch, not just this device.
+            // Selfie photos themselves never leave the branch that took them — only whether one
+            // was captured (hasSelfieIn/hasSelfieOut) travels with the roster entry.
+            rosterBody.innerHTML = ((summary.combined && summary.combined.attendanceRoster) || []).map((entry) => {
+                const branchTag = entry.isSelf ? '<span class="remoteops-tag">This device</span>' : '';
+                const timeOutCell = entry.timeOutAt
+                    ? `${escapeHtml(formatRemoteTime(entry.timeOutAt))}${entry.autoClosed ? ' <span class="remoteops-muted" title="No time-out was recorded, so the shift was closed automatically.">(auto-closed)</span>' : ''}`
+                    : '<span class="remoteops-active-label"><span class="remoteops-inline-dot"></span>Active</span>';
+                const selfieCell = `<span class="remoteops-selfie-flags"><span class="${entry.hasSelfieIn ? 'remoteops-selfie-yes' : 'remoteops-muted'}" title="Time-in selfie ${entry.hasSelfieIn ? 'captured' : 'not captured'}"><i class="fa-solid fa-camera"></i>In</span><span class="${entry.hasSelfieOut ? 'remoteops-selfie-yes' : 'remoteops-muted'}" title="Time-out selfie ${entry.hasSelfieOut ? 'captured' : 'not captured'}"><i class="fa-solid fa-camera"></i>Out</span></span>`;
+                return `<tr><td data-label="Staff"><span class="remoteops-primary-cell"><span class="remoteops-avatar">${escapeHtml(String(entry.displayName || '?').trim().slice(0, 1).toUpperCase())}</span>${escapeHtml(entry.displayName || 'Unknown')}</span></td><td data-label="Branch">${escapeHtml(entry.branchName || 'Unnamed Branch')}${branchTag}</td><td data-label="Time in">${escapeHtml(formatRemoteTime(entry.timeInAt))}</td><td data-label="Time out">${timeOutCell}</td><td data-label="Selfie">${selfieCell}</td></tr>`;
+            }).join('') || '<tr><td colspan="5">No attendance activity across branches yet today.</td></tr>';
         }
         if (reportError) {
             staffBody.innerHTML = '<tr><td colspan="5">Staff activity data is unavailable.</td></tr>';
@@ -4063,6 +4170,7 @@ async function loadRemoteOperationsView() {
         transactionsBody.innerHTML = '<tr><td colspan="5">Remote operations data is unavailable.</td></tr>';
         staffBody.innerHTML = '<tr><td colspan="5">Staff activity data is unavailable.</td></tr>';
         attendanceBody.innerHTML = '<tr><td colspan="5">Attendance evidence is unavailable.</td></tr>';
+        rosterBody.innerHTML = '<tr><td colspan="5">Cross-branch attendance data is unavailable.</td></tr>';
         metrics.dataset.loaded = '1';
         if (syncStatus) syncStatus.textContent = 'Connection needs attention';
         if (lastUpdated) lastUpdated.textContent = 'Retry when your connection is stable';
