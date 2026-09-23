@@ -7647,3 +7647,477 @@ Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
 ⚠️  Could not reach Relay for auto-restore check: fetch failed
 Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-22 11:02:05] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-22 11:02:07] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 11:02:10] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T03:00:33.061Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-22 19:20:49] ⚠️  May natirang lock file mula sa dating session (PID 11208, hindi na tumatakbo) — nililinis.
+[2026-09-22 19:20:50] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 19:20:53] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T03:02:11.706Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+[2026-09-22 19:32:08] ⚠️  May natirang lock file mula sa dating session (PID 5139, hindi na tumatakbo) — nililinis.
+[2026-09-22 19:32:08] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 19:32:11] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T11:26:47.578Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+[2026-09-22 19:33:30] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 19:33:33] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T11:32:13.799Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+[2026-09-22 20:55:29] ⚠️  May natirang lock file mula sa dating session (PID 23284, hindi na tumatakbo) — nililinis.
+[2026-09-22 20:55:30] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 20:55:33] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T11:32:13.799Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+[2026-09-22 20:58:02] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 20:58:05] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T11:32:13.799Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-22 23:47:10] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-22 23:47:12] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-22 23:47:15] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-22T15:46:07.063Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+[2026-09-23 06:34:00] ❌ May tumatakbo na supervisor loop (PID 23584). Hindi na papatakbuhin ulit.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-23 10:07:28] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-23 10:07:31] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 10:07:34] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T02:05:34.794Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-23 13:21:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 13:21:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T02:49:11.119Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-23 13:31:28] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-23 13:31:30] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 13:31:33] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T05:31:23.769Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+Unable to refresh Receipt Credit pricing from RELAY: fetch failed
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Mail Reset Failure Context: Error: getaddrinfo ENOTFOUND smtp.gmail.com
+    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:121:26) {
+  errno: -3007,
+  code: 'EDNS',
+  syscall: 'getaddrinfo',
+  hostname: 'smtp.gmail.com',
+  command: 'CONN'
+}
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+TypeError: Cannot read properties of undefined (reading 'toLowerCase')
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:68
+    at Array.some (<anonymous>)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:10771:15
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at verifyAdmin (/data/data/com.termux/files/home/OMNIPOS/server.js:8221:5)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:141:9
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at next (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/route.js:117:3)
+    at handle (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/lib/layer.js:152:17)
+    at /data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:295:15
+    at processParams (/data/data/com.termux/files/home/OMNIPOS/node_modules/router/index.js:582:12)
+[2026-09-23 13:54:13] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 13:54:16] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T05:35:48.795Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-23 13:58:37] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-23 13:58:40] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 13:58:43] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T05:54:18.523Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-23 13:59:26] ⚠️  May natirang lock file mula sa dating session (PID 22258, hindi na tumatakbo) — nililinis.
+[2026-09-23 13:59:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 13:59:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T05:58:45.180Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-23 14:06:19] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-23 14:06:21] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 14:06:24] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T05:59:32.678Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-23 14:28:27] ⚠️  May natirang lock file mula sa dating session (PID 13796, hindi na tumatakbo) — nililinis.
+[2026-09-23 14:28:28] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 14:28:31] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T06:06:26.766Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-23 14:37:41] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-23 14:37:43] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 14:37:47] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T06:06:26.766Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-09-23 14:42:57] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-09-23 14:43:00] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 14:43:03] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T06:38:49.248Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-09-23 14:53:41] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-09-23 14:53:44] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-09-23T06:51:35.798Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

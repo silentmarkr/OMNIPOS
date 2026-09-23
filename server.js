@@ -307,6 +307,29 @@ function destroySession(token) {
     SESSIONS.delete(token);
     persistSessions();
 }
+// SAFETY FIX: previously, when an Admin changed a user's role or force-reset
+// their password, any EXISTING/active session (SESSIONS map) was unaffected
+// — because the role used on every request (req.authUser.role) comes from
+// the cached session object, not a live read from FILE_USERS. So even after
+// a user was demoted (or promoted) in the DB, or had their password
+// force-reset (e.g. because the account was compromised), their existing
+// session would keep the OLD role/access until it naturally expired
+// (SESSION_TTL_MS, 8 hours) or they logged out/in again. This mirrors the
+// pattern already used by /api/users/delete-account (which destroys the
+// session on account deletion) — factored out here as a reusable helper.
+function revokeSessionsForUser(username) {
+    const target = String(username || '').toLowerCase();
+    if (!target) return 0;
+    let revoked = 0;
+    for (const [token, session] of SESSIONS.entries()) {
+        if (session.username.toLowerCase() === target) {
+            SESSIONS.delete(token);
+            revoked++;
+        }
+    }
+    if (revoked > 0) persistSessions();
+    return revoked;
+}
 function renameUsernameEverywhere(oldUsername, newUsername) {
     for (const session of SESSIONS.values()) {
         if (session.username.toLowerCase() === oldUsername.toLowerCase()) {
@@ -352,7 +375,7 @@ function extractToken(req) {
     if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
     return req.headers['x-auth-token'] ||'';
 }
-const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm']);
+const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health']);
 app.use((req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
@@ -381,9 +404,18 @@ app.use((req, res, next) => {
     req.authUser = { username: session.username, role: session.role };
     req.authToken = token;
     if (req.body && typeof req.body ==='object') {
-        if (typeof req.body.username ==='string') req.body.username = req.authUser.username;
-        if (typeof req.body.user ==='string') req.body.user = req.authUser.username;
-        if (typeof req.body.requester ==='string') req.body.requester = req.authUser.username;
+        // SECURITY FIX: dati, "typeof ... ==='string'" muna bago i-overwrite —
+        // kaya kung magpadala ang client ng hindi-string na value para dito
+        // (hal. isang array na ["ibang_username"]), hindi ito naa-overwrite
+        // dito, pero kapag ginamit bilang object key/property sa ibang
+        // endpoint (tulad ng nangyari dati sa /api/cart), awtomatikong
+        // pinapabalik ito ni JavaScript sa string ("ibang_username") —
+        // type-confusion bypass ng pagpi-pin na ito. Ngayon, basta
+        // present ang field, palaging pinapalitan ito papuntang totoong
+        // session identity anuman ang type na ipinasa.
+        if ('username' in req.body) req.body.username = req.authUser.username;
+        if ('user' in req.body) req.body.user = req.authUser.username;
+        if ('requester' in req.body) req.body.requester = req.authUser.username;
     }
     if (req.query && typeof req.query ==='object') {
         if ('requester' in req.query) req.query.requester = req.authUser.username;
@@ -408,6 +440,24 @@ const FILE_PURCHASE_ORDERS ='purchaseOrders';
 const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
 const FILE_STOCK_RETURNS ='stockReturns';
 const FILE_ATTENDANCE = 'attendanceRecords';
+
+// ============================================================================
+// RBAC (ROLES & PERMISSIONS) — SECTION START
+// All the core pieces of the access-control system are grouped here:
+//   1. MENU_REGISTRY / DEFAULT_ROLES — the list of every permission key the
+//      app has, plus the default roles (Admin/Staff/Cashier).
+//   2. getRoles() / getPermissionsForRole() — reads roles from disk (with
+//      auto-heal for newly added permission keys) and resolves the
+//      permissions for a given role.
+//   3. requirePermission(menuKey) — Express middleware used by routes to
+//      gate access based on the logged-in user's role.
+//   4. findPasswordAuthorizer() and its variants — "own password" override
+//      checks (void/refund/manual-discount/shift-close/etc.) that sit apart
+//      from the full-admin gate.
+// There's also a related `verifyAdmin()` middleware (stricter — Admin-only,
+// always requires the Admin password) further down the file alongside the
+// user-management routes, since that's where it's mainly used.
+// ============================================================================
 const MENU_REGISTRY = [
     { key:'overview',     label:'Overview / Home Dashboard (Landing Page After Login)', group:'Core' },
     { key:'terminal',     label:'POS Terminal', group:'Core' },
@@ -417,9 +467,9 @@ const MENU_REGISTRY = [
     { key:'barcode',      label:'Barcode', group:'Core' },
     { key:'transactions', label:'Transactions', group:'Transactions' },
     { key:'transactions_view_all', label:'Transactions — View All Cashiers', group:'Transactions' },
-    { key:'void_own_password', label:'Transactions — Void gamit ang Sariling Password (Hindi na kailangan ng Admin Password)', group:'Transactions' },
-    { key:'refund', label:'Transactions — Pwedeng Mag-process ng Refund (Full o Partial)', group:'Transactions' },
-    { key:'refund_own_password', label:'Transactions — Refund gamit ang Sariling Password (Hindi na kailangan ng Admin Password)', group:'Transactions' },
+    { key:'void_own_password', label:'Transactions — Void Using Own Password (Admin Password Not Required)', group:'Transactions' },
+    { key:'refund', label:'Transactions — Can Process Refund (Full or Partial)', group:'Transactions' },
+    { key:'refund_own_password', label:'Transactions — Refund Using Own Password (Admin Password Not Required)', group:'Transactions' },
     { key:'manual_discount_own_password', label:'Transactions — Authorize Manual Discount With Own Password (Admin Password Not Required)', group:'Transactions' },
     { key:'reports',      label:'Sales Report', group:'Reports' },
     { key:'customers', label:'Customers & Loyalty', group:'Customers & Loyalty' },
@@ -510,6 +560,27 @@ function getPermissionsForRole(roleName) {
     }
     return role.permissions;
 }
+// Express middleware: gates a route based on the logged-in user's role
+// permission key (Admin always passes). Used by nearly every protected
+// route in the file, so it's kept right next to getPermissionsForRole(),
+// which is where it gets its data.
+function requirePermission(menuKey) {
+    return (req, res, next) => {
+        const role = req.authUser && req.authUser.role;
+        if (role && role.toLowerCase() ==='admin') return next();
+        const perms = getPermissionsForRole(role);
+        if (!perms[menuKey]) {
+            return res.status(403).json({ success: false, message:'Authorization Required: You do not have permission to perform this action.' });
+        }
+        next();
+    };
+}
+// ---- "Own password" permission overrides -----------------------------
+// The following are for actions that an Admin can always perform (with
+// the Admin password), BUT can also be delegated to a regular role if it
+// has the matching "*_own_password" permission — that way, an Admin
+// doesn't always have to be called over; as long as the permission is
+// granted, the user's OWN password can serve as authorization instead.
 async function findPasswordAuthorizer(users, password, permissionKey) {
     if (!password) return null;
     for (const u of users) {
@@ -602,9 +673,20 @@ function verifyLoyaltyCardToken(customer, rawToken) {
     if (!timingSafeEqualHex(candidateHash, card.secretHash)) return { valid:false, message:'Invalid o pekeng card/QR token.' };
     return { valid:true, mode: card.mode };
 }
+// (Last in the list of "own password" authorizers because it depends on
+// the loyalty card helpers above — but still part of the same RBAC
+// override family as: findVoidAuthorizer / findRefundAuthorizer /
+// findManualDiscountAuthorizer / findShiftCloseAuthorizer /
+// findTerminalSettingsAuthorizer / findOmniTokenUnlockAuthorizer.)
 function findLoyaltyRedeemAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'loyalty_redeem_own_password');
 }
+// ============================================================================
+// RBAC (ROLES & PERMISSIONS) — SECTION END
+// (The stricter verifyAdmin() middleware — always requires an actual Admin
+// account + Admin password, no delegation — lives further down alongside
+// the /api/users and /api/roles routes that mainly use it.)
+// ============================================================================
 function sanitizeCustomerForClient(c) {
     if (!c) return c;
     const { loyaltyCard, ...rest } = c;
@@ -617,17 +699,6 @@ function sanitizeCustomerForClient(c) {
             issuedBy: loyaltyCard.issuedBy,
             issuedAt: loyaltyCard.issuedAt
         } : null
-    };
-}
-function requirePermission(menuKey) {
-    return (req, res, next) => {
-        const role = req.authUser && req.authUser.role;
-        if (role && role.toLowerCase() ==='admin') return next();
-        const perms = getPermissionsForRole(role);
-        if (!perms[menuKey]) {
-            return res.status(403).json({ success: false, message:'Authorization Required: You do not have permission to perform this action.' });
-        }
-        next();
     };
 }
 const FILE_RECEIPT_SETTINGS ='receiptSettings';
@@ -8129,7 +8200,7 @@ function verifyAdmin(req, res, next) {
     }
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-    if (!activeUser || activeUser.role.toLowerCase() !=='admin') {
+    if (!activeUser || typeof activeUser.role !=='string' || activeUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({
             success: false,
             message:'Akses Denied: Ang account na ito ay walang sapat na pribilehiyo bilang Admin!'
@@ -8206,14 +8277,23 @@ app.post('/api/roles/delete', requireFeature('rbac_management'), verifyAdmin, (r
     if (!role) return res.status(404).json({ success: false, message:'Role not found.' });
     if (role.protected) return res.status(403).json({ success: false, message:'Hindi maaaring burahin ang Admin role.' });
     const users = readData(FILE_USERS);
-    const inUse = users.some(u => u.role.toLowerCase() === role.name.toLowerCase());
+    // BUG FIX: (u.role || '') guards against a user record with a missing or
+    // non-string role — without it, any single malformed/legacy user record
+    // anywhere in the list would crash this whole check (same crash class as
+    // the other user-management fixes in this file).
+    const inUse = users.some(u => (u.role || '').toLowerCase() === role.name.toLowerCase());
     if (inUse) {
         return res.status(409).json({ success: false, message: `May mga user pa na naka-assign sa role na "${role.name}". I-reassign muna sila bago ito burahin.` });
     }
-    roles = roles.filter(r => r.name.toLowerCase() !== role.name.toLowerCase());
-    writeData(FILE_ROLES, roles);
+    const remainingRoles = roles.filter(r => r.name.toLowerCase() !== role.name.toLowerCase());
+    const writeOk = writeData(FILE_ROLES, remainingRoles);
+    const verifyRoles = readData(FILE_ROLES) || [];
+    const verified = writeOk && !verifyRoles.some(r => r.name.toLowerCase() === role.name.toLowerCase());
+    if (!verified) {
+        return res.status(500).json({ success: false, message: 'Nabigo ang pagbura ng role sa lokal na database. Subukan ulit.' });
+    }
     logAction(req.authUser.username, `Binura ang role: ${role.name}`);
-    res.json({ success: true, roles });
+    res.json({ success: true, roles: remainingRoles });
 });
 const LOGIN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_OTP_TTL_MS = 10 * 60 * 1000;
@@ -9595,6 +9675,11 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
     writeData(FILE_REQUESTS, requests);
     res.json({ success: true, message: `Request processed and removed successfully.` });
 });
+app.get('/api/health', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json({ success: true, status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.post('/api/transactions', requirePermission('terminal'), async (req, res) => {
     await transactionsMutexRunExclusive(() => processTransaction(req, res));
 });
@@ -9612,11 +9697,20 @@ async function processTransaction(req, res) {
     if (!transaction.id || typeof transaction.id !== 'string' || !transaction.id.trim()) {
         return res.status(400).json({ success: false, message: 'Kailangan ng valid na Transaction ID.' });
     }
+    if (transaction.syncId && transactions.some(t => t.syncId && t.syncId === transaction.syncId)) {
+        const existing = transactions.find(t => t.syncId === transaction.syncId);
+        if (String(existing?.cashier || '').toLowerCase() !== String(req.authUser.username || '').toLowerCase()) {
+            return res.status(403).json({ success: false, code: 'SYNC_ID_NOT_OWNED', message: 'This offline transaction belongs to a different cashier and cannot be synchronized by this account.' });
+        }
+        return res.status(200).json({ success: true, alreadyProcessed: true, currentTransaction: existing });
+    }
     if (transactions.some(t => t.id === transaction.id)) {
         return res.status(409).json({
             success: false,
-            code: 'DUPLICATE_TRANSACTION_ID',
-            message: 'May existing nang transaction na may ganitong ID — malamang parehong request ang naipadala nang dalawang beses. I-refresh at subukan muli.'
+            code: transaction.syncId ? 'TRANSACTION_ID_COLLISION' : 'DUPLICATE_TRANSACTION_ID',
+            message: transaction.syncId
+                ? 'This short transaction reference is already used by a different sale. A new reference is required; the sale was not created.'
+                : 'A transaction with this ID already exists. The duplicate sale was not created.'
         });
     }
     let products = readData(FILE_PRODUCTS);
@@ -9854,46 +9948,44 @@ async function processTransaction(req, res) {
             transaction.loyaltyAuthorizedBy = 'Customer Loyalty Card/QR Scan';
         } else {
             const loyaltyAuthPassword = transaction.loyaltyAuthPassword;
-            if (!loyaltyAuthPassword) {
-                return res.status(400).json({
-                    success: false,
-                    code:'LOYALTY_AUTH_REQUIRED',
-                    message:'I-scan ang Loyalty Card/QR ng customer, o maglagay ng Admin/Supervisor password para sa manual na pag-redeem.'
-                });
+            const loyaltyTicket = verifyOfflineAuthTicket(transaction.loyaltyOfflineAuthorization, { purpose: 'loyalty_redeem', requester: req.authUser.username });
+            if (loyaltyTicket) {
+                transaction.loyaltyAuthorizedBy = `${loyaltyTicket.authorizedBy} (offline authorization)`;
+            } else {
+                if (!loyaltyAuthPassword) {
+                    return res.status(400).json({ success: false, code:'LOYALTY_AUTH_REQUIRED', message:'Scan the customer Loyalty Card/QR, or obtain an Admin/Supervisor authorization.' });
+                }
+                const loyaltyAuthUsers = readData(FILE_USERS);
+                const loyaltyAuthResult = await findLoyaltyRedeemAuthorizer(loyaltyAuthUsers, loyaltyAuthPassword);
+                if (!loyaltyAuthResult) {
+                    return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Incorrect password. Loyalty points redemption was not authorized.' });
+                }
+                transaction.loyaltyAuthorizedBy = loyaltyAuthResult.isAdmin
+                    ? `${loyaltyAuthResult.user.username} (Admin, manual)`
+                    : `${loyaltyAuthResult.user.username} (RBAC, manual)`;
             }
-            const loyaltyAuthUsers = readData(FILE_USERS);
-            const loyaltyAuthResult = await findLoyaltyRedeemAuthorizer(loyaltyAuthUsers, loyaltyAuthPassword);
-            if (!loyaltyAuthResult) {
-                return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Incorrect password. Loyalty points redemption was not authorized.' });
-            }
-            transaction.loyaltyAuthorizedBy = loyaltyAuthResult.isAdmin
-                ? `${loyaltyAuthResult.user.username} (Admin, manual)`
-                : `${loyaltyAuthResult.user.username} (RBAC, manual)`;
         }
     }
     const manualDiscountTotal = Math.round((itemDiscountTotal + (discountType ==='MANUAL' ? cartDiscount : 0)) * 100) / 100;
     let discountAuthorizedBy = null;
     if (manualDiscountTotal > 0) {
         const discountAuthPassword = transaction.discountAuthPassword;
-        if (!discountAuthPassword) {
-            return res.status(400).json({
-                success: false,
-                code:'DISCOUNT_AUTH_REQUIRED',
-                message:'An Admin/Supervisor password is required to authorize this manual discount.'
-            });
+        const discountTicket = verifyOfflineAuthTicket(transaction.discountOfflineAuthorization, { purpose: 'manual_discount', requester: req.authUser.username });
+        if (discountTicket) {
+            discountAuthorizedBy = `${discountTicket.authorizedBy} (offline authorization)`;
+        } else {
+            if (!discountAuthPassword) {
+                return res.status(400).json({ success: false, code:'DISCOUNT_AUTH_REQUIRED', message:'An Admin/Supervisor authorization is required to authorize this manual discount.' });
+            }
+            const authUsers = readData(FILE_USERS);
+            const discountAuthResult = await findManualDiscountAuthorizer(authUsers, discountAuthPassword);
+            if (!discountAuthResult) {
+                return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Incorrect password. Manual discount was not authorized.' });
+            }
+            discountAuthorizedBy = discountAuthResult.isAdmin
+                ? `${discountAuthResult.user.username} (Admin)`
+                : `${discountAuthResult.user.username} (RBAC)`;
         }
-        const authUsers = readData(FILE_USERS);
-        const discountAuthResult = await findManualDiscountAuthorizer(authUsers, discountAuthPassword);
-        if (!discountAuthResult) {
-            return res.status(403).json({
-                success: false,
-                code:'WRONG_ADMIN_PASSWORD',
-                message:'Incorrect password. Manual discount was not authorized.'
-            });
-        }
-        discountAuthorizedBy = discountAuthResult.isAdmin
-            ? `${discountAuthResult.user.username} (Admin)`
-            : `${discountAuthResult.user.username} (RBAC)`;
     }
     products = readData(FILE_PRODUCTS);
     const freshStockIssues = [];
@@ -9955,6 +10047,8 @@ async function processTransaction(req, res) {
     transaction.discountAuthorizedBy = discountAuthorizedBy;
     delete transaction.discountAuthPassword;
     delete transaction.loyaltyAuthPassword;
+    delete transaction.discountOfflineAuthorization;
+    delete transaction.loyaltyOfflineAuthorization;
     delete transaction.loyaltyCardToken;
     transaction.items.forEach(item => {
         const prod = products.find(p => p.code === item.code);
@@ -10090,6 +10184,16 @@ app.post('/api/cart', (req, res) => {
     const { username, cart } = req.body;
     if (!username) {
         return res.status(400).json({ success: false, message:'Missing username' });
+    }
+    // SECURITY FIX: dati, kahit sinong naka-login (cashier/staff man) ay
+    // pwedeng magpasa ng IBANG username dito at ma-overwrite/mawala ang
+    // cart ng ibang user — walang ownership check, di gaya ng GET sa
+    // itaas na may isOwner/isAdmin guard na. Itinugma dito ang parehong
+    // guard.
+    const isOwner = req.authUser.username.toLowerCase() === String(username).toLowerCase();
+    const isAdmin = req.authUser.role.toLowerCase() ==='admin';
+    if (!isOwner && !isAdmin) {
+        return res.status(403).json({ success: false, message:'Akses Denied: Hindi mo pwedeng baguhin ang cart ng ibang user.' });
     }
     const cartsData = readData(FILE_CARTS, {});
     cartsData[username] = cart;
@@ -10578,7 +10682,7 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
             return res.status(400).json({ success: false, message:'Kinuha na ng ibang account ang username na iyan.' });
         }
     }
-    if (typeof role !=='undefined' && role) {
+    if (typeof role ==='string' && role) {
         const roles = getRoles();
         const roleExists = roles.some(r => r.name === role);
         if (!roleExists) {
@@ -10591,7 +10695,15 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
                 return res.status(400).json({ success: false, message:'Hindi maaaring alisin ang huling Admin account sa sistema. Gumawa muna ng ibang Admin account bago ito baguhin.' });
             }
         }
+        const isActualRoleChange = role.toLowerCase() !== currentRole;
         users[userIndex].role = role;
+        // SAFETY FIX: force-logout the user's existing session(s) when their
+        // role changes, so the new permissions take effect immediately on
+        // their next request/login — instead of waiting up to 8 hours
+        // (SESSION_TTL_MS) for the demotion/promotion to apply.
+        if (isActualRoleChange) {
+            revokeSessionsForUser(currentUsername);
+        }
     }
     if (typeof displayName !=='undefined') {
         const trimmedDisplayName = typeof displayName ==='string' ? displayName.trim() :'';
@@ -10663,34 +10775,109 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
     res.json({ success: true, message:'Na-update na ang password mo.' });
 });
 app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
-    const { user, username } = req.body;
+    // BUG FIX: this used to read the new account's data from req.body.user.
+    // The global identity-pinning middleware above (search "SECURITY FIX")
+    // rewrites ANY req.body.user field to req.authUser.username (a plain
+    // string) on every /api/ request, because /api/logs legitimately uses
+    // "user" as an identity field. That silently replaced the new-account
+    // object with a string here, so `user.username` crashed the request
+    // (uncaught exception -> non-JSON error page -> client-side "Gateway
+    // Error"). Renamed this endpoint's field to "newUser" so it no longer
+    // collides with the identity-pinning field.
+    const { newUser, username } = req.body;
+    if (!newUser || typeof newUser !=='object') {
+        return res.status(400).json({ success: false, message:'Kulang ang datos ng bagong user.' });
+    }
+    const newUsername = typeof newUser.username ==='string' ? newUser.username.trim() :'';
+    const newPassword = typeof newUser.password ==='string' ? newUser.password :'';
+    if (!newUsername || !newPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ng username at password.' });
+    }
+    if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(newUsername)) {
+        return res.status(400).json({ success: false, message:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' });
+    }
+    if (newPassword.length < 4) {
+        return res.status(400).json({ success: false, message:'Masyadong maikli ang password.' });
+    }
     let users = readData(FILE_USERS);
-    if (users.some(u => u.username.toLowerCase() === user.username.toLowerCase())) {
+    if (users.some(u => u.username.toLowerCase() === newUsername.toLowerCase())) {
         return res.status(400).json({ success: false, message:'Username is already taken.' });
     }
-    user.password = bcrypt.hashSync(user.password, 10);
-    user.created = new Date().toISOString().replace('T',' ').substring(0, 19);
-    users.push(user);
-    writeData(FILE_USERS, users);
-    logAction(username, `Created new POS account: ${user.username}`);
+    const newRole = typeof newUser.role ==='string' ? newUser.role.trim() :'';
+    if (!newRole) {
+        return res.status(400).json({ success: false, message:'Kailangan ng role para sa bagong account.' });
+    }
+    const roles = getRoles();
+    if (!roles.some(r => r.name === newRole)) {
+        return res.status(400).json({ success: false, message: `Ang role na "${newRole}" ay wala sa listahan ng Roles & Permissions.` });
+    }
+    const newDisplayName = typeof newUser.displayName ==='string' ? newUser.displayName.trim() :'';
+    if (newDisplayName && newDisplayName.length > 60) {
+        return res.status(400).json({ success: false, message:'Masyadong mahaba ang Display Name (60 characters max).' });
+    }
+    // Build the saved record from an explicit whitelist rather than spreading
+    // the raw request body — this endpoint is admin-gated today, but a
+    // whitelist means a stray/extra field in the payload can never end up
+    // silently persisted onto a user account.
+    const userToSave = {
+        username: newUsername,
+        password: bcrypt.hashSync(newPassword, 10),
+        role: newRole,
+        displayName: newDisplayName || null,
+        avatar: typeof newUser.avatar ==='string' ? newUser.avatar : null,
+        created: new Date().toISOString().replace('T',' ').substring(0, 19)
+    };
+    users.push(userToSave);
+    const writeOk = writeData(FILE_USERS, users);
+    const verifyUsers = readData(FILE_USERS) || [];
+    const verified = writeOk && verifyUsers.some(u => u.username.toLowerCase() === newUsername.toLowerCase());
+    if (!verified) {
+        return res.status(500).json({ success: false, message: 'Nabigo ang pag-save ng bagong account sa lokal na database. Subukan ulit.' });
+    }
+    logAction(username, `Created new POS account: ${newUsername}`);
     res.json({ success: true, message:'User created successfully.' });
 });
 app.put('/api/users/:targetUser/reset-password', rateLimit('admin-reset-pw', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { targetUser } = req.params;
     const { newPassword, username } = req.body;
+    // BUG FIX: newPassword used to go straight into bcrypt.hashSync() with no
+    // validation. bcrypt throws a plain (uncaught) error on a missing or
+    // non-string value, which crashed the request the same way the old
+    // Add New User bug did (non-JSON response -> "Gateway Error" client-side).
+    if (typeof newPassword !=='string' || newPassword.length < 4) {
+        return res.status(400).json({ success: false, message:'Kailangan ng bagong password na hindi bababa sa 4 karakter.' });
+    }
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
     users[userIndex].password = bcrypt.hashSync(newPassword, 10);
-    writeData(FILE_USERS, users);
+    const writeOk = writeData(FILE_USERS, users);
+    const verifyUsers = readData(FILE_USERS) || [];
+    const verifyUser = verifyUsers.find(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    const verified = writeOk && verifyUser && (() => {
+        try { return bcrypt.compareSync(newPassword, verifyUser.password); }
+        catch (e) { return false; }
+    })();
+    if (!verified) {
+        return res.status(500).json({ success: false, message: 'Nabigo ang pag-save ng bagong password sa lokal na database. Subukan ulit.' });
+    }
+    // SAFETY FIX: also force-logout the target user's existing session when
+    // their password is force-reset (e.g. because the account was
+    // compromised) — otherwise any active old session token would remain
+    // valid even after the password has changed.
+    revokeSessionsForUser(targetUser);
     logAction(username, `Force reset password for account: ${targetUser}`);
     res.json({ success: true, message: `Password for ${targetUser} has been updated successfully.` });
 });
 app.post('/api/users/delete-account', rateLimit('admin-delete-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     const { targetUser, username } = req.body;
-    if (!targetUser) {
+    // BUG FIX: targetUser was only checked for truthiness, not for being a
+    // string, before calling .toLowerCase() on it — a non-string value (e.g.
+    // via a direct API call) would crash the request the same way the old
+    // Add New User bug did.
+    if (typeof targetUser !=='string' || !targetUser.trim()) {
         return res.status(400).json({ success: false, message:'Kulang ang target user na buburahin.' });
     }
     if (targetUser.toLowerCase() === username.toLowerCase()) {
@@ -10701,7 +10888,12 @@ app.post('/api/users/delete-account', rateLimit('admin-delete-user', 8, 10 * 60 
     if (users.length === filteredUsers.length) {
         return res.status(404).json({ success: false, message:'Account to delete not found.' });
     }
-    writeData(FILE_USERS, filteredUsers);
+    const writeOk = writeData(FILE_USERS, filteredUsers);
+    const verifyUsers = readData(FILE_USERS) || [];
+    const verified = writeOk && !verifyUsers.some(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    if (!verified) {
+        return res.status(500).json({ success: false, message: 'Nabigo ang pagbura ng account sa lokal na database. Subukan ulit.' });
+    }
     for (const [token, session] of SESSIONS.entries()) {
         if (session.username.toLowerCase() === targetUser.toLowerCase()) {
             SESSIONS.delete(token);
@@ -12128,6 +12320,27 @@ async function processRefundTransaction(req, res) {
 }
 app.get('/api/transactions/:transactionId/refunds', (req, res) => {
     const { transactionId } = req.params;
+    // SECURITY FIX: previously, any logged-in user could view refund
+    // details (amount, reason, refundedBy) for ANYONE's transaction, as
+    // long as they knew/could guess the transactionId — no ownership or
+    // permission check, unlike /api/refunds (list) and
+    // /api/transactions/:id/email-receipt, which both already have a
+    // canViewAll/isOwnTransaction guard. The same guard is applied here.
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) {
+        return res.status(404).json({ success: false, message: 'Transaction not found.' });
+    }
+    const requester = req.authUser.username;
+    const users = readData(FILE_USERS);
+    const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+    const activeRole = activeUser && activeUser.role;
+    const isAdminRole = (activeRole || '').toLowerCase() === 'admin';
+    const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
+    const isOwnTransaction = (tx.cashier || '').toLowerCase() === requester.toLowerCase();
+    if (!canViewAll && !isOwnTransaction) {
+        return res.status(403).json({ success: false, message: 'Access Denied: You can only view refunds for your own transactions.' });
+    }
     const refunds = readData(FILE_REFUNDS, []).filter(r => r.transactionId === transactionId);
     res.json(refunds);
 });
@@ -12142,6 +12355,44 @@ app.get('/api/refunds', (req, res) => {
     if (canViewAll) return res.json(allRefunds);
     res.json(allRefunds.filter(r => (r.refundedBy || '').toLowerCase() === requester.toLowerCase()));
 });
+const OFFLINE_AUTH_TICKET_TTL_MS = 24 * 60 * 60 * 1000;
+function getOfflineAuthTicketKey() {
+    if (process.env.OFFLINE_AUTH_TICKET_SECRET) return process.env.OFFLINE_AUTH_TICKET_SECRET;
+    const data = readData('offlineAuthSecurity', {});
+    if (data.signingKey) return data.signingKey;
+    data.signingKey = crypto.randomBytes(32).toString('hex');
+    writeData('offlineAuthSecurity', data);
+    return data.signingKey;
+}
+function issueOfflineAuthTicket({ purpose, requester, authorizedBy }) {
+    const payload = {
+        purpose: String(purpose || ''),
+        requester: String(requester || ''),
+        authorizedBy: String(authorizedBy || ''),
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + OFFLINE_AUTH_TICKET_TTL_MS,
+        nonce: crypto.randomBytes(16).toString('hex')
+    };
+    const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+    const signature = crypto.createHmac('sha256', getOfflineAuthTicketKey()).update(encoded).digest('base64url');
+    return `${encoded}.${signature}`;
+}
+function verifyOfflineAuthTicket(ticket, { purpose, requester }) {
+    if (!ticket || typeof ticket !== 'string') return null;
+    const [encoded, signature] = ticket.split('.');
+    if (!encoded || !signature) return null;
+    const expected = crypto.createHmac('sha256', getOfflineAuthTicketKey()).update(encoded).digest('base64url');
+    if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    try {
+        const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+        if (!payload || payload.purpose !== purpose || payload.requester?.toLowerCase() !== String(requester || '').toLowerCase()) return null;
+        if (!payload.expiresAt || Date.now() > Number(payload.expiresAt)) return null;
+        return payload;
+    } catch (e) {
+        return null;
+    }
+}
+
 app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), async (req, res) => {
     const { adminPassword, purpose } = req.body;
     if (!adminPassword) {
@@ -12151,28 +12402,28 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
     if (purpose ==='void') {
         const authResult = await findVoidAuthorizer(users, adminPassword);
         if (authResult) {
-            return res.json({ success: true, message:'Authorized' });
+            return res.json({ success: true, message:'Authorized', offlineAuthorizationTicket: issueOfflineAuthTicket({ purpose: 'void', requester: req.authUser.username, authorizedBy: authResult.user?.username || 'Authorized user' }) });
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
     if (purpose ==='manual_discount') {
         const authResult = await findManualDiscountAuthorizer(users, adminPassword);
         if (authResult) {
-            return res.json({ success: true, message:'Authorized' });
+            return res.json({ success: true, message:'Authorized', offlineAuthorizationTicket: issueOfflineAuthTicket({ purpose: 'manual_discount', requester: req.authUser.username, authorizedBy: authResult.user?.username || 'Authorized user' }) });
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
     if (purpose ==='refund') {
         const authResult = await findRefundAuthorizer(users, adminPassword);
         if (authResult) {
-            return res.json({ success: true, message:'Authorized' });
+            return res.json({ success: true, message:'Authorized', offlineAuthorizationTicket: issueOfflineAuthTicket({ purpose: 'refund', requester: req.authUser.username, authorizedBy: authResult.user?.username || 'Authorized user' }) });
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }
     if (purpose ==='loyalty_redeem') {
         const authResult = await findLoyaltyRedeemAuthorizer(users, adminPassword);
         if (authResult) {
-            return res.json({ success: true, message:'Authorized' });
+            return res.json({ success: true, message:'Authorized', offlineAuthorizationTicket: issueOfflineAuthTicket({ purpose: 'loyalty_redeem', requester: req.authUser.username, authorizedBy: authResult.user?.username || 'Authorized user' }) });
         }
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password!' });
     }

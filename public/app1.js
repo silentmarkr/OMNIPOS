@@ -250,8 +250,25 @@ body.dark-mode .di-pay-bar-track{background:rgba(255,255,255,.1)}
             ]);
             const products = resProd.ok ? await resProd.json() : JSON.parse(localStorage.getItem('cached_products') || '[]');
             const serverTxs = resTx.ok ? await resTx.json() : JSON.parse(localStorage.getItem('cached_transactions') || '[]');
-            const rawOffline = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
-            const offlineTxs = rawOffline.map(item => item.transaction || item);
+            let offlineTxs = [];
+            if (window.OfflineStorage?.getQueue) {
+                let deviceId = localStorage.getItem('omnipos_offline_device_id') || '';
+                if (!deviceId) {
+                    const browserCrypto = globalThis.crypto;
+                    deviceId = browserCrypto?.randomUUID
+                        ? browserCrypto.randomUUID()
+                        : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    localStorage.setItem('omnipos_offline_device_id', deviceId);
+                }
+                const activeUser = typeof currentUser !== 'undefined' ? currentUser : null;
+                const username = String(activeUser?.username || '').trim().toLowerCase();
+                const queueUserKey = `${deviceId}::${username}`;
+                const queued = await window.OfflineStorage.getQueue(queueUserKey);
+                offlineTxs = queued.map(item => item.transaction || item);
+            } else {
+                const rawOffline = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+                offlineTxs = rawOffline.map(item => item.transaction || item);
+            }
             const allTxs = [...offlineTxs, ...(Array.isArray(serverTxs) ? serverTxs : [])];
             const uniqueMap = new Map();
             allTxs.forEach(tx => { if (tx && tx.id) uniqueMap.set(tx.id, tx); });

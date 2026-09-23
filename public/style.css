@@ -4512,23 +4512,25 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not([data-terminal-theme]
     border-radius: 999px;
     padding: 1px 4px;
 }
+.reorder-sticky-header {
+    position: sticky;
+    top: 69px;
+    z-index: 20;
+    background-color: #ffffff;
+}
+body.dark-mode .reorder-sticky-header {
+    background-color: var(--dm-surface);
+}
 .reorder-header-actions-freeze {
     display: flex;
     flex-wrap: nowrap; 
     gap: 8px;
     justify-content: flex-start;
-    position: sticky;
-    top: 69px;
-    z-index: 20;
     align-self: stretch; 
     width: 100%;
     box-sizing: border-box;
-    background-color: #ffffff;
     padding: 6px 0 10px;
     margin-bottom: 6px;
-}
-body.dark-mode .reorder-header-actions-freeze {
-    background-color: var(--dm-surface);
 }
 @media screen and (max-width: 600px) {
     .reorder-header-actions-freeze {
@@ -4852,6 +4854,25 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td.matri
 body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td.matrix-group-header-cell {
     color: var(--dm-text-muted, #94a3b8);
 }
+.matrix-perm-badge {
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+.matrix-perm-badge.view-only { background: #e0f2fe; color: #0369a1; }
+.matrix-perm-badge.editable { background: #dcfce7; color: #15803d; }
+.matrix-perm-badge.auth-bypass { background: #fef3c7; color: #92400e; }
+.matrix-perm-badge.full-access { background: #f1f5f9; color: #475569; }
+body.dark-mode .matrix-perm-badge.view-only { background: rgba(14, 165, 233, 0.18); color: #7dd3fc; }
+body.dark-mode .matrix-perm-badge.editable { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+body.dark-mode .matrix-perm-badge.auth-bypass { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
+body.dark-mode .matrix-perm-badge.full-access { background: rgba(148, 163, 184, 0.18); color: #cbd5e1; }
 .matrix-label-text {
     display: block;
     white-space: normal;
@@ -4859,6 +4880,37 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td.matri
     word-break: break-word;
     line-height: 1.35;
     font-size: 0.88rem;
+}
+/* Ang pag-clamp (2 lines + "Read more") ay dapat lang mag-apply sa mga row na
+   talagang may readmore button (.matrix-label-clamped, idinadagdag ng JS kapag
+   mahaba ang label). Kung wala nitong class, laging buo ang text — para walang
+   ma-puputol na label na walang paraan i-expand (hal. sa makitid na mobile view).
+   Ang buong clamp/read-more behavior ay MOBILE-ONLY (max-width:480px) — sa
+   desktop/tablet laging buo agad ang label, walang clamp at walang button. */
+.matrix-label-readmore {
+    display: none;
+    margin-top: 2px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--primary-blue, #2563eb);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.matrix-label-readmore:hover { text-decoration: underline; }
+@media screen and (max-width: 480px) {
+    .matrix-label-text.matrix-label-clamped {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+    }
+    .matrix-label-text.matrix-label-clamped.expanded {
+        -webkit-line-clamp: unset;
+        overflow: visible;
+    }
+    .matrix-label-readmore { display: block; }
 }
 .permission-matrix-scroll #permission-matrix-table .matrix-col-role {
     width: 130px;
@@ -4886,6 +4938,14 @@ body.dark-mode .permission-matrix-scroll #permission-matrix-table tbody td.matri
 }
 .matrix-col-reorder-btn:hover:not(:disabled) { color: var(--primary-blue); }
 .matrix-col-reorder-btn:disabled { cursor: default; opacity: 0.25; }
+/* Ang "Show/Hide Description" toggle ay para lang sa mobile — sa desktop/tablet
+   laging bukas ang helper paragraph (walang toggle button, hindi namin ito
+   itinatago), dahil sapat naman ang vertical space doon. */
+.rbac-mobile-only-btn { display: none; }
+@media screen and (max-width: 480px) {
+    .rbac-mobile-only-btn { display: flex; }
+    #rbac-helper-text.rbac-helper-hidden { display: none; }
+}
 @media screen and (max-width: 480px) {
     .permission-matrix-scroll { max-height: 45vh; }
     .permission-matrix-scroll #permission-matrix-table .matrix-col-label { width: 190px; min-width: 190px; max-width: 190px; }

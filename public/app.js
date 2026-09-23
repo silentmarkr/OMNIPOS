@@ -7,6 +7,139 @@ const API_URL = isLocal
     ? `${window.location.protocol}//${window.location.hostname}:3000/api`
     : `${window.location.protocol}//${window.location.hostname}/api`;
 const AUTH_FETCH_TIMEOUT_MS = 6000;
+const OFFLINE_QUEUE_VERSION = 2;
+const OFFLINE_QUEUE_MAX_ITEMS = 500;
+let offlineSyncInFlight = null;
+
+function getOfflineDeviceId() {
+    const key = 'omnipos_offline_device_id';
+    try {
+        let id = localStorage.getItem(key);
+        if (!id) {
+            const browserCrypto = globalThis.crypto;
+            id = (browserCrypto && typeof browserCrypto.randomUUID === 'function')
+                ? browserCrypto.randomUUID()
+                : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            localStorage.setItem(key, id);
+        }
+        return id;
+    } catch (e) {
+        return `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+}
+
+function getOfflineQueueUserKey(username = currentUser?.username) {
+    return `${getOfflineDeviceId()}::${String(username || '').trim().toLowerCase()}`;
+}
+
+// Distinguishes "could not reach the server" (offline / connection drop / timeout)
+// from a genuine application-level failure so callers can fall back to offline
+// handling only when it's actually a connectivity problem.
+function isLikelyNetworkFailure(err) {
+    return !!(err && (err.name === 'AbortError' || err instanceof TypeError || /network|fetch|failed|timeout|load/i.test(String(err.message || ''))));
+}
+
+async function getOfflineQueue() {
+    if (window.OfflineStorage?.getQueue) {
+        return await window.OfflineStorage.getQueue(getOfflineQueueUserKey());
+    }
+    try {
+        const raw = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+        return Array.isArray(raw) ? raw.filter(item => item && item.queueUserKey === getOfflineQueueUserKey()) : [];
+    } catch (e) { return []; }
+}
+
+// BUGFIX: a server catalog refresh (terminal load, background stock poll, barcode
+// scan lookup, app init) used to overwrite globalProducts with the raw server
+// stock, which does not yet reflect sales still sitting in this device's offline
+// queue (not synced to the server yet). If a spotty connection let a single GET
+// /api/products slip through without the queue itself finishing sync, the item's
+// on-screen stock would jump back up to the pre-sale count, letting the cashier
+// sell the same last unit again before the queued sale is actually committed.
+// This re-applies any not-yet-synced offline sale quantities on top of whatever
+// stock numbers came from the server, so the terminal never shows more stock
+// than is truly available while a sale is still pending synchronization.
+async function applyPendingOfflineStockDeductions(products) {
+    if (!Array.isArray(products) || !products.length) return products;
+    try {
+        const queue = await getOfflineQueue();
+        const pending = queue.filter(item => item && item.status !== 'needs-review' && item.transaction && Array.isArray(item.transaction.items));
+        if (!pending.length) return products;
+        const deductByCode = {};
+        for (const item of pending) {
+            for (const line of item.transaction.items) {
+                const qty = parseInt(line.quantity, 10) || 0;
+                if (!line.code || qty <= 0) continue;
+                deductByCode[line.code] = (deductByCode[line.code] || 0) + qty;
+            }
+        }
+        if (!Object.keys(deductByCode).length) return products;
+        return products.map(p => {
+            const owedQty = deductByCode[p.code];
+            if (!owedQty) return p;
+            return { ...p, stock: Math.max(0, (parseInt(p.stock, 10) || 0) - owedQty) };
+        });
+    } catch (e) {
+        console.warn('Could not apply pending offline-queue stock deductions:', e);
+        return products;
+    }
+}
+
+async function saveOfflineQueue(items) {
+    const safe = Array.isArray(items) ? items.slice(0, OFFLINE_QUEUE_MAX_ITEMS) : [];
+    if (window.OfflineStorage?.replaceQueue) {
+        await window.OfflineStorage.replaceQueue(getOfflineQueueUserKey(), safe);
+        return;
+    }
+    try {
+        const all = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+        const key = getOfflineQueueUserKey();
+        const others = Array.isArray(all) ? all.filter(item => item?.queueUserKey !== key) : [];
+        localStorage.setItem('offline_transactions', JSON.stringify([...others, ...safe]));
+    } catch (e) {}
+}
+
+async function addOfflineQueueItem(item) {
+    const queueUserKey = getOfflineQueueUserKey();
+    const normalized = {
+        version: OFFLINE_QUEUE_VERSION,
+        queueUserKey,
+        queuedAt: new Date().toISOString(),
+        status: 'pending',
+        attempts: 0,
+        ...item,
+        queueUserKey
+    };
+    if (window.OfflineStorage?.enqueue) {
+        await window.OfflineStorage.enqueue(normalized);
+        return normalized;
+    }
+    const queue = await getOfflineQueue();
+    queue.push(normalized);
+    await saveOfflineQueue(queue);
+    return normalized;
+}
+
+async function removeOfflineQueueItem(item) {
+    if (window.OfflineStorage?.removeQueueItem) {
+        await window.OfflineStorage.removeQueueItem(item.queueUserKey, item.localQueueId || item.transaction?.syncId || item.transaction?.id);
+        return;
+    }
+    const queue = await getOfflineQueue();
+    await saveOfflineQueue(queue.filter(x => (x.localQueueId || x.transaction?.syncId || x.transaction?.id) !== (item.localQueueId || item.transaction?.syncId || item.transaction?.id)));
+}
+
+async function updateOfflineQueueItem(item, patch) {
+    if (window.OfflineStorage?.updateQueueItem) {
+        await window.OfflineStorage.updateQueueItem(item.queueUserKey, item.localQueueId || item.transaction?.syncId || item.transaction?.id, patch);
+        return;
+    }
+    const queue = await getOfflineQueue();
+    const id = item.localQueueId || item.transaction?.syncId || item.transaction?.id;
+    const next = queue.map(x => (x.localQueueId || x.transaction?.syncId || x.transaction?.id) === id ? { ...x, ...patch } : x);
+    await saveOfflineQueue(next);
+}
+
 const PRODUCT_GALLERY_MAX_PHOTOS = 7;
 async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
@@ -7832,6 +7965,20 @@ function setReorderPOViewMode(mode) {
     renderPurchaseOrdersTable();
 }
 async function loadReorderView() {
+    // Safety net: if neither reorder tab panel ended up visible (e.g. some
+    // unrelated code elsewhere set display:none on one of them and never
+    // restored it), fall back to whichever tab button is marked active, or
+    // to "Create PO" by default, instead of silently leaving the page blank.
+    const createPanel = document.getElementById('reorder-tab-create');
+    const historyPanel = document.getElementById('reorder-tab-history');
+    if (createPanel && historyPanel &&
+        createPanel.style.display === 'none' && historyPanel.style.display === 'none') {
+        const activeBtn = document.querySelector('.reorder-tab-btn.active') ||
+            document.getElementById('reorder-tab-btn-create');
+        const activeTabId = activeBtn && activeBtn.id === 'reorder-tab-btn-history'
+            ? 'reorder-tab-history' : 'reorder-tab-create';
+        switchReorderTab(activeTabId, activeBtn);
+    }
     const tbody = document.getElementById('reorder-table-body');
     if (tbody) tbody.innerHTML = `<tr class="reorder-empty-row"><td colspan="9" style="text-align:center;padding:20px;color:#94a3b8;">Loading...</td></tr>`;
     if (tbody && !tbody.dataset.reorderToggleBound) {
@@ -8109,8 +8256,28 @@ function updateReorderSelectedCount() {
     const btn = document.getElementById('reorder-create-po-btn');
     if (countEl) countEl.innerText = reorderSelectedCodes.size;
     if (btn) btn.disabled = reorderSelectedCodes.size === 0;
+    // BUG FIX: the "select all" header checkbox never used to get resynced,
+    // so it stayed visually checked after a manual uncheck, a filter/search
+    // change, or navigating away and back (which clears the selection) —
+    // misleading the user about what's actually selected before creating a
+    // PO. Recompute it here (whenever the selection count changes) against
+    // the currently filtered/visible list instead.
+    const selectAllEl = document.getElementById('reorder-select-all');
+    if (selectAllEl) {
+        const visibleList = getFilteredSortedReorderItems();
+        const visibleCount = visibleList.length;
+        const selectedVisibleCount = visibleList.filter(p => reorderSelectedCodes.has(p.code)).length;
+        selectAllEl.checked = visibleCount > 0 && selectedVisibleCount === visibleCount;
+        selectAllEl.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleCount;
+    }
 }
 async function quickRestock(code, name) {
+    // BUG FIX: unlike openCreatePOModal() and exportReorderCSV(), this
+    // action had no premium-feature guard of its own — it only worked
+    // because switchView() happens to block reaching the Reorder page at
+    // all when purchase_orders is locked. That's an easy-to-break implicit
+    // dependency; guard it directly too, consistent with its sibling actions.
+    if (guardPremiumFeature('purchase_orders')) return;
     const { value: qty } = await Swal.fire({
         title: `Quick Restock: ${name}`,
         input:'number',
@@ -8476,7 +8643,10 @@ function ovReadJsonCache(key, fallback) {
 // setItem threw, and the whole run wrongly fell into the "offline" fallback even though the server
 // had answered fine.
 function ovWriteJsonCache(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota — not a problem */ }
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota — IndexedDB mirror remains available */ }
+    if ((key === 'cached_products' || key === 'cached_transactions') && window.OfflineStorage?.putLargeCache) {
+        window.OfflineStorage.putLargeCache(key, value).catch(() => {});
+    }
 }
 async function ovFetchJsonOrNull(url) {
     try {
@@ -8521,8 +8691,8 @@ async function ovRunDashboardMetricsCycle() {
         }
         if (!Array.isArray(serverTxs)) serverTxs = [];
         if (!Array.isArray(productsList)) productsList = [];
-        const rawOffline = ovReadJsonCache('offline_transactions', []);
-        const offlineTxs = (Array.isArray(rawOffline) ? rawOffline : []).map(item => item && (item.transaction || item)).filter(Boolean);
+        const queuedOffline = await getOfflineQueue();
+        const offlineTxs = queuedOffline.map(item => item && item.transaction).filter(Boolean);
         const serverIds = new Set(serverTxs.filter(tx => tx && tx.id).map(tx => tx.id));
         const uniqueMap = new Map();
         [...offlineTxs, ...serverTxs].forEach(tx => { if (tx && tx.id) uniqueMap.set(tx.id, tx); });
@@ -8537,8 +8707,15 @@ async function ovRunDashboardMetricsCycle() {
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(uniqueTxs);
         if (productsFresh && productsList.length > 0) globalProducts = productsList;
+        // BUG FIX: refreshLowStockBadge() used to be gated behind `liveOk`,
+        // which only reflects whether the unrelated /transactions fetch
+        // succeeded. refreshLowStockBadge() makes its own independent call
+        // to /products/low-stock, so a slow/failed transactions fetch was
+        // silently preventing the Reorder Alert bell from updating even
+        // though the low-stock check itself would have worked fine. Run it
+        // unconditionally; it already fails safe (catches its own errors).
+        refreshLowStockBadge();
         if (liveOk) {
-            refreshLowStockBadge();
             checkBackupHealthBanner();
             refreshBranchesAlertBadge();
         }
@@ -10613,9 +10790,9 @@ async function loadTerminalCatalog() {
         if (!response.ok) throw new Error(`Products fetch failed: HTTP ${response.status}`);
         const data = await response.json();
         if (!Array.isArray(data)) throw new Error('Products fetch returned a non-array payload');
-        globalProducts = data;
+        globalProducts = await applyPendingOfflineStockDeductions(data);
         try {
-            localStorage.setItem('cached_products', JSON.stringify(globalProducts));
+            ovWriteJsonCache('cached_products', globalProducts);
         } catch (cacheErr) {
             console.warn('Terminal Catalog: hindi na-cache sa localStorage (malamang quota, dahil sa laki ng product photos) — hindi ito problema, gagamitin pa rin ang fresh data mula server.', cacheErr);
         }
@@ -10683,9 +10860,9 @@ async function silentRefreshTerminalStock() {
         updateActiveTerminalCountFromResponse(response);
         const freshProducts = await response.json();
         if (!Array.isArray(freshProducts)) return;
-        globalProducts = freshProducts;
+        globalProducts = await applyPendingOfflineStockDeductions(freshProducts);
         try {
-            localStorage.setItem('cached_products', JSON.stringify(globalProducts));
+            ovWriteJsonCache('cached_products', globalProducts);
         } catch (cacheErr) {
             console.warn('Silent stock refresh: hindi na-cache sa localStorage (malamang quota) — hindi ito problema, ipi-proceed pa rin ang render gamit ang fresh data.', cacheErr);
         }
@@ -12590,6 +12767,7 @@ async function submitFinalPaymentTransactionInner() {
     const itemDiscountSum = shoppingCart.reduce((s, i) => s + Math.max(0, parseFloat(i.itemDiscount) || 0), 0);
     const manualDiscountTotal = Math.round((itemDiscountSum + (cartDiscountType ==='MANUAL' ? discount : 0)) * 100) / 100;
     let discountAuthPassword = null;
+    let discountOfflineAuthorization = null;
     if (manualDiscountTotal > 0) {
         const { value: pw } = await Swal.fire({
             title:'🔒 Manual Discount Authorization',
@@ -12615,14 +12793,32 @@ async function submitFinalPaymentTransactionInner() {
                 Swal.fire('Access Denied', verifyOut.message ||'Incorrect password.','error');
                 return;
             }
+            discountOfflineAuthorization = verifyOut.offlineAuthorizationTicket || null;
         } catch (verifyErr) {
             console.warn(verifyErr);
-            Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
-            return;
+            if (!isLikelyNetworkFailure(verifyErr)) {
+                Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
+                return;
+            }
+            // No connection to pre-verify the password against the server: carry the
+            // entered password with the sale instead of blocking it. The same password
+            // check (findManualDiscountAuthorizer) runs server-side, either immediately
+            // if the sale reaches the server, or during offline-queue synchronization
+            // once connectivity returns. The plaintext value is stripped from the
+            // record right after the server verifies it (see server.js) and is never
+            // persisted in transaction history.
+            discountAuthPassword = pw;
+            await Swal.fire({
+                icon: 'info',
+                title: 'Offline — Authorization Deferred',
+                text: 'No connection to verify the password right now. The sale will proceed and the authorization will be verified automatically once this device is back online.',
+                timer: 2500,
+                showConfirmButton: false
+            });
         }
-        discountAuthPassword = pw;
     }
     let loyaltyAuthPassword = null;
+    let loyaltyOfflineAuthorization = null;
     if (cartDiscountType ==='LOYALTY' && cartLoyaltyPointsRedeemed > 0 && !cartLoyaltyCardToken) {
         const { value: lpw } = await Swal.fire({
             title:'🔒 Manual Loyalty Redemption Authorization',
@@ -12648,18 +12844,36 @@ async function submitFinalPaymentTransactionInner() {
                 Swal.fire('Access Denied', lVerifyOut.message ||'Incorrect password.','error');
                 return;
             }
+            loyaltyOfflineAuthorization = lVerifyOut.offlineAuthorizationTicket || null;
         } catch (lVerifyErr) {
             console.warn(lVerifyErr);
-            Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
-            return;
+            if (!isLikelyNetworkFailure(lVerifyErr)) {
+                Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
+                return;
+            }
+            // Same offline deferral as the manual-discount path above: keep the
+            // entered password and let the server verify it (findLoyaltyRedeemAuthorizer)
+            // when the sale reaches it, whether immediately or via later sync.
+            loyaltyAuthPassword = lpw;
+            await Swal.fire({
+                icon: 'info',
+                title: 'Offline — Authorization Deferred',
+                text: 'No connection to verify the password right now. The sale will proceed and the authorization will be verified automatically once this device is back online.',
+                timer: 2500,
+                showConfirmButton: false
+            });
         }
-        loyaltyAuthPassword = lpw;
     }
     const txId = generateTransactionId(
         (receiptSettingsCache && receiptSettingsCache.transactionIdSettings && receiptSettingsCache.transactionIdSettings.format)
             || DEFAULT_TRANSACTION_ID_SETTINGS.format
     );
+    const browserCrypto = globalThis.crypto;
+    const syncId = (browserCrypto && typeof browserCrypto.randomUUID === 'function')
+        ? browserCrypto.randomUUID()
+        : `sync-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     const transactionPayload = {
+        syncId,
         id: txId,
         cashier: currentUser.username,
         cashierDisplayName: currentUser.displayName || null,
@@ -12673,13 +12887,15 @@ async function submitFinalPaymentTransactionInner() {
         })),
         total: dueAmount,
         discount: discount,
-        discountAuthPassword: discountAuthPassword,
+        discountAuthPassword: discountAuthPassword || null,
+        discountOfflineAuthorization: discountOfflineAuthorization || null,
         discountType: cartDiscountType,
         promoCode: cartDiscountType ==='PROMO' ? cartPromoCode :'',
         seniorPwdId: cartDiscountType ==='SENIOR_PWD' ? cartSeniorPwdId :'',
         loyaltyPointsRedeemed: cartDiscountType ==='LOYALTY' ? cartLoyaltyPointsRedeemed : 0,
         loyaltyCardToken: cartDiscountType ==='LOYALTY' ? (cartLoyaltyCardToken || null) : null,
-        loyaltyAuthPassword: loyaltyAuthPassword,
+        loyaltyAuthPassword: loyaltyAuthPassword || null,
+        loyaltyOfflineAuthorization: loyaltyOfflineAuthorization || null,
         payment_method: paymentMethodLabel,
         method: paymentMethodLabel,
         amount_paid: received,
@@ -12705,7 +12921,7 @@ async function submitFinalPaymentTransactionInner() {
         });
         const output = await res.json();
         if(output.success) {
-            Swal.fire('Transaction Saved!', `Reference Code: ${txId}`,'success');
+            Swal.fire('Transaction Saved!', `Reference Code: ${output.currentTransaction?.id || txId}`,'success');
             {
                 const savedTx = output.currentTransaction || transactionPayload;
                 broadcastCustomerDisplay('paid', {
@@ -12738,7 +12954,7 @@ async function submitFinalPaymentTransactionInner() {
             }
             cartLoyaltyCardToken ='';
             localTransactionsList.unshift(output.currentTransaction || transactionPayload);
-            localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
+            ovWriteJsonCache('cached_transactions', localTransactionsList);
             if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
             if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
             if (output.debt) {
@@ -12748,6 +12964,29 @@ async function submitFinalPaymentTransactionInner() {
                     loadDebtsView();
                 }
             }
+        } else if (res.status >= 500) {
+            // A 5xx can happen after the server has committed the sale but before the response reached the device.
+            // Queue the idempotent transaction so the next sync verifies it by syncId instead of creating a duplicate.
+            await addOfflineQueueItem({ transaction: transactionPayload, username: currentUser.username, creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null, status: 'pending', lastError: `Server returned HTTP ${res.status}; outcome will be verified during synchronization.` });
+            transactionPayload.items.forEach(item => {
+                const localProd = globalProducts.find(p => p.code === item.code);
+                if (localProd) localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
+            });
+            ovWriteJsonCache('cached_products', globalProducts);
+            localTransactionsList.unshift(transactionPayload);
+            ovWriteJsonCache('cached_transactions', localTransactionsList);
+            shoppingCart = [];
+            renderCartRows();
+            closeModal('payment-modal');
+            await renderInvoiceReceipt(transactionPayload);
+            triggerAutoPrintIfEnabled();
+            triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
+            updateOfflineQueueIndicator();
+            Swal.fire('Transaction Pending Verification', 'The server returned an unexpected error. The transaction was safely queued and will be verified automatically before any retry.', 'warning');
+        } else if (output.code === 'DUPLICATE_TRANSACTION_ID') {
+            Swal.fire('Transaction Already Recorded', output.message || 'This transaction was already processed. No duplicate sale was created.', 'info');
+        } else if (output.code === 'TRANSACTION_ID_COLLISION') {
+            Swal.fire('Transaction ID Conflict', 'A different transaction already uses this short reference. Please retry this sale with a new reference.', 'warning');
         } else if (output.outOfStock) {
             Swal.fire('Out of Stock', output.message,'warning');
             if (typeof loadTerminalCatalog ==='function') loadTerminalCatalog();
@@ -12758,27 +12997,35 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Server Error', `API Server Exception Error: ${output.message}`,'error');
         }
     } catch (e) {
-        console.warn(e);
-        transactionPayload.items.forEach(item => {
-            let localProd = globalProducts.find(p => p.code === item.code);
-            if (localProd) {
-                localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
-            }
+        console.warn('Transaction submission failed:', e);
+        const isNetworkFailure = isLikelyNetworkFailure(e);
+        if (!isNetworkFailure) {
+            Swal.fire('Connection Error', e?.message || 'The transaction could not be submitted. No offline copy was created.', 'error');
+            return;
+        }
+        const queueItem = await addOfflineQueueItem({
+            transaction: transactionPayload,
+            username: currentUser.username,
+            creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null
         });
-        localStorage.setItem('cached_products', JSON.stringify(globalProducts));
-        let offlineTx = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
-        offlineTx.push({ transaction: transactionPayload, username: currentUser.username });
-        localStorage.setItem('offline_transactions', JSON.stringify(offlineTx));
+        transactionPayload.offlineQueued = true;
+        transactionPayload.offlineQueueId = queueItem.localQueueId || transactionPayload.syncId;
+        transactionPayload.items.forEach(item => {
+            const localProd = globalProducts.find(p => p.code === item.code);
+            if (localProd) localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
+        });
+        ovWriteJsonCache('cached_products', globalProducts);
         localTransactionsList.unshift(transactionPayload);
-        localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
+        ovWriteJsonCache('cached_transactions', localTransactionsList);
         shoppingCart = [];
         renderCartRows();
         closeModal('payment-modal');
         await renderInvoiceReceipt(transactionPayload);
         triggerAutoPrintIfEnabled();
         triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
-        if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-        Swal.fire('Offline Stored','⚠️ Gateway Conn. Timeout: Central processing hub unreachable. The active transaction record is temporarily committed to local hardware.','warning');
+        if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
+        updateOfflineQueueIndicator();
+        Swal.fire('Offline Stored', 'The transaction was saved securely on this device and will sync when the same cashier is online again.', 'warning');
     }
 }
 let currentReceiptLoyaltyQr = null;
@@ -15958,7 +16205,7 @@ async function loadTransactionsHistory() {
         const response = await authFetch(`${API_URL}/transactions?requester=${encodeURIComponent(requesterUsername)}`);
         if (!response.ok) throw new Error("Failed to fetch data");
         localTransactionsList = await response.json();
-        localStorage.setItem('cached_transactions', JSON.stringify(localTransactionsList));
+        ovWriteJsonCache('cached_transactions', localTransactionsList);
         const badge = document.getElementById('tx-total-count-badge');
         if(badge) badge.innerText = `${localTransactionsList.length} Records`;
         renderTransactionsRows(localTransactionsList);
@@ -19246,8 +19493,16 @@ function switchUserTab(tabId, element) {
     if (tabId !=='reset-restore-panel' && typeof closeAllResetRestoreCards ==='function') {
         closeAllResetRestoreCards();
     }
-    document.querySelectorAll('.tab-content-panel').forEach(p => p.style.display ='none');
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    // BUG FIX: this used to query '.tab-content-panel' / '.tab-btn' from the
+    // WHOLE document instead of just #view-users. Other pages reuse those
+    // same shared classes for their own tabs (e.g. Reorder Alerts' "Create
+    // PO" / "Purchase Order History" tabs), so switching a Users/Settings
+    // tab was silently setting display:none on the Reorder page's tab
+    // panels too — permanently, since nothing else ever re-showed them.
+    // Next time someone opened Reorder Alerts, both tab panels stayed
+    // blank/hidden. Scoping these two queries to #view-users fixes that.
+    document.querySelectorAll('#view-users .tab-content-panel').forEach(p => p.style.display ='none');
+    document.querySelectorAll('#view-users .tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).style.display ='flex';
     if (element) {
         element.classList.add('active');
@@ -19399,7 +19654,13 @@ function openAddUserModal() {
     document.getElementById('u-form-username').disabled = false;
     document.getElementById('u-form-password').required = true;
     document.getElementById('u-form-password-label').innerText ='Password';
-    refreshUserFormRoleOptions();
+    // SAFETY FIX: previously no default value was set here, so the Role
+    // dropdown was left on whichever option renders first — which is
+    // "Admin" — making it easy to accidentally create a new Admin account
+    // just by forgetting to change the dropdown. Default new users to
+    // "Staff" instead; populateRoleSelectOptions() below still falls back
+    // safely to a non-Admin role if "Staff" doesn't exist in this store.
+    refreshUserFormRoleOptions('Staff');
     document.getElementById('user-modal').style.display ='flex';
 }
 async function refreshUserFormRoleOptions(preserveValue) {
@@ -19506,7 +19767,65 @@ function getEffectivePermission(role, menuKey) {
     }
     return !!(role.permissions && role.permissions[menuKey]);
 }
+// Kinakategorya ang bawat permission key para malinaw sa user kung "View Only",
+// "Editable", o "Password Override" lang ito — base sa naming convention na
+// ginagamit na mismo ng MENU_REGISTRY sa server.js (_view / _direct_apply / _own_password).
+// Ang mga walang suffix (hal. 'products', 'transactions', 'reports') ay itinuturing
+// na "Full Access" dahil sakop nito ang buong page/feature (view + kung anong action
+// talaga ang meron doon), hindi lang isang piraso ng capability.
+function getPermissionBadge(key) {
+    if (key.endsWith('_own_password')) {
+        return { text: 'Password Override', cls: 'auth-bypass' };
+    }
+    if (key.endsWith('_direct_apply')) {
+        return { text: 'Editable', cls: 'editable' };
+    }
+    if (key.endsWith('_view')) {
+        return { text: 'View Only', cls: 'view-only' };
+    }
+    return { text: 'Full Access', cls: 'full-access' };
+}
+// --- Read more / See less para sa mahahabang permission label ---
+// Isa lang ang pwedeng naka-expand sa isang pagkakataon: kapag may binuksan
+// na ibang row, auto-close muna ang dating bukas bago mag-expand ng bago.
+// Auto-collapse din pagkalipas ng 5 segundo kung walang ibang ginawa.
+let matrixExpandedLabel = { textEl: null, btn: null, timer: null };
+function collapseMatrixLabel() {
+    if (matrixExpandedLabel.timer) clearTimeout(matrixExpandedLabel.timer);
+    if (matrixExpandedLabel.textEl) matrixExpandedLabel.textEl.classList.remove('expanded');
+    if (matrixExpandedLabel.btn) matrixExpandedLabel.btn.textContent = 'Read more';
+    matrixExpandedLabel = { textEl: null, btn: null, timer: null };
+}
+function toggleMatrixLabel(btn) {
+    const textEl = btn.parentElement.querySelector('.matrix-label-text');
+    const wasThisOneExpanded = textEl.classList.contains('expanded');
+    collapseMatrixLabel(); // laging isara muna ang dating bukas (kahit ito rin mismo)
+    if (wasThisOneExpanded) return; // click ulit sa parehong "See less" = close lang
+    textEl.classList.add('expanded');
+    btn.textContent = 'See less';
+    matrixExpandedLabel = {
+        textEl, btn,
+        timer: setTimeout(collapseMatrixLabel, 5000)
+    };
+}
+// Toggle ng "Hide/Show Description" button (mobile-only — tingnan ang
+// .rbac-mobile-only-btn sa CSS): itinatago/binabalik yung helper paragraph
+// sa itaas ng Roles & Permissions matrix. Sa desktop/tablet laging bukas
+// ang paragraph anuman ang klase nito, dahil naka-scope lang ang pag-hide
+// sa loob ng mobile media query. Hindi na natin ginagalaw yung table's
+// scroll container (.permission-matrix-scroll) para hindi masira yung
+// position:sticky ng header row / first column nito.
+function toggleRbacHelperText() {
+    const text = document.getElementById('rbac-helper-text');
+    const btn = document.getElementById('toggle-rbac-helper-btn');
+    if (!text || !btn) return;
+    const isHidden = text.classList.toggle('rbac-helper-hidden');
+    btn.innerHTML = isHidden
+        ? '<i class="fa-solid fa-eye"></i> Show Description'
+        : '<i class="fa-solid fa-eye-slash"></i> Hide Description';
+}
 function renderPermissionMatrix() {
+    collapseMatrixLabel();
     const { roles, menuRegistry: registry } = rolesMatrixCache;
     const headRow = document.getElementById('permission-matrix-head-row');
     const body = document.getElementById('permission-matrix-body');
@@ -19534,9 +19853,15 @@ function renderPermissionMatrix() {
                 <td colspan="${roles.length}" class="matrix-group-header-fill"></td>
                </tr>`
             : '';
+        const badge = getPermissionBadge(m.key);
+        const needsReadMore = m.label.length > 70;
         return groupHeaderRow + `
         <tr>
-            <td class="matrix-col-label" title="${escapeHtml(m.label)}"><span class="matrix-label-text">${escapeHtml(m.label)}</span></td>
+            <td class="matrix-col-label" title="${escapeHtml(m.label)}">
+                <span class="matrix-perm-badge ${badge.cls}">${badge.text}</span>
+                <span class="matrix-label-text${needsReadMore ? ' matrix-label-clamped' : ''}">${escapeHtml(m.label)}</span>
+                ${needsReadMore ? `<button type="button" class="matrix-label-readmore" onclick="toggleMatrixLabel(this)">Read more</button>` : ''}
+            </td>
             ${roles.map(r => `
                 <td class="matrix-col-role" style="text-align:center;">
                     <input type="checkbox" style="width:18px; height:18px;"
@@ -19684,7 +20009,17 @@ function populateRoleSelectOptions(roles) {
     if (!select || !roles || !roles.length) return;
     const previousValue = select.value;
     select.innerHTML = roles.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
-    if (roles.some(r => r.name === previousValue)) select.value = previousValue;
+    if (roles.some(r => r.name === previousValue)) {
+        select.value = previousValue;
+    } else {
+        // SAFETY FIX: if no explicit role was requested (e.g. "Staff" was
+        // renamed/removed in this store's custom Roles setup), don't let the
+        // <select> silently fall back to whichever role happens to render
+        // first — default to the first non-Admin role instead, so a blank
+        // Add-User form never quietly defaults to Admin.
+        const nonAdminRole = roles.find(r => (r.name || '').toLowerCase() !== 'admin');
+        if (nonAdminRole) select.value = nonAdminRole.name;
+    }
 }
 document.addEventListener('DOMContentLoaded', () => {
     const roleForm = document.getElementById('role-schema-form');
@@ -19823,7 +20158,7 @@ async function handleUserFormSubmit(e) {
         const res = await authFetch(`${API_URL}/users`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ user: userPayload, username: currentUser.username, adminPassword })
+            body: JSON.stringify({ newUser: userPayload, username: currentUser.username, adminPassword })
         });
         const data = await res.json();
         if (res.ok && data.success) {
@@ -21525,9 +21860,9 @@ async function handleScannedBarcode(scannedCode) {
     }
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
-        .then(data => {
-            globalProducts = data;
-            localStorage.setItem('cached_products', JSON.stringify(globalProducts));
+        .then(async data => {
+            globalProducts = await applyPendingOfflineStockDeductions(data);
+            ovWriteJsonCache('cached_products', globalProducts);
         })
         .catch(e => console.warn("Failed to background-refresh products:", e));
     const product = globalProducts.find(p => p.code === scannedCode.trim());
@@ -21738,42 +22073,112 @@ function reopenReceiptFromHistory(id) {
         alert("Transaction ID: " + foundTx.id);
     }
 }
-async function syncOfflineTransactions() {
-    if (!currentUser) return;
-    let offlineTx = JSON.parse(localStorage.getItem('offline_transactions') ||'[]');
-    if (offlineTx.length === 0) return;
-    console.log(`Synchronization Pipeline Engaged: Detected ${offlineTx.length} pending local transaction logs. Initializing background data transport routines...`);
-    let successfulSyncs = [];
-    for (let i = 0; i < offlineTx.length; i++) {
-        const item = offlineTx[i];
-        try {
-            const res = await authFetch(`${API_URL}/transactions`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify(item)
-            });
-            const output = await res.json();
-            if (output.success) {
-                successfulSyncs.push(item.transaction.id);
-            }
-        } catch (err) {
-            console.error(`Failed to sync offline transaction ID ${item.transaction.id}. Sync stopped.`, err);
-            break;
-        }
+async function showOfflineQueueStatus() {
+    const queue = await getOfflineQueue();
+    if (!queue.length) {
+        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'success', title: 'Offline Queue', text: 'There are no pending offline transactions for this cashier on this device.', confirmButtonText: 'OK' });
+        return;
     }
-    offlineTx = offlineTx.filter(item => !successfulSyncs.includes(item.transaction.id));
-    localStorage.setItem('offline_transactions', JSON.stringify(offlineTx));
-    if (successfulSyncs.length > 0) {
-        console.log(`Synced ${successfulSyncs.length} offline transaction(s) to the server.`);
-        if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-        if (typeof loadTransactionsHistory ==='function') loadTransactionsHistory();
+    const pending = queue.filter(item => item.status === 'pending' || item.status === 'syncing');
+    const failed = queue.filter(item => item.status === 'failed' || item.status === 'needs-review');
+    const rows = queue.slice(0, 25).map(item => {
+        const tx = item.transaction || {};
+        const state = item.status === 'needs-review' ? 'Needs review' : item.status === 'failed' ? 'Failed' : item.status === 'syncing' ? 'Syncing…' : 'Pending';
+        return `<tr><td style="padding:5px 7px;font-weight:700;">${escapeHtml(tx.id || 'Unknown')}</td><td style="padding:5px 7px;">${escapeHtml(state)}</td><td style="padding:5px 7px;text-align:right;">₱${Number(tx.total || 0).toFixed(2)}</td></tr>`;
+    }).join('');
+    if (typeof Swal !== 'undefined') {
+        Swal.fire({
+            icon: failed.length ? 'warning' : 'info',
+            title: 'Offline Transaction Queue',
+            html: `<div style="text-align:left"><p><strong>${pending.length}</strong> pending · <strong>${failed.length}</strong> need review.</p><div style="max-height:300px;overflow:auto"><table style="width:100%;font-size:.82rem"><thead><tr><th style="text-align:left">Reference</th><th style="text-align:left">Status</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table></div>${queue.length > 25 ? `<p style="margin:8px 0 0;font-size:.78rem;opacity:.7">Showing the first 25 queued transactions.</p>` : ''}</div>`,
+            confirmButtonText: 'Sync Now',
+            showCancelButton: true,
+            cancelButtonText: 'Close'
+        }).then(result => { if (result.isConfirmed) syncOfflineTransactions(); });
     }
 }
+
+async function updateOfflineQueueIndicator() {
+    const btn = document.getElementById('connectivity-mode-btn');
+    if (!btn) return;
+    try {
+        const queue = await getOfflineQueue();
+        const pending = queue.filter(item => item.status === 'pending' || item.status === 'syncing').length;
+        const failed = queue.filter(item => item.status === 'failed' || item.status === 'needs-review').length;
+        const base = btn.dataset.mode === 'offline' ? 'Offline — tap to switch to Online' : 'Online — tap to switch to Offline';
+        const detail = pending || failed ? ` Offline queue: ${pending} pending${failed ? `, ${failed} needs review` : ''}.` : '';
+        btn.setAttribute('data-tooltip', base + detail);
+        btn.setAttribute('aria-label', base + detail);
+        const badge = document.getElementById('offline-queue-badge');
+        if (badge) {
+            const total = pending + failed;
+            badge.textContent = String(total);
+            badge.style.display = total ? 'inline-block' : 'none';
+            badge.style.background = failed ? '#ef4444' : '#f59e0b';
+        }
+    } catch (e) {}
+}
+
+async function syncOfflineTransactions() {
+    if (!currentUser || offlineSyncInFlight) return;
+    offlineSyncInFlight = (async () => {
+        const queue = await getOfflineQueue();
+        const items = queue.filter(item => item && item.status !== 'needs-review');
+        if (!items.length) { updateOfflineQueueIndicator(); return; }
+        console.log(`Offline synchronization started: ${items.length} transaction(s) pending for ${currentUser.username}.`);
+        for (const item of items) {
+            if (item.queueUserKey !== getOfflineQueueUserKey()) continue;
+            await updateOfflineQueueItem(item, { status: 'syncing', attempts: (Number(item.attempts) || 0) + 1, lastAttemptAt: new Date().toISOString() });
+            try {
+                const res = await authFetch(`${API_URL}/transactions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transaction: item.transaction,
+                        username: item.username || currentUser.username,
+                        creditDebtInfo: item.creditDebtInfo || null
+                    })
+                });
+                const output = await res.json().catch(() => ({}));
+                if (output.success || output.code === 'DUPLICATE_TRANSACTION_ID') {
+                    await removeOfflineQueueItem(item);
+                    continue;
+                }
+                if (output.code === 'TRANSACTION_ID_COLLISION') {
+                    const tx = { ...item.transaction, id: generateTransactionId((receiptSettingsCache?.transactionIdSettings?.format) || DEFAULT_TRANSACTION_ID_SETTINGS.format) };
+                    await updateOfflineQueueItem(item, { status: 'pending', transaction: tx, lastError: 'Transaction reference collision; a new reference was generated.' });
+                    continue;
+                }
+                if (res.status === 401 || output.featureLocked || output.code === 'PERMISSION_DENIED') {
+                    await updateOfflineQueueItem(item, { status: 'needs-review', lastError: output.message || `HTTP ${res.status}` });
+                    continue;
+                }
+                if (res.status >= 400 && res.status < 500) {
+                    await updateOfflineQueueItem(item, { status: 'needs-review', lastError: output.message || `HTTP ${res.status}` });
+                    continue;
+                }
+                await updateOfflineQueueItem(item, { status: 'pending', lastError: output.message || `HTTP ${res.status}` });
+                if (!navigator.onLine) break;
+            } catch (err) {
+                await updateOfflineQueueItem(item, { status: 'pending', lastError: err?.message || 'Network unavailable.' });
+                console.warn(`Offline sync paused for ${item.transaction?.id}:`, err);
+                break;
+            }
+        }
+        updateOfflineQueueIndicator();
+        if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
+        if (typeof loadTransactionsHistory === 'function') loadTransactionsHistory();
+    })().finally(() => { offlineSyncInFlight = null; });
+    return offlineSyncInFlight;
+}
+
 window.addEventListener('online', () => {
-    console.log("Internet connection restored — starting sync of offline transactions...");
-    syncOfflineTransactions();
+    console.log('Network restored — attempting offline transaction synchronization.');
+    setTimeout(() => syncOfflineTransactions(), 500);
 });
-setInterval(syncOfflineTransactions, 30000);
+setInterval(() => syncOfflineTransactions(), 30000);
+setTimeout(() => updateOfflineQueueIndicator(), 1500);
+
 async function pollMyShiftClosedRemotely() {
     if (!currentUser) return;
     if (!isFeatureUnlockedCached('shift_management')) return;
@@ -21842,8 +22247,23 @@ function initAutoCloseSidebarOnPrompt() {
         overlayObserver.observe(overlay, { attributes: true, attributeFilter: ['style'] });
     });
 }
-window.checkRealInternetAccess = function checkRealInternetAccess(timeoutMs = 1500) {
-    return Promise.resolve(!!navigator.onLine);
+window.checkRealInternetAccess = async function checkRealInternetAccess(timeoutMs = 2500) {
+    if (!navigator.onLine) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
+    try {
+        const res = await fetch(`${API_URL}/health?ts=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'same-origin',
+            signal: controller.signal
+        });
+        return !!res && res.ok;
+    } catch (e) {
+        return false;
+    } finally {
+        clearTimeout(timer);
+    }
 };
 function initNetworkStatusIndicator() {
     const indicators = [
@@ -22155,7 +22575,7 @@ async function initializeSystem() {
             authFetch(`${API_URL}/products`),
             authFetch(`${API_URL}/categories`)
         ]);
-        globalProducts = await productsRes.json();
+        globalProducts = await applyPendingOfflineStockDeductions(await productsRes.json());
         customCategories = await categoriesRes.json();
         updateDropdownCategoriesDynamic();
         if (typeof loadDashboardMetrics ==='function') {
@@ -22163,6 +22583,20 @@ async function initializeSystem() {
         }
     } catch (err) {
         console.error("System Initialization Failed:", err);
+        // BUGFIX: a cold app launch (tab reopened / PWA relaunched / page refresh)
+        // while offline used to leave globalProducts as an empty array forever —
+        // unlike loadTerminalCatalog(), this catch had no cache fallback. Any UI
+        // that reads globalProducts before the cashier manually opens the Terminal
+        // view (dashboard widgets, idle showcase, category chips) would show an
+        // empty catalog even though a valid cached copy already exists on-device.
+        // cached_products here is the already-offline-adjusted snapshot (any
+        // queued-but-unsynced sale quantities are already subtracted when it was
+        // written), so it must NOT be passed through applyPendingOfflineStockDeductions
+        // again — that would double-subtract those quantities.
+        try {
+            globalProducts = JSON.parse(localStorage.getItem('cached_products') || '[]');
+            updateDropdownCategoriesDynamic();
+        } catch (fallbackErr) {}
     }
 }
 window.addEventListener('DOMContentLoaded', initializeSystem);
@@ -23093,9 +23527,9 @@ async function handleHardwareScanTerminal(scannedCode) {
     }
     authFetch(`${API_URL}/products`)
         .then(res => res.json())
-        .then(data => {
-            globalProducts = data;
-            localStorage.setItem('cached_products', JSON.stringify(globalProducts));
+        .then(async data => {
+            globalProducts = await applyPendingOfflineStockDeductions(data);
+            ovWriteJsonCache('cached_products', globalProducts);
         })
         .catch(e => console.warn("Failed to background-refresh products:", e));
     const product = globalProducts.find(p => p.code === cleanCode);
@@ -23663,12 +24097,9 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
     const desktopQuery = window.matchMedia('(min-width: 1025px)');
-    // The dock's width is computed once per "desktop session" and then
-    // locked in place — it is intentionally NOT recalculated when the
-    // browser window or device screen is resized, so the dock keeps a
-    // fixed width on desktop no matter how the screen size changes. It
-    // only recomputes if the viewport drops below the desktop breakpoint
-    // and later comes back above it (a genuine mode change, not a resize).
+    // Recalculate on every viewport resize. Locking the first measured width
+    // caused the dock to become wider than a resized desktop viewport, which
+    // clipped the first and last cards until another mode change occurred.
     //
     // AYOS/BAGO: dating sinusukat ito gamit ang isang chart card na NASA
     // Overview page lang (#ov-adv-chart-card) — kaya gumana lang ito nang
@@ -23687,34 +24118,64 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
     // konting extra buffer para maiwasan ang pag-cut dahil sa
     // sub-pixel/rounding sa sukat) — kaya hindi na ito basta nabibigo
     // (silent no-op) tulad ng dati.
-    let widthLocked = false;
+    let dockSyncRaf = null;
     function measureDockWidth() {
-        const ref = document.getElementById('ov-adv-chart-card') ||
-            document.querySelector('#view-overview .overview-trend-card');
-        if (ref) {
-            const rect = ref.getBoundingClientRect();
-            if (rect.width) return rect.width;
-        }
-        return dock.scrollWidth ? dock.scrollWidth + 8 : 0;
+        // Measure the dock's own NATURAL (unconstrained) content width
+        // directly, instead of borrowing a reference element from the
+        // Overview page. That old approach only worked while on Overview,
+        // and even there wasn't guaranteed to be wide enough for the dock's
+        // own content — on some viewport sizes it was narrower, which
+        // silently clipped the first/last quick-access buttons.
+        //
+        // Fix: temporarily drop whatever width constraint is currently
+        // applied (the qa-dock-synced class sets an explicit width via
+        // --qa-dock-width) so scrollWidth reflects the true width needed to
+        // fit every card with nothing cut off, then restore it.
+        const hadSynced = dock.classList.contains('qa-dock-synced');
+        const prevWidth = dock.style.width;
+        const prevMaxWidth = dock.style.maxWidth;
+        dock.classList.remove('qa-dock-synced');
+        dock.style.width = 'max-content';
+        dock.style.maxWidth = 'none';
+        const natural = dock.scrollWidth ? dock.scrollWidth + 8 : 0;
+        dock.style.width = prevWidth;
+        dock.style.maxWidth = prevMaxWidth;
+        if (hadSynced) dock.classList.add('qa-dock-synced');
+        return natural;
     }
     function syncDockWidth() {
         if (!desktopQuery.matches) {
-            widthLocked = false;
             dock.classList.remove('qa-dock-synced');
             dock.style.removeProperty('--qa-dock-width');
             return;
         }
-        if (widthLocked) return;
-        const width = measureDockWidth();
+        const availableWidth = Math.max(320, window.innerWidth - 60);
+        const width = Math.min(measureDockWidth(), availableWidth);
         if (!width) return;
         dock.style.setProperty('--qa-dock-width', width + 'px');
         dock.classList.add('qa-dock-synced');
-        widthLocked = true;
     }
     function requestSync() {
+        // Apply the current size immediately so a resize never leaves the
+        // dock visibly clipped for a frame. A follow-up frame catches layout
+        // changes caused by a view switch or a just-finished CSS reflow.
         syncDockWidth();
+        if (dockSyncRaf !== null) {
+            window.cancelAnimationFrame(dockSyncRaf);
+            dockSyncRaf = null;
+        }
+        if (typeof window.requestAnimationFrame === 'function') {
+            dockSyncRaf = window.requestAnimationFrame(() => {
+                dockSyncRaf = null;
+                syncDockWidth();
+            });
+        }
     }
     window.addEventListener('load', requestSync);
+    window.addEventListener('resize', requestSync, { passive: true });
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', requestSync, { passive: true });
+    }
     if (typeof desktopQuery.addEventListener === 'function') {
         desktopQuery.addEventListener('change', requestSync);
     } else if (typeof desktopQuery.addListener === 'function') {
@@ -23728,6 +24189,12 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
             return result;
         };
     }
+    // Exposed so the dock can force a fresh, current-screen-width
+    // computation the moment it's actually opened (hover on desktop, tap on
+    // touch) — see initQuickAccessAutoHide()'s openDock() below. That's the
+    // measurement that matters most, since it's taken right when the dock
+    // is about to visibly expand.
+    window.__omniposSyncQuickAccessDockWidth = syncDockWidth;
     requestSync();
 })();
 // Quick Access dock auto-hide: the dock starts shrunk down to a thin strip
@@ -23754,6 +24221,13 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
         }, AUTO_CLOSE_MS);
     }
     function openDock() {
+        // Recompute the dock's width right now, against the current screen
+        // size, before it visibly expands — this is what guarantees every
+        // button fits and none get cut off, instead of relying on a value
+        // computed earlier (on load/resize) that may be stale.
+        if (typeof window.__omniposSyncQuickAccessDockWidth === 'function') {
+            window.__omniposSyncQuickAccessDockWidth();
+        }
         dock.classList.remove('qa-dock-collapsed');
         scheduleAutoClose();
     }

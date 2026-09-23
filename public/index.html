@@ -454,6 +454,10 @@
                                 <button type="button" class="hu-item hu-toggle-item connectivity-mode-pill" id="connectivity-mode-btn" onclick="toggleConnectivityMode()" data-tooltip="Checking… confirming if there is an internet connection." aria-label="Checking… confirming if there is an internet connection." data-mode="connecting">
                                     <span><i class="fa-solid fa-wifi" id="connectivity-mode-icon"></i> <span id="connectivity-mode-label">Checking…</span></span>
                                 </button>
+                                <button type="button" class="hu-item hu-toggle-item" id="offline-queue-btn" onclick="showOfflineQueueStatus()" aria-label="Offline transaction queue">
+                                    <span><i class="fa-solid fa-clock-rotate-left"></i> Offline Queue</span>
+                                    <span id="offline-queue-badge" style="display:none;min-width:20px;padding:2px 6px;border-radius:999px;font-size:.7rem;font-weight:800;text-align:center;background:#f59e0b;color:#111827;">0</span>
+                                </button>
                             </div>
                             <div class="hu-item hu-has-sub" id="hu-terminalthemes-toggle" onclick="toggleHeaderTerminalThemesSubmenu(event)" style="display:none;">
                                 <span><i class="fa-solid fa-swatchbook"></i> Terminal Themes</span>
@@ -857,21 +861,23 @@
                     <div class="view-header-row reorder-header-row" style="margin-bottom: 10px; flex-wrap:wrap; gap:8px;">
                         <h2 id="page-title-reorder">Reorder Alerts / Purchase Orders</h2>
                     </div>
-                    <div class="reorder-header-actions reorder-header-actions-freeze">
-                        <button class="btn-action-global btn-action-icon-only" id="reorder-create-po-btn" onclick="openCreatePOModal()" disabled title="Create PO">
-                            <i class="fa-solid fa-cart-plus"></i>
-                            <span id="reorder-selected-count" class="reorder-action-count-badge">0</span>
-                            <span id="create-po-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span>
-                        </button>
-                        <button class="btn-action-global btn-action-icon-only" style="background:#475569;" onclick="exportReorderCSV()" title="Export CSV"><i class="fa-solid fa-file-csv"></i></button>
-                        <button class="btn-action-global btn-action-icon-only" style="background:#475569;" onclick="printReorderList()" title="Print"><i class="fa-solid fa-print"></i></button>
-                    </div>
+                    <div class="reorder-sticky-header">
+                        <div class="reorder-header-actions reorder-header-actions-freeze">
+                            <button class="btn-action-global btn-action-icon-only" id="reorder-create-po-btn" onclick="openCreatePOModal()" disabled title="Create PO">
+                                <i class="fa-solid fa-cart-plus"></i>
+                                <span id="reorder-selected-count" class="reorder-action-count-badge">0</span>
+                                <span id="create-po-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span>
+                            </button>
+                            <button class="btn-action-global btn-action-icon-only" style="background:#475569;" onclick="exportReorderCSV()" title="Export CSV"><i class="fa-solid fa-file-csv"></i></button>
+                            <button class="btn-action-global btn-action-icon-only" style="background:#475569;" onclick="printReorderList()" title="Print"><i class="fa-solid fa-print"></i></button>
+                        </div>
 
-                    <div class="reorder-stats-bar" id="reorder-stats-bar"></div>
+                        <div class="reorder-stats-bar" id="reorder-stats-bar"></div>
 
-                    <div class="tabs-container reorder-tabs-container">
-                        <button class="tab-btn reorder-tab-btn active" id="reorder-tab-btn-create" onclick="switchReorderTab('reorder-tab-create', this)"><i class="fa-solid fa-cart-plus"></i> Create PO</button>
-                        <button class="tab-btn reorder-tab-btn" id="reorder-tab-btn-history" onclick="switchReorderTab('reorder-tab-history', this)"><i class="fa-solid fa-clock-rotate-left"></i> Purchase Order History</button>
+                        <div class="tabs-container reorder-tabs-container">
+                            <button class="tab-btn reorder-tab-btn active" id="reorder-tab-btn-create" onclick="switchReorderTab('reorder-tab-create', this)"><i class="fa-solid fa-cart-plus"></i> Create PO</button>
+                            <button class="tab-btn reorder-tab-btn" id="reorder-tab-btn-history" onclick="switchReorderTab('reorder-tab-history', this)"><i class="fa-solid fa-clock-rotate-left"></i> Purchase Order History</button>
+                        </div>
                     </div>
 
                     <div id="reorder-tab-create" class="tab-content-panel reorder-tab-panel" style="display:flex;">
@@ -1397,8 +1403,9 @@
         <div class="view-header-row" style="margin-top: 15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
             <button class="btn-action-global" onclick="openAddRoleModal()"><i class="fa-solid fa-user-tag"></i> Add New Role</button>
             <button class="btn-action-global" id="save-column-order-btn" style="display:none; background:#0ea5e9;" onclick="saveRoleColumnOrder()"><i class="fa-solid fa-arrows-left-right"></i> Save Column Order</button>
+            <button type="button" class="btn-action-global rbac-mobile-only-btn" id="toggle-rbac-helper-btn" onclick="toggleRbacHelperText()"><i class="fa-solid fa-eye"></i> Show Description</button>
         </div>
-        <p style="color:#64748b; font-size:0.85rem; margin: 10px 2px 0;">
+        <p id="rbac-helper-text" class="rbac-helper-hidden" style="color:#64748b; font-size:0.85rem; margin: 10px 2px 0;">
             Configure which menus each role can access. The "Admin" role always has full access
             and cannot be edited here. Newly added system menus will appear automatically.
             Use the ◀ ▶ controls above each column to reorder roles.
@@ -4610,19 +4617,10 @@
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js"></script>
 <script src="faq-engine.js"></script>
+<script src="offline-storage.js?v=20260922-1"></script>
 <script src="app.js?v=20260921-3"></script>
 <script src="app1.js?v=20260921-2"></script>
 
-<script>
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js')
-      .then((reg) => console.log('[SW] Registered, scope:', reg.scope))
-      .catch((err) => console.warn('[SW] Registration failed:', err));
-  });
-}
-</script>
 
 <script>
 
@@ -4718,30 +4716,41 @@ if ('serviceWorker' in navigator) {
                 }
                 return;
             }
+            const confirmedMode = await pushConnectivityMode(nextMode);
+            if (confirmedMode) {
+                const liveBtn = document.getElementById('connectivity-mode-btn');
+                if (liveBtn) liveBtn.dataset.pref = confirmedMode;
+                paintConnectivityBtn(confirmedMode);
+                if (window.Swal) {
+                    Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Online mode — automatic cloud backup and update checks are enabled again.', showConfirmButton: false, timer: 2500 });
+                }
+            } else if (window.Swal) {
+                Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Connectivity mode was not changed.', showConfirmButton: false, timer: 3000 });
+            }
+            return;
         }
 
-        const confirmedMode = await pushConnectivityMode(nextMode);
-        if (confirmedMode) {
-            const btn = document.getElementById('connectivity-mode-btn');
-            if (btn) btn.dataset.pref = confirmedMode;
-            paintConnectivityBtn(confirmedMode);
-            const msg = confirmedMode === 'offline'
-                ? '📴 Offline mode — hindi na proactive tatawag sa RELAY. Gumagana pa rin nang normal ang POS.'
-                : '📶 Online mode — babalik na ang auto cloud backup/update-check.';
-            if (window.Swal) {
-                Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: msg, showConfirmButton: false, timer: 2500 });
-            }
-        } else if (window.Swal) {
-            Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Hindi na-switch ang mode.', showConfirmButton: false, timer: 3000 });
+        // BUGFIX: switching TO Offline Mode used to require a server round-trip
+        // (pushConnectivityMode -> authFetch POST) to be reflected in the UI at
+        // all. But the server it talks to is this device's own local OMNIPOS
+        // server (same LAN) — the exact thing that's unreachable when the
+        // cashier actually needs Offline Mode. That made it impossible to ever
+        // successfully switch INTO Offline Mode while genuinely offline: the
+        // POST would fail, pushConnectivityMode would return null, and the
+        // toggle would show "Connectivity mode was not changed" instead of
+        // actually going offline. Apply the offline preference locally right
+        // away — it doesn't need server confirmation to take effect on this
+        // device — then sync it to the server in the background on a
+        // best-effort basis (it'll simply be picked up next time the server
+        // is reachable; nothing here depends on that succeeding).
+        if (btn) btn.dataset.pref = 'offline';
+        paintConnectivityBtn('offline');
+        if (window.Swal) {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Offline mode — RELAY background calls are paused. POS functions remain available.', showConfirmButton: false, timer: 2500 });
         }
+        pushConnectivityMode('offline').catch(() => {});
     };
 })();
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js');
-    });
-  }
-
 </script>
 </body>
 </html>
