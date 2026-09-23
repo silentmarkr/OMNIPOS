@@ -16479,7 +16479,7 @@ function renderPendingStockReturns() {
         } else if (needsReview) {
             actionBtn = canReviewStockReturns()
                 ? `<button class="btn-clear" onclick="reviewStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#b45309;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-user-check"></i> Review</button>`
-                : `<span style="color:#94a3b8;font-size:.82rem;" title="Kailangan ng 'Finalize Manager Review' permission — hilingin sa Admin."><i class="fa-solid fa-lock"></i> Manager Review Only</span>`;
+                : `<span style="color:#94a3b8;font-size:.82rem;" title="Requires the 'Finalize Manager Review' permission — ask your Admin."><i class="fa-solid fa-lock"></i> Manager Review Only</span>`;
         } else {
             actionBtn = `<button class="btn-clear" onclick="inspectStockReturn('${escapeHtml(r.id).replace(/'/g, '&#39;')}')" style="color:#475569;padding:4px 8px;font-size:.9rem;"><i class="fa-solid fa-eye"></i> View</button>`;
         }
@@ -16621,7 +16621,7 @@ window.sretSyncReviewRow = function (idx) {
 };
 async function reviewStockReturn(returnId) {
     if (!canReviewStockReturns()) {
-        Swal.fire('Walang Pahintulot', 'Kailangan ng \'Finalize Manager Review\' permission para gawin ito. Hilingin sa Admin na bigyan ka ng access sa Roles & Permissions.', 'warning');
+        Swal.fire('Not Authorized', 'Requires the \'Finalize Manager Review\' permission to do this. Ask your Admin to grant you access in Roles & Permissions.', 'warning');
         return;
     }
     const record = cachedPendingStockReturns.find(r => String(r.id) === String(returnId));
