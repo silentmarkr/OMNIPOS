@@ -5507,11 +5507,30 @@ async function deleteDebtConfirm(id) {
         confirmButtonText:'Yes, delete'
     });
     if (!result.isConfirmed) return;
+    const { value: adminPassword } = await Swal.fire({
+        title:'🔒 Confirm Password',
+        html: `To delete this debt record, an Admin or authorized password is required:`,
+        input:'password',
+        inputPlaceholder:'Password',
+        showCancelButton: true,
+        confirmButtonColor:'#2563eb',
+        cancelButtonColor:'#ef4444'
+    });
+    if (!adminPassword || adminPassword.trim() ==='') {
+        Swal.fire('Cancelled','A password is required to delete a debt record.','info');
+        return;
+    }
     try {
-        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}`, { method:'DELETE' });
+        const res = await authFetch(`${API_URL}/debts/${encodeURIComponent(id)}`, {
+            method:'DELETE',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ adminPassword })
+        });
         const data = await res.json();
         if (data.success) {
             loadDebtsView();
+        } else if (data.code ==='WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Access Denied', data.message ||'Incorrect password.','error');
         } else {
             Swal.fire('Error', data.message ||'Could not delete.','error');
         }
@@ -10638,7 +10657,8 @@ async function submitBranchTransferRequest(evt) {
         const res = await authFetch(`${API_URL}/branches/transfer-request`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ toInstallationId, toBranchName, itemName, sku, qty, note })
+            body: JSON.stringify({ toInstallationId, toBranchName, itemName, sku, qty, note }),
+            timeoutMs: 30000
         });
         const data = await res.json();
         if (!data.success) {
@@ -10713,7 +10733,8 @@ async function respondBranchTransfer(transferId, action) {
         const res = await authFetch(`${API_URL}/branches/transfer-respond`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transferId, action })
+            body: JSON.stringify({ transferId, action }),
+            timeoutMs: 45000
         });
         const data = await res.json();
         if (!data.success) {
@@ -18612,16 +18633,41 @@ async function deleteProductTrigger(code) {
         confirmButtonText:'Yes, delete it'
     });
     if(!confirmation.isConfirmed) return;
+    const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
+    const canApplyDirectly = isAdmin || !!(currentPermissions && currentPermissions.products_direct_apply);
+    let adminPassword;
+    if (canApplyDirectly) {
+        const promptResult = await Swal.fire({
+            title:'🔒 Confirm Password',
+            html: `To delete this product, an Admin or authorized password is required:`,
+            input:'password',
+            inputPlaceholder:'Password',
+            showCancelButton: true,
+            confirmButtonColor:'#2563eb',
+            cancelButtonColor:'#ef4444'
+        });
+        adminPassword = promptResult.value;
+        if (!adminPassword || adminPassword.trim() ==='') {
+            Swal.fire('Cancelled','A password is required to delete a product.','info');
+            return;
+        }
+    }
     try {
         const res = await authFetch(`${API_URL}/products/${code}`, {
             method:'DELETE',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ userRole: currentUser.role, username: currentUser.username })
+            body: JSON.stringify({ userRole: currentUser.role, username: currentUser.username, adminPassword })
         });
         const reply = await res.json();
-        Swal.fire('Deleted!', reply.message ||'Deletion processing sequence updated.','success');
-        loadInventoryProductsTable();
-      loadDashboardMetrics();
+        if (reply.success) {
+            Swal.fire('Deleted!', reply.message ||'Deletion processing sequence updated.','success');
+            loadInventoryProductsTable();
+            loadDashboardMetrics();
+        } else if (reply.code ==='WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Access Denied', reply.message ||'Incorrect password.','error');
+        } else {
+            Swal.fire('Error', reply.message ||'Could not delete the product.','error');
+        }
     } catch(e) {
         Swal.fire('Error','Failed to delete the selected product asset.','error');
     }

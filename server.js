@@ -464,6 +464,7 @@ const MENU_REGISTRY = [
     { key:'dashboard',    label:'Inventory Dashboard', group:'Core' },
     { key:'products',     label:'Products', group:'Core' },
     { key:'products_direct_apply', label:'Products — Add/Update/Delete Direct Apply (No Approval Needed)', group:'Core' },
+    { key:'product_delete_own_password', label:'Products — Delete Product Using Own Password (Admin Password Not Required)', group:'Core' },
     { key:'barcode',      label:'Barcode', group:'Core' },
     { key:'transactions', label:'Transactions', group:'Transactions' },
     { key:'transactions_view_all', label:'Transactions — View All Cashiers', group:'Transactions' },
@@ -476,6 +477,7 @@ const MENU_REGISTRY = [
     { key:'loyalty_card_issue', label:'Customers & Loyalty — Issue/Regenerate Loyalty Card or QR (Authorized Personnel Only, e.g. New Customer Enrollment or Lost Card Replacement)', group:'Customers & Loyalty' },
     { key:'loyalty_redeem_own_password', label:'Transactions — Authorize MANUAL Loyalty Points Redemption With Own Password (No Card/QR Scan, Admin Password Not Required)', group:'Customers & Loyalty' },
     { key:'debts', label:'Debtors / Debts (Customer Credit Tracking, Premium Feature)', group:'Customers & Loyalty' },
+    { key:'debt_delete_own_password', label:'Debtors / Debts — Delete Debt Record Using Own Password (Admin Password Not Required)', group:'Customers & Loyalty' },
     { key:'shiftreport', label:'Shift / Z-Reading', group:'Shift / Z-Reading' },
     { key:'shiftreport_view_all', label:'Shift / Z-Reading — View All Cashiers', group:'Shift / Z-Reading' },
     { key:'shiftreport_view_amounts', label:'Shift / Z-Reading — View Sales Amounts (Gross/Discount/Net)', group:'Shift / Z-Reading' },
@@ -518,12 +520,12 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, debt_delete_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, product_delete_own_password: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
     },
     {
         name:'Cashier',
         protected: false,
-        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, debt_delete_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, product_delete_own_password: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
     }
 ];
 function getRoles() {
@@ -610,6 +612,12 @@ function findManualDiscountAuthorizer(users, password) {
 function findShiftCloseAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'shift_close_own_password');
 }
+function findDebtDeleteAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'debt_delete_own_password');
+}
+function findProductDeleteAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'product_delete_own_password');
+}
 function findTerminalSettingsAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'terminal_settings_view');
 }
@@ -677,7 +685,8 @@ function verifyLoyaltyCardToken(customer, rawToken) {
 // the loyalty card helpers above — but still part of the same RBAC
 // override family as: findVoidAuthorizer / findRefundAuthorizer /
 // findManualDiscountAuthorizer / findShiftCloseAuthorizer /
-// findTerminalSettingsAuthorizer / findOmniTokenUnlockAuthorizer.)
+// findTerminalSettingsAuthorizer / findOmniTokenUnlockAuthorizer /
+// findDebtDeleteAuthorizer / findProductDeleteAuthorizer.)
 function findLoyaltyRedeemAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'loyalty_redeem_own_password');
 }
@@ -1715,8 +1724,12 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
         logAction(req.authUser.username, 'Nag-submit ng Store & Sales Settings change request para sa Admin approval');
         return res.json({ success: true, pending: true, message: 'Isinumite ang Store & Sales Settings request para sa Admin approval.' });
     }
+    const previousBranchGroupKey = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).branchGroupKey;
     incoming.updatedAt = new Date().toISOString();
     writeData(FILE_STORE_SETTINGS, incoming);
+    if (previousBranchGroupKey && !incoming.branchGroupKey) {
+        notifyRelayBranchLeave();
+    }
     logAction(username || req.authUser.username, 'Binago ang Store & Sales Settings (tax/payment methods/discount)');
     res.json({ success: true, message: 'Na-update ang Store & Sales Settings.', settings: incoming });
 });
@@ -3238,7 +3251,11 @@ function tierBundlePrice(tierId, fallbackPrice) {
 }
 function tierName(tierId, fallbackName) {
     const overlay = upgradeTierPricingOverlay[tierId];
-    return (overlay && typeof overlay.name === 'string' && overlay.name) ? overlay.name : fallbackName;
+    if (overlay && typeof overlay.name === 'string' && overlay.name) {
+        const cleaned = overlay.name.replace(/\s*\(Complete\)\s*$/i, '').trim();
+        return cleaned || fallbackName;
+    }
+    return fallbackName;
 }
 function tierFeatureIds(tierId, fallbackFeatureIds) {
     const overlay = upgradeTierPricingOverlay[tierId];
@@ -3349,7 +3366,7 @@ const UPGRADE_TIERS = [
         id:'pro',
         description:'Every other module and every Pro Theme — nothing left locked, except Cloud Backup, Roles & Permissions (RBAC) Management, and Multi-Branch Dashboard, which are billed separately as their own subscriptions.',
         get featureIds() { return tierFeatureIds('pro', Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id))); },
-        get name() { return tierName('pro', 'Pro Upgrade (Complete)'); },
+        get name() { return tierName('pro', 'Pro Upgrade'); },
         get bundlePrice() { return tierBundlePrice('pro', 3599); }
     }
 ];
@@ -4444,6 +4461,24 @@ const relayBranchStatus = {
     lastError: null,
     multiBranchFeatureLocked: true
 };
+// Tells RELAY this device left its Business Group (code was cleared) so it stops
+// being counted as a branch/terminal (e.g. for the multi-terminal discount).
+// Best-effort only: if it fails (offline, etc.), RELAY's activity window on the
+// device count still drops this device after it stops checking in.
+async function notifyRelayBranchLeave() {
+    if (!RELAY_API_KEY) return;
+    try {
+        const data = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(data);
+        await relayFetch(`${RELAY_URL}/relay/branch-leave`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId })
+        }, 8000);
+    } catch (err) {
+        console.warn('Could not notify RELAY of branch-leave:', err.message);
+    }
+}
 async function runRelayBranchCheckin() {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
@@ -5044,6 +5079,10 @@ async function processBranchTransferRespond(req, res) {
     if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY configured in .env.' });
     const { transferId, action } = req.body || {};
     const username = req.authUser && req.authUser.username;
+    // Declared OUTSIDE the try so the catch below can roll the local stock back too.
+    let matchedProduct = null;
+    let stockNote = '';
+    let stockMutation = null;
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
@@ -5052,9 +5091,6 @@ async function processBranchTransferRespond(req, res) {
         // change — this also avoids a double-apply if the button is
         // clicked repeatedly (RELAY is what enforces the correct status
         // sequence below).
-        let matchedProduct = null;
-        let stockNote = '';
-        let stockMutation = null;
         if (action === 'send' || action === 'receive') {
             // FIX: same missing installationId query param as fixed in
             // GET /api/branches/transfers above — this also caused a 403
@@ -5120,7 +5156,18 @@ async function processBranchTransferRespond(req, res) {
         }
         res.json({ success: true, transfer: relayData.transfer, stockNote: stockNote || undefined });
     } catch (err) {
-        res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
+        // FIX: if the relay call itself threw (timeout / no internet / non-JSON reply) AFTER the
+        // local stock was already deducted/added, that change was never undone — the transfer's
+        // status stayed unchanged on RELAY, so pressing the button again applied the stock
+        // change a SECOND time. Roll it back here, same as the "relay said no" path above.
+        if (stockMutation) {
+            try {
+                const rollbackProducts = readData(FILE_PRODUCTS);
+                const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
+                if (rollbackProduct) { rollbackProduct.stock = stockMutation.originalStock; writeData(FILE_PRODUCTS, rollbackProducts); }
+            } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
+        }
+        res.status(502).json({ success: false, rolledBack: !!stockMutation, message: `Could not reach the relay: ${err.message}` });
     }
 }
 let integrityWatchDebounceTimer = null;
@@ -9077,16 +9124,37 @@ function processProductUpdate(req, res) {
         return res.json({ success: true, message:'Update request submitted for Admin approval' });
     }
 }
-app.delete('/api/products/:code', requirePermission('products'), (req, res) => {
+app.delete('/api/products/:code', requirePermission('products'), rateLimit('product-delete', 15, 10 * 60 * 1000), async (req, res) => {
     const { code } = req.params;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
     if (canApplyDirectly) {
+        // AYOS/RBAC FIX: Delete ay irreversible (di gaya ng Add/Update na
+        // pwede pang ayusin), kaya kahit "Direct Apply" na ang permission,
+        // kailangan pa ring pumasok ng Admin o may-"product_delete_own_password"
+        // password bago talaga matanggal — parehong pattern gaya ng
+        // debt-delete/void/refund.
+        const { adminPassword } = req.body || {};
+        if (!adminPassword) {
+            return res.status(400).json({ success: false, message:'A password is required to delete a product.' });
+        }
+        const users = readData(FILE_USERS);
+        const authResult = await findProductDeleteAuthorizer(users, adminPassword);
+        if (!authResult) {
+            return res.status(403).json({
+                success: false,
+                code: 'WRONG_ADMIN_PASSWORD',
+                message: 'Incorrect password. The product was not deleted.'
+            });
+        }
+        if (!products.some(p => p.code.trim().toLowerCase() === code.trim().toLowerCase())) {
+            return res.status(404).json({ success: false, message:'Product not found.' });
+        }
         products = products.filter(p => p.code.trim().toLowerCase() !== code.trim().toLowerCase());
         writeData(FILE_PRODUCTS, products);
-        logAction(username, `Deleted product code: ${code}`);
+        logAction(username, `Deleted product code: ${code} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
         return res.json({ success: true, message:'Product deleted successfully' });
     } else {
         let requests = readData(FILE_REQUESTS);
@@ -13625,14 +13693,27 @@ app.post('/api/debts/:id/payment', requirePermission('customers'), requireFeatur
     logAction(req.authUser.username, `Recorded a payment for ${debt.customerName}'s debt: ₱${paymentAmount.toFixed(2)}`);
     res.json({ success: true, debt });
 });
-app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), rateLimit('debt-delete', 15, 10 * 60 * 1000), async (req, res) => {
+    const { adminPassword } = req.body || {};
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message:'A password is required to delete a debt record.' });
+    }
+    const users = readData(FILE_USERS);
+    const authResult = await findDebtDeleteAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({
+            success: false,
+            code: 'WRONG_ADMIN_PASSWORD',
+            message: 'Incorrect password. The debt record was not deleted.'
+        });
+    }
     let debts = readData(FILE_DEBTS, []);
     if (!debts.some(d => d.id === req.params.id)) {
         return res.status(404).json({ success: false, message:'Debt record not found.' });
     }
     debts = debts.filter(d => d.id !== req.params.id);
     writeData(FILE_DEBTS, debts);
-    logAction(req.authUser.username, `Deleted debt record ID: ${req.params.id}`);
+    logAction(req.authUser.username, `Deleted debt record ID: ${req.params.id} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
     res.json({ success: true });
 });
 function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {

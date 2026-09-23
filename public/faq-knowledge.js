@@ -831,7 +831,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   <ul>
     <li><strong>Basic Upgrade</strong> — Sales Analytics & Advanced Reports + Promo Codes Module.</li>
     <li><strong>Standard Upgrade</strong> — lahat sa Basic, plus Customer Profiles & Loyalty at Multi-Cashier Shift Oversight.</li>
-    <li><strong>Pro Upgrade (Complete)</strong> — LAHAT ng ibang module AT LAHAT ng Pro Theme — walang matitirang naka-lock, <strong>MALIBAN</strong> sa Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at AI Assistant, dahil hiwalay na itong bina-bill bilang sarili nilang subscription (buwanan/taunan), hindi kasama sa mga bundle/upgrade tier na ito.</li>
+    <li><strong>Pro Upgrade</strong> — LAHAT ng ibang module AT LAHAT ng Pro Theme — walang matitirang naka-lock, <strong>MALIBAN</strong> sa Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at AI Assistant, dahil hiwalay na itong bina-bill bilang sarili nilang subscription (buwanan/taunan), hindi kasama sa mga bundle/upgrade tier na ito.</li>
   </ul>
   <p>Kung mayroon ka nang nabili dati sa mga indibidwal na feature na kasama sa isang tier, awtomatikong bababa ang presyo ng bundle na iyon para hindi ka na muling magbayad para sa parehong feature.</p>`
 },
