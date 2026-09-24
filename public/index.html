@@ -787,7 +787,7 @@
                     <div class="view-header-row">
                         <h2 id="page-title-products">Product Inventory Management</h2>
                         <div class="header-action-group">
-                            <button class="btn-action-outline" onclick="downloadProductTemplate()" title="Mag-download ng Excel template para sa bulk product entry">
+                            <button class="btn-action-outline" onclick="downloadProductTemplate()" title="Pumili at mag-download ng template (Excel o CSV) para sa bulk product entry o bulk specs import">
                                 <i class="fa-solid fa-file-arrow-down"></i><span class="btn-action-label"> Download Template</span>
                             </button>
                             <button class="btn-action-outline" onclick="triggerProductImport()" title="Mag-import ng pinunuang Excel o CSV file">
@@ -816,7 +816,7 @@
                     <div class="terminal-top-controls">
                         <div class="search-box-container">
                             <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
-                            <input type="text" id="inventory-search" placeholder="Search product name or ID..." oninput="filterInventoryTable()" autocomplete="off">
+                            <input type="text" id="inventory-search" name="omnipos-product-filter" placeholder="Search product name or ID..." oninput="filterInventoryTable()" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                             <button class="btn-scan-qr scan-icon-floating" onclick="openInventoryScanner()" title="I-scan ang QR/Barcode ng produkto">
                                 <i class="fa-solid fa-qrcode"></i>
                             </button>
@@ -3542,8 +3542,12 @@
                         <span id="pd-category" class="pd-detail-value"></span>
                     </div>
                     <div class="pd-detail-row">
-                        <span class="pd-detail-label">Price</span>
+                        <span class="pd-detail-label">Retail Price</span>
                         <span id="pd-price" class="pd-detail-value pd-price-highlight"></span>
+                    </div>
+                    <div class="pd-detail-row" id="pd-price-levels-row" style="display:none;">
+                        <span class="pd-detail-label">Wholesale / Reseller</span>
+                        <div id="pd-price-levels-list" class="pd-specs-list"></div>
                     </div>
                     <div class="pd-detail-row">
                         <span id="pd-stock-label" class="pd-detail-label">Available Stock</span>
@@ -4779,7 +4783,7 @@
 <script src="faq-lang.js"></script>
 <script src="faq-engine.js"></script>
 <script src="offline-storage.js?v=20260922-1"></script>
-<script src="app.js?v=20260924-3"></script>
+<script src="app.js?v=20260925-1"></script>
 <script src="app1.js?v=20260921-2"></script>
 
 

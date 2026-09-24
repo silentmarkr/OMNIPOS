@@ -8866,6 +8866,11 @@ app.post('/api/products/checkout', requirePermission('terminal'), (req, res) => 
     });
 });
 app.get('/api/products', (req, res) => {
+    // Product inventory is mutable; do not let browsers/proxies serve a stale
+    // cached snapshot immediately after add/update/delete operations.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.set('X-Active-Terminals', String(SESSIONS.size));
     res.json(readData(FILE_PRODUCTS));
 });
@@ -8876,13 +8881,19 @@ app.get('/api/products/export', requirePermission('products'), requireFeature('a
             const s = (val === undefined || val === null) ?'' : val.toString();
             return/[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
         };
-        const headers = ['Code','Product Name','Category','Price','Stock','Supplier','Expiry Date','Low Stock Threshold','Cost Price'];
+        const headers = ['Code','Product Name','Category','Price','Wholesale Price','Reseller Price','Stock','Supplier','Expiry Date','Low Stock Threshold','Cost Price'];
         const lines = [headers.join(',')];
         products.forEach(p => {
+            const priceLevels = (p && p.priceLevels && typeof p.priceLevels === 'object' && !Array.isArray(p.priceLevels)) ? p.priceLevels : {};
+            const getLevelPrice = (wanted) => {
+                const key = Object.keys(priceLevels).find(k => String(k).trim().toLowerCase() === wanted);
+                return key ? priceLevels[key] : '';
+            };
             lines.push([
                 escapeCsv(p.code), escapeCsv(p.name), escapeCsv(p.category),
-                escapeCsv(p.price), escapeCsv(p.stock), escapeCsv(p.supplier),
-                escapeCsv(p.expiryDate), escapeCsv(p.lowStockThreshold), escapeCsv(p.cost)
+                escapeCsv(p.price), escapeCsv(getLevelPrice('wholesale')), escapeCsv(getLevelPrice('reseller')),
+                escapeCsv(p.stock), escapeCsv(p.supplier), escapeCsv(p.expiryDate),
+                escapeCsv(p.lowStockThreshold), escapeCsv(p.cost)
             ].join(','));
         });
         const csvContent ='\uFEFF' + lines.join('\r\n');
@@ -8894,7 +8905,24 @@ app.get('/api/products/export', requirePermission('products'), requireFeature('a
         res.status(500).json({ success: false, message:'Hindi ma-export ang inventory.' });
     }
 });
+function csvTemplateEscape(val) {
+    const s = (val === undefined || val === null) ? '' : val.toString();
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 app.get('/api/products/template', async (req, res) => {
+    const format = (req.query.format || 'xlsx').toString().trim().toLowerCase();
+    if (format === 'csv') {
+        try {
+            const headers = ['Code', 'Product Name', 'Category', 'Price', 'Wholesale Price', 'Reseller Price', 'Stock', 'Supplier', 'Expiry Date', 'Low Stock Threshold', 'Cost Price'];
+            const csvContent = '\uFEFF' + headers.map(csvTemplateEscape).join(',') + '\r\n';
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', 'attachment; filename="product_import_template.csv"');
+            return res.send(csvContent);
+        } catch (err) {
+            console.error('CSV template generation error:', err);
+            return res.status(500).json({ success: false, message: 'Hindi magawa ang CSV template.' });
+        }
+    }
     try {
         const categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
         const workbook = new ExcelJS.Workbook();
@@ -8910,6 +8938,8 @@ app.get('/api/products/template', async (req, res) => {
             { header:'Product Name', key:'name', width: 32 },
             { header:'Category', key:'category', width: 24 },
             { header:'Price', key:'price', width: 14 },
+            { header:'Wholesale Price', key:'wholesale', width: 18 },
+            { header:'Reseller Price', key:'reseller', width: 18 },
             { header:'Stock', key:'stock', width: 12 },
             { header:'Supplier', key:'supplier', width: 24 },
             { header:'Expiry Date', key:'expiry', width: 16 },
@@ -8933,7 +8963,9 @@ app.get('/api/products/template', async (req, res) => {
                 prompt:'Pumili sa dropdown, o mag-type ng bagong pangalan ng category para awtomatikong madagdag ito sa system.'
             };
             sheet.getCell(`D${row}`).numFmt ='#,##0.00';
-            sheet.getCell(`E${row}`).numFmt ='#,##0';
+            sheet.getCell(`E${row}`).numFmt ='#,##0.00';
+            sheet.getCell(`F${row}`).numFmt ='#,##0.00';
+            sheet.getCell(`G${row}`).numFmt ='#,##0';
         }
         const infoSheet = workbook.addWorksheet('Paano Gamitin');
         infoSheet.getColumn(1).width = 95;
@@ -8941,10 +8973,10 @@ app.get('/api/products/template', async (req, res) => {
 'PAANO GAMITIN ANG TEMPLATE NA ITO:',
 '',
 '1. Pumunta sa sheet na "New Products".',
-'2. Punan ang bawat hilera: Code, Product Name, Category, Price, Stock.',
+'2. Punan ang bawat hilera: Code, Product Name, Category, Price (Retail), Wholesale Price, Reseller Price, Stock.',
 '3. Sa column na "Category" (column C), pindutin ang dropdown arrow para pumili ng existing category.',
 '4. Kung gusto mag-add ng BAGONG category, i-type lang ito diretso sa cell — awtomatiko itong madadagdag sa system pagka-import.',
-'5. Huwag baguhin ang mga pangalan sa Row 1 (headers) at huwag magdagdag ng bagong column.',
+'5. Ang Price ay Retail/default. Ang Wholesale Price at Reseller Price ay awtomatikong ise-save bilang price levels na Wholesale at Reseller. Puwedeng iwanang blangko ang dalawang ito.',
 '6. Isave ang file (.xlsx), pagkatapos i-upload gamit ang "Import Excel/CSV" button sa Product Inventory page.',
 '7. Ang mga Product Code na dati nang ginagamit ay ise-skip habang nag-i-import — MALIBAN kung pinili mong "Update Existing" bago mag-upload.',
 '8. Optional na columns: Supplier, Expiry Date (YYYY-MM-DD), Low Stock Threshold, at Cost Price — pwedeng iwanang blangko.',
@@ -8959,6 +8991,18 @@ app.get('/api/products/template', async (req, res) => {
     } catch (err) {
         console.error('Template generation error:', err);
         res.status(500).json({ success: false, message:'Hindi magawa ang Excel template.' });
+    }
+});
+app.get('/api/products/bulk-specs-template', (req, res) => {
+    try {
+        const headers = ['Code', 'Description'];
+        const csvContent = '\uFEFF' + headers.map(csvTemplateEscape).join(',') + '\r\n';
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="bulk_specs_template.csv"');
+        res.send(csvContent);
+    } catch (err) {
+        console.error('Bulk specs template generation error:', err);
+        res.status(500).json({ success: false, message: 'Hindi magawa ang CSV template.' });
     }
 });
 function parseCsvLine(line) {
@@ -9004,6 +9048,24 @@ function parseWholeNumber(raw) {
     if (!/^\d+$/.test(s)) return NaN;
     return parseInt(s, 10);
 }
+function getImportedPriceLevel(r, aliases) {
+    for (const key of aliases) {
+        const raw = r[key];
+        if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw).trim();
+    }
+    return '';
+}
+function setImportedPriceLevel(product, levelName, rawPrice) {
+    const raw = String(rawPrice || '').trim();
+    if (!raw) return { ok: true, present: false };
+    const value = parseMoney(raw);
+    if (!Number.isFinite(value) || value <= 0) return { ok: false, present: true };
+    if (!product.priceLevels || typeof product.priceLevels !== 'object' || Array.isArray(product.priceLevels)) product.priceLevels = {};
+    const existingKey = Object.keys(product.priceLevels).find(k => String(k).trim().toLowerCase() === levelName.toLowerCase());
+    product.priceLevels[existingKey || levelName] = uomPricing.round2(value);
+    return { ok: true, present: true };
+}
+
 app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000), productImportUpload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message:'Walang na-attach na file.' });
@@ -9065,7 +9127,9 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             const expiry = (r['expiry date'] || r.expiry || r.expirydate ||'').toString().trim();
             const thresholdRaw = (r['low stock threshold'] || r.threshold || r.lowstockthreshold ||'').toString().trim();
             const costRaw = (r['cost price'] || r.cost || r.costprice ||'').toString().trim();
-            const priceRaw = (r.price ||'').toString().trim();
+            const priceRaw = (r['price'] || r['retail price'] || r.retail || r['retail/default price'] ||'').toString().trim();
+            const wholesaleRaw = getImportedPriceLevel(r, ['wholesale price','wholesale','wholesale/default price']);
+            const resellerRaw = getImportedPriceLevel(r, ['reseller price','reseller','reseller/default price']);
             const stockRaw = (r.stock ||'').toString().trim();
             const price = parseMoney(priceRaw);
             const stock = parseWholeNumber(stockRaw);
@@ -9103,6 +9167,10 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                     const costVal = parseMoney(costRaw);
                     if (!isNaN(costVal)) products[existingIdx].cost = costVal;
                 }
+                const wholesaleResult = setImportedPriceLevel(products[existingIdx], 'Wholesale', wholesaleRaw);
+                const resellerResult = setImportedPriceLevel(products[existingIdx], 'Reseller', resellerRaw);
+                if (!wholesaleResult.ok) errors.push(`Row ${rowNum}: Hindi valid ang Wholesale Price para sa Code "${code}" — hindi na-update ang wholesale price.`);
+                if (!resellerResult.ok) errors.push(`Row ${rowNum}: Hindi valid ang Reseller Price para sa Code "${code}" — hindi na-update ang reseller price.`);
                 if (categoryRaw && !categories.includes(categoryRaw)) {
                     categories.push(categoryRaw);
                     newCategoriesFound.add(categoryRaw);
@@ -9117,6 +9185,10 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 return;
             }
             const newProduct = { code, name, category, price, stock };
+            const newWholesale = setImportedPriceLevel(newProduct, 'Wholesale', wholesaleRaw);
+            const newReseller = setImportedPriceLevel(newProduct, 'Reseller', resellerRaw);
+            if (!newWholesale.ok) errors.push(`Row ${rowNum}: Hindi valid ang Wholesale Price para sa Code "${code}" — hindi ise-save ang wholesale price.`);
+            if (!newReseller.ok) errors.push(`Row ${rowNum}: Hindi valid ang Reseller Price para sa Code "${code}" — hindi ise-save ang reseller price.`);
             if (supplier) newProduct.supplier = supplier;
             if (expiry) newProduct.expiryDate = expiry;
             if (thresholdRaw !=='') {
@@ -9264,6 +9336,9 @@ function processProductUpdate(req, res) {
     }
 }
 app.delete('/api/products/:code', requirePermission('products'), rateLimit('product-delete', 15, 10 * 60 * 1000), async (req, res) => {
+    return transactionsMutexRunExclusive(() => processProductDelete(req, res));
+});
+async function processProductDelete(req, res) {
     const { code } = req.params;
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
@@ -9294,7 +9369,9 @@ app.delete('/api/products/:code', requirePermission('products'), rateLimit('prod
         products = products.filter(p => p.code.trim().toLowerCase() !== code.trim().toLowerCase());
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Deleted product code: ${code} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
-        return res.json({ success: true, message:'Product deleted successfully' });
+        // Return the exact post-delete catalog so the Product page can update
+        // from the same authoritative snapshot without a second GET race.
+        return res.json({ success: true, message:'Product deleted successfully', products });
     } else {
         let requests = readData(FILE_REQUESTS);
         requests.push({ id: Date.now(), type:'DELETE', targetCode: code, requester: username, timestamp: new Date().toLocaleString() });
@@ -9302,7 +9379,7 @@ app.delete('/api/products/:code', requirePermission('products'), rateLimit('prod
         logAction(username, `Submitted a DELETE request for code: ${code}`);
         return res.json({ success: true, message:'Delete request submitted for Admin approval' });
     }
-});
+}
 function normalizeMatchKey(str) {
     return (str || '')
         .toString()

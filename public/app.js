@@ -11049,12 +11049,27 @@ function stopInventoryStockPolling() {
 async function silentRefreshInventoryStock() {
     const productModalEl = document.getElementById('product-modal');
     if (productModalEl && productModalEl.style.display ==='flex') return;
+    // Same protection as loadInventoryProductsTable(): this poller must never
+    // be the thing that overwrites the Product list with a stale/empty
+    // snapshot around a delete. Without this guard, a poll tick that was
+    // already in flight when a delete started (or that races the delete)
+    // could stomp the freshly-filtered local list and wipe the visible
+    // table until a hard refresh.
+    const requestVersion = productCatalogMutationVersion;
     try {
         const res = await authFetch(`${API_URL}/products`);
         if (!res.ok) return;
         updateActiveTerminalCountFromResponse(res);
         const freshProducts = await res.json();
         if (!Array.isArray(freshProducts)) return;
+        if (requestVersion !== productCatalogMutationVersion || productDeleteInProgress) {
+            console.warn('Ignored stale silent stock-poll response after a product mutation.');
+            return;
+        }
+        if (freshProducts.length === 0 && Array.isArray(cachedInventoryProducts) && cachedInventoryProducts.length > 1) {
+            console.warn('Ignored transient empty stock-poll response; keeping the last known-good product list.');
+            return;
+        }
         cachedInventoryProducts = freshProducts;
         patchInventoryProductsTableInPlace();
     } catch (e) {
@@ -11523,6 +11538,22 @@ function showProductDetails(code, context ='pos') {
     document.getElementById('pd-code').innerText = p.code;
     document.getElementById('pd-category').innerText = p.category ||'—';
     document.getElementById('pd-price').innerText = `₱${(parseFloat(p.price) || 0).toFixed(2)}`;
+    const pdPriceLevelsRow = document.getElementById('pd-price-levels-row');
+    const pdPriceLevelsList = document.getElementById('pd-price-levels-list');
+    const pdPriceLevels = (p.priceLevels && typeof p.priceLevels === 'object' && !Array.isArray(p.priceLevels)) ? p.priceLevels : {};
+    const pdPreferredLevels = ['Wholesale', 'Reseller'];
+    const pdLevelKeys = pdPreferredLevels.filter(level => Object.keys(pdPriceLevels).some(k => String(k).trim().toLowerCase() === level.toLowerCase()));
+    if (pdLevelKeys.length && pdPriceLevelsRow && pdPriceLevelsList) {
+        pdPriceLevelsList.innerHTML = pdLevelKeys.map(level => {
+            const key = Object.keys(pdPriceLevels).find(k => String(k).trim().toLowerCase() === level.toLowerCase());
+            const value = parseFloat(pdPriceLevels[key]);
+            return `<div class="pd-spec-line"><span class="pd-spec-key">${escapeHtml(level)}</span><span class="pd-spec-val">₱${Number.isFinite(value) ? value.toFixed(2) : '—'}</span></div>`;
+        }).join('');
+        pdPriceLevelsRow.style.display ='flex';
+    } else if (pdPriceLevelsRow) {
+        pdPriceLevelsRow.style.display ='none';
+        if (pdPriceLevelsList) pdPriceLevelsList.innerHTML = '';
+    }
     document.getElementById('pd-stock-label').innerText = (context ==='inventory') ?'Current Stock' :'Available Stock';
     document.getElementById('pd-stock').innerText = (context ==='inventory') ? (parseFloat(p.stock) || 0) : availableStock;
     const supplierRow = document.getElementById('pd-supplier-row');
@@ -16920,6 +16951,10 @@ function renderTransactionsRows(transactions) {
     });
 }
 let cachedInventoryProducts = [];
+// Product-page catalog mutation guard: prevents an older/in-flight GET /products
+// response from overwriting the local catalog immediately after a delete/update.
+let productCatalogMutationVersion = 0;
+let productDeleteInProgress = false;
 const columnFilters = { code: new Set(), name: new Set(), category: new Set(), supplier: new Set(), price: new Set(), stock: new Set(), expiryDate: new Set(), hasSpecs: new Set() };
 let activeFilterField = null;
 function productHasDetails(p) {
@@ -17376,12 +17411,29 @@ async function reviewStockReturn(returnId) {
     }
 }
 async function loadInventoryProductsTable() {
+    const requestVersion = productCatalogMutationVersion;
     try {
-        const res = await authFetch(`${API_URL}/products`);
-        cachedInventoryProducts = await res.json();
+        // Product data must never come from the browser HTTP cache. More
+        // importantly, an older GET must never overwrite the catalog after a
+        // product mutation has started/completed. This is the key protection
+        // against the Product page becoming empty until a hard refresh.
+        const res = await authFetch(`${API_URL}/products`, { cache:'no-store' });
+        if (!res.ok) throw new Error(`Failed to load products (${res.status})`);
+        const data = await res.json();
+        if (!Array.isArray(data)) throw new Error('Invalid products response.');
+
+        if (requestVersion !== productCatalogMutationVersion || productDeleteInProgress) {
+            console.warn('Ignored stale /api/products response after a product mutation.');
+        } else if (data.length === 0 && Array.isArray(cachedInventoryProducts) && cachedInventoryProducts.length > 1) {
+            console.warn('Ignored transient empty /api/products response; keeping the last known-good product list.');
+        } else {
+            cachedInventoryProducts = data;
+            globalProducts = data;
+        }
     } catch (e) {
-        console.error(e);
-        cachedInventoryProducts = [];
+        console.error('Failed to refresh inventory products:', e);
+        // Keep the last known-good list instead of replacing it with [] when a
+        // refresh fails.
     }
     renderInventoryProductsTable();
 }
@@ -18154,8 +18206,68 @@ function renderProductUomRowHints() {
         const factor = row.querySelector('.p-uom-factor').value || '?';
         const fixed = parseFloat(row.querySelector('.p-uom-fixed').value);
         const hint = row.querySelector('.p-uom-hint');
-        if (hint) hint.textContent = `1 ${name} = ${factor} ${baseUnit} — ${fixed > 0 ? `fixed price ₱${fixed.toFixed(2)}` : 'price = Price × factor'}`;
+        const levelSel = row.querySelector('.p-uom-level');
+        const level = levelSel ? levelSel.value : '';
+        const levelPrice = level ? getProductFormLevelPrice(level) : 0;
+        const levelNote = (level && levelPrice > 0 && fixed > 0) ? `${level} ₱${levelPrice.toFixed(2)} × ${factor} = ` : '';
+        if (hint) hint.textContent = `1 ${name} = ${factor} ${baseUnit} — ${fixed > 0 ? `${levelNote}fixed price ₱${fixed.toFixed(2)}` : 'price = Price × factor'}`;
     });
+}
+// Price Level -> Fixed Price helper for extra units (e.g. Wholesale P50 x 25 base units = P1250).
+// The dropdown only fills the Fixed price box; the saved unit stays { name, factor, fixedPrice }.
+function getProductFormLevelNames() {
+    const storeLevels = getStorePriceLevels();
+    const extraLevels = Object.keys(productFormPriceLevels || {}).filter(k => !storeLevels.includes(k));
+    return [...storeLevels, ...extraLevels];
+}
+function getProductFormLevelPrice(level) {
+    const inputs = Array.from(document.querySelectorAll('#p-form-price-levels-rows .p-level-price'));
+    const inp = inputs.find(i => i.getAttribute('data-level') === level);
+    if (inp) return parseFloat(inp.value) || 0;
+    return parseFloat(productFormPriceLevels && productFormPriceLevels[level]) || 0;
+}
+function refreshProductUomLevelOptions() {
+    const names = getProductFormLevelNames();
+    document.querySelectorAll('#p-form-uom-rows .p-uom-level').forEach(sel => {
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">Manual (walang Price Level)</option>'
+            + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)} price × base units</option>`).join('');
+        sel.value = names.includes(prev) ? prev : '';
+        sel.style.display = names.length ? '' : 'none';
+    });
+}
+function applyProductUomLevelPrice(row, silent) {
+    const sel = row && row.querySelector('.p-uom-level');
+    const fixedEl = row && row.querySelector('.p-uom-fixed');
+    if (!sel || !fixedEl || !sel.value) return;
+    const level = sel.value;
+    const levelPrice = getProductFormLevelPrice(level);
+    if (!(levelPrice > 0)) {
+        sel.value = '';
+        if (!silent) Swal.fire('Walang Presyo ang Price Level', `Wala pang presyo ang "${level}" sa Price Levels sa ibaba. Lagyan muna ito ng presyo, tapos piliin ulit.`, 'info');
+        return;
+    }
+    const factor = parseFloat(row.querySelector('.p-uom-factor').value);
+    fixedEl.value = factor > 0 ? String(money2(levelPrice * factor)) : '';
+}
+function onProductUomLevelChange(sel) {
+    const row = sel.closest('.p-form-uom-row');
+    if (sel.value) applyProductUomLevelPrice(row, false);
+    renderProductUomRowHints();
+}
+function onProductUomFactorInput(inp) {
+    applyProductUomLevelPrice(inp.closest('.p-form-uom-row'), true);
+    renderProductUomRowHints();
+}
+function onProductUomFixedInput(inp) {
+    // Typing a price by hand means it is no longer derived from a Price Level.
+    const sel = inp.closest('.p-form-uom-row').querySelector('.p-uom-level');
+    if (sel) sel.value = '';
+    renderProductUomRowHints();
+}
+function recalcProductUomLevelPrices() {
+    document.querySelectorAll('#p-form-uom-rows .p-form-uom-row').forEach(row => applyProductUomLevelPrice(row, true));
+    renderProductUomRowHints();
 }
 function addProductUomRow(data) {
     const wrap = document.getElementById('p-form-uom-rows');
@@ -18171,14 +18283,16 @@ function addProductUomRow(data) {
     row.innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
             <input type="text" class="p-uom-name" maxlength="20" placeholder="Unit (e.g. Box)" value="${escapeHtml(d.name || '')}" oninput="renderProductUomRowHints()" autocomplete="off">
-            <input type="number" class="p-uom-factor" min="0" step="any" placeholder="Base units in 1 (e.g. 24)" value="${d.factor !== undefined && d.factor !== null ? escapeHtml(String(d.factor)) : ''}" oninput="renderProductUomRowHints()" autocomplete="off">
+            <input type="number" class="p-uom-factor" min="0" step="any" placeholder="Base units in 1 (e.g. 24)" value="${d.factor !== undefined && d.factor !== null ? escapeHtml(String(d.factor)) : ''}" oninput="onProductUomFactorInput(this)" autocomplete="off">
         </div>
+        <select class="p-uom-level" onchange="onProductUomLevelChange(this)" style="display:none;width:100%;margin-top:6px;" autocomplete="off"></select>
         <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
-            <input type="number" class="p-uom-fixed" min="0" step="0.01" placeholder="Fixed price (optional)" value="${d.fixedPrice ? escapeHtml(String(d.fixedPrice)) : ''}" oninput="renderProductUomRowHints()" style="flex:1;" autocomplete="off">
+            <input type="number" class="p-uom-fixed" min="0" step="0.01" placeholder="Fixed price (optional)" value="${d.fixedPrice ? escapeHtml(String(d.fixedPrice)) : ''}" oninput="onProductUomFixedInput(this)" style="flex:1;" autocomplete="off">
             <button type="button" class="btn-action-outline" style="color:#dc2626;border-color:#dc2626;" title="Remove unit" onclick="this.closest('.p-form-uom-row').remove()">&times;</button>
         </div>
         <small class="p-uom-hint" style="display:block;margin-top:4px;color:#64748b;"></small>`;
     wrap.appendChild(row);
+    refreshProductUomLevelOptions();
     renderProductUomRowHints();
 }
 // Returns the cleaned unit list, or null (after telling the user why) when something is invalid.
@@ -18224,8 +18338,9 @@ function renderProductPriceLevelRows() {
     wrap.innerHTML = all.map(level => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
             <span style="flex:1;font-size:0.9rem;">${escapeHtml(level)}${storeLevels.includes(level) ? '' : ' <small style="color:#f59e0b;">(not in Store Settings)</small>'}</span>
-            <input type="number" class="p-level-price" data-level="${escapeHtml(level)}" min="0" step="0.01" placeholder="Same as Price" value="${productFormPriceLevels[level] ? escapeHtml(String(productFormPriceLevels[level])) : ''}" style="width:130px;" autocomplete="off">
+            <input type="number" class="p-level-price" data-level="${escapeHtml(level)}" min="0" step="0.01" placeholder="Same as Price" value="${productFormPriceLevels[level] ? escapeHtml(String(productFormPriceLevels[level])) : ''}" oninput="recalcProductUomLevelPrices()" style="width:130px;" autocomplete="off">
         </div>`).join('');
+    refreshProductUomLevelOptions();
 }
 function collectProductPriceLevels() {
     const out = { ...(productFormPriceLevels || {}) };
@@ -18388,7 +18503,43 @@ async function downloadAuthFetch(url, fallbackFilename) {
     }
 }
 function downloadProductTemplate() {
-    downloadAuthFetch(`${API_URL}/products/template`, `product_template_${Date.now()}.xlsx`);
+    Swal.fire({
+        title: 'Pumili ng Template',
+        html: `
+            <div style="text-align:left;font-size:14px;line-height:1.5;">
+                <label style="display:block;margin-bottom:10px;cursor:pointer;">
+                    <input type="radio" name="tmpl-choice" value="product-xlsx" checked>
+                    Product Import Template (.xlsx) <span style="color:#64748b;">— may Wholesale &amp; Reseller Price</span>
+                </label>
+                <label style="display:block;margin-bottom:10px;cursor:pointer;">
+                    <input type="radio" name="tmpl-choice" value="product-csv">
+                    Product Import Template (.csv) <span style="color:#64748b;">— may Wholesale &amp; Reseller Price</span>
+                </label>
+                <label style="display:block;cursor:pointer;">
+                    <input type="radio" name="tmpl-choice" value="bulk-specs-csv">
+                    Bulk Import Specs Template (.csv) <span style="color:#64748b;">— Code &amp; Description</span>
+                </label>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Download',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#2563eb',
+        preConfirm: () => {
+            const el = document.querySelector('input[name="tmpl-choice"]:checked');
+            return el ? el.value : 'product-xlsx';
+        }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        const choice = result.value;
+        if (choice === 'product-csv') {
+            downloadAuthFetch(`${API_URL}/products/template?format=csv`, `product_import_template_${Date.now()}.csv`);
+        } else if (choice === 'bulk-specs-csv') {
+            downloadAuthFetch(`${API_URL}/products/bulk-specs-template`, `bulk_specs_template_${Date.now()}.csv`);
+        } else {
+            downloadAuthFetch(`${API_URL}/products/template?format=xlsx`, `product_template_${Date.now()}.xlsx`);
+        }
+    });
 }
 function openBulkSpecsImportModal() {
     Swal.fire({
@@ -18396,7 +18547,8 @@ function openBulkSpecsImportModal() {
         html: `
             <p style="font-size:0.85rem;color:#64748b;text-align:left;">
                 Upload a CSV file with 2 columns: <b>Code</b> and <b>Description</b>.<br>
-                The first row must be the header. Product Codes not found in the system will be skipped.
+                The first row must be the header. Product Codes not found in the system will be skipped.<br>
+                Tip: use the <b>Download Template</b> button above and pick "Bulk Import Specs Template" to get the correct CSV format.
             </p>
         `,
         confirmButtonText:'Choose CSV File',
@@ -19400,40 +19552,103 @@ async function deleteProductTrigger(code) {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
     const canApplyDirectly = isAdmin || !!(currentPermissions && currentPermissions.products_direct_apply);
     let adminPassword;
+    // ROOT-CAUSE FIX: the Product table is filtered by the value of #inventory-search.
+    // When the password prompt opens, browser/password-manager autofill can write the
+    // saved username (or the typed password) into the nearest preceding text input,
+    // which is #inventory-search. The table then filters by that text and shows 0 rows
+    // even though cachedInventoryProducts is intact - it looks like the list vanished
+    // and only a hard refresh cleared it. Freeze the search box while the prompt is
+    // open, restore it afterwards, and re-render from the intact local catalog.
+    const invSearchEl = document.getElementById('inventory-search');
+    const invSearchSnapshot = invSearchEl ? invSearchEl.value : '';
+    const guardInvSearch = (e) => {
+        if (e.target && e.target.id === 'inventory-search') {
+            e.stopImmediatePropagation();
+            if (invSearchEl.value !== invSearchSnapshot) invSearchEl.value = invSearchSnapshot;
+        }
+    };
+    const releaseInvSearchGuard = () => {
+        document.removeEventListener('input', guardInvSearch, true);
+        document.removeEventListener('change', guardInvSearch, true);
+        if (invSearchEl && invSearchEl.value !== invSearchSnapshot) invSearchEl.value = invSearchSnapshot;
+        renderInventoryProductsTable();
+    };
     if (canApplyDirectly) {
-        const promptResult = await Swal.fire({
+        document.addEventListener('input', guardInvSearch, true);
+        document.addEventListener('change', guardInvSearch, true);
+        let promptResult;
+        try {
+            promptResult = await Swal.fire({
             title:'🔒 Confirm Password',
             html: `To delete this product, an Admin or authorized password is required:`,
             input:'password',
             inputPlaceholder:'Password',
+            inputAttributes: {
+                autocomplete:'new-password',
+                name:'omnipos-confirm-delete-pw',
+                'data-lpignore':'true',
+                'data-1p-ignore':'true',
+                'data-bwignore':'true',
+                'data-form-type':'other'
+            },
             showCancelButton: true,
             confirmButtonColor:'#2563eb',
             cancelButtonColor:'#ef4444'
-        });
+            });
+        } finally {
+            releaseInvSearchGuard();
+        }
         adminPassword = promptResult.value;
         if (!adminPassword || adminPassword.trim() ==='') {
             Swal.fire('Cancelled','A password is required to delete a product.','info');
             return;
         }
     }
+    // Invalidate every Product-page catalog request before sending DELETE.
+    // Any GET that was already in flight will therefore be ignored when it
+    // returns, so it cannot replace the post-delete list with stale/empty data.
+    productCatalogMutationVersion++;
+    productDeleteInProgress = true;
     try {
-        const res = await authFetch(`${API_URL}/products/${code}`, {
+        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}`, {
             method:'DELETE',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({ userRole: currentUser.role, username: currentUser.username, adminPassword })
         });
         const reply = await res.json();
         if (reply.success) {
-            Swal.fire('Deleted!', reply.message ||'Deletion processing sequence updated.','success');
-            loadInventoryProductsTable();
+            const deletedCode = String(code).trim().toLowerCase();
+            // Never replace the complete local catalog with the DELETE response.
+            // A single successful delete can only remove one matching product.
+            // Keeping the known-good local list makes it impossible for a bad or
+            // transient server payload to make every product disappear.
+            cachedInventoryProducts = Array.isArray(cachedInventoryProducts)
+                ? cachedInventoryProducts.filter(p => String(p?.code || '').trim().toLowerCase() !== deletedCode)
+                : [];
+            globalProducts = Array.isArray(globalProducts)
+                ? globalProducts.filter(p => String(p?.code || '').trim().toLowerCase() !== deletedCode)
+                : [];
+
+            // Advance the mutation version before rendering so any request
+            // started during the delete cannot subsequently overwrite this state.
+            productCatalogMutationVersion++;
+            renderInventoryProductsTable();
             loadDashboardMetrics();
+            Swal.fire('Deleted!', reply.message ||'Product deleted successfully.','success');
         } else if (reply.code ==='WRONG_ADMIN_PASSWORD') {
             Swal.fire('Access Denied', reply.message ||'Incorrect password.','error');
         } else {
             Swal.fire('Error', reply.message ||'Could not delete the product.','error');
         }
     } catch(e) {
+        console.error('Product delete error:', e);
         Swal.fire('Error','Failed to delete the selected product asset.','error');
+    } finally {
+        productDeleteInProgress = false;
+        // Invalidate requests that may have been started while DELETE was in
+        // progress. They must perform a fresh load after the mutation state is
+        // settled rather than restoring pre-delete data.
+        productCatalogMutationVersion++;
     }
 }
 async function loadBarcodeGeneratorModule() {
