@@ -227,6 +227,15 @@ window.OMNIPOS_FAQ_KB_TL = [
   answer: `<p>Oo — sinusuportahan ang <strong>split o maraming payment method</strong> sa iisang transaksyon (hal. bahagi Cash, bahagi GCash). Awtomatikong tama pa rin ang pagbilang ng cash sa Z-Reading dahil hiwalay itong itinatala kada payment method.</p>`
 },
 {
+  id: 'pos-hold-sale',
+  category: 'POS Terminal',
+  question: 'Puwede bang i-hold/i-park ang isang benta at asikasuhin muna ang ibang customer?',
+  keywords: ['hold sale', 'park sale', 'suspend transaction', 'hold cart', 'save cart', 'ibang customer'],
+  verdict: 'oo',
+  answer: `<p>Oo — i-click ang <strong>"Hold"</strong> sa Order panel para ma-save ang kasalukuyang cart (items, discount, promo code, Senior/PWD, loyalty selection, at naka-link na customer) at ma-clear ang terminal para sa bagong transaksyon. I-click ang <strong>"Held (n)"</strong> anytime para makita ang lahat ng held sales sa account mo at i-<strong>Resume</strong> o i-<strong>Delete</strong> ang mga ito.</p>
+  <p>Naka-save lang ang held sales sa kasalukuyang device (hindi ito naka-sync sa ibang terminal), at kailangang walang laman ang cart bago mag-resume ng held sale — i-hold o i-clear muna ang kasalukuyang cart.</p>`
+},
+{
   id: 'pos-bluetooth-printer',
   category: 'POS Terminal',
   question: 'Paano gamitin ang Bluetooth printer sa POS Terminal?',
@@ -358,6 +367,14 @@ window.OMNIPOS_FAQ_KB_TL = [
   keywords: ['beginning cash', 'open shift', 'simulan ang shift', 'starting cash'],
   answer: `<p>Sa unang pagbubukas ng POS Terminal sa loob ng bagong shift, ipapapasok sa iyo ang <strong>Beginning Cash Float</strong> — ang halagang laman ng cash drawer bago magsimulang magbenta.</p>
   <p>Hindi na ito mababago pagkatapos i-set, hanggang sa susunod mong isara ang sarili mong shift.</p>`
+},
+{
+  id: 'shift-xreading',
+  category: 'Shift / Z-Reading',
+  question: 'Ano ang X-Reading at paano ito gamitin?',
+  keywords: ['x-reading', 'xreading', 'mid-shift reading', 'running total', 'print x-reading'],
+  answer: `<p>Ang <strong>X-Reading</strong> ay isang <strong>print-anytime na snapshot</strong> ng kasalukuyang bukas na shift mo — bilang ng transaksyon, gross/net sales, discount, void/refund, at payment breakdown — pero <strong>HINDI</strong> nito isinasara ang shift. Puwede itong i-print nang paulit-ulit sa buong araw (hal. bago mag-lunch break o kapag may shift-check ang supervisor).</p>
+  <p>Sa Shift/Z-Reading tab, i-click ang "Print X-Reading (Mid-Shift, does not close)". Kaiba ito sa Z-Reading na siyang <strong>opisyal na closing report</strong> — ang Z-Reading lang ang nagsasara ng shift at nag-reresetya ng running totals.</p>`
 },
 {
   id: 'shift-close',

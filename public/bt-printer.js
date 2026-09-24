@@ -233,10 +233,16 @@ function buildEscPosReceiptBytes(data, charWidth) {
     if (data.address) { pushText(data.address); nl(); }
     if (data.contact) { pushText(data.contact); nl(); }
     if (data.headerText) { pushText(data.headerText); nl(); }
+    (data.birLines || []).forEach((ln) => {
+        if (ln.bold) bytes.push(ESC, 0x45, 0x01);
+        pushText(ln.text); nl();
+        if (ln.bold) bytes.push(ESC, 0x45, 0x00);
+    });
 
     bytes.push(ESC, 0x61, 0x00); 
     pushText('-'.repeat(charWidth)); nl();
     pushText(`Receipt: ${data.receiptId || ''}`); nl();
+    if (data.invoiceNo) { pushText(`Invoice No.: ${data.invoiceNo}`); nl(); }
     pushText(`${data.date || ''} ${data.time || ''}`); nl();
     pushText(`Cashier: ${data.cashier || ''}`); nl();
     pushText('-'.repeat(charWidth)); nl();
@@ -256,6 +262,7 @@ function buildEscPosReceiptBytes(data, charWidth) {
         pushText(' '.repeat(padLeft) + counterText); nl();
         pushText('-'.repeat(charWidth)); nl();
     }
+    (data.extraRows || []).forEach((row) => { pushText(padLine(row.label, row.amount, charWidth)); nl(); });
     if (data.subtotal) { pushText(padLine('Subtotal', data.subtotal, charWidth)); nl(); }
     if (data.tax) { pushText(padLine(data.taxLabel || 'Tax', data.tax, charWidth)); nl(); }
     bytes.push(ESC, 0x45, 0x01); 
@@ -397,7 +404,18 @@ function collectReceiptDataFromDom(prefix) {
         address: getText(`${prefix}-store-address`),
         contact: getText(`${prefix}-store-contact`),
         headerText: getText(`${prefix}-header-text`),
+        birLines: (typeof getBirReceiptLines === 'function') ? getBirReceiptLines() : [],
+        extraRows: ['vatable', 'vatexempt', 'discount', 'scpwd-discount'].map((key) => {
+            const row = document.getElementById(`${prefix}-${key}-row`);
+            if (!row || row.style.display === 'none') return null;
+            const spans = row.children;
+            if (!spans || spans.length < 2) return null;
+            const label = (spans[0].innerText || '').trim();
+            const amount = (spans[1].innerText || '').trim();
+            return label && amount ? { label, amount } : null;
+        }).filter(Boolean),
         receiptId: getText(`${prefix}-id`),
+        invoiceNo: getText(`${prefix}-inv-no`),
         date: getText(`${prefix}-date`),
         time: getText(`${prefix}-time`),
         cashier: getText(`${prefix}-cashier`),

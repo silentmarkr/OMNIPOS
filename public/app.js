@@ -68,7 +68,7 @@ async function applyPendingOfflineStockDeductions(products) {
         const deductByCode = {};
         for (const item of pending) {
             for (const line of item.transaction.items) {
-                const qty = parseInt(line.quantity, 10) || 0;
+                const qty = lineBaseQty(line);
                 if (!line.code || qty <= 0) continue;
                 deductByCode[line.code] = (deductByCode[line.code] || 0) + qty;
             }
@@ -77,7 +77,7 @@ async function applyPendingOfflineStockDeductions(products) {
         return products.map(p => {
             const owedQty = deductByCode[p.code];
             if (!owedQty) return p;
-            return { ...p, stock: Math.max(0, (parseInt(p.stock, 10) || 0) - owedQty) };
+            return { ...p, stock: Math.max(0, qty3((parseFloat(p.stock) || 0) - owedQty)) };
         });
     } catch (e) {
         console.warn('Could not apply pending offline-queue stock deductions:', e);
@@ -889,6 +889,8 @@ let splitPaymentMode = false;
 let splitPaymentLines = [];
 let scannerTarget ='PRODUCT';
 let cartDiscountType ='NONE';
+let cartPriceLevel = '';
+let pendingFocusCartQtyCode = null;
 let cartPromoCode ='';
 let cartActivePromo = null;
 let cartSeniorPwdId ='';
@@ -3481,6 +3483,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const prodForm = document.getElementById('product-schema-form');
     if(prodForm) prodForm.addEventListener('submit', handleProductFormSubmit);
+    if(prodForm) prodForm.addEventListener('reset', () => { if (typeof resetProductUomForm === 'function') resetProductUomForm(); });
 const categorySelect = document.getElementById('p-form-category');
 if (categorySelect) {
     categorySelect.addEventListener('change', async function() {
@@ -3622,7 +3625,7 @@ function switchView(viewKey, opts) {
         if (typeof loadDashboardMetrics ==='function') {
             loadDashboardMetrics();
         }
-    }  if (viewKey ==='terminal') { loadTerminalCatalog(); checkShiftOpeningCashGate(); startTerminalStockPolling(); } else { stopTerminalStockPolling(); }
+    }  if (viewKey ==='terminal') { refreshCartPriceLevelUI(); loadTerminalCatalog(); checkShiftOpeningCashGate(); startTerminalStockPolling(); updateHeldSalesBadge(); } else { stopTerminalStockPolling(); }
     if (viewKey ==='products') { startInventoryStockPolling(); } else { stopInventoryStockPolling(); }
     if (viewKey ==='reorder') { startReorderPolling(); } else { stopReorderPolling(); }
     if (viewKey ==='users' && typeof centerActiveUserTab ==='function') { centerActiveUserTab(); }
@@ -3651,6 +3654,7 @@ function switchView(viewKey, opts) {
     if (viewKey ==='customers') loadCustomersView();
     if (viewKey ==='debts') { loadDebtsView(); startDebtsCountdownRefresh(); } else { stopDebtsCountdownRefresh(); }
     if (viewKey ==='shiftreport') loadShiftReportView();
+    if (viewKey === 'bir_compliance') loadBirComplianceView();
     if (viewKey ==='reorder') loadReorderView();
     if (viewKey === 'cloudtokens') loadCloudTokensView();
     if (viewKey === 'branches') { loadBranchesPage(); startBranchesPagePolling(); } else { stopBranchesPagePolling(); }
@@ -3679,6 +3683,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     customers:    { text:'Customers',           icon:'fa-address-book',       hideIds: ['page-title-customers'] },
     debts:        { text:'Debtors',             icon:'fa-hand-holding-dollar',hideIds: ['page-title-debts'] },
     shiftreport:  { text:'Shift / Z-Reading',   icon:'fa-cash-register',      hideIds: ['page-title-shiftreport'] },
+    bir_compliance: { text:'BIR Compliance',    icon:'fa-file-invoice',       hideIds: ['page-title-bir_compliance'] },
     logs:         { text:'System Audit Logs',   icon:'fa-clock-rotate-left',  hideIds: ['page-title-logs'] },
     faq:          { text:'FAQ',                 icon:'fa-circle-question',    hideIds: ['page-title-faq'] },
     stock_return_inspection: { text:'Void / Refund', icon:'fa-clipboard-check', hideIds: ['page-title-stock_return_inspection'] },
@@ -4581,9 +4586,9 @@ function openDebtDetailsModal(id) {
                  ${debt.items.map(it => `
                      <tr style="border-bottom:1px solid #f1f5f9;">
                          <td style="text-align:left;padding:4px;">${escapeHtml(it.name)}</td>
-                         <td style="text-align:center;padding:4px;white-space:nowrap;">${parseInt(it.quantity) || 0}</td>
+                         <td style="text-align:center;padding:4px;white-space:nowrap;">${formatQty(it.quantity)}</td>
                          <td style="text-align:right;padding:4px;white-space:nowrap;">₱${(parseFloat(it.price) || 0).toFixed(2)}</td>
-                         <td style="text-align:right;padding:4px;white-space:nowrap;">₱${((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0)).toFixed(2)}</td>
+                         <td style="text-align:right;padding:4px;white-space:nowrap;">₱${((parseFloat(it.price) || 0) * qty3(it.quantity)).toFixed(2)}</td>
                      </tr>
                  `).join('')}
              </tbody>
@@ -4691,8 +4696,8 @@ function printDebtReceipt(id) {
     const itemRows = m.items.length
         ? m.items.map(it => `
             <tr>
-                <td>${escapeHtml(it.name)} x${parseInt(it.quantity) || 0}</td>
-                <td style="text-align:right;">₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}</td>
+                <td>${escapeHtml(it.name)} x${formatQty(it.quantity)}</td>
+                <td style="text-align:right;">₱${(((parseFloat(it.price) || 0) * qty3(it.quantity))).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" style="color:#666;">No linked products for this debt.</td></tr>`;
     const win = window.open('', '_blank', 'width=420,height=640');
@@ -4773,8 +4778,8 @@ function buildDebtEReceiptDocument(m) {
     const itemRows = m.items.length
         ? m.items.map(it => `
             <tr>
-                <td>${escapeHtml(it.name)}<span class="qty">×${parseInt(it.quantity) || 0}</span></td>
-                <td class="num">₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}</td>
+                <td>${escapeHtml(it.name)}<span class="qty">×${formatQty(it.quantity)}</span></td>
+                <td class="num">₱${(((parseFloat(it.price) || 0) * qty3(it.quantity))).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" class="empty-row">No linked products for this debt.</td></tr>`;
     const statusClass = m.status === 'paid' ? 'ok' : (m.status === 'partial' ? 'warn' : 'danger');
@@ -5213,8 +5218,8 @@ function renderDebtEReceiptToImageDataUrl(m) {
         sectionTitle('Items Purchased');
         tableRows(
             m.items.map(it => ({
-                left: `${it.name} ×${parseInt(it.quantity) || 0}`,
-                right: `₱${(((parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0))).toFixed(2)}`
+                left: `${it.name} ×${formatQty(it.quantity)}`,
+                right: `₱${(((parseFloat(it.price) || 0) * qty3(it.quantity))).toFixed(2)}`
             })),
             'No linked products for this debt.'
         );
@@ -5935,6 +5940,106 @@ function viewShiftDetail(shiftId) {
         width: '600px',
         confirmButtonText:'Close'
     });
+}
+async function printXReading() {
+    const targetCashier = shiftControlSelectedCashier || '';
+    const targetQuery = targetCashier ? `?cashier=${encodeURIComponent(targetCashier)}` : '';
+    const btn = document.getElementById('shift-xreading-btn');
+    const originalLabel = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
+    // BUGFIX: the print window used to be opened AFTER the network request. Mobile browsers (and Safari) only
+    // allow window.open() during the tap itself, so it was blocked and "tap again" could never work. Open it
+    // now, synchronously, and fill it in once the reading arrives.
+    let printWin = null;
+    try {
+        printWin = window.open('', '_blank', 'width=420,height=640');
+        if (printWin && printWin.document) {
+            printWin.document.write('<html><head><title>X-Reading</title></head><body style="font-family:Courier New,monospace;padding:16px;">Generating X-Reading...</body></html>');
+        }
+    } catch (e) { printWin = null; }
+    const closePrintWin = () => { try { if (printWin && !printWin.closed) printWin.close(); } catch (e) {  } };
+    try {
+        if (!receiptSettingsCache && receiptSettingsPromise) await receiptSettingsPromise;
+        const res = await authFetch(`${API_URL}/shift/xreading${targetQuery}`);
+        const data = await res.json();
+        if (!data.success) {
+            closePrintWin();
+            Swal.fire('Unable to Generate', data.message || 'There was a problem generating the X-Reading.', 'warning');
+            return;
+        }
+        renderXReadingReceipt(data.xreading, printWin);
+    } catch (e) {
+        closePrintWin();
+        Swal.fire('Connection Error', 'Could not connect to the server.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
+    }
+}
+function renderXReadingReceipt(x, preOpenedWin) {
+    const s = receiptSettingsCache || {};
+    const canViewAmounts = x.netSales !== undefined && x.netSales !== null;
+    const beginVal = x.beginningCash !== null && x.beginningCash !== undefined ? parseFloat(x.beginningCash).toFixed(2) : '—';
+    const expectedVal = x.expectedCash !== null && x.expectedCash !== undefined ? parseFloat(x.expectedCash).toFixed(2) : '—';
+    const methods = Object.keys(x.paymentBreakdown || {});
+    const breakdownRows = methods.length
+        ? methods.map(m => `<div class="row"><span>${escapeHtml(m)} (${x.paymentBreakdown[m].count})</span><span>₱${(parseFloat(x.paymentBreakdown[m].total) || 0).toFixed(2)}</span></div>`).join('')
+        : `<p style="color:#666;">No transactions yet this shift.</p>`;
+    // If the cashier has never closed a shift, the server's period start is the Unix epoch (1970) — show a friendly label instead.
+    const periodStartMs = new Date(x.periodStart).getTime();
+    const shiftStartLabel = (!isNaN(periodStartMs) && periodStartMs > 86400000) ? new Date(periodStartMs).toLocaleString() : 'Start of records';
+    const win = (preOpenedWin && !preOpenedWin.closed) ? preOpenedWin : window.open('', '_blank', 'width=420,height=640');
+    if (!win) {
+        Swal.fire('Pop-up Blocked', 'Please allow pop-ups for this site, then tap Print X-Reading again.', 'warning');
+        return;
+    }
+    // Replace the "Generating..." placeholder written by printXReading().
+    win.document.open();
+    win.document.write(`
+        <html><head><title>X-Reading — ${escapeHtml(x.id)}</title>
+        <style>
+            body{font-family:'Courier New',monospace;color:#000;background:#fff;max-width:340px;margin:0 auto;padding:16px;font-size:12.5px;}
+            h2,h3{text-align:center;margin:2px 0;}
+            .muted{color:#444;text-align:center;font-size:11px;margin:0 0 8px;}
+            hr{border:none;border-top:1px dashed #000;margin:8px 0;}
+            .row{display:flex;justify-content:space-between;margin:2px 0;}
+            .section-title{font-weight:bold;margin:10px 0 2px;}
+            .footer{text-align:center;margin-top:14px;font-size:11px;}
+            .notice{text-align:center;font-size:11px;font-weight:bold;margin-top:10px;}
+        </style>
+        </head>
+        <body>
+            <h2>${escapeHtml(s.storeName || 'OmniPOS')}</h2>
+            ${s.storeAddress ? `<p class="muted">${escapeHtml(s.storeAddress)}</p>` : ''}
+            <h3>X-READING (Mid-Shift Reading)</h3>
+            <hr>
+            <div class="row"><span>Reading ID:</span><span>${escapeHtml(x.id)}</span></div>
+            <div class="row"><span>Cashier:</span><span>${escapeHtml(x.cashier)}</span></div>
+            <div class="row"><span>Generated:</span><span>${new Date(x.generatedAt).toLocaleString()}</span></div>
+            <div class="row"><span>Shift Start:</span><span>${shiftStartLabel}</span></div>
+            <hr>
+            <div class="row"><span>Transactions:</span><span>${x.transactionCount}</span></div>
+            ${canViewAmounts ? `
+            <div class="row"><span>Gross Sales:</span><span>₱${(parseFloat(x.grossSales) || 0).toFixed(2)}</span></div>
+            <div class="row"><span>Total Discount:</span><span>₱${(parseFloat(x.totalDiscount) || 0).toFixed(2)}</span></div>
+            <div class="row"><span><b>Net Sales:</b></span><span><b>₱${(parseFloat(x.netSales) || 0).toFixed(2)}</b></span></div>
+            <div class="row"><span>Voids:</span><span>${x.voidCount || 0} (₱${(parseFloat(x.voidedAmount) || 0).toFixed(2)})</span></div>
+            <div class="row"><span>Refunds:</span><span>${x.refundCount || 0} (₱${(parseFloat(x.refundedAmount) || 0).toFixed(2)})</span></div>
+            <hr>
+            <p class="section-title">Payment Breakdown</p>
+            ${breakdownRows}
+            <hr>
+            <div class="row"><span>Beginning Cash:</span><span>₱${beginVal}</span></div>
+            <div class="row"><span>Expected Cash:</span><span>₱${expectedVal}</span></div>
+            ` : ''}
+            <hr>
+            <p class="notice">SHIFT REMAINS OPEN — this is not a shift close.<br>For official cash count, close the shift (Z-Reading).</p>
+            <p class="footer">Printed: ${new Date().toLocaleString()}</p>
+            <script>
+                window.onload = function() { setTimeout(function(){ window.print(); }, 300); };
+            <\/script>
+        </body></html>
+    `);
+    win.document.close();
 }
 async function closeCurrentShift() {
     const endingCashCounted = document.getElementById('shift-ending-cash').value;
@@ -8306,7 +8411,7 @@ async function quickRestock(code, name) {
         confirmButtonText:'Restock',
         cancelButtonText:'Cancel',
         inputValidator: (value) => {
-            if (!value || parseInt(value) <= 0) return'Enter a valid quantity.';
+            if (!value || !(parseFloat(value) > 0)) return'Enter a valid quantity.';
         }
     });
     if (!qty) return;
@@ -8314,7 +8419,7 @@ async function quickRestock(code, name) {
         const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/quick-restock`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
-            body: JSON.stringify({ qty: parseInt(qty) })
+            body: JSON.stringify({ qty: qty3(qty) })
         });
         const data = await res.json();
         if (data.success) {
@@ -9096,11 +9201,11 @@ function ovIsFullyRefunded(tx) {
 function ovGetRefundedItemQty(tx, item) {
     const map = tx && tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
     const key = item && item.code != null ? String(item.code) : '';
-    return Math.max(0, parseInt(map[key], 10) || 0);
+    return qty3(map[key]);
 }
 function ovGetNetItemQty(tx, item) {
-    const sold = Math.max(0, parseInt(item && item.quantity, 10) || 0);
-    return Math.max(0, sold - Math.min(sold, ovGetRefundedItemQty(tx, item)));
+    const sold = qty3(item && item.quantity);
+    return Math.max(0, qty3(sold - Math.min(sold, ovGetRefundedItemQty(tx, item))));
 }
 function ovIsCountableSale(tx) {
     return ovGetNetSalesAmount(tx) > 0.009;
@@ -10984,7 +11089,7 @@ function patchInventoryProductsTableInPlace() {
         const p = products[i];
         if (!p) continue;
         const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') ? parseInt(p.lowStockThreshold) : 5;
-        const stockNum = parseInt(p.stock) || 0;
+        const stockNum = parseFloat(p.stock) || 0;
         const isLowStock = stockNum > 0 && stockNum <= threshold;
         const cells = row.querySelectorAll('td');
         // Column order: [0]=image [1]=code [2]=name [3]=category [4]=supplier [5]=price [6]=stock [7]=expiry [8]=view [9]=actions
@@ -11178,13 +11283,13 @@ function renderTerminalProducts() {
             try {
                 const cartItem = shoppingCart.find(item => item.code === p.code);
                 const qtyInCart = cartItem ? cartItem.quantity : 0;
-                const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
+                const availableStock = Math.max(0, qty3((parseFloat(p.stock) || 0) - (cartItem ? getCartBaseQty(cartItem) : 0)));
                 const card = document.createElement('div');
                 card.className = `t-product-card ${availableStock <= 0 ?'out-of-stock' :''}`;
                 card.dataset.code = p.code || '';
                 let iconClass = getCategoryIconClass(p.category);
                 const cartBadgeHtml = qtyInCart > 0
-                    ? `<div class="t-prod-cart-badge"><i class="fa-solid fa-cart-shopping"></i> x${qtyInCart}</div>`
+                    ? `<div class="t-prod-cart-badge"><i class="fa-solid fa-cart-shopping"></i> x${formatQty(qtyInCart)}${cartItem && cartItem.unit ? ' ' + escapeHtml(cartItem.unit) : ''}</div>`
                     : '';
                 const previewBtnHtml = !isListView
                     ? `<button type="button" class="t-prod-preview-btn" title="Preview details" aria-label="Preview details"><i class="fa-solid fa-eye"></i></button>`
@@ -11193,7 +11298,7 @@ function renderTerminalProducts() {
                     ${cartBadgeHtml}
                     <div class="t-prod-icon"${isListView ? ' title="Tap image for details"' : ' title="Tap to add"'}>${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}${previewBtnHtml}</div>
                     <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
-                    <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}</div>
+                    <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}${productPriceSuffix(p)}</div>
                     <div class="t-prod-stock" title="Stock: ${availableStock}" aria-label="Stock: ${availableStock}"><i class="fa-solid fa-box" aria-hidden="true"></i> ${availableStock}</div>
                 `;
                 card.onclick = () => addItemToCart(p);
@@ -11237,7 +11342,7 @@ function updateProductCardInPlace(code) {
         if (!p) return false;
         const cartItem = shoppingCart.find(item => item.code === code);
         const qtyInCart = cartItem ? cartItem.quantity : 0;
-        const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
+        const availableStock = Math.max(0, qty3((parseFloat(p.stock) || 0) - (cartItem ? getCartBaseQty(cartItem) : 0)));
         card.classList.toggle('out-of-stock', availableStock <= 0);
         const stockEl = card.querySelector('.t-prod-stock');
         if (stockEl) {
@@ -11247,7 +11352,7 @@ function updateProductCardInPlace(code) {
         }
         const priceEl = card.querySelector('.t-prod-price');
         if (priceEl) {
-            const priceText = `₱${(parseFloat(p.price) || 0).toFixed(2)}`;
+            const priceText = `₱${(parseFloat(p.price) || 0).toFixed(2)}${productPriceSuffix(p, true)}`;
             if (priceEl.textContent !== priceText) priceEl.textContent = priceText;
         }
         const nameEl = card.querySelector('h4');
@@ -11412,7 +11517,7 @@ function showProductDetails(code, context ='pos') {
     productDetailsModalCode = code;
     const cartItem = shoppingCart.find(item => item.code === p.code);
     const qtyInCart = cartItem ? cartItem.quantity : 0;
-    const availableStock = Math.max(0, (parseFloat(p.stock) || 0) - qtyInCart);
+    const availableStock = Math.max(0, qty3((parseFloat(p.stock) || 0) - (cartItem ? getCartBaseQty(cartItem) : 0)));
     renderProductDetailsGallery(p);
     document.getElementById('pd-modal-title').innerText = p.name ||'Unnamed Product';
     document.getElementById('pd-code').innerText = p.code;
@@ -11500,18 +11605,146 @@ function editProductFromDetailsModal() {
     closeModal('product-details-modal');
     openProductModal('UPDATE', code);
 }
+// ===== UOM / decimal quantity / price level (client mirror of uom-pricing.js) =====
+// The SERVER is authoritative: it re-resolves unit, price level and quantity at checkout. These helpers only
+// make the cashier screen show the same numbers. Stock is in BASE units; a cart line's `quantity` is in its
+// selling unit (`unit`, null = base) and `factor` = base units per selling unit.
+function qty3(v) { return Math.round((parseFloat(v) || 0) * 1000) / 1000; }
+function money2(v) { return Math.round(((parseFloat(v) || 0) + Number.EPSILON) * 100) / 100; }
+function formatQty(v) { return String(qty3(v)); }
+function formatReceiptQty(item) {
+    const q = qty3(item && item.quantity);
+    const base = Number.isInteger(q) ? q.toFixed(1) : String(q);
+    const unit = item && item.unit ? ` ${item.unit}` : '';
+    return `${base}${unit}`;
+}
+function canUsePriceLevelClient() {
+    const isAdmin = currentUser && currentUser.role && String(currentUser.role).toLowerCase() === 'admin';
+    return !!(isAdmin || (currentPermissions && currentPermissions.price_level_select));
+}
+function getStorePriceLevels() {
+    return (storeSettingsCache && Array.isArray(storeSettingsCache.priceLevels)) ? storeSettingsCache.priceLevels : [];
+}
+function getProductUomList(p) {
+    return Array.isArray(p && p.uom) ? p.uom.filter(u => u && String(u.name || '').trim() && parseFloat(u.factor) > 0) : [];
+}
+function findProductUom(p, name) {
+    if (!name) return null;
+    const key = String(name).trim().toLowerCase();
+    return getProductUomList(p).find(u => String(u.name).trim().toLowerCase() === key) || null;
+}
+function productAllowsDecimal(p) { return !!(p && p.allowDecimal); }
+function productPriceSuffix(p, raw) {
+    const u = p && p.baseUnit ? String(p.baseUnit).trim() : '';
+    if (!u) return '';
+    return raw ? ` / ${u}` : ` / ${escapeHtml(u)}`;
+}
+function lineBaseQty(item) {
+    const b = parseFloat(item && item.baseQty);
+    return b > 0 ? qty3(b) : qty3(item && item.quantity);
+}
+function getCartBaseQty(item) {
+    return qty3((parseFloat(item && item.quantity) || 0) * (parseFloat(item && item.factor) || 1));
+}
+function computeUnitPrice(product, unitName, level) {
+    let base = money2(product && product.price);
+    let levelUsed = null;
+    if (level && canUsePriceLevelClient()) {
+        const ov = parseFloat(product && product.priceLevels && product.priceLevels[level]);
+        if (ov > 0) { base = money2(ov); levelUsed = level; }
+    }
+    const u = unitName ? findProductUom(product, unitName) : null;
+    const factor = u ? parseFloat(u.factor) : 1;
+    const fixed = (u && parseFloat(u.fixedPrice) > 0) ? money2(u.fixedPrice) : null;
+    return { price: fixed !== null ? fixed : money2(base * factor), factor, levelUsed, unitName: u ? u.name : null };
+}
+function applyCartLinePricing(item) {
+    const product = (Array.isArray(globalProducts) && globalProducts.find(p => p.code === item.code)) || item;
+    const r = computeUnitPrice(product, item.unit, cartPriceLevel);
+    item.unit = r.unitName;
+    item.factor = r.factor;
+    item.priceLevel = r.levelUsed;
+    item.price = r.price;
+    const maxDiscount = money2(item.price * item.quantity);
+    if ((parseFloat(item.itemDiscount) || 0) > maxDiscount) item.itemDiscount = maxDiscount;
+}
+// Largest quantity (in the line's own unit) that the current stock can cover.
+function getMaxCartQtyForLine(item, product) {
+    const stock = parseFloat(product && product.stock) || 0;
+    const factor = parseFloat(item && item.factor) || 1;
+    const raw = stock / factor;
+    return productAllowsDecimal(product) ? Math.floor(raw * 1000 + 1e-6) / 1000 : Math.floor(raw + 1e-9);
+}
+function refreshCartPriceLevelUI() {
+    const row = document.getElementById('cart-price-level-row');
+    const select = document.getElementById('cart-price-level-select');
+    if (!row || !select) return;
+    const levels = getStorePriceLevels();
+    const allowed = levels.length > 0 && canUsePriceLevelClient();
+    if (!cartPriceLevel) {
+        const withLevel = shoppingCart.find(i => i.priceLevel);
+        if (withLevel && allowed) cartPriceLevel = withLevel.priceLevel;
+    }
+    if (cartPriceLevel && (!allowed || !levels.includes(cartPriceLevel))) {
+        cartPriceLevel = '';
+        shoppingCart.forEach(applyCartLinePricing);
+    }
+    row.style.display = allowed ? '' : 'none';
+    if (!allowed) return;
+    select.innerHTML = `<option value="">Retail (default)</option>` + levels.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+    select.value = cartPriceLevel;
+}
+function setCartPriceLevel(level) {
+    cartPriceLevel = level || '';
+    shoppingCart.forEach(applyCartLinePricing);
+    renderCartRows();
+}
+function setCartItemUnit(code, unitName) {
+    const item = shoppingCart.find(i => i.code === code);
+    if (!item) return;
+    const product = globalProducts.find(p => p.code === code) || item;
+    const previousUnit = item.unit || null;
+    item.unit = unitName || null;
+    applyCartLinePricing(item);
+    const maxQty = getMaxCartQtyForLine(item, product);
+    if (maxQty <= 0) {
+        item.unit = previousUnit;
+        applyCartLinePricing(item);
+        Swal.fire('Not Enough Stock', 'There is not enough stock to sell even 1 of that unit.', 'warning');
+    } else if (item.quantity > maxQty + 1e-9) {
+        item.quantity = maxQty;
+        applyCartLinePricing(item);
+        Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: `Quantity adjusted to ${formatQty(maxQty)} (stock limit)`, showConfirmButton: false, timer: 1800 });
+    }
+    renderCartRows(code);
+}
 function addItemToCart(product) {
-    if(product.stock <= 0) return false;
+    if (!(parseFloat(product.stock) > 0)) return false;
     const existing = shoppingCart.find(item => item.code === product.code);
-    if(existing) {
-        if(existing.quantity < product.stock) {
-            existing.quantity++;
+    if (existing) {
+        const maxQty = getMaxCartQtyForLine(existing, product);
+        if (qty3(existing.quantity + 1) <= maxQty + 1e-9) {
+            existing.quantity = qty3(existing.quantity + 1);
         } else {
             Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
             return false;
         }
     } else {
-        shoppingCart.push({ ...product, quantity: 1 });
+        const line = { ...product, quantity: 1, unit: null, factor: 1, priceLevel: null };
+        applyCartLinePricing(line);
+        const maxQty = getMaxCartQtyForLine(line, product);
+        if (maxQty < 1) {
+            if (maxQty > 0 && productAllowsDecimal(product)) {
+                line.quantity = maxQty;
+            } else {
+                Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
+                return false;
+            }
+        }
+        applyCartLinePricing(line);
+        shoppingCart.push(line);
+        // Sold-by-weight items: put the cursor in the quantity box so the cashier can just type the weight.
+        if (productAllowsDecimal(product)) pendingFocusCartQtyCode = product.code;
     }
     renderCartRows(product.code);
     return true;
@@ -11519,7 +11752,7 @@ function addItemToCart(product) {
 async function adjustCartQty(code, adjustment) {
     const item = shoppingCart.find(i => i.code === code);
     if (!item) return;
-    const newQuantity = item.quantity + adjustment;
+    const newQuantity = qty3(item.quantity + adjustment);
     if (newQuantity <= 0) {
         const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
         let authMethod ="";
@@ -11595,23 +11828,28 @@ async function adjustCartQty(code, adjustment) {
         return;
     }
     const origin = globalProducts.find(p => p.code === code);
-    if (origin && newQuantity > origin.stock) {
+    const maxQty = origin ? getMaxCartQtyForLine(item, origin) : Infinity;
+    if (origin && newQuantity > maxQty + 1e-9) {
         Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
-        item.quantity = origin.stock;
+        if (maxQty > 0) item.quantity = maxQty;
     } else {
         item.quantity = newQuantity;
     }
+    const capDiscount = money2(item.price * item.quantity);
+    if ((parseFloat(item.itemDiscount) || 0) > capDiscount) item.itemDiscount = capDiscount;
     renderCartRows(code);
 }
 async function setCartQty(code, rawValue) {
     const item = shoppingCart.find(i => i.code === code);
     if (!item) return;
-    const newQuantity = parseInt(rawValue, 10);
+    const product = globalProducts.find(p => p.code === code) || item;
+    let newQuantity = parseFloat(rawValue);
     if (isNaN(newQuantity) || newQuantity < 0) {
         renderCartRows(code);
         return;
     }
-    const adjustment = newQuantity - item.quantity;
+    newQuantity = productAllowsDecimal(product) ? qty3(newQuantity) : Math.round(newQuantity);
+    const adjustment = qty3(newQuantity - item.quantity);
     if (adjustment === 0) {
         renderCartRows(code);
         return;
@@ -11757,6 +11995,299 @@ async function handleClearCart() {
         Swal.fire('Pipeline Error','Unable to contact remote host engine. Administrative token validation cannot proceed.','error');
     }
 }
+function getHeldSalesStorageKey() {
+    const uname = (currentUser && (currentUser.username || currentUser.name)) || 'default';
+    return `omnipos_held_sales_${String(uname).toLowerCase()}`;
+}
+function getHeldSales() {
+    try {
+        const raw = localStorage.getItem(getHeldSalesStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        console.warn('Could not read held sales:', e);
+        return [];
+    }
+}
+function setHeldSales(list) {
+    // Returns true only when the list was really written. localStorage can throw (quota full / private mode),
+    // and callers must NOT clear the live cart when the save did not succeed.
+    try {
+        localStorage.setItem(getHeldSalesStorageKey(), JSON.stringify(list || []));
+        return true;
+    } catch (e) {
+        console.warn('Could not save held sales:', e);
+        return false;
+    }
+}
+// Net value of a cart snapshot INCLUDING per-line discounts (same formula as getCartNetSubtotal()).
+function getCartSnapshotNetTotal(cart) {
+    if (!Array.isArray(cart)) return 0;
+    return cart.reduce((sum, it) => {
+        const line = money2((parseFloat(it.price) || 0) * qty3(it.quantity));
+        const lineDiscount = Math.max(0, parseFloat(it.itemDiscount) || 0);
+        return sum + Math.max(0, line - lineDiscount);
+    }, 0);
+}
+// A cart line is a copy of the whole product record, including its base64 photo. Storing that in localStorage
+// fills the ~5 MB quota after a few held sales, so only the fields needed to rebuild the line are kept.
+function slimCartForHold(cart) {
+    return (Array.isArray(cart) ? cart : []).map(it => ({
+        code: it.code,
+        name: it.name,
+        price: parseFloat(it.price) || 0,
+        quantity: qty3(it.quantity),
+        unit: it.unit || null,
+        itemDiscount: Math.max(0, parseFloat(it.itemDiscount) || 0)
+    }));
+}
+// Rebuilds live cart lines from the CURRENT catalog so a resumed sale shows today's price/stock (the server
+// charges catalog prices at checkout anyway). Returns the lines plus notes for anything that changed.
+function rehydrateHeldCart(savedCart) {
+    const notes = [];
+    const lines = [];
+    const catalog = Array.isArray(globalProducts) ? globalProducts : [];
+    (Array.isArray(savedCart) ? savedCart : []).forEach(saved => {
+        if (!saved) return;
+        const qty = qty3(saved.quantity);
+        if (qty <= 0) return;
+        const product = catalog.length ? catalog.find(p => p.code === saved.code) : null;
+        if (!product) {
+            if (catalog.length) {
+                notes.push(`${saved.name || saved.code}: no longer in the catalog — removed.`);
+            } else {
+                lines.push({ ...saved, quantity: qty });
+            }
+            return;
+        }
+        const stock = parseFloat(product.stock) || 0;
+        if (stock <= 0) {
+            notes.push(`${product.name}: out of stock — removed.`);
+            return;
+        }
+        const line = { ...product, quantity: qty, unit: saved.unit || null, factor: 1, priceLevel: null };
+        applyCartLinePricing(line); // current catalog price for the saved unit + the cart's price level
+        const maxQty = getMaxCartQtyForLine(line, product);
+        if (maxQty <= 0) {
+            notes.push(`${product.name}: not enough stock for ${line.unit || 'this unit'} — removed.`);
+            return;
+        }
+        let newQty = qty;
+        if (qty > maxQty + 1e-9) {
+            newQty = maxQty;
+            notes.push(`${product.name}: only ${formatQty(maxQty)} available (was ${formatQty(qty)}).`);
+        }
+        const oldPrice = parseFloat(saved.price) || 0;
+        if (Math.abs(oldPrice - line.price) > 0.004) {
+            notes.push(`${product.name}: price is now ₱${line.price.toFixed(2)} (was ₱${oldPrice.toFixed(2)}).`);
+        }
+        line.quantity = newQty;
+        line.itemDiscount = Math.min(Math.max(0, parseFloat(saved.itemDiscount) || 0), money2(line.price * newQty));
+        lines.push(line);
+    });
+    return { lines, notes };
+}
+function updateHeldSalesBadge() {
+    const btn = document.getElementById('held-sales-btn');
+    if (!btn) return;
+    const count = getHeldSales().length;
+    // The count now lives in its own badge (icon-only button on mobile, inline pill on desktop).
+    const countEl = btn.querySelector('.held-sales-count');
+    if (countEl) {
+        countEl.textContent = count > 99 ? '99+' : String(count);
+        countEl.classList.toggle('is-empty', count === 0);
+    }
+    btn.setAttribute('aria-label', `Held sales (${count})`);
+    btn.classList.toggle('has-held-sales', count > 0);
+}
+// Fire-and-forget audit trail for hold/delete actions so a held cart can never be
+// discarded without leaving a record (Clear Cart already requires a password + VOID_CART log).
+function logHeldSaleAction(action, message) {
+    try {
+        const username = currentUser ? (currentUser.username || currentUser.name) : 'Unknown User';
+        authFetch(`${API_URL}/logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, user: username, details: { message } })
+        }).catch(() => {});
+    } catch (e) { /* audit logging must never block the cashier */ }
+}
+async function handleHoldSale() {
+    if (shoppingCart.length === 0) {
+        Swal.fire('Empty Cart', 'There is nothing in the cart to hold.', 'warning');
+        return;
+    }
+    const { value: label, isConfirmed } = await Swal.fire({
+        title: 'Hold This Sale?',
+        html: 'The current cart will be saved for later and the terminal will be cleared for a new customer. You can resume it anytime from "Held Sales".',
+        input: 'text',
+        inputPlaceholder: 'Optional label (e.g. customer name / table)',
+        inputAttributes: { maxlength: 40 },
+        showCancelButton: true,
+        confirmButtonText: 'Hold Sale',
+        confirmButtonColor: '#2563eb'
+    });
+    if (!isConfirmed) return;
+    const held = getHeldSales();
+    const heldItemCount = shoppingCart.reduce((s, it) => qty3(s + qty3(it.quantity)), 0);
+    const heldTotal = getCartSnapshotNetTotal(shoppingCart);
+    const discountInputEl = document.getElementById('cart-discount-input');
+    const promoInputEl = document.getElementById('cart-promo-input');
+    const seniorCheckboxEl = document.getElementById('cart-senior-pwd-toggle');
+    // SECURITY: the loyalty card token is a credential and the customer's points balance can change while the
+    // sale is on hold, so a redeemed-points discount is NEVER saved in localStorage. The customer link is kept;
+    // the cashier re-applies/re-scans the points when the sale is resumed.
+    const loyaltyDropped = cartDiscountType === 'LOYALTY';
+    held.unshift({
+        id: 'HOLD-' + Date.now(),
+        heldAt: new Date().toISOString(),
+        label: (label || '').trim(),
+        cart: slimCartForHold(shoppingCart),
+        cartPriceLevel: cartPriceLevel || '',
+        cartDiscountType: loyaltyDropped ? 'NONE' : cartDiscountType,
+        cartPromoCode,
+        cartActivePromo,
+        cartSeniorPwdId,
+        cartLoyaltyPointsRedeemed: 0,
+        cartLoyaltyCardToken: '',
+        loyaltyDropped,
+        selectedCartCustomer: selectedCartCustomer ? JSON.parse(JSON.stringify(selectedCartCustomer)) : null,
+        manualDiscountValue: loyaltyDropped ? '0' : (discountInputEl ? discountInputEl.value : '0'),
+        promoInputValue: promoInputEl ? promoInputEl.value : '',
+        seniorPwdChecked: seniorCheckboxEl ? !!seniorCheckboxEl.checked : false
+    });
+    // BUGFIX: if the save fails (storage full) the cart used to be cleared anyway and the cashier was told
+    // "Sale Held" — the whole sale was lost. Now the cart is kept and the cashier is told what happened.
+    if (!setHeldSales(held)) {
+        Swal.fire('Could Not Hold Sale', 'This device\'s storage is full, so the sale could not be saved. The cart was NOT cleared — finish or void this sale, or delete old held sales, then try again.', 'error');
+        return;
+    }
+    shoppingCart = [];
+    // BUGFIX: the held cart's discount / promo / Senior-PWD / loyalty / customer were left applied to the
+    // NEXT customer's empty cart. Reset them so the new transaction starts clean (same as after checkout).
+    resetCartDiscountAndCustomerState();
+    renderCartRows();
+    if (typeof updateCartTotals === 'function') updateCartTotals();
+    updateHeldSalesBadge();
+    // The server keeps a copy of the live cart (saved with a 600 ms delay). If the page reloaded or the save failed
+    // before it was cleared there, the held sale would come back as a live cart too (double sale) — flush it now.
+    markServerCartStale();
+    saveCartToDatabaseNow();
+    logHeldSaleAction('HOLD_SALE', `Held a sale (${held[0].id}${held[0].label ? ' - ' + held[0].label : ''}): ${heldItemCount} item(s), \u20b1${heldTotal.toFixed(2)}.`);
+    Swal.fire({ title: 'Sale Held', text: 'You can resume it anytime from "Held Sales".', icon: 'success', timer: 1600, showConfirmButton: false });
+}
+function openHeldSalesModal() {
+    const held = getHeldSales();
+    if (held.length === 0) {
+        Swal.fire('No Held Sales', 'There are no held sales right now.', 'info');
+        return;
+    }
+    const rowsHtml = held.map(h => {
+        const itemCount = Array.isArray(h.cart) ? h.cart.reduce((s, it) => qty3(s + qty3(it.quantity)), 0) : 0;
+        const total = getCartSnapshotNetTotal(h.cart);
+        return `
+        <div style="border:1px solid var(--border-color,#e2e8f0); border-radius:10px; padding:10px 12px; margin-bottom:10px; text-align:left;">
+            <div style="display:flex; justify-content:space-between; font-weight:600;">
+                <span>${escapeHtml(h.label || h.id)}</span>
+                <span>₱${total.toFixed(2)}</span>
+            </div>
+            <div style="font-size:0.8rem; color:#94a3b8; margin:2px 0 8px;">${itemCount} item(s) — held ${new Date(h.heldAt).toLocaleString()}</div>
+            <div style="display:flex; gap:8px;">
+                <button type="button" class="btn-action-outline" style="flex:1; padding:6px 0; font-size:0.8rem;" onclick="resumeHeldSale('${h.id}')"><i class="fa-solid fa-play"></i> Resume</button>
+                <button type="button" class="btn-action-outline" style="flex:1; padding:6px 0; font-size:0.8rem; color:#dc2626; border-color:#dc2626;" onclick="deleteHeldSale('${h.id}')"><i class="fa-solid fa-trash"></i> Delete</button>
+            </div>
+        </div>`;
+    }).join('');
+    Swal.fire({
+        title: 'Held Sales',
+        html: `<div style="max-height:420px; overflow-y:auto;">${rowsHtml}</div>`,
+        width: '420px',
+        showConfirmButton: false,
+        showCloseButton: true
+    });
+}
+function resumeHeldSale(id) {
+    if (shoppingCart.length > 0) {
+        Swal.fire('Cart Not Empty', 'Please hold or clear the current cart first before resuming a held sale.', 'warning');
+        return;
+    }
+    const held = getHeldSales();
+    const idx = held.findIndex(h => String(h.id) === String(id));
+    if (idx === -1) return;
+    const h = held[idx];
+    const previousPriceLevel = cartPriceLevel;
+    cartPriceLevel = (h.cartPriceLevel && canUsePriceLevelClient() && getStorePriceLevels().includes(h.cartPriceLevel)) ? h.cartPriceLevel : '';
+    const rebuilt = rehydrateHeldCart(h.cart);
+    if (rebuilt.lines.length === 0) {
+        cartPriceLevel = previousPriceLevel;
+        Swal.fire('Cannot Resume', 'None of the items in this held sale are available anymore. You can delete it from Held Sales.', 'warning');
+        return;
+    }
+    shoppingCart = rebuilt.lines;
+    cartDiscountType = h.cartDiscountType || 'NONE';
+    cartPromoCode = h.cartPromoCode || '';
+    cartActivePromo = h.cartActivePromo || null;
+    cartSeniorPwdId = h.cartSeniorPwdId || '';
+    // Older held sales saved before this fix may still contain a loyalty redemption/token: discard it too.
+    const loyaltyWasDropped = !!h.loyaltyDropped || h.cartDiscountType === 'LOYALTY';
+    if (h.cartDiscountType === 'LOYALTY') cartDiscountType = 'NONE';
+    cartLoyaltyPointsRedeemed = 0;
+    cartLoyaltyCardToken = '';
+    selectedCartCustomer = h.selectedCartCustomer || null;
+    held.splice(idx, 1);
+    setHeldSales(held);
+    renderCartRows();
+    const discountInputEl = document.getElementById('cart-discount-input');
+    if (discountInputEl) {
+        discountInputEl.value = (!loyaltyWasDropped && h.manualDiscountValue !== undefined && h.manualDiscountValue !== null) ? h.manualDiscountValue : 0;
+        if (cartDiscountType !== 'SENIOR_PWD' && cartDiscountType !== 'PROMO') discountInputEl.removeAttribute('readonly');
+    }
+    const promoInputEl = document.getElementById('cart-promo-input');
+    if (promoInputEl) promoInputEl.value = h.promoInputValue || '';
+    const seniorCheckboxEl = document.getElementById('cart-senior-pwd-toggle');
+    if (seniorCheckboxEl) seniorCheckboxEl.checked = !!h.seniorPwdChecked;
+    const customerBtn = document.getElementById('cart-customer-btn');
+    if (customerBtn) {
+        customerBtn.innerHTML = selectedCartCustomer
+            ? `${escapeHtml(selectedCartCustomer.name)} <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i>`
+            : 'Walk-in <i class="fa-solid fa-chevron-right" style="font-size:0.7em;"></i>';
+    }
+    if (typeof updateLoyaltyRowForCustomer === 'function') updateLoyaltyRowForCustomer();
+    if (typeof updateCartTotals === 'function') updateCartTotals();
+    updateHeldSalesBadge();
+    saveCartToDatabaseNow();
+    if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) Swal.close();
+    const resumeNotes = rebuilt.notes.slice();
+    if (loyaltyWasDropped) resumeNotes.unshift('The loyalty points redemption was removed for security. Please re-apply or re-scan the customer\'s points.');
+    if (resumeNotes.length) {
+        Swal.fire({ title: 'Sale Resumed', html: `<div style="text-align:left; font-size:0.9rem;">${resumeNotes.map(n => `• ${escapeHtml(n)}`).join('<br>')}</div>`, icon: 'info' });
+    } else {
+        Swal.fire({ title: 'Sale Resumed', icon: 'success', timer: 1200, showConfirmButton: false });
+    }
+}
+async function deleteHeldSale(id) {
+    const confirmResult = await Swal.fire({
+        title: 'Delete Held Sale?',
+        text: 'This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete',
+        confirmButtonColor: '#dc2626'
+    });
+    if (!confirmResult.isConfirmed) return;
+    const allHeld = getHeldSales();
+    const removed = allHeld.find(h => String(h.id) === String(id));
+    if (removed) {
+        const rmItems = Array.isArray(removed.cart) ? removed.cart.reduce((s, it) => qty3(s + qty3(it.quantity)), 0) : 0;
+        const rmTotal = getCartSnapshotNetTotal(removed.cart);
+        logHeldSaleAction('HELD_SALE_DELETED', `Deleted held sale ${removed.id}${removed.label ? ' (' + removed.label + ')' : ''}: ${rmItems} item(s), \u20b1${rmTotal.toFixed(2)}.`);
+    }
+    const held = allHeld.filter(h => String(h.id) !== String(id));
+    setHeldSales(held);
+    updateHeldSalesBadge();
+    Swal.close();
+    openHeldSalesModal();
+}
 function clearCart() {
     shoppingCart = [];
     renderCartRows();
@@ -11766,6 +12297,7 @@ function renderCartRows(changedProductCode) {
         const container = document.getElementById('cart-items-container');
         if (!container) return;
         if (shoppingCart.length === 0) resetCartDiscountAndCustomerState();
+        refreshCartPriceLevelUI();
         container.innerHTML ='';
         saveCartToDatabase();
         let totalItems = 0;
@@ -11775,13 +12307,26 @@ function renderCartRows(changedProductCode) {
                 const row = document.createElement('div');
                 row.className ='cart-item-row';
                 const lineDiscount = Math.max(0, parseFloat(item.itemDiscount) || 0);
-                const lineTotal = Math.max(0, (item.price * item.quantity) - lineDiscount);
+                const lineTotal = Math.max(0, money2(item.price * item.quantity) - lineDiscount);
+                const lineProduct = (Array.isArray(globalProducts) && globalProducts.find(p => p.code === item.code)) || item;
+                const lineUomList = getProductUomList(lineProduct);
+                const lineDecimalOk = productAllowsDecimal(lineProduct);
+                const lineBaseUnit = lineProduct.baseUnit ? String(lineProduct.baseUnit).trim() : '';
+                const lineUnitLabel = item.unit || lineBaseUnit;
+                const unitSelectHtml = lineUomList.length
+                    ? `<select class="cart-item-unit-select" aria-label="Unit" onchange="setCartItemUnit('${escapeHtml(item.code)}', this.value)" style="margin-top:4px;padding:3px 6px;font-size:0.8rem;max-width:100%;">
+                            <option value="">${escapeHtml(lineBaseUnit || 'Base unit')}</option>
+                            ${lineUomList.map(u => `<option value="${escapeHtml(u.name)}" ${item.unit === u.name ? 'selected' : ''}>${escapeHtml(u.name)} (×${escapeHtml(String(u.factor))})</option>`).join('')}
+                       </select>`
+                    : '';
+                const levelTagHtml = item.priceLevel ? ` <small style="color:#2563eb;font-weight:600;">${escapeHtml(item.priceLevel)}</small>` : '';
                 row.innerHTML = `
                     <div class="cart-item-details">
-                        <h4>${escapeHtml(item.name)}</h4>
+                        <h4>${escapeHtml(item.name)}${levelTagHtml}</h4>
+                        ${unitSelectHtml}
                     </div>
                     <div class="cart-item-meta-row">
-                        <span class="cart-item-each-price">₱${parseFloat(item.price).toFixed(2)} each</span>
+                        <span class="cart-item-each-price">₱${parseFloat(item.price).toFixed(2)} ${lineUnitLabel ? '/ ' + escapeHtml(lineUnitLabel) : 'each'}</span>
                         <span class="cart-item-discount-row">
                             <span class="cart-item-discount-label">Disc ₱</span>
                             <input type="number"
@@ -11798,10 +12343,11 @@ function renderCartRows(changedProductCode) {
                             <button onclick="adjustCartQty('${escapeHtml(item.code)}', -1)">-</button>
                             <input type="number"
                                    class="cart-qty-input"
+                                   data-code="${escapeHtml(item.code)}"
                                    min="0"
-                                   step="1"
-                                   inputmode="numeric"
-                                   value="${item.quantity}"
+                                   step="${lineDecimalOk ? 'any' : '1'}"
+                                   inputmode="${lineDecimalOk ? 'decimal' : 'numeric'}"
+                                   value="${formatQty(item.quantity)}"
                                    onclick="this.select()"
                                    onchange="setCartQty('${escapeHtml(item.code)}', this.value)"
                                    onkeydown="if(event.key==='Enter'){ this.blur(); }">
@@ -11818,11 +12364,17 @@ function renderCartRows(changedProductCode) {
                 console.error("Skipped a cart row due to an error:", item, rowError);
             }
         });
+        if (pendingFocusCartQtyCode) {
+            const focusCode = pendingFocusCartQtyCode;
+            pendingFocusCartQtyCode = null;
+            const qtyEl = Array.from(container.querySelectorAll('.cart-qty-input')).find(el => el.getAttribute('data-code') === focusCode);
+            if (qtyEl) { try { qtyEl.focus(); qtyEl.select(); } catch (e) { /* focus is a convenience only */ } }
+        }
         if (shoppingCart.length === 0) {
             container.innerHTML = '<div class="cart-empty-state"><i class="fa-solid fa-cart-shopping"></i><span>Cart is Empty</span></div>';
         }
         const cartBadge = document.getElementById('cart-badge');
-        if (cartBadge) cartBadge.innerText = totalItems;
+        if (cartBadge) cartBadge.innerText = formatQty(totalItems);
         updateCartTotals();
     } catch (cartRenderError) {
         console.error("Failed to render cart rows:", cartRenderError);
@@ -11840,7 +12392,7 @@ function setCartItemDiscount(code, rawValue) {
     if (!item) return;
     let val = parseFloat(rawValue) || 0;
     if (val < 0) val = 0;
-    const maxDiscount = item.price * item.quantity;
+    const maxDiscount = money2(item.price * item.quantity);
     if (val > maxDiscount) val = maxDiscount;
     item.itemDiscount = val;
     updateCartTotals();
@@ -11848,7 +12400,7 @@ function setCartItemDiscount(code, rawValue) {
 function getCartNetSubtotal() {
     return shoppingCart.reduce((sum, item) => {
         const lineDiscount = Math.max(0, parseFloat(item.itemDiscount) || 0);
-        return sum + Math.max(0, (item.price * item.quantity) - lineDiscount);
+        return sum + Math.max(0, money2(item.price * item.quantity) - lineDiscount);
     }, 0);
 }
 // Estimated VAT-exempt base for the Senior/PWD discount on the client (for the
@@ -12331,6 +12883,7 @@ function applyLoyaltyPointsToCart() {
     Swal.fire({ icon:'success', title:'Points Redeemed!', text: `${pts} pts: -₱${discountAmount.toFixed(2)}`, timer: 1600, showConfirmButton: false });
 }
 function resetCartDiscountAndCustomerState() {
+    cartPriceLevel = '';
     cartDiscountType ='NONE';
     cartPromoCode ='';
     cartActivePromo = null;
@@ -12903,6 +13456,9 @@ async function submitFinalPaymentTransactionInner() {
             name: i.name,
             price: i.price,
             quantity: i.quantity,
+            unit: i.unit || null,
+            priceLevel: cartPriceLevel || null,
+            baseQty: getCartBaseQty(i),
             itemDiscount: Math.max(0, parseFloat(i.itemDiscount) || 0),
             cost: parseFloat(i.cost) || 0
         })),
@@ -12956,7 +13512,7 @@ async function submitFinalPaymentTransactionInner() {
             transactionPayload.items.forEach(item => {
                 let localProd = globalProducts.find(p => p.code === item.code);
                 if (localProd) {
-                    localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
+                    localProd.stock = Math.max(0, qty3(parseFloat(localProd.stock || 0) - lineBaseQty(item)));
                 }
             });
             shoppingCart = [];
@@ -12991,7 +13547,7 @@ async function submitFinalPaymentTransactionInner() {
             await addOfflineQueueItem({ transaction: transactionPayload, username: currentUser.username, creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null, status: 'pending', lastError: `Server returned HTTP ${res.status}; outcome will be verified during synchronization.` });
             transactionPayload.items.forEach(item => {
                 const localProd = globalProducts.find(p => p.code === item.code);
-                if (localProd) localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
+                if (localProd) localProd.stock = Math.max(0, qty3(parseFloat(localProd.stock || 0) - lineBaseQty(item)));
             });
             ovWriteJsonCache('cached_products', globalProducts);
             localTransactionsList.unshift(transactionPayload);
@@ -13033,7 +13589,7 @@ async function submitFinalPaymentTransactionInner() {
         transactionPayload.offlineQueueId = queueItem.localQueueId || transactionPayload.syncId;
         transactionPayload.items.forEach(item => {
             const localProd = globalProducts.find(p => p.code === item.code);
-            if (localProd) localProd.stock = Math.max(0, parseInt(localProd.stock || 0) - item.quantity);
+            if (localProd) localProd.stock = Math.max(0, qty3(parseFloat(localProd.stock || 0) - lineBaseQty(item)));
         });
         ovWriteJsonCache('cached_products', globalProducts);
         localTransactionsList.unshift(transactionPayload);
@@ -13147,6 +13703,37 @@ async function fetchReceiptSettings() {
     }
     applyReceiptBranding();
 }
+function getBirReceiptLines() {
+    let b = null;
+    try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
+    if (!b || b.enabled !== true) return [];
+    const lines = [];
+    if (b.docTitle) lines.push({ text: String(b.docTitle), bold: true });
+    if (b.businessName) lines.push({ text: String(b.businessName), bold: false });
+    if (b.tin) lines.push({ text: `${b.vatStatus === 'NON_VAT' ? 'NON-VAT REG' : 'VAT REG'} TIN: ${b.tin}`, bold: false });
+    if (b.min) lines.push({ text: `MIN: ${b.min}`, bold: false });
+    if (b.serialNo) lines.push({ text: `S/N: ${b.serialNo}`, bold: false });
+    if (b.ptuNo) lines.push({ text: `PTU No: ${b.ptuNo}`, bold: false });
+    return lines;
+}
+function renderBirReceiptBlock(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.textContent = '';
+    const lines = getBirReceiptLines();
+    if (!lines.length) {
+        el.style.display = 'none';
+        return;
+    }
+    lines.forEach((ln) => {
+        const p = document.createElement('p');
+        p.className = 'receipt-store-sub';
+        p.textContent = ln.text;
+        if (ln.bold) p.style.fontWeight = '700';
+        el.appendChild(p);
+    });
+    el.style.display = 'block';
+}
 function applyReceiptBranding() {
     const s = receiptSettingsCache;
     if (!s) return;
@@ -13193,6 +13780,8 @@ function applyReceiptBranding() {
     setOptionalLine('rp-header-text', s.headerText);
     setTextIfExists('rp-footer-msg', s.footerText);
     applyHeaderMode('rp-store-title', 'rp-header-image');
+    renderBirReceiptBlock('r-bir-block');
+    renderBirReceiptBlock('rp-bir-block');
     const barcodeContainer = document.querySelector('#printable-receipt-area .receipt-barcode-container');
     if (barcodeContainer) {
         const showBarcode = !s.barcodeSettings || s.barcodeSettings.show !== false;
@@ -14422,6 +15011,7 @@ async function fetchStoreSettings() {
     try {
         const res = await authFetch(`${API_URL}/store-settings`);
         storeSettingsCache = await res.json();
+        try { applyReceiptBranding(); } catch (brandErr) { console.warn('applyReceiptBranding after store settings failed (non-blocking):', brandErr); }
     } catch (err) {
         console.error(err);
         storeSettingsCache = null;
@@ -14450,6 +15040,17 @@ async function loadStoreSettingsPanel() {
     setChecked('ss-loyalty-enabled', s.loyaltyEnabled);
     setVal('ss-loyalty-earn-rate', s.loyaltyEarnRate);
     setVal('ss-loyalty-point-value', s.loyaltyPointValue);
+    setVal('ss-price-levels', Array.isArray(s.priceLevels) ? s.priceLevels.join(', ') : '');
+    const birCfg = s.bir || {};
+    setChecked('ss-bir-enabled', birCfg.enabled);
+    setVal('ss-bir-doc-title', birCfg.docTitle === undefined ? 'SALES INVOICE' : birCfg.docTitle);
+    setVal('ss-bir-business-name', birCfg.businessName || '');
+    setVal('ss-bir-tin', birCfg.tin || '');
+    setVal('ss-bir-vat-status', birCfg.vatStatus === 'NON_VAT' ? 'NON_VAT' : 'VAT');
+    setVal('ss-bir-min', birCfg.min || '');
+    setVal('ss-bir-serial', birCfg.serialNo || '');
+    setVal('ss-bir-ptu', birCfg.ptuNo || '');
+    window.__birPanelLoaded = !!document.getElementById('ss-bir-enabled');
     setVal('ss-branch-name', s.branchName || '');
     setVal('ss-branch-group-key', s.branchGroupKey || '');
     const statusEl = document.getElementById('store-settings-status');
@@ -14457,6 +15058,13 @@ async function loadStoreSettingsPanel() {
         statusEl.textContent = s.updatedAt ? `Last updated: ${new Date(s.updatedAt).toLocaleString()}` : '';
         statusEl.style.color = '#64748b';
     }
+}
+// If the (possibly cached) settings page has no Price Levels box, send the existing levels back instead of
+// an empty list so saving other settings can never wipe them.
+function getPriceLevelsFromStoreSettingsForm() {
+    const el = document.getElementById('ss-price-levels');
+    if (!el) return (storeSettingsCache && Array.isArray(storeSettingsCache.priceLevels)) ? storeSettingsCache.priceLevels : [];
+    return String(el.value || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 10);
 }
 async function saveStoreSettings() {
     const payload = {
@@ -14479,10 +15087,23 @@ async function saveStoreSettings() {
         loyaltyEnabled: document.getElementById('ss-loyalty-enabled').checked,
         loyaltyEarnRate: parseFloat(document.getElementById('ss-loyalty-earn-rate').value) || 100,
         loyaltyPointValue: parseFloat(document.getElementById('ss-loyalty-point-value').value) || 0,
+        priceLevels: getPriceLevelsFromStoreSettingsForm(),
         branchName: (document.getElementById('ss-branch-name').value || '').trim(),
         branchGroupKey: (document.getElementById('ss-branch-group-key').value || '').trim(),
         username: currentUser ? (currentUser.username || currentUser.name) : 'Unknown'
     };
+    if (window.__birPanelLoaded && document.getElementById('ss-bir-enabled')) {
+        payload.bir = {
+            enabled: document.getElementById('ss-bir-enabled').checked,
+            docTitle: document.getElementById('ss-bir-doc-title').value,
+            businessName: (document.getElementById('ss-bir-business-name').value || '').trim(),
+            tin: (document.getElementById('ss-bir-tin').value || '').trim(),
+            vatStatus: document.getElementById('ss-bir-vat-status').value,
+            min: (document.getElementById('ss-bir-min').value || '').trim(),
+            serialNo: (document.getElementById('ss-bir-serial').value || '').trim(),
+            ptuNo: (document.getElementById('ss-bir-ptu').value || '').trim()
+        };
+    }
     try {
         const res = await authFetch(`${API_URL}/store-settings`, {
             method: 'POST',
@@ -14497,6 +15118,7 @@ async function saveStoreSettings() {
             storeSettingsCache = data.settings || storeSettingsCache;
             loadStoreSettingsPanel();
             applyPaymentMethodVisibility();
+            try { applyReceiptBranding(); } catch (brandErr) { console.warn('applyReceiptBranding after save failed (non-blocking):', brandErr); }
         } else {
             Swal.fire('Error', data.message || 'Failed to save Store & Sales Settings.', 'error');
         }
@@ -15864,12 +16486,13 @@ function generateReceiptImageDataUrl(tx) {
     const qrNoteEl = document.getElementById('r-loyalty-qr-note');
     const qrNoteText = (showLoyaltyQr && qrNoteEl && qrNoteEl.style.display !=='none') ? (qrNoteEl.innerText || '').trim() : '';
     const items = tx.items || [];
+    const birLines = getBirReceiptLines();
     const width = 380;
     const lineHeight = 20;
     const headerHeight = 110;
     const footerHeight = 130;
     const qrBlockHeight = qrImgEls.length ? (24 + (qrNoteText ? 18 : 0) + 130) : 0;
-    const height = headerHeight + (items.length * lineHeight) + footerHeight + qrBlockHeight;
+    const height = headerHeight + (birLines.length * 16) + (items.length * lineHeight) + footerHeight + qrBlockHeight;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -15888,6 +16511,11 @@ function generateReceiptImageDataUrl(tx) {
         ctx.fillText(storeAddress, width / 2, y);
         y += 18;
     }
+    birLines.forEach((ln) => {
+        ctx.font = ln.bold ? 'bold 12px monospace' : '11px monospace';
+        ctx.fillText(ln.text.slice(0, 50), width / 2, y);
+        y += 16;
+    });
     ctx.textAlign ='left';
     ctx.font ='11px monospace';
     ctx.fillText(`Receipt: ${tx.id ||''}`, 14, y); y += 14;
@@ -15902,7 +16530,7 @@ function generateReceiptImageDataUrl(tx) {
     ctx.font ='12px monospace';
     items.forEach(i => {
         const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
-        const lineTotal = ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)) - itemDiscount;
+        const lineTotal = ((parseFloat(i.price) || 0) * qty3(i.quantity)) - itemDiscount;
         const label = `${i.name} x${i.quantity}`.slice(0, 28);
         const priceStr = `P${lineTotal.toFixed(2)}`;
         ctx.fillText(label, 14, y);
@@ -16007,6 +16635,14 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     if (modalTitleElReset) modalTitleElReset.innerText ='Receipt Invoice';
     document.getElementById('r-id').innerText = tx.id;
     document.getElementById('r-footer-id').innerText = tx.id;
+    // BIR: the sequential invoice number stamped by the server (blank for sales made before BIR numbering existed).
+    {
+        const invNoEl = document.getElementById('r-inv-no');
+        const invRowEl = document.getElementById('r-inv-row');
+        const invNo = tx.birInvoiceNumber ? String(tx.birInvoiceNumber) : '';
+        if (invNoEl) invNoEl.innerText = invNo;
+        if (invRowEl) invRowEl.style.display = invNo ? '' : 'none';
+    }
     const parts = tx.timestamp.split(', ');
     document.getElementById('r-date').innerText = parts[0] || tx.timestamp;
     document.getElementById('r-time').innerText = parts[1] ||'';
@@ -16024,7 +16660,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         const nameLabel = itemDiscount > 0
             ? `${escapeHtml(i.name)} <small style="color:#dc2626;">(-₱${itemDiscount.toFixed(2)})</small>`
             : escapeHtml(i.name);
-        const lineTotal = (i.price * i.quantity) - itemDiscount;
+        const lineTotal = money2(i.price * i.quantity) - itemDiscount;
         itemRow.innerHTML = `
             <span>${nameLabel}</span>
             <span>₱${lineTotal.toFixed(2)}</span>
@@ -16034,7 +16670,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         const detailRow = document.createElement('div');
         detailRow.className ='r-item-detail-line';
         detailRow.innerHTML = `
-            <span>${Number(i.quantity).toFixed(1)}</span>
+            <span>${escapeHtml(formatReceiptQty(i))}</span>
             <span>x</span>
             <span>₱${parseFloat(i.price).toFixed(2)}</span>
         `;
@@ -16431,17 +17067,17 @@ window.sretSyncDamageRow = function (idx, changedEl) {
     const damagedInput = document.querySelector(`.sret-damaged[data-idx="${idx}"]`);
     const row = document.querySelector(`.sret-damage-status-row[data-idx="${idx}"]`);
     if (!restockInput || !damagedInput) return;
-    const qty = parseInt(restockInput.dataset.qty, 10) || 0;
+    const qty = qty3(restockInput.dataset.qty);
     if (changedEl === damagedInput) {
-        const damaged = Math.max(0, Math.min(qty, parseInt(damagedInput.value, 10) || 0));
+        const damaged = Math.max(0, Math.min(qty, qty3(damagedInput.value)));
         damagedInput.value = damaged;
-        restockInput.value = qty - damaged;
+        restockInput.value = qty3(qty - damaged);
     } else {
-        const restock = Math.max(0, Math.min(qty, parseInt(restockInput.value, 10) || 0));
+        const restock = Math.max(0, Math.min(qty, qty3(restockInput.value)));
         restockInput.value = restock;
-        damagedInput.value = qty - restock;
+        damagedInput.value = qty3(qty - restock);
     }
-    if (row) row.style.display = (parseInt(damagedInput.value, 10) || 0) > 0 ? 'block' : 'none';
+    if (row) row.style.display = qty3(damagedInput.value) > 0 ? 'block' : 'none';
 };
 function canInspectStockReturns() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
@@ -16476,18 +17112,18 @@ function renderPendingStockReturns() {
     }
     tbody.innerHTML = cachedPendingStockReturns.map(r => {
         const source = String(r.sourceType || '').toLowerCase() === 'void' ? 'VOID' : 'REFUND';
-        const itemCount = (r.items || []).reduce((sum, i) => sum + (parseInt(i.quantity, 10) || 0), 0);
+        const itemCount = qty3((r.items || []).reduce((sum, i) => sum + qty3(i.quantity), 0));
         const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '—';
         const isPending = String(r.status || '').toLowerCase() === 'pending_inspection';
         const needsReview = !isPending && (r.items || []).some(i =>
-            (parseInt(i.damagedQty, 10) || 0) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review');
+            qty3(i.damagedQty) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review');
         const sourceBadge = `<span class="badge" style="background-color:${source === 'VOID' ? '#ede9fe' : '#e0f2fe'};color:${source === 'VOID' ? '#6d28d9' : '#0369a1'};">${source}</span>`;
         let statusBadge;
         if (isPending) {
             statusBadge = `<span class="badge" style="background-color:#fef3c7;color:#b45309;">Pending Inspection</span>`;
         } else {
             const damagedLabels = Array.from(new Set((r.items || [])
-                .filter(i => (parseInt(i.damagedQty, 10) || 0) > 0)
+                .filter(i => qty3(i.damagedQty) > 0)
                 .map(i => sretDamageStatusLabel(i.damageStatus))));
             const labelText = damagedLabels.length ? damagedLabels.join(', ') : 'Fully Restocked';
             statusBadge = needsReview
@@ -16534,10 +17170,10 @@ async function inspectStockReturn(returnId) {
             <div style="font-size:.78rem;color:#64748b;margin-bottom:7px;">Returned quantity: <b>${item.quantity}</b></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <label style="font-size:.78rem;">Sellable / Restock
-                    <input type="number" class="sret-restock" data-idx="${idx}" data-qty="${item.quantity}" min="0" max="${item.quantity}" value="${item.quantity}" oninput="sretSyncDamageRow(${idx}, this)" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-restock" data-idx="${idx}" data-qty="${item.quantity}" step="any" min="0" max="${item.quantity}" value="${item.quantity}" oninput="sretSyncDamageRow(${idx}, this)" style="width:100%;padding:6px;box-sizing:border-box;">
                 </label>
                 <label style="font-size:.78rem;">Damaged / Do not restock
-                    <input type="number" class="sret-damaged" data-idx="${idx}" data-qty="${item.quantity}" min="0" max="${item.quantity}" value="0" oninput="sretSyncDamageRow(${idx}, this)" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-damaged" data-idx="${idx}" data-qty="${item.quantity}" step="any" min="0" max="${item.quantity}" value="0" oninput="sretSyncDamageRow(${idx}, this)" style="width:100%;padding:6px;box-sizing:border-box;">
                 </label>
             </div>
             <div class="sret-damage-status-row" data-idx="${idx}" style="display:none;margin-top:8px;">
@@ -16567,9 +17203,9 @@ async function inspectStockReturn(returnId) {
             let invalid = false;
             let missingStatus = false;
             (record.items || []).forEach((item, idx) => {
-                const restock = Math.max(0, parseInt(document.querySelector(`.sret-restock[data-idx="${idx}"]`)?.value,10) || 0);
-                const damaged = Math.max(0, parseInt(document.querySelector(`.sret-damaged[data-idx="${idx}"]`)?.value,10) || 0);
-                if (restock + damaged !== item.quantity) invalid = true;
+                const restock = qty3(document.querySelector(`.sret-restock[data-idx="${idx}"]`)?.value);
+                const damaged = qty3(document.querySelector(`.sret-damaged[data-idx="${idx}"]`)?.value);
+                if (Math.abs(qty3(restock + damaged) - qty3(item.quantity)) > 1e-6) invalid = true;
                 const damageStatus = damaged > 0 ? (document.querySelector(`.sret-damage-status[data-idx="${idx}"]`)?.value || '') : '';
                 if (damaged > 0 && !damageStatus) missingStatus = true;
                 items.push({ lineId:item.lineId, restockedQty:restock, damagedQty:damaged, damageStatus: damageStatus || null });
@@ -16605,8 +17241,8 @@ async function inspectStockReturn(returnId) {
 }
 async function viewInspectedStockReturn(record) {
     const rows = (record.items || []).map(item => {
-        const restocked = parseInt(item.restockedQty, 10) || 0;
-        const damaged = parseInt(item.damagedQty, 10) || 0;
+        const restocked = qty3(item.restockedQty);
+        const damaged = qty3(item.damagedQty);
         const damageLabel = damaged > 0 ? sretDamageStatusLabel(item.damageStatus) : '';
         return `<div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:8px 0;">
             <div style="font-weight:700;">${escapeHtml(item.name || item.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(item.code)})</span></div>
@@ -16631,12 +17267,12 @@ window.sretSyncReviewRow = function (idx) {
     const restockInput = document.querySelector(`.sret-review-restock[data-idx="${idx}"]`);
     const damagedInput = document.querySelector(`.sret-review-damaged[data-idx="${idx}"]`);
     if (!restockInput || !damagedInput) return;
-    const restock = parseInt(restockInput.value, 10) || 0;
-    const held = parseInt(restockInput.dataset.held, 10) || 0;
-    damagedInput.value = Math.max(0, held - restock);
+    const restock = qty3(restockInput.value);
+    const held = qty3(restockInput.dataset.held);
+    damagedInput.value = Math.max(0, qty3(held - restock));
     const statusRow = document.querySelector(`.sret-review-status-row[data-idx="${idx}"]`);
     if (statusRow) {
-        const stillDamaged = Math.max(0, held - restock);
+        const stillDamaged = Math.max(0, qty3(held - restock));
         statusRow.style.display = stillDamaged > 0 ? 'block' : 'none';
     }
 };
@@ -16653,8 +17289,8 @@ async function reviewStockReturn(returnId) {
     const damageOptionsHtml = Object.entries(STOCK_RETURN_DAMAGE_STATUS_LABELS)
         .map(([val, label]) => `<option value="${val}">${escapeHtml(label)}</option>`).join('');
     const rows = (record.items || []).map((item, idx) => {
-        const restocked = parseInt(item.restockedQty, 10) || 0;
-        const held = parseInt(item.damagedQty, 10) || 0;
+        const restocked = qty3(item.restockedQty);
+        const held = qty3(item.damagedQty);
         const isReviewable = held > 0 && String(item.damageStatus || '').toLowerCase() === 'pending_manager_review';
         if (!isReviewable) {
             const damageLabel = held > 0 ? sretDamageStatusLabel(item.damageStatus) : '';
@@ -16669,7 +17305,7 @@ async function reviewStockReturn(returnId) {
             <div style="font-size:.78rem;color:#64748b;margin-bottom:7px;">Currently held pending review: <b>${held}</b> (already restocked: ${restocked})</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <label style="font-size:.78rem;">Restock now
-                    <input type="number" class="sret-review-restock" data-idx="${idx}" data-held="${held}" min="0" max="${held}" value="0" oninput="sretSyncReviewRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
+                    <input type="number" class="sret-review-restock" data-idx="${idx}" data-held="${held}" step="any" min="0" max="${held}" value="0" oninput="sretSyncReviewRow(${idx})" style="width:100%;padding:6px;box-sizing:border-box;">
                 </label>
                 <label style="font-size:.78rem;">Still damaged
                     <input type="number" class="sret-review-damaged" data-idx="${idx}" min="0" max="${held}" value="${held}" readonly style="width:100%;padding:6px;box-sizing:border-box;background:#f1f5f9;">
@@ -16698,11 +17334,11 @@ async function reviewStockReturn(returnId) {
             const items = [];
             let invalid = false;
             (record.items || []).forEach((item, idx) => {
-                const held = parseInt(item.damagedQty, 10) || 0;
+                const held = qty3(item.damagedQty);
                 const isReviewable = held > 0 && String(item.damageStatus || '').toLowerCase() === 'pending_manager_review';
                 if (!isReviewable) return;
-                const restockNow = Math.max(0, parseInt(document.querySelector(`.sret-review-restock[data-idx="${idx}"]`)?.value, 10) || 0);
-                const stillDamaged = Math.max(0, held - restockNow);
+                const restockNow = Math.min(held, qty3(document.querySelector(`.sret-review-restock[data-idx="${idx}"]`)?.value));
+                const stillDamaged = Math.max(0, qty3(held - restockNow));
                 let damageStatus = null;
                 if (stillDamaged > 0) {
                     damageStatus = document.querySelector(`.sret-review-status[data-idx="${idx}"]`)?.value || '';
@@ -16772,7 +17408,7 @@ function renderInventoryProductsTable() {
                 const row = document.createElement('tr');
                 row.setAttribute('data-code', p.code);
                 const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
-                const stockNum = parseInt(p.stock) || 0;
+                const stockNum = parseFloat(p.stock) || 0;
                 const isLowStock = stockNum > 0 && stockNum <= threshold;
                 let expiryDisplay ='<span style="color:#94a3b8;">—</span>';
                 if (p.expiryDate) {
@@ -16876,6 +17512,7 @@ function openProductModal(mode, code ='') {
                 document.getElementById('p-form-specs').value = Array.isArray(match.specs) ? JSON.stringify(match.specs) :'';
                 setProductGalleryImages(Array.isArray(match.images) ? match.images.filter(Boolean) : []);
                 updateProductSpecsButtonLabel();
+                fillProductUomForm(match);
             } else {
                 document.getElementById('product-modal').style.display = 'none';
                 Swal.fire('Not Found', 'Could not find this product — it may have been deleted on another device/session.', 'error');
@@ -17503,6 +18140,124 @@ function removeProductPhoto() {
     if (cameraInput) cameraInput.value ='';
     updateProductPhotoPreview('');
 }
+// ---- Product form: units of measure, decimal selling, price levels ----
+let productFormPriceLevels = {};
+function syncProductDecimalUI() {
+    const cb = document.getElementById('p-form-allow-decimal');
+    const stock = document.getElementById('p-form-stock');
+    if (stock) stock.step = (cb && cb.checked) ? 'any' : '1';
+}
+function renderProductUomRowHints() {
+    const baseUnit = ((document.getElementById('p-form-base-unit') || {}).value || '').trim() || 'base unit';
+    document.querySelectorAll('#p-form-uom-rows .p-form-uom-row').forEach(row => {
+        const name = row.querySelector('.p-uom-name').value.trim() || 'unit';
+        const factor = row.querySelector('.p-uom-factor').value || '?';
+        const fixed = parseFloat(row.querySelector('.p-uom-fixed').value);
+        const hint = row.querySelector('.p-uom-hint');
+        if (hint) hint.textContent = `1 ${name} = ${factor} ${baseUnit} — ${fixed > 0 ? `fixed price ₱${fixed.toFixed(2)}` : 'price = Price × factor'}`;
+    });
+}
+function addProductUomRow(data) {
+    const wrap = document.getElementById('p-form-uom-rows');
+    if (!wrap) return;
+    if (wrap.children.length >= 10) {
+        Swal.fire('Limit Reached', 'Up to 10 extra units per product.', 'info');
+        return;
+    }
+    const d = data || {};
+    const row = document.createElement('div');
+    row.className = 'p-form-uom-row';
+    row.style.cssText = 'border:1px solid var(--border-color,#e2e8f0);border-radius:8px;padding:8px;margin-bottom:8px;';
+    row.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <input type="text" class="p-uom-name" maxlength="20" placeholder="Unit (e.g. Box)" value="${escapeHtml(d.name || '')}" oninput="renderProductUomRowHints()" autocomplete="off">
+            <input type="number" class="p-uom-factor" min="0" step="any" placeholder="Base units in 1 (e.g. 24)" value="${d.factor !== undefined && d.factor !== null ? escapeHtml(String(d.factor)) : ''}" oninput="renderProductUomRowHints()" autocomplete="off">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+            <input type="number" class="p-uom-fixed" min="0" step="0.01" placeholder="Fixed price (optional)" value="${d.fixedPrice ? escapeHtml(String(d.fixedPrice)) : ''}" oninput="renderProductUomRowHints()" style="flex:1;" autocomplete="off">
+            <button type="button" class="btn-action-outline" style="color:#dc2626;border-color:#dc2626;" title="Remove unit" onclick="this.closest('.p-form-uom-row').remove()">&times;</button>
+        </div>
+        <small class="p-uom-hint" style="display:block;margin-top:4px;color:#64748b;"></small>`;
+    wrap.appendChild(row);
+    renderProductUomRowHints();
+}
+// Returns the cleaned unit list, or null (after telling the user why) when something is invalid.
+function collectProductUomRows() {
+    const rows = Array.from(document.querySelectorAll('#p-form-uom-rows .p-form-uom-row'));
+    const out = [];
+    const seen = new Set();
+    for (const row of rows) {
+        const name = row.querySelector('.p-uom-name').value.trim();
+        const factorRaw = row.querySelector('.p-uom-factor').value;
+        const fixedRaw = row.querySelector('.p-uom-fixed').value;
+        if (!name && !factorRaw && !fixedRaw) continue;
+        const factor = parseFloat(factorRaw);
+        if (!name || !(factor > 0)) {
+            Swal.fire('Invalid Unit', 'Each extra unit needs a name and a factor greater than 0.', 'warning');
+            return null;
+        }
+        const key = name.toLowerCase();
+        if (key === 'base') {
+            Swal.fire('Invalid Unit', '"base" is reserved. Use another name for this unit.', 'warning');
+            return null;
+        }
+        if (seen.has(key)) {
+            Swal.fire('Duplicate Unit', `"${name}" is listed more than once.`, 'warning');
+            return null;
+        }
+        seen.add(key);
+        const entry = { name, factor };
+        const fixed = parseFloat(fixedRaw);
+        if (fixed > 0) entry.fixedPrice = fixed;
+        out.push(entry);
+    }
+    return out;
+}
+function renderProductPriceLevelRows() {
+    const group = document.getElementById('p-form-price-levels-group');
+    const wrap = document.getElementById('p-form-price-levels-rows');
+    if (!group || !wrap) return;
+    const storeLevels = getStorePriceLevels();
+    const extraLevels = Object.keys(productFormPriceLevels || {}).filter(k => !storeLevels.includes(k));
+    const all = [...storeLevels, ...extraLevels];
+    group.style.display = all.length ? '' : 'none';
+    wrap.innerHTML = all.map(level => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="flex:1;font-size:0.9rem;">${escapeHtml(level)}${storeLevels.includes(level) ? '' : ' <small style="color:#f59e0b;">(not in Store Settings)</small>'}</span>
+            <input type="number" class="p-level-price" data-level="${escapeHtml(level)}" min="0" step="0.01" placeholder="Same as Price" value="${productFormPriceLevels[level] ? escapeHtml(String(productFormPriceLevels[level])) : ''}" style="width:130px;" autocomplete="off">
+        </div>`).join('');
+}
+function collectProductPriceLevels() {
+    const out = { ...(productFormPriceLevels || {}) };
+    document.querySelectorAll('#p-form-price-levels-rows .p-level-price').forEach(inp => {
+        const level = inp.getAttribute('data-level');
+        const v = parseFloat(inp.value);
+        if (v > 0) out[level] = v; else delete out[level];
+    });
+    return out;
+}
+function resetProductUomForm() {
+    const baseUnit = document.getElementById('p-form-base-unit');
+    if (baseUnit) baseUnit.value = '';
+    const cb = document.getElementById('p-form-allow-decimal');
+    if (cb) cb.checked = false;
+    const wrap = document.getElementById('p-form-uom-rows');
+    if (wrap) wrap.innerHTML = '';
+    productFormPriceLevels = {};
+    syncProductDecimalUI();
+    Promise.resolve(storeSettingsCache || fetchStoreSettings()).then(renderProductPriceLevelRows).catch(() => renderProductPriceLevelRows());
+}
+function fillProductUomForm(product) {
+    resetProductUomForm();
+    const baseUnit = document.getElementById('p-form-base-unit');
+    if (baseUnit) baseUnit.value = product.baseUnit || '';
+    const cb = document.getElementById('p-form-allow-decimal');
+    if (cb) cb.checked = !!product.allowDecimal;
+    syncProductDecimalUI();
+    (Array.isArray(product.uom) ? product.uom : []).forEach(u => addProductUomRow(u));
+    productFormPriceLevels = (product.priceLevels && typeof product.priceLevels === 'object' && !Array.isArray(product.priceLevels)) ? { ...product.priceLevels } : {};
+    Promise.resolve(storeSettingsCache || fetchStoreSettings()).then(renderProductPriceLevelRows).catch(() => renderProductPriceLevelRows());
+}
 async function handleProductFormSubmit(e) {
     e.preventDefault();
     const mode = document.getElementById('p-form-mode').value;
@@ -17512,11 +18267,19 @@ async function handleProductFormSubmit(e) {
         name: document.getElementById('p-form-name').value,
         category: document.getElementById('p-form-category').value,
         price: parseFloat(document.getElementById('p-form-price').value),
-        stock: parseInt(document.getElementById('p-form-stock').value),
+        stock: (document.getElementById('p-form-allow-decimal') && document.getElementById('p-form-allow-decimal').checked)
+            ? qty3(document.getElementById('p-form-stock').value)
+            : parseInt(document.getElementById('p-form-stock').value),
         image: document.getElementById('p-form-image').value ||''
     };
     const costVal = document.getElementById('p-form-cost').value;
     if (costVal !=='') payload.cost = parseFloat(costVal);
+    payload.allowDecimal = !!(document.getElementById('p-form-allow-decimal') && document.getElementById('p-form-allow-decimal').checked);
+    payload.baseUnit = ((document.getElementById('p-form-base-unit') || {}).value || '').trim();
+    const uomRows = collectProductUomRows();
+    if (uomRows === null) return;
+    payload.uom = uomRows;
+    payload.priceLevels = collectProductPriceLevels();
     const supplierVal = document.getElementById('p-form-supplier').value.trim();
     const expiryVal = document.getElementById('p-form-expiry').value;
     const thresholdVal = document.getElementById('p-form-threshold').value;
@@ -17563,8 +18326,9 @@ async function handleProductFormSubmit(e) {
             loadDashboardMetrics();
             clearProductSpecsDraft();
             if (mode ==='ADD' && addProductScanSession.active) {
+                const prevCachedProduct = globalProducts.find(p => p.code === code) || {};
                 globalProducts = globalProducts.filter(p => p.code !== code);
-                globalProducts.push(payload);
+                globalProducts.push({ ...prevCachedProduct, ...payload });
                 addProductScanSession.lastScannedFormCode = null;
                 Swal.fire({
                     title:'Success',
@@ -20455,24 +21219,53 @@ function renderSystemAuditLogsTable() {
 }
 let __saveCartDebounceId = null;
 const SAVE_CART_DEBOUNCE_MS = 600;
+// "Stale server cart" marker: set when a held sale is parked, cleared as soon as ANY cart save reaches the server.
+// While it is set, the cart stored on the server is the one that was just parked, so it must not be restored on
+// the next load (that would bring the held sale back as a second, live copy).
+function getStaleServerCartKey() {
+    const uname = (currentUser && (currentUser.username || currentUser.name)) || 'default';
+    return `omnipos_cart_server_stale_${String(uname).toLowerCase()}`;
+}
+function markServerCartStale() {
+    try { localStorage.setItem(getStaleServerCartKey(), '1'); } catch (e) {  }
+}
+function clearServerCartStaleMarker() {
+    try { localStorage.removeItem(getStaleServerCartKey()); } catch (e) {  }
+}
+async function postCartToServer() {
+    const res = await authFetch(`${API_URL}/cart`, {
+        method:'POST',
+        headers: {'Content-Type':'application/json' },
+        body: JSON.stringify({
+            username: currentUser.username,
+            cart: shoppingCart
+        })
+    });
+    if (res && res.ok) clearServerCartStaleMarker();
+    return !!(res && res.ok);
+}
 function saveCartToDatabase() {
     if (!currentUser || !currentUser.username) return;
     if (__saveCartDebounceId) clearTimeout(__saveCartDebounceId);
     __saveCartDebounceId = setTimeout(async () => {
         __saveCartDebounceId = null;
         try {
-            await authFetch(`${API_URL}/cart`, {
-                method:'POST',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify({
-                    username: currentUser.username,
-                    cart: shoppingCart
-                })
-            });
+            await postCartToServer();
         } catch (error) {
             console.error("Error saving cart to database:", error);
         }
     }, SAVE_CART_DEBOUNCE_MS);
+}
+// Immediate (non-debounced) save, used right after Hold / Resume so the server copy never lags behind.
+async function saveCartToDatabaseNow() {
+    if (!currentUser || !currentUser.username) return false;
+    if (__saveCartDebounceId) { clearTimeout(__saveCartDebounceId); __saveCartDebounceId = null; }
+    try {
+        return await postCartToServer();
+    } catch (error) {
+        console.error("Error saving cart to database:", error);
+        return false;
+    }
 }
 async function loadCartFromDatabase() {
     if (!currentUser || !currentUser.username) return;
@@ -20480,6 +21273,15 @@ async function loadCartFromDatabase() {
         const response = await authFetch(`${API_URL}/cart/${currentUser.username}`);
         const data = await response.json();
         if (data.success) {
+            let staleMarked = false;
+            try { staleMarked = !!localStorage.getItem(getStaleServerCartKey()); } catch (e) {  }
+            if (staleMarked) {
+                // The last Hold never reached the server: this cart is the held sale, not a live one.
+                shoppingCart = [];
+                renderCartRows();
+                saveCartToDatabaseNow();
+                return;
+            }
             shoppingCart = data.cart || [];
             renderCartRows();
         }
@@ -21449,8 +22251,9 @@ async function saveAccumulatedStockIfPending() {
         });
         const reply = await res.json();
         if (reply.success) {
+            const prevCachedProduct = globalProducts.find(p => p.code === code) || {};
             globalProducts = globalProducts.filter(p => p.code !== code);
-            globalProducts.push(payload);
+            globalProducts.push({ ...prevCachedProduct, ...payload });
             loadInventoryProductsTable();
             loadDashboardMetrics();
             return true;
@@ -21534,18 +22337,19 @@ async function handleScanStockPromptInput(rawCode) {
         if (typeof playScanBeep ==='function') playScanBeep();
         let baseStock;
         if (addProductScanSession.lastScannedFormCode === cleanCode) {
-            baseStock = parseInt(stockInput.dataset.baseStock || match.stock) || 0;
-            const currentQty = parseInt(stockInput.value) || 0;
-            stockInput.value = currentQty + 1;
+            baseStock = qty3(stockInput.dataset.baseStock || match.stock);
+            const currentQty = qty3(stockInput.value);
+            stockInput.value = qty3(currentQty + 1);
         } else {
             await saveAccumulatedStockIfPending();
-            baseStock = parseInt(match.stock) || 0;
+            baseStock = qty3(match.stock);
             codeInput.value = match.code;
             document.getElementById('p-form-name').value = match.name;
             document.getElementById('p-form-category').value = match.category;
             document.getElementById('p-form-price').value = match.price;
             document.getElementById('p-form-cost').value = (match.cost !== undefined && match.cost !== null) ? match.cost :'';
-            stockInput.value = baseStock + 1;
+            stockInput.value = qty3(baseStock + 1);
+            fillProductUomForm(match);
             stockInput.dataset.baseStock = baseStock;
             document.getElementById('p-form-supplier').value = match.supplier ||'';
             document.getElementById('p-form-expiry').value = match.expiryDate ||'';
@@ -21608,18 +22412,19 @@ async function handleProductFormScanResult(code) {
     if (match) {
         let baseStock;
         if (addProductScanSession.lastScannedFormCode === code) {
-            baseStock = parseInt(oldStockEl.dataset.base || match.stock) || 0;
-            const currentQty = parseInt(stockInput.value) || 0;
-            stockInput.value = currentQty + 1;
+            baseStock = qty3(oldStockEl.dataset.base || match.stock);
+            const currentQty = qty3(stockInput.value);
+            stockInput.value = qty3(currentQty + 1);
         } else {
             await saveAccumulatedStockIfPending();
-            baseStock = parseInt(match.stock) || 0;
+            baseStock = qty3(match.stock);
             codeInput.value = match.code;
             document.getElementById('p-form-name').value = match.name;
             document.getElementById('p-form-category').value = match.category;
             document.getElementById('p-form-price').value = match.price;
             document.getElementById('p-form-cost').value = (match.cost !== undefined && match.cost !== null) ? match.cost :'';
-            stockInput.value = baseStock + 1;
+            stockInput.value = qty3(baseStock + 1);
+            fillProductUomForm(match);
             document.getElementById('p-form-supplier').value = match.supplier ||'';
             document.getElementById('p-form-expiry').value = match.expiryDate ||'';
             document.getElementById('p-form-threshold').value = (match.lowStockThreshold !== undefined && match.lowStockThreshold !== null) ? match.lowStockThreshold :'';
@@ -21676,18 +22481,19 @@ async function handleHardwareScanProductForm(scannedCode) {
     if (match) {
         let baseStock;
         if (addProductScanSession.lastScannedFormCode === cleanCode) {
-            baseStock = parseInt(stockInput.dataset.baseStock || match.stock) || 0;
-            const currentQty = parseInt(stockInput.value) || 0;
-            stockInput.value = currentQty + 1;
+            baseStock = qty3(stockInput.dataset.baseStock || match.stock);
+            const currentQty = qty3(stockInput.value);
+            stockInput.value = qty3(currentQty + 1);
         } else {
             await saveAccumulatedStockIfPending();
-            baseStock = parseInt(match.stock) || 0;
+            baseStock = qty3(match.stock);
             codeInput.value = match.code;
             document.getElementById('p-form-name').value = match.name;
             document.getElementById('p-form-category').value = match.category;
             document.getElementById('p-form-price').value = match.price;
             document.getElementById('p-form-cost').value = (match.cost !== undefined && match.cost !== null) ? match.cost :'';
-            stockInput.value = baseStock + 1;
+            stockInput.value = qty3(baseStock + 1);
+            fillProductUomForm(match);
             stockInput.dataset.baseStock = baseStock;
             document.getElementById('p-form-supplier').value = match.supplier ||'';
             document.getElementById('p-form-expiry').value = match.expiryDate ||'';
@@ -21914,7 +22720,7 @@ async function handleScannedBarcode(scannedCode) {
     const product = globalProducts.find(p => p.code === scannedCode.trim());
     if (product) {
         const cartItem = shoppingCart.find(item => item.code === product.code);
-        const qtyInBasket = cartItem ? cartItem.quantity : 0;
+        const qtyInBasket = cartItem ? getCartBaseQty(cartItem) : 0;
         if (product.stock <= 0 || qtyInBasket >= product.stock) {
             document.getElementById('qr-scanner-feedback').innerText = `❌ Out of stock or insufficient stock for ${product.name}`;
             document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
@@ -23162,8 +23968,8 @@ async function handleRefundTransaction(transactionId) {
     }
     const refundedQtyMap = tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
     const refundableItems = (tx.items || []).map(item => {
-        const alreadyRefunded = parseInt(refundedQtyMap[item.code], 10) || 0;
-        const maxRefundable = Math.max(0, (parseInt(item.quantity, 10) || 0) - alreadyRefunded);
+        const alreadyRefunded = qty3(refundedQtyMap[item.code]);
+        const maxRefundable = Math.max(0, qty3(qty3(item.quantity) - alreadyRefunded));
         return { ...item, alreadyRefunded, maxRefundable };
     });
     if (refundableItems.every(it => it.maxRefundable <= 0)) {
@@ -23180,7 +23986,7 @@ async function handleRefundTransaction(transactionId) {
                     <div style="font-size:0.85rem; font-weight:600;">${escapeHtml(item.name)}${alreadyNote}</div>
                     <div style="font-size:0.75rem; color:#64748b;">₱${parseFloat(item.price).toFixed(2)} each — remaining refundable: ${item.maxRefundable}</div>
                 </div>
-                <input type="number" class="refund-item-qty" data-idx="${idx}" min="0" max="${item.maxRefundable}" value="${item.maxRefundable > 0 ? item.maxRefundable : 0}" ${disabled} style="width:60px; padding:4px;">
+                <input type="number" class="refund-item-qty" data-idx="${idx}" step="any" min="0" max="${item.maxRefundable}" value="${item.maxRefundable > 0 ? item.maxRefundable : 0}" ${disabled} style="width:60px; padding:4px;">
             </div>
         `;
     }).join('');
@@ -23202,10 +24008,10 @@ async function handleRefundTransaction(transactionId) {
                 if (!chk.checked) return;
                 const idx = chk.getAttribute('data-idx');
                 const qtyInput = document.querySelector(`.refund-item-qty[data-idx="${idx}"]`);
-                const qty = parseInt(qtyInput.value, 10) || 0;
+                const qty = qty3(qtyInput.value);
                 const item = refundableItems[idx];
                 if (qty <= 0) return;
-                if (qty > item.maxRefundable) {
+                if (qty > item.maxRefundable + 1e-6) {
                     Swal.showValidationMessage(`Quantity exceeds the available amount for ${item.name} (max: ${item.maxRefundable})`);
                     return;
                 }
@@ -23581,7 +24387,7 @@ async function handleHardwareScanTerminal(scannedCode) {
     const product = globalProducts.find(p => p.code === cleanCode);
     if (product) {
         const cartItem = shoppingCart.find(item => item.code === product.code);
-        const qtyInBasket = cartItem ? cartItem.quantity : 0;
+        const qtyInBasket = cartItem ? getCartBaseQty(cartItem) : 0;
         if (product.stock <= 0 || qtyInBasket >= product.stock) {
             Swal.fire({
                 toast: true, position:'top-end', icon:'error',
@@ -24320,4 +25126,223 @@ if ('serviceWorker' in navigator) {
             window.location.reload();
         });
     });
+}
+
+// =====================================================================================================
+// BIR Compliance page: AGT, BIR Z-Reading, exports, void log, AGT reset.
+// Talks to /api/bir/* (see server.js + bir-compliance.js). The permission is `bir_compliance`.
+// =====================================================================================================
+let birLastState = null;
+let birZHistoryCache = [];
+function birPeso(v) { return '₱' + (parseFloat(v) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function birFmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString('en-PH', { timeZone: 'Asia/Manila' });
+}
+function birManilaToday() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+}
+function birInvNo(n) { return `INV-${String(Math.max(0, parseInt(n, 10) || 0)).padStart(6, '0')}`; }
+async function birGetJson(path) {
+    const res = await authFetch(`${API_URL}${path}`);
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* non-JSON error page */ }
+    if (!res.ok) throw new Error((data && data.message) || `HTTP ${res.status}`);
+    return data;
+}
+async function loadBirComplianceView() {
+    const fromEl = document.getElementById('bir-export-from');
+    const toEl = document.getElementById('bir-export-to');
+    if (fromEl && !fromEl.value) fromEl.value = birManilaToday();
+    if (toEl && !toEl.value) toEl.value = birManilaToday();
+    try {
+        const [state, zHistory, voids, resets] = await Promise.all([
+            birGetJson('/bir/state'),
+            birGetJson('/bir/z-reading/history?limit=50'),
+            birGetJson('/bir/voids?limit=50'),
+            birGetJson('/bir/reset-history')
+        ]);
+        birLastState = state;
+        birZHistoryCache = Array.isArray(zHistory) ? zHistory : [];
+        renderBirState(state);
+        renderBirZHistory(birZHistoryCache);
+        renderBirVoids(Array.isArray(voids) ? voids : []);
+        renderBirResets(Array.isArray(resets) ? resets : []);
+    } catch (err) {
+        console.error('BIR page load failed:', err);
+        Swal.fire('BIR Compliance', `Could not load BIR data: ${escapeHtml(err.message || 'connection problem')}`, 'error');
+    }
+}
+function renderBirState(state) {
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.innerText = text; };
+    const agt = parseFloat(state.agt) || 0;
+    const baseline = parseFloat(state.baselineAGT) || 0;
+    set('bir-agt', birPeso(agt));
+    set('bir-period-net', birPeso(agt - baseline));
+    set('bir-next-invoice', birInvNo(state.nextInvoiceNumber));
+    set('bir-counters', `${state.zCounter || 0} / ${state.resetCounter || 0}`);
+    const invCount = Math.max(0, (state.nextInvoiceNumber || 1) - (state.invoiceNumberAtPeriodStart || 1));
+    const note = document.getElementById('bir-period-note');
+    if (note) {
+        note.textContent = `Open period: ${invCount} invoice(s) issued since the last Z-Reading (${state.lastZReadingAt ? birFmtDate(state.lastZReadingAt) : 'no Z-Reading yet'}).`;
+    }
+}
+function renderBirZHistory(list) {
+    const body = document.getElementById('bir-z-history-body');
+    if (!body) return;
+    if (!list.length) { body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;">No BIR Z-Readings yet.</td></tr>'; return; }
+    body.innerHTML = list.map(r => `
+        <tr>
+            <td>#${escapeHtml(String(r.zCounter))}</td>
+            <td>${escapeHtml(birFmtDate(r.performedAt))}</td>
+            <td>${birPeso(r.beginningAGT)}</td>
+            <td>${birPeso(r.endingAGT)}</td>
+            <td>${birPeso(r.netSales)}</td>
+            <td>${r.invoiceCount > 0 ? `${escapeHtml(birInvNo(r.invoiceFrom))} – ${escapeHtml(birInvNo(r.invoiceTo))} (${r.invoiceCount})` : '—'}</td>
+            <td>${r.voidCount ? `${r.voidCount} (${birPeso(r.voidAmount)})` : '0'}</td>
+            <td><button type="button" class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="printBirZReadingById('${escapeHtml(r.id)}')"><i class="fa-solid fa-print"></i> Print</button></td>
+        </tr>`).join('');
+}
+function renderBirVoids(list) {
+    const body = document.getElementById('bir-void-log-body');
+    if (!body) return;
+    if (!list.length) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">No voided invoices logged.</td></tr>'; return; }
+    body.innerHTML = list.map(v => `
+        <tr>
+            <td>${escapeHtml(v.invoiceNumber || '—')}</td>
+            <td>${escapeHtml(v.transactionId || '—')}</td>
+            <td>${birPeso(v.amount)}</td>
+            <td>${escapeHtml(v.voidedBy || '—')}</td>
+            <td>${escapeHtml(birFmtDate(v.voidedAt))}</td>
+            <td>${escapeHtml(v.reason || '—')}</td>
+        </tr>`).join('');
+}
+function renderBirResets(list) {
+    const body = document.getElementById('bir-reset-history-body');
+    if (!body) return;
+    if (!list.length) { body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No AGT resets.</td></tr>'; return; }
+    body.innerHTML = list.map(r => `
+        <tr>
+            <td>#${escapeHtml(String(r.resetCounter))}</td>
+            <td>${escapeHtml(birFmtDate(r.performedAt))}</td>
+            <td>${birPeso(r.previousAGT)}</td>
+            <td>${escapeHtml(r.authorizedBy || '—')}</td>
+            <td>${escapeHtml(r.reason || '—')}</td>
+        </tr>`).join('');
+}
+async function runBirZReading() {
+    const st = birLastState;
+    if (!st) { await loadBirComplianceView(); if (!birLastState) return; }
+    const s0 = birLastState;
+    const agt = parseFloat(s0.agt) || 0;
+    const baseline = parseFloat(s0.baselineAGT) || 0;
+    const invFrom = s0.invoiceNumberAtPeriodStart || 1;
+    const invTo = (s0.nextInvoiceNumber || 1) - 1;
+    const confirm = await Swal.fire({
+        title: 'Run BIR Z-Reading?',
+        html: `<div style="text-align:left;font-size:0.9rem;line-height:1.7;">
+            Beginning AGT: <b>${birPeso(baseline)}</b><br>
+            Ending AGT: <b>${birPeso(agt)}</b><br>
+            Net Sales this period: <b>${birPeso(agt - baseline)}</b><br>
+            Invoices: <b>${invTo >= invFrom ? `${birInvNo(invFrom)} – ${birInvNo(invTo)}` : 'none'}</b><br>
+            <span style="color:#b91c1c;">This closes the BIR reading period and cannot be undone.</span></div>`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Run Z-Reading',
+        confirmButtonColor: '#2563eb'
+    });
+    if (!confirm.isConfirmed) return;
+    const btn = document.getElementById('bir-z-btn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await authFetch(`${API_URL}/bir/z-reading`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
+        const r = data.reading;
+        await loadBirComplianceView();
+        const printAsk = await Swal.fire({
+            title: `Z-Reading #${r.zCounter} Saved`,
+            html: `<div style="text-align:left;font-size:0.9rem;line-height:1.7;">Net Sales: <b>${birPeso(r.netSales)}</b><br>Ending AGT: <b>${birPeso(r.endingAGT)}</b></div>`,
+            icon: 'success',
+            showCancelButton: true,
+            confirmButtonText: '<i class="fa-solid fa-print"></i> Print',
+            cancelButtonText: 'Close'
+        });
+        if (printAsk.isConfirmed) printBirZReading(r);
+    } catch (err) {
+        Swal.fire('Z-Reading Failed', escapeHtml(err.message || 'Could not run the Z-Reading.'), 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+function printBirZReadingById(id) {
+    const r = birZHistoryCache.find(x => String(x.id) === String(id));
+    if (r) printBirZReading(r);
+}
+function printBirZReading(r) {
+    if (!r) return;
+    const win = window.open('', '_blank', 'width=380,height=680');
+    if (!win) { Swal.fire('Pop-up Blocked', 'Allow pop-ups for this site, then try again.', 'info'); return; }
+    const bir = (storeSettingsCache && storeSettingsCache.bir) || {};
+    const storeName = (receiptSettingsCache && receiptSettingsCache.storeName) || bir.businessName || 'OmniPOS';
+    const row = (label, value) => `<div class="r"><span>${escapeHtml(label)}</span><span>${escapeHtml(String(value))}</span></div>`;
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>BIR Z-Reading #${escapeHtml(String(r.zCounter))}</title>
+        <style>body{font-family:monospace;font-size:12px;width:300px;margin:8px auto;color:#000}h3,h4{text-align:center;margin:2px 0}.r{display:flex;justify-content:space-between;gap:8px}hr{border:0;border-top:1px dashed #000;margin:6px 0}</style></head><body>
+        <h3>${escapeHtml(storeName)}</h3>
+        ${bir.tin ? `<h4>TIN: ${escapeHtml(bir.tin)}</h4>` : ''}
+        ${bir.min ? `<h4>MIN: ${escapeHtml(bir.min)}</h4>` : ''}
+        <h4>Z-READING #${escapeHtml(String(r.zCounter))}</h4><hr>
+        ${row('Date', birFmtDate(r.performedAt))}
+        ${row('Authorized by', r.authorizedBy || '—')}<hr>
+        ${row('Beginning AGT', birPeso(r.beginningAGT))}
+        ${row('Ending AGT', birPeso(r.endingAGT))}
+        ${row('Net Sales', birPeso(r.netSales))}<hr>
+        ${row('First Invoice', r.invoiceCount > 0 ? birInvNo(r.invoiceFrom) : '—')}
+        ${row('Last Invoice', r.invoiceCount > 0 ? birInvNo(r.invoiceTo) : '—')}
+        ${row('Invoice Count', r.invoiceCount)}
+        ${row('Void Count', r.voidCount)}
+        ${row('Void Amount', birPeso(r.voidAmount))}<hr>
+        ${row('AGT Resets to date', r.resetCounterAtReading)}
+        </body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch (e) { /* user can print manually */ } }, 300);
+}
+async function downloadBirExport(kind) {
+    const from = (document.getElementById('bir-export-from') || {}).value;
+    const to = (document.getElementById('bir-export-to') || {}).value;
+    if (!from || !to) { Swal.fire('Choose Dates', 'Pick the From and To dates first.', 'info'); return; }
+    if (from > to) { Swal.fire('Invalid Range', 'The From date must not be later than the To date.', 'warning'); return; }
+    const ext = kind === 'ejournal' ? 'txt' : (kind === 'sales-book' ? 'csv' : 'json');
+    await downloadAuthFetch(`${API_URL}/bir/export/${kind}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, `bir_${kind}_${from}_to_${to}.${ext}`);
+}
+async function resetBirAgt() {
+    const { value, isConfirmed } = await Swal.fire({
+        title: 'Reset Accumulated Grand Total?',
+        html: `<div style="text-align:left;font-size:0.85rem;color:#475569;margin-bottom:8px;">The AGT goes back to ₱0.00. This is recorded permanently with your reason. Invoice numbering is not affected.</div>
+               <textarea id="bir-reset-reason" class="swal2-textarea" placeholder="Reason (required)" style="width:100%;margin:0 0 8px;box-sizing:border-box;"></textarea>
+               <input id="bir-reset-password" type="password" class="swal2-input" placeholder="Admin password (or your own, if authorized)" style="width:100%;margin:0;box-sizing:border-box;" autocomplete="off">`,
+        showCancelButton: true,
+        confirmButtonText: 'Reset AGT',
+        confirmButtonColor: '#dc2626',
+        focusConfirm: false,
+        preConfirm: () => {
+            const reason = (document.getElementById('bir-reset-reason').value || '').trim();
+            const adminPassword = document.getElementById('bir-reset-password').value || '';
+            if (!reason) { Swal.showValidationMessage('A reason is required.'); return false; }
+            if (!adminPassword) { Swal.showValidationMessage('A password is required.'); return false; }
+            return { reason, adminPassword };
+        }
+    });
+    if (!isConfirmed || !value) return;
+    try {
+        const res = await authFetch(`${API_URL}/bir/reset-agt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
+        await loadBirComplianceView();
+        Swal.fire('AGT Reset', `Previous AGT ${birPeso(data.reset.previousAGT)} was recorded as reset #${data.reset.resetCounter}.`, 'success');
+    } catch (err) {
+        Swal.fire('Reset Failed', escapeHtml(err.message || 'Could not reset the AGT.'), 'error');
+    }
 }

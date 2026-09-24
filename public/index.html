@@ -190,6 +190,7 @@
         html.has-session[data-preload-view="logs"] #view-logs { display: block !important; }
         html.has-session[data-preload-view="debts"] #view-debts { display: block !important; }
         html.has-session[data-preload-view="shiftreport"] #view-shiftreport { display: block !important; }
+        html.has-session[data-preload-view="bir_compliance"] #view-bir_compliance { display: block !important; }
         html.has-session[data-preload-view="cloudtokens"] #view-cloudtokens { display: block !important; }
         html.has-session[data-preload-view="branches"] #view-branches { display: block !important; }
         html.has-session[data-preload-view="attendance"] #view-attendance { display: block !important; }
@@ -214,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260921-3">
+    <link rel="stylesheet" href="style.css?v=20260924-3">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -390,6 +391,7 @@
                 <a href="#" class="menu-item" id="menu-customers" onclick="switchView('customers')"><i class="fa-solid fa-address-book"></i> Customers <span id="menu-customers-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-customers-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-debts" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar"></i> Debtors <span id="menu-debts-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-debts-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-bir_compliance" onclick="switchView('bir_compliance')"><i class="fa-solid fa-file-invoice"></i> BIR Compliance</a>
                 <a href="#" class="menu-item" id="menu-branches" onclick="switchView('branches')"><i class="fa-solid fa-code-branch"></i> Branches <span id="menu-branches-alert-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span> <span id="menu-branches-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-branches-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-attendance" onclick="switchView('attendance')"><i class="fa-solid fa-camera"></i> Staff Attendance <span id="menu-attendance-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-attendance-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-remoteops" onclick="switchView('remoteops')"><i class="fa-solid fa-mobile-screen-button"></i> Remote Operations <span id="menu-remoteops-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-remoteops-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
@@ -685,12 +687,14 @@
                     <div class="terminal-container">
                         <div class="terminal-cart-pane" id="terminal-cart-pane">
                             <div class="cart-header" id="terminal-cart-header" title="I-drag ang header na ito papuntang kanan para ipalit ang pwesto ng Order at Products (Desktop lang)">
-                                <span><i class="pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> Order <span id="cart-badge" class="badge">0</span></span>
+                                <span class="cart-title" title="Order"><i class="pane-drag-handle" aria-hidden="true"></i> <i class="fa-solid fa-cart-shopping"></i> <span class="cart-title-label">Order</span> <span id="cart-badge" class="badge">0</span></span>
                                 <div class="cart-header-actions">
                                     <button class="btn-print-preview" onclick="openReceiptPreview()" title="Print Preview"><i class="fa-solid fa-receipt"></i> <span class="btn-print-preview-label">Preview</span></button>
                                     <button class="btn-terminal-settings" onclick="openTerminalSettingsModal()" title="Terminal Settings"><i class="fa-solid fa-gear"></i> <span class="btn-terminal-settings-label">Settings</span></button>
                                     <button class="btn-price-check" onclick="openPriceCheck()" title="Price Check"><i class="fa-solid fa-tags"></i> <span class="btn-price-check-label">Price Check</span></button>
-                                    <button class="btn-clear" onclick="handleClearCart()"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                                    <button class="btn-hold-sale" onclick="handleHoldSale()" title="Hold this sale and start a new one" aria-label="Hold sale"><i class="fa-solid fa-pause"></i> <span class="btn-hold-sale-label">Hold</span></button>
+                                    <button class="btn-held-sales" id="held-sales-btn" onclick="openHeldSalesModal()" title="View held/parked sales" aria-label="Held sales (0)"><i class="fa-solid fa-layer-group"></i> <span class="btn-held-sales-label">Held</span><span class="held-sales-count is-empty">0</span></button>
+                                    <button class="btn-clear" onclick="handleClearCart()" title="Clear cart" aria-label="Clear cart"><i class="fa-solid fa-trash-can"></i> <span class="btn-clear-label">Clear</span></button>
                                 </div>
                             </div>
 
@@ -716,6 +720,10 @@
                                         <input type="number" id="cart-loyalty-input" min="0" step="1" placeholder="0" style="width:64px;" autocomplete="off">
                                         <button class="btn-apply-promo" onclick="applyLoyaltyPointsToCart()">Redeem</button>
                                     </div>
+                                </div>
+                                <div class="summary-row cart-customer-subpane" id="cart-price-level-row" style="display:none;">
+                                    <span><i class="fa-solid fa-tags"></i> Price Level</span>
+                                    <select id="cart-price-level-select" onchange="setCartPriceLevel(this.value)" style="max-width:150px;padding:4px 6px;"></select>
                                 </div>
                                 <div class="summary-row cart-promo-row cart-customer-subpane">
                                     <input type="text" id="cart-promo-input" placeholder="Promo code (optional)" style="text-transform:uppercase;" autocomplete="off">
@@ -1250,6 +1258,9 @@
                         <div class="report-container" style="padding: 20px;">
                             <h3><i class="fa-solid fa-cash-register"></i> Close Shift (Z-Reading)</h3>
                             <p class="recovery-desc">This closes the current shift and starts a new shift period. This action cannot be undone.</p>
+                            <button type="button" id="shift-xreading-btn" class="btn-action-outline" style="margin-bottom:14px;" onclick="printXReading()" title="Print a running-total snapshot without closing the shift">
+                                <i class="fa-solid fa-print"></i> Print X-Reading (Mid-Shift, does not close)
+                            </button>
                             <div class="shift-cash-input-grid">
                                 <div>
                                     <label class="input-label-field">Beginning Cash Float <small style="opacity:.7;">(set at the start of the shift by the cashier)</small></label>
@@ -1285,6 +1296,77 @@
                         <button type="button" id="shift-history-load-more-btn" class="btn-action-outline" style="display:none; margin:0 auto;" onclick="loadMoreShiftHistory()">
                             <i class="fa-solid fa-rotate"></i> Load More
                         </button>
+                    </div>
+                </section>
+
+
+                <section id="view-bir_compliance" class="app-view" style="display:none;">
+                    <h2 id="page-title-bir_compliance">BIR Compliance</h2>
+                    <p class="recovery-desc" style="margin:0 0 14px;">Accumulated Grand Total (AGT), BIR Z-Reading, at mga export (e-Journal, Sales Book, EIS). Hiwalay ito sa Shift / Z-Reading ng cashier (cash count).</p>
+
+                    <div class="metrics-grid shift-metrics-grid" id="bir-metrics">
+                        <div class="metric-card"><div class="metric-icon accent"><i class="fa-solid fa-sack-dollar"></i></div><div><p class="metric-label">Accumulated Grand Total</p><h3 id="bir-agt">₱0.00</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon green"><i class="fa-solid fa-wallet"></i></div><div><p class="metric-label" title="AGT minus AGT at the last Z-Reading">Net Sales (Open Period)</p><h3 id="bir-period-net">₱0.00</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon neutral"><i class="fa-solid fa-hashtag"></i></div><div><p class="metric-label">Next Invoice No.</p><h3 id="bir-next-invoice">INV-000001</h3></div></div>
+                        <div class="metric-card"><div class="metric-icon warning"><i class="fa-solid fa-rotate"></i></div><div><p class="metric-label">Z-Reading / AGT Reset Counter</p><h3 id="bir-counters">0 / 0</h3></div></div>
+                    </div>
+                    <div id="bir-period-note" style="font-size:.8rem;color:var(--text-muted);margin:-4px 4px 14px;"></div>
+
+                    <div class="shift-columns-grid">
+                        <div class="report-container" style="padding: 20px;">
+                            <h3><i class="fa-solid fa-file-circle-check"></i> BIR Z-Reading</h3>
+                            <p class="recovery-desc">Isinasara nito ang kasalukuyang BIR reading period: itatala ang Beginning AGT, Ending AGT, Net Sales at saklaw na invoice numbers. Hindi ito mababawi.</p>
+                            <button type="button" class="btn-confirm-payment-action" id="bir-z-btn" onclick="runBirZReading()"><i class="fa-solid fa-file-circle-check"></i> Run Z-Reading Now</button>
+                        </div>
+                        <div class="report-container" style="padding: 20px;">
+                            <h3><i class="fa-solid fa-download"></i> Exports</h3>
+                            <div class="shift-cash-input-grid">
+                                <div>
+                                    <label class="input-label-field">From</label>
+                                    <input type="date" id="bir-export-from" class="large-payment-input" autocomplete="off">
+                                </div>
+                                <div>
+                                    <label class="input-label-field">To</label>
+                                    <input type="date" id="bir-export-to" class="large-payment-input" autocomplete="off">
+                                </div>
+                            </div>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+                                <button type="button" class="btn-action-outline" onclick="downloadBirExport('ejournal')"><i class="fa-solid fa-file-lines"></i> e-Journal (.txt)</button>
+                                <button type="button" class="btn-action-outline" onclick="downloadBirExport('sales-book')"><i class="fa-solid fa-table"></i> Sales Book (.csv)</button>
+                                <button type="button" class="btn-action-outline" onclick="downloadBirExport('eis')"><i class="fa-solid fa-code"></i> EIS JSON</button>
+                            </div>
+                            <p class="recovery-desc" style="margin-top:10px;">Ang petsa ay batay sa oras sa Pilipinas (Manila).</p>
+                        </div>
+                    </div>
+
+                    <div class="report-container" style="padding: 20px; margin-top:16px; border:1px solid #fecaca;">
+                        <h3 style="color:#b91c1c;"><i class="fa-solid fa-triangle-exclamation"></i> Reset Accumulated Grand Total</h3>
+                        <p class="recovery-desc">Para lang ito sa mga espesyal na kaso (hal. bagong machine/PTU o kapag pinayagan ng BIR). Kailangan ng dahilan at password. Naitatala ito sa reset history at hindi ginagalaw ang invoice numbering.</p>
+                        <button type="button" class="btn-action-outline" style="color:#dc2626;border-color:#dc2626;" onclick="resetBirAgt()"><i class="fa-solid fa-rotate-left"></i> Reset AGT…</button>
+                    </div>
+
+                    <h2 style="margin:22px 0 4px 7px;">Z-Reading History</h2>
+                    <div class="table-container" style="margin-top:4px;">
+                        <table class="data-table">
+                            <thead><tr><th>Z #</th><th>Performed</th><th>Beginning AGT</th><th>Ending AGT</th><th>Net Sales</th><th>Invoices</th><th>Voids</th><th></th></tr></thead>
+                            <tbody id="bir-z-history-body"></tbody>
+                        </table>
+                    </div>
+
+                    <h2 style="margin:22px 0 4px 7px;">Void Log</h2>
+                    <div class="table-container" style="margin-top:4px;">
+                        <table class="data-table">
+                            <thead><tr><th>Invoice No.</th><th>Transaction</th><th>Amount</th><th>Voided By</th><th>Voided At</th><th>Reason</th></tr></thead>
+                            <tbody id="bir-void-log-body"></tbody>
+                        </table>
+                    </div>
+
+                    <h2 style="margin:22px 0 4px 7px;">AGT Reset History</h2>
+                    <div class="table-container" style="margin-top:4px;">
+                        <table class="data-table">
+                            <thead><tr><th>Reset #</th><th>Performed</th><th>Previous AGT</th><th>Authorized By</th><th>Reason</th></tr></thead>
+                            <tbody id="bir-reset-history-body"></tbody>
+                        </table>
                     </div>
                 </section>
 
@@ -2214,6 +2296,62 @@
             <div class="input-field-group">
                 <label>Redeem Value (₱ discount per 1 point)</label>
                 <input type="number" id="ss-loyalty-point-value" min="0" step="0.01" placeholder="e.g. 1" autocomplete="off">
+            </div>
+
+            <h3 style="margin-top:24px; display:flex; align-items:center; gap:8px; font-size:1.05rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                <i class="fa-solid fa-tags"></i> Price Levels
+            </h3>
+            <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
+                Optional. Ilagay ang mga pangalan ng price level (hal. Wholesale, Reseller). Pagkatapos, lagyan ng presyo bawat level sa Product form. Ang regular na Price ang Retail/default. Ang cashier lang na may permission na "Select a Non-Default Price Level" ang makakapili nito sa POS.
+            </p>
+            <div class="input-field-group">
+                <label>Price Level Names <span style="font-weight:normal;color:#94a3b8;">(hiwalay ng comma, max 10)</span></label>
+                <input type="text" id="ss-price-levels" maxlength="200" placeholder="e.g. Wholesale, Reseller" autocomplete="off">
+            </div>
+            <h3 style="margin-top:24px; display:flex; align-items:center; gap:8px; font-size:1.05rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                <i class="fa-solid fa-file-invoice"></i> BIR Receipt Details
+            </h3>
+            <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
+                Ilalagay sa header ng resibo (print, Bluetooth/Network printer, at email) ang TIN, VAT status, MIN, Serial No. at PTU No. ng business. Ilagay ang eksaktong detalye ayon sa BIR registration mo &mdash; hindi ito nagpapalit ng accreditation o permit.
+            </p>
+            <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="ss-bir-enabled" style="width:auto;" autocomplete="off">
+                <label style="margin:0;" for="ss-bir-enabled">Ipakita ang BIR details sa resibo</label>
+            </div>
+            <div class="input-field-group">
+                <label>Uri ng Dokumento <small style="font-weight:normal;color:#64748b;">(nakasulat sa taas ng resibo)</small></label>
+                <select id="ss-bir-doc-title" autocomplete="off">
+                    <option value="SALES INVOICE">SALES INVOICE</option>
+                    <option value="OFFICIAL RECEIPT">OFFICIAL RECEIPT</option>
+                    <option value="">Walang title</option>
+                </select>
+            </div>
+            <div class="input-field-group">
+                <label>Registered Business Name <small style="font-weight:normal;color:#64748b;">(opsyonal, kung iba sa Store Name)</small></label>
+                <input type="text" id="ss-bir-business-name" maxlength="80" placeholder="e.g. Juan Dela Cruz / ABC Trading Corp." autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>TIN <small style="font-weight:normal;color:#64748b;">(9&ndash;14 digits, hal. 123-456-789-00000)</small></label>
+                <input type="text" id="ss-bir-tin" maxlength="20" placeholder="123-456-789-00000" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>VAT Status</label>
+                <select id="ss-bir-vat-status" autocomplete="off">
+                    <option value="VAT">VAT-Registered (VAT REG TIN)</option>
+                    <option value="NON_VAT">Non-VAT (NON-VAT REG TIN)</option>
+                </select>
+            </div>
+            <div class="input-field-group">
+                <label>MIN <small style="font-weight:normal;color:#64748b;">(Machine Identification Number, opsyonal)</small></label>
+                <input type="text" id="ss-bir-min" maxlength="40" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>Serial Number <small style="font-weight:normal;color:#64748b;">(S/N ng makina/terminal, opsyonal)</small></label>
+                <input type="text" id="ss-bir-serial" maxlength="40" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>PTU No. <small style="font-weight:normal;color:#64748b;">(Permit to Use, opsyonal)</small></label>
+                <input type="text" id="ss-bir-ptu" maxlength="40" autocomplete="off">
             </div>
 
             <h3 style="margin-top:24px; display:flex; align-items:center; gap:8px; font-size:1.05rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
@@ -3532,6 +3670,7 @@
                     <p class="receipt-store-sub" id="r-store-address">Your Store Address Here</p>
                     <p class="receipt-store-sub" id="r-store-contact">Tel: (xxx) xxx-xxxx</p>
                     <p class="receipt-store-sub" id="r-header-text" style="display:none;"></p>
+                    <div id="r-bir-block" style="display:none;"></div>
                     <hr class="dashed-divider">
                     <div class="receipt-items-scroll-wrapper">
                     <div class="receipt-meta-grid">
@@ -3539,6 +3678,10 @@
                         <div class="text-right" id="r-date">Apr 26, 2026</div>
                         <div>Cashier: <span id="r-cashier">admin</span></div>
                         <div class="text-right" id="r-time">14:49</div>
+                    </div>
+                    <div class="receipt-meta-grid" id="r-inv-row" style="display:none;">
+                        <div>Invoice No.: <span id="r-inv-no"></span></div>
+                        <div></div>
                     </div>
                     <div class="receipt-meta-grid" id="r-customer-row" style="display:none;">
                         <div>Customer: <span id="r-customer-name"></span></div>
@@ -3607,6 +3750,7 @@
                     <p class="receipt-store-sub" id="rp-store-address">Your Store Address Here</p>
                     <p class="receipt-store-sub" id="rp-store-contact">Tel: (xxx) xxx-xxxx</p>
                     <p class="receipt-store-sub" id="rp-header-text" style="display:none;"></p>
+                    <div id="rp-bir-block" style="display:none;"></div>
                     <hr class="dashed-divider">
                     <div class="receipt-items-scroll-wrapper">
                     <div class="receipt-meta-grid">
@@ -3747,7 +3891,24 @@
                     </div>
                     <div class="input-field-group">
                         <label>Stock Quantity</label>
-                        <input type="number" id="p-form-stock" required placeholder="0" autocomplete="off">
+                        <input type="number" id="p-form-stock" required placeholder="0" step="1" autocomplete="off">
+                    </div>
+                    <div class="input-field-group">
+                        <label>Base Unit <span style="font-weight:normal;color:#94a3b8;">(optional — hal. pcs, kg, sachet; ito ang unit ng Stock at ng Price sa itaas)</span></label>
+                        <input type="text" id="p-form-base-unit" maxlength="15" placeholder="e.g. pcs" autocomplete="off" oninput="renderProductUomRowHints()">
+                    </div>
+                    <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="p-form-allow-decimal" style="width:auto;" onchange="syncProductDecimalUI()" autocomplete="off">
+                        <label style="margin:0;" for="p-form-allow-decimal">Ibenta nang may decimal (timbang/haba, hal. 0.5 kg)</label>
+                    </div>
+                    <div class="input-field-group">
+                        <label>Other Units of Measure <span style="font-weight:normal;color:#94a3b8;">(optional — hal. Box = 24 pcs)</span></label>
+                        <div id="p-form-uom-rows"></div>
+                        <button type="button" class="btn-action-outline" onclick="addProductUomRow()"><i class="fa-solid fa-plus"></i> Add Unit</button>
+                    </div>
+                    <div class="input-field-group" id="p-form-price-levels-group" style="display:none;">
+                        <label>Price Levels <span style="font-weight:normal;color:#94a3b8;">(optional — iwanang blangko para gamitin ang regular na Price)</span></label>
+                        <div id="p-form-price-levels-rows"></div>
                     </div>
                     <div class="input-field-group">
                         <label>Supplier <span style="font-weight:normal;color:#94a3b8;">(optional)</span></label>
@@ -4611,14 +4772,14 @@
 </div>
 <script src="/socket.io/socket.io.js"></script>
 
-<script src="bt-printer.js"></script>
+<script src="bt-printer.js?v=20260924-2"></script>
 <script src="printer-manager.js"></script>
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js"></script>
 <script src="faq-engine.js"></script>
 <script src="offline-storage.js?v=20260922-1"></script>
-<script src="app.js?v=20260921-3"></script>
+<script src="app.js?v=20260924-3"></script>
 <script src="app1.js?v=20260921-2"></script>
 
 

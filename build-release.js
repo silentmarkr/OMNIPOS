@@ -75,6 +75,9 @@ const SERVER_TARGETS = new Set([
   // plain-text sa release/OMNIPOS.
   "cloud-snapshot.js",
   "webauthn.js",
+  // New backend modules require()-d by server.js (BIR compliance + UOM/price-level math).
+  "bir-compliance.js",
+  "uom-pricing.js",
 ]);
 
 const ENV_LOADER_FILENAME = "env-loader.js";

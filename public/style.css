@@ -2511,6 +2511,84 @@ body.cart-pane-resizing-cursor {
         display: none;
     }
 }
+.cart-header-actions .btn-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+@media screen and (max-width: 1024px) {
+    .cart-header-actions .btn-clear {
+        padding: 6px 8px;
+        gap: 0;
+    }
+    .cart-header-actions .btn-clear-label {
+        display: none;
+    }
+}
+.btn-hold-sale,
+.btn-held-sales {
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    position: relative;
+}
+.btn-hold-sale {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+.btn-held-sales {
+    background-color: rgba(6, 182, 212, 0.15);
+    color: #22d3ee;
+}
+.btn-held-sales.has-held-sales {
+    background-color: rgba(6, 182, 212, 0.28);
+}
+/* Held count badge: inline pill on desktop (dimmed at 0), corner badge on icon-only mobile buttons */
+.held-sales-count {
+    background-color: #06b6d4;
+    color: #ffffff;
+    min-width: 18px;
+    padding: 1px 6px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    text-align: center;
+    font-weight: 700;
+}
+.held-sales-count.is-empty {
+    background-color: rgba(148, 163, 184, 0.35);
+}
+@media screen and (max-width: 1024px) {
+    .btn-hold-sale,
+    .btn-held-sales {
+        padding: 6px 8px;
+        gap: 0;
+    }
+    .btn-hold-sale-label,
+    .btn-held-sales-label {
+        display: none;
+    }
+    .held-sales-count {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        min-width: 16px;
+        padding: 1px 4px;
+        font-size: 0.65rem;
+        box-shadow: 0 0 0 2px var(--terminal-border, #1e1e2d);
+    }
+    .held-sales-count.is-empty {
+        display: none;
+    }
+}
 .cart-items-wrapper {
     flex: 1 1 auto;
     min-height: 0;
@@ -6619,6 +6697,42 @@ body.dark-mode .bottom-nav-item:active {
     }
     .btn-price-check-label {
         display: none;
+    }
+    .btn-hold-sale,
+    .btn-held-sales,
+    .cart-header-actions .btn-clear {
+        min-height: 40px;
+        width: 40px;
+        padding: 8px;
+        justify-content: center;
+        gap: 0;
+    }
+    /* Order title: icon-only 40x40 tile with the item count as a corner badge (same size as its sibling buttons) */
+    .cart-header .cart-title {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+        border-radius: 6px;
+        background-color: rgba(148, 163, 184, 0.15);
+    }
+    .cart-header .cart-title-label {
+        display: none;
+    }
+    .cart-header .cart-title .badge {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        margin-left: 0;
+        min-width: 16px;
+        padding: 1px 4px;
+        font-size: 0.65rem;
+        line-height: 1.2;
+        text-align: center;
+        font-weight: 700;
     }
     .t-product-card {
         min-height: 44px;

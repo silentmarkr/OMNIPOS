@@ -18,6 +18,8 @@ const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
 const { db: sqliteDb, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
+const birCompliance = require('./bir-compliance');
+const uomPricing = require('./uom-pricing');
 const webauthn = require('./webauthn');
 try {
     require('./env-loader')();
@@ -461,6 +463,7 @@ const FILE_ATTENDANCE = 'attendanceRecords';
 const MENU_REGISTRY = [
     { key:'overview',     label:'Overview / Home Dashboard (Landing Page After Login)', group:'Core' },
     { key:'terminal',     label:'POS Terminal', group:'Core' },
+    { key:'price_level_select', label:'POS Terminal — Select a Non-Default Price Level at Checkout (e.g. Wholesale)', group:'Core' },
     { key:'dashboard',    label:'Inventory Dashboard', group:'Core' },
     { key:'products',     label:'Products', group:'Core' },
     { key:'products_direct_apply', label:'Products — Add/Update/Delete Direct Apply (No Approval Needed)', group:'Core' },
@@ -483,6 +486,8 @@ const MENU_REGISTRY = [
     { key:'shiftreport_view_amounts', label:'Shift / Z-Reading — View Sales Amounts (Gross/Discount/Net)', group:'Shift / Z-Reading' },
     { key:'shift_close_control', label:'Shift / Z-Reading — Admin/Supervisor Control (Close Other Cashiers\' Shift)', group:'Shift / Z-Reading' },
     { key:'shift_close_own_password', label:'Shift / Z-Reading — Can Authorize Close Using Own Password (Admin Password Not Required)', group:'Shift / Z-Reading' },
+    { key:'bir_compliance', label:'BIR Compliance — View AGT, Run Z-Reading, Generate e-Journal / Sales Book / EIS Exports', group:'BIR Compliance' },
+    { key:'bir_reset_own_password', label:'BIR Compliance — Authorize Accumulated Grand Total (AGT) Reset Using Own Password (Admin Password Not Required)', group:'BIR Compliance' },
     { key:'reorder', label:'Reorder Alerts / Purchase Orders', group:'Reorder / Purchase Orders' },
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)', group:'Reorder / Purchase Orders' },
     { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
@@ -611,6 +616,9 @@ function findManualDiscountAuthorizer(users, password) {
 }
 function findShiftCloseAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'shift_close_own_password');
+}
+function findBirResetAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'bir_reset_own_password');
 }
 function findDebtDeleteAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'debt_delete_own_password');
@@ -1621,6 +1629,17 @@ const DEFAULT_STORE_SETTINGS = {
     loyaltyEnabled: true,
     loyaltyEarnRate: 100,
     loyaltyPointValue: 1,
+    priceLevels: [],
+    bir: {
+        enabled: false,
+        docTitle: 'SALES INVOICE',
+        businessName: '',
+        tin: '',
+        vatStatus: 'VAT',
+        ptuNo: '',
+        min: '',
+        serialNo: ''
+    },
     branchName: '',
     branchGroupKey: '',
     updatedAt: null
@@ -1632,6 +1651,67 @@ function sanitizeQrImageDataUrl(val) {
     if (!/^data:image\/(png|jpeg|jpg|webp);base64,/.test(val)) return null;
     if (val.length > MAX_QR_IMAGE_DATAURL_LENGTH) return null;
     return val;
+}
+const VALID_BIR_DOC_TITLES = ['SALES INVOICE', 'OFFICIAL RECEIPT', ''];
+const VALID_BIR_VAT_STATUSES = ['VAT', 'NON_VAT'];
+const DEFAULT_BIR_SETTINGS = {
+    enabled: false,
+    docTitle: 'SALES INVOICE',
+    businessName: '',
+    tin: '',
+    vatStatus: 'VAT',
+    ptuNo: '',
+    min: '',
+    serialNo: ''
+};
+function cleanBirText(val, maxLen) {
+    if (typeof val !== 'string') return '';
+    return val.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLen);
+}
+function sanitizeBirSettings(raw) {
+    const r = (raw && typeof raw === 'object') ? raw : {};
+    return {
+        enabled: r.enabled === true,
+        docTitle: VALID_BIR_DOC_TITLES.includes(r.docTitle) ? r.docTitle : DEFAULT_BIR_SETTINGS.docTitle,
+        businessName: cleanBirText(r.businessName, 80),
+        tin: cleanBirText(r.tin, 20),
+        vatStatus: VALID_BIR_VAT_STATUSES.includes(r.vatStatus) ? r.vatStatus : DEFAULT_BIR_SETTINGS.vatStatus,
+        ptuNo: cleanBirText(r.ptuNo, 40),
+        min: cleanBirText(r.min, 40),
+        serialNo: cleanBirText(r.serialNo, 40)
+    };
+}
+function validateBirSettings(bir, taxEnabled) {
+    if (!bir) return null;
+    if (bir.tin) {
+        const digits = bir.tin.replace(/\D/g, '');
+        if (/[^0-9\-\s]/.test(bir.tin) || digits.length < 9 || digits.length > 14) {
+            return 'Di-wasto ang TIN. Numero lang (may dash o space) na 9 hanggang 14 digits, hal. 123-456-789-00000.';
+        }
+    }
+    if (!bir.enabled) return null;
+    if (!bir.tin) {
+        return 'Kailangan ang TIN kapag naka-on ang BIR Receipt Details.';
+    }
+    if (bir.vatStatus === 'NON_VAT' && taxEnabled) {
+        return 'Naka-set na NON-VAT ang business pero naka-on ang VAT/Tax sa itaas. I-off muna ang Tax, o palitan ang VAT Status sa VAT-Registered.';
+    }
+    if (bir.vatStatus === 'VAT' && !taxEnabled) {
+        return 'Naka-set na VAT-Registered ang business pero naka-off ang VAT/Tax sa itaas. I-on muna ang Tax (12%), o palitan ang VAT Status sa NON-VAT.';
+    }
+    return null;
+}
+function buildBirReceiptLines(rawBir) {
+    const b = sanitizeBirSettings(rawBir);
+    if (!b.enabled) return [];
+    const lines = [];
+    if (b.docTitle) lines.push({ text: b.docTitle, bold: true });
+    if (b.businessName) lines.push({ text: b.businessName, bold: false });
+    if (b.tin) lines.push({ text: `${b.vatStatus === 'VAT' ? 'VAT REG' : 'NON-VAT REG'} TIN: ${b.tin}`, bold: false });
+    if (b.min) lines.push({ text: `MIN: ${b.min}`, bold: false });
+    if (b.serialNo) lines.push({ text: `S/N: ${b.serialNo}`, bold: false });
+    if (b.ptuNo) lines.push({ text: `PTU No: ${b.ptuNo}`, bold: false });
+    return lines;
 }
 function getStoreSettingsPublic(rawSettings) {
     const s = rawSettings || DEFAULT_STORE_SETTINGS;
@@ -1657,6 +1737,21 @@ function getStoreSettingsPublic(rawSettings) {
         loyaltyEnabled: s.loyaltyEnabled !== false,
         loyaltyEarnRate: Number.isFinite(s.loyaltyEarnRate) && s.loyaltyEarnRate > 0 ? s.loyaltyEarnRate : DEFAULT_STORE_SETTINGS.loyaltyEarnRate,
         loyaltyPointValue: Number.isFinite(s.loyaltyPointValue) && s.loyaltyPointValue >= 0 ? s.loyaltyPointValue : DEFAULT_STORE_SETTINGS.loyaltyPointValue,
+        priceLevels: Array.isArray(s.priceLevels)
+            ? (() => {
+                const seen = new Set();
+                return s.priceLevels
+                    .map(l => String(l || '').trim().slice(0, 30))
+                    .filter(l => {
+                        const k = l.toLowerCase();
+                        if (!l || k === 'default' || k === 'retail' || seen.has(k)) return false;
+                        seen.add(k);
+                        return true;
+                    })
+                    .slice(0, 10);
+            })()
+            : DEFAULT_STORE_SETTINGS.priceLevels,
+        bir: sanitizeBirSettings(s.bir),
         branchName: typeof s.branchName === 'string' ? s.branchName.trim().slice(0, 60) : '',
         branchGroupKey: typeof s.branchGroupKey === 'string' ? s.branchGroupKey.trim().slice(0, 120) : '',
         updatedAt: s.updatedAt || null
@@ -1708,6 +1803,13 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
     }
     if (incoming.loyaltyPointValue < 0) {
         return res.status(400).json({ success: false, message: 'Ang Loyalty point value ay hindi puwedeng negative.' });
+    }
+    if ((req.body || {}).bir === undefined) {
+        incoming.bir = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir;
+    }
+    const birError = validateBirSettings(incoming.bir, incoming.taxEnabled);
+    if (birError) {
+        return res.status(400).json({ success: false, message: birError });
     }
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).store_settings_direct_apply;
@@ -1934,7 +2036,7 @@ function recordAndCountVelocity(cashier, kind, windowMinutes) {
 }
 function checkDiscountAnomaly(transaction, thresholds) {
     const cashier = transaction.cashier;
-    const grossSubtotal = (transaction.items || []).reduce((sum, it) => sum + (parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0), 0);
+    const grossSubtotal = (transaction.items || []).reduce((sum, it) => sum + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 0), 0);
     if (grossSubtotal <= 0) return null;
     const totalDiscount = (parseFloat(transaction.discount) || 0) + (transaction.items || []).reduce((s, it) => s + (parseFloat(it.itemDiscount) || 0), 0);
     const currentPct = (totalDiscount / grossSubtotal) * 100;
@@ -1943,7 +2045,7 @@ function checkDiscountAnomaly(transaction, thresholds) {
         .filter(t => t.cashier === cashier && t.id !== transaction.id)
         .slice(0, 30)
         .map(t => {
-            const g = (t.items || []).reduce((sum, it) => sum + (parseFloat(it.price) || 0) * (parseInt(it.quantity) || 0), 0);
+            const g = (t.items || []).reduce((sum, it) => sum + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 0), 0);
             if (g <= 0) return null;
             const d = (parseFloat(t.discount) || 0) + (t.items || []).reduce((s, it) => s + (parseFloat(it.itemDiscount) || 0), 0);
             return (d / g) * 100;
@@ -5116,7 +5218,7 @@ async function processBranchTransferRespond(req, res) {
                 if (!matchedProduct) {
                     stockNote = ` (no matching product found here for SKU/name "${transfer.sku || transfer.itemName}" — stock was not deducted, adjust manually if needed)`;
                 } else {
-                    const currentStock = parseInt(matchedProduct.stock) || 0;
+                    const currentStock = parseFloat(matchedProduct.stock) || 0;
                     if (currentStock < transfer.qty) {
                         return res.status(409).json({ success: false, message: `Not enough stock of "${matchedProduct.name}" here (only ${currentStock}, need ${transfer.qty}). Adjust the quantity or restock before marking as sent.` });
                     }
@@ -5130,7 +5232,7 @@ async function processBranchTransferRespond(req, res) {
                 if (!matchedProduct) {
                     stockNote = ` (no matching product found here for SKU/name "${transfer.sku || transfer.itemName}" — stock was not added; create a new Product entry or adjust manually)`;
                 } else {
-                    const originalStock = parseInt(matchedProduct.stock) || 0;
+                    const originalStock = parseFloat(matchedProduct.stock) || 0;
                     matchedProduct.stock = originalStock + transfer.qty;
                     writeData(FILE_PRODUCTS, products);
                     stockMutation = { productCode: matchedProduct.code, originalStock };
@@ -6414,7 +6516,7 @@ function computeAiStoreInsightsUncached(isAdminRole) {
     const expiringSoonItems = [];
     const expiredItems = [];
     for (const p of products) {
-        const stock = parseInt(p.stock) || 0;
+        const stock = parseFloat(p.stock) || 0;
         const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') ? parseInt(p.lowStockThreshold) : 5;
         if (stock <= 0) {
             outOfStockItems.push(p.name);
@@ -6467,7 +6569,7 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         const productRanking = {};
         weekTxs.forEach((tx) => {
             (tx.items || []).forEach((i) => {
-                const qty = parseInt(i.quantity) || 0;
+                const qty = toQty3(i.quantity);
                 if (!i.name || qty <= 0) return;
                 productRanking[i.name] = (productRanking[i.name] || 0) + qty;
             });
@@ -9053,8 +9155,44 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
         res.status(500).json({ success: false, message:'Hindi mabasa ang file. Siguraduhing wastong .xlsx o .csv format ang ginamit (gamitin ang Download Template button).' });
     }
 });
+// Only touches the UOM/decimal fields that are actually present in the payload, and drops junk
+// (bad factors, duplicate/reserved unit names, non-positive prices) so uom-pricing.js never has to
+// trust client-sent shapes.
+function normalizeProductUomFields(p) {
+    if (!p || typeof p !== 'object') return p;
+    if ('allowDecimal' in p) p.allowDecimal = !!p.allowDecimal;
+    if ('baseUnit' in p) p.baseUnit = String(p.baseUnit || '').trim().slice(0, 15);
+    if ('uom' in p) {
+        const seen = new Set();
+        const out = [];
+        (Array.isArray(p.uom) ? p.uom : []).slice(0, 10).forEach(u => {
+            const name = String((u && u.name) || '').trim().slice(0, 20);
+            const key = name.toLowerCase();
+            const factor = parseFloat(u && u.factor);
+            if (!name || key === 'base' || seen.has(key) || !(factor > 0) || factor > 1000000) return;
+            seen.add(key);
+            const entry = { name, factor: uomPricing.round(factor, 6) };
+            const fixed = parseFloat(u && u.fixedPrice);
+            if (fixed > 0) entry.fixedPrice = uomPricing.round2(fixed);
+            out.push(entry);
+        });
+        p.uom = out;
+    }
+    if ('priceLevels' in p) {
+        const src = (p.priceLevels && typeof p.priceLevels === 'object' && !Array.isArray(p.priceLevels)) ? p.priceLevels : {};
+        const out = {};
+        Object.keys(src).slice(0, 10).forEach(k => {
+            const name = String(k).trim().slice(0, 30);
+            const v = parseFloat(src[k]);
+            if (name && v > 0) out[name] = uomPricing.round2(v);
+        });
+        p.priceLevels = out;
+    }
+    return p;
+}
 app.post('/api/products', requirePermission('products'), (req, res) => {
     const { product } = req.body;
+    normalizeProductUomFields(product);
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
     const codeExists = products.some(p => p.code.trim().toLowerCase() === product.code.trim().toLowerCase());
@@ -9107,6 +9245,7 @@ app.put('/api/products/:code', requirePermission('products'), async (req, res) =
 function processProductUpdate(req, res) {
     const { code } = req.params;
     const { updatedData } = req.body;
+    normalizeProductUomFields(updatedData);
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
@@ -9721,10 +9860,10 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
                 logAction(username, `APPROVED DELETE Request for code: ${targetReq.targetCode}`);
             }
             else if (targetReq.type ==='RESTOCK') {
-                const qtyToAdd = parseInt(targetReq.data?.qtyToAdd) || 0;
+                const qtyToAdd = toQty3(targetReq.data?.qtyToAdd);
                 products = products.map(p => {
                     if (p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase()) {
-                        return { ...p, stock: (parseInt(p.stock) || 0) + qtyToAdd };
+                        return { ...p, stock: uomPricing.round((parseFloat(p.stock) || 0) + qtyToAdd, uomPricing.DECIMAL_PLACES) };
                     }
                     return p;
                 });
@@ -9857,7 +9996,13 @@ async function processTransaction(req, res) {
     const resolvedItems = [];
     const stockIssues = [];
     const rejectedItems = [];
-    const requestedQtyByCode = {};
+    const requestedBaseQtyByCode = {};
+    const cartUnitCheck = uomPricing.validateCartUnits(transaction.items || []);
+    if (!cartUnitCheck.ok) {
+        return res.status(400).json({ success: false, message: cartUnitCheck.error });
+    }
+    const cashierIsAdmin = (req.authUser.role || '').toLowerCase() === 'admin';
+    const canUsePriceLevel = cashierIsAdmin || !!getPermissionsForRole(req.authUser.role).price_level_select;
     for (const item of (transaction.items || [])) {
         let prod = products.find(p => p.code === item.code);
         if (!prod) prod = products.find(p => p.name === item.name);
@@ -9865,31 +10010,33 @@ async function processTransaction(req, res) {
             rejectedItems.push(item && (item.code || item.name) || '(unknown item)');
             continue;
         }
-        const qty = parseInt(item.quantity, 10);
-        if (!Number.isInteger(qty) || qty <= 0 || String(item.quantity).trim() === '') {
-            rejectedItems.push(`${prod.name} (invalid quantity: ${item.quantity})`);
+        const resolved = uomPricing.resolveLine(prod, item, { canUsePriceLevel });
+        if (!resolved.ok) {
+            rejectedItems.push(resolved.error);
             continue;
         }
-        const catalogPrice = parseFloat(prod.price) || 0;
-        const lineSubtotal = Math.round(catalogPrice * qty * 100) / 100;
-        const itemDiscount = Math.min(Math.max(0, parseFloat(item.itemDiscount) || 0), lineSubtotal);
-        requestedQtyByCode[prod.code] = (requestedQtyByCode[prod.code] || 0) + qty;
+        requestedBaseQtyByCode[prod.code] = uomPricing.round(
+            (requestedBaseQtyByCode[prod.code] || 0) + resolved.baseQty, uomPricing.DECIMAL_PLACES
+        );
         resolvedItems.push({
-            code: prod.code,
-            name: prod.name,
-            price: catalogPrice,
-            quantity: qty,
-            itemDiscount,
-            cost: parseFloat(prod.cost) || 0
+            code: resolved.code,
+            name: resolved.name,
+            price: resolved.unitPrice,
+            quantity: resolved.quantity,
+            unit: resolved.unitName,
+            baseQty: resolved.baseQty,
+            priceLevel: resolved.priceLevel,
+            itemDiscount: resolved.itemDiscount,
+            cost: resolved.cost
         });
     }
     if (rejectedItems.length === 0) {
-        for (const code of Object.keys(requestedQtyByCode)) {
+        for (const code of Object.keys(requestedBaseQtyByCode)) {
             const prod = products.find(p => p.code === code);
             if (!prod) continue;
-            const availableStock = parseInt(prod.stock) || 0;
-            const totalRequested = requestedQtyByCode[code];
-            if (totalRequested > availableStock) {
+            const availableStock = parseFloat(prod.stock) || 0;
+            const totalRequested = requestedBaseQtyByCode[code];
+            if (totalRequested > availableStock + 1e-6) {
                 stockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${totalRequested})`);
             }
         }
@@ -9907,7 +10054,7 @@ async function processTransaction(req, res) {
             message: `Hindi ma-proceed ang benta — naubos/kulang na ang stock: ${stockIssues.join(', ')}. Malamang na-benta na ito sa ibang terminal/device. I-refresh ang product list.`
         });
     }
-    const grossSubtotal = Math.round(resolvedItems.reduce((sum, it) => sum + (it.price * it.quantity), 0) * 100) / 100;
+    const grossSubtotal = Math.round(resolvedItems.reduce((sum, it) => sum + uomPricing.round2(it.price * it.quantity), 0) * 100) / 100;
     const itemDiscountTotal = Math.round(resolvedItems.reduce((sum, it) => sum + it.itemDiscount, 0) * 100) / 100;
     const netAfterItemDiscounts = Math.max(0, Math.round((grossSubtotal - itemDiscountTotal) * 100) / 100);
     let cartDiscount = 0;
@@ -10057,15 +10204,15 @@ async function processTransaction(req, res) {
     }
     products = readData(FILE_PRODUCTS);
     const freshStockIssues = [];
-    for (const code of Object.keys(requestedQtyByCode)) {
+    for (const code of Object.keys(requestedBaseQtyByCode)) {
         const prod = products.find(p => p.code === code);
         if (!prod) {
             freshStockIssues.push(`${code} (hindi na nahanap ang produkto)`);
             continue;
         }
-        const availableStock = parseInt(prod.stock) || 0;
-        const totalRequested = requestedQtyByCode[code];
-        if (totalRequested > availableStock) {
+        const availableStock = parseFloat(prod.stock) || 0;
+        const totalRequested = requestedBaseQtyByCode[code];
+        if (totalRequested > availableStock + 1e-6) {
             freshStockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${totalRequested})`);
         }
     }
@@ -10121,7 +10268,8 @@ async function processTransaction(req, res) {
     transaction.items.forEach(item => {
         const prod = products.find(p => p.code === item.code);
         if (prod) {
-            prod.stock = Math.max(0, prod.stock - item.quantity);
+            const deduct = (typeof item.baseQty === 'number') ? item.baseQty : item.quantity;
+            prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - deduct), uomPricing.DECIMAL_PLACES);
         }
     });
     let newLoyaltyCardToken = null;
@@ -10152,6 +10300,16 @@ async function processTransaction(req, res) {
             transaction.loyaltyPointsBalance = cust.points;
             writeData(FILE_CUSTOMERS, customers);
         }
+    }
+    // BIR: assign the next sequential invoice number and accumulate this sale into the
+    // store-level Accumulated Grand Total. Done as LATE as possible (right before the sale is
+    // persisted) so nothing above can throw after the number/AGT were already consumed.
+    // createdAt = server clock; the client-sent isoDate is not trusted as the only date source.
+    if (!transaction.createdAt) transaction.createdAt = new Date().toISOString();
+    {
+        const birResult = birCompliance.onTransactionCommitted(grandTotal);
+        transaction.birInvoiceNumber = birResult.invoiceNumber;
+        transaction.birInvoiceNumberValue = birResult.invoiceNumberValue;
     }
     transactions.unshift(transaction);
     writeData(FILE_TRANSACTIONS, transactions);
@@ -10187,7 +10345,7 @@ async function processTransaction(req, res) {
         const debtItems = (transaction.items || []).map(it => ({
             code: it.code || '',
             name: it.name || '',
-            quantity: parseInt(it.quantity, 10) || 0,
+            quantity: parseFloat(it.quantity) || 0,
             price: parseFloat(it.price) || 0
         }));
         let dueAtIso = null;
@@ -10323,6 +10481,8 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
     const accent = resolveEmailAccentColor(settings);
     const storeAddress = settings.storeAddress || '';
     const storeContact = settings.storeContact || '';
+    const birLines = buildBirReceiptLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir);
+    const birHtml = birLines.map(l => `<div style="color:rgba(255,255,255,${l.bold ? '0.95' : '0.75'});font-size:12px;margin-top:2px;${l.bold ? 'font-weight:700;letter-spacing:0.4px;' : ''}">${escapeHtml(l.text)}</div>`).join('');
     const footerText = settings.footerText || 'Thank you for shopping!';
     const dateLabel = tx.timestamp || (tx.isoDate ? new Date(tx.isoDate).toLocaleString() : '');
     const customerRow = tx.customerName
@@ -10368,6 +10528,7 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
         <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.3px;">${escapeHtml(storeName)}</div>
         ${storeAddress ? `<div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:6px;">${escapeHtml(storeAddress)}</div>` : ''}
         ${storeContact ? `<div style="color:rgba(255,255,255,0.75);font-size:12px;margin-top:2px;">${escapeHtml(storeContact)}</div>` : ''}
+        ${birHtml}
     </td></tr>
     <tr><td style="padding:22px 32px 0;">
         <span style="display:inline-block;background-color:#ecfdf5;color:#059669;font-size:11px;font-weight:700;letter-spacing:0.4px;padding:6px 14px;border-radius:999px;">✓ PAYMENT RECEIVED</span>
@@ -10375,6 +10536,7 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
     <tr><td style="padding:18px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#64748b;">
             <tr><td style="padding:4px 0;">Receipt #</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.id)}</td></tr>
+            ${tx.birInvoiceNumber ? `<tr><td style="padding:4px 0;">Invoice No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.birInvoiceNumber)}</td></tr>` : ''}
             <tr><td style="padding:4px 0;">Date</td><td align="right" style="padding:4px 0;">${escapeHtml(dateLabel)}</td></tr>
             <tr><td style="padding:4px 0;">Cashier</td><td align="right" style="padding:4px 0;">${escapeHtml(cashierLabel)}</td></tr>
             ${customerRow}
@@ -10464,7 +10626,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const items = tx.items || [];
         const itemLines = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
-            const lineTotal = ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)) - itemDiscount;
+            const lineTotal = ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)) - itemDiscount;
             return `  ${i.name} x${i.quantity} .......... ₱${lineTotal.toFixed(2)}`;
         }).join('\n');
         const isSplitPayment = tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1;
@@ -10475,11 +10637,12 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const taxAmount = Math.max(0, parseFloat(tx.taxAmount) || 0);
         const grandTotal = parseFloat(tx.total || 0) || 0;
         const changeAmount = Math.max(0, parseFloat(tx.change) || 0);
-        const textBody = `${storeName}\n${settings.storeAddress ||''}\n\nReceipt: ${tx.id}\nDate: ${tx.timestamp ||''}\nCashier: ${cashierLabel}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}`;
-        const grossSubtotal = items.reduce((sum, i) => sum + ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)), 0);
+        const birTextBlock = buildBirReceiptLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir).map(l => l.text).join('\n');
+        const textBody = `${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nReceipt: ${tx.id}${tx.birInvoiceNumber ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier: ${cashierLabel}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}`;
+        const grossSubtotal = items.reduce((sum, i) => sum + ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)), 0);
         const itemsHtml = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
-            const lineTotal = ((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0)) - itemDiscount;
+            const lineTotal = ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)) - itemDiscount;
             return `<tr>
                 <td style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;">${escapeHtml(i.name)}${itemDiscount > 0 ? `<div style="font-size:11px;color:#059669;">-₱${itemDiscount.toFixed(2)} discount</div>` : ''}</td>
                 <td align="center" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${escapeHtml(i.quantity)}</td>
@@ -11851,6 +12014,22 @@ const STOCK_RETURN_DAMAGE_STATUSES = {
     pending_manager_review: 'Pending Manager Review'
 };
 
+// UOM / decimal helpers. Stock is stored in BASE units (may be fractional, max 3 decimals); a sale line's
+// `quantity` is in its selling unit and `baseQty` is what was deducted from stock. A stock-return line keeps
+// the selling-unit quantity (what the cashier/manager sees) plus a `factor` so restocking adds back the
+// correct number of BASE units (e.g. 2 Boxes x 24 = 48 pcs).
+function toQty3(v) { return Math.max(0, uomPricing.round(parseFloat(v) || 0, uomPricing.DECIMAL_PLACES)); }
+function qtyEq(a, b) { return Math.abs((parseFloat(a) || 0) - (parseFloat(b) || 0)) < 1e-6; }
+function addBaseStock(prod, baseQty) {
+    prod.stock = uomPricing.round((parseFloat(prod.stock) || 0) + baseQty, uomPricing.DECIMAL_PLACES);
+}
+function lineFactor(item) {
+    const q = parseFloat(item && item.quantity) || 0;
+    const b = parseFloat(item && item.baseQty);
+    if (q > 0 && isFinite(b) && b > 0) return uomPricing.round(b / q, 6);
+    const f = parseFloat(item && item.factor);
+    return f > 0 ? f : 1;
+}
 function createStockReturnRecord({ sourceType, transactionId, requester, items, reason = '' }) {
     const now = new Date().toISOString();
     const record = {
@@ -11870,7 +12049,9 @@ function createStockReturnRecord({ sourceType, transactionId, requester, items, 
             lineId: String(item.lineId || `${transactionId}:${index}`),
             code: String(item.code || '').trim(),
             name: String(item.name || '').trim(),
-            quantity: Math.max(0, parseInt(item.quantity, 10) || 0),
+            quantity: toQty3(item.quantity),
+            factor: lineFactor(item),
+            unit: item.unit || null,
             restockedQty: 0,
             damagedQty: 0,
             damageStatus: null
@@ -11926,9 +12107,9 @@ async function processStockReturnInspection(req, res) {
     for (const item of record.items) {
         const submitted = byLine.get(item.lineId);
         if (!submitted) return res.status(400).json({ success: false, message: `Missing inspection result for ${item.name || item.code}.` });
-        const restockedQty = Math.max(0, parseInt(submitted.restockedQty, 10) || 0);
-        const damagedQty = Math.max(0, parseInt(submitted.damagedQty, 10) || 0);
-        if (restockedQty + damagedQty !== item.quantity) {
+        const restockedQty = toQty3(submitted.restockedQty);
+        const damagedQty = toQty3(submitted.damagedQty);
+        if (!qtyEq(restockedQty + damagedQty, item.quantity)) {
             return res.status(400).json({ success: false, message: `${item.name || item.code}: Restock + Damaged must equal exactly ${item.quantity}.` });
         }
         if (restockedQty > 0 && !productByCode.has(String(item.code).toLowerCase())) {
@@ -11946,14 +12127,14 @@ async function processStockReturnInspection(req, res) {
     for (const item of normalized) {
         if (item.restockedQty > 0) {
             const prod = productByCode.get(String(item.code).toLowerCase());
-            prod.stock = (parseInt(prod.stock) || 0) + item.restockedQty;
+            addBaseStock(prod, item.restockedQty * lineFactor(item));
         }
     }
     const totalQty = normalized.reduce((sum, i) => sum + i.quantity, 0);
     const totalRestocked = normalized.reduce((sum, i) => sum + i.restockedQty, 0);
     const totalDamaged = normalized.reduce((sum, i) => sum + i.damagedQty, 0);
     record.items = normalized;
-    record.status = totalRestocked === totalQty ? 'restocked' : (totalRestocked === 0 ? 'rejected' : 'partially_restocked');
+    record.status = qtyEq(totalRestocked, totalQty) ? 'restocked' : (totalRestocked === 0 ? 'rejected' : 'partially_restocked');
     record.inspectedAt = new Date().toISOString();
     record.inspectedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
     record.inspectionReason = inspectionReason;
@@ -12018,10 +12199,10 @@ async function processStockReturnReview(req, res) {
     for (const item of record.items) {
         if (!pendingLineIds.has(item.lineId)) continue;
         const submitted = byLine.get(item.lineId);
-        const held = parseInt(item.damagedQty, 10) || 0;
-        const restockNow = Math.max(0, parseInt(submitted.restockNowQty, 10) || 0);
-        const stillDamaged = Math.max(0, parseInt(submitted.damagedQty, 10) || 0);
-        if (restockNow + stillDamaged !== held) {
+        const held = toQty3(item.damagedQty);
+        const restockNow = toQty3(submitted.restockNowQty);
+        const stillDamaged = toQty3(submitted.damagedQty);
+        if (!qtyEq(restockNow + stillDamaged, held)) {
             return res.status(400).json({ success: false, message: `${item.name || item.code}: Restock + Still Damaged must equal exactly ${held}.` });
         }
         if (restockNow > 0 && !productByCode.has(String(item.code).toLowerCase())) {
@@ -12039,15 +12220,15 @@ async function processStockReturnReview(req, res) {
     for (const u of updates) {
         if (u.restockNow > 0) {
             const prod = productByCode.get(String(u.item.code).toLowerCase());
-            prod.stock = (parseInt(prod.stock) || 0) + u.restockNow;
+            addBaseStock(prod, u.restockNow * lineFactor(u.item));
         }
-        u.item.restockedQty = (parseInt(u.item.restockedQty, 10) || 0) + u.restockNow;
+        u.item.restockedQty = uomPricing.round(toQty3(u.item.restockedQty) + u.restockNow, uomPricing.DECIMAL_PLACES);
         u.item.damagedQty = u.stillDamaged;
         u.item.damageStatus = u.stillDamaged > 0 ? u.damageStatus : null;
     }
-    const totalQty = record.items.reduce((sum, i) => sum + (parseInt(i.quantity, 10) || 0), 0);
-    const totalRestocked = record.items.reduce((sum, i) => sum + (parseInt(i.restockedQty, 10) || 0), 0);
-    record.status = totalRestocked === totalQty ? 'restocked' : (totalRestocked === 0 ? 'rejected' : 'partially_restocked');
+    const totalQty = record.items.reduce((sum, i) => sum + toQty3(i.quantity), 0);
+    const totalRestocked = record.items.reduce((sum, i) => sum + toQty3(i.restockedQty), 0);
+    record.status = qtyEq(totalRestocked, totalQty) ? 'restocked' : (totalRestocked === 0 ? 'rejected' : 'partially_restocked');
     record.lastReviewedAt = new Date().toISOString();
     record.lastReviewedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
     returns[index] = record;
@@ -12174,6 +12355,17 @@ async function processVoidTransaction(req, res) {
         console.error('VOID commit failed:', error);
         return res.status(500).json({ success: false, message: 'The VOID could not be saved completely. No permanent change should remain; please try again.' });
     }
+    // BIR: log the void ONLY after the commit above succeeded (otherwise the BIR log would say a
+    // sale was voided while it is still in the list). This is what lets the e-Journal/Sales Book
+    // explain the gap in the invoice-number sequence. The AGT is deliberately left untouched
+    // (see bir-compliance.js header note). voidedBy uses the authenticated user, not the body.
+    if (targetTx.birInvoiceNumber) {
+        try {
+            birCompliance.onTransactionVoided({ transaction: targetTx, voidedBy: (req.authUser && req.authUser.username) || requester, reason: (req.body && req.body.reason) || 'Voided transaction' });
+        } catch (birErr) {
+            console.error('BIR void log failed (void itself was saved):', birErr);
+        }
+    }
     if (linkedDebtIndex !== -1) {
         logAction(requester, `The related debt record was removed because Transaction ID ${transactionId} was voided.`);
     }
@@ -12221,7 +12413,7 @@ async function processRefundTransaction(req, res) {
         return res.status(400).json({ success: false, message: 'This transaction has already been fully refunded; there is no remaining refundable amount.' });
     }
     const lineGross = (item) => {
-        const qty = parseInt(item.quantity, 10) || 0;
+        const qty = toQty3(item.quantity);
         if (qty <= 0) return 0;
         return Math.max(0, (parseFloat(item.price) || 0) * qty - (parseFloat(item.itemDiscount) || 0));
     };
@@ -12229,15 +12421,15 @@ async function processRefundTransaction(req, res) {
     const refundLines = [];
     const rejectedRefundItems = [];
     for (const item of (targetTx.items || [])) {
-        const alreadyQty = parseInt(refundedQtyMap[item.code], 10) || 0;
-        const maxRefundableQty = Math.max(0, (parseInt(item.quantity, 10) || 0) - alreadyQty);
+        const alreadyQty = toQty3(refundedQtyMap[item.code]);
+        const maxRefundableQty = Math.max(0, uomPricing.round(toQty3(item.quantity) - alreadyQty, uomPricing.DECIMAL_PLACES));
         let qtyToRefund;
         if (requestedItems) {
             const requested = requestedItems.find(ri => ri.code === item.code);
             if (!requested) continue;
-            qtyToRefund = parseInt(requested.quantity, 10) || 0;
+            qtyToRefund = toQty3(requested.quantity);
             if (qtyToRefund <= 0) continue;
-            if (qtyToRefund > maxRefundableQty) {
+            if (qtyToRefund > maxRefundableQty + 1e-6) {
                 rejectedRefundItems.push(`${item.name} (requested: ${qtyToRefund}, remaining refundable: ${maxRefundableQty})`);
                 continue;
             }
@@ -12249,6 +12441,8 @@ async function processRefundTransaction(req, res) {
             code: item.code,
             name: item.name,
             quantity: qtyToRefund,
+            factor: lineFactor(item),
+            unit: item.unit || null,
             unitPrice: parseFloat(item.price) || 0
         });
     }
@@ -12286,7 +12480,7 @@ async function processRefundTransaction(req, res) {
         return res.status(400).json({ success: false, message: 'There are no valid items to move to stock-return inspection.' });
     }
     refundLines.forEach(line => {
-        refundedQtyMap[line.code] = (parseInt(refundedQtyMap[line.code], 10) || 0) + line.quantity;
+        refundedQtyMap[line.code] = uomPricing.round(toQty3(refundedQtyMap[line.code]) + line.quantity, uomPricing.DECIMAL_PLACES);
     });
     const newTotalRefunded = Math.round((alreadyRefunded + refundAmount) * 100) / 100;
     targetTx.refundedQty = refundedQtyMap;
@@ -12550,7 +12744,7 @@ function computeLowStockItems() {
         .map(p => {
             const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='')
                 ? parseInt(p.lowStockThreshold) : defaultLowStockThreshold;
-            const stock = parseInt(p.stock || 0);
+            const stock = parseFloat(p.stock || 0);
             const suggestedReorderQty = p.reorderQty ? parseInt(p.reorderQty) : Math.max((threshold * 2) - stock, threshold, 1);
             const key = (p.code ||'').trim().toLowerCase();
             return {
@@ -12624,11 +12818,11 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
         const netAmount = tx => Math.max(0, roundMoney(grossAmount(tx) - refundedAmount(tx)));
         const refundedQty = (tx, item) => {
             const map = tx && tx.refundedQty && typeof tx.refundedQty === 'object' ? tx.refundedQty : {};
-            return Math.max(0, parseInt(map[item && item.code != null ? String(item.code) : ''], 10) || 0);
+            return toQty3(map[item && item.code != null ? String(item.code) : '']);
         };
         const netQty = (tx, item) => {
-            const sold = Math.max(0, parseInt(item && item.quantity, 10) || 0);
-            return Math.max(0, sold - Math.min(sold, refundedQty(tx, item)));
+            const sold = toQty3(item && item.quantity);
+            return Math.max(0, uomPricing.round(sold - Math.min(sold, refundedQty(tx, item)), uomPricing.DECIMAL_PLACES));
         };
         const countable = tx => netAmount(tx) > 0.009;
 
@@ -12659,7 +12853,7 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
             if (netTx > 0 && dayKey !== 'unknown') dailyTrendMap[dayKey] = roundMoney((dailyTrendMap[dayKey] || 0) + netTx);
 
             (t.items || []).forEach(i => {
-                const soldQty = Math.max(0, parseInt(i.quantity, 10) || 0);
+                const soldQty = toQty3(i.quantity);
                 const remainingQty = netQty(t, i);
                 if (!i.name || remainingQty <= 0) return;
 
@@ -12789,7 +12983,7 @@ app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rate
 });
 function processQuickRestock(req, res) {
     const { code } = req.params;
-    const qty = parseInt(req.body.qty);
+    const qty = toQty3(req.body.qty);
     const username = req.authUser.username;
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).restock_direct_apply;
@@ -12800,7 +12994,7 @@ function processQuickRestock(req, res) {
     const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!target) return res.status(404).json({ success: false, message:'Product not found.' });
     if (canApplyDirectly) {
-        target.stock = (parseInt(target.stock) || 0) + qty;
+        addBaseStock(target, qty);
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Quick-restocked "${target.name}" (+${qty}, bagong stock: ${target.stock})`);
         return res.json({ success: true, message: `+${qty} na-restock sa "${target.name}".`, newStock: target.stock });
@@ -12860,7 +13054,7 @@ function processPurchaseOrderReceive(req, res) {
     let products = readData(FILE_PRODUCTS);
     po.items.forEach(it => {
         const prod = products.find(p => p.code.trim().toLowerCase() === it.code.trim().toLowerCase());
-        if (prod) prod.stock = (parseInt(prod.stock) || 0) + (parseInt(it.qty) || 0);
+        if (prod) addBaseStock(prod, toQty3(it.qty));
     });
     writeData(FILE_PRODUCTS, products);
     po.status ='received';
@@ -13742,8 +13936,8 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
     const itemsHtml = items.length
         ? items.map(i => `<tr>
             <td style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;">${escapeHtml(i.name)}</td>
-            <td align="center" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${escapeHtml(String(parseInt(i.quantity) || 0))}</td>
-            <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${(((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0))).toFixed(2)}</td>
+            <td align="center" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${escapeHtml(String(parseFloat(i.quantity) || 0))}</td>
+            <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${(((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0))).toFixed(2)}</td>
         </tr>`).join('')
         : `<tr><td colspan="3" style="padding:7px 0;color:#94a3b8;font-style:italic;">No linked products for this debt.</td></tr>`;
     const noteBlock = debt.note
@@ -13866,7 +14060,7 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
             : '  No payments recorded yet.';
         const items = Array.isArray(debt.items) ? debt.items : [];
         const itemLines = items.length
-            ? items.map(i => `  ${i.name} x${parseInt(i.quantity) || 0} .......... ₱${(((parseFloat(i.price) || 0) * (parseInt(i.quantity) || 0))).toFixed(2)}`).join('\n')
+            ? items.map(i => `  ${i.name} x${parseFloat(i.quantity) || 0} .......... ₱${(((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0))).toFixed(2)}`).join('\n')
             : '  No linked products for this debt.';
         const textBody = `${storeName}\n${settings.storeAddress || ''}\n\nDIGITAL DEBT RECEIPT\nStatus: ${statusLabels[debt.status] || debt.status}\n\nCustomer: ${debt.customerName || ''}\n${debt.phone ? 'Phone: ' + debt.phone + '\n' : ''}Due: ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}\n${debt.transactionId ? 'Linked Transaction: ' + debt.transactionId + '\n' : ''}Receipt No.: ${debt.id}\n\nAmount Owed: ₱${amount.toFixed(2)}\nAmount Paid: ₱${paid.toFixed(2)}\nRemaining Balance: ₱${remaining.toFixed(2)}\n\nPayment Breakdown:\n${paymentLines}\n\nItems Purchased:\n${itemLines}\n${debt.note ? '\nNote:\n  ' + debt.note + '\n' : ''}\n${settings.footerText || 'Thank you for your continued trust!'}`;
         const htmlBody = buildDebtReceiptEmailHtml({ settings, debt, storeName });
@@ -14230,6 +14424,60 @@ app.get('/api/shift/current', (req, res) => {
         beginningCashSetBy: meta.beginningCashSetBy || null
     });
 });
+app.get('/api/shift/xreading', (req, res) => {
+    // X-Reading: a read-only, printable snapshot of the CURRENT (still-open) shift's running
+    // totals. Unlike Z-Reading (/api/shift/close), this does NOT close the shift, does NOT
+    // reset lastCloseAt, and can be generated as many times as needed during the day — the
+    // standard "mid-shift reading" cashiers/supervisors expect from a Philippine retail POS.
+    const role = req.authUser && req.authUser.role;
+    const isAdminRole = (role || '').toLowerCase() === 'admin';
+    const canControlOthers = isAdminRole || !!getPermissionsForRole(role).shift_close_control;
+    const requestedCashier = (req.query.cashier || '').toString().trim();
+    let targetCashier = req.authUser.username;
+    if (requestedCashier && requestedCashier.toLowerCase() !== targetCashier.toLowerCase()) {
+        if (!canControlOthers) {
+            return res.status(403).json({ success: false, message: 'Access Denied: You do not have permission to view another cashier\'s shift.' });
+        }
+        targetCashier = requestedCashier;
+    }
+    const store = readShiftMetaStore();
+    const meta = getCashierShiftMeta(store, targetCashier);
+    const targetHasOpenShift = meta.beginningCash !== undefined && meta.beginningCash !== null;
+    if (!targetHasOpenShift) {
+        const gateResult = checkShiftManagementUnlocked();
+        if (!gateResult.unlocked) return res.status(402).json(gateResult.body);
+    }
+    const periodStart = meta.lastCloseAt || new Date(0).toISOString();
+    const periodEnd = new Date().toISOString();
+    const summary = computeShiftSummary(periodStart, periodEnd, targetCashier);
+    const canViewAmounts = isAdminRole || !!getPermissionsForRole(role).shiftreport_view_amounts;
+    const beginningCash = (meta.beginningCash !== undefined && meta.beginningCash !== null) ? meta.beginningCash : null;
+    let expectedCash = null;
+    if (canViewAmounts && beginningCash !== null) {
+        const cashSales = (summary.paymentBreakdown['CASH'] && summary.paymentBreakdown['CASH'].total) || 0;
+        expectedCash = Math.round((beginningCash + cashSales) * 100) / 100;
+    }
+    if (!canViewAmounts) {
+        delete summary.grossSales;
+        delete summary.totalDiscount;
+        delete summary.netSales;
+        delete summary.voidedAmount;
+        delete summary.refundedAmount;
+        delete summary.paymentBreakdown;
+    }
+    const record = {
+        id: 'X-' + Date.now(),
+        generatedBy: req.authUser.username,
+        cashier: targetCashier,
+        generatedOnBehalf: targetCashier.toLowerCase() !== req.authUser.username.toLowerCase(),
+        generatedAt: periodEnd,
+        beginningCash,
+        expectedCash,
+        ...summary
+    };
+    logAction(req.authUser.username, `Generated X-Reading ${record.id} for '${targetCashier}' (running totals — shift stays OPEN): ${summary.transactionCount} tx${canViewAmounts && summary.netSales !== undefined ? `, Net Sales ₱${summary.netSales}` : ''}`);
+    res.json({ success: true, xreading: record });
+});
 app.get('/api/shift/open-list', (req, res) => {
     const role = req.authUser && req.authUser.role;
     const isAdminRole = (role ||'').toLowerCase() ==='admin';
@@ -14377,6 +14625,89 @@ app.get('/api/shifts', requirePermission('shiftreport'), requireFeature('shift_m
         hasMore: offset + page.length < scopedShifts.length
     });
 });
+// -----------------------------------------------------------------------------
+// BIR Compliance: Accumulated Grand Total (AGT), Z-Reading (BIR sense — distinct from
+// the per-cashier shift Z-Reading above), void log, AGT reset, and exports
+// (e-Journal / Sales Book / EIS-ready JSON). See bir-compliance.js for the core logic;
+// invoice numbering + AGT accumulation is hooked into processTransaction(), and void
+// logging into processVoidTransaction(), above.
+// -----------------------------------------------------------------------------
+function getBirContext() {
+    const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+    const receiptSettings = getReceiptSettingsPublic(readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS));
+    return { storeName: storeSettings.bir.businessName || receiptSettings.storeName || '', storeAddress: receiptSettings.storeAddress || '', tin: storeSettings.bir.tin || '' };
+}
+app.get('/api/bir/state', requirePermission('bir_compliance'), (req, res) => {
+    res.json(birCompliance.getBirState());
+});
+app.get('/api/bir/z-reading/history', requirePermission('bir_compliance'), (req, res) => {
+    const hasLimit = req.query.limit !== undefined && req.query.limit !== null && req.query.limit !== '';
+    const limit = hasLimit ? Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50)) : undefined;
+    res.json(birCompliance.getZReadingHistory(limit));
+});
+app.post('/api/bir/z-reading', requirePermission('bir_compliance'), rateLimit('bir-z-reading', 20, 10 * 60 * 1000), (req, res) => {
+    const record = birCompliance.performZReading({ authorizedBy: req.authUser.username });
+    logAction(req.authUser.username, `BIR Z-Reading #${record.zCounter}: Beginning AGT ₱${record.beginningAGT.toFixed(2)}, Ending AGT ₱${record.endingAGT.toFixed(2)}, Net Sales ₱${record.netSales.toFixed(2)}, Invoices ${record.invoiceFrom}-${record.invoiceTo}${record.voidCount ? `, ${record.voidCount} void(s)` : ''}`);
+    res.json({ success: true, reading: record });
+});
+app.get('/api/bir/voids', requirePermission('bir_compliance'), (req, res) => {
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
+    res.json(birCompliance.getVoidLog(limit));
+});
+app.get('/api/bir/reset-history', requirePermission('bir_compliance'), (req, res) => {
+    res.json(birCompliance.getResetHistory());
+});
+app.post('/api/bir/reset-agt', requirePermission('bir_compliance'), rateLimit('bir-reset-agt', 5, 60 * 60 * 1000), async (req, res) => {
+    const { adminPassword, reason } = req.body || {};
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message: 'A password is required to reset the Accumulated Grand Total.' });
+    }
+    if (!reason || !String(reason).trim()) {
+        return res.status(400).json({ success: false, message: 'A reason is required to reset the Accumulated Grand Total.' });
+    }
+    const users = readData(FILE_USERS);
+    const authResult = await findBirResetAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect password. The AGT reset was not authorized.' });
+    }
+    try {
+        const record = birCompliance.resetAGT({ authorizedBy: req.authUser.username, reason: String(reason).trim() });
+        logAction(req.authUser.username, `BIR AGT RESET #${record.resetCounter}: Previous AGT ₱${record.previousAGT.toFixed(2)} — Reason: ${record.reason} — ${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`}`);
+        res.json({ success: true, reset: record });
+    } catch (err) {
+        res.status(400).json({ success: false, message: err.message });
+    }
+});
+function parseBirDateRange(req) {
+    const today = birCompliance.manilaDateStr(new Date().toISOString());
+    const fromDateStr = (req.query.from && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from)) ? req.query.from : today;
+    const toDateStr = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : today;
+    return { fromDateStr, toDateStr };
+}
+app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), (req, res) => {
+    const { fromDateStr, toDateStr } = parseBirDateRange(req);
+    const text = birCompliance.exportEJournal({ fromDateStr, toDateStr, context: getBirContext() });
+    logAction(req.authUser.username, `Exported BIR e-Journal (${fromDateStr} to ${toDateStr})`);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="ejournal_${fromDateStr}_to_${toDateStr}.txt"`);
+    res.send(text);
+});
+app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), (req, res) => {
+    const { fromDateStr, toDateStr } = parseBirDateRange(req);
+    const csv = birCompliance.exportSalesBookCsv({ fromDateStr, toDateStr });
+    logAction(req.authUser.username, `Exported BIR Sales Book CSV (${fromDateStr} to ${toDateStr})`);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="sales_book_${fromDateStr}_to_${toDateStr}.csv"`);
+    res.send(csv);
+});
+app.get('/api/bir/export/eis', requirePermission('bir_compliance'), (req, res) => {
+    const { fromDateStr, toDateStr } = parseBirDateRange(req);
+    const payload = birCompliance.exportEIS({ fromDateStr, toDateStr, context: getBirContext() });
+    logAction(req.authUser.username, `Exported BIR EIS-ready JSON (${fromDateStr} to ${toDateStr})`);
+    res.setHeader('Content-Disposition', `attachment; filename="eis_${fromDateStr}_to_${toDateStr}.json"`);
+    res.json(payload);
+});
+
 const isProduction = isLanAccessEnvForced() || getLanAccessConfig().enabled;
 const HOST = isProduction ?'0.0.0.0' :'localhost';
 const PORT = process.env.PORT || 3000;

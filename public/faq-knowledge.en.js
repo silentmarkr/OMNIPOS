@@ -227,6 +227,15 @@ window.OMNIPOS_FAQ_KB_EN = [
   answer: `<p>Yes — <strong>split or multiple payment methods</strong> in a single transaction are supported (e.g. part Cash, part GCash). Cash counting in Z-Reading still stays accurate since each payment method is recorded separately.</p>`
 },
 {
+  id: 'pos-hold-sale',
+  category: 'POS Terminal',
+  question: 'Can I hold/park a sale and serve another customer first?',
+  keywords: ['hold sale', 'park sale', 'suspend transaction', 'hold cart', 'save cart', 'another customer'],
+  verdict: 'oo',
+  answer: `<p>Yes — click <strong>"Hold"</strong> in the Order panel to save the current cart (items, discount, promo code, Senior/PWD, loyalty selection, and linked customer) and clear the terminal for a new transaction. Click <strong>"Held (n)"</strong> anytime to see all held sales for your account and <strong>Resume</strong> or <strong>Delete</strong> them.</p>
+  <p>Held sales are saved on the current device only (not synced to other terminals), and the cart must be empty before resuming a held sale — hold or clear the current cart first.</p>`
+},
+{
   id: 'pos-bluetooth-printer',
   category: 'POS Terminal',
   question: 'How do I use a Bluetooth printer with the POS Terminal?',
@@ -358,6 +367,14 @@ window.OMNIPOS_FAQ_KB_EN = [
   keywords: ['beginning cash', 'open shift', 'simulan ang shift', 'starting cash'],
   answer: `<p>The first time you open the POS Terminal within a new shift, you'll be asked to enter the <strong>Beginning Cash Float</strong> — the amount of cash in the drawer before you start selling.</p>
   <p>This can't be changed once set, until the next time you close your own shift.</p>`
+},
+{
+  id: 'shift-xreading',
+  category: 'Shift / Z-Reading',
+  question: 'What is an X-Reading and how do I use it?',
+  keywords: ['x-reading', 'xreading', 'mid-shift reading', 'running total', 'print x-reading'],
+  answer: `<p>An <strong>X-Reading</strong> is a <strong>print-anytime snapshot</strong> of your currently open shift — transaction count, gross/net sales, discount, void/refund, and payment breakdown — but it does <strong>NOT</strong> close the shift. You can print it as many times as you need during the day (e.g. before a lunch break or when a supervisor wants a shift check).</p>
+  <p>On the Shift/Z-Reading tab, click "Print X-Reading (Mid-Shift, does not close)". This is different from the Z-Reading, which is the <strong>official closing report</strong> — only the Z-Reading closes the shift and resets the running totals.</p>`
 },
 {
   id: 'shift-close',
