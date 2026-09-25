@@ -6163,6 +6163,10 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
 .r-item-line { display: flex; justify-content: space-between; }
 .r-item-block { display: flex; flex-direction: column; gap: var(--receipt-item-detail-gap, 0px); }
 .r-item-detail-line { display: flex; gap: 6px; font-size: 0.8rem; color: #64748b; padding-left: 2px; }
+/* Base-unit breakdown (e.g. "= 25 kilo × ₱25.00") shown under a bulk/UOM sale line
+   (Wholesale/Reseller/any price level using a bigger selling unit than the base unit),
+   so the buyer can verify the math on the receipt. */
+.r-item-baseunit-line { font-size: 0.72rem; font-style: italic; color: #94a3b8; padding-left: 6px; }
 .receipt-item-counter-block {
     font-size: 0.85rem;
     margin-top: var(--receipt-item-counter-gap-top, 6px);

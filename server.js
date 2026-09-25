@@ -10101,6 +10101,7 @@ async function processTransaction(req, res) {
             price: resolved.unitPrice,
             quantity: resolved.quantity,
             unit: resolved.unitName,
+            baseUnit: resolved.baseUnit,
             baseQty: resolved.baseQty,
             priceLevel: resolved.priceLevel,
             itemDiscount: resolved.itemDiscount,
@@ -10701,10 +10702,23 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             ? `${cashierDisplayName.trim()} / @${cashierUsername}`
             : (cashierUsername ? `@${cashierUsername}` :'');
         const items = tx.items || [];
+        // If the line was sold in a bigger unit than the product's base unit (e.g. "Sako"
+        // priced at Wholesale), also spell out the base-unit qty and per-base-unit price
+        // (e.g. "= 25 kilo x ₱25.00") so the buyer can verify the math on the receipt.
+        const formatBaseUnitBreakdown = (i) => {
+            const quantity = parseFloat(i.quantity) || 0;
+            const baseQty = parseFloat(i.baseQty);
+            if (!i.unit || !quantity || !(baseQty > 0) || Math.abs(baseQty - quantity) < 1e-6) return '';
+            const perBaseUnitPrice = ((parseFloat(i.price) || 0) * quantity) / baseQty;
+            const baseUnitLabel = i.baseUnit ? ` ${i.baseUnit}` : '';
+            return `= ${baseQty}${baseUnitLabel} x ₱${perBaseUnitPrice.toFixed(2)}`;
+        };
         const itemLines = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
             const lineTotal = ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)) - itemDiscount;
-            return `  ${i.name} x${i.quantity} .......... ₱${lineTotal.toFixed(2)}`;
+            const baseLine = formatBaseUnitBreakdown(i);
+            return `  ${i.name} x${i.quantity}${i.unit ? ' ' + i.unit : ''} .......... ₱${lineTotal.toFixed(2)}`
+                + (baseLine ? `\n    ${baseLine}` : '');
         }).join('\n');
         const isSplitPayment = tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1;
         const paymentLine = isSplitPayment
@@ -10720,9 +10734,10 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const itemsHtml = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
             const lineTotal = ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)) - itemDiscount;
+            const baseLine = formatBaseUnitBreakdown(i);
             return `<tr>
-                <td style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;">${escapeHtml(i.name)}${itemDiscount > 0 ? `<div style="font-size:11px;color:#059669;">-₱${itemDiscount.toFixed(2)} discount</div>` : ''}</td>
-                <td align="center" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${escapeHtml(i.quantity)}</td>
+                <td style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;">${escapeHtml(i.name)}${itemDiscount > 0 ? `<div style="font-size:11px;color:#059669;">-₱${itemDiscount.toFixed(2)} discount</div>` : ''}${baseLine ? `<div style="font-size:11px;color:#64748b;font-style:italic;">${escapeHtml(baseLine)}</div>` : ''}</td>
+                <td align="center" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#64748b;">${escapeHtml(i.quantity)}${i.unit ? ` ${escapeHtml(i.unit)}` : ''}</td>
                 <td align="right" style="padding:7px 0;border-top:1px solid #f1f5f9;color:#0f172a;font-weight:600;">₱${lineTotal.toFixed(2)}</td>
             </tr>`;
         }).join('');

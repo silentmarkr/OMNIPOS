@@ -4696,7 +4696,7 @@ function printDebtReceipt(id) {
     const itemRows = m.items.length
         ? m.items.map(it => `
             <tr>
-                <td>${escapeHtml(it.name)} x${formatQty(it.quantity)}</td>
+                <td>${escapeHtml(it.name)}${it.priceLevel ? ` <small>[${escapeHtml(it.priceLevel)}]</small>` : ''} x${formatQty(it.quantity)}</td>
                 <td style="text-align:right;">₱${(((parseFloat(it.price) || 0) * qty3(it.quantity))).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" style="color:#666;">No linked products for this debt.</td></tr>`;
@@ -4778,7 +4778,7 @@ function buildDebtEReceiptDocument(m) {
     const itemRows = m.items.length
         ? m.items.map(it => `
             <tr>
-                <td>${escapeHtml(it.name)}<span class="qty">×${formatQty(it.quantity)}</span></td>
+                <td>${escapeHtml(it.name)}${it.priceLevel ? ` <span class="qty">[${escapeHtml(it.priceLevel)}]</span>` : ''}<span class="qty">×${formatQty(it.quantity)}</span></td>
                 <td class="num">₱${(((parseFloat(it.price) || 0) * qty3(it.quantity))).toFixed(2)}</td>
             </tr>`).join('')
         : `<tr><td colspan="2" class="empty-row">No linked products for this debt.</td></tr>`;
@@ -11649,6 +11649,21 @@ function formatReceiptQty(item) {
     const unit = item && item.unit ? ` ${item.unit}` : '';
     return `${base}${unit}`;
 }
+// When a line is sold in a bigger selling unit than the product's base unit (e.g. a "Sako"
+// at a Wholesale/Reseller price level), show the equivalent base-unit qty and per-base-unit
+// price too (e.g. "= 25 kilo × ₱25.00"), so the buyer can double-check the math on the
+// receipt instead of only seeing "1 Sako x ₱1,250.00".
+function formatBaseUnitBreakdown(item) {
+    if (!item || !item.unit) return '';
+    const factor = parseFloat(item.factor) || 1;
+    const quantity = parseFloat(item.quantity) || 0;
+    const hasBaseQty = item.baseQty !== undefined && item.baseQty !== null && item.baseQty !== '';
+    const baseQty = qty3(hasBaseQty ? item.baseQty : quantity * factor);
+    if (!(baseQty > 0) || !quantity || Math.abs(baseQty - quantity) < 1e-6) return '';
+    const perBaseUnitPrice = money2(((parseFloat(item.price) || 0) * quantity) / baseQty);
+    const baseUnitLabel = item.baseUnit ? ` ${item.baseUnit}` : '';
+    return `= ${formatQty(baseQty)}${baseUnitLabel} × ₱${perBaseUnitPrice.toFixed(2)}`;
+}
 function canUsePriceLevelClient() {
     const isAdmin = currentUser && currentUser.role && String(currentUser.role).toLowerCase() === 'admin';
     return !!(isAdmin || (currentPermissions && currentPermissions.price_level_select));
@@ -16471,9 +16486,9 @@ function openReceiptPreview() {
         const row = document.createElement('div');
         row.className ='r-item-line';
         const itemDiscount = Math.max(0, parseFloat(item.itemDiscount) || 0);
-        const nameLabel = itemDiscount > 0
-            ? `${escapeHtml(item.name)} <small style="color:#dc2626;">(-₱${itemDiscount.toFixed(2)})</small>`
-            : escapeHtml(item.name);
+        const priceLevelTag = item.priceLevel ? ` <small style="color:#2563eb;font-weight:600;">[${escapeHtml(item.priceLevel)}]</small>` : '';
+        const discountTag = itemDiscount > 0 ? ` <small style="color:#dc2626;">(-₱${itemDiscount.toFixed(2)})</small>` : '';
+        const nameLabel = `${escapeHtml(item.name)}${priceLevelTag}${discountTag}`;
         const lineTotal = (item.price * item.quantity) - itemDiscount;
         row.innerHTML = `
             <span>${nameLabel}</span>
@@ -16483,11 +16498,18 @@ function openReceiptPreview() {
         const detailRow = document.createElement('div');
         detailRow.className ='r-item-detail-line';
         detailRow.innerHTML = `
-            <span>${Number(item.quantity).toFixed(1)}</span>
+            <span>${Number(item.quantity).toFixed(1)}${item.unit ? ` ${escapeHtml(item.unit)}` : ''}</span>
             <span>x</span>
             <span>₱${parseFloat(item.price).toFixed(2)}</span>
         `;
         itemBlock.appendChild(detailRow);
+        const previewBaseLine = formatBaseUnitBreakdown(item);
+        if (previewBaseLine) {
+            const baseLineRow = document.createElement('div');
+            baseLineRow.className ='r-item-detail-line r-item-baseunit-line';
+            baseLineRow.innerHTML = `<span>${escapeHtml(previewBaseLine)}</span>`;
+            itemBlock.appendChild(baseLineRow);
+        }
         itemsTable.appendChild(itemBlock);
         rpItemCounterQty += Number(item.quantity) || 0;
     });
@@ -16517,13 +16539,16 @@ function generateReceiptImageDataUrl(tx) {
     const qrNoteEl = document.getElementById('r-loyalty-qr-note');
     const qrNoteText = (showLoyaltyQr && qrNoteEl && qrNoteEl.style.display !=='none') ? (qrNoteEl.innerText || '').trim() : '';
     const items = tx.items || [];
+    const itemBaseLines = items.map(i => formatBaseUnitBreakdown(i));
+    const baseLineHeight = 14;
     const birLines = getBirReceiptLines();
     const width = 380;
     const lineHeight = 20;
     const headerHeight = 110;
     const footerHeight = 130;
     const qrBlockHeight = qrImgEls.length ? (24 + (qrNoteText ? 18 : 0) + 130) : 0;
-    const height = headerHeight + (birLines.length * 16) + (items.length * lineHeight) + footerHeight + qrBlockHeight;
+    const height = headerHeight + (birLines.length * 16) + (items.length * lineHeight)
+        + (itemBaseLines.filter(Boolean).length * baseLineHeight) + footerHeight + qrBlockHeight;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -16559,16 +16584,26 @@ function generateReceiptImageDataUrl(tx) {
     ctx.stroke();
     y += 18;
     ctx.font ='12px monospace';
-    items.forEach(i => {
+    items.forEach((i, idx) => {
         const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
         const lineTotal = ((parseFloat(i.price) || 0) * qty3(i.quantity)) - itemDiscount;
-        const label = `${i.name} x${i.quantity}`.slice(0, 28);
+        const levelTag = i.priceLevel ? ` [${i.priceLevel}]` : '';
+        const unitTag = i.unit ? ` ${i.unit}` : '';
+        const label = `${i.name} x${i.quantity}${unitTag}${levelTag}`.slice(0, 34);
         const priceStr = `P${lineTotal.toFixed(2)}`;
         ctx.fillText(label, 14, y);
         ctx.textAlign ='right';
         ctx.fillText(priceStr, width - 14, y);
         ctx.textAlign ='left';
         y += lineHeight;
+        if (itemBaseLines[idx]) {
+            ctx.font ='italic 10px monospace';
+            ctx.fillStyle ='#555555';
+            ctx.fillText(itemBaseLines[idx].slice(0, 44), 20, y);
+            ctx.fillStyle ='#111111';
+            ctx.font ='12px monospace';
+            y += baseLineHeight;
+        }
     });
     ctx.beginPath();
     ctx.moveTo(14, y + 4);
@@ -16688,9 +16723,9 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         const itemRow = document.createElement('div');
         itemRow.className ='r-item-line';
         const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
-        const nameLabel = itemDiscount > 0
-            ? `${escapeHtml(i.name)} <small style="color:#dc2626;">(-₱${itemDiscount.toFixed(2)})</small>`
-            : escapeHtml(i.name);
+        const priceLevelTag = i.priceLevel ? ` <small style="color:#2563eb;font-weight:600;">[${escapeHtml(i.priceLevel)}]</small>` : '';
+        const discountTag = itemDiscount > 0 ? ` <small style="color:#dc2626;">(-₱${itemDiscount.toFixed(2)})</small>` : '';
+        const nameLabel = `${escapeHtml(i.name)}${priceLevelTag}${discountTag}`;
         const lineTotal = money2(i.price * i.quantity) - itemDiscount;
         itemRow.innerHTML = `
             <span>${nameLabel}</span>
@@ -16706,6 +16741,13 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             <span>₱${parseFloat(i.price).toFixed(2)}</span>
         `;
         itemBlock.appendChild(detailRow);
+        const invoiceBaseLine = formatBaseUnitBreakdown(i);
+        if (invoiceBaseLine) {
+            const baseLineRow = document.createElement('div');
+            baseLineRow.className ='r-item-detail-line r-item-baseunit-line';
+            baseLineRow.innerHTML = `<span>${escapeHtml(invoiceBaseLine)}</span>`;
+            itemBlock.appendChild(baseLineRow);
+        }
         itemsTable.appendChild(itemBlock);
         rItemCounterQty += Number(i.quantity) || 0;
     });

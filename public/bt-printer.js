@@ -365,18 +365,21 @@ function collectReceiptDataFromDom(prefix) {
         const rows = blocks.length ? blocks : itemsTable.querySelectorAll('.r-item-line');
         rows.forEach((row) => {
             const lineEl = row.classList.contains('r-item-line') ? row : row.querySelector('.r-item-line');
-            const detailEl = row.querySelector ? row.querySelector('.r-item-detail-line') : null;
+            // querySelectorAll (not querySelector): a line can have both the normal qty x price
+            // detail row AND, for a bulk/UOM sale (e.g. "Sako" at a Wholesale price), an extra
+            // base-unit breakdown row (e.g. "= 25 kilo x P25.00") — both should print.
+            const detailEls = row.querySelectorAll ? row.querySelectorAll('.r-item-detail-line') : [];
             if (lineEl) {
                 const spans = lineEl.querySelectorAll('span');
                 if (spans.length >= 2) {
                     items.push({ text: spans[0].innerText.trim(), total: spans[1].innerText.trim() });
                 }
             }
-            if (detailEl) {
+            detailEls.forEach((detailEl) => {
                 const detailSpans = detailEl.querySelectorAll('span');
                 const detailText = Array.from(detailSpans).map((sp) => sp.innerText.trim()).filter(Boolean).join(' ');
                 if (detailText) items.push({ text: `  ${detailText}`, total: '' });
-            }
+            });
         });
     }
 

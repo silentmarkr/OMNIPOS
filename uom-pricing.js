@@ -136,6 +136,10 @@ function resolveLine(product, item, opts = {}) {
         code: product.code,
         name: product.name,
         unitName: unit.isBase ? null : unit.name,
+        // The product's base unit label (e.g. "kilo", "pcs") — carried onto the receipt so a
+        // sale made in a bigger selling unit (e.g. "Sako") can also show its base-unit
+        // quantity and per-base-unit price, so the buyer can double-check the math.
+        baseUnit: product && product.baseUnit ? String(product.baseUnit).trim() : '',
         factor: unit.factor,
         priceLevel: priceResult.levelUsed,
         quantity,
