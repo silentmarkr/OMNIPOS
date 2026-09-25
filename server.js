@@ -3379,6 +3379,7 @@ const FEATURE_CATALOG = {
     promo_codes: catalogEntry('promo_codes', 'Promo Codes Module', 499, 'module', 'Create discount/promo codes that can be used at checkout.'),
     advanced_reports: catalogEntry('advanced_reports', 'Sales Analytics & Advanced Reports', 799, 'module', 'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.'),
     purchase_orders: catalogEntry('purchase_orders', 'Purchase Orders Module', 999, 'module', 'Create and track Purchase Orders to suppliers, including reorder suggestions.'),
+    batch_lot_tracking: catalogEntry('batch_lot_tracking', 'Batch/Lot Tracking & Expiry Management', 799, 'module', 'Track stock per delivery/lot with its own expiry date, FEFO (First-Expiry, First-Out) auto-deduction, and the dedicated Batch/Lot Tracking page with near-expiry alerts.'),
     customer_crm: catalogEntry('customer_crm', 'Customer Profiles, Loyalty & Debtors', 799, 'module', 'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.'),
     shift_management: catalogEntry('shift_management', 'Multi-Cashier Shift Oversight & Z-Reading Reports', 699, 'module', 'Multi-cashier shift tracking and Z-Reading (cash count) reports.'),
     rbac_management: {
@@ -6523,13 +6524,11 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         } else if (stock <= threshold) {
             lowStockItems.push({ name: p.name, stock, threshold });
         }
-        if (p.expiryDate) {
-            const expiryDate = new Date(p.expiryDate);
-            if (!isNaN(expiryDate.getTime())) {
-                const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-                if (daysLeft < 0) expiredItems.push({ name: p.name, expiredDaysAgo: Math.abs(daysLeft) });
-                else if (daysLeft <= 7) expiringSoonItems.push({ name: p.name, daysLeft });
-            }
+        const effExpiryMs = getEffectiveExpiryMs(p);
+        if (effExpiryMs !== null) {
+            const daysLeft = Math.ceil((effExpiryMs - now.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysLeft < 0) expiredItems.push({ name: p.name, expiredDaysAgo: Math.abs(daysLeft) });
+            else if (daysLeft <= 7) expiringSoonItems.push({ name: p.name, daysLeft });
         }
     }
     const suggestedSettings = [];
@@ -9853,7 +9852,17 @@ app.get('/api/products/image-search/thumb-proxy', rateLimit('image-search-thumb-
 app.get('/api/requests', requirePermission('pending_requests'), (req, res) => {
     res.json(readData(FILE_REQUESTS));
 });
-app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 * 60 * 1000), verifyAdmin, (req, res) => {
+app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 * 60 * 1000), verifyAdmin, async (req, res) => {
+    // BUGFIX: parehong dahilan gaya ng quick-restock/PO-receive/batch endpoints —
+    // ang ADD/UPDATE/DELETE/RESTOCK branches sa ibaba ay read-modify-write din sa
+    // parehong FILE_PRODUCTS blob (kasama na ang bagong addBaseStock() call sa
+    // RESTOCK), kaya dapat ding sumailalim sa parehong mutex laban sa lost-update
+    // race kontra sa isang kasabay na benta/void/refund/stock-return/restock.
+    // Dati, wala nito, kaya posibleng mawala ang isang approval (o kabaligtaran)
+    // kapag na-interleave ito sa isang kasabay na FILE_PRODUCTS write.
+    await transactionsMutexRunExclusive(() => processRequestResolve(req, res));
+});
+function processRequestResolve(req, res) {
     const { id } = req.params;
     const { action, username } = req.body;
     let requests = readData(FILE_REQUESTS);
@@ -9937,13 +9946,23 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
                 logAction(username, `APPROVED DELETE Request for code: ${targetReq.targetCode}`);
             }
             else if (targetReq.type ==='RESTOCK') {
+                // BUGFIX: dati, direktang dinadagdagan ang p.stock dito sa pamamagitan
+                // ng isang plain .map() — hindi ito dumadaan sa addBaseStock(), kaya
+                // kapag may batches na ang product, hindi na-uupdate/nadadagdagan ang
+                // prod.batches. Resulta: prod.stock at ang sum ng prod.batches ay
+                // nagkakalayo (mismatch) sa Batch/Lot Tracking page, dahil ang dagdag
+                // na stock mula sa isang RESTOCK request approval ay "nawawala" sa
+                // batch breakdown kahit lumalaki ang toplevel stock figure. Gamitin
+                // ang parehong addBaseStock() na ginagamit ng quick-restock direct-apply
+                // at PO-receive, para laging magkatugma ang stock at batches sum.
                 const qtyToAdd = toQty3(targetReq.data?.qtyToAdd);
-                products = products.map(p => {
-                    if (p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase()) {
-                        return { ...p, stock: uomPricing.round((parseFloat(p.stock) || 0) + qtyToAdd, uomPricing.DECIMAL_PLACES) };
-                    }
-                    return p;
-                });
+                const prod = products.find(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase());
+                if (prod) {
+                    // Same Batch/Lot Tracking gate as quick-restock: batch-info is
+                    // only honored on approval when the feature is unlocked.
+                    const batchLotUnlocked = getUnlockedFeatureIds().includes('batch_lot_tracking');
+                    addBaseStock(prod, qtyToAdd, batchLotUnlocked ? (targetReq.data?.batchInfo || {}) : {});
+                }
                 logAction(username, `APPROVED RESTOCK Request for code: ${targetReq.targetCode} (+${qtyToAdd})`);
             }
             writeData(FILE_PRODUCTS, products);
@@ -9958,7 +9977,7 @@ app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 
     requests = requests.filter(r => r.id.toString() !== id.toString());
     writeData(FILE_REQUESTS, requests);
     res.json({ success: true, message: `Request processed and removed successfully.` });
-});
+}
 app.get('/api/health', (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({ success: true, status: 'ok', timestamp: new Date().toISOString() });
@@ -10347,7 +10366,7 @@ async function processTransaction(req, res) {
         const prod = products.find(p => p.code === item.code);
         if (prod) {
             const deduct = (typeof item.baseQty === 'number') ? item.baseQty : item.quantity;
-            prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - deduct), uomPricing.DECIMAL_PLACES);
+            deductProductStock(prod, deduct);
         }
     });
     let newLoyaltyCardToken = null;
@@ -12112,8 +12131,113 @@ const STOCK_RETURN_DAMAGE_STATUSES = {
 // correct number of BASE units (e.g. 2 Boxes x 24 = 48 pcs).
 function toQty3(v) { return Math.max(0, uomPricing.round(parseFloat(v) || 0, uomPricing.DECIMAL_PLACES)); }
 function qtyEq(a, b) { return Math.abs((parseFloat(a) || 0) - (parseFloat(b) || 0)) < 1e-6; }
-function addBaseStock(prod, baseQty) {
-    prod.stock = uomPricing.round((parseFloat(prod.stock) || 0) + baseQty, uomPricing.DECIMAL_PLACES);
+
+// ---- BATCH / LOT TRACKING -------------------------------------------------
+// A product may optionally carry a `batches` array: [{ id, lotNumber, quantity,
+// expiryDate, costPrice, supplier, receivedDate, notes }]. Products that never
+// use this feature simply have no `batches` array (or an empty one) and behave
+// exactly as before — `product.stock` stays the single source of truth. Once a
+// product has at least one batch, `product.stock` is kept in sync as the SUM of
+// all its batch quantities, so every existing stock/low-stock/export code path
+// keeps working unchanged.
+function genBatchId() {
+    return 'BATCH-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+// FEFO = First-Expiry, First-Out. Batches without an expiry date are treated as
+// "expires last" so dated/near-expiry stock is always sold before undated stock.
+function sortBatchesFEFO(batches) {
+    return [...(Array.isArray(batches) ? batches : [])].sort((a, b) => {
+        const aExp = a.expiryDate ? new Date(a.expiryDate).getTime() : Infinity;
+        const bExp = b.expiryDate ? new Date(b.expiryDate).getTime() : Infinity;
+        if (isNaN(aExp) && isNaN(bExp)) { /* fall through to receivedDate */ }
+        else if (isNaN(aExp)) return 1;
+        else if (isNaN(bExp)) return -1;
+        else if (aExp !== bExp) return aExp - bExp;
+        const aRec = a.receivedDate ? new Date(a.receivedDate).getTime() : 0;
+        const bRec = b.receivedDate ? new Date(b.receivedDate).getTime() : 0;
+        return aRec - bRec;
+    });
+}
+// Returns the nearest upcoming (or already-passed) expiry across a product's
+// batches, in ms since epoch, or null if not applicable — used so low-stock/AI
+// insight code can consider batch-level expiries, not just the legacy single
+// product.expiryDate field.
+function getEffectiveExpiryMs(p) {
+    if (Array.isArray(p.batches) && p.batches.length > 0) {
+        let nearest = null;
+        for (const b of p.batches) {
+            if (!b.expiryDate || (parseFloat(b.quantity) || 0) <= 0) continue;
+            const t = new Date(b.expiryDate).getTime();
+            if (isNaN(t)) continue;
+            if (nearest === null || t < nearest) nearest = t;
+        }
+        return nearest;
+    }
+    if (p.expiryDate) {
+        const t = new Date(p.expiryDate).getTime();
+        return isNaN(t) ? null : t;
+    }
+    return null;
+}
+// Deducts `qty` base units from a product at sale time. When the product has
+// batches, deducts FEFO (oldest-expiring batch first) so the stock actually
+// leaving the shelf matches what the register reports; otherwise falls back to
+// the original plain stock decrement.
+function deductProductStock(prod, qty) {
+    const q = uomPricing.round(Math.max(0, parseFloat(qty) || 0), uomPricing.DECIMAL_PLACES);
+    if (Array.isArray(prod.batches) && prod.batches.length > 0) {
+        let remaining = q;
+        const ordered = sortBatchesFEFO(prod.batches);
+        for (const batch of ordered) {
+            if (remaining <= 1e-9) break;
+            const avail = Math.max(0, parseFloat(batch.quantity) || 0);
+            if (avail <= 0) continue;
+            const take = Math.min(avail, remaining);
+            batch.quantity = uomPricing.round(avail - take, uomPricing.DECIMAL_PLACES);
+            remaining = uomPricing.round(remaining - take, uomPricing.DECIMAL_PLACES);
+        }
+        // Drop fully-consumed batches so the batch list stays tidy.
+        prod.batches = prod.batches.filter(b => (parseFloat(b.quantity) || 0) > 1e-9);
+        prod.stock = uomPricing.round(prod.batches.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0), uomPricing.DECIMAL_PLACES);
+    } else {
+        prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - q), uomPricing.DECIMAL_PLACES);
+    }
+}
+// Adds `baseQty` back onto a product's stock (void/refund/stock-return/PO-receive/
+// quick-restock). If `batchInfo` names a lot number or expiry date, a new dated
+// batch is created. Otherwise, if the product already tracks batches, the qty is
+// rolled into a shared "UNSPECIFIED" bucket so `stock` and the sum of `batches`
+// never drift apart — products that don't use batch tracking are unaffected.
+function addBaseStock(prod, baseQty, batchInfo) {
+    const q = uomPricing.round((parseFloat(baseQty) || 0), uomPricing.DECIMAL_PLACES);
+    const hasExplicitBatchInfo = !!(batchInfo && (String(batchInfo.lotNumber || '').trim() || String(batchInfo.expiryDate || '').trim()));
+    if (q > 0 && ((Array.isArray(prod.batches) && prod.batches.length > 0) || hasExplicitBatchInfo)) {
+        if (!Array.isArray(prod.batches)) prod.batches = [];
+        if (hasExplicitBatchInfo) {
+            prod.batches.push({
+                id: genBatchId(),
+                lotNumber: String(batchInfo.lotNumber || '').trim() || null,
+                quantity: q,
+                expiryDate: String(batchInfo.expiryDate || '').trim() || null,
+                costPrice: (batchInfo.costPrice !== undefined && batchInfo.costPrice !== null && batchInfo.costPrice !== '') ? (parseFloat(batchInfo.costPrice) || 0) : null,
+                supplier: String(batchInfo.supplier || '').trim() || null,
+                receivedDate: String(batchInfo.receivedDate || '').trim() || new Date().toISOString(),
+                notes: String(batchInfo.notes || '').trim() || null
+            });
+        } else {
+            let bucket = prod.batches.find(b => b.lotNumber === 'UNSPECIFIED' && !b.expiryDate);
+            if (!bucket) {
+                bucket = {
+                    id: genBatchId(), lotNumber: 'UNSPECIFIED', quantity: 0, expiryDate: null,
+                    costPrice: null, supplier: null, receivedDate: new Date().toISOString(),
+                    notes: 'Auto-created: stock added/returned without specific lot/batch details.'
+                };
+                prod.batches.push(bucket);
+            }
+            bucket.quantity = uomPricing.round((parseFloat(bucket.quantity) || 0) + q, uomPricing.DECIMAL_PLACES);
+        }
+    }
+    prod.stock = uomPricing.round((parseFloat(prod.stock) || 0) + q, uomPricing.DECIMAL_PLACES);
 }
 function lineFactor(item) {
     const q = parseFloat(item && item.quantity) || 0;
@@ -13086,7 +13210,16 @@ function processQuickRestock(req, res) {
     const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!target) return res.status(404).json({ success: false, message:'Product not found.' });
     if (canApplyDirectly) {
-        addBaseStock(target, qty);
+        // Batch/Lot Tracking is a gated premium feature — only honor the
+        // batch-info fields from the quick-restock form when it's unlocked.
+        // The plain restock (qty only) always proceeds either way.
+        const batchLotUnlocked = getUnlockedFeatureIds().includes('batch_lot_tracking');
+        addBaseStock(target, qty, batchLotUnlocked ? {
+            lotNumber: req.body.lotNumber,
+            expiryDate: req.body.expiryDate,
+            costPrice: req.body.costPrice,
+            supplier: req.body.supplier
+        } : {});
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Quick-restocked "${target.name}" (+${qty}, bagong stock: ${target.stock})`);
         return res.json({ success: true, message: `+${qty} na-restock sa "${target.name}".`, newStock: target.stock });
@@ -13097,6 +13230,136 @@ function processQuickRestock(req, res) {
         logAction(username, `Submitted a RESTOCK request for "${target.name}" (+${qty})`);
         return res.json({ success: true, pending: true, message:'Restock request submitted for Admin approval.' });
     }
+}
+// Aggregated batch/lot list across ALL products, for the dedicated Batch/Lot
+// Tracking page (search + status filter live client-side over this list).
+app.get('/api/products/batches', requirePermission('products'), requireFeature('batch_lot_tracking'), (req, res) => {
+    const products = readData(FILE_PRODUCTS);
+    const now = Date.now();
+    const rows = [];
+    products.forEach(p => {
+        if (!Array.isArray(p.batches) || p.batches.length === 0) return;
+        p.batches.forEach(b => {
+            let status = 'good';
+            let daysLeft = null;
+            if (b.expiryDate) {
+                const t = new Date(b.expiryDate).getTime();
+                if (!isNaN(t)) {
+                    daysLeft = Math.ceil((t - now) / (1000 * 60 * 60 * 24));
+                    status = daysLeft < 0 ? 'expired' : (daysLeft <= 7 ? 'expiring_soon' : 'good');
+                } else {
+                    status = 'no_expiry';
+                }
+            } else {
+                status = 'no_expiry';
+            }
+            rows.push({
+                productCode: p.code,
+                productName: p.name,
+                category: p.category || null,
+                batchId: b.id,
+                lotNumber: b.lotNumber || null,
+                quantity: b.quantity,
+                expiryDate: b.expiryDate || null,
+                daysLeft,
+                status,
+                costPrice: (b.costPrice !== undefined && b.costPrice !== null) ? b.costPrice : null,
+                supplier: b.supplier || null,
+                receivedDate: b.receivedDate || null,
+                notes: b.notes || null
+            });
+        });
+    });
+    res.json({ success: true, rows });
+});
+app.get('/api/products/:code/batches', requirePermission('products'), requireFeature('batch_lot_tracking'), (req, res) => {
+    const { code } = req.params;
+    const products = readData(FILE_PRODUCTS);
+    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const batches = sortBatchesFEFO(prod.batches);
+    res.json({ success: true, code: prod.code, name: prod.name, stock: prod.stock, batches });
+});
+app.post('/api/products/:code/batches', requirePermission('products'), requireFeature('batch_lot_tracking'), rateLimit('product-batch-add', 60, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processAddProductBatch(req, res));
+});
+function processAddProductBatch(req, res) {
+    const { code } = req.params;
+    const { lotNumber, quantity, expiryDate, costPrice, supplier, receivedDate, notes } = req.body || {};
+    const qty = toQty3(quantity);
+    if (!qty || qty <= 0) {
+        return res.status(400).json({ success: false, message: 'Please enter a valid quantity for the new batch/lot.' });
+    }
+    if (expiryDate && isNaN(new Date(expiryDate).getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
+    }
+    let products = readData(FILE_PRODUCTS);
+    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const username = req.authUser.username;
+    if (!Array.isArray(prod.batches)) prod.batches = [];
+    const batch = {
+        id: genBatchId(),
+        lotNumber: String(lotNumber || '').trim() || null,
+        quantity: qty,
+        expiryDate: String(expiryDate || '').trim() || null,
+        costPrice: (costPrice !== undefined && costPrice !== null && costPrice !== '') ? (parseFloat(costPrice) || 0) : null,
+        supplier: String(supplier || '').trim() || null,
+        receivedDate: String(receivedDate || '').trim() || new Date().toISOString(),
+        notes: String(notes || '').trim() || null
+    };
+    prod.batches.push(batch);
+    prod.stock = uomPricing.round((parseFloat(prod.stock) || 0) + qty, uomPricing.DECIMAL_PLACES);
+    writeData(FILE_PRODUCTS, products);
+    logAction(username, `Added new batch/lot for "${prod.name}" (Lot: ${batch.lotNumber || '—'}, +${qty}, new stock: ${prod.stock})`);
+    res.json({ success: true, message: 'Batch/lot added.', batch, newStock: prod.stock });
+}
+app.put('/api/products/:code/batches/:batchId', requirePermission('products'), requireFeature('batch_lot_tracking'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processUpdateProductBatch(req, res));
+});
+function processUpdateProductBatch(req, res) {
+    const { code, batchId } = req.params;
+    const { lotNumber, quantity, expiryDate, costPrice, supplier, receivedDate, notes } = req.body || {};
+    if (expiryDate !== undefined && expiryDate !== null && String(expiryDate).trim() && isNaN(new Date(expiryDate).getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
+    }
+    let products = readData(FILE_PRODUCTS);
+    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const batch = Array.isArray(prod.batches) ? prod.batches.find(b => b.id === batchId) : null;
+    if (!batch) return res.status(404).json({ success: false, message: 'Batch/lot not found.' });
+    if (quantity !== undefined && quantity !== null && String(quantity).trim() !== '') {
+        const newQty = toQty3(quantity);
+        const delta = uomPricing.round(newQty - (parseFloat(batch.quantity) || 0), uomPricing.DECIMAL_PLACES);
+        batch.quantity = newQty;
+        prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) + delta), uomPricing.DECIMAL_PLACES);
+    }
+    if (lotNumber !== undefined) batch.lotNumber = String(lotNumber || '').trim() || null;
+    if (expiryDate !== undefined) batch.expiryDate = String(expiryDate || '').trim() || null;
+    if (costPrice !== undefined) batch.costPrice = (costPrice !== null && costPrice !== '') ? (parseFloat(costPrice) || 0) : null;
+    if (supplier !== undefined) batch.supplier = String(supplier || '').trim() || null;
+    if (receivedDate !== undefined && String(receivedDate).trim()) batch.receivedDate = String(receivedDate).trim();
+    if (notes !== undefined) batch.notes = String(notes || '').trim() || null;
+    writeData(FILE_PRODUCTS, products);
+    logAction(req.authUser.username, `Updated batch/lot for "${prod.name}" (ID: ${batchId})`);
+    res.json({ success: true, message: 'Batch/lot updated.', batch, newStock: prod.stock });
+}
+app.delete('/api/products/:code/batches/:batchId', requirePermission('products'), requireFeature('batch_lot_tracking'), rateLimit('product-batch-delete', 30, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processDeleteProductBatch(req, res));
+});
+function processDeleteProductBatch(req, res) {
+    const { code, batchId } = req.params;
+    let products = readData(FILE_PRODUCTS);
+    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    if (!Array.isArray(prod.batches)) prod.batches = [];
+    const batch = prod.batches.find(b => b.id === batchId);
+    if (!batch) return res.status(404).json({ success: false, message: 'Batch/lot not found.' });
+    prod.batches = prod.batches.filter(b => b.id !== batchId);
+    prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - (parseFloat(batch.quantity) || 0)), uomPricing.DECIMAL_PLACES);
+    writeData(FILE_PRODUCTS, products);
+    logAction(req.authUser.username, `Deleted batch/lot for "${prod.name}" (Lot: ${batch.lotNumber || '—'}, -${batch.quantity})`);
+    res.json({ success: true, message: 'Batch/lot deleted.', newStock: prod.stock });
 }
 app.get('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const orders = readData(FILE_PURCHASE_ORDERS, []).sort((a, b) => (b.createdAt ||'').localeCompare(a.createdAt ||''));

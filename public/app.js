@@ -1569,6 +1569,8 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'create-po-lock':'purchase_orders',
 'reorder-export-csv-lock':'purchase_orders',
 'menu-reorder-lock':'purchase_orders',
+'menu-batchlots-lock':'batch_lot_tracking',
+'batches-btn-lock':'batch_lot_tracking',
 'menu-branches-lock':'multi_branch',
 'menu-attendance-lock':'remote_operations',
 'menu-remoteops-lock':'remote_operations'
@@ -1688,6 +1690,7 @@ function isBadgeAllowedForFeature(featureId) {
 }
 const PREMIUM_FEATURE_FALLBACK = {
     purchase_orders: { name:'Purchase Orders Module', description:'Create and track Purchase Orders to suppliers, including reorder suggestions.' },
+    batch_lot_tracking: { name:'Batch/Lot Tracking & Expiry Management', description:'Track stock per delivery/lot with its own expiry date, FEFO (First-Expiry, First-Out) auto-deduction, and the dedicated Batch/Lot Tracking page with near-expiry alerts.' },
     customer_crm: { name:'Customer Profiles, Loyalty & Debtors', description:'Customer profiles, loyalty points, purchase history, and the Debtors ledger for each customer.' },
     promo_codes: { name:'Promo Codes Module', description:'Create discount/promo codes that can be used at checkout.' },
     advanced_reports: { name:'Sales Analytics & Advanced Reports', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
@@ -3563,7 +3566,8 @@ function switchView(viewKey, opts) {
     const activeUser = JSON.parse(localStorage.getItem('omnipos_user') ||'null');
     const userRole = (activeUser && activeUser.role ||'').toLowerCase();
     const isAdmin = userRole ==='admin';
-    if (!isAdmin && Object.prototype.hasOwnProperty.call(currentPermissions || {}, viewKey) && !currentPermissions[viewKey]) {
+    const permissionKeyForView = (viewKey === 'batchlots') ? 'products' : viewKey;
+    if (!isAdmin && Object.prototype.hasOwnProperty.call(currentPermissions || {}, permissionKeyForView) && !currentPermissions[permissionKeyForView]) {
         console.warn(`[OmniPOS] Access denied to view "${viewKey}" for role "${userRole ||'unknown'}"`);
         if (currentPermissions && currentPermissions.terminal) {
             viewKey ='terminal';
@@ -3575,7 +3579,7 @@ function switchView(viewKey, opts) {
         console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
     }
-    const VIEW_FEATURE_MAP = { customers:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations' };
+    const VIEW_FEATURE_MAP = { customers:'customer_crm', debts:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations', batchlots:'batch_lot_tracking' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
             guardShiftReportAccess(isAdmin);
@@ -3634,11 +3638,28 @@ function switchView(viewKey, opts) {
         if (typeof applySavedTerminalExtraTheme ==='function') applySavedTerminalExtraTheme();
         if (typeof relocateTerminalSearchForMobile ==='function') relocateTerminalSearchForMobile();
     } else {
+        // Bug fix: dati dito lang sa <body> nililinis ang Terminal Pro theme (data-terminal-theme)
+        // at daymode class. Pero #app-top-header (ang header na visible sa LAHAT ng views) ay
+        // hiwalay na tinatakan ng attribute na ito sa applyTerminalExtraTheme()/applySavedTerminalDayMode(),
+        // kaya kapag umalis sa Terminal, naiiwan ang tema doon at "naliligaw" (sumusunod) papunta
+        // sa ibang views (lalo na sa header user-dropdown menu). Kailangang linisin din sa
+        // #view-terminal at #app-top-header, hindi lang sa <body>.
+        const terminalSectionEl = document.getElementById('view-terminal');
+        const headerElForCleanup = document.getElementById('app-top-header');
+        if (terminalSectionEl) {
+            terminalSectionEl.removeAttribute('data-terminal-theme');
+            terminalSectionEl.classList.remove('terminal-daymode');
+        }
+        if (headerElForCleanup) {
+            headerElForCleanup.removeAttribute('data-terminal-theme');
+            headerElForCleanup.classList.remove('terminal-daymode');
+        }
         document.body.classList.remove('terminal-modal-daymode');
         document.body.removeAttribute('data-terminal-theme');
     }
     if (typeof updateHeaderDayDarkModeUI ==='function') updateHeaderDayDarkModeUI();
     if (viewKey ==='products') { loadInventoryProductsTable(); }
+    if (viewKey === 'batchlots') { loadBatchLotsView(); }
     if (viewKey ==='stock_return_inspection') { loadPendingStockReturns(); }
     if (viewKey ==='barcode') loadBarcodeGeneratorModule();
     if (viewKey ==='reports') {
@@ -3676,6 +3697,7 @@ function switchView(viewKey, opts) {
 const MOBILE_HEADER_TITLE_MAP = {
     dashboard:    { text:'Dashboard',           icon:'fa-gauge',              hideIds: ['dashboard-title-row'] },
     products:     { text:'Products',            icon:'fa-box',                hideIds: ['page-title-products'] },
+    batchlots:    { text:'Batch/Lot Tracking',  icon:'fa-layer-group',        hideIds: ['page-title-batchlots'] },
     barcode:      { text:'Barcode Generator',   icon:'fa-barcode',            hideIds: ['page-title-barcode'] },
     reorder:      { text:'Reorder Alerts',      icon:'fa-truck-fast',         hideIds: ['page-title-reorder'] },
     reports:      { text:'Sales Analytics',     icon:'fa-chart-line',         hideIds: [] },
@@ -8839,6 +8861,7 @@ async function ovRunDashboardMetricsCycle() {
         // though the low-stock check itself would have worked fine. Run it
         // unconditionally; it already fails safe (catches its own errors).
         refreshLowStockBadge();
+        refreshBatchLotsAlertBadge();
         if (liveOk) {
             checkBackupHealthBanner();
             refreshBranchesAlertBadge();
@@ -11154,19 +11177,34 @@ function patchInventoryProductsTableInPlace() {
         if (expiryCell) {
             let expiryHtml = '<span style="color:#94a3b8;">—</span>';
             let expirySignature = 'none';
-            if (p.expiryDate) {
-                const expiryDate = new Date(p.expiryDate);
+            const hasBatches = Array.isArray(p.batches) && p.batches.length > 0;
+            // When the product uses batch/lot tracking, show the nearest batch expiry
+            // here instead of the old single product-level expiry date.
+            let effectiveExpiryDate = p.expiryDate || null;
+            if (hasBatches) {
+                const dated = p.batches.filter(b => b.expiryDate && (parseFloat(b.quantity) || 0) > 0);
+                dated.sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+                effectiveExpiryDate = dated.length > 0 ? dated[0].expiryDate : null;
+            }
+            if (effectiveExpiryDate) {
+                const expiryDate = new Date(effectiveExpiryDate);
                 if (!isNaN(expiryDate.getTime())) {
                     const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
                     const isExpiringSoon = daysLeft <= 7;
                     const isExpired = daysLeft < 0;
                     const color = isExpired ? '#dc2626' : (isExpiringSoon ? '#f59e0b' : '#334155');
                     const weight = (isExpired || isExpiringSoon) ? '600' : '400';
-                    expiryHtml = `<span style="color:${color};font-weight:${weight};">${p.expiryDate}</span>`;
-                    expirySignature = `${p.expiryDate}|${color}|${weight}`;
+                    expiryHtml = `<span style="color:${color};font-weight:${weight};">${effectiveExpiryDate}</span>`;
+                    expirySignature = `${effectiveExpiryDate}|${color}|${weight}`;
                 } else {
-                    expirySignature = `invalid:${p.expiryDate}`;
+                    expirySignature = `invalid:${effectiveExpiryDate}`;
                 }
+            } else if (hasBatches) {
+                expirySignature = 'batched-no-expiry';
+            }
+            if (hasBatches) {
+                expiryHtml += ` <i class="fa-solid fa-layer-group" style="color:#7c5cff;font-size:0.8em;" title="Batch/Lot tracked"></i>`;
+                expirySignature += '|batched';
             }
             if (expiryCell.dataset.expirySig !== expirySignature) {
                 expiryCell.dataset.expirySig = expirySignature;
@@ -17567,6 +17605,8 @@ function openProductModal(mode, code ='') {
         document.getElementById('product-modal-title').innerText ="Add Product";
         document.getElementById('product-schema-form').reset();
         codeInput.removeAttribute('disabled');
+        const batchesBtnGroupAdd = document.getElementById('p-form-batches-btn-group');
+        if (batchesBtnGroupAdd) batchesBtnGroupAdd.style.display = 'none';
         document.getElementById('p-form-image').value ='';
         updateProductPhotoPreview('');
         document.getElementById('p-form-details').value ='';
@@ -17581,6 +17621,8 @@ function openProductModal(mode, code ='') {
         codeInput.setAttribute('disabled', true);
         if (scanBtn) scanBtn.style.display ='none';
         if (scanPromptBtn) scanPromptBtn.style.display ='none';
+        const batchesBtnGroupEdit = document.getElementById('p-form-batches-btn-group');
+        if (batchesBtnGroupEdit) batchesBtnGroupEdit.style.display = 'block';
         document.getElementById('product-schema-form').reset();
         codeInput.value = code;
         updateProductPhotoPreview('');
@@ -17619,6 +17661,352 @@ function openProductModal(mode, code ='') {
     }
     document.getElementById('product-modal').style.display ='flex';
     refreshProductNetPriceHelperVisibility();
+}
+// ---- BATCH / LOT TRACKING (frontend) --------------------------------------
+async function openProductBatchesModal(code, name) {
+    if (guardPremiumFeature('batch_lot_tracking')) return;
+    if (!code) {
+        Swal.fire('Error', 'Save the product first before managing batches.', 'error');
+        return;
+    }
+    document.getElementById('pb-product-code').value = code;
+    document.getElementById('product-batches-modal-title').innerText = `Manage Batches / Lots — ${name || code}`;
+    // Auto-suggest a lot code (common in PH retail/grocery POS) so staff can
+    // just confirm or tweak it instead of typing one from scratch every time.
+    const today = new Date();
+    const ymd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    document.getElementById('pb-new-lot').value = `LOT-${code}-${ymd}`;
+    document.getElementById('pb-new-qty').value = '';
+    document.getElementById('pb-new-expiry').value = '';
+    document.getElementById('pb-new-cost').value = '';
+    document.getElementById('pb-new-supplier').value = '';
+    document.getElementById('product-batches-modal').style.display = 'flex';
+    await loadProductBatches(code);
+}
+async function loadProductBatches(code) {
+    const listEl = document.getElementById('pb-batches-list');
+    listEl.innerHTML = '<p style="color:#94a3b8;">Loading...</p>';
+    try {
+        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches`);
+        const data = await res.json();
+        if (!data.success) {
+            listEl.innerHTML = `<p style="color:#dc2626;">${data.message || 'Failed to load batches.'}</p>`;
+            return;
+        }
+        renderProductBatchesList(data.batches || [], code);
+    } catch (err) {
+        console.error('Failed to load batches:', err);
+        listEl.innerHTML = '<p style="color:#dc2626;">Connection error while loading batches.</p>';
+    }
+}
+function renderProductBatchesList(batches, code) {
+    const listEl = document.getElementById('pb-batches-list');
+    if (!batches.length) {
+        listEl.innerHTML = '<p style="color:#94a3b8;">No batches yet for this product. Stock stays simple (no per-batch breakdown) until you add one.</p>';
+        return;
+    }
+    const now = Date.now();
+    listEl.innerHTML = `
+        <table class="pb-batches-table">
+            <thead><tr><th>Lot #</th><th>Qty</th><th>Expiry</th><th>Cost</th><th></th></tr></thead>
+            <tbody>
+                ${batches.map(b => {
+                    let expiryBadge;
+                    if (b.expiryDate) {
+                        const days = Math.ceil((new Date(b.expiryDate).getTime() - now) / 86400000);
+                        if (days < 0) expiryBadge = `<span style="color:#dc2626;font-weight:600;">Expired (${Math.abs(days)}d ago)</span>`;
+                        else if (days <= 7) expiryBadge = `<span style="color:#d97706;font-weight:600;">${b.expiryDate} (${days}d left)</span>`;
+                        else expiryBadge = b.expiryDate;
+                    } else {
+                        expiryBadge = '<span style="color:#94a3b8;">—</span>';
+                    }
+                    const lotLabel = b.lotNumber ? b.lotNumber.replace(/</g, '&lt;') : '<span style="color:#94a3b8;">—</span>';
+                    return `<tr>
+                        <td>${lotLabel}</td>
+                        <td>${b.quantity}</td>
+                        <td>${expiryBadge}</td>
+                        <td>${(b.costPrice !== null && b.costPrice !== undefined) ? '₱' + Number(b.costPrice).toFixed(2) : '—'}</td>
+                        <td style="white-space:nowrap;">
+                            <button type="button" class="btn-action-outline" style="padding:4px 8px;" onclick="editProductBatch('${code}', '${b.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                            <button type="button" class="btn-action-outline" style="padding:4px 8px;color:#dc2626;border-color:#dc2626;" onclick="deleteProductBatch('${code}', '${b.id}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+async function addProductBatch() {
+    const code = document.getElementById('pb-product-code').value;
+    const lotNumber = document.getElementById('pb-new-lot').value.trim();
+    const quantity = document.getElementById('pb-new-qty').value;
+    const expiryDate = document.getElementById('pb-new-expiry').value;
+    const costPrice = document.getElementById('pb-new-cost').value;
+    const supplier = document.getElementById('pb-new-supplier').value.trim();
+    if (!quantity || parseFloat(quantity) <= 0) {
+        Swal.fire('Missing Info', 'Please enter a valid quantity.', 'warning');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lotNumber, quantity, expiryDate, costPrice, supplier })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            Swal.fire('Error', data.message || 'Could not add the batch.', 'error');
+            return;
+        }
+        document.getElementById('pb-new-lot').value = '';
+        document.getElementById('pb-new-qty').value = '';
+        document.getElementById('pb-new-expiry').value = '';
+        document.getElementById('pb-new-cost').value = '';
+        document.getElementById('pb-new-supplier').value = '';
+        await loadProductBatches(code);
+        if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
+        if (typeof loadBatchLotsView === 'function' && document.getElementById('view-batchlots') && document.getElementById('view-batchlots').style.display !== 'none') loadBatchLotsView();
+        if (typeof refreshBatchLotsAlertBadge === 'function') refreshBatchLotsAlertBadge();
+        Swal.fire({ icon: 'success', title: 'Batch added', timer: 1200, showConfirmButton: false });
+    } catch (err) {
+        console.error('Failed to add batch:', err);
+        Swal.fire('Connection Error', 'Could not add the batch. Check your connection.', 'error');
+    }
+}
+async function editProductBatch(code, batchId) {
+    try {
+        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches`);
+        const data = await res.json();
+        const batch = (data.batches || []).find(b => b.id === batchId);
+        if (!batch) { Swal.fire('Not Found', 'This batch no longer exists.', 'error'); return; }
+        const { value: formValues } = await Swal.fire({
+            title: 'Edit Batch/Lot',
+            width: 420,
+            html: `
+                <div style="text-align:left;">
+                    <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Lot / Batch Number</label>
+                    <input id="swal-lot" class="swal2-input" placeholder="e.g. LOT-2026-001" value="${(batch.lotNumber || '').replace(/"/g, '&quot;')}" style="width:100%;margin:0 0 14px;box-sizing:border-box;">
+
+                    <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Quantity</label>
+                    <input id="swal-qty" type="number" min="0" class="swal2-input" placeholder="0" value="${batch.quantity}" style="width:100%;margin:0 0 14px;box-sizing:border-box;">
+
+                    <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Expiry Date</label>
+                    <input id="swal-expiry" type="date" class="swal2-input" value="${batch.expiryDate || ''}" style="width:100%;margin:0 0 14px;box-sizing:border-box;">
+
+                    <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Cost Price (₱)</label>
+                    <input id="swal-cost" type="number" step="0.01" class="swal2-input" placeholder="0.00" value="${batch.costPrice ?? ''}" style="width:100%;margin:0 0 14px;box-sizing:border-box;">
+
+                    <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Supplier</label>
+                    <input id="swal-supplier" class="swal2-input" placeholder="e.g. ABC Trading" value="${(batch.supplier || '').replace(/"/g, '&quot;')}" style="width:100%;margin:0;box-sizing:border-box;">
+                </div>
+            `,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Save',
+            preConfirm: () => ({
+                lotNumber: document.getElementById('swal-lot').value,
+                quantity: document.getElementById('swal-qty').value,
+                expiryDate: document.getElementById('swal-expiry').value,
+                costPrice: document.getElementById('swal-cost').value,
+                supplier: document.getElementById('swal-supplier').value
+            })
+        });
+        if (!formValues) return;
+        const putRes = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches/${encodeURIComponent(batchId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formValues)
+        });
+        const putData = await putRes.json();
+        if (!putData.success) {
+            Swal.fire('Error', putData.message || 'Could not update the batch.', 'error');
+            return;
+        }
+        await loadProductBatches(code);
+        if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
+        if (typeof loadBatchLotsView === 'function' && document.getElementById('view-batchlots') && document.getElementById('view-batchlots').style.display !== 'none') loadBatchLotsView();
+        if (typeof refreshBatchLotsAlertBadge === 'function') refreshBatchLotsAlertBadge();
+        Swal.fire({ icon: 'success', title: 'Batch updated', timer: 1200, showConfirmButton: false });
+    } catch (err) {
+        console.error('Failed to edit batch:', err);
+        Swal.fire('Connection Error', 'Could not update the batch.', 'error');
+    }
+}
+async function deleteProductBatch(code, batchId) {
+    const confirmResult = await Swal.fire({
+        title: 'Delete this batch?',
+        text: 'The product stock will be reduced by this batch\'s quantity.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete',
+        confirmButtonColor: '#dc2626'
+    });
+    if (!confirmResult.isConfirmed) return;
+    try {
+        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches/${encodeURIComponent(batchId)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            Swal.fire('Error', data.message || 'Could not delete the batch.', 'error');
+            return;
+        }
+        await loadProductBatches(code);
+        if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
+        if (typeof loadBatchLotsView === 'function' && document.getElementById('view-batchlots') && document.getElementById('view-batchlots').style.display !== 'none') loadBatchLotsView();
+        if (typeof refreshBatchLotsAlertBadge === 'function') refreshBatchLotsAlertBadge();
+    } catch (err) {
+        console.error('Failed to delete batch:', err);
+        Swal.fire('Connection Error', 'Could not delete the batch.', 'error');
+    }
+}
+// ---- BATCH / LOT TRACKING PAGE (all products, one list) -------------------
+let batchLotsRawRows = [];
+async function loadBatchLotsView() {
+    const tbody = document.getElementById('batchlots-table-body');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px;">Loading...</td></tr>';
+    try {
+        const res = await authFetch(`${API_URL}/products/batches`);
+        const data = await res.json();
+        batchLotsRawRows = (data && data.success) ? (data.rows || []) : [];
+    } catch (err) {
+        console.error('Failed to load batch/lot list:', err);
+        batchLotsRawRows = [];
+    }
+    renderBatchLotsTable();
+    updateBatchLotsAlertBadgeFromRows(batchLotsRawRows);
+}
+// Sidebar bell badge: counts batches that are expired or expiring within 7 days,
+// same "glanceable alert" pattern used by Reorder Alerts and Branches — a common
+// convention in Philippine retail/grocery POS apps (Loyverse, CloudPOS, etc.) so
+// staff notice near-expiry stock without having to open the page first.
+function updateBatchLotsAlertBadgeFromRows(rows) {
+    const badge = document.getElementById('menu-batchlots-alert-badge');
+    if (!badge) return;
+    const count = (rows || []).filter(r => r.status === 'expired' || r.status === 'expiring_soon').length;
+    if (count > 0) {
+        badge.innerText = count > 99 ? '99+' : count;
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+async function refreshBatchLotsAlertBadge() {
+    if (!document.getElementById('menu-batchlots-alert-badge')) return; // absent if user has no 'products' permission
+    if (!isFeatureUnlockedCached('batch_lot_tracking')) { updateBatchLotsAlertBadgeFromRows([]); return; } // premium feature — locked
+    try {
+        const res = await authFetch(`${API_URL}/products/batches`);
+        const data = await res.json();
+        updateBatchLotsAlertBadgeFromRows((data && data.success) ? (data.rows || []) : []);
+    } catch (e) {
+        console.warn('Could not refresh batch/lot alert badge:', e);
+    }
+}
+// Client-side CSV export (no backend round trip needed — the page already has
+// the full filtered list in memory), matching what's on screen (search + status
+// filter applied), the same way Product/Reorder CSV exports work in this app.
+function exportBatchLotsCsv() {
+    if (!batchLotsRawRows.length) {
+        Swal.fire('Nothing to Export', 'No batches/lots to export yet.', 'info');
+        return;
+    }
+    const searchEl = document.getElementById('batchlots-search');
+    const statusEl = document.getElementById('batchlots-filter-status');
+    const q = ((searchEl && searchEl.value) || '').trim().toLowerCase();
+    const statusFilter = statusEl ? statusEl.value : 'ALL';
+    let rows = batchLotsRawRows.slice();
+    if (q) {
+        rows = rows.filter(r =>
+            (r.productName || '').toLowerCase().includes(q) ||
+            (r.productCode || '').toLowerCase().includes(q) ||
+            (r.lotNumber || '').toLowerCase().includes(q)
+        );
+    }
+    if (statusFilter !== 'ALL') rows = rows.filter(r => r.status === statusFilter);
+
+    const esc = (v) => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`;
+    const header = ['Product', 'Code', 'Lot Number', 'Quantity', 'Expiry Date', 'Status', 'Cost Price', 'Supplier', 'Received Date'];
+    const lines = [header.join(',')];
+    rows.forEach(r => {
+        lines.push([
+            esc(r.productName), esc(r.productCode), esc(r.lotNumber || ''), r.quantity,
+            esc(r.expiryDate || ''), esc(r.status), (r.costPrice ?? ''), esc(r.supplier || ''),
+            esc(r.receivedDate ? new Date(r.receivedDate).toLocaleDateString() : '')
+        ].join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `batch_lot_tracking_${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Batch/lot list downloaded', showConfirmButton: false, timer: 1800, timerProgressBar: true });
+}
+// Safe to embed inside a single-quoted JS string literal that itself sits inside
+// a double-quoted inline onclick="..." HTML attribute. escapeHtml() alone stops a
+// value from breaking out of the outer "..." attribute (e.g. via a stray double
+// quote injecting a brand-new onmouseover="..." attribute), but a stray single
+// quote can still terminate the inner JS string and let injected JS run while
+// staying inside the same attribute. Escape backslashes/quotes for the JS-string
+// context first, then HTML-escape the result for the attribute context.
+function escapeJsAttr(value) {
+    return escapeHtml(String(value === null || value === undefined ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+function renderBatchLotsTable() {
+    const tbody = document.getElementById('batchlots-table-body');
+    if (!tbody) return;
+    const searchEl = document.getElementById('batchlots-search');
+    const statusEl = document.getElementById('batchlots-filter-status');
+    const sortEl = document.getElementById('batchlots-sort-by');
+    const q = ((searchEl && searchEl.value) || '').trim().toLowerCase();
+    const statusFilter = statusEl ? statusEl.value : 'ALL';
+    const sortBy = sortEl ? sortEl.value : 'expiry_asc';
+
+    let rows = batchLotsRawRows.slice();
+    if (q) {
+        rows = rows.filter(r =>
+            (r.productName || '').toLowerCase().includes(q) ||
+            (r.productCode || '').toLowerCase().includes(q) ||
+            (r.lotNumber || '').toLowerCase().includes(q)
+        );
+    }
+    if (statusFilter !== 'ALL') rows = rows.filter(r => r.status === statusFilter);
+    rows.sort((a, b) => {
+        if (sortBy === 'name_asc') return (a.productName || '').localeCompare(b.productName || '');
+        if (sortBy === 'qty_desc') return (parseFloat(b.quantity) || 0) - (parseFloat(a.quantity) || 0);
+        const aT = a.expiryDate ? new Date(a.expiryDate).getTime() : Infinity;
+        const bT = b.expiryDate ? new Date(b.expiryDate).getTime() : Infinity;
+        return aT - bT;
+    });
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px;">No batches/lots found.</td></tr>';
+        return;
+    }
+    const statusBadge = (r) => {
+        if (r.status === 'expired') return `<span style="color:#dc2626;font-weight:600;">Expired (${Math.abs(r.daysLeft)}d ago)</span>`;
+        if (r.status === 'expiring_soon') return `<span style="color:#d97706;font-weight:600;">${r.daysLeft}d left</span>`;
+        if (r.status === 'good') return `<span style="color:#16a34a;font-weight:600;">Good</span>`;
+        return `<span style="color:#94a3b8;">No expiry</span>`;
+    };
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td>${escapeHtml(r.productName || '')}</td>
+            <td>${escapeHtml(r.productCode || '')}</td>
+            <td>${r.lotNumber ? escapeHtml(r.lotNumber) : '<span style="color:#94a3b8;">—</span>'}</td>
+            <td>${r.quantity}</td>
+            <td>${r.expiryDate || '<span style="color:#94a3b8;">—</span>'}</td>
+            <td>${statusBadge(r)}</td>
+            <td>${(r.costPrice !== null && r.costPrice !== undefined) ? '₱' + Number(r.costPrice).toFixed(2) : '—'}</td>
+            <td>${r.supplier ? escapeHtml(r.supplier) : '<span style="color:#94a3b8;">—</span>'}</td>
+            <td>${r.receivedDate ? new Date(r.receivedDate).toLocaleDateString() : '—'}</td>
+            <td style="white-space:nowrap;">
+                <button type="button" class="btn-action-outline" style="padding:4px 8px;" onclick="editProductBatch('${escapeJsAttr(r.productCode)}', '${escapeJsAttr(r.batchId)}').then(loadBatchLotsView)" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" class="btn-action-outline" style="padding:4px 8px;color:#dc2626;border-color:#dc2626;" onclick="deleteProductBatch('${escapeJsAttr(r.productCode)}', '${escapeJsAttr(r.batchId)}').then(loadBatchLotsView)" title="Delete"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>
+    `).join('');
 }
 // When prices are VAT-inclusive in Store Settings, the "Price" entered on a product
 // is exactly what gets stripped of VAT at the time of sale (see processTransaction
@@ -17676,7 +18064,7 @@ function renderProductGalleryPreview(images) {
     container.innerHTML = images.map((src, idx) => `
         <div class="prod-gallery-thumb-wrap">
             <img src="${src}" alt="Photo ${idx + 1}">
-            <button type="button" class="prod-gallery-remove-btn" onclick="removeProductGalleryImage(${idx})" title="Alisin">&times;</button>
+            <button type="button" class="prod-gallery-remove-btn" onclick="removeProductGalleryImage(${idx})" title="Remove">&times;</button>
         </div>
     `).join('');
 }
@@ -17733,9 +18121,9 @@ function addProductSpecRow(key ='', value ='') {
     row.className ='p-spec-row';
     row.style.cssText ='display:flex;gap:8px;margin-bottom:8px;align-items:center;';
     row.innerHTML = `
-        <input type="text" class="p-spec-key" placeholder="hal. Sukat" value="${key.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
-        <input type="text" class="p-spec-value" placeholder="hal. 500ml" value="${value.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
-        <button type="button" class="btn-icon-action delete" onclick="this.closest('.p-spec-row').remove(); autosaveProductSpecsDraft();" title="Alisin"><i class="fa-solid fa-trash"></i></button>
+        <input type="text" class="p-spec-key" placeholder="e.g. Size" value="${key.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
+        <input type="text" class="p-spec-value" placeholder="e.g. 500ml" value="${value.replace(/"/g,'&quot;')}" style="flex:1;min-width:0;" oninput="autosaveProductSpecsDraft();">
+        <button type="button" class="btn-icon-action delete" onclick="this.closest('.p-spec-row').remove(); autosaveProductSpecsDraft();" title="Remove"><i class="fa-solid fa-trash"></i></button>
     `;
     container.appendChild(row);
 }
@@ -17852,7 +18240,7 @@ function openCopySpecsFromProductModal() {
                         <div class="copy-specs-item" data-code="${escapeHtml(p.code)}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;">
                             <b>${escapeHtml(p.code)}</b> — ${escapeHtml(p.name ||'')}
                         </div>`).join('')
-                    : `<div style="padding:10px;color:#94a3b8;">Walang tugma.</div>`;
+                    : `<div style="padding:10px;color:#94a3b8;">No matches.</div>`;
                 listEl.querySelectorAll('.copy-specs-item').forEach(item => {
                     item.addEventListener('click', () => {
                         const code = item.getAttribute('data-code');
@@ -18272,7 +18660,7 @@ function refreshProductUomLevelOptions() {
     const names = getProductFormLevelNames();
     document.querySelectorAll('#p-form-uom-rows .p-uom-level').forEach(sel => {
         const prev = sel.value;
-        sel.innerHTML = '<option value="">Manual (walang Price Level)</option>'
+        sel.innerHTML = '<option value="">Manual (no Price Level)</option>'
             + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)} price × base units</option>`).join('');
         sel.value = names.includes(prev) ? prev : '';
         sel.style.display = names.length ? '' : 'none';
@@ -18286,7 +18674,7 @@ function applyProductUomLevelPrice(row, silent) {
     const levelPrice = getProductFormLevelPrice(level);
     if (!(levelPrice > 0)) {
         sel.value = '';
-        if (!silent) Swal.fire('Walang Presyo ang Price Level', `Wala pang presyo ang "${level}" sa Price Levels sa ibaba. Lagyan muna ito ng presyo, tapos piliin ulit.`, 'info');
+        if (!silent) Swal.fire('Price Level Has No Price', `"${level}" doesn't have a price yet in the Price Levels below. Set a price for it first, then select it again.`, 'info');
         return;
     }
     const factor = parseFloat(row.querySelector('.p-uom-factor').value);
@@ -18546,16 +18934,16 @@ async function downloadAuthFetch(url, fallbackFilename) {
 }
 function downloadProductTemplate() {
     Swal.fire({
-        title: 'Pumili ng Template',
+        title: 'Choose a Template',
         html: `
             <div style="text-align:left;font-size:14px;line-height:1.5;">
                 <label style="display:block;margin-bottom:10px;cursor:pointer;">
                     <input type="radio" name="tmpl-choice" value="product-xlsx" checked>
-                    Product Import Template (.xlsx) <span style="color:#64748b;">— may Wholesale &amp; Reseller Price</span>
+                    Product Import Template (.xlsx) <span style="color:#64748b;">— with Wholesale &amp; Reseller Price</span>
                 </label>
                 <label style="display:block;margin-bottom:10px;cursor:pointer;">
                     <input type="radio" name="tmpl-choice" value="product-csv">
-                    Product Import Template (.csv) <span style="color:#64748b;">— may Wholesale &amp; Reseller Price</span>
+                    Product Import Template (.csv) <span style="color:#64748b;">— with Wholesale &amp; Reseller Price</span>
                 </label>
                 <label style="display:block;cursor:pointer;">
                     <input type="radio" name="tmpl-choice" value="bulk-specs-csv">
@@ -19702,8 +20090,12 @@ async function loadBarcodeGeneratorModule() {
         document.getElementById('select-all-barcodes').checked = false;
         products.forEach((p, idx) => {
             const row = document.createElement('tr');
+            // data-pricelevels carries the product's Wholesale/Reseller/etc. prices (if any) so
+            // "Print Selected" can print a bulk price on the label instead of only ever the
+            // Retail Price — see onBarcodePriceLevelChange()/generateSelectedBarcodePreview().
+            const priceLevelsJson = (p.priceLevels && typeof p.priceLevels === 'object' && !Array.isArray(p.priceLevels)) ? p.priceLevels : {};
             row.innerHTML = `
-                <td><input type="checkbox" class="barcode-select-item" data-code="${escapeHtml(p.code)}" data-name="${escapeHtml(p.name)}" data-price="${escapeHtml(String(parseFloat(p.price) || 0))}"></td>
+                <td><input type="checkbox" class="barcode-select-item" data-code="${escapeHtml(p.code)}" data-name="${escapeHtml(p.name)}" data-price="${escapeHtml(String(parseFloat(p.price) || 0))}" data-pricelevels="${escapeHtml(JSON.stringify(priceLevelsJson))}"></td>
                 <td class="font-bold">${escapeHtml(p.code)}</td>
                 <td>${escapeHtml(p.category)}</td>
                 <td>${escapeHtml(p.name)}</td>
@@ -19715,7 +20107,31 @@ async function loadBarcodeGeneratorModule() {
                 JsBarcode(`#canvas-row-${idx}`, p.code, { format:"CODE128", displayValue: false, height: 30, margin: 10, background: "#ffffff" });
             }, 50);
         });
+        populateBarcodePriceLevelOptions();
     } catch (e) { console.error(e); }
+}
+// Fills the "Price to print" dropdown with Retail + every Price Level defined in Store
+// Settings (Wholesale, Reseller, etc.), so barcode labels can show a bulk price instead of
+// only ever the Retail Price.
+function populateBarcodePriceLevelOptions() {
+    const sel = document.getElementById('barcode-price-level-select');
+    if (!sel) return;
+    const prevValue = sel.value;
+    Promise.resolve(storeSettingsCache || fetchStoreSettings()).then(() => {
+        const levels = getStorePriceLevels();
+        sel.innerHTML = '<option value="">Retail (regular Price)</option>'
+            + levels.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+        sel.value = levels.includes(prevValue) ? prevValue : '';
+        onBarcodePriceLevelChange();
+    }).catch(() => {});
+}
+function onBarcodePriceLevelChange() {
+    const sel = document.getElementById('barcode-price-level-select');
+    const hint = document.getElementById('barcode-price-level-hint');
+    const hintName = document.getElementById('barcode-price-level-hint-name');
+    const level = sel ? sel.value : '';
+    if (hint) hint.style.display = level ? 'block' : 'none';
+    if (hintName) hintName.textContent = level;
 }
 function toggleSelectAllBarcodes(master) {
     document.querySelectorAll('.barcode-select-item').forEach(cb => cb.checked = master.checked);
@@ -19891,7 +20307,7 @@ function renderBarcodeSheetPreview(batch) {
     const sheetContainer = document.getElementById('barcode-sheet-print-container');
     sheetContainer.innerHTML ='';
     window.__lastBarcodePrintBatch = batch;
-    batch.forEach(({ code, name, qty, price }) => {
+    batch.forEach(({ code, name, qty, price, priceLevel }) => {
         for (let loop = 0; loop < qty; loop++) {
             const cellUnit = document.createElement('div');
             cellUnit.className ='barcode-print-card-unit';
@@ -19901,8 +20317,11 @@ function renderBarcodeSheetPreview(batch) {
                 <svg id="${uniqueId}"></svg>
             `;
             sheetContainer.appendChild(cellUnit);
+            // Tag the level name (e.g. "Wholesale") on the label whenever a non-Retail price is
+            // being printed, so staff/buyers checking the barcode aren't confused into thinking
+            // it's the regular Retail Price.
             const labelText = settings.showPriceWithId
-                ? `${code} - ₱${(parseFloat(price) || 0).toFixed(2)}`
+                ? `${code} - ₱${(parseFloat(price) || 0).toFixed(2)}${priceLevel ? ` (${priceLevel})` : ''}`
                 : code;
             setTimeout(() => {
                 JsBarcode(`#${uniqueId}`, code, {
@@ -19989,13 +20408,23 @@ async function generateSelectedBarcodePreview() {
             hideBtPrintButtons();
         }
     }
+    const levelSel = document.getElementById('barcode-price-level-select');
+    const selectedLevel = levelSel ? levelSel.value : '';
     const batch = [];
     checkboxes.forEach((cb) => {
         const code = cb.getAttribute('data-code');
         const name = cb.getAttribute('data-name');
-        const price = parseFloat(cb.getAttribute('data-price')) || 0;
+        const retailPrice = parseFloat(cb.getAttribute('data-price')) || 0;
+        let priceLevels = {};
+        try { priceLevels = JSON.parse(cb.getAttribute('data-pricelevels') || '{}') || {}; } catch (e) { priceLevels = {}; }
+        // If this specific product doesn't have the selected Price Level set, fall back to its
+        // Retail Price for THIS item (rather than skipping/blank), and don't tag it with the
+        // level name below since it's not actually printing that level's price.
+        const levelPrice = selectedLevel ? parseFloat(priceLevels[selectedLevel]) : NaN;
+        const usedLevel = selectedLevel && levelPrice > 0;
+        const price = usedLevel ? levelPrice : retailPrice;
         const printQty = parseInt(document.getElementById(`bar-qty-${code}`).value) || 1;
-        batch.push({ code, name, qty: printQty, price });
+        batch.push({ code, name, qty: printQty, price, priceLevel: usedLevel ? selectedLevel : '' });
     });
     renderBarcodeSheetPreview(batch);
 }
