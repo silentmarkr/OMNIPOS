@@ -32,9 +32,6 @@ function getOfflineQueueUserKey(username = currentUser?.username) {
     return `${getOfflineDeviceId()}::${String(username || '').trim().toLowerCase()}`;
 }
 
-// Distinguishes "could not reach the server" (offline / connection drop / timeout)
-// from a genuine application-level failure so callers can fall back to offline
-// handling only when it's actually a connectivity problem.
 function isLikelyNetworkFailure(err) {
     return !!(err && (err.name === 'AbortError' || err instanceof TypeError || /network|fetch|failed|timeout|load/i.test(String(err.message || ''))));
 }
@@ -49,16 +46,6 @@ async function getOfflineQueue() {
     } catch (e) { return []; }
 }
 
-// BUGFIX: a server catalog refresh (terminal load, background stock poll, barcode
-// scan lookup, app init) used to overwrite globalProducts with the raw server
-// stock, which does not yet reflect sales still sitting in this device's offline
-// queue (not synced to the server yet). If a spotty connection let a single GET
-// /api/products slip through without the queue itself finishing sync, the item's
-// on-screen stock would jump back up to the pre-sale count, letting the cashier
-// sell the same last unit again before the queued sale is actually committed.
-// This re-applies any not-yet-synced offline sale quantities on top of whatever
-// stock numbers came from the server, so the terminal never shows more stock
-// than is truly available while a sale is still pending synchronization.
 async function applyPendingOfflineStockDeductions(products) {
     if (!Array.isArray(products) || !products.length) return products;
     try {
@@ -890,6 +877,12 @@ let splitPaymentLines = [];
 let scannerTarget ='PRODUCT';
 let cartDiscountType ='NONE';
 let cartPriceLevel = '';
+// Sentinel value for the cart's "Mixed Item Price" mode: each item keeps whatever
+// price level it was individually scanned/added at, instead of the whole cart
+// being forced onto one single price level.
+const MIXED_PRICE_LEVEL_VALUE = '__MIXED_ITEM_PRICE__';
+
+let cartWasEmptyOnLastRender = true;
 let pendingFocusCartQtyCode = null;
 let cartPromoCode ='';
 let cartActivePromo = null;
@@ -1696,7 +1689,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
-    ai_assistant: { name:'OmniPOS AI Assistant', description:'An advanced AI-powered assistant, embedded in the FAQ page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
+    ai_assistant: { name:'OmniPOS AI Assistant', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
     remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
@@ -1772,7 +1765,7 @@ const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', '
 const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } },
-    ai_assistant: { tagline: 'AI-powered help assistant on the FAQ page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } },
+    ai_assistant: { tagline: 'AI-powered help assistant on the Help page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } },
     remote_operations: { tagline: 'Remote sales monitoring, staff time in/out with selfie evidence, and staff activity reports.', price: { monthly: 249, yearly: 2490 } }
 };
 const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
@@ -1896,16 +1889,7 @@ async function refreshCloudBackupSubscriptionBadge() {
     } catch (err) {
     }
 }
-// BAGO: hiwalay ito sa existing "subscription expires in Xd" countdown
-// (renderModuleSubscriptionBadge/refreshCloudBackupSubscriptionBadge sa
-// itaas) — lumalabas lang ito kapag EXPIRED na (hindi active) ang Cloud
-// Backup subscription, at ang binibilang ay hindi ang renewal deadline
-// kundi ang PERMANENT DELETION deadline ng backup data mismo sa Neon
-// (subscription expiresAt + retentionDays — tinutukoy sa server side,
-// tingnan ang getCloudBackupSubscriptionInfo() sa OMNIPOS server.js, na
-// naka-sync sa RELAY admin-configurable na CLOUD_BACKUP_DATA_RETENTION_DAYS).
-// Sinusunod nito ang parehong daysLeft <= 7 = red-warning na convention
-// na ginagamit na sa buong app.
+
 function renderCloudBackupRetentionWarning(sub) {
     const box = document.getElementById('cloud-backup-retention-warning');
     if (!box) return;
@@ -2300,10 +2284,7 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             statusEl.textContent = '';
             statusEl.className = 'otp-verify-status';
         }
-        // Advanced pasting: accepts a whole code (or text that contains one, e.g.
-        // "Your code is 123456") pasted / autofilled / read from the clipboard.
-        // A full code fills all 6 boxes; a shorter one fills from `fromIndex`.
-        // Returns true when the text was handled (even if the dialog is busy).
+
         function applyOtpText(text, fromIndex) {
             if (isLocked()) return true;
             const code = extractOtpFromText(text);
@@ -2318,8 +2299,7 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
             updateSubmitState();
             if (currentCode().length === boxes.length) {
                 focusBox(boxes.length - 1);
-                // Only auto-verify when the text clearly contained a 6-digit code, so a stray
-                // number in the clipboard can never burn one of the limited attempts.
+
                 if (code.length >= 6 && otpTextHasCleanCode(text)) doSubmit();
             } else {
                 focusBox(Math.min(fromIndex + code.length, boxes.length - 1));
@@ -2426,7 +2406,7 @@ async function showOtpVerificationModal({ title, descriptionHtml, maxAttempts = 
                 clearBoxesState();
                 clearStatus();
                 if (digits.length >= 6 && !isLocked()) {
-                    // A whole code landed in one box (SMS / keyboard autofill) -> spread it over all boxes.
+
                     applyOtpText(rawValue, 0);
                     return;
                 }
@@ -3624,7 +3604,7 @@ function switchView(viewKey, opts) {
         if (typeof replayOverviewEntranceAnimation ==='function') {
             replayOverviewEntranceAnimation();
         }
-        // redraw from the data we already have (no blank flash); the fresh data replaces it right after
+
         if (typeof renderAdvancedOverviewChart === 'function' && overviewChartState.lastTxs.length) renderAdvancedOverviewChart();
         if (typeof loadDashboardMetrics ==='function') {
             loadDashboardMetrics();
@@ -3638,12 +3618,7 @@ function switchView(viewKey, opts) {
         if (typeof applySavedTerminalExtraTheme ==='function') applySavedTerminalExtraTheme();
         if (typeof relocateTerminalSearchForMobile ==='function') relocateTerminalSearchForMobile();
     } else {
-        // Bug fix: dati dito lang sa <body> nililinis ang Terminal Pro theme (data-terminal-theme)
-        // at daymode class. Pero #app-top-header (ang header na visible sa LAHAT ng views) ay
-        // hiwalay na tinatakan ng attribute na ito sa applyTerminalExtraTheme()/applySavedTerminalDayMode(),
-        // kaya kapag umalis sa Terminal, naiiwan ang tema doon at "naliligaw" (sumusunod) papunta
-        // sa ibang views (lalo na sa header user-dropdown menu). Kailangang linisin din sa
-        // #view-terminal at #app-top-header, hindi lang sa <body>.
+
         const terminalSectionEl = document.getElementById('view-terminal');
         const headerElForCleanup = document.getElementById('app-top-header');
         if (terminalSectionEl) {
@@ -3707,7 +3682,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     shiftreport:  { text:'Shift / Z-Reading',   icon:'fa-cash-register',      hideIds: ['page-title-shiftreport'] },
     bir_compliance: { text:'BIR Compliance',    icon:'fa-file-invoice',       hideIds: ['page-title-bir_compliance'] },
     logs:         { text:'System Audit Logs',   icon:'fa-clock-rotate-left',  hideIds: ['page-title-logs'] },
-    faq:          { text:'FAQ',                 icon:'fa-circle-question',    hideIds: ['page-title-faq'] },
+    faq:          { text:'Help',                icon:'fa-circle-question',    hideIds: ['page-title-faq'] },
     stock_return_inspection: { text:'Void / Refund', icon:'fa-clipboard-check', hideIds: ['page-title-stock_return_inspection'] },
     branches:     { text:'Branches',            icon:'fa-code-branch',       hideIds: [] },
     attendance:   { text:'Staff Attendance',     icon:'fa-camera',            hideIds: [] },
@@ -3806,17 +3781,16 @@ let attendancePendingAction = null;
 let attendancePendingSelfie = null;
 let attendanceClockTimer = null;
 let attendanceSubmitInFlight = false;
-let attendanceCameraStream = null; // active getUserMedia stream while the live selfie preview is open
+let attendanceCameraStream = null;
 let remoteOperationsRefreshTimer = null;
 let remoteOperationsRequestInFlight = false;
 let remoteOperationsReloadPending = false;
 let remoteOpsReportDate = '';
-const attendancePhotoCache = new Map(); // "recordId:kind" -> object URL
+const attendancePhotoCache = new Map();
 let attendancePhotoObserver = null;
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && remoteOperationsRefreshTimer) loadRemoteOperationsView();
-    // Release the camera (and drop whatever half-finished capture was in progress) if the staff
-    // member switches tabs/apps mid-selfie, instead of leaving the camera light on in the background.
+
     if (document.hidden && attendanceCameraStream) cancelAttendanceSelfie();
 });
 function attendanceNotice(message, icon = 'info') {
@@ -3904,10 +3878,7 @@ async function loadAttendanceView() {
         card.innerHTML = '<div class="attendance-status-icon"><i class="fa-solid fa-cloud-slash"></i></div><div class="attendance-status-copy"><strong>Could not reach the server</strong><span>Please try again when your connection is stable.</span></div><button type="button" class="btn-action-outline attendance-retry-btn" onclick="loadAttendanceView()"><i class="fa-solid fa-rotate"></i> Retry</button>';
     }
 }
-// Attendance integrity: a plain file picker (even with the capture="user" hint) can be used on
-// desktop/tablet browsers to pick an old photo instead of taking one live, which defeats the point
-// of a selfie check. So the live camera is now the primary path; the hidden file input below is
-// only a fallback for browsers/devices without a usable camera API.
+
 async function startAttendanceCamera() {
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') return false;
     try {
@@ -3929,7 +3900,7 @@ async function startAttendanceCamera() {
         if (preview) preview.style.display = 'none';
         if (captureBtn) captureBtn.style.display = '';
         if (submitBtn) submitBtn.style.display = 'none';
-        if (wrap) wrap.classList.add('attendance-camera-live'); // bigger frame while framing the live shot
+        if (wrap) wrap.classList.add('attendance-camera-live'); 
         return true;
     } catch (err) {
         stopAttendanceCameraStream();
@@ -3992,7 +3963,7 @@ async function chooseAttendanceSelfie(action) {
     }
     const cameraStarted = await startAttendanceCamera();
     if (!cameraStarted) {
-        // No usable camera API on this device/browser — fall back to the classic file picker.
+
         if (wrap) wrap.style.display = 'none';
         const input = document.getElementById('attendance-selfie-input');
         if (input) {
@@ -4003,7 +3974,7 @@ async function chooseAttendanceSelfie(action) {
 }
 function handleAttendanceSelfieSelected(event) {
     const file = event.target.files && event.target.files[0];
-    if (!file) return; // camera closed without taking a photo — nothing to report
+    if (!file) return;
     if (!file.type.startsWith('image/')) {
         attendanceNotice('Please choose a valid image for your attendance selfie.', 'warning');
         return;
@@ -4068,7 +4039,7 @@ async function submitAttendanceAction() {
         const data = await response.json();
         if (!response.ok || !data.success) {
             await attendanceNotice(data.message || 'Attendance could not be saved.', 'error');
-            // 409 = the shift state changed elsewhere (another device/tab): resync so the buttons are correct.
+
             if (response.status === 409) {
                 cancelAttendanceSelfie();
                 loadAttendanceView();
@@ -4104,7 +4075,7 @@ function stopRemoteOperationsAutoRefresh() {
     }
 }
 async function fetchRemoteOperationsJson(url, timeoutMs = 30000) {
-    // The server may wait up to ~20s for the Relay, so the default 6s client timeout is too short here.
+
     let response;
     try {
         response = await authFetch(url, { timeoutMs });
@@ -4231,8 +4202,7 @@ async function loadRemoteOperationsView() {
         metrics.innerHTML = '<div class="metric-card remoteops-metric-card remoteops-metric-loading"><div class="operations-spinner"></div><div><p class="metric-label">LIVE STATUS</p><h3>Loading network data…</h3></div></div>';
     }
     try {
-        // The network summary (Relay) and the attendance report (this device) are independent:
-        // one failing must not blank the other.
+
         const [summaryResult, reportResult] = await Promise.allSettled([
             fetchRemoteOperationsJson(`${API_URL}/remote-operations/summary`),
             fetchRemoteOperationsJson(reportUrl, 20000)
@@ -4282,9 +4252,7 @@ async function loadRemoteOperationsView() {
             transactionsBody.innerHTML = ((summary.combined && summary.combined.recentTransactions) || []).map((transaction) =>
                 `<tr><td data-label="Time">${escapeHtml(formatRemoteTime(transaction.at))}</td><td data-label="Branch">${escapeHtml(transaction.branchName || '—')}</td><td data-label="Cashier">${escapeHtml(transaction.cashier || 'Unknown')}</td><td data-label="Payment">${escapeHtml(transaction.paymentMethod || '—')}</td><td data-label="Total"><strong class="remoteops-money">${formatRemoteCurrency(transaction.total)}</strong></td></tr>`
             ).join('') || '<tr><td colspan="5">No recent transactions.</td></tr>';
-            // Network-wide roster: who's clocked in/out at EVERY branch, not just this device.
-            // Selfie photos themselves never leave the branch that took them — only whether one
-            // was captured (hasSelfieIn/hasSelfieOut) travels with the roster entry.
+
             rosterBody.innerHTML = ((summary.combined && summary.combined.attendanceRoster) || []).map((entry) => {
                 const branchTag = entry.isSelf ? '<span class="remoteops-tag">This device</span>' : '';
                 const timeOutCell = entry.timeOutAt
@@ -5757,7 +5725,7 @@ async function checkShiftOpeningCashGate() {
 }
 let shiftControlSelectedCashier ='';
 const SHIFT_HISTORY_PAGE_SIZE = 25;
-let shiftHistoryLoaded = [];   
+let shiftHistoryLoaded = [];
 let shiftHistoryOffset = 0;
 let shiftHistoryHasMore = false;
 let shiftHistoryLoadingMore = false;
@@ -5969,9 +5937,7 @@ async function printXReading() {
     const btn = document.getElementById('shift-xreading-btn');
     const originalLabel = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...'; }
-    // BUGFIX: the print window used to be opened AFTER the network request. Mobile browsers (and Safari) only
-    // allow window.open() during the tap itself, so it was blocked and "tap again" could never work. Open it
-    // now, synchronously, and fill it in once the reading arrives.
+
     let printWin = null;
     try {
         printWin = window.open('', '_blank', 'width=420,height=640');
@@ -6006,7 +5972,7 @@ function renderXReadingReceipt(x, preOpenedWin) {
     const breakdownRows = methods.length
         ? methods.map(m => `<div class="row"><span>${escapeHtml(m)} (${x.paymentBreakdown[m].count})</span><span>₱${(parseFloat(x.paymentBreakdown[m].total) || 0).toFixed(2)}</span></div>`).join('')
         : `<p style="color:#666;">No transactions yet this shift.</p>`;
-    // If the cashier has never closed a shift, the server's period start is the Unix epoch (1970) — show a friendly label instead.
+
     const periodStartMs = new Date(x.periodStart).getTime();
     const shiftStartLabel = (!isNaN(periodStartMs) && periodStartMs > 86400000) ? new Date(periodStartMs).toLocaleString() : 'Start of records';
     const win = (preOpenedWin && !preOpenedWin.closed) ? preOpenedWin : window.open('', '_blank', 'width=420,height=640');
@@ -6014,7 +5980,7 @@ function renderXReadingReceipt(x, preOpenedWin) {
         Swal.fire('Pop-up Blocked', 'Please allow pop-ups for this site, then tap Print X-Reading again.', 'warning');
         return;
     }
-    // Replace the "Generating..." placeholder written by printXReading().
+
     win.document.open();
     win.document.write(`
         <html><head><title>X-Reading — ${escapeHtml(x.id)}</title>
@@ -7601,9 +7567,7 @@ const CT_CATEGORY_META = {
     STORAGE_HOLDING_FEE: { icon: 'fa-server', color: '#ef4444' },
     REFUND: { icon: 'fa-rotate-left', color: '#22c55e' }
 };
-// "Clear" only hides older entries from THIS device's view (localStorage cutoff).
-// It never deletes anything from the server — the real Omni Tokens ledger
-// (cloud_token_ledger) stays intact for auditing/dispute purposes.
+
 let ctLedgerHiddenBefore = localStorage.getItem('ct_ledger_hidden_before') || null;
 function ctFilterHiddenLedgerRows(rows) {
     if (!ctLedgerHiddenBefore || !Array.isArray(rows)) return rows;
@@ -7751,17 +7715,7 @@ function renderTransactionHistoryRows(rows, append, targetId) {
 }
 let ctLastPackagesSignature = null;
 let ctLastLedgerSignature = null;
-// Mobile-only Basic/Standard/Pro tabs sa itaas ng Omni Token packages grid
-// (tingnan ang .ct-package-tabs sa style.css). Ang function na ito ay
-// nagse-set lang ng data-active-tier attribute sa #ct-packages-grid mismo
-// (hindi sa mga card) — dahil nasa mismong container ito (hindi bahagi ng
-// innerHTML na pana-panahong pinapalitan ng renderCloudTokensOverview()),
-// nananatili ang napiling tab kahit mag-refresh/mag-poll ulit ang data.
-// Mobile-only Monthly/Yearly tabs sa itaas ng "Current Plan" breakdown
-// (tingnan ang .ct-estimate-tabs sa style.css). Ito ay nagse-set lang ng
-// data-active-cycle sa #ct-estimate-group (isang container na hindi bahagi
-// ng anumang innerHTML na pinapalitan ng renderCloudTokensOverview), kaya
-// nananatili ang napiling tab kahit mag-refresh/mag-poll ulit ang data.
+
 function setCtEstimateTab(cycle, btnEl) {
     const tabsWrap = document.getElementById('ct-estimate-tabs');
     if (tabsWrap) {
@@ -7899,9 +7853,7 @@ function renderCloudTokensOverview(data) {
     if (packagesGrid) {
         const packagesSignature = JSON.stringify(data.packages || null);
         if (packagesSignature === ctLastPackagesSignature) {
-            // Nothing about the packages actually changed since the last render — skip
-            // rebuilding the grid so the person's selected payment dropdown and any
-            // in-progress "Buy" click state aren't wiped out on every background poll.
+
         } else {
         ctLastPackagesSignature = packagesSignature;
         if (data.packages && data.packages.available && data.packages.items) {
@@ -7961,7 +7913,7 @@ async function toggleCloudAutoSync(enabled) {
         if (!res.ok || !data.success) {
             Swal.fire('Error', (data && data.message) || 'Could not update Auto-Sync.', 'error');
             const toggleEl = document.getElementById('ct-autosync-toggle');
-            if (toggleEl) toggleEl.checked = !enabled; 
+            if (toggleEl) toggleEl.checked = !enabled;
             return;
         }
         Swal.fire({ title: enabled ? 'Auto-Sync Enabled' : 'Auto-Sync Disabled', text: data.message || 'Auto-Sync updated.', icon: 'success', timer: 2200, showConfirmButton: false });
@@ -8111,10 +8063,7 @@ function setReorderPOViewMode(mode) {
     renderPurchaseOrdersTable();
 }
 async function loadReorderView() {
-    // Safety net: if neither reorder tab panel ended up visible (e.g. some
-    // unrelated code elsewhere set display:none on one of them and never
-    // restored it), fall back to whichever tab button is marked active, or
-    // to "Create PO" by default, instead of silently leaving the page blank.
+
     const createPanel = document.getElementById('reorder-tab-create');
     const historyPanel = document.getElementById('reorder-tab-history');
     if (createPanel && historyPanel &&
@@ -8402,12 +8351,7 @@ function updateReorderSelectedCount() {
     const btn = document.getElementById('reorder-create-po-btn');
     if (countEl) countEl.innerText = reorderSelectedCodes.size;
     if (btn) btn.disabled = reorderSelectedCodes.size === 0;
-    // BUG FIX: the "select all" header checkbox never used to get resynced,
-    // so it stayed visually checked after a manual uncheck, a filter/search
-    // change, or navigating away and back (which clears the selection) —
-    // misleading the user about what's actually selected before creating a
-    // PO. Recompute it here (whenever the selection count changes) against
-    // the currently filtered/visible list instead.
+
     const selectAllEl = document.getElementById('reorder-select-all');
     if (selectAllEl) {
         const visibleList = getFilteredSortedReorderItems();
@@ -8418,11 +8362,7 @@ function updateReorderSelectedCount() {
     }
 }
 async function quickRestock(code, name) {
-    // BUG FIX: unlike openCreatePOModal() and exportReorderCSV(), this
-    // action had no premium-feature guard of its own — it only worked
-    // because switchView() happens to block reaching the Reorder page at
-    // all when purchase_orders is locked. That's an easy-to-break implicit
-    // dependency; guard it directly too, consistent with its sibling actions.
+
     if (guardPremiumFeature('purchase_orders')) return;
     const { value: qty } = await Swal.fire({
         title: `Quick Restock: ${name}`,
@@ -8455,12 +8395,28 @@ async function quickRestock(code, name) {
         Swal.fire('Connection Error','Could not connect to the server.','error');
     }
 }
-function openCreatePOModal(codesOverride) {
+async function openCreatePOModal(codesOverride) {
     if (guardPremiumFeature('purchase_orders')) return;
     const codes = codesOverride && codesOverride.length ? codesOverride : Array.from(reorderSelectedCodes);
     if (!codes.length) return;
     const items = reorderItemsCache.filter(p => codes.includes(p.code));
     if (!items.length) return;
+    // Supplier/Vendor Directory: best-effort fetch so the free-text "unassigned
+    // supplier" field below can offer saved supplier names via a <datalist>,
+    // instead of retyping the name every time. Silently falls back to plain
+    // free-text if the role doesn't have the "supplier_directory" permission
+    // yet, or the request fails — this must never block PO creation.
+    let savedSupplierNames = [];
+    try {
+        const supRes = await authFetch(`${API_URL}/suppliers`);
+        const supData = await supRes.json();
+        if (supData && supData.success && Array.isArray(supData.suppliers)) {
+            savedSupplierNames = supData.suppliers.map(s => s.name).filter(Boolean);
+        }
+    } catch (e) { /* non-critical — fall back to free-text supplier input */ }
+    const supplierDatalistHtml = savedSupplierNames.length
+        ? `<datalist id="po-supplier-datalist">${savedSupplierNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}</datalist>`
+        :'';
     const UNASSIGNED ='__unassigned__';
     const groups = {};
     items.forEach(p => {
@@ -8478,7 +8434,7 @@ function openCreatePOModal(codesOverride) {
                 <input type="number" min="1" value="${p.suggestedReorderQty}" data-po-code="${escapeHtml(p.code)}" data-po-name="${escapeHtml(p.name)}" data-po-group="${gIdx}" class="po-qty-input" style="width:80px;padding:6px;border-radius:6px;border:1px solid var(--border-color);text-align:center;">
             </div>`).join('');
         const supplierLabelHtml = isUnassigned
-            ? `<input id="po-supplier-input-${gIdx}" type="text" value="" placeholder="Supplier Name" data-group-supplier-input="${gIdx}" style="width:100%;padding:8px;margin:4px 0 8px;border-radius:6px;border:1px solid var(--border-color);">`
+            ? `<input id="po-supplier-input-${gIdx}" type="text" value="" placeholder="Supplier Name" list="po-supplier-datalist" autocomplete="off" data-group-supplier-input="${gIdx}" style="width:100%;padding:8px;margin:4px 0 8px;border-radius:6px;border:1px solid var(--border-color);">`
             : `<div id="po-supplier-input-${gIdx}" data-group-supplier-fixed="${gIdx}" style="font-weight:700;padding:6px 0 8px;color:#1e293b;"><i class="fa-solid fa-truck-fast" style="color:#64748b;margin-right:6px;"></i>${escapeHtml(key)}</div>`;
         return `
             <div style="margin-bottom:14px;padding:10px;border:1px solid var(--border-color);border-radius:8px;">
@@ -8495,6 +8451,7 @@ function openCreatePOModal(codesOverride) {
         width: 520,
         html: `
             <div style="text-align:left;">
+                ${supplierDatalistHtml}
                 ${multiSupplierNote}
                 <div style="max-height:360px;overflow-y:auto;">${groupSectionHtml}</div>
                 <label style="font-size:0.82rem;color:#64748b;">Notes (optional)</label>
@@ -8754,10 +8711,7 @@ function printReorderList() {
     win.focus();
     setTimeout(() => win.print(), 300);
 }
-// === Overview / Dashboard data pipeline ==================================
-// FIX (race): loadDashboardMetrics() is fired from many places (sale done, product edited, branch
-// transfer, tab switch...). Two overlapping runs used to let an OLDER response overwrite a newer
-// one. Now only one run is in flight; extra calls just queue ONE more run afterwards.
+
 let ovMetricsInFlight = null;
 let ovMetricsReloadPending = false;
 async function loadDashboardMetrics() {
@@ -8785,11 +8739,9 @@ function ovReadJsonCache(key, fallback) {
         return fallback;
     }
 }
-// FIX: caching used to be un-guarded — when localStorage was full (product photos are big) the
-// setItem threw, and the whole run wrongly fell into the "offline" fallback even though the server
-// had answered fine.
+
 function ovWriteJsonCache(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota — IndexedDB mirror remains available */ }
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {  }
     if ((key === 'cached_products' || key === 'cached_transactions') && window.OfflineStorage?.putLargeCache) {
         window.OfflineStorage.putLargeCache(key, value).catch(() => {});
     }
@@ -8810,7 +8762,7 @@ async function ovRunDashboardMetricsCycle() {
     try {
         const currentUsername = currentUser?.username || 'admin';
         const canViewUsers = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin') || !!(currentPermissions && currentPermissions.users);
-        // The three requests are independent — run them together, and let each one fall back on its own.
+
         const [txData, prodData, usersData] = await Promise.all([
             ovFetchJsonOrNull(`${API_URL}/transactions`),
             ovFetchJsonOrNull(`${API_URL}/products`),
@@ -8845,7 +8797,7 @@ async function ovRunDashboardMetricsCycle() {
         const uniqueTxs = Array.from(uniqueMap.values());
         const pendingIds = new Set(offlineTxs.filter(tx => tx && tx.id && !serverIds.has(tx.id)).map(tx => tx.id));
         const stats = ovBuildOverviewStats(uniqueTxs, productsList);
-        // FIX: when the users list could not be loaded the Dashboard used to show "0" — show "—" instead.
+
         const totalUsersCount = canViewUsers && Array.isArray(usersData) ? usersData.length : null;
         renderDashboardDOM(stats.revenue, stats.orders, stats.totalProducts, stats.lowStock, stats.noStock, totalUsersCount, stats.expiringSoon, stats.expired, stats.topProductsToday);
         renderOverviewDOM(stats, { txs: uniqueTxs, pendingIds, usedCache });
@@ -8853,13 +8805,7 @@ async function ovRunDashboardMetricsCycle() {
         initOverviewAdvancedChartToolbar();
         renderAdvancedOverviewChart(uniqueTxs);
         if (productsFresh && productsList.length > 0) globalProducts = productsList;
-        // BUG FIX: refreshLowStockBadge() used to be gated behind `liveOk`,
-        // which only reflects whether the unrelated /transactions fetch
-        // succeeded. refreshLowStockBadge() makes its own independent call
-        // to /products/low-stock, so a slow/failed transactions fetch was
-        // silently preventing the Reorder Alert bell from updating even
-        // though the low-stock check itself would have worked fine. Run it
-        // unconditionally; it already fails safe (catches its own errors).
+
         refreshLowStockBadge();
         refreshBatchLotsAlertBadge();
         if (liveOk) {
@@ -8904,7 +8850,7 @@ function ovSetSyncState(state, info) {
         btn.querySelector('i')?.classList.remove('fa-spin');
     }
 }
-// --- Overview: numbers ------------------------------------------------------
+
 function ovTxIsOnDay(tx, day) {
     if (!tx) return false;
     const timestamp = tx.timestamp || tx.date;
@@ -9010,7 +8956,7 @@ function renderOverviewDOM(stats, ctx) {
     const ordersLabel = document.getElementById('metric-ov-orders-label');
     if (salesLabel) salesLabel.textContent = own ? 'YOUR SALES TODAY' : "TODAY'S SALES";
     if (ordersLabel) ordersLabel.textContent = own ? 'YOUR ORDERS TODAY' : "TODAY'S ORDERS";
-    // Sales
+
     const salesEl = document.getElementById('metric-ov-sales');
     if (salesEl) { salesEl.textContent = ovFormatMoney(stats.revenue); salesEl.title = salesEl.textContent; }
     if (stats.yesterdayRevenue > 0) {
@@ -9022,11 +8968,11 @@ function renderOverviewDOM(stats, ctx) {
     } else {
         ovSetCaption('metric-ov-sales-caption', 'No sales yet today', '');
     }
-    // Orders
+
     const ordersEl = document.getElementById('metric-ov-orders');
     if (ordersEl) animateOverviewCountUp(ordersEl, stats.orders);
     ovSetCaption('metric-ov-orders-caption', stats.orders > 0 ? `Avg. order ${escapeHtml(ovFormatMoney(stats.revenue / stats.orders))}` : 'No orders yet', '');
-    // Top seller
+
     const topEl = document.getElementById('metric-ov-top-seller');
     const top = stats.topProductsToday[0];
     if (topEl) {
@@ -9034,7 +8980,7 @@ function renderOverviewDOM(stats, ctx) {
         topEl.title = top ? top.name : '';
     }
     ovSetCaption('metric-ov-top-seller-caption', top ? `<i class="fa-solid fa-fire"></i> ${Number(top.qty)} unit${Number(top.qty) === 1 ? '' : 's'} sold today` : 'Waiting for the first sale', '');
-    // Low stock
+
     const lowEl = document.getElementById('metric-ov-lowstock');
     if (lowEl) animateOverviewCountUp(lowEl, stats.lowStock);
     const lowIcon = document.getElementById('metric-ov-lowstock-icon');
@@ -9050,7 +8996,7 @@ function renderOverviewDOM(stats, ctx) {
     } else {
         ovSetCaption('metric-ov-lowstock-caption', '<i class="fa-solid fa-circle-check"></i> All items stocked', '');
     }
-    // Top selling products
+
     const topList = document.getElementById('overview-top-products-list');
     if (topList) {
         if (!stats.topProductsToday.length) {
@@ -9064,7 +9010,7 @@ function renderOverviewDOM(stats, ctx) {
             }).join('');
         }
     }
-    // Stock watchlist
+
     const chipsEl = document.getElementById('overview-attention-chips');
     const listEl = document.getElementById('overview-attention-list');
     const iconEl = document.getElementById('overview-attention-icon');
@@ -9087,7 +9033,7 @@ function renderOverviewDOM(stats, ctx) {
                 + (stats.attention.length > shown.length ? `<p class="overview-more-note">+${stats.attention.length - shown.length} more — see Inventory</p>` : '');
         }
     }
-    // Recent sales
+
     const recentBody = document.getElementById('overview-recent-body');
     if (recentBody) {
         const txs = (ctx.txs || []).filter(tx => tx && tx.id);
@@ -9387,12 +9333,11 @@ function ovBucketDescriptor(d, granularity) {
     }
     return { key, label, sortKey };
 }
-// Representative dates (one per bucket) between from..to — used to add the periods that had NO sales,
-// so the chart has a real, evenly-spaced timeline instead of only the days that happened to have sales.
+
 const OV_MAX_FILLED_BUCKETS = 800;
 function ovEnumerateBucketDates(granularity, from, to) {
     const now = new Date();
-    const limit = to.getTime() > now.getTime() ? now : to; // never plot the future
+    const limit = to.getTime() > now.getTime() ? now : to;
     if (limit.getTime() < from.getTime()) return [];
     const out = [];
     const push = (d) => { out.push(d); return out.length <= OV_MAX_FILLED_BUCKETS; };
@@ -9448,8 +9393,7 @@ function ovComputeBuckets(txs, granularity, from, to) {
         if (amt > bucket.high) bucket.high = amt;
         if (amt < bucket.low) bucket.low = amt;
     });
-    // FIX: periods without any sale used to be skipped, so the line jumped straight between the days that
-    // had sales. Add them as empty (0) buckets. If the range would need too many points, keep it sparse.
+
     const fillDates = ovEnumerateBucketDates(granularity, from, to);
     if (fillDates) {
         fillDates.forEach(d => {
@@ -9512,9 +9456,7 @@ function renderAdvancedOverviewChart(txList) {
     const wrap = document.getElementById('ov-chart-svg-wrap');
     if (!wrap) return;
     if (Array.isArray(txList)) overviewChartState.lastTxs = txList;
-    // FIX: while the Overview is hidden the wrapper has no size — drawing then used a 600px fallback and
-    // (with preserveAspectRatio="none") came out stretched once shown. Skip; the ResizeObserver and
-    // switchView() redraw it as soon as it is visible.
+
     if (!wrap.clientWidth) return;
     const txs = overviewChartState.lastTxs;
     let { from, to } = ovResolveDateRange();
@@ -9531,7 +9473,7 @@ function renderAdvancedOverviewChart(txList) {
     let compareBuckets = null;
     if (overviewChartState.compare) {
         const prevRange = ovGetComparisonRange(from, to);
-        // Like-for-like: if the current period is still running, compare only the same elapsed part.
+
         const nowMs = Date.now();
         const elapsed = Math.max(0, Math.min(to.getTime(), nowMs) - from.getTime());
         prevRange.to = new Date(Math.min(prevRange.to.getTime(), prevRange.from.getTime() + elapsed));
@@ -9725,7 +9667,7 @@ function ovDrawChart(wrapEl, buckets, compareBuckets) {
             });
             col.addEventListener('mousemove', (e) => {
                 const rect = wrapEl.getBoundingClientRect();
-                // keep the tooltip inside the chart (it is centred on the pointer)
+
                 const half = (tooltip.offsetWidth || 0) / 2;
                 const x = Math.min(Math.max(e.clientX - rect.left, half), Math.max(half, rect.width - half));
                 tooltip.style.left = `${x}px`;
@@ -9800,10 +9742,10 @@ function initOverviewAdvancedChartToolbar() {
                 if (typeof Swal !== 'undefined') Swal.fire({ icon: 'warning', title: 'Please select both From and To dates.', timer: 1800, showConfirmButton: false });
                 return;
             }
-            // FIX: new Date('YYYY-MM-DD') is UTC midnight -> off by one day in timezones behind UTC.
+
             const fromD = ovParseDateInput(fromVal);
             const toD = ovParseDateInput(toVal);
-            // same validation/message as the Sales Analytics chart
+
             if (isNaN(fromD.getTime()) || isNaN(toD.getTime()) || fromD > toD) {
                 if (typeof Swal !== 'undefined') Swal.fire({ icon: 'warning', title: 'Invalid date range', text: 'The From date must be on or before the To date.', timer: 2200, showConfirmButton: false });
                 return;
@@ -9835,8 +9777,7 @@ function initOverviewAdvancedChartToolbar() {
             if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         });
     }
-    // Redraw whenever the chart area really changes size (window resize, sidebar, orientation) or
-    // becomes visible again after being hidden.
+
     const chartWrap = document.getElementById('ov-chart-svg-wrap');
     let ovResizeTimer = null;
     if (chartWrap && typeof ResizeObserver === 'function') {
@@ -9857,7 +9798,7 @@ function initOverviewAdvancedChartToolbar() {
     const themeObserver = new MutationObserver(() => renderAdvancedOverviewChart());
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 }
-// === Multi-Branch (PRO) — dedicated page: drill-down, trend chart, alerts, stock transfers ===
+
 let branchesPageState = {
     branches: [],
     combined: {},
@@ -9867,11 +9808,8 @@ let branchesPageState = {
     combinedTrendCache: [],
     transfers: [],
     transfersSyncError: false,
-    transferFilter: 'action', // 'all' | 'incoming' | 'outgoing' | 'action' — default: Needs My Action
-    // Branch list controls (search / health filter / sort). These used to live
-    // in app1.js ("Branch Intelligence"), which patched the DOM AFTER this file
-    // rendered it — see the FIX note above renderBranchesList() for why that
-    // caused the wrong branch to open.
+    transferFilter: 'action', 
+
     query: '',
     health: 'all',
     sort: 'status',
@@ -9880,10 +9818,7 @@ let branchesPageState = {
     pollTimer: null
 };
 window.branchesPageState = branchesPageState;
-// Branch summary request guard: avoid duplicate RELAY calls when the page,
-// refresh button, and menu badge update at nearly the same time. RELAY may
-// rate-limit repeated /branch-summary requests, so reuse a short-lived cache
-// and share one in-flight request.
+
 let branchesSummaryCache = null;
 let branchesSummaryCacheAt = 0;
 let branchesSummaryRequestPromise = null;
@@ -9915,9 +9850,7 @@ async function getBranchesSummary(force = false) {
     })();
     return branchesSummaryRequestPromise;
 }
-// transferIds that currently have an in-flight accept/reject/cancel/send/
-// receive request to the server — used to disable that row's action
-// button(s) (a guard against repeated clicking).
+
 const branchTransferActionsInFlight = new Set();
 const branchesThemeObserver = new MutationObserver(() => {
     const view = document.getElementById('view-branches');
@@ -9940,38 +9873,23 @@ async function refreshBranchesAlertBadge() {
                 const tData = await tRes.json();
                 if (tData.success) count += countActionableBranchTransfers(tData.transfers || []);
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) {  }
         if (count > 0) { badge.innerText = count > 99 ? '99+' : count; badge.style.display = 'inline-block'; }
         else badge.style.display = 'none';
     } catch (e) {
         badge.style.display = 'none';
     }
 }
-// FIX: previously, only "incoming + pending" (i.e. still needs Accept/Reject)
-// was counted as an alert. But there are now also two new steps that need
-// action from a branch: "accepted" on the OUTGOING side (the source needs
-// to Mark as Sent) and "in_transit" on the INCOMING side (the destination
-// needs to Confirm Received). These are now also included in the badge
-// count so a cashier/manager doesn't miss them.
+
 function countActionableBranchTransfers(transfers) {
     return (transfers || []).filter(isActionableBranchTransfer).length;
 }
-// FIX (no real-time notification to the other branch): previously, the
-// incoming request list/badge was only refreshed (a) when the Overview
-// page was opened, or (b) while actually on the Branches page itself
-// (60-second polling there). If staff stayed on the Terminal page (where
-// a cashier usually is), they wouldn't see a new request right away until
-// they went to Overview/Branches themselves. Added a GLOBAL, lightweight
-// poll (following the same pattern as pollMyShiftClosedRemotely/
-// syncOfflineTransactions below) that runs no matter which page/view is
-// open, as long as the user is logged in and the multi_branch feature is
-// unlocked. This also shows a toast when a NEW actionable transfer has
-// appeared since the last check.
+
 let branchTransfersLastActionableIds = null;
 async function pollBranchTransfersGlobally() {
     if (!currentUser) return;
     if (typeof isFeatureUnlockedCached === 'function' && !isFeatureUnlockedCached('multi_branch')) return;
-    if (!document.getElementById('menu-branches-alert-badge')) return; // this menu item is absent if the current user has no 'branches' permission
+    if (!document.getElementById('menu-branches-alert-badge')) return; 
     try {
         const res = await authFetch(`${API_URL}/branches/transfers`);
         if (!res.ok) return;
@@ -9999,17 +9917,11 @@ async function pollBranchTransfersGlobally() {
         branchTransfersLastActionableIds = currentIds;
         const badge = document.getElementById('menu-branches-alert-badge');
         if (badge) {
-            // FIX: previously, there was no else branch here, so when the
-            // actionable count dropped back to 0 (e.g. the last pending
-            // transfer was Accepted/Cancelled/completed), the OLD count
-            // stayed showing on the badge — it wouldn't correct itself
-            // until the user went to Overview or the Branches page itself
-            // (only there was refreshBranchesAlertBadge() called, which
-            // did have the correct else branch).
+
             if (actionable.length > 0) { badge.innerText = actionable.length > 99 ? '99+' : actionable.length; badge.style.display = 'inline-block'; }
             else badge.style.display = 'none';
         }
-    } catch (e) { /* ignore, silent global poll */ }
+    } catch (e) {  }
 }
 setInterval(pollBranchTransfersGlobally, 45000);
 function startBranchesPagePolling() {
@@ -10019,9 +9931,7 @@ function startBranchesPagePolling() {
 function stopBranchesPagePolling() {
     if (branchesPageState.pollTimer) { clearInterval(branchesPageState.pollTimer); branchesPageState.pollTimer = null; }
 }
-// --- Branches page UI helpers (Remote Operations design language) ---------
-// Same building blocks as the Remote Operations page: hero + sync meta,
-// metric cards, `.remoteops-panel` cards with kicker/heading/icon.
+
 function setBranchesHeroStatus(status, sub) {
     const statusEl = document.getElementById('branches-sync-status');
     const updatedEl = document.getElementById('branches-last-updated');
@@ -10052,9 +9962,7 @@ async function loadBranchesPage(silent) {
             refreshBtn.classList.add('is-loading');
             refreshBtn.querySelector('i')?.classList.add('fa-spin');
         }
-        // Only show the big "Loading…" state when nothing is on screen yet.
-        // If the page is already rendered, keep it visible while refreshing
-        // instead of wiping and rebuilding everything (that was the blinking).
+
         if (!body.querySelector('#branches-list')) body.innerHTML = branchesLoadingHtml();
     }
     try {
@@ -10072,10 +9980,7 @@ async function loadBranchesPageInner(body, silent) {
     try {
         let data;
         try {
-            // Force one fresh request for an explicit page load/refresh, but
-            // share it with any simultaneous badge refresh instead of sending
-            // multiple RELAY requests. Do NOT retry HTTP 429: that only makes
-            // a rate-limit window worse.
+
             data = await getBranchesSummary(true);
         } catch (err) {
             const status = Number(err && err.status) || 0;
@@ -10116,9 +10021,7 @@ async function loadBranchesPageInner(body, silent) {
             }
             return;
         }
-        // A 402 response is represented by getBranchesSummary as an error.
-        // The normal feature-lock UI is rendered in that catch path, so a
-        // successful response can continue directly to the configured check.
+
         if (!data.configured) {
             if (newBtn) newBtn.style.display = 'none';
             setBranchesHeroStatus('Business Group Code not set', 'Set it up to connect your branches');
@@ -10210,18 +10113,12 @@ async function loadBranchTransfers(silent) {
         refreshBranchesAlertBadge();
     } catch (e) {
         console.warn('loadBranchTransfers failed:', e);
-        // FIX: previously, this silently failed here (only a console.warn)
-        // — no indication to the user that the list/status they're
-        // seeing might be stale. There's already an optimistic update in
-        // the submit/respond functions for IMMEDIATE feedback, but if this
-        // background sync genuinely keeps failing (e.g. persistently no
-        // internet), the user should know so they can manually refresh.
+
         branchesPageState.transfersSyncError = true;
         renderBranchesPage();
     }
 }
-// Used by both the filter tabs (to know whether a given row "needs
-// action") and the badge/polling code above.
+
 function isActionableBranchTransfer(t) {
     return (t.direction === 'incoming' && t.status === 'pending') ||
         (t.direction === 'outgoing' && t.status === 'accepted') ||
@@ -10229,19 +10126,11 @@ function isActionableBranchTransfer(t) {
 }
 function setBranchTransferFilter(filter) {
     branchesPageState.transferFilter = filter;
-    // Only the transfers panel depends on the filter — re-render just that
-    // section instead of the whole page (no blinking of the branch list).
+
     setBranchesSection('branches-transfers-section', renderBranchTransfersHtml());
 }
 const BRANCH_TRANSFER_LIST_LIMIT = 50;
-// FIX: there was previously no way at all to clear old FINISHED transfer
-// requests (completed/rejected/cancelled) out of this list — it just kept
-// growing forever, and neither the local "Clear History" actions elsewhere
-// in the app nor a System Hard Reset touch this, since this history lives
-// on RELAY (shared with the OTHER branch), not in this device's own local
-// database. This button calls the new admin-only clear-history endpoint,
-// which only ever removes finished requests — pending/accepted/in_transit
-// ones are always left alone.
+
 const BRANCH_TRANSFER_FINISHED_STATUSES = ['completed', 'rejected', 'cancelled'];
 async function clearBranchTransferHistory() {
     const allTransfers = branchesPageState.transfers || [];
@@ -10295,11 +10184,7 @@ function renderBranchTransfersHtml() {
     if (allTransfers.length === 0) {
         return header + syncErrorNote + emptyHtml('There are no transfer requests between branches yet.');
     }
-    // FIX (filter tabs): previously, it was just one long list of every
-    // transfer (incoming/outgoing mixed together, both finished ones and
-    // ones that still needed action) — had to scroll/search manually.
-    // Quick filtering was added so what needs attention is immediately
-    // visible.
+
     const filter = branchesPageState.transferFilter || 'all';
     const actionCount = allTransfers.filter(isActionableBranchTransfer).length;
     const filtered = allTransfers.filter(t => {
@@ -10323,27 +10208,14 @@ function renderBranchTransfersHtml() {
     }
     const shown = filtered.slice(0, BRANCH_TRANSFER_LIST_LIMIT);
     const rows = shown.map(t => {
-        // Status colors: pending=amber, accepted/in_transit=accent (needs another
-        // step before the stock is actually moved), completed=green (stock has
-        // moved on both sides), rejected/cancelled/unknown=muted.
-        // FIX: previously, `t.status.charAt(0)` was called directly, so
-        // if a record had no `status` field for any reason (e.g. a
-        // corrupted/unexpected relay response), this would throw a
-        // TypeError in the middle of .map() — crashing the ENTIRE render
-        // (including every other perfectly fine record). Made safe with
-        // a fallback of 'unknown'.
+
         const safeStatus = t.status || 'unknown';
         const statusClass = ['pending', 'accepted', 'in_transit', 'completed'].includes(safeStatus) ? safeStatus : 'muted';
         const statusLabel = safeStatus === 'in_transit' ? 'In Transit' : safeStatus.charAt(0).toUpperCase() + safeStatus.slice(1);
         const dirLabel = t.direction === 'incoming' ? `To you from ${escapeHtml(t.fromBranchName)}` : (t.direction === 'outgoing' ? `To ${escapeHtml(t.toBranchName)}` : `${escapeHtml(t.fromBranchName)} \u2192 ${escapeHtml(t.toBranchName)}`);
         const busy = branchTransferActionsInFlight.has(t.id);
         const actionBtn = (label, action, extraClass, icon) => `<button type="button" class="btn-action-outline branches-mini-btn${extraClass ? ' ' + extraClass : ''}" ${busy ? 'disabled' : ''} data-action="transfer-respond" data-transfer-id="${escapeHtml(t.id)}" data-transfer-action="${action}">${icon || ''}${label}</button>`;
-        // FIX (two-sided stock movement): previously, the whole flow was
-        // done after "Accept" — only the status changed, with no effect
-        // on real stock. There are now two new steps before a request is
-        // considered complete:
-        //   accepted (outgoing) -> "Mark as Sent" (deducts stock here, at the source)
-        //   in_transit (incoming) -> "Confirm Received" (adds stock here, at the destination)
+
         let actions = '';
         if (t.direction === 'incoming' && safeStatus === 'pending') {
             actions = actionBtn('Accept', 'accept') + actionBtn('Reject', 'reject', 'is-danger');
@@ -10374,16 +10246,13 @@ function renderBranchTransfersHtml() {
                 </div>
             </div>`;
     }).join('');
-    // FIX: previously, if the filtered matches exceeded 50, it was
-    // silently cut off with no indication at all — the list looked
-    // complete even though it wasn't.
+
     const overflowNote = filtered.length > BRANCH_TRANSFER_LIST_LIMIT
         ? `<p class="branches-overflow-note">Showing the latest ${BRANCH_TRANSFER_LIST_LIMIT} of ${filtered.length} matching requests.</p>`
         : '';
     return header + syncErrorNote + tabsHtml + `<div class="branches-transfer-list">${rows}</div>` + overflowNote;
 }
 
-// === Branches page: helpers ================================================
 const BRANCH_STALE_MS = 30 * 60 * 1000;
 const BRANCH_SELF_ATTENTION_MS = 15 * 60 * 1000;
 function branchAgeMs(ts) { return ts ? Math.max(0, Date.now() - Number(ts)) : Infinity; }
@@ -10398,9 +10267,7 @@ function formatBranchMoney(n) {
     const symbol = (typeof storeSettingsCache !== 'undefined' && storeSettingsCache && storeSettingsCache.currencySymbol) || '₱';
     return symbol + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-// Only touch the DOM when the section's HTML actually changed, so background
-// refreshes (polling, transfers, trend) never replace nodes under the user's
-// finger / cursor.
+
 function setBranchesSection(id, html) {
     const el = document.getElementById(id);
     if (!el || el.__branchesHtml === html) return;
@@ -10497,19 +10364,7 @@ function renderBranchCombinedTrendHtml() {
     }
     return stats + renderTrendSvg(hist);
 }
-// FIX (wrong branch opens when tapping a collapsed branch):
-// The branch list used to be built here, then app1.js ("Branch Intelligence")
-// re-tagged every card with data-branch-id BY POSITION (cards[i] <-> branches[i])
-// and re-sorted the cards in the DOM by health. Once the DOM order differed
-// from the data order (e.g. an offline branch floated to the top), the second
-// enhance pass paired the wrong branch id with the wrong card — so tapping one
-// branch expanded a different one, filled with the other branch's numbers.
-// The RELAY also returns branches ordered by "last check-in", so the order
-// changed on every poll as well.
-// Now the list is rendered ONCE, from data, already filtered + sorted with a
-// deterministic tie-breaker (name, then id), and every row carries its own
-// data-branch-id. The click handler reads the id from the row that was
-// actually tapped, so a card can never open the wrong branch.
+
 function getVisibleBranches() {
     const st = branchesPageState;
     const q = String(st.query || '').trim().toLowerCase();
@@ -10576,10 +10431,7 @@ function renderBranchRowHtml(b) {
             ${detail}
         </div>`;
 }
-// Keyed reconcile: reuse the existing element of every row whose HTML did not
-// change, and only rebuild the rows that did (usually none, or the two rows
-// involved in an expand/collapse). Order is applied without re-inserting
-// nodes that are already in the right place.
+
 function renderBranchesList() {
     const container = document.getElementById('branches-list');
     if (!container) return;
@@ -10623,7 +10475,7 @@ function updateBranchesHeroStatus() {
 function renderBranchesPage() {
     const body = document.getElementById('branches-page-body');
     if (!body) return;
-    // Nothing to draw (yet) — leave any loading / error / "not set up" notice alone.
+
     if (!Array.isArray(branchesPageState.branches) || branchesPageState.branches.length === 0) return;
     if (!body.querySelector('#branches-list')) {
         body.innerHTML = branchesSkeletonHtml();
@@ -10664,9 +10516,7 @@ function exportBranchesCsv() {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-// One delegated set of listeners for the whole page (bound once). Every action
-// reads its target from the element that was actually clicked, never from an
-// index or a value captured at render time.
+
 function bindBranchesPageEvents() {
     if (window.__branchesPageEventsBound) return;
     window.__branchesPageEventsBound = true;
@@ -10748,18 +10598,11 @@ async function submitBranchTransferRequest(evt) {
     const note = document.getElementById('bt-form-note').value.trim();
     if (!toInstallationId) { errEl.textContent = 'No destination branch is available.'; errEl.style.display = 'block'; return false; }
     if (!itemName || !qty || qty < 1) { errEl.textContent = 'Fill in the item name and quantity.'; errEl.style.display = 'block'; return false; }
-    // FIX: RELAY silently truncates (slices) itemName to 120, sku to 60,
-    // and note to 300 characters — if this isn't communicated to the
-    // client here, the user won't know why what they typed got
-    // "shortened" after submitting.
+
     if (itemName.length > 120) { errEl.textContent = 'Item name is too long (max 120 characters).'; errEl.style.display = 'block'; return false; }
     if (sku.length > 60) { errEl.textContent = 'SKU / Product Code is too long (max 60 characters).'; errEl.style.display = 'block'; return false; }
     if (note.length > 300) { errEl.textContent = 'Note is too long (max 300 characters).'; errEl.style.display = 'block'; return false; }
-    // FIX (soft duplicate-request check): previously, there was no
-    // warning at all if there was already an open (pending/accepted/
-    // in_transit) outgoing request to the same branch for the same item
-    // — it was easy to accidentally send a duplicate (e.g. double-submit,
-    // or forgetting one was already pending).
+
     const dupe = (branchesPageState.transfers || []).find(t =>
         t.direction === 'outgoing' &&
         t.toInstallationId === toInstallationId &&
@@ -10796,18 +10639,7 @@ async function submitBranchTransferRequest(evt) {
         }
         closeModal('branch-transfer-modal');
         if (typeof Swal !== 'undefined') Swal.fire({ icon: 'success', title: 'Transfer request sent', timer: 1600, showConfirmButton: false });
-        // FIX (nothing visible on the page after a "successful" transfer
-        // request): previously, this relied only on a SEPARATE follow-up
-        // GET (loadBranchTransfers) to refresh and show the new request
-        // in the list. If that follow-up was delayed or silently failed
-        // (it only logged console.warn — no UI feedback — and authFetch's
-        // client-side timeout, 6s, is shorter than the up to 20s the
-        // server allows toward the relay), the toast could say
-        // "successful" while nothing showed up on the page. So an
-        // OPTIMISTIC update was added here: use the `transfer` object
-        // that the successful POST response itself already returns
-        // (already came from the relay, complete) so it appears in the
-        // list instantly, even before the background refresh below runs.
+
         if (data.transfer) {
             const optimisticTransfer = { ...data.transfer, direction: 'outgoing' };
             branchesPageState.transfers = [
@@ -10826,18 +10658,9 @@ async function submitBranchTransferRequest(evt) {
     }
     return false;
 }
-// FIX (two-sided stock movement): 'send' and 'receive' both now change
-// real stock (deduct at the source, add at the destination) on the
-// server, so there's a confirmation prompt before calling — unlike the
-// old "Accept", which had no real effect on inventory. The `stockNote`
-// warning is also shown when no matching local product is found (e.g.
-// the SKU/name differs at the destination) — it still needs to be
-// adjusted manually in that case.
+
 async function respondBranchTransfer(transferId, action) {
-    // FIX: previously, there was no guard here against repeated clicking
-    // of the same button before the first request could even come back
-    // (e.g. a quick double-click on "Mark as Sent" while the first call
-    // is still loading) — this could send a duplicate request.
+
     if (branchTransferActionsInFlight.has(transferId)) return;
     if (action === 'send' || action === 'receive') {
         const confirmText = action === 'send'
@@ -10856,7 +10679,7 @@ async function respondBranchTransfer(transferId, action) {
         }
     }
     branchTransferActionsInFlight.add(transferId);
-    renderBranchesPage(); // show the disabled/"Updating…" state of this row right away
+    renderBranchesPage();
     try {
         const res = await authFetch(`${API_URL}/branches/transfer-respond`, {
             method: 'POST',
@@ -10874,11 +10697,7 @@ async function respondBranchTransfer(transferId, action) {
         } else if (typeof Swal !== 'undefined' && (action === 'send' || action === 'receive')) {
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: action === 'send' ? 'Marked as sent — stock deducted here.' : 'Received confirmed — stock added here.', showConfirmButton: false, timer: 2400 });
         }
-        // FIX (same reason as in submitBranchTransferRequest): don't rely
-        // only on a separate follow-up GET (which can also silently fail/
-        // be delayed) before updating this row's status/actions on
-        // screen — merge in the `transfer` object that the successful
-        // response itself already returns, right away.
+
         if (data.transfer) {
             branchesPageState.transfers = (branchesPageState.transfers || []).map(t =>
                 t.id === data.transfer.id ? { ...t, ...data.transfer } : t
@@ -10886,17 +10705,11 @@ async function respondBranchTransfer(transferId, action) {
         }
         loadBranchTransfers();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
-        // Refresh the local product cache/catalog since an item's stock
-        // may have just changed here (due to the 'send'/'receive' that
-        // just happened) — if this isn't refreshed, the Terminal/Products
-        // list could keep showing stale stock until the page is reloaded.
+
         if (typeof loadTerminalCatalog === 'function') loadTerminalCatalog();
     } catch (err) {
         console.warn('respondBranchTransfer failed:', err);
-        // FIX: previously, this silently failed (only a console.warn)
-        // when the server couldn't be reached (e.g. timeout, no
-        // internet) — nothing was shown to the user, so it looked like
-        // nothing happened even though they clicked the button.
+
         if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Could not reach the server', text: 'Please check your connection and try again.' });
     } finally {
         branchTransferActionsInFlight.delete(transferId);
@@ -11019,10 +10832,7 @@ async function silentRefreshTerminalStock() {
     } catch (e) {
     }
 }
-// Patches currently-rendered product cards without rebuilding the grid, so
-// photos don't flicker/reload every poll cycle. Falls back to a full
-// re-render only when the visible set of products actually changed
-// (added/removed/filtered), which is rare compared to routine stock ticks.
+
 function patchTerminalProductsInPlace() {
     const gridOutput = document.getElementById('terminal-grid-output');
     if (!gridOutput) return;
@@ -11072,12 +10882,7 @@ function stopInventoryStockPolling() {
 async function silentRefreshInventoryStock() {
     const productModalEl = document.getElementById('product-modal');
     if (productModalEl && productModalEl.style.display ==='flex') return;
-    // Same protection as loadInventoryProductsTable(): this poller must never
-    // be the thing that overwrites the Product list with a stale/empty
-    // snapshot around a delete. Without this guard, a poll tick that was
-    // already in flight when a delete started (or that races the delete)
-    // could stomp the freshly-filtered local list and wipe the visible
-    // table until a hard refresh.
+
     const requestVersion = productCatalogMutationVersion;
     try {
         const res = await authFetch(`${API_URL}/products`);
@@ -11098,10 +10903,7 @@ async function silentRefreshInventoryStock() {
     } catch (e) {
     }
 }
-// Patches existing rows in the Products/Inventory table without rebuilding
-// the whole tbody, so product photos don't flicker on every silent poll.
-// Falls back to a full render only when the visible row set actually
-// changed (search/filter, or products added/removed).
+
 function patchInventoryProductsTableInPlace() {
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
@@ -11130,12 +10932,12 @@ function patchInventoryProductsTableInPlace() {
         const stockNum = parseFloat(p.stock) || 0;
         const isLowStock = stockNum > 0 && stockNum <= threshold;
         const cells = row.querySelectorAll('td');
-        // Column order: [0]=image [1]=code [2]=name [3]=category [4]=supplier [5]=price [6]=stock [7]=expiry [8]=view [9]=actions
+
         const imgEl = cells[0] && cells[0].querySelector('img.inv-thumb');
         const wantsImage = !!p.image;
         const hasImage = !!imgEl;
         if (wantsImage !== hasImage || (wantsImage && imgEl.getAttribute('src') !== p.image)) {
-            // Image actually changed — safest to do one full rebuild and stop patching.
+
             renderInventoryProductsTable();
             return;
         }
@@ -11178,8 +10980,7 @@ function patchInventoryProductsTableInPlace() {
             let expiryHtml = '<span style="color:#94a3b8;">—</span>';
             let expirySignature = 'none';
             const hasBatches = Array.isArray(p.batches) && p.batches.length > 0;
-            // When the product uses batch/lot tracking, show the nearest batch expiry
-            // here instead of the old single product-level expiry date.
+
             let effectiveExpiryDate = p.expiryDate || null;
             if (hasBatches) {
                 const dated = p.batches.filter(b => b.expiryDate && (parseFloat(b.quantity) || 0) > 0);
@@ -11280,8 +11081,8 @@ let __termSearchLastKeyTime = 0;
 let __termSearchIsScan = false;
 let __termSearchResetId = null;
 let __termSearchDebounceId = null;
-const TERM_SEARCH_SCAN_GAP_MS = 45; 
-const TERM_SEARCH_FILTER_DELAY_MS = 40; 
+const TERM_SEARCH_SCAN_GAP_MS = 45;
+const TERM_SEARCH_FILTER_DELAY_MS = 40;
 function onTerminalSearchKeydown(e) {
     const now = Date.now();
     const delta = now - __termSearchLastKeyTime;
@@ -11417,7 +11218,7 @@ function updateProductCardInPlace(code) {
         const wantsImage = !!p.image;
         const hasImage = !!(iconEl && iconEl.tagName === 'IMG');
         if (wantsImage !== hasImage || (wantsImage && iconEl.getAttribute('src') !== p.image)) {
-            // Image presence/source actually changed (rare) — safe to touch just this node.
+
             const iconBox = card.querySelector('.t-prod-icon');
             if (iconBox) {
                 const previewBtn = iconBox.querySelector('.t-prod-preview-btn');
@@ -11674,10 +11475,7 @@ function editProductFromDetailsModal() {
     closeModal('product-details-modal');
     openProductModal('UPDATE', code);
 }
-// ===== UOM / decimal quantity / price level (client mirror of uom-pricing.js) =====
-// The SERVER is authoritative: it re-resolves unit, price level and quantity at checkout. These helpers only
-// make the cashier screen show the same numbers. Stock is in BASE units; a cart line's `quantity` is in its
-// selling unit (`unit`, null = base) and `factor` = base units per selling unit.
+
 function qty3(v) { return Math.round((parseFloat(v) || 0) * 1000) / 1000; }
 function money2(v) { return Math.round(((parseFloat(v) || 0) + Number.EPSILON) * 100) / 100; }
 function formatQty(v) { return String(qty3(v)); }
@@ -11687,10 +11485,7 @@ function formatReceiptQty(item) {
     const unit = item && item.unit ? ` ${item.unit}` : '';
     return `${base}${unit}`;
 }
-// When a line is sold in a bigger selling unit than the product's base unit (e.g. a "Sako"
-// at a Wholesale/Reseller price level), show the equivalent base-unit qty and per-base-unit
-// price too (e.g. "= 25 kilo × ₱25.00"), so the buyer can double-check the math on the
-// receipt instead of only seeing "1 Sako x ₱1,250.00".
+
 function formatBaseUnitBreakdown(item) {
     if (!item || !item.unit) return '';
     const factor = parseFloat(item.factor) || 1;
@@ -11708,6 +11503,21 @@ function canUsePriceLevelClient() {
 }
 function getStorePriceLevels() {
     return (storeSettingsCache && Array.isArray(storeSettingsCache.priceLevels)) ? storeSettingsCache.priceLevels : [];
+}
+
+function getPriceLevelObjectValue(obj, level) {
+    if (!obj || typeof obj !== 'object' || !level) return undefined;
+    if (Object.prototype.hasOwnProperty.call(obj, level)) return obj[level];
+    const wanted = String(level).trim().toLowerCase();
+    const key = Object.keys(obj).find(k => String(k).trim().toLowerCase() === wanted);
+    return key !== undefined ? obj[key] : undefined;
+}
+function getCanonicalStorePriceLevel(level) {
+    const raw = String(level || '').trim();
+    if (!raw) return '';
+    const wanted = raw.toLowerCase();
+    const configured = getStorePriceLevels().find(l => String(l || '').trim().toLowerCase() === wanted);
+    return configured !== undefined ? String(configured).trim() : raw;
 }
 function getProductUomList(p) {
     return Array.isArray(p && p.uom) ? p.uom.filter(u => u && String(u.name || '').trim() && parseFloat(u.factor) > 0) : [];
@@ -11734,17 +11544,27 @@ function computeUnitPrice(product, unitName, level) {
     let base = money2(product && product.price);
     let levelUsed = null;
     if (level && canUsePriceLevelClient()) {
-        const ov = parseFloat(product && product.priceLevels && product.priceLevels[level]);
+        const ov = parseFloat(getPriceLevelObjectValue(product && product.priceLevels, level));
         if (ov > 0) { base = money2(ov); levelUsed = level; }
     }
     const u = unitName ? findProductUom(product, unitName) : null;
     const factor = u ? parseFloat(u.factor) : 1;
-    const fixed = (u && parseFloat(u.fixedPrice) > 0) ? money2(u.fixedPrice) : null;
+    // A UOM's fixedPrice is a rounded convenience price calibrated against the
+    // product's plain catalog price (e.g. a Box at a rounded ₱480 instead of
+    // 24 x the per-piece price) — it was never set relative to any Price Level.
+    // So once a Price Level override is actually active (levelUsed set), let the
+    // level's price go through instead of the frozen fixedPrice; otherwise
+    // switching e.g. to Wholesale would look like it did nothing for that unit.
+    const fixed = (u && !levelUsed && parseFloat(u.fixedPrice) > 0) ? money2(u.fixedPrice) : null;
     return { price: fixed !== null ? fixed : money2(base * factor), factor, levelUsed, unitName: u ? u.name : null };
 }
 function applyCartLinePricing(item) {
     const product = (Array.isArray(globalProducts) && globalProducts.find(p => p.code === item.code)) || item;
-    const r = computeUnitPrice(product, item.unit, cartPriceLevel);
+    // Each line is priced using its OWN assigned price level — never the whole
+    // cart's dropdown value — so one item's Wholesale price never bleeds into
+    // any other item already in (or being added to) the cart.
+    const desiredLevel = (item.priceLevel && item.priceLevel !== MIXED_PRICE_LEVEL_VALUE) ? item.priceLevel : null;
+    const r = computeUnitPrice(product, item.unit, desiredLevel);
     item.unit = r.unitName;
     item.factor = r.factor;
     item.priceLevel = r.levelUsed;
@@ -11752,7 +11572,14 @@ function applyCartLinePricing(item) {
     const maxDiscount = money2(item.price * item.quantity);
     if ((parseFloat(item.itemDiscount) || 0) > maxDiscount) item.itemDiscount = maxDiscount;
 }
-// Largest quantity (in the line's own unit) that the current stock can cover.
+// Level to seed a brand-new cart line with, when nothing more specific (e.g. a
+// scanned price-level barcode) was detected for that particular item. Only an
+// explicit single price level chosen from the cart dropdown acts as a default
+// for new lines — "Mixed Item Price" and the plain Retail default do not.
+function defaultLevelForNewLine() {
+    return (cartPriceLevel && cartPriceLevel !== MIXED_PRICE_LEVEL_VALUE) ? cartPriceLevel : null;
+}
+
 function getMaxCartQtyForLine(item, product) {
     const stock = parseFloat(product && product.stock) || 0;
     const factor = parseFloat(item && item.factor) || 1;
@@ -11765,23 +11592,195 @@ function refreshCartPriceLevelUI() {
     if (!row || !select) return;
     const levels = getStorePriceLevels();
     const allowed = levels.length > 0 && canUsePriceLevelClient();
-    if (!cartPriceLevel) {
-        const withLevel = shoppingCart.find(i => i.priceLevel);
-        if (withLevel && allowed) cartPriceLevel = withLevel.priceLevel;
+    if (!allowed) {
+        // Permission (or store configuration) for price levels is gone — fall back
+        // every line to Retail so nothing keeps selling at a special price.
+        if (cartPriceLevel || shoppingCart.some(i => i.priceLevel)) {
+            cartPriceLevel = '';
+            shoppingCart.forEach(item => { item.priceLevel = null; applyCartLinePricing(item); });
+        }
+        row.style.display = 'none';
+        return;
     }
-    if (cartPriceLevel && (!allowed || !levels.includes(cartPriceLevel))) {
+    if (cartPriceLevel && cartPriceLevel !== MIXED_PRICE_LEVEL_VALUE && !levels.includes(cartPriceLevel)) {
         cartPriceLevel = '';
-        shoppingCart.forEach(applyCartLinePricing);
     }
-    row.style.display = allowed ? '' : 'none';
-    if (!allowed) return;
-    select.innerHTML = `<option value="">Retail (default)</option>` + levels.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
-    select.value = cartPriceLevel;
+    // Safety net: if a store-configured level was removed from Store Settings
+    // while an item was already priced at it, drop just THAT item back to
+    // Retail — never the rest of the cart.
+    shoppingCart.forEach(item => {
+        if (item.priceLevel && !levels.includes(item.priceLevel)) {
+            item.priceLevel = null;
+            applyCartLinePricing(item);
+        }
+    });
+    row.style.display = '';
+    select.innerHTML = `<option value="">Retail (default)</option>`
+        + levels.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('')
+        + `<option value="${MIXED_PRICE_LEVEL_VALUE}">Mixed Item Price</option>`;
+    // The dropdown's displayed value only REFLECTS current cart contents when
+    // nothing has been explicitly chosen — it must never feed back into
+    // cartPriceLevel itself, or an auto-detected "Wholesale" reading would end
+    // up being applied as the default level for the next, unrelated item added
+    // (reintroducing the very bug this fixes). cartPriceLevel is changed only
+    // by an explicit, deliberate choice (setCartPriceLevel) or a held-sale
+    // restore.
+    let displayValue = cartPriceLevel;
+    if (!displayValue) {
+        const leveledItems = shoppingCart.filter(i => i.priceLevel);
+        if (leveledItems.length) {
+            const distinctLevels = new Set(leveledItems.map(i => i.priceLevel));
+            const hasUnleveled = shoppingCart.some(i => !i.priceLevel);
+            displayValue = (distinctLevels.size > 1 || hasUnleveled) ? MIXED_PRICE_LEVEL_VALUE : leveledItems[0].priceLevel;
+        }
+    }
+    select.value = displayValue;
 }
 function setCartPriceLevel(level) {
-    cartPriceLevel = level || '';
-    shoppingCart.forEach(applyCartLinePricing);
+    const wanted = level || '';
+    if (wanted === MIXED_PRICE_LEVEL_VALUE) {
+        // Switching to Mixed Item Price never touches existing lines — each item
+        // simply keeps reading whatever price level it already has.
+        cartPriceLevel = MIXED_PRICE_LEVEL_VALUE;
+        renderCartRows();
+        return;
+    }
+    // Picking a specific level (or Retail) here is a deliberate, whole-cart
+    // action, so it intentionally re-prices every current line to match.
+    cartPriceLevel = wanted;
+    shoppingCart.forEach(item => { item.priceLevel = wanted || null; applyCartLinePricing(item); });
     renderCartRows();
+}
+
+// Guards a single item's price level against being silently changed by a scan.
+// Scoped to the one product being scanned — it never locks or blocks any other
+// item in the cart, so e.g. a Wholesale item never prevents a different,
+// unrelated product from being added or scanned at its normal Retail price.
+function checkCartPriceLevelGuard(productCode, requestedLevel) {
+    if (requestedLevel === null || requestedLevel === undefined) return { ok: true };
+    const existing = shoppingCart.find(i => i.code === productCode);
+    if (!existing) return { ok: true };
+    const locked = existing.priceLevel || '';
+    const wanted = requestedLevel || '';
+    if (locked !== wanted) return { ok: false, locked, wanted };
+    return { ok: true };
+}
+
+function checkPlainRescanAgainstLeveledCart(product, detectedLevel) {
+    if (detectedLevel) return { ok: true };
+    const existing = shoppingCart.find(item => item.code === product.code);
+    if (!existing) return { ok: true };
+    // Only blocks re-scanning THIS SAME item's plain code once it already has a
+    // price level — other products are never affected.
+    return { ok: !existing.priceLevel };
+}
+
+function getPriceLevelShortCode(level) {
+    const normalized = String(level || '').trim().toLowerCase();
+    if (normalized === 'wholesale') return 'WS';
+    if (normalized === 'reseller') return 'RS';
+    if (normalized === 'retail') return 'RT';
+    const compact = String(level || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    return (compact.slice(0, 2) || 'LV').padEnd(2, 'L');
+}
+
+function computeAutoPriceLevelAlias(code, level) {
+    const cleanCode = String(code || '').trim();
+    const levelTag = getPriceLevelShortCode(level);
+    return `${cleanCode}-${levelTag}`;
+}
+
+function resolveScannedProductCode(rawCode) {
+    const code = String(rawCode || '').trim();
+    if (!code || !Array.isArray(globalProducts)) return null;
+
+    const normalizedCode = code.toUpperCase();
+    for (const p of globalProducts) {
+        const priceLevels = (p && p.priceLevels && typeof p.priceLevels === 'object') ? p.priceLevels : {};
+        const aliases = (p && p.priceLevelBarcodes && typeof p.priceLevelBarcodes === 'object') ? p.priceLevelBarcodes : {};
+        for (const level of Object.keys(priceLevels)) {
+            if (!(parseFloat(priceLevels[level]) > 0)) continue;
+            const ownerAlias = String(getPriceLevelObjectValue(aliases, level) || '').trim();
+            const effectiveAlias = ownerAlias || computeAutoPriceLevelAlias(p.code, level);
+            if (String(effectiveAlias).trim().toUpperCase() === normalizedCode) {
+                return { product: p, priceLevel: getCanonicalStorePriceLevel(level) };
+            }
+        }
+    }
+
+    const direct = globalProducts.find(p => String(p.code || '').trim().toUpperCase() === normalizedCode);
+    if (direct) return { product: direct, priceLevel: null };
+    return null;
+}
+
+function productHasPriceLevelAliases(product) {
+    if (!product) return false;
+
+    const priceLevels = (product.priceLevels && typeof product.priceLevels === 'object') ? product.priceLevels : {};
+    return Object.keys(priceLevels).some(level => {
+        if (!(parseFloat(priceLevels[level]) > 0)) return false;
+        const alias = String(getPriceLevelObjectValue(product.priceLevelBarcodes, level) || '').trim();
+        return !!alias || !!computeAutoPriceLevelAlias(product.code, level);
+    });
+}
+
+function cancelPendingLiveRetailScan() {
+    pendingLiveRetailScan = null;
+    pendingLiveRetailScanSeq++;
+    const confirmBtn = document.getElementById('btn-confirm-retail-scan');
+    if (confirmBtn) confirmBtn.style.display = 'none';
+}
+
+function queueLiveRetailScanVerification(scannedCode, product) {
+    cancelPendingLiveRetailScan();
+    const seq = pendingLiveRetailScanSeq;
+    pendingLiveRetailScan = { seq, scannedCode, productCode: product.code };
+    const feedback = document.getElementById('qr-scanner-feedback');
+    if (feedback) {
+        feedback.innerText = `🔎 Checking barcode price level for ${product.name}... hold the scan steady, or press "Add at Retail" if you're sure this is really the Retail price.`;
+        feedback.style.color = '#eab308';
+    }
+    const confirmBtn = document.getElementById('btn-confirm-retail-scan');
+    if (confirmBtn) confirmBtn.style.display = '';
+}
+
+function confirmPendingRetailScanAsRetail() {
+    const pending = pendingLiveRetailScan;
+    if (!pending) return;
+    const seq = pending.seq;
+    pendingLiveRetailScan = null;
+    const confirmBtn = document.getElementById('btn-confirm-retail-scan');
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    if (pendingLiveRetailScanSeq !== seq) return;
+
+    const existing = shoppingCart.find(item => item.code === pending.productCode);
+    if (existing) return;
+
+    lastScannedCode = '';
+    lastScannedTime = 0;
+    handleScannedBarcode(pending.scannedCode, true);
+}
+
+// Applies a barcode-detected price level to ONE specific product only. If that
+// product is already in the cart, its line (and only that line) is re-priced;
+// if it isn't in the cart yet, the level is just validated here and the caller
+// passes it into addItemToCart() so the new line is seeded with it directly.
+// No other line in the cart is ever touched, so a Wholesale scan can never
+// spill over onto unrelated Retail items already sitting in the cart.
+function applyScannedPriceLevelToItem(product, level) {
+    if (!level) return false;
+    if (!canUsePriceLevelClient()) return false;
+    if (!getStorePriceLevels().includes(level)) return false;
+    const existing = shoppingCart.find(i => i.code === product.code);
+    if (existing) {
+        if (existing.priceLevel !== level) {
+            existing.priceLevel = level;
+            applyCartLinePricing(existing);
+        }
+    }
+    if (typeof refreshCartPriceLevelUI === 'function') refreshCartPriceLevelUI();
+    renderCartRows();
+    return true;
 }
 function setCartItemUnit(code, unitName) {
     const item = shoppingCart.find(i => i.code === code);
@@ -11802,7 +11801,7 @@ function setCartItemUnit(code, unitName) {
     }
     renderCartRows(code);
 }
-function addItemToCart(product) {
+function addItemToCart(product, forcedLevel) {
     if (!(parseFloat(product.stock) > 0)) return false;
     const existing = shoppingCart.find(item => item.code === product.code);
     if (existing) {
@@ -11814,7 +11813,12 @@ function addItemToCart(product) {
             return false;
         }
     } else {
-        const line = { ...product, quantity: 1, unit: null, factor: 1, priceLevel: null };
+        // A brand-new line is priced at whatever level was specifically detected
+        // for THIS product (forcedLevel, from a scanned price-level barcode); only
+        // when nothing specific was detected does it fall back to the cart's own
+        // default (a manually forced single level, or plain Retail).
+        const initialLevel = (forcedLevel !== undefined) ? forcedLevel : defaultLevelForNewLine();
+        const line = { ...product, quantity: 1, unit: null, factor: 1, priceLevel: initialLevel };
         applyCartLinePricing(line);
         const maxQty = getMaxCartQtyForLine(line, product);
         if (maxQty < 1) {
@@ -11827,7 +11831,7 @@ function addItemToCart(product) {
         }
         applyCartLinePricing(line);
         shoppingCart.push(line);
-        // Sold-by-weight items: put the cursor in the quantity box so the cashier can just type the weight.
+
         if (productAllowsDecimal(product)) pendingFocusCartQtyCode = product.code;
     }
     renderCartRows(product.code);
@@ -12094,8 +12098,7 @@ function getHeldSales() {
     }
 }
 function setHeldSales(list) {
-    // Returns true only when the list was really written. localStorage can throw (quota full / private mode),
-    // and callers must NOT clear the live cart when the save did not succeed.
+
     try {
         localStorage.setItem(getHeldSalesStorageKey(), JSON.stringify(list || []));
         return true;
@@ -12104,7 +12107,7 @@ function setHeldSales(list) {
         return false;
     }
 }
-// Net value of a cart snapshot INCLUDING per-line discounts (same formula as getCartNetSubtotal()).
+
 function getCartSnapshotNetTotal(cart) {
     if (!Array.isArray(cart)) return 0;
     return cart.reduce((sum, it) => {
@@ -12113,8 +12116,7 @@ function getCartSnapshotNetTotal(cart) {
         return sum + Math.max(0, line - lineDiscount);
     }, 0);
 }
-// A cart line is a copy of the whole product record, including its base64 photo. Storing that in localStorage
-// fills the ~5 MB quota after a few held sales, so only the fields needed to rebuild the line are kept.
+
 function slimCartForHold(cart) {
     return (Array.isArray(cart) ? cart : []).map(it => ({
         code: it.code,
@@ -12125,8 +12127,7 @@ function slimCartForHold(cart) {
         itemDiscount: Math.max(0, parseFloat(it.itemDiscount) || 0)
     }));
 }
-// Rebuilds live cart lines from the CURRENT catalog so a resumed sale shows today's price/stock (the server
-// charges catalog prices at checkout anyway). Returns the lines plus notes for anything that changed.
+
 function rehydrateHeldCart(savedCart) {
     const notes = [];
     const lines = [];
@@ -12149,8 +12150,8 @@ function rehydrateHeldCart(savedCart) {
             notes.push(`${product.name}: out of stock — removed.`);
             return;
         }
-        const line = { ...product, quantity: qty, unit: saved.unit || null, factor: 1, priceLevel: null };
-        applyCartLinePricing(line); // current catalog price for the saved unit + the cart's price level
+        const line = { ...product, quantity: qty, unit: saved.unit || null, factor: 1, priceLevel: defaultLevelForNewLine() };
+        applyCartLinePricing(line);
         const maxQty = getMaxCartQtyForLine(line, product);
         if (maxQty <= 0) {
             notes.push(`${product.name}: not enough stock for ${line.unit || 'this unit'} — removed.`);
@@ -12175,7 +12176,7 @@ function updateHeldSalesBadge() {
     const btn = document.getElementById('held-sales-btn');
     if (!btn) return;
     const count = getHeldSales().length;
-    // The count now lives in its own badge (icon-only button on mobile, inline pill on desktop).
+
     const countEl = btn.querySelector('.held-sales-count');
     if (countEl) {
         countEl.textContent = count > 99 ? '99+' : String(count);
@@ -12184,8 +12185,7 @@ function updateHeldSalesBadge() {
     btn.setAttribute('aria-label', `Held sales (${count})`);
     btn.classList.toggle('has-held-sales', count > 0);
 }
-// Fire-and-forget audit trail for hold/delete actions so a held cart can never be
-// discarded without leaving a record (Clear Cart already requires a password + VOID_CART log).
+
 function logHeldSaleAction(action, message) {
     try {
         const username = currentUser ? (currentUser.username || currentUser.name) : 'Unknown User';
@@ -12194,7 +12194,7 @@ function logHeldSaleAction(action, message) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action, user: username, details: { message } })
         }).catch(() => {});
-    } catch (e) { /* audit logging must never block the cashier */ }
+    } catch (e) {  }
 }
 async function handleHoldSale() {
     if (shoppingCart.length === 0) {
@@ -12218,9 +12218,7 @@ async function handleHoldSale() {
     const discountInputEl = document.getElementById('cart-discount-input');
     const promoInputEl = document.getElementById('cart-promo-input');
     const seniorCheckboxEl = document.getElementById('cart-senior-pwd-toggle');
-    // SECURITY: the loyalty card token is a credential and the customer's points balance can change while the
-    // sale is on hold, so a redeemed-points discount is NEVER saved in localStorage. The customer link is kept;
-    // the cashier re-applies/re-scans the points when the sale is resumed.
+
     const loyaltyDropped = cartDiscountType === 'LOYALTY';
     held.unshift({
         id: 'HOLD-' + Date.now(),
@@ -12240,21 +12238,18 @@ async function handleHoldSale() {
         promoInputValue: promoInputEl ? promoInputEl.value : '',
         seniorPwdChecked: seniorCheckboxEl ? !!seniorCheckboxEl.checked : false
     });
-    // BUGFIX: if the save fails (storage full) the cart used to be cleared anyway and the cashier was told
-    // "Sale Held" — the whole sale was lost. Now the cart is kept and the cashier is told what happened.
+
     if (!setHeldSales(held)) {
         Swal.fire('Could Not Hold Sale', 'This device\'s storage is full, so the sale could not be saved. The cart was NOT cleared — finish or void this sale, or delete old held sales, then try again.', 'error');
         return;
     }
     shoppingCart = [];
-    // BUGFIX: the held cart's discount / promo / Senior-PWD / loyalty / customer were left applied to the
-    // NEXT customer's empty cart. Reset them so the new transaction starts clean (same as after checkout).
+
     resetCartDiscountAndCustomerState();
     renderCartRows();
     if (typeof updateCartTotals === 'function') updateCartTotals();
     updateHeldSalesBadge();
-    // The server keeps a copy of the live cart (saved with a 600 ms delay). If the page reloaded or the save failed
-    // before it was cleared there, the held sale would come back as a live cart too (double sale) — flush it now.
+
     markServerCartStale();
     saveCartToDatabaseNow();
     logHeldSaleAction('HOLD_SALE', `Held a sale (${held[0].id}${held[0].label ? ' - ' + held[0].label : ''}): ${heldItemCount} item(s), \u20b1${heldTotal.toFixed(2)}.`);
@@ -12312,7 +12307,7 @@ function resumeHeldSale(id) {
     cartPromoCode = h.cartPromoCode || '';
     cartActivePromo = h.cartActivePromo || null;
     cartSeniorPwdId = h.cartSeniorPwdId || '';
-    // Older held sales saved before this fix may still contain a loyalty redemption/token: discard it too.
+
     const loyaltyWasDropped = !!h.loyaltyDropped || h.cartDiscountType === 'LOYALTY';
     if (h.cartDiscountType === 'LOYALTY') cartDiscountType = 'NONE';
     cartLoyaltyPointsRedeemed = 0;
@@ -12380,7 +12375,10 @@ function renderCartRows(changedProductCode) {
     try {
         const container = document.getElementById('cart-items-container');
         if (!container) return;
-        if (shoppingCart.length === 0) resetCartDiscountAndCustomerState();
+        const cartIsEmptyNow = shoppingCart.length === 0;
+
+        if (cartIsEmptyNow && !cartWasEmptyOnLastRender) resetCartDiscountAndCustomerState();
+        cartWasEmptyOnLastRender = cartIsEmptyNow;
         refreshCartPriceLevelUI();
         container.innerHTML ='';
         saveCartToDatabase();
@@ -12452,7 +12450,7 @@ function renderCartRows(changedProductCode) {
             const focusCode = pendingFocusCartQtyCode;
             pendingFocusCartQtyCode = null;
             const qtyEl = Array.from(container.querySelectorAll('.cart-qty-input')).find(el => el.getAttribute('data-code') === focusCode);
-            if (qtyEl) { try { qtyEl.focus(); qtyEl.select(); } catch (e) { /* focus is a convenience only */ } }
+            if (qtyEl) { try { qtyEl.focus(); qtyEl.select(); } catch (e) {  } }
         }
         if (shoppingCart.length === 0) {
             container.innerHTML = '<div class="cart-empty-state"><i class="fa-solid fa-cart-shopping"></i><span>Cart is Empty</span></div>';
@@ -12487,18 +12485,7 @@ function getCartNetSubtotal() {
         return sum + Math.max(0, money2(item.price * item.quantity) - lineDiscount);
     }, 0);
 }
-// Estimated VAT-exempt base for the Senior/PWD discount on the client (for the
-// cashier's live preview only) — this should match the same logic the server
-// (processTransaction) uses as the final/authoritative computation: if prices are
-// VAT-inclusive, strip the VAT out first before taking the % discount.
-// BUGFIX (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act, BIR VAT-exemption
-// rules): this used to return ONLY the 20% discount amount. That amount alone is
-// correct for the "Discount" line on the receipt, but a qualifying Senior/PWD sale
-// is also VAT-exempt/zero-rated — the 12% VAT baked into the price must ALSO be
-// removed. Since the caller (updateCartTotals) previously only subtracted this
-// single number from the subtotal, the VAT portion was never actually removed from
-// the on-screen Total, so the cashier ended up overcharging the customer.
-// Now this returns both pieces so the caller can subtract each of them.
+
 function estimateSeniorPwdDiscount(subtotal) {
     if (subtotal <= 0) return { discountAmount: 0, vatExemptedAmount: 0 };
     const seniorPwdRatePct = (storeSettingsCache && Number.isFinite(storeSettingsCache.seniorPwdDiscountRate))
@@ -12509,8 +12496,7 @@ function estimateSeniorPwdDiscount(subtotal) {
         ? subtotal / (1 + taxRatePct / 100)
         : subtotal;
     const discountAmount = Math.max(0, vatExemptBase * (seniorPwdRatePct / 100));
-    // Amount of VAT removed due to the exemption (0 if prices aren't VAT-inclusive,
-    // or if VAT isn't enabled/applicable at all).
+
     const vatExemptedAmount = Math.max(0, subtotal - vatExemptBase);
     return { discountAmount, vatExemptedAmount };
 }
@@ -12521,15 +12507,7 @@ function estimatePromoDiscount(subtotal) {
         : cartActivePromo.value;
     return Math.min(Math.max(discountAmount, 0), subtotal);
 }
-// BUGFIX: dati, ang ipinapakita/ini-compare na "Senior/PWD (₱X)" dito ay ang
-// 20% discount amount LANG (seniorPwdAmount). Pero ang totoong benepisyo ng
-// customer sa isang Senior/PWD sale ay hindi lang ang 20% discount — VAT-exempt
-// din ito (tinatanggal din ang 12% VAT na naka-bake sa presyo). Kaya kapag
-// mas maliit ang 20%-discount-lang kumpara sa promo code, mali ang pagiging
-// "PROMO ang mas malaki" dahil hindi kasama ang VAT-exemption sa comparison —
-// sa totoo lang mas malaki pa rin ang combined Senior/PWD benefit (20% discount
-// + VAT exemption). Ngayon, ang seniorPwdTotalBenefit (discount + VAT exempted
-// amount) na ang ipinapakita/ikinukumpara dito, hindi lang ang discountAmount.
+
 function renderBestDiscountBadge(winner, seniorPwdBreakdown, promoAmount, otherAvailable) {
     const badge = document.getElementById('cart-discount-best-badge');
     if (!badge) return;
@@ -12549,10 +12527,7 @@ function renderBestDiscountBadge(winner, seniorPwdBreakdown, promoAmount, otherA
     }
     badge.style.display = 'block';
 }
-// Advanced: when both the Senior/PWD ID toggle and an active promo code are set at
-// the same time, the system automatically picks whichever discount is bigger (and
-// shows the cashier which one was applied), so they don't have to compute it
-// themselves.
+
 function resolveBestCartDiscount() {
     const discountInput = document.getElementById('cart-discount-input');
     if (!discountInput) return;
@@ -12584,25 +12559,14 @@ function resolveBestCartDiscount() {
         });
         return resolveBestCartDiscount();
     }
-    // BUGFIX: dati, `seniorPwdAmount` (ang ikinukumpara sa promoAmount para
-    // malaman kung alin ang "mas malaki") ay ang 20% discount amount LANG.
-    // Pero ang totoong pinipiling "pinakamalaking discount" ay dapat ang
-    // KABUUANG babawasin sa Total ng customer — para sa Senior/PWD, kasama
-    // dito ang VAT-exemption (hindi lang ang 20% discount line). Kaya ang
-    // paghahambing sa ibaba ay ginawang batay na sa seniorPwdTotalBenefit
-    // (discountAmount + vatExemptedAmount), hindi sa discountAmount lang —
-    // kung hindi, mapipili ang Promo code kahit mas maliit pala ang totoong
-    // ibinababa nito sa Total kumpara sa Senior/PWD.
+
     const seniorPwdBreakdown = hasSeniorPwd ? estimateSeniorPwdDiscount(subtotal) : { discountAmount: 0, vatExemptedAmount: 0 };
     const seniorPwdAmount = seniorPwdBreakdown.discountAmount;
     const seniorPwdTotalBenefit = seniorPwdAmount + seniorPwdBreakdown.vatExemptedAmount;
     const promoAmount = hasPromo ? estimatePromoDiscount(subtotal) : 0;
     if (hasSeniorPwd && (!hasPromo || seniorPwdTotalBenefit >= promoAmount)) {
         cartDiscountType = 'SENIOR_PWD';
-        // Ang "Discount" input field ay panatilihing 20%-discount-lang (hindi
-        // kasama ang VAT-exemption) — ito ang convention na sinusunod na ng
-        // updateCartTotals() (ibinabawas ang vatExemptedAmount nang hiwalay),
-        // gayundin ng authoritative na server-side na computation.
+
         discountInput.value = seniorPwdAmount.toFixed(2);
         discountInput.setAttribute('readonly', true);
         renderBestDiscountBadge('SENIOR_PWD', seniorPwdBreakdown, promoAmount, hasPromo);
@@ -12627,14 +12591,7 @@ function updateCartTotals() {
     const totalEl = document.getElementById('summary-total');
     let subtotal = getCartNetSubtotal();
     let discount = parseFloat(discountInput ? discountInput.value : 0) || 0;
-    // BUGFIX (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act, BIR VAT-exemption
-    // rules): the "Discount" field only ever holds the 20% Senior/PWD discount — it
-    // does NOT include the 12% VAT that must ALSO be removed, since a qualifying
-    // Senior/PWD sale is VAT-exempt/zero-rated. Without also subtracting that VAT
-    // amount here, Total was only ever (Subtotal - 20% discount), which overcharged
-    // the customer by the VAT amount (e.g. ₱22.40 - ₱4.00 = ₱18.40 shown, instead of
-    // the correct ₱16.00). This mirrors the authoritative calculation already fixed
-    // server-side in processTransaction().
+
     const vatExemptedAmount = (cartDiscountType === 'SENIOR_PWD')
         ? estimateSeniorPwdDiscount(subtotal).vatExemptedAmount
         : 0;
@@ -12725,9 +12682,7 @@ function toggleSeniorPwdDiscount() {
         }).then(result => {
             if (result.isConfirmed && result.value && result.value.trim()) {
                 cartSeniorPwdId = result.value.trim();
-                // Advanced: the active promo code is no longer cleared here — if it's
-                // set together with Senior/PWD, resolveBestCartDiscount() inside
-                // updateCartTotals() will automatically pick whichever discount is bigger.
+
                 cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
                 const loyaltyInput = document.getElementById('cart-loyalty-input');
                 if (loyaltyInput) loyaltyInput.value ='';
@@ -12762,9 +12717,7 @@ async function applyPromoCodeToCart() {
         const res = await authFetch(`${API_URL}/promocodes/${encodeURIComponent(code)}/validate?subtotal=${subtotal}${customerQuery}`);
         const data = await res.json();
         if (data.success) {
-            // Advanced: the Senior/PWD toggle is no longer cleared here — if it's set
-            // together with a promo code, resolveBestCartDiscount() inside
-            // updateCartTotals() will automatically pick whichever discount is bigger.
+
             cartPromoCode = code;
             cartActivePromo = data.promo || null;
             cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
@@ -13458,13 +13411,7 @@ async function submitFinalPaymentTransactionInner() {
                 Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
                 return;
             }
-            // No connection to pre-verify the password against the server: carry the
-            // entered password with the sale instead of blocking it. The same password
-            // check (findManualDiscountAuthorizer) runs server-side, either immediately
-            // if the sale reaches the server, or during offline-queue synchronization
-            // once connectivity returns. The plaintext value is stripped from the
-            // record right after the server verifies it (see server.js) and is never
-            // persisted in transaction history.
+
             discountAuthPassword = pw;
             await Swal.fire({
                 icon: 'info',
@@ -13509,9 +13456,7 @@ async function submitFinalPaymentTransactionInner() {
                 Swal.fire('Connection Error','Unable to verify the password right now. Please try again.','error');
                 return;
             }
-            // Same offline deferral as the manual-discount path above: keep the
-            // entered password and let the server verify it (findLoyaltyRedeemAuthorizer)
-            // when the sale reaches it, whether immediately or via later sync.
+
             loyaltyAuthPassword = lpw;
             await Swal.fire({
                 icon: 'info',
@@ -13541,7 +13486,7 @@ async function submitFinalPaymentTransactionInner() {
             price: i.price,
             quantity: i.quantity,
             unit: i.unit || null,
-            priceLevel: cartPriceLevel || null,
+            priceLevel: i.priceLevel || null,
             baseQty: getCartBaseQty(i),
             itemDiscount: Math.max(0, parseFloat(i.itemDiscount) || 0),
             cost: parseFloat(i.cost) || 0
@@ -13626,8 +13571,7 @@ async function submitFinalPaymentTransactionInner() {
                 }
             }
         } else if (res.status >= 500) {
-            // A 5xx can happen after the server has committed the sale but before the response reached the device.
-            // Queue the idempotent transaction so the next sync verifies it by syncId instead of creating a duplicate.
+
             await addOfflineQueueItem({ transaction: transactionPayload, username: currentUser.username, creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null, status: 'pending', lastError: `Server returned HTTP ${res.status}; outcome will be verified during synchronization.` });
             transactionPayload.items.forEach(item => {
                 const localProd = globalProducts.find(p => p.code === item.code);
@@ -15143,8 +15087,7 @@ async function loadStoreSettingsPanel() {
         statusEl.style.color = '#64748b';
     }
 }
-// If the (possibly cached) settings page has no Price Levels box, send the existing levels back instead of
-// an empty list so saving other settings can never wipe them.
+
 function getPriceLevelsFromStoreSettingsForm() {
     const el = document.getElementById('ss-price-levels');
     if (!el) return (storeSettingsCache && Array.isArray(storeSettingsCache.priceLevels)) ? storeSettingsCache.priceLevels : [];
@@ -15494,7 +15437,7 @@ function initTerminalLayoutSwap() {
 }
 document.addEventListener('DOMContentLoaded', initTerminalLayoutSwap);
 const CART_PANE_WIDTH_KEY = 'omnipos_terminal_cart_pane_width';
-const CART_PANE_DEFAULT_WIDTH = 680; 
+const CART_PANE_DEFAULT_WIDTH = 680;
 const CART_PANE_MIN_WIDTH = CART_PANE_DEFAULT_WIDTH;
 const CART_PANE_MAX_WIDTH = 1040;
 const CART_PANE_PRODUCT_RESERVE_GRID = 300;
@@ -16739,7 +16682,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     if (modalTitleElReset) modalTitleElReset.innerText ='Receipt Invoice';
     document.getElementById('r-id').innerText = tx.id;
     document.getElementById('r-footer-id').innerText = tx.id;
-    // BIR: the sequential invoice number stamped by the server (blank for sales made before BIR numbering existed).
+
     {
         const invNoEl = document.getElementById('r-inv-no');
         const invRowEl = document.getElementById('r-inv-row');
@@ -16821,20 +16764,12 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     const vatExemptRow = document.getElementById('r-vatexempt-row');
     const scPwdRow = document.getElementById('r-scpwd-discount-row');
     const discountAmt = parseFloat(tx.discount) || 0;
-    // BIR-style OR breakdown (RA 9994 - Senior Citizens Act / RA 10754 - PWD Act):
-    // instead of one combined "Discount ... (VAT-Exempt)" line that hides the
-    // VAT-exempt portion inside the discount figure, show the sales
-    // classification ("VATable Sales" / "VAT-Exempt Sales") as its own lines,
-    // separate from the 20% SC/PWD discount itself ("Less: SC/PWD Discount").
-    // Falls back to the old combined line for non-Senior/PWD discounts, for
-    // Senior/PWD sales that aren't VAT-exempt (e.g. non-VAT-registered store),
-    // and for older transactions saved before this breakdown existed.
+
     const seniorPwdDiscountAmt = parseFloat(tx.seniorPwdDiscountAmount);
     const isSeniorPwdBreakdown = tx.discountType === 'SENIOR_PWD' && !!tx.vatExempt && Number.isFinite(seniorPwdDiscountAmt);
     if (isSeniorPwdBreakdown) {
         if (discountRow) discountRow.style.display = 'none';
-        // The VAT-exempt sales base is the amount actually due (subtotalBeforeTax)
-        // plus back the 20% discount that was taken off of it.
+
         const vatExemptSales = Math.max(0, (parseFloat(tx.subtotalBeforeTax) || 0) + seniorPwdDiscountAmt);
         if (vatableRow) {
             document.getElementById('r-vatable-amount').innerText = `₱0.00`;
@@ -17031,8 +16966,7 @@ function renderTransactionsRows(transactions) {
     });
 }
 let cachedInventoryProducts = [];
-// Product-page catalog mutation guard: prevents an older/in-flight GET /products
-// response from overwriting the local catalog immediately after a delete/update.
+
 let productCatalogMutationVersion = 0;
 let productDeleteInProgress = false;
 const columnFilters = { code: new Set(), name: new Set(), category: new Set(), supplier: new Set(), price: new Set(), stock: new Set(), expiryDate: new Set(), hasSpecs: new Set() };
@@ -17493,10 +17427,7 @@ async function reviewStockReturn(returnId) {
 async function loadInventoryProductsTable() {
     const requestVersion = productCatalogMutationVersion;
     try {
-        // Product data must never come from the browser HTTP cache. More
-        // importantly, an older GET must never overwrite the catalog after a
-        // product mutation has started/completed. This is the key protection
-        // against the Product page becoming empty until a hard refresh.
+
         const res = await authFetch(`${API_URL}/products`, { cache:'no-store' });
         if (!res.ok) throw new Error(`Failed to load products (${res.status})`);
         const data = await res.json();
@@ -17512,8 +17443,7 @@ async function loadInventoryProductsTable() {
         }
     } catch (e) {
         console.error('Failed to refresh inventory products:', e);
-        // Keep the last known-good list instead of replacing it with [] when a
-        // refresh fails.
+
     }
     renderInventoryProductsTable();
 }
@@ -17662,7 +17592,7 @@ function openProductModal(mode, code ='') {
     document.getElementById('product-modal').style.display ='flex';
     refreshProductNetPriceHelperVisibility();
 }
-// ---- BATCH / LOT TRACKING (frontend) --------------------------------------
+
 async function openProductBatchesModal(code, name) {
     if (guardPremiumFeature('batch_lot_tracking')) return;
     if (!code) {
@@ -17671,8 +17601,7 @@ async function openProductBatchesModal(code, name) {
     }
     document.getElementById('pb-product-code').value = code;
     document.getElementById('product-batches-modal-title').innerText = `Manage Batches / Lots — ${name || code}`;
-    // Auto-suggest a lot code (common in PH retail/grocery POS) so staff can
-    // just confirm or tweak it instead of typing one from scratch every time.
+
     const today = new Date();
     const ymd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
     document.getElementById('pb-new-lot').value = `LOT-${code}-${ymd}`;
@@ -17858,7 +17787,7 @@ async function deleteProductBatch(code, batchId) {
         Swal.fire('Connection Error', 'Could not delete the batch.', 'error');
     }
 }
-// ---- BATCH / LOT TRACKING PAGE (all products, one list) -------------------
+
 let batchLotsRawRows = [];
 async function loadBatchLotsView() {
     const tbody = document.getElementById('batchlots-table-body');
@@ -17874,10 +17803,7 @@ async function loadBatchLotsView() {
     renderBatchLotsTable();
     updateBatchLotsAlertBadgeFromRows(batchLotsRawRows);
 }
-// Sidebar bell badge: counts batches that are expired or expiring within 7 days,
-// same "glanceable alert" pattern used by Reorder Alerts and Branches — a common
-// convention in Philippine retail/grocery POS apps (Loyverse, CloudPOS, etc.) so
-// staff notice near-expiry stock without having to open the page first.
+
 function updateBatchLotsAlertBadgeFromRows(rows) {
     const badge = document.getElementById('menu-batchlots-alert-badge');
     if (!badge) return;
@@ -17890,8 +17816,8 @@ function updateBatchLotsAlertBadgeFromRows(rows) {
     }
 }
 async function refreshBatchLotsAlertBadge() {
-    if (!document.getElementById('menu-batchlots-alert-badge')) return; // absent if user has no 'products' permission
-    if (!isFeatureUnlockedCached('batch_lot_tracking')) { updateBatchLotsAlertBadgeFromRows([]); return; } // premium feature — locked
+    if (!document.getElementById('menu-batchlots-alert-badge')) return; 
+    if (!isFeatureUnlockedCached('batch_lot_tracking')) { updateBatchLotsAlertBadgeFromRows([]); return; } 
     try {
         const res = await authFetch(`${API_URL}/products/batches`);
         const data = await res.json();
@@ -17900,9 +17826,7 @@ async function refreshBatchLotsAlertBadge() {
         console.warn('Could not refresh batch/lot alert badge:', e);
     }
 }
-// Client-side CSV export (no backend round trip needed — the page already has
-// the full filtered list in memory), matching what's on screen (search + status
-// filter applied), the same way Product/Reorder CSV exports work in this app.
+
 function exportBatchLotsCsv() {
     if (!batchLotsRawRows.length) {
         Swal.fire('Nothing to Export', 'No batches/lots to export yet.', 'info');
@@ -17943,13 +17867,7 @@ function exportBatchLotsCsv() {
     URL.revokeObjectURL(url);
     Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Batch/lot list downloaded', showConfirmButton: false, timer: 1800, timerProgressBar: true });
 }
-// Safe to embed inside a single-quoted JS string literal that itself sits inside
-// a double-quoted inline onclick="..." HTML attribute. escapeHtml() alone stops a
-// value from breaking out of the outer "..." attribute (e.g. via a stray double
-// quote injecting a brand-new onmouseover="..." attribute), but a stray single
-// quote can still terminate the inner JS string and let injected JS run while
-// staying inside the same attribute. Escape backslashes/quotes for the JS-string
-// context first, then HTML-escape the result for the attribute context.
+
 function escapeJsAttr(value) {
     return escapeHtml(String(value === null || value === undefined ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
@@ -18008,12 +17926,7 @@ function renderBatchLotsTable() {
         </tr>
     `).join('');
 }
-// When prices are VAT-inclusive in Store Settings, the "Price" entered on a product
-// is exactly what gets stripped of VAT at the time of sale (see processTransaction
-// on the server) — so if what the owner typed was their desired PROFIT/net take, they
-// will lose money if that same number is entered as "Price" with no VAT added. This
-// helper computes and fills the Price field with the VAT-inclusive price, so the net
-// amount they want to receive stays intact.
+
 function shouldShowProductNetPriceHelper() {
     return !!(storeSettingsCache && storeSettingsCache.taxEnabled && storeSettingsCache.pricesIncludeTax
         && Number.isFinite(storeSettingsCache.taxRate) && storeSettingsCache.taxRate > 0);
@@ -18622,8 +18535,10 @@ function removeProductPhoto() {
     if (cameraInput) cameraInput.value ='';
     updateProductPhotoPreview('');
 }
-// ---- Product form: units of measure, decimal selling, price levels ----
+
 let productFormPriceLevels = {};
+
+let productFormPriceLevelBarcodes = {};
 function syncProductDecimalUI() {
     const cb = document.getElementById('p-form-allow-decimal');
     const stock = document.getElementById('p-form-stock');
@@ -18643,8 +18558,7 @@ function renderProductUomRowHints() {
         if (hint) hint.textContent = `1 ${name} = ${factor} ${baseUnit} — ${fixed > 0 ? `${levelNote}fixed price ₱${fixed.toFixed(2)}` : 'price = Price × factor'}`;
     });
 }
-// Price Level -> Fixed Price helper for extra units (e.g. Wholesale P50 x 25 base units = P1250).
-// The dropdown only fills the Fixed price box; the saved unit stays { name, factor, fixedPrice }.
+
 function getProductFormLevelNames() {
     const storeLevels = getStorePriceLevels();
     const extraLevels = Object.keys(productFormPriceLevels || {}).filter(k => !storeLevels.includes(k));
@@ -18690,7 +18604,7 @@ function onProductUomFactorInput(inp) {
     renderProductUomRowHints();
 }
 function onProductUomFixedInput(inp) {
-    // Typing a price by hand means it is no longer derived from a Price Level.
+
     const sel = inp.closest('.p-form-uom-row').querySelector('.p-uom-level');
     if (sel) sel.value = '';
     renderProductUomRowHints();
@@ -18725,7 +18639,7 @@ function addProductUomRow(data) {
     refreshProductUomLevelOptions();
     renderProductUomRowHints();
 }
-// Returns the cleaned unit list, or null (after telling the user why) when something is invalid.
+
 function collectProductUomRows() {
     const rows = Array.from(document.querySelectorAll('#p-form-uom-rows .p-form-uom-row'));
     const out = [];
@@ -18757,18 +18671,36 @@ function collectProductUomRows() {
     }
     return out;
 }
+
 function renderProductPriceLevelRows() {
     const group = document.getElementById('p-form-price-levels-group');
     const wrap = document.getElementById('p-form-price-levels-rows');
     if (!group || !wrap) return;
+    document.querySelectorAll('#p-form-price-levels-rows .p-level-price').forEach(inp => {
+        const level = inp.getAttribute('data-level');
+        const v = parseFloat(inp.value);
+        if (level && v > 0) {
+            productFormPriceLevels = productFormPriceLevels || {};
+            productFormPriceLevels[level] = v;
+        }
+    });
+    document.querySelectorAll('#p-form-price-levels-rows .p-level-barcode').forEach(inp => {
+        const level = inp.getAttribute('data-level');
+        const alias = inp.value.trim();
+        if (level && alias) {
+            productFormPriceLevelBarcodes = productFormPriceLevelBarcodes || {};
+            productFormPriceLevelBarcodes[level] = alias;
+        }
+    });
     const storeLevels = getStorePriceLevels();
     const extraLevels = Object.keys(productFormPriceLevels || {}).filter(k => !storeLevels.includes(k));
     const all = [...storeLevels, ...extraLevels];
     group.style.display = all.length ? '' : 'none';
     wrap.innerHTML = all.map(level => `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="flex:1;font-size:0.9rem;">${escapeHtml(level)}${storeLevels.includes(level) ? '' : ' <small style="color:#f59e0b;">(not in Store Settings)</small>'}</span>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+            <span style="flex:1;min-width:120px;font-size:0.9rem;">${escapeHtml(level)}${storeLevels.includes(level) ? '' : ' <small style="color:#f59e0b;">(not in Store Settings)</small>'}</span>
             <input type="number" class="p-level-price" data-level="${escapeHtml(level)}" min="0" step="0.01" placeholder="Same as Price" value="${productFormPriceLevels[level] ? escapeHtml(String(productFormPriceLevels[level])) : ''}" oninput="recalcProductUomLevelPrices()" style="width:130px;" autocomplete="off">
+            <input type="text" class="p-level-barcode" data-level="${escapeHtml(level)}" maxlength="40" placeholder="Alias barcode (optional)" title="A separate barcode you can print for this price level. Scanning it at the POS picks up this product's stock but auto-applies the ${escapeHtml(level)} price." value="${productFormPriceLevelBarcodes[level] ? escapeHtml(String(productFormPriceLevelBarcodes[level])) : ''}" style="width:170px;" autocomplete="off">
         </div>`).join('');
     refreshProductUomLevelOptions();
 }
@@ -18781,6 +18713,17 @@ function collectProductPriceLevels() {
     });
     return out;
 }
+
+function collectProductPriceLevelBarcodes() {
+    const levelsWithPrice = collectProductPriceLevels();
+    const out = {};
+    document.querySelectorAll('#p-form-price-levels-rows .p-level-barcode').forEach(inp => {
+        const level = inp.getAttribute('data-level');
+        const alias = inp.value.trim();
+        if (alias && levelsWithPrice[level] > 0) out[level] = alias;
+    });
+    return out;
+}
 function resetProductUomForm() {
     const baseUnit = document.getElementById('p-form-base-unit');
     if (baseUnit) baseUnit.value = '';
@@ -18789,6 +18732,7 @@ function resetProductUomForm() {
     const wrap = document.getElementById('p-form-uom-rows');
     if (wrap) wrap.innerHTML = '';
     productFormPriceLevels = {};
+    productFormPriceLevelBarcodes = {};
     syncProductDecimalUI();
     Promise.resolve(storeSettingsCache || fetchStoreSettings()).then(renderProductPriceLevelRows).catch(() => renderProductPriceLevelRows());
 }
@@ -18801,6 +18745,7 @@ function fillProductUomForm(product) {
     syncProductDecimalUI();
     (Array.isArray(product.uom) ? product.uom : []).forEach(u => addProductUomRow(u));
     productFormPriceLevels = (product.priceLevels && typeof product.priceLevels === 'object' && !Array.isArray(product.priceLevels)) ? { ...product.priceLevels } : {};
+    productFormPriceLevelBarcodes = (product.priceLevelBarcodes && typeof product.priceLevelBarcodes === 'object' && !Array.isArray(product.priceLevelBarcodes)) ? { ...product.priceLevelBarcodes } : {};
     Promise.resolve(storeSettingsCache || fetchStoreSettings()).then(renderProductPriceLevelRows).catch(() => renderProductPriceLevelRows());
 }
 async function handleProductFormSubmit(e) {
@@ -18825,6 +18770,7 @@ async function handleProductFormSubmit(e) {
     if (uomRows === null) return;
     payload.uom = uomRows;
     payload.priceLevels = collectProductPriceLevels();
+    payload.priceLevelBarcodes = collectProductPriceLevelBarcodes();
     const supplierVal = document.getElementById('p-form-supplier').value.trim();
     const expiryVal = document.getElementById('p-form-expiry').value;
     const thresholdVal = document.getElementById('p-form-threshold').value;
@@ -19982,13 +19928,7 @@ async function deleteProductTrigger(code) {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
     const canApplyDirectly = isAdmin || !!(currentPermissions && currentPermissions.products_direct_apply);
     let adminPassword;
-    // ROOT-CAUSE FIX: the Product table is filtered by the value of #inventory-search.
-    // When the password prompt opens, browser/password-manager autofill can write the
-    // saved username (or the typed password) into the nearest preceding text input,
-    // which is #inventory-search. The table then filters by that text and shows 0 rows
-    // even though cachedInventoryProducts is intact - it looks like the list vanished
-    // and only a hard refresh cleared it. Freeze the search box while the prompt is
-    // open, restore it afterwards, and re-render from the intact local catalog.
+
     const invSearchEl = document.getElementById('inventory-search');
     const invSearchSnapshot = invSearchEl ? invSearchEl.value : '';
     const guardInvSearch = (e) => {
@@ -20034,9 +19974,7 @@ async function deleteProductTrigger(code) {
             return;
         }
     }
-    // Invalidate every Product-page catalog request before sending DELETE.
-    // Any GET that was already in flight will therefore be ignored when it
-    // returns, so it cannot replace the post-delete list with stale/empty data.
+
     productCatalogMutationVersion++;
     productDeleteInProgress = true;
     try {
@@ -20048,10 +19986,7 @@ async function deleteProductTrigger(code) {
         const reply = await res.json();
         if (reply.success) {
             const deletedCode = String(code).trim().toLowerCase();
-            // Never replace the complete local catalog with the DELETE response.
-            // A single successful delete can only remove one matching product.
-            // Keeping the known-good local list makes it impossible for a bad or
-            // transient server payload to make every product disappear.
+
             cachedInventoryProducts = Array.isArray(cachedInventoryProducts)
                 ? cachedInventoryProducts.filter(p => String(p?.code || '').trim().toLowerCase() !== deletedCode)
                 : [];
@@ -20059,8 +19994,6 @@ async function deleteProductTrigger(code) {
                 ? globalProducts.filter(p => String(p?.code || '').trim().toLowerCase() !== deletedCode)
                 : [];
 
-            // Advance the mutation version before rendering so any request
-            // started during the delete cannot subsequently overwrite this state.
             productCatalogMutationVersion++;
             renderInventoryProductsTable();
             loadDashboardMetrics();
@@ -20075,30 +20008,36 @@ async function deleteProductTrigger(code) {
         Swal.fire('Error','Failed to delete the selected product asset.','error');
     } finally {
         productDeleteInProgress = false;
-        // Invalidate requests that may have been started while DELETE was in
-        // progress. They must perform a fresh load after the mutation state is
-        // settled rather than restoring pre-delete data.
+
         productCatalogMutationVersion++;
     }
 }
+let barcodeGenProductsByCode = {};
 async function loadBarcodeGeneratorModule() {
     try {
         const res = await authFetch(`${API_URL}/products`);
         const products = await res.json();
+        barcodeGenProductsByCode = {};
         const tbody = document.getElementById('barcode-table-body');
         tbody.innerHTML ='';
         document.getElementById('select-all-barcodes').checked = false;
         products.forEach((p, idx) => {
+            barcodeGenProductsByCode[p.code] = p;
             const row = document.createElement('tr');
-            // data-pricelevels carries the product's Wholesale/Reseller/etc. prices (if any) so
-            // "Print Selected" can print a bulk price on the label instead of only ever the
-            // Retail Price — see onBarcodePriceLevelChange()/generateSelectedBarcodePreview().
+
             const priceLevelsJson = (p.priceLevels && typeof p.priceLevels === 'object' && !Array.isArray(p.priceLevels)) ? p.priceLevels : {};
+
+            const priceLevelBarcodesJson = (p.priceLevelBarcodes && typeof p.priceLevelBarcodes === 'object' && !Array.isArray(p.priceLevelBarcodes)) ? p.priceLevelBarcodes : {};
+            const uomList = getProductUomList(p);
+            const baseUnitLabel = p.baseUnit ? String(p.baseUnit).trim() : 'base unit';
+            const unitOptions = `<option value="">${escapeHtml(baseUnitLabel)} (×1)</option>`
+                + uomList.map(u => `<option value="${escapeHtml(u.name)}">${escapeHtml(u.name)} (×${escapeHtml(String(u.factor))})</option>`).join('');
             row.innerHTML = `
-                <td><input type="checkbox" class="barcode-select-item" data-code="${escapeHtml(p.code)}" data-name="${escapeHtml(p.name)}" data-price="${escapeHtml(String(parseFloat(p.price) || 0))}" data-pricelevels="${escapeHtml(JSON.stringify(priceLevelsJson))}"></td>
+                <td><input type="checkbox" class="barcode-select-item" data-code="${escapeHtml(p.code)}" data-name="${escapeHtml(p.name)}" data-price="${escapeHtml(String(parseFloat(p.price) || 0))}" data-pricelevels="${escapeHtml(JSON.stringify(priceLevelsJson))}" data-pricelevelbarcodes="${escapeHtml(JSON.stringify(priceLevelBarcodesJson))}"></td>
                 <td class="font-bold">${escapeHtml(p.code)}</td>
                 <td>${escapeHtml(p.category)}</td>
                 <td>${escapeHtml(p.name)}</td>
+                <td><select class="barcode-unit-select" id="bar-unit-${escapeHtml(p.code)}" onchange="onBarcodeRowUnitChange('${escapeHtml(p.code)}')" style="padding:4px;border-radius:6px;" ${uomList.length ? '' : 'disabled'}>${unitOptions}</select></td>
                 <td><input type="number" class="barcode-qty-input" value="1" min="1" style="width:60px; padding:4px; text-align:center;" id="bar-qty-${escapeHtml(p.code)}"></td>
                 <td><canvas id="canvas-row-${idx}" style="max-height: 40px;"></canvas></td>
             `;
@@ -20110,9 +20049,30 @@ async function loadBarcodeGeneratorModule() {
         populateBarcodePriceLevelOptions();
     } catch (e) { console.error(e); }
 }
-// Fills the "Price to print" dropdown with Retail + every Price Level defined in Store
-// Settings (Wholesale, Reseller, etc.), so barcode labels can show a bulk price instead of
-// only ever the Retail Price.
+function onBarcodeRowUnitChange(code) {
+    // Placeholder hook (per-row live preview isn't rendered in the table;
+    // the chosen unit is read at print time in generateSelectedBarcodePreview).
+}
+// Price level x Unit multiplier: mirrors computeUnitPrice's fixed-price rule
+// (a saved fixedPrice is a rounded convenience price calibrated against the
+// plain catalog Price, so once a Price Level override is actually selected,
+// the level's price times the unit factor takes over instead of the frozen
+// fixedPrice) so the Barcode Generator prints the same number the POS would charge.
+function computeBarcodeUnitPrice(product, unitName, level) {
+    const retail = parseFloat(product && product.price) || 0;
+    let base = retail;
+    let levelUsed = null;
+    if (level) {
+        const ov = parseFloat(getPriceLevelObjectValue(product && product.priceLevels, level));
+        if (ov > 0) { base = ov; levelUsed = level; }
+    }
+    const u = unitName ? findProductUom(product, unitName) : null;
+    const factor = u ? (parseFloat(u.factor) || 1) : 1;
+    const fixed = (u && !levelUsed && parseFloat(u.fixedPrice) > 0) ? money2(u.fixedPrice) : null;
+    const price = fixed !== null ? fixed : money2(base * factor);
+    return { price, factor, levelUsed, unitName: u ? u.name : '' };
+}
+
 function populateBarcodePriceLevelOptions() {
     const sel = document.getElementById('barcode-price-level-select');
     if (!sel) return;
@@ -20307,7 +20267,9 @@ function renderBarcodeSheetPreview(batch) {
     const sheetContainer = document.getElementById('barcode-sheet-print-container');
     sheetContainer.innerHTML ='';
     window.__lastBarcodePrintBatch = batch;
-    batch.forEach(({ code, name, qty, price, priceLevel }) => {
+    batch.forEach(({ code, scanValue, name, qty, price, priceLevel }) => {
+
+        const encodedValue = scanValue || code;
         for (let loop = 0; loop < qty; loop++) {
             const cellUnit = document.createElement('div');
             cellUnit.className ='barcode-print-card-unit';
@@ -20317,14 +20279,13 @@ function renderBarcodeSheetPreview(batch) {
                 <svg id="${uniqueId}"></svg>
             `;
             sheetContainer.appendChild(cellUnit);
-            // Tag the level name (e.g. "Wholesale") on the label whenever a non-Retail price is
-            // being printed, so staff/buyers checking the barcode aren't confused into thinking
-            // it's the regular Retail Price.
+
+            const labelLevel = priceLevel ? getPriceLevelShortCode(priceLevel) : '';
             const labelText = settings.showPriceWithId
-                ? `${code} - ₱${(parseFloat(price) || 0).toFixed(2)}${priceLevel ? ` (${priceLevel})` : ''}`
-                : code;
+                ? `${encodedValue} - ₱${(parseFloat(price) || 0).toFixed(2)}${labelLevel ? ` (${labelLevel})` : ''}`
+                : encodedValue;
             setTimeout(() => {
-                JsBarcode(`#${uniqueId}`, code, {
+                JsBarcode(`#${uniqueId}`, encodedValue, {
                     format:"CODE128",
                     width: settings.barWidth,
                     height: settings.barHeight,
@@ -20414,17 +20375,23 @@ async function generateSelectedBarcodePreview() {
     checkboxes.forEach((cb) => {
         const code = cb.getAttribute('data-code');
         const name = cb.getAttribute('data-name');
-        const retailPrice = parseFloat(cb.getAttribute('data-price')) || 0;
-        let priceLevels = {};
-        try { priceLevels = JSON.parse(cb.getAttribute('data-pricelevels') || '{}') || {}; } catch (e) { priceLevels = {}; }
-        // If this specific product doesn't have the selected Price Level set, fall back to its
-        // Retail Price for THIS item (rather than skipping/blank), and don't tag it with the
-        // level name below since it's not actually printing that level's price.
-        const levelPrice = selectedLevel ? parseFloat(priceLevels[selectedLevel]) : NaN;
-        const usedLevel = selectedLevel && levelPrice > 0;
-        const price = usedLevel ? levelPrice : retailPrice;
+        let priceLevelBarcodes = {};
+        try { priceLevelBarcodes = JSON.parse(cb.getAttribute('data-pricelevelbarcodes') || '{}') || {}; } catch (e) { priceLevelBarcodes = {}; }
+
+        const product = barcodeGenProductsByCode[code] || {
+            code, price: parseFloat(cb.getAttribute('data-price')) || 0,
+            priceLevels: (() => { try { return JSON.parse(cb.getAttribute('data-pricelevels') || '{}') || {}; } catch (e) { return {}; } })()
+        };
+        const unitSel = document.getElementById(`bar-unit-${code}`);
+        const unitName = unitSel ? unitSel.value : '';
+        const { price, levelUsed, unitName: resolvedUnitName } = computeBarcodeUnitPrice(product, unitName, selectedLevel);
+        const usedLevel = !!levelUsed;
         const printQty = parseInt(document.getElementById(`bar-qty-${code}`).value) || 1;
-        batch.push({ code, name, qty: printQty, price, priceLevel: usedLevel ? selectedLevel : '' });
+
+        const ownerAlias = usedLevel ? String(getPriceLevelObjectValue(priceLevelBarcodes, selectedLevel) || '').trim() : '';
+        const alias = usedLevel ? (ownerAlias || computeAutoPriceLevelAlias(code, selectedLevel)) : '';
+        const scanValue = alias || code;
+        batch.push({ code, scanValue, name: resolvedUnitName ? `${name} (${resolvedUnitName})` : name, qty: printQty, price, priceLevel: usedLevel ? selectedLevel : '' });
     });
     renderBarcodeSheetPreview(batch);
 }
@@ -20989,14 +20956,7 @@ function switchUserTab(tabId, element) {
     if (tabId !=='reset-restore-panel' && typeof closeAllResetRestoreCards ==='function') {
         closeAllResetRestoreCards();
     }
-    // BUG FIX: this used to query '.tab-content-panel' / '.tab-btn' from the
-    // WHOLE document instead of just #view-users. Other pages reuse those
-    // same shared classes for their own tabs (e.g. Reorder Alerts' "Create
-    // PO" / "Purchase Order History" tabs), so switching a Users/Settings
-    // tab was silently setting display:none on the Reorder page's tab
-    // panels too — permanently, since nothing else ever re-showed them.
-    // Next time someone opened Reorder Alerts, both tab panels stayed
-    // blank/hidden. Scoping these two queries to #view-users fixes that.
+
     document.querySelectorAll('#view-users .tab-content-panel').forEach(p => p.style.display ='none');
     document.querySelectorAll('#view-users .tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).style.display ='flex';
@@ -21150,12 +21110,7 @@ function openAddUserModal() {
     document.getElementById('u-form-username').disabled = false;
     document.getElementById('u-form-password').required = true;
     document.getElementById('u-form-password-label').innerText ='Password';
-    // SAFETY FIX: previously no default value was set here, so the Role
-    // dropdown was left on whichever option renders first — which is
-    // "Admin" — making it easy to accidentally create a new Admin account
-    // just by forgetting to change the dropdown. Default new users to
-    // "Staff" instead; populateRoleSelectOptions() below still falls back
-    // safely to a non-Admin role if "Staff" doesn't exist in this store.
+
     refreshUserFormRoleOptions('Staff');
     document.getElementById('user-modal').style.display ='flex';
 }
@@ -21257,18 +21212,13 @@ async function loadRolesPermissionMatrix() {
     }
 }
 function getEffectivePermission(role, menuKey) {
-    if (role && role.protected) return true; // Admin always has full access (its checkboxes are locked)
+    if (role && role.protected) return true;
     if (pendingMatrixEdits[role.name] && (menuKey in pendingMatrixEdits[role.name])) {
         return pendingMatrixEdits[role.name][menuKey];
     }
     return !!(role.permissions && role.permissions[menuKey]);
 }
-// Kinakategorya ang bawat permission key para malinaw sa user kung "View Only",
-// "Editable", o "Password Override" lang ito — base sa naming convention na
-// ginagamit na mismo ng MENU_REGISTRY sa server.js (_view / _direct_apply / _own_password).
-// Ang mga walang suffix (hal. 'products', 'transactions', 'reports') ay itinuturing
-// na "Full Access" dahil sakop nito ang buong page/feature (view + kung anong action
-// talaga ang meron doon), hindi lang isang piraso ng capability.
+
 function getPermissionBadge(key) {
     if (key.endsWith('_own_password')) {
         return { text: 'Password Override', cls: 'auth-bypass' };
@@ -21281,10 +21231,7 @@ function getPermissionBadge(key) {
     }
     return { text: 'Full Access', cls: 'full-access' };
 }
-// --- Read more / See less para sa mahahabang permission label ---
-// Isa lang ang pwedeng naka-expand sa isang pagkakataon: kapag may binuksan
-// na ibang row, auto-close muna ang dating bukas bago mag-expand ng bago.
-// Auto-collapse din pagkalipas ng 5 segundo kung walang ibang ginawa.
+
 let matrixExpandedLabel = { textEl: null, btn: null, timer: null };
 function collapseMatrixLabel() {
     if (matrixExpandedLabel.timer) clearTimeout(matrixExpandedLabel.timer);
@@ -21295,8 +21242,8 @@ function collapseMatrixLabel() {
 function toggleMatrixLabel(btn) {
     const textEl = btn.parentElement.querySelector('.matrix-label-text');
     const wasThisOneExpanded = textEl.classList.contains('expanded');
-    collapseMatrixLabel(); // laging isara muna ang dating bukas (kahit ito rin mismo)
-    if (wasThisOneExpanded) return; // click ulit sa parehong "See less" = close lang
+    collapseMatrixLabel();
+    if (wasThisOneExpanded) return;
     textEl.classList.add('expanded');
     btn.textContent = 'See less';
     matrixExpandedLabel = {
@@ -21304,13 +21251,7 @@ function toggleMatrixLabel(btn) {
         timer: setTimeout(collapseMatrixLabel, 5000)
     };
 }
-// Toggle ng "Hide/Show Description" button (mobile-only — tingnan ang
-// .rbac-mobile-only-btn sa CSS): itinatago/binabalik yung helper paragraph
-// sa itaas ng Roles & Permissions matrix. Sa desktop/tablet laging bukas
-// ang paragraph anuman ang klase nito, dahil naka-scope lang ang pag-hide
-// sa loob ng mobile media query. Hindi na natin ginagalaw yung table's
-// scroll container (.permission-matrix-scroll) para hindi masira yung
-// position:sticky ng header row / first column nito.
+
 function toggleRbacHelperText() {
     const text = document.getElementById('rbac-helper-text');
     const btn = document.getElementById('toggle-rbac-helper-btn');
@@ -21508,11 +21449,7 @@ function populateRoleSelectOptions(roles) {
     if (roles.some(r => r.name === previousValue)) {
         select.value = previousValue;
     } else {
-        // SAFETY FIX: if no explicit role was requested (e.g. "Staff" was
-        // renamed/removed in this store's custom Roles setup), don't let the
-        // <select> silently fall back to whichever role happens to render
-        // first — default to the first non-Admin role instead, so a blank
-        // Add-User form never quietly defaults to Admin.
+
         const nonAdminRole = roles.find(r => (r.name || '').toLowerCase() !== 'admin');
         if (nonAdminRole) select.value = nonAdminRole.name;
     }
@@ -21905,9 +21842,7 @@ function renderSystemAuditLogsTable() {
 }
 let __saveCartDebounceId = null;
 const SAVE_CART_DEBOUNCE_MS = 600;
-// "Stale server cart" marker: set when a held sale is parked, cleared as soon as ANY cart save reaches the server.
-// While it is set, the cart stored on the server is the one that was just parked, so it must not be restored on
-// the next load (that would bring the held sale back as a second, live copy).
+
 function getStaleServerCartKey() {
     const uname = (currentUser && (currentUser.username || currentUser.name)) || 'default';
     return `omnipos_cart_server_stale_${String(uname).toLowerCase()}`;
@@ -21942,7 +21877,7 @@ function saveCartToDatabase() {
         }
     }, SAVE_CART_DEBOUNCE_MS);
 }
-// Immediate (non-debounced) save, used right after Hold / Resume so the server copy never lags behind.
+
 async function saveCartToDatabaseNow() {
     if (!currentUser || !currentUser.username) return false;
     if (__saveCartDebounceId) { clearTimeout(__saveCartDebounceId); __saveCartDebounceId = null; }
@@ -21962,7 +21897,7 @@ async function loadCartFromDatabase() {
             let staleMarked = false;
             try { staleMarked = !!localStorage.getItem(getStaleServerCartKey()); } catch (e) {  }
             if (staleMarked) {
-                // The last Hold never reached the server: this cart is the held sale, not a live one.
+
                 shoppingCart = [];
                 renderCartRows();
                 saveCartToDatabaseNow();
@@ -22823,13 +22758,24 @@ async function resetPasswordTrigger(targetUsername) {
 let html5QrcodeScanner = null;
 let lastScannedCode ="";
 let lastScannedTime = 0;
+
+let pendingLiveRetailScan = null;
+let pendingLiveRetailScanSeq = 0;
 let currentScanMode ='AUTO';
-let currentScanType ='QR';
+
+let currentScanType ='BARCODE';
 let isManualTriggered = false;
 let manualTimeoutId = null;
 let scanResultMode ='SEARCH';
 function openQRScanner() {
   scannerTarget ='PRODUCT';
+    // Manual scan is the default every time this modal (cart "Scan QR") is
+    // opened — even if a previous session left it on Auto — so the cashier
+    // always starts on the deliberate press-to-scan trigger instead of the
+    // camera auto-capturing the moment a code enters frame.
+    currentScanMode ='MANUAL';
+    isManualTriggered = false;
+    if (manualTimeoutId) clearTimeout(manualTimeoutId);
     document.getElementById('qr-scanner-modal').style.display ='flex';
     updateScannerUIControls();
     startLiveScanner();
@@ -23275,6 +23221,7 @@ function setScanResultMode(mode) {
 }
 function setScanMode(mode) {
     if (currentScanMode === mode) return;
+    cancelPendingLiveRetailScan();
     currentScanMode = mode;
     isManualTriggered = false;
     if (manualTimeoutId) clearTimeout(manualTimeoutId);
@@ -23288,14 +23235,31 @@ function setScanMode(mode) {
         feedback.style.color ='#eab308';
     }
 }
+// After a clean/corrected scan add, returns the feedback line to the same
+// "ready for next scan" message shown when the camera first comes online —
+// instead of a success message the cashier would otherwise need to read.
+function resetQrScannerFeedbackToReady() {
+    const feedback = document.getElementById('qr-scanner-feedback');
+    if (!feedback) return;
+    if (currentScanMode ==='AUTO') {
+        feedback.innerText ='Auto scan active. Align code inside frame.';
+        feedback.style.color ='#22c55e';
+    } else {
+        feedback.innerText ='Manual mode active. Select the control action button to initiate capture sequence.';
+        feedback.style.color ='#eab308';
+    }
+}
 function setScanType(type) {
     if (currentScanType === type) return;
+    cancelPendingLiveRetailScan();
     currentScanType = type;
     updateScannerUIControls();
     document.getElementById('qr-scanner-feedback').innerText ='Calibrating scanner framework scaling configurations proportions...';
     document.getElementById('qr-scanner-feedback').style.color ='#eab308';
     if (html5QrcodeScanner && html5QrcodeScanner.isScanning) {
         html5QrcodeScanner.stop().then(() => {
+
+            html5QrcodeScanner = null;
             startLiveScanner();
         }).catch(err => {
             console.error("Layout reset stop loop error fallback:", err);
@@ -23305,9 +23269,28 @@ function setScanType(type) {
         startLiveScanner();
     }
 }
+function getScannerSupportedFormats() {
+    if (typeof Html5QrcodeSupportedFormats === 'undefined') return null;
+    if (currentScanType === 'QR') return [Html5QrcodeSupportedFormats.QR_CODE];
+    return [
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.CODE_93,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.CODABAR
+    ].filter(format => format !== undefined);
+}
 function startLiveScanner() {
     if (!html5QrcodeScanner) {
-        html5QrcodeScanner = new Html5Qrcode("qr-reader");
+        const supportedFormats = getScannerSupportedFormats();
+        const decoderConfig = supportedFormats && supportedFormats.length
+            ? { formatsToSupport: supportedFormats }
+            : undefined;
+        html5QrcodeScanner = new Html5Qrcode("qr-reader", decoderConfig);
     }
     const qrCodeSuccessCallback = (decodedText, decodedResult) => {
         playScanBeep();
@@ -23386,7 +23369,16 @@ function triggerManualScan() {
     btnTrigger.style.background ='#eab308';
     btnTrigger.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> SCANNING... ALIGN BARCODE WITHIN FRAME`;
 }
-async function handleScannedBarcode(scannedCode) {
+
+function describeAddedCartLine(product) {
+    const line = shoppingCart.find(item => item.code === product.code);
+    if (!line) return `✔ Added: ${product.name}`;
+    const priceTxt = `₱${money2(line.price).toFixed(2)}`;
+    return line.priceLevel
+        ? `✔ Added: ${product.name} — ${priceTxt} (${line.priceLevel} price)`
+        : `✔ Added: ${product.name} — ${priceTxt} (Retail/base price)`;
+}
+async function handleScannedBarcode(scannedCode, skipRetailVerification = false) {
     const now = Date.now();
     if (scannedCode === lastScannedCode && (now - lastScannedTime < 1000)) {
         return;
@@ -23396,31 +23388,82 @@ async function handleScannedBarcode(scannedCode) {
     if (!globalProducts || globalProducts.length === 0) {
         globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
     }
-    authFetch(`${API_URL}/products`)
-        .then(res => res.json())
-        .then(async data => {
-            globalProducts = await applyPendingOfflineStockDeductions(data);
-            ovWriteJsonCache('cached_products', globalProducts);
-        })
-        .catch(e => console.warn("Failed to background-refresh products:", e));
-    const product = globalProducts.find(p => p.code === scannedCode.trim());
+
+    try {
+        const res = await authFetch(`${API_URL}/products`);
+        const data = await res.json();
+        globalProducts = await applyPendingOfflineStockDeductions(data);
+        ovWriteJsonCache('cached_products', globalProducts);
+    } catch (e) {
+        console.warn("Failed to refresh products before resolving scan (using cached data):", e);
+    }
+    const scanMatch = resolveScannedProductCode(scannedCode);
+    const product = scanMatch && scanMatch.product;
     if (product) {
-        const cartItem = shoppingCart.find(item => item.code === product.code);
-        const qtyInBasket = cartItem ? getCartBaseQty(cartItem) : 0;
-        if (product.stock <= 0 || qtyInBasket >= product.stock) {
-            document.getElementById('qr-scanner-feedback').innerText = `❌ Out of stock or insufficient stock for ${product.name}`;
+
+        if (scanMatch.priceLevel) cancelPendingLiveRetailScan();
+
+        if (!checkPlainRescanAgainstLeveledCart(product, scanMatch.priceLevel).ok) {
+            const existingLevelLabel = (shoppingCart.find(i => i.code === product.code) || {}).priceLevel || 'Retail';
+            document.getElementById('qr-scanner-feedback').innerText = `❌ Blocked: ${product.name} is already in the cart at ${existingLevelLabel} price. Scan its ${existingLevelLabel} barcode to add another unit — the plain/Retail code cannot add more while this item has a price level active.`;
             document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
             return;
         }
-        addItemToCart(product);
-        document.getElementById('qr-scanner-feedback').innerText = `✔ Naidagdag: ${product.name}`;
-        document.getElementById('qr-scanner-feedback').style.color ='#22c55e';
+        // Guard is scoped to THIS product only — it never blocks a different item.
+        const guard = checkCartPriceLevelGuard(product.code, scanMatch.priceLevel);
+        let autoCorrectedLevel = false;
+        if (!guard.ok) {
+            const lockedLabel = guard.locked || 'Retail';
+            const wantedLabel = guard.wanted || 'Retail';
+            const confirmResult = await Swal.fire({
+                title: 'Switch Price Level?',
+                html: `Detected <b>${wantedLabel}</b> price for <b>${escapeHtml(product.name)}</b>, but it's already in the cart at <b>${lockedLabel}</b> price (the earlier scan was probably wrong). Switch this item to ${wantedLabel} price?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: `Yes, switch to ${wantedLabel}`,
+                cancelButtonText: 'No, keep ' + lockedLabel,
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#6b7280'
+            });
+            if (confirmResult.isConfirmed && applyScannedPriceLevelToItem(product, scanMatch.priceLevel)) {
+                autoCorrectedLevel = true;
+            } else {
+                document.getElementById('qr-scanner-feedback').innerText = `❌ Not added: ${product.name} stays at ${lockedLabel} price.`;
+                document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
+                return;
+            }
+        }
+        if (!autoCorrectedLevel && scanMatch.priceLevel && !applyScannedPriceLevelToItem(product, scanMatch.priceLevel)) {
+
+            document.getElementById('qr-scanner-feedback').innerText = `❌ Cannot apply "${scanMatch.priceLevel}" price for ${product.name} (no permission, or not configured in Store Settings). Item not added — do not sell it at the regular price.`;
+            document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
+            return;
+        }
+
+        if (autoCorrectedLevel) {
+            // No text here — a clean/corrected add is intentionally silent so the
+            // camera can keep reading the next item immediately, with no message
+            // to glance at or wait out. Every blocked/error/conflict case above
+            // still writes its own feedback message and returns early.
+            resetQrScannerFeedbackToReady();
+        } else {
+            const cartItem = shoppingCart.find(item => item.code === product.code);
+            const qtyInBasket = cartItem ? getCartBaseQty(cartItem) : 0;
+            if (product.stock <= 0 || qtyInBasket >= product.stock) {
+                document.getElementById('qr-scanner-feedback').innerText = `❌ Out of stock or insufficient stock for ${product.name}`;
+                document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
+                return;
+            }
+            addItemToCart(product, scanMatch.priceLevel || undefined);
+            resetQrScannerFeedbackToReady();
+        }
     } else {
         document.getElementById('qr-scanner-feedback').innerText = `❌ No product matches the scanned code [ ${scannedCode} ]`;
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     }
 }
 function closeQRScanner() {
+    cancelPendingLiveRetailScan();
     document.getElementById('qr-scanner-modal').style.display ='none';
     isManualTriggered = false;
     if (manualTimeoutId) clearTimeout(manualTimeoutId);
@@ -24121,16 +24164,7 @@ async function initializeSystem() {
         }
     } catch (err) {
         console.error("System Initialization Failed:", err);
-        // BUGFIX: a cold app launch (tab reopened / PWA relaunched / page refresh)
-        // while offline used to leave globalProducts as an empty array forever —
-        // unlike loadTerminalCatalog(), this catch had no cache fallback. Any UI
-        // that reads globalProducts before the cashier manually opens the Terminal
-        // view (dashboard widgets, idle showcase, category chips) would show an
-        // empty catalog even though a valid cached copy already exists on-device.
-        // cached_products here is the already-offline-adjusted snapshot (any
-        // queued-but-unsynced sale quantities are already subtracted when it was
-        // written), so it must NOT be passed through applyPendingOfflineStockDeductions
-        // again — that would double-subtract those quantities.
+
         try {
             globalProducts = JSON.parse(localStorage.getItem('cached_products') || '[]');
             updateDropdownCategoriesDynamic();
@@ -24372,7 +24406,7 @@ async function handleLogout(type ='manual') {
     try { stopReorderPolling(); } catch (e) {}
     try { stopCloudBackupCostShareAutoRefresh(); } catch (e) {}
     try { stopRemoteOperationsAutoRefresh(); } catch (e) {}
-    // Staff selfies are sensitive: drop cached photo blobs and the chosen report date when the session ends.
+
     try {
         attendancePhotoCache.forEach((url) => URL.revokeObjectURL(url));
         attendancePhotoCache.clear();
@@ -25063,36 +25097,95 @@ async function handleHardwareScanTerminal(scannedCode) {
     if (!globalProducts || globalProducts.length === 0) {
         globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
     }
-    authFetch(`${API_URL}/products`)
-        .then(res => res.json())
-        .then(async data => {
-            globalProducts = await applyPendingOfflineStockDeductions(data);
-            ovWriteJsonCache('cached_products', globalProducts);
-        })
-        .catch(e => console.warn("Failed to background-refresh products:", e));
-    const product = globalProducts.find(p => p.code === cleanCode);
+
+    try {
+        const res = await authFetch(`${API_URL}/products`);
+        const data = await res.json();
+        globalProducts = await applyPendingOfflineStockDeductions(data);
+        ovWriteJsonCache('cached_products', globalProducts);
+    } catch (e) {
+        console.warn("Failed to refresh products before resolving scan (using cached data):", e);
+    }
+    const scanMatch = resolveScannedProductCode(cleanCode);
+    const product = scanMatch && scanMatch.product;
     if (product) {
-        const cartItem = shoppingCart.find(item => item.code === product.code);
-        const qtyInBasket = cartItem ? getCartBaseQty(cartItem) : 0;
-        if (product.stock <= 0 || qtyInBasket >= product.stock) {
+
+        if (!checkPlainRescanAgainstLeveledCart(product, scanMatch.priceLevel).ok) {
+            const existingLevelLabel = (shoppingCart.find(i => i.code === product.code) || {}).priceLevel || 'Retail';
             Swal.fire({
                 toast: true, position:'top-end', icon:'error',
-                title: `Out of stock: ${product.name}`,
-                showConfirmButton: false, timer: 1200, timerProgressBar: true,
+                title: `Blocked: ${product.name} is already in the cart at ${existingLevelLabel} price`,
+                text: `Scan its ${existingLevelLabel} barcode to add another unit — the plain/Retail code cannot add more while this item has a price level active.`,
+                showConfirmButton: false, timer: 2600, timerProgressBar: true,
                 customClass: { popup:'scan-fast-toast' },
                 showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
             });
             return;
         }
-        addItemToCart(product);
+        // Guard is scoped to THIS product only — it never blocks a different item.
+        const guard = checkCartPriceLevelGuard(product.code, scanMatch.priceLevel);
+
+        let autoCorrectedLevel = false;
+        if (!guard.ok) {
+            const lockedLabel = guard.locked || 'Retail';
+            const wantedLabel = guard.wanted || 'Retail';
+            const confirmResult = await Swal.fire({
+                title: 'Switch Price Level?',
+                html: `Detected <b>${wantedLabel}</b> price for <b>${escapeHtml(product.name)}</b>, but it's already in the cart at <b>${lockedLabel}</b> price (the earlier scan was probably wrong). Switch this item to ${wantedLabel} price?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: `Yes, switch to ${wantedLabel}`,
+                cancelButtonText: 'No, keep ' + lockedLabel,
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#6b7280'
+            });
+            if (confirmResult.isConfirmed && applyScannedPriceLevelToItem(product, scanMatch.priceLevel)) {
+                autoCorrectedLevel = true;
+            } else {
+                Swal.fire({
+                    toast: true, position:'top-end', icon:'info',
+                    title: `Not added: ${product.name} stays at ${lockedLabel} price`,
+                    showConfirmButton: false, timer: 1800, timerProgressBar: true,
+                    customClass: { popup:'scan-fast-toast' },
+                    showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
+                });
+                return;
+            }
+        }
+        if (!autoCorrectedLevel && scanMatch.priceLevel && !applyScannedPriceLevelToItem(product, scanMatch.priceLevel)) {
+
+            Swal.fire({
+                toast: true, position:'top-end', icon:'error',
+                title: `Blocked: cannot apply "${scanMatch.priceLevel}" price for ${product.name}`,
+                text: 'No permission, or this price level is not configured in Store Settings. Item not added.',
+                showConfirmButton: false, timer: 2800, timerProgressBar: true,
+                customClass: { popup:'scan-fast-toast' },
+                showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
+            });
+            return;
+        }
+
+        if (!autoCorrectedLevel) {
+            const cartItem = shoppingCart.find(item => item.code === product.code);
+            const qtyInBasket = cartItem ? getCartBaseQty(cartItem) : 0;
+            if (product.stock <= 0 || qtyInBasket >= product.stock) {
+                Swal.fire({
+                    toast: true, position:'top-end', icon:'error',
+                    title: `Out of stock: ${product.name}`,
+                    showConfirmButton: false, timer: 1200, timerProgressBar: true,
+                    customClass: { popup:'scan-fast-toast' },
+                    showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
+                });
+                return;
+            }
+            addItemToCart(product, scanMatch.priceLevel || undefined);
+        }
+        // A clean, no-conflict add (or a level auto-correction the cashier already
+        // confirmed above) is intentionally silent — no success toast — so the
+        // next scan can be read immediately with zero on-screen delay. The beep
+        // is the only feedback; every failure/blocked/conflict case above still
+        // shows its own toast or confirmation prompt.
         if (typeof playScanBeep ==='function') playScanBeep();
-        Swal.fire({
-            toast: true, position:'top-end', icon:'success',
-            title: `Added to cart: ${product.name}`,
-            showConfirmButton: false, timer: 800, timerProgressBar: true,
-            customClass: { popup:'scan-fast-toast' },
-            showClass: { popup:'scan-fast-toast-in' }, hideClass: { popup:'scan-fast-toast-out' }
-        });
     } else {
         Swal.fire({
             toast: true, position:'top-end', icon:'warning',
@@ -25183,18 +25276,7 @@ document.addEventListener('DOMContentLoaded', function () {
         handleHardwareScanProductForm
     );
 });
-// ---------------------------------------------------------------------------
-// Shared "6-box verification code + new password" dialog.
-//
-// Used by BOTH password-recovery flows (Gmail "Forgot password?" and the
-// developer-assisted 7x logo tap). It reuses the .otp-verify-box styling of the
-// other OTP dialogs and supports:
-//   - pasting a code into ANY box  -> all 6 boxes fill automatically
-//   - one-tap "Paste code from clipboard" button (mobile friendly)
-//   - SMS / keyboard autofill that delivers several digits at once
-//   - server-side verification INSIDE the dialog, so a wrong code shows an
-//     inline error and lets the user retry without restarting the whole flow.
-// ---------------------------------------------------------------------------
+
 function extractOtpFromText(text) {
     const raw = String(text || '');
     const exact = raw.match(/(^|\D)(\d{6})(?!\d)/);
@@ -25203,8 +25285,7 @@ function extractOtpFromText(text) {
     if (spaced) return spaced[2] + spaced[3];
     return raw.replace(/\D/g, '').slice(0, 6);
 }
-// True only when the text really contains a standalone 6-digit code (or "123 456" / "123-456"),
-// as opposed to extractOtpFromText() falling back to "the first 6 digits of whatever is there".
+
 function otpTextHasCleanCode(text) {
     const raw = String(text || '');
     return /(^|\D)\d{6}(?!\d)/.test(raw) || /(^|\D)\d{3}[\s-]\d{3}(?!\d)/.test(raw);
@@ -25244,8 +25325,7 @@ function wireOtpBoxes(root) {
             const rawValue = box.value;
             const digits = rawValue.replace(/\D/g, '');
             if (digits.length >= 6) {
-                // A whole code landed in one box (paste / SMS autofill / keyboard suggestion).
-                // Read it BEFORE clearing, because clear() also empties this box.
+
                 const fullCode = extractOtpFromText(rawValue).slice(0, 6);
                 clear();
                 fillFrom(0, fullCode);
@@ -25301,8 +25381,7 @@ function wireOtpBoxes(root) {
         markError: () => { boxes.forEach(b => { b.value = ''; b.classList.add('is-error'); }); }
     };
 }
-// submit(otp, newPassword) must resolve to the server's JSON ({ success | pending, message }).
-// Resolves to that JSON (plus _otp/_newPassword) on success/pending, or null if cancelled.
+
 async function promptOtpBoxesAndNewPassword({ title, descriptionHtml, confirmButtonText, submit }) {
     let api = null;
     const boxesHtml = Array.from({ length: 6 }).map((_, i) =>
@@ -25355,9 +25434,6 @@ async function promptOtpBoxesAndNewPassword({ title, descriptionHtml, confirmBut
     return result.isConfirmed ? result.value : null;
 }
 
-// "6-box verification code" dialog WITHOUT a password field (used by the Admin Login OTP).
-// Same advanced pasting as promptOtpBoxesAndNewPassword (wireOtpBoxes). Resolves to the
-// 6-digit code string, or null when the user cancels / dismisses the dialog.
 async function promptOtpBoxesOnly({ title, descriptionHtml, confirmButtonText }) {
     let api = null;
     const boxesHtml = Array.from({ length: 6 }).map((_, i) =>
@@ -25464,17 +25540,6 @@ async function promptOtpBoxesOnly({ title, descriptionHtml, confirmButtonText })
     }
 })();
 
-// ---------------------------------------------------------------------------
-// "Forgot password?" — Gmail App Password self-service recovery flow.
-//
-// Clicking the link first asks the server whether a Sender Gmail + App
-// Password AND a recovery recipient email are already configured on this
-// installation (see /api/admin/forgot-password/status). When available, a
-// verification code is emailed straight to the configured recovery address
-// and the Admin can set a new password immediately, without developer
-// involvement. When unavailable, the user is redirected to the existing
-// developer-assisted pathway (tap the logo seven times).
-// ---------------------------------------------------------------------------
 async function openForgotPasswordFlow() {
     Swal.fire({ title: 'Checking recovery options…', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     let status;
@@ -25557,9 +25622,9 @@ function initQuickAccessFishEye() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
     const fishEyeActive = window.matchMedia('(min-width: 1025px) and (hover: hover) and (pointer: fine)');
-    const MAX_SCALE = 1.5;   
-    const LIFT_PX = 16;      
-    const INFLUENCE_PX = 95; 
+    const MAX_SCALE = 1.5;
+    const LIFT_PX = 16;
+    const INFLUENCE_PX = 95;
     let rafId = null;
     function resetCards() {
         dock.querySelectorAll('.qa-card').forEach((card) => {
@@ -25578,7 +25643,7 @@ function initQuickAccessFishEye() {
                 card.style.zIndex = '';
                 return;
             }
-            const proximity = 1 - (distance / INFLUENCE_PX); 
+            const proximity = 1 - (distance / INFLUENCE_PX);
             const scale = 1 + (MAX_SCALE - 1) * proximity;
             const lift = LIFT_PX * proximity;
             card.style.transform = `translateY(-${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`;
@@ -25609,8 +25674,6 @@ function initQuickAccessFishEye() {
         fishEyeActive.addListener(handleMediaChange);
     }
 
-    // Touch screens: drive the same fisheye magnification from the
-    // finger's position instead of the mouse.
     function onTouchMove(e) {
         if (dock.classList.contains('qa-dock-collapsed')) return;
         if (!e.touches || !e.touches.length) return;
@@ -25635,40 +25698,10 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
     const desktopQuery = window.matchMedia('(min-width: 1025px)');
-    // Recalculate on every viewport resize. Locking the first measured width
-    // caused the dock to become wider than a resized desktop viewport, which
-    // clipped the first and last cards until another mode change occurred.
-    //
-    // AYOS/BAGO: dating sinusukat ito gamit ang isang chart card na NASA
-    // Overview page lang (#ov-adv-chart-card) — kaya gumana lang ito nang
-    // tama habang nasa Overview, at nabigo (silently) sa ibang page dahil
-    // walang mahanap na reference element doon, na nagre-resulta sa
-    // masyadong makitid na default max-width (680px) at pagka-cut ng mga
-    // icon doon.
-    //
-    // Ang Overview reference card ay talagang MAS MALAPAD kaysa sa
-    // eksaktong kailangan ng dock (may extra room), kaya doon lang laging
-    // maluwag at hindi nacucut ang view. Kaya PANATILIHIN ang Overview
-    // card bilang UNANG pagpipilian (walang binago ang gawi nito) kapag
-    // ito'y available/visible (ibig sabihin, habang nasa Overview page).
-    // Kapag wala/hidden ito (lahat ng IBANG page), saka lang gagamitin
-    // bilang fallback ang natural na scrollWidth ng dock mismo (may
-    // konting extra buffer para maiwasan ang pag-cut dahil sa
-    // sub-pixel/rounding sa sukat) — kaya hindi na ito basta nabibigo
-    // (silent no-op) tulad ng dati.
+
     let dockSyncRaf = null;
     function measureDockWidth() {
-        // Measure the dock's own NATURAL (unconstrained) content width
-        // directly, instead of borrowing a reference element from the
-        // Overview page. That old approach only worked while on Overview,
-        // and even there wasn't guaranteed to be wide enough for the dock's
-        // own content — on some viewport sizes it was narrower, which
-        // silently clipped the first/last quick-access buttons.
-        //
-        // Fix: temporarily drop whatever width constraint is currently
-        // applied (the qa-dock-synced class sets an explicit width via
-        // --qa-dock-width) so scrollWidth reflects the true width needed to
-        // fit every card with nothing cut off, then restore it.
+
         const hadSynced = dock.classList.contains('qa-dock-synced');
         const prevWidth = dock.style.width;
         const prevMaxWidth = dock.style.maxWidth;
@@ -25694,9 +25727,7 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
         dock.classList.add('qa-dock-synced');
     }
     function requestSync() {
-        // Apply the current size immediately so a resize never leaves the
-        // dock visibly clipped for a frame. A follow-up frame catches layout
-        // changes caused by a view switch or a just-finished CSS reflow.
+
         syncDockWidth();
         if (dockSyncRaf !== null) {
             window.cancelAnimationFrame(dockSyncRaf);
@@ -25717,7 +25748,7 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
     if (typeof desktopQuery.addEventListener === 'function') {
         desktopQuery.addEventListener('change', requestSync);
     } else if (typeof desktopQuery.addListener === 'function') {
-        desktopQuery.addListener(requestSync); 
+        desktopQuery.addListener(requestSync);
     }
     if (typeof window.switchView === 'function') {
         const originalSwitchView = window.switchView;
@@ -25727,18 +25758,11 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
             return result;
         };
     }
-    // Exposed so the dock can force a fresh, current-screen-width
-    // computation the moment it's actually opened (hover on desktop, tap on
-    // touch) — see initQuickAccessAutoHide()'s openDock() below. That's the
-    // measurement that matters most, since it's taken right when the dock
-    // is about to visibly expand.
+
     window.__omniposSyncQuickAccessDockWidth = syncDockWidth;
     requestSync();
 })();
-// Quick Access dock auto-hide: the dock starts shrunk down to a thin strip
-// on every page, and hovering over it (desktop) or tapping it (touch)
-// reveals the cards again. It auto-closes (shrinks back) after being idle
-// for a while, so it never sits open and in the way.
+
 (function initQuickAccessAutoHide() {
     const dock = document.getElementById('quick-access-dock');
     if (!dock) return;
@@ -25759,10 +25783,7 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
         }, AUTO_CLOSE_MS);
     }
     function openDock() {
-        // Recompute the dock's width right now, against the current screen
-        // size, before it visibly expands — this is what guarantees every
-        // button fits and none get cut off, instead of relying on a value
-        // computed earlier (on load/resize) that may be stale.
+
         if (typeof window.__omniposSyncQuickAccessDockWidth === 'function') {
             window.__omniposSyncQuickAccessDockWidth();
         }
@@ -25770,20 +25791,13 @@ document.addEventListener('DOMContentLoaded', initQuickAccessFishEye);
         scheduleAutoClose();
     }
 
-    // Shrunk by default.
     dock.classList.add('qa-dock-collapsed');
 
-    // Desktop: hovering over the (collapsed) strip or the open dock reveals
-    // it, and keeps resetting the auto-close countdown while the pointer
-    // stays over it.
     dock.addEventListener('mouseenter', openDock);
     dock.addEventListener('mousemove', () => {
         if (!dock.classList.contains('qa-dock-collapsed')) scheduleAutoClose();
     });
 
-    // Touch/tap: while collapsed the cards have pointer-events disabled (see
-    // CSS), so a tap can only land on the strip itself — treat it as "open"
-    // rather than letting it fall through to whatever is behind the dock.
     dock.addEventListener('click', (e) => {
         if (dock.classList.contains('qa-dock-collapsed')) {
             e.preventDefault();
@@ -25814,10 +25828,6 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// =====================================================================================================
-// BIR Compliance page: AGT, BIR Z-Reading, exports, void log, AGT reset.
-// Talks to /api/bir/* (see server.js + bir-compliance.js). The permission is `bir_compliance`.
-// =====================================================================================================
 let birLastState = null;
 let birZHistoryCache = [];
 function birPeso(v) { return '₱' + (parseFloat(v) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -25833,7 +25843,7 @@ function birInvNo(n) { return `INV-${String(Math.max(0, parseInt(n, 10) || 0)).p
 async function birGetJson(path) {
     const res = await authFetch(`${API_URL}${path}`);
     let data = null;
-    try { data = await res.json(); } catch (e) { /* non-JSON error page */ }
+    try { data = await res.json(); } catch (e) {  }
     if (!res.ok) throw new Error((data && data.message) || `HTTP ${res.status}`);
     return data;
 }
@@ -25993,7 +26003,7 @@ function printBirZReading(r) {
         </body></html>`);
     win.document.close();
     win.focus();
-    setTimeout(() => { try { win.print(); } catch (e) { /* user can print manually */ } }, 300);
+    setTimeout(() => { try { win.print(); } catch (e) {  } }, 300);
 }
 async function downloadBirExport(kind) {
     const from = (document.getElementById('bir-export-from') || {}).value;

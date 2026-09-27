@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inventory Tools — OmniPOS</title>
+<meta name="theme-color" id="meta-theme-color" content="#2563eb">
+<script>
+// ---- Follow the OmniPOS theme the user already picked in the main app ----
+// This is a standalone page (opens in its own tab), so it can't inherit the
+// main app's CSS directly. Instead we read the same localStorage keys the
+// main app writes (omnipos_theme, omnipos_custom_theme) and apply the same
+// color tokens here, as early as possible to avoid a flash of the wrong
+// theme. This mirrors applyTheme()/the preload script in index.html.
+(function () {
+  try {
+    var THEME_TOKENS = {
+      day:           { bg:'#f1f5f9', panel:'#ffffff', panel2:'#f8fafc', border:'#e2e8f0', text:'#1e293b', muted:'#64748b', muted2:'#94a3b8', accent:'#2563eb', accentHover:'#1d4ed8', accentSoft:'rgba(37,99,235,.10)', scheme:'light' },
+      dark:          { bg:'#121218', panel:'#1c1c24', panel2:'#22232d', border:'#262733', text:'#f5f5f7', muted:'#9a9ba8', muted2:'#6f7080', accent:'#7c5cff', accentHover:'#6a48ff', accentSoft:'rgba(124,92,255,.16)', scheme:'dark' },
+      ocean:         { bg:'#05141c', panel:'#0b232f', panel2:'#0f2c3a', border:'#1c3d4c', text:'#eafcff', muted:'#8fb8c4', muted2:'#5f818c', accent:'#22d3ee', accentHover:'#06b6d4', accentSoft:'rgba(34,211,238,.16)', scheme:'dark' },
+      emerald:       { bg:'#071510', panel:'#0d2119', panel2:'#122a20', border:'#1e3d2f', text:'#eafff4', muted:'#8fc4a8', muted2:'#5f8c73', accent:'#22c55e', accentHover:'#16a34a', accentSoft:'rgba(34,197,94,.16)', scheme:'dark' },
+      sunset:        { bg:'#180d05', panel:'#241407', panel2:'#2c1a0b', border:'#40260f', text:'#fff6ea', muted:'#c9a279', muted2:'#8c6f52', accent:'#f59e0b', accentHover:'#d97706', accentSoft:'rgba(245,158,11,.16)', scheme:'dark' },
+      rosegold:      { bg:'#170a12', panel:'#24101c', panel2:'#2c1422', border:'#402038', text:'#fff0f6', muted:'#d192b0', muted2:'#916078', accent:'#ec4899', accentHover:'#db2777', accentSoft:'rgba(236,72,153,.16)', scheme:'dark' },
+      cyber:         { bg:'#05070d', panel:'#0b0f1a', panel2:'#101625', border:'#1f2a44', text:'#eafcff', muted:'#8ea3c9', muted2:'#5a6a8c', accent:'#22e5ff', accentHover:'#ff2ee6', accentSoft:'rgba(34,229,255,.16)', radius:'4px', radiusSm:'3px', fontHeading:"'Orbitron','Space Grotesk',sans-serif", fontBody:"'Rajdhani','Inter','Segoe UI',sans-serif", googleFont:'Orbitron:wght@700;800&family=Rajdhani:wght@400;500;600;700', scheme:'dark' },
+      noir:          { bg:'#120d09', panel:'#1c140d', panel2:'#241a11', border:'#3a2a1a', text:'#f7ecdc', muted:'#c7a985', muted2:'#8a725a', accent:'#d4a256', accentHover:'#c08c3e', accentSoft:'rgba(212,162,86,.16)', radius:'16px', radiusSm:'10px', fontHeading:"'Playfair Display','Space Grotesk',serif", fontBody:"'Inter','Segoe UI',Tahoma,Geneva,Verdana,sans-serif", googleFont:'Playfair+Display:wght@700;800', scheme:'dark' },
+      mintfrost:     { bg:'#071815', panel:'#0d211d', panel2:'#122a24', border:'#1e3a33', text:'#eafff8', muted:'#8fc9b8', muted2:'#5f8c7c', accent:'#2dd4bf', accentHover:'#14b8a6', accentSoft:'rgba(45,212,191,.16)', radius:'18px', radiusSm:'12px', fontHeading:"'Poppins','Space Grotesk',sans-serif", fontBody:"'Inter','Segoe UI',Tahoma,Geneva,Verdana,sans-serif", googleFont:'Poppins:wght@600;700;800', scheme:'dark' },
+      liquidglass:   { bg:'#0b0f1a', panel:'rgba(30,38,58,.72)', panel2:'rgba(42,52,78,.78)', border:'rgba(255,255,255,.14)', text:'#f3f6ff', muted:'#b7c2e0', muted2:'#7d89ac', accent:'#0a84ff', accentHover:'#409cff', accentSoft:'rgba(10,132,255,.18)', radius:'20px', radiusSm:'14px', fontHeading:"-apple-system,'SF Pro Display','Space Grotesk','Poppins',sans-serif", fontBody:"-apple-system,'SF Pro Text','Inter','Segoe UI',Tahoma,Geneva,Verdana,sans-serif", scheme:'dark' },
+      galaxyambient: { bg:'#0a0a0c', panel:'rgba(24,24,28,.92)', panel2:'rgba(34,34,40,.95)', border:'rgba(255,255,255,.08)', text:'#f3f3f5', muted:'#adadb8', muted2:'#75757f', accent:'#1a73e8', accentHover:'#4c93f0', accentSoft:'rgba(26,115,232,.18)', radius:'28px', radiusSm:'18px', fontHeading:"-apple-system,'SamsungOne','Roboto','Segoe UI',sans-serif", fontBody:"-apple-system,'SamsungOne','Roboto','Segoe UI',sans-serif", scheme:'dark' }
+    };
+    var t = localStorage.getItem('omnipos_theme');
+    if (!t) t = localStorage.getItem('omnipos_darkmode') === 'true' ? 'dark' : 'day';
+    var tok = THEME_TOKENS[t] || THEME_TOKENS.dark;
+    var root = document.documentElement;
+    root.style.setProperty('--bg', tok.bg);
+    root.style.setProperty('--panel', tok.panel);
+    root.style.setProperty('--panel2', tok.panel2);
+    root.style.setProperty('--border', tok.border);
+    root.style.setProperty('--text', tok.text);
+    root.style.setProperty('--muted', tok.muted);
+    root.style.setProperty('--muted2', tok.muted2);
+    root.style.setProperty('--accent', tok.accent);
+    root.style.setProperty('--accent-hover', tok.accentHover);
+    root.style.setProperty('--accent2', tok.accentHover);
+    root.style.setProperty('--accent-soft', tok.accentSoft);
+    if (tok.radius) root.style.setProperty('--radius', tok.radius);
+    if (tok.radiusSm) root.style.setProperty('--radius-sm', tok.radiusSm);
+    if (tok.fontHeading) root.style.setProperty('--font-heading', tok.fontHeading);
+    if (tok.fontBody) root.style.setProperty('--font-body', tok.fontBody);
+    root.style.colorScheme = tok.scheme;
+    try {
+      var metaC = document.getElementById('meta-theme-color');
+      if (metaC) metaC.setAttribute('content', tok.panel.indexOf('rgba') === 0 ? tok.bg : tok.panel);
+    } catch (e2) {}
+    // Custom accent override (same key the main app's Theme Customizer writes).
+    try {
+      var raw = localStorage.getItem('omnipos_custom_theme');
+      if (raw) {
+        var s = JSON.parse(raw);
+        if (s.accent) root.style.setProperty('--accent', s.accent);
+        if (s.accentHover) { root.style.setProperty('--accent-hover', s.accentHover); root.style.setProperty('--accent2', s.accentHover); }
+        if (s.accentSoft) root.style.setProperty('--accent-soft', s.accentSoft);
+      }
+    } catch (e3) {}
+    // Only cyber/noir/mintfrost need an extra Google Font family loaded.
+    if (tok.googleFont) {
+      var fl = document.createElement('link');
+      fl.rel = 'stylesheet';
+      fl.href = 'https://fonts.googleapis.com/css2?family=' + tok.googleFont + '&display=swap';
+      document.head.appendChild(fl);
+    }
+    // If the theme gets changed in another OmniPOS tab while this one stays
+    // open, pick it up live instead of staying stuck on the old theme.
+    window.addEventListener('storage', function (ev) {
+      if (ev.key === 'omnipos_theme' || ev.key === 'omnipos_darkmode' || ev.key === 'omnipos_custom_theme') {
+        location.reload();
+      }
+    });
+  } catch (e) { /* theming is cosmetic — never block the page on it */ }
+})();
+</script>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/all.min.css">
+<style>
+  :root{
+    --bg:#121218; --bg-grad:
+      radial-gradient(circle at 12% 18%, rgba(124,92,255,.10), transparent 42%),
+      radial-gradient(circle at 88% 82%, rgba(56,189,248,.08), transparent 45%),
+      var(--bg);
+    --panel:#1c1c24; --panel2:#22232d; --border:#2b2c38;
+    --text:#f5f5f7; --muted:#9a9ba8; --muted2:#6f7080;
+    --accent:#7c5cff; --accent-hover:#6a48ff; --accent-soft:rgba(124,92,255,.16);
+    --accent2:#22d3ee;
+    --good:#22c55e; --good-soft:rgba(34,197,94,.14);
+    --warn:#eab308; --warn-soft:rgba(234,179,8,.14);
+    --bad:#ef4444; --bad-soft:rgba(239,68,68,.14);
+    --radius:14px; --radius-sm:9px;
+    --shadow:0 10px 30px -12px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;background:var(--bg-grad);background-attachment:fixed;color:var(--text);
+    font-family:var(--font-body,'Inter','Segoe UI',Tahoma,Geneva,Verdana,sans-serif);
+    -webkit-font-smoothing:antialiased;
+    padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  ::selection{background:var(--accent);color:#fff;}
+  scrollbar,*{scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+  ::-webkit-scrollbar{height:8px;width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px;}
+
+  header{
+    position:sticky;top:0;z-index:20;
+    padding:14px 22px;padding-top:calc(14px + env(safe-area-inset-top,0px));
+    background:rgba(28,28,36,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+  }
+  .brand{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .brand-text{display:flex;flex-direction:column;gap:2px;line-height:1;}
+  .brand-word{
+    font-family:var(--font-heading,'Sora','Inter',sans-serif);font-weight:800;letter-spacing:-.03em;
+    font-size:1.4rem;color:var(--text);display:flex;align-items:center;gap:9px;
+  }
+  .brand-sub{font-size:.76rem;color:var(--muted2);font-weight:500;}
+  header a.back{
+    display:flex;align-items:center;gap:7px;color:var(--muted);text-decoration:none;font-size:.82rem;
+    font-weight:600;padding:8px 13px;border-radius:999px;border:1px solid var(--border);background:var(--panel);
+    transition:.15s;
+  }
+  header a.back:hover{color:var(--text);border-color:var(--accent);background:var(--accent-soft);}
+
+  nav.tabs{
+    display:flex;gap:6px;padding:14px 22px 0;flex-wrap:wrap;max-width:1180px;margin:0 auto;
+  }
+  nav.tabs button{
+    display:flex;align-items:center;gap:8px;
+    background:var(--panel);border:1px solid var(--border);color:var(--muted);
+    padding:10px 16px;border-radius:10px 10px 0 0;cursor:pointer;font-size:.85rem;font-weight:600;
+    transition:.15s;border-bottom:none;position:relative;top:1px;
+  }
+  nav.tabs button i{font-size:.85rem;opacity:.85;}
+  nav.tabs button:hover{color:var(--text);}
+  nav.tabs button.active{
+    background:var(--panel2);color:var(--text);
+    box-shadow:inset 0 2px 0 var(--accent);
+  }
+  main{padding:18px 22px 70px;max-width:1180px;margin:0 auto;}
+  .card{
+    background:var(--panel2);border:1px solid var(--border);border-radius:var(--radius);
+    padding:18px 18px 20px;margin-bottom:18px;box-shadow:var(--shadow);
+    position:relative;overflow:hidden;
+  }
+  .card::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:2px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:.9;
+  }
+  .card h2{
+    margin:0 0 12px;font-size:1rem;font-family:var(--font-heading,'Sora',sans-serif);font-weight:700;letter-spacing:-.01em;
+    display:flex;align-items:center;gap:9px;
+  }
+  .card h2 i{color:var(--accent);font-size:.92rem;width:1.1em;text-align:center;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  label{font-size:.74rem;color:var(--muted);display:block;margin-bottom:5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  input,select,textarea{
+    background:var(--bg);border:1px solid var(--border);color:var(--text);
+    padding:9px 11px;border-radius:var(--radius-sm);font-size:.85rem;font-family:inherit;
+    transition:.15s;max-width:100%;
+  }
+  .row > div{max-width:100%;}
+  input::placeholder{color:var(--muted2);}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  button.btn{
+    display:inline-flex;align-items:center;gap:7px;justify-content:center;
+    background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:#fff;border:none;
+    padding:10px 18px;border-radius:var(--radius-sm);cursor:pointer;font-size:.85rem;font-weight:700;
+    box-shadow:0 6px 16px -8px rgba(124,92,255,.7);transition:.15s;font-family:inherit;
+  }
+  button.btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+  button.btn.secondary{background:transparent;border:1px solid var(--border);color:var(--text);box-shadow:none;}
+  button.btn.secondary:hover{border-color:var(--accent);color:var(--accent2);background:var(--accent-soft);}
+  button.btn.danger{background:linear-gradient(135deg,var(--bad),#c0392b);box-shadow:0 6px 16px -8px rgba(239,68,68,.6);}
+  button.btn.small{padding:6px 12px;font-size:.76rem;}
+  button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+  table{width:100%;border-collapse:collapse;font-size:.83rem;}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);}
+  th{
+    color:var(--muted);font-weight:700;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;
+    position:sticky;top:0;background:var(--panel2);
+  }
+  tbody tr{transition:.12s;}
+  tbody tr:hover{background:rgba(255,255,255,.03);}
+  .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm);}
+  .table-wrap table{font-size:.82rem;}
+  .pill{
+    display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;
+    font-size:.7rem;font-weight:700;letter-spacing:.02em;text-transform:capitalize;
+  }
+  .pill.open{background:var(--accent-soft);color:var(--accent);}
+  .pill.active{background:var(--accent-soft);color:var(--accent);}
+  .pill.finalized,.pill.closed{background:var(--good-soft);color:var(--good);}
+  .pill.cancelled{background:var(--border);color:var(--muted);}
+  .num-pos{color:var(--good);font-weight:700;}
+  .num-neg{color:var(--bad);font-weight:700;}
+  .muted{color:var(--muted);}
+  .empty{
+    color:var(--muted);font-style:normal;padding:26px 10px;text-align:center;
+    font-size:.85rem;
+  }
+  .empty i{margin-right:7px;color:var(--muted2);}
+  .msg{
+    display:flex;align-items:center;gap:9px;
+    padding:11px 14px;border-radius:var(--radius-sm);margin-bottom:14px;font-size:.85rem;font-weight:600;
+    border:1px solid transparent;
+  }
+  .msg.ok{background:var(--good-soft);color:var(--good);border-color:rgba(34,197,94,.3);}
+  .msg.err{background:var(--bad-soft);color:var(--bad);border-color:rgba(239,68,68,.3);}
+  .item-count-input{width:90px;}
+  .subtle-btn{
+    background:none;border:none;color:var(--bad);cursor:pointer;font-size:.78rem;padding:0;font-weight:600;
+    display:inline-flex;align-items:center;gap:5px;
+  }
+  .subtle-btn:hover{color:var(--bad);}
+  .flex-1{flex:1;min-width:160px;}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+  .section-note{color:var(--muted);font-size:.8rem;margin:-4px 0 12px;line-height:1.5;}
+  .section-note i{color:var(--accent2);margin-right:5px;}
+  @media (max-width:640px){
+    header{padding:12px 14px;}
+    nav.tabs{padding:12px 14px 0;}
+    nav.tabs button span{display:none;}
+    nav.tabs button i{font-size:1rem;}
+    nav.tabs button{padding:10px 12px;}
+    main{padding:14px 14px 60px;}
+  }
+  .scan-hit{animation:flashHighlight 1000ms ease-out;}
+  @keyframes flashHighlight{
+    0%{background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent);}
+    100%{background:transparent;box-shadow:none;}
+  }
+  .scan-modal-backdrop{
+    position:fixed;inset:0;background:rgba(0,0,0,.68);z-index:100;
+    display:flex;align-items:center;justify-content:center;padding:16px;
+  }
+  .scan-modal{
+    background:var(--panel2);border:1px solid var(--border);border-radius:var(--radius);
+    width:100%;max-width:420px;padding:16px;box-shadow:var(--shadow);
+  }
+  .scan-modal h3{margin:0 0 10px;font-size:.95rem;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  #scan-reader{width:100%;border-radius:var(--radius-sm);overflow:hidden;background:#000;min-height:220px;}
+  .scan-feedback{margin-top:10px;font-size:.85rem;font-weight:600;text-align:center;min-height:1.4em;}
+  #lockOverlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:200;
+    display:none;align-items:center;justify-content:center;padding:16px;
+  }
+  #lockOverlay .lock-card{
+    background:var(--panel2);border:1px solid var(--border);border-radius:var(--radius);
+    width:100%;max-width:420px;padding:26px 24px;box-shadow:var(--shadow);text-align:center;
+  }
+  #lockOverlay .lock-icon{
+    width:56px;height:56px;border-radius:50%;margin:0 auto 14px;
+    background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:1.4rem;
+  }
+  #lockOverlay h2{margin:0 0 8px;font-size:1.05rem;font-family:var(--font-heading,'Sora',sans-serif);font-weight:700;}
+  #lockOverlay p{margin:0 0 18px;font-size:.85rem;color:var(--muted);line-height:1.6;}
+</style>
+</head>
+<body>
+<div id="lockOverlay">
+  <div class="lock-card">
+    <div class="lock-icon"><i class="fa-solid fa-lock"></i></div>
+    <h2>Inventory Tools is a premium feature</h2>
+    <p>Physical count, consignment, damage/waste log, dead-stock report, and the supplier directory are part of the Inventory Tools module, which is currently locked. Unlock it from the main dashboard (Feature Store / Omni Tokens) to continue.</p>
+    <a class="btn" href="index.html"><i class="fa-solid fa-arrow-left"></i> Back to OmniPOS</a>
+  </div>
+</div>
+<header>
+  <div class="brand">
+    <div class="brand-text">
+      <div class="brand-word">OmniPOS</div>
+      <div class="brand-sub">Inventory Tools — extra module, not included in the original menu</div>
+    </div>
+  </div>
+  <a class="back" href="index.html"><i class="fa-solid fa-arrow-left"></i> Back to OmniPOS</a>
+</header>
+
+<nav class="tabs">
+  <button data-tab="count" class="active"><i class="fa-solid fa-clipboard-check"></i><span>Physical Count</span></button>
+  <button data-tab="consignment"><i class="fa-solid fa-truck-ramp-box"></i><span>Consignment</span></button>
+  <button data-tab="waste"><i class="fa-solid fa-dumpster"></i><span>Damage / Waste Log</span></button>
+  <button data-tab="deadstock"><i class="fa-solid fa-chart-line"></i><span>Dead Stock Report</span></button>
+  <button data-tab="suppliers"><i class="fa-solid fa-address-book"></i><span>Suppliers</span></button>
+</nav>
+
+<main>
+  <div id="globalMsg"></div>
+
+  <!-- ============ PHYSICAL COUNT ============ -->
+  <section id="tab-count" class="tab-panel">
+    <div class="card">
+      <h2><i class="fa-solid fa-clipboard-check"></i> Start a new count session</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>This will take the current "system stock" of the selected products as a baseline, to compare against the actual count on the shelf.</p>
+      <div class="row">
+        <div>
+          <label>Scope</label>
+          <select id="countScope">
+            <option value="all">All products</option>
+            <option value="category">By category</option>
+          </select>
+        </div>
+        <div id="countCategoryWrap" style="display:none;">
+          <label>Category</label>
+          <select id="countCategory" style="width:180px;">
+            <option value="">— Select category —</option>
+          </select>
+        </div>
+        <div class="flex-1">
+          <label>Notes (optional)</label>
+          <input id="countNotes" placeholder="e.g. Monthly stock take — Sept">
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnStartCount"><i class="fa-solid fa-play"></i> Start Count</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;"><i class="fa-solid fa-layer-group"></i> Count sessions</h2>
+        <div>
+          <button class="btn secondary small" id="btnToggleCancelledCounts" onclick="toggleCancelledCounts()"><i class="fa-solid fa-eye"></i> <span id="btnToggleCancelledCountsLabel">Show cancelled</span></button>
+          <button class="btn secondary small" onclick="exportCountsCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+          <button class="btn secondary small" onclick="loadCounts()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+      </div>
+      <div id="countSessionsList"></div>
+    </div>
+  </section>
+
+  <!-- ============ CONSIGNMENT ============ -->
+  <section id="tab-consignment" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-truck-ramp-box"></i> Receive goods on consignment</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>This will be added to stock right away (so it can be sold) — the supplier is only paid for the quantity that sells (settle), not the whole amount delivered.</p>
+      <div class="row">
+        <div class="flex-1">
+          <label>Supplier name</label>
+          <input id="cnsSupplier" list="supplierNamesDatalist" placeholder="e.g. Aling Nena's Bagsakan" autocomplete="off">
+          <datalist id="supplierNamesDatalist"></datalist>
+          <div class="section-note" style="margin:4px 0 0;"><i class="fa-solid fa-circle-info"></i>Start typing to pick a saved supplier, or type a new name. <a href="#" onclick="document.querySelector('nav.tabs button[data-tab=suppliers]').click();return false;" style="color:var(--accent2);">Manage suppliers</a></div>
+        </div>
+        <div class="flex-1">
+          <label>Notes (optional)</label>
+          <input id="cnsNotes" placeholder="e.g. Weekly delivery">
+        </div>
+      </div>
+      <div id="cnsItemsRows"></div>
+      <div class="row">
+        <button class="btn secondary small" id="btnAddCnsRow"><i class="fa-solid fa-plus"></i> Add item</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnCreateConsignment"><i class="fa-solid fa-floppy-disk"></i> Save Consignment</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;"><i class="fa-solid fa-handshake"></i> Consignment records</h2>
+        <div>
+          <button class="btn secondary small" onclick="exportConsignmentsCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+          <button class="btn secondary small" onclick="loadConsignments()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+      </div>
+      <div id="consignmentList"></div>
+    </div>
+  </section>
+
+  <!-- ============ WASTE LOG ============ -->
+  <section id="tab-waste" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-dumpster"></i> Record damage / spoilage / waste</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>Anything logged here will be automatically deducted from stock.</p>
+      <div class="row">
+        <div>
+          <label>Product code</label>
+          <input id="wasteCode" placeholder="scan or type code">
+        </div>
+        <div>
+          <label>Quantity</label>
+          <input id="wasteQty" type="number" step="0.001" min="0" style="width:110px;">
+        </div>
+        <div>
+          <label>Category</label>
+          <select id="wasteCategory">
+            <option value="damage">Damage</option>
+            <option value="spoilage">Spoilage</option>
+            <option value="expired">Expired</option>
+            <option value="breakage">Breakage</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="flex-1">
+          <label>Reason</label>
+          <input id="wasteReason" placeholder="e.g. broken during delivery">
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn danger" id="btnAddWaste"><i class="fa-solid fa-minus-circle"></i> Log & Deduct Stock</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;"><i class="fa-solid fa-list-check"></i> Waste log <span id="wasteTotalImpact" class="muted" style="font-size:.8rem;font-weight:500;"></span></h2>
+        <div>
+          <button class="btn secondary small" onclick="exportWasteLogCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+          <button class="btn secondary small" onclick="loadWasteLog()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+      </div>
+      <div id="wasteLogList"></div>
+    </div>
+  </section>
+
+  <!-- ============ DEAD STOCK ============ -->
+  <section id="tab-deadstock" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-chart-line"></i> Dead stock / slow-moving report</h2>
+      <div class="row">
+        <div>
+          <label>No sale in the last (days)</label>
+          <input id="deadStockDays" type="number" min="1" value="60" style="width:100px;">
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnRunDeadStock"><i class="fa-solid fa-magnifying-glass-chart"></i> Run Report</button>
+          <button class="btn secondary" id="btnExportDeadStock" onclick="exportDeadStockCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+        </div>
+      </div>
+      <div id="deadStockSummary" class="section-note"></div>
+      <div id="deadStockList"></div>
+    </div>
+  </section>
+
+  <!-- ============ SUPPLIERS ============ -->
+  <section id="tab-suppliers" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2 id="supplierFormTitle"><i class="fa-solid fa-address-book"></i> Add a supplier</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>This saved list can be picked from the Supplier field in Consignment and in Purchase Orders, instead of typing the name every time.</p>
+      <input type="hidden" id="supplierEditId" value="">
+      <div class="row">
+        <div class="flex-1">
+          <label>Supplier name</label>
+          <input id="supName" placeholder="e.g. Aling Nena's Bagsakan">
+        </div>
+        <div class="flex-1">
+          <label>Contact person</label>
+          <input id="supContact" placeholder="e.g. Nena Reyes">
+        </div>
+      </div>
+      <div class="row">
+        <div class="flex-1">
+          <label>Phone</label>
+          <input id="supPhone" placeholder="e.g. 0917 123 4567">
+        </div>
+        <div class="flex-1">
+          <label>Email</label>
+          <input id="supEmail" type="email" placeholder="e.g. nena@bagsakan.com">
+        </div>
+      </div>
+      <div class="row">
+        <div class="flex-1">
+          <label>Address</label>
+          <input id="supAddress" placeholder="e.g. Divisoria, Manila">
+        </div>
+      </div>
+      <div class="row">
+        <div class="flex-1">
+          <label>Notes (optional)</label>
+          <input id="supNotes" placeholder="e.g. delivers every Monday and Thursday">
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnSaveSupplier"><i class="fa-solid fa-floppy-disk"></i> Save Supplier</button>
+        <button class="btn secondary" id="btnCancelSupplierEdit" style="display:none;" onclick="cancelSupplierEdit()"><i class="fa-solid fa-xmark"></i> Cancel Edit</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;"><i class="fa-solid fa-list"></i> Supplier list</h2>
+        <div>
+          <input id="supplierSearch" placeholder="Search suppliers..." oninput="renderSuppliersTable()" style="width:180px;">
+          <button class="btn secondary small" onclick="exportSuppliersCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+          <button class="btn secondary small" onclick="loadSuppliers()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+      </div>
+      <div id="suppliersList"></div>
+    </div>
+  </section>
+</main>
+
+<div id="scanModalBackdrop" class="scan-modal-backdrop" style="display:none;">
+  <div class="scan-modal">
+    <h3><span><i class="fa-solid fa-barcode"></i> Scan Mode</span> <button class="subtle-btn" onclick="closeScanModal()" style="color:var(--muted);"><i class="fa-solid fa-xmark"></i> close</button></h3>
+    <p class="section-note" style="margin-top:0;"><i class="fa-solid fa-circle-info"></i>Point the camera at the item's barcode. It'll jump to the matching row so you can type the counted quantity — no typing the code.</p>
+    <div id="scan-reader"></div>
+    <div id="scanFeedback" class="scan-feedback"></div>
+  </div>
+</div>
+
+<script src="html5-qrcode.min.js"></script>
+<script>
+const TOKEN_KEY = 'omnipos_token';
+function authHeaders(){
+  const t = localStorage.getItem(TOKEN_KEY);
+  return t ? { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+async function api(method, url, body){
+  const res = await fetch(url, { method, headers: authHeaders(), body: body ? JSON.stringify(body) : undefined });
+  let data = null;
+  try { data = await res.json(); } catch(e) {}
+  if (!res.ok || !data || data.success === false) {
+    const msg = (data && data.message) || ('Request failed (' + res.status + ')');
+    throw new Error(msg);
+  }
+  return data;
+}
+function showMsg(text, isError){
+  const el = document.getElementById('globalMsg');
+  const icon = isError ? 'fa-circle-exclamation' : 'fa-circle-check';
+  el.innerHTML = '<div class="msg ' + (isError ? 'err' : 'ok') + '"><i class="fa-solid ' + icon + '"></i>' + text + '</div>';
+  setTimeout(() => { el.innerHTML = ''; }, 6000);
+}
+function statusIcon(status){
+  const map = { open:'fa-clock', active:'fa-clock', finalized:'fa-circle-check', closed:'fa-circle-check', cancelled:'fa-ban' };
+  return '<i class="fa-solid ' + (map[status] || 'fa-circle') + '"></i>';
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtQty(n){ return (Math.round((parseFloat(n)||0) * 1000) / 1000).toString(); }
+function fmtMoney(n){ return '₱' + (parseFloat(n)||0).toFixed(2); }
+function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+
+// ---- Generic CSV export (same approach as the Batch/Lot Tracking page's exportBatchLotsCsv()) ----
+function csvCell(v){ return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; }
+function downloadCsv(filename, headers, rows){
+  if (!rows.length) { showMsg('Nothing to export yet.', true); return; }
+  const lines = [headers.map(csvCell).join(',')];
+  rows.forEach(r => lines.push(r.map(csvCell).join(',')));
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showMsg('Downloaded ' + filename);
+}
+
+// ---- Tabs ----
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).style.display = 'block';
+  });
+});
+
+// ================= PHYSICAL COUNT =================
+document.getElementById('countScope').addEventListener('change', (e) => {
+  const isCategory = e.target.value === 'category';
+  document.getElementById('countCategoryWrap').style.display = isCategory ? 'block' : 'none';
+  if (isCategory) loadCategories();
+});
+document.getElementById('btnStartCount').addEventListener('click', async () => {
+  try {
+    const scope = document.getElementById('countScope').value;
+    const category = document.getElementById('countCategory').value.trim();
+    const notes = document.getElementById('countNotes').value.trim();
+    await api('POST', '/api/inventory-counts', { scope, category, notes });
+    showMsg('New count session started.');
+    document.getElementById('countNotes').value = '';
+    loadCounts();
+  } catch (e) { showMsg(e.message, true); }
+});
+let allCountSessions = [];
+let showCancelledCounts = false;
+async function loadCounts(){
+  const wrap = document.getElementById('countSessionsList');
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading...</p>';
+  try {
+    const data = await api('GET', '/api/inventory-counts');
+    allCountSessions = data.sessions || [];
+    renderCountSessionsList();
+  } catch (e) { wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>'; }
+}
+function renderCountSessionsList(){
+  const wrap = document.getElementById('countSessionsList');
+  const visible = showCancelledCounts ? allCountSessions : allCountSessions.filter(s => s.status !== 'cancelled');
+  const hiddenCount = allCountSessions.length - visible.length;
+  if (!allCountSessions.length) { wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-box-open"></i>No count sessions yet.</p>'; return; }
+  if (!visible.length) {
+    wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-ban"></i>All sessions here are cancelled. Click "Show cancelled" above to view them.</p>';
+    return;
+  }
+  let html = visible.map(renderCountSession).join('');
+  if (hiddenCount > 0 && !showCancelledCounts) {
+    html += '<p class="empty" style="padding:12px 10px;"><i class="fa-solid fa-eye-slash"></i>' + hiddenCount + ' cancelled session(s) hidden. Click "Show cancelled" above to view them.</p>';
+  }
+  wrap.innerHTML = html;
+}
+function toggleCancelledCounts(){
+  showCancelledCounts = !showCancelledCounts;
+  const label = document.getElementById('btnToggleCancelledCountsLabel');
+  label.textContent = showCancelledCounts ? 'Hide cancelled' : 'Show cancelled';
+  renderCountSessionsList();
+}
+function exportCountsCsv(){
+  const visible = showCancelledCounts ? allCountSessions : allCountSessions.filter(s => s.status !== 'cancelled');
+  const rows = [];
+  visible.forEach(s => {
+    (s.items || []).forEach(item => {
+      rows.push([
+        s.id, s.status, fmtDate(s.createdAt), s.createdBy || '',
+        item.code, item.name, item.systemQty, item.unit,
+        item.countedQty !== null && item.countedQty !== undefined ? item.countedQty : '',
+        item.variance !== null && item.variance !== undefined ? item.variance : ''
+      ]);
+    });
+  });
+  downloadCsv(`physical_count_${Date.now()}.csv`,
+    ['Session ID', 'Status', 'Started', 'Started By', 'Code', 'Name', 'System Qty', 'Unit', 'Counted Qty', 'Variance'],
+    rows);
+}
+function renderCountSession(s){
+  const countedN = s.items.filter(i => i.countedQty !== null && i.countedQty !== undefined).length;
+  const rows = s.items.map(item => `
+    <tr>
+      <td>${esc(item.code)}</td>
+      <td>${esc(item.name)}</td>
+      <td>${fmtQty(item.systemQty)} ${esc(item.unit)}</td>
+      <td>${s.status === 'open'
+        ? `<input class="item-count-input" type="number" step="0.001" min="0" data-code="${esc(item.code)}" value="${item.countedQty !== null ? fmtQty(item.countedQty) : ''}">`
+        : (item.countedQty !== null ? fmtQty(item.countedQty) : '—')}</td>
+      <td class="${item.variance > 0 ? 'num-pos' : (item.variance < 0 ? 'num-neg' : '')}">${item.variance !== null ? fmtQty(item.variance) : '—'}</td>
+    </tr>`).join('');
+  return `
+  <div class="card" style="background:var(--panel);" data-count-session-id="${esc(s.id)}">
+    <div class="toolbar">
+      <div><strong>${esc(s.id)}</strong> <span class="pill ${esc(s.status)}">${statusIcon(s.status)}${esc(s.status)}</span>
+        <div class="muted" style="font-size:.78rem;">Started ${fmtDate(s.createdAt)} by ${esc(s.createdBy)} — ${countedN}/${s.items.length} counted${s.notes ? ' — ' + esc(s.notes) : ''}</div>
+      </div>
+      ${s.status === 'open' ? `
+        <div>
+          <button class="btn secondary small" onclick="openScanModal('${esc(s.id)}')"><i class="fa-solid fa-barcode"></i> Scan Mode</button>
+          <button class="btn secondary small" onclick="saveCounts('${esc(s.id)}')"><i class="fa-solid fa-floppy-disk"></i> Save Counts</button>
+          <button class="btn small" onclick="finalizeCount('${esc(s.id)}')"><i class="fa-solid fa-check-double"></i> Finalize (Apply to Stock)</button>
+          <button class="btn danger small" onclick="cancelCount('${esc(s.id)}')"><i class="fa-solid fa-ban"></i> Cancel</button>
+        </div>` : (s.status === 'finalized' ? `<div class="muted" style="font-size:.8rem;"><i class="fa-solid fa-circle-check" style="color:var(--good);margin-right:5px;"></i>Finalized ${fmtDate(s.finalizedAt)} by ${esc(s.finalizedBy)} — net variance value ≈ ${fmtMoney(s.totalVarianceValue)}</div>` : '')}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Code</th><th>Name</th><th>System Qty</th><th>Counted Qty</th><th>Variance</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+async function saveCounts(id){
+  const inputs = document.querySelectorAll('#countSessionsList input.item-count-input');
+  const counts = [];
+  inputs.forEach(inp => {
+    if (inp.value !== '') counts.push({ code: inp.dataset.code, countedQty: inp.value });
+  });
+  if (!counts.length) { showMsg('No counts were entered.', true); return; }
+  try {
+    await api('PUT', '/api/inventory-counts/' + encodeURIComponent(id), { counts });
+    showMsg('Counts saved.');
+    loadCounts();
+  } catch (e) { showMsg(e.message, true); }
+}
+async function finalizeCount(id){
+  if (!confirm('Finalize this count session? This will be applied to product stock immediately and cannot be undone.')) return;
+  try {
+    const data = await api('POST', '/api/inventory-counts/' + encodeURIComponent(id) + '/finalize');
+    showMsg(data.message);
+    loadCounts();
+  } catch (e) { showMsg(e.message, true); }
+}
+async function cancelCount(id){
+  if (!confirm('Cancel this count session?')) return;
+  try {
+    await api('DELETE', '/api/inventory-counts/' + encodeURIComponent(id));
+    showMsg('Cancelled.');
+    loadCounts();
+  } catch (e) { showMsg(e.message, true); }
+}
+
+// ---- Barcode scan mode (Physical Count) ----
+// Reuses the html5-qrcode.min.js already bundled with OmniPOS (same library
+// used for barcode scanning elsewhere in the app). Scanning a code jumps to
+// and focuses the matching row's "Counted Qty" input instead of the cashier
+// typing the code by hand — faster and avoids typos/mismatched codes.
+let scanTargetSessionId = null;
+let scanScanner = null;
+let scanLastCode = null;
+let scanLastTime = 0;
+function scanFeedback(text, color){
+  const el = document.getElementById('scanFeedback');
+  el.textContent = text;
+  el.style.color = color || 'var(--text)';
+}
+function playScanBeep(){
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.13);
+  } catch (e) { /* audio not critical to the feature */ }
+}
+function openScanModal(sessionId){
+  if (typeof Html5Qrcode === 'undefined') { showMsg('Barcode scanner library did not load.', true); return; }
+  scanTargetSessionId = sessionId;
+  document.getElementById('scanModalBackdrop').style.display = 'flex';
+  scanFeedback('Starting camera...', '#eab308');
+  scanScanner = new Html5Qrcode('scan-reader', {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.CODE_93, Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.ITF,
+      Html5QrcodeSupportedFormats.CODABAR, Html5QrcodeSupportedFormats.QR_CODE
+    ].filter(f => f !== undefined)
+  });
+  const config = {
+    fps: 15,
+    qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(w, h) * 0.35) }),
+    disableFlip: false
+  };
+  scanScanner.start({ facingMode: 'environment' }, config, onScanDecoded)
+    .then(() => scanFeedback('Ready — align the barcode inside the frame.', '#22c55e'))
+    .catch(err => {
+      console.error('Scanner start failed:', err);
+      scanFeedback('Could not access the camera. Check camera permission.', '#ef4444');
+    });
+}
+function closeScanModal(){
+  document.getElementById('scanModalBackdrop').style.display = 'none';
+  scanTargetSessionId = null;
+  if (scanScanner) {
+    const s = scanScanner;
+    scanScanner = null;
+    if (s.isScanning) {
+      s.stop().catch(() => {});
+    }
+  }
+}
+function onScanDecoded(decodedText){
+  const now = Date.now();
+  if (decodedText === scanLastCode && (now - scanLastTime) < 1200) return;
+  scanLastCode = decodedText;
+  scanLastTime = now;
+  const code = String(decodedText || '').trim();
+  if (!code || !scanTargetSessionId) return;
+  const card = document.querySelector(`[data-count-session-id="${CSS.escape(scanTargetSessionId)}"]`);
+  if (!card) { scanFeedback('This count session is no longer open.', '#ef4444'); return; }
+  const input = Array.from(card.querySelectorAll('input.item-count-input'))
+    .find(inp => (inp.dataset.code || '').trim().toLowerCase() === code.toLowerCase());
+  if (!input) {
+    scanFeedback(`"${code}" is not part of this count session.`, '#ef4444');
+    return;
+  }
+  playScanBeep();
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  input.classList.remove('scan-hit');
+  // Force reflow so the highlight animation can restart on repeated scans of the same row.
+  void input.offsetWidth;
+  input.classList.add('scan-hit');
+  input.focus();
+  input.select();
+  const name = input.closest('tr') ? input.closest('tr').children[1].textContent : '';
+  scanFeedback(`✓ Found: ${name || code} — enter the counted quantity.`, '#22c55e');
+}
+// Safety net: if the tab is closed/refreshed/navigated away from while the
+// camera is on, make sure the camera stream actually stops instead of
+// staying lit in the background.
+window.addEventListener('beforeunload', () => {
+  if (scanScanner && scanScanner.isScanning) {
+    scanScanner.stop().catch(() => {});
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && scanScanner && scanScanner.isScanning) {
+    scanScanner.stop().catch(() => {});
+    scanScanner = null;
+    scanFeedback('Camera paused (tab hidden). Tap Scan Mode again to resume.', '#eab308');
+  }
+});
+
+// ================= CONSIGNMENT =================
+let cnsRowSeq = 0;
+function addCnsRow(){
+  cnsRowSeq++;
+  const div = document.createElement('div');
+  div.className = 'row';
+  div.dataset.row = cnsRowSeq;
+  div.innerHTML = `
+    <input placeholder="Product code" class="cns-code" style="width:140px;">
+    <input placeholder="Qty received" type="number" step="0.001" min="0" class="cns-qty" style="width:110px;">
+    <input placeholder="Unit cost (₱)" type="number" step="0.01" min="0" class="cns-cost" style="width:120px;">
+    <button class="subtle-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i> remove</button>`;
+  document.getElementById('cnsItemsRows').appendChild(div);
+}
+document.getElementById('btnAddCnsRow').addEventListener('click', addCnsRow);
+addCnsRow();
+document.getElementById('btnCreateConsignment').addEventListener('click', async () => {
+  try {
+    const supplierName = document.getElementById('cnsSupplier').value.trim();
+    const notes = document.getElementById('cnsNotes').value.trim();
+    const items = [];
+    document.querySelectorAll('#cnsItemsRows .row').forEach(row => {
+      const code = row.querySelector('.cns-code').value.trim();
+      const qtyReceived = row.querySelector('.cns-qty').value;
+      const unitCost = row.querySelector('.cns-cost').value;
+      if (code && qtyReceived) items.push({ code, qtyReceived, unitCost });
+    });
+    if (!supplierName || !items.length) { showMsg('Supplier name and at least one item are required.', true); return; }
+    await api('POST', '/api/consignments', { supplierName, notes, items });
+    showMsg('Consignment recorded and added to stock.');
+    document.getElementById('cnsSupplier').value = '';
+    document.getElementById('cnsNotes').value = '';
+    document.getElementById('cnsItemsRows').innerHTML = '';
+    addCnsRow();
+    loadConsignments();
+  } catch (e) { showMsg(e.message, true); }
+});
+async function loadConsignments(){
+  const wrap = document.getElementById('consignmentList');
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading...</p>';
+  try {
+    const data = await api('GET', '/api/consignments');
+    consignmentsRawData = data.consignments || [];
+    if (!consignmentsRawData.length) { wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-box-open"></i>No consignment records yet.</p>'; return; }
+    wrap.innerHTML = consignmentsRawData.map(renderConsignment).join('');
+  } catch (e) { wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>'; }
+}
+let consignmentsRawData = [];
+function exportConsignmentsCsv(){
+  const rows = [];
+  consignmentsRawData.forEach(r => {
+    r.items.forEach(item => {
+      rows.push([
+        r.supplierName, r.id, r.status, fmtDate(r.dateReceived), r.notes || '',
+        item.code, item.name, item.qtyReceived, item.qtySoldTotal, item.qtySettled,
+        item.qtyPendingSettlement, item.payableNow, item.qtyUnsold
+      ]);
+    });
+  });
+  downloadCsv(`consignments_${Date.now()}.csv`,
+    ['Supplier', 'Consignment ID', 'Status', 'Received', 'Notes', 'Item Code', 'Item Name',
+     'Qty Received', 'Qty Sold (Total)', 'Qty Settled', 'Qty Pending Settlement', 'Payable Now', 'Qty Unsold'],
+    rows);
+}
+function renderConsignment(r){
+  const rows = r.items.map(item => `
+    <tr>
+      <td>${esc(item.code)}<div class="muted" style="font-size:.75rem;">${esc(item.name)}</div></td>
+      <td>${fmtQty(item.qtyReceived)}</td>
+      <td>${fmtQty(item.qtySoldTotal)}</td>
+      <td>${fmtQty(item.qtySettled)}</td>
+      <td>${fmtQty(item.qtyPendingSettlement)} <span class="muted">(${fmtMoney(item.payableNow)})</span></td>
+      <td>${fmtQty(item.qtyUnsold)}</td>
+      <td>${r.status !== 'closed' ? `
+        <input type="number" step="0.001" min="0" class="cns-settle-input" data-code="${esc(item.code)}" placeholder="settle qty" style="width:90px;">
+        <input type="number" step="0.001" min="0" class="cns-return-input" data-code="${esc(item.code)}" placeholder="return qty" style="width:90px;">` : '—'}</td>
+    </tr>`).join('');
+  return `
+  <div class="card" style="background:var(--panel);" data-consignment-id="${esc(r.id)}">
+    <div class="toolbar">
+      <div><strong>${esc(r.supplierName)}</strong> <span class="pill ${esc(r.status)}">${statusIcon(r.status)}${esc(r.status)}</span>
+        <div class="muted" style="font-size:.78rem;">${esc(r.id)} — received ${fmtDate(r.dateReceived)}${r.notes ? ' — ' + esc(r.notes) : ''}</div>
+      </div>
+      ${r.status !== 'closed' ? `
+        <div>
+          <button class="btn secondary small" onclick="settleConsignment('${esc(r.id)}')"><i class="fa-solid fa-hand-holding-dollar"></i> Settle Selected</button>
+          <button class="btn danger small" onclick="returnConsignment('${esc(r.id)}')"><i class="fa-solid fa-rotate-left"></i> Return Unsold Selected</button>
+        </div>` : ''}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Item</th><th>Received</th><th>Sold (total)</th><th>Settled</th><th>Pending Settlement</th><th>Unsold</th><th>Action</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+async function settleConsignment(id){
+  const card = document.querySelector(`[data-consignment-id="${CSS.escape(id)}"]`);
+  const items = [];
+  card.querySelectorAll('.cns-settle-input').forEach(inp => {
+    if (inp.value) items.push({ code: inp.dataset.code, settleQty: inp.value });
+  });
+  if (!items.length) { showMsg('No settle quantity given.', true); return; }
+  try {
+    const data = await api('POST', '/api/consignments/' + encodeURIComponent(id) + '/settle', { items });
+    showMsg(data.message);
+    loadConsignments();
+  } catch (e) { showMsg(e.message, true); }
+}
+async function returnConsignment(id){
+  const card = document.querySelector(`[data-consignment-id="${CSS.escape(id)}"]`);
+  const items = [];
+  card.querySelectorAll('.cns-return-input').forEach(inp => {
+    if (inp.value) items.push({ code: inp.dataset.code, returnQty: inp.value });
+  });
+  if (!items.length) { showMsg('No return quantity given.', true); return; }
+  if (!confirm('This will be deducted from stock (returned to the supplier). Are you sure?')) return;
+  try {
+    const data = await api('POST', '/api/consignments/' + encodeURIComponent(id) + '/return-unsold', { items });
+    showMsg(data.message);
+    loadConsignments();
+  } catch (e) { showMsg(e.message, true); }
+}
+
+// ================= WASTE LOG =================
+document.getElementById('btnAddWaste').addEventListener('click', async () => {
+  try {
+    const code = document.getElementById('wasteCode').value.trim();
+    const quantity = document.getElementById('wasteQty').value;
+    const category = document.getElementById('wasteCategory').value;
+    const reason = document.getElementById('wasteReason').value.trim();
+    if (!code || !quantity) { showMsg('Product code and quantity are required.', true); return; }
+    const data = await api('POST', '/api/waste-log', { code, quantity, category, reason });
+    showMsg(data.message);
+    document.getElementById('wasteCode').value = '';
+    document.getElementById('wasteQty').value = '';
+    document.getElementById('wasteReason').value = '';
+    loadWasteLog();
+  } catch (e) { showMsg(e.message, true); }
+});
+async function loadWasteLog(){
+  const wrap = document.getElementById('wasteLogList');
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading...</p>';
+  try {
+    const data = await api('GET', '/api/waste-log');
+    wasteLogRawEntries = data.entries || [];
+    document.getElementById('wasteTotalImpact').innerHTML = wasteLogRawEntries.length ? ('— total est. loss: <span style="color:var(--bad);font-weight:700;">' + fmtMoney(data.totalCostImpact) + '</span>') : '';
+    if (!wasteLogRawEntries.length) { wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-box-open"></i>No waste/damage recorded yet.</p>'; return; }
+    wrap.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Code</th><th>Name</th><th>Qty</th><th>Category</th><th>Reason</th><th>Est. Loss</th><th>By</th></tr></thead>
+      <tbody>${wasteLogRawEntries.map(e => `
+        <tr>
+          <td>${fmtDate(e.recordedAt)}</td>
+          <td>${esc(e.code)}</td>
+          <td>${esc(e.name)}</td>
+          <td>${fmtQty(e.quantity)} ${esc(e.unit)}</td>
+          <td>${esc(e.category)}</td>
+          <td>${esc(e.reason)}</td>
+          <td>${fmtMoney(e.costImpact)}</td>
+          <td>${esc(e.recordedBy)}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+  } catch (e) { wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>'; }
+}
+let wasteLogRawEntries = [];
+function exportWasteLogCsv(){
+  const rows = wasteLogRawEntries.map(e => [
+    fmtDate(e.recordedAt), e.code, e.name, fmtQty(e.quantity), e.unit, e.category, e.reason || '', e.costImpact, e.recordedBy
+  ]);
+  downloadCsv(`waste_log_${Date.now()}.csv`,
+    ['Date', 'Code', 'Name', 'Qty', 'Unit', 'Category', 'Reason', 'Est. Loss', 'Recorded By'],
+    rows);
+}
+
+// ================= DEAD STOCK =================
+let deadStockRawItems = [];
+let deadStockRawDays = 60;
+document.getElementById('btnRunDeadStock').addEventListener('click', async () => {
+  const wrap = document.getElementById('deadStockList');
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading...</p>';
+  try {
+    const days = document.getElementById('deadStockDays').value || 60;
+    const data = await api('GET', '/api/reports/dead-stock?days=' + encodeURIComponent(days));
+    deadStockRawItems = data.items || [];
+    deadStockRawDays = data.days;
+    document.getElementById('deadStockSummary').innerHTML = deadStockRawItems.length
+      ? `<i class="fa-solid fa-triangle-exclamation" style="color:var(--warn);margin-right:6px;"></i>${deadStockRawItems.length} item(s) with no sales in the last ${data.days} day(s) — value tied up in stock: <strong style="color:var(--text);">${fmtMoney(data.totalTiedUpValue)}</strong>`
+      : `<i class="fa-solid fa-circle-check" style="color:var(--good);margin-right:6px;"></i>No dead stock found in the last ${data.days} day(s).`;
+    if (!deadStockRawItems.length) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Stock</th><th>Last Sold</th><th>Days Idle</th><th>Tied-up Value</th></tr></thead>
+      <tbody>${deadStockRawItems.map(i => `
+        <tr>
+          <td>${esc(i.code)}</td>
+          <td>${esc(i.name)}</td>
+          <td>${esc(i.category)}</td>
+          <td>${fmtQty(i.stock)}</td>
+          <td>${i.neverSold ? '<span class="muted">never sold</span>' : fmtDate(i.lastSoldDate)}</td>
+          <td>${i.daysSinceLastSold === null ? '—' : i.daysSinceLastSold}</td>
+          <td>${fmtMoney(i.tiedUpValue)}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+  } catch (e) { wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>'; }
+});
+function exportDeadStockCsv(){
+  const rows = deadStockRawItems.map(i => [
+    i.code, i.name, i.category, fmtQty(i.stock),
+    i.neverSold ? 'never sold' : fmtDate(i.lastSoldDate),
+    i.daysSinceLastSold === null ? '' : i.daysSinceLastSold,
+    i.tiedUpValue
+  ]);
+  downloadCsv(`dead_stock_report_${deadStockRawDays}d_${Date.now()}.csv`,
+    ['Code', 'Name', 'Category', 'Stock', 'Last Sold', 'Days Idle', 'Tied-up Value'],
+    rows);
+}
+
+// ================= CATEGORIES (from system) =================
+async function loadCategories(){
+  try {
+    const cats = await api('GET', '/api/categories');
+    const sel = document.getElementById('countCategory');
+    if (!sel || !Array.isArray(cats)) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select category —</option>' +
+      cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    if (current) sel.value = current;
+  } catch (e) { /* keep the default placeholder option if this fails */ }
+}
+
+// ================= SUPPLIERS (Supplier/Vendor Directory) =================
+// Reusable supplier list with contact info — picked from the Consignment tab
+// via the <datalist>, instead of free-typing the supplier name every time.
+let suppliersRawData = [];
+async function loadSuppliers(){
+  const wrap = document.getElementById('suppliersList');
+  if (wrap) wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading...</p>';
+  try {
+    const data = await api('GET', '/api/suppliers');
+    suppliersRawData = data.suppliers || [];
+    renderSuppliersTable();
+    populateSupplierDatalist();
+  } catch (e) {
+    // Not every role has the "supplier_directory" permission yet — fail quietly
+    // here so the Consignment tab's free-text supplier input still works as before.
+    suppliersRawData = [];
+    if (wrap) wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>';
+  }
+}
+function populateSupplierDatalist(){
+  const dl = document.getElementById('supplierNamesDatalist');
+  if (!dl) return;
+  dl.innerHTML = suppliersRawData.map(s => `<option value="${esc(s.name)}">`).join('');
+}
+function renderSuppliersTable(){
+  const wrap = document.getElementById('suppliersList');
+  if (!wrap) return;
+  const q = (document.getElementById('supplierSearch').value || '').trim().toLowerCase();
+  let list = suppliersRawData.slice();
+  if (q) {
+    list = list.filter(s =>
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.contactPerson || '').toLowerCase().includes(q) ||
+      (s.phone || '').toLowerCase().includes(q) ||
+      (s.email || '').toLowerCase().includes(q));
+  }
+  if (!suppliersRawData.length) { wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-box-open"></i>No suppliers saved yet. Add one above.</p>'; return; }
+  if (!list.length) { wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-magnifying-glass"></i>No suppliers match your search.</p>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Contact Person</th><th>Phone</th><th>Email</th><th>Address</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody>${list.map(s => `
+      <tr>
+        <td>${esc(s.name)}</td>
+        <td>${s.contactPerson ? esc(s.contactPerson) : '<span class="muted">—</span>'}</td>
+        <td>${s.phone ? esc(s.phone) : '<span class="muted">—</span>'}</td>
+        <td>${s.email ? esc(s.email) : '<span class="muted">—</span>'}</td>
+        <td>${s.address ? esc(s.address) : '<span class="muted">—</span>'}</td>
+        <td>${s.notes ? esc(s.notes) : '<span class="muted">—</span>'}</td>
+        <td>
+          <button class="subtle-btn" style="color:var(--accent2);" onclick="startSupplierEdit('${esc(s.id)}')"><i class="fa-solid fa-pen"></i> edit</button>
+          <button class="subtle-btn" onclick="deleteSupplier('${esc(s.id)}')"><i class="fa-solid fa-trash"></i> delete</button>
+        </td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function startSupplierEdit(id){
+  const s = suppliersRawData.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('supplierEditId').value = s.id;
+  document.getElementById('supName').value = s.name || '';
+  document.getElementById('supContact').value = s.contactPerson || '';
+  document.getElementById('supPhone').value = s.phone || '';
+  document.getElementById('supEmail').value = s.email || '';
+  document.getElementById('supAddress').value = s.address || '';
+  document.getElementById('supNotes').value = s.notes || '';
+  document.getElementById('supplierFormTitle').innerHTML = '<i class="fa-solid fa-pen"></i> Edit supplier';
+  document.getElementById('btnCancelSupplierEdit').style.display = 'inline-flex';
+  document.querySelector('nav.tabs button[data-tab="suppliers"]').click();
+  document.getElementById('supName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function cancelSupplierEdit(){
+  document.getElementById('supplierEditId').value = '';
+  ['supName','supContact','supPhone','supEmail','supAddress','supNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('supplierFormTitle').innerHTML = '<i class="fa-solid fa-address-book"></i> Add a supplier';
+  document.getElementById('btnCancelSupplierEdit').style.display = 'none';
+}
+document.getElementById('btnSaveSupplier').addEventListener('click', async () => {
+  try {
+    const id = document.getElementById('supplierEditId').value.trim();
+    const payload = {
+      name: document.getElementById('supName').value.trim(),
+      contactPerson: document.getElementById('supContact').value.trim(),
+      phone: document.getElementById('supPhone').value.trim(),
+      email: document.getElementById('supEmail').value.trim(),
+      address: document.getElementById('supAddress').value.trim(),
+      notes: document.getElementById('supNotes').value.trim()
+    };
+    if (!payload.name) { showMsg('Supplier name is required.', true); return; }
+    if (id) {
+      await api('PUT', '/api/suppliers/' + encodeURIComponent(id), payload);
+      showMsg('Supplier updated.');
+    } else {
+      await api('POST', '/api/suppliers', payload);
+      showMsg('Supplier saved.');
+    }
+    cancelSupplierEdit();
+    loadSuppliers();
+  } catch (e) { showMsg(e.message, true); }
+});
+async function deleteSupplier(id){
+  const s = suppliersRawData.find(x => x.id === id);
+  if (!confirm(`Delete supplier "${s ? s.name : id}"? This does not affect past Consignment/Purchase Order records.`)) return;
+  try {
+    await api('DELETE', '/api/suppliers/' + encodeURIComponent(id));
+    showMsg('Supplier deleted.');
+    loadSuppliers();
+  } catch (e) { showMsg(e.message, true); }
+}
+function exportSuppliersCsv(){
+  const rows = suppliersRawData.map(s => [s.name, s.contactPerson || '', s.phone || '', s.email || '', s.address || '', s.notes || '']);
+  downloadCsv(`suppliers_${Date.now()}.csv`,
+    ['Name', 'Contact Person', 'Phone', 'Email', 'Address', 'Notes'],
+    rows);
+}
+
+// ---- Feature lock check (Inventory Tools is now a premium/unlockable
+// module, same as Purchase Orders, Batch/Lot Tracking, etc.). This is a
+// standalone page (opens in its own tab, bypassing the sidebar's own
+// click-guard if bookmarked/reopened directly), so it re-checks the lock
+// itself before loading any data or wiring up further actions. ----
+async function checkInventoryToolsUnlockedAndInit(){
+  let statusReachable = true;
+  let unlocked = false;
+  try {
+    const res = await fetch('/api/features/status', { headers: authHeaders() });
+    const data = await res.json();
+    unlocked = !!(data && data.success && Array.isArray(data.unlockedFeatureIds) && data.unlockedFeatureIds.includes('inventory_tools'));
+  } catch (e) {
+    // Can't reach the server to check — the API calls below would fail the
+    // same way, so fall through to init() as normal and let each panel's own
+    // existing error handling (showMsg, etc.) report the connection problem,
+    // instead of showing a misleading "premium feature locked" message.
+    statusReachable = false;
+  }
+  if (statusReachable && !unlocked) {
+    document.getElementById('lockOverlay').style.display = 'flex';
+    return;
+  }
+  loadCounts();
+  loadConsignments();
+  loadWasteLog();
+  loadCategories();
+  loadSuppliers();
+}
+checkInventoryToolsUnlockedAndInit();
+</script>
+</body>
+</html>

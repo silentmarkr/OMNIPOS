@@ -26,24 +26,24 @@
 
   const UI_TEXT = {
     en: {
-      pageTitle: 'Frequently Asked Questions (FAQ)',
+      pageTitle: 'Help',
       intro: 'Choose a question below, or search above, to learn how to use OmniPOS.',
       askLabel: 'Ask about OmniPOS',
       placeholder: 'e.g. how to void a transaction, what is a shift, how to use a promo code...',
       searchBtn: 'Search',
       commonQuestions: 'Common Questions',
       newConvo: 'New conversation',
-      aiUpsell: 'Unlock the AI Assistant for smarter, more natural answers based on this FAQ'
+      aiUpsell: 'Unlock the AI Assistant for smarter, more natural answers based on this Help Center'
     },
     tl: {
-      pageTitle: 'Mga Madalas Itanong (FAQ)',
+      pageTitle: 'Help',
       intro: 'Pumili ng tanong sa ibaba, o maghanap sa itaas, para matuto gumamit ng OmniPOS.',
       askLabel: 'Magtanong tungkol sa OmniPOS',
       placeholder: 'hal. paano mag-void ng transaction, ano ang shift, paano gumamit ng promo code...',
       searchBtn: 'Hanapin',
       commonQuestions: 'Mga Karaniwang Tanong',
       newConvo: 'Bagong usapan',
-      aiUpsell: 'I-unlock ang AI Assistant para sa mas matalino at natural na sagot batay sa FAQ na ito'
+      aiUpsell: 'I-unlock ang AI Assistant para sa mas matalino at natural na sagot batay sa Help Center na ito'
     }
   };
 

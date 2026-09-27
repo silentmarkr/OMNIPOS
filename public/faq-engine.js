@@ -35,12 +35,67 @@
     'shift': ['zreading', 'z-reading'],
     'log': ['logs', 'audit', 'history'],
     'role': ['roles', 'permission', 'access level'],
+    'attendance': ['time clock', 'time in', 'time out', 'selfie', 'pasok', 'labas'],
+    'pasok': ['time in', 'attendance'],
+    'labas': ['time out', 'attendance'],
+    'sanga': ['branch', 'branches'],
+    'sangay': ['branch', 'branches'],
+    'branch': ['sanga', 'sangay', 'store location'],
+    'remoteops': ['remote operations', 'monitoring', 'dashboard'],
+    'monitor': ['remote operations', 'dashboard', 'overview'],
+    'batch': ['lot', 'batch lot', 'expiry'],
+    'lot': ['batch', 'batch lot', 'expiry'],
+    'expiry': ['batch', 'lot', 'fefo'],
+    'bir': ['bir compliance', 'agt', 'z-reading'],
+    'buwis': ['bir', 'tax'],
+    'tax': ['bir compliance', 'buwis'],
+    'invoice': ['bir', 'or', 'official receipt'],
+    'transfer': ['stock transfer', 'branch transfer'],
+    'held': ['hold', 'hold sale', 'park sale'],
+    'hold': ['held', 'park sale', 'suspend transaction'],
   };
 
-  
+  // BAGO: gawing symmetric/transitive ang SYNONYMS sa runtime. Dating
+  // directional lang ito (hal. SYNONYMS['benta'] = ['sale', 'checkout',
+  // 'bumili', 'magbenta'], pero walang SYNONYMS['sale'] pabalik) — kaya
+  // kung ang eksaktong salitang ginamit ng user ay nasa "value" side
+  // lang ng mapping (hal. hinanap niya lang ang "sale" mismo), hindi na
+  // ito natutugma pabalik sa "benta" (o sa kahit anong ibang salita sa
+  // parehong grupo). Dito, binubuo ang buong "equivalence group" ng
+  // bawat salita sa pamamagitan ng paglakad sa buong graph ng mga
+  // kasingkahulugan (hindi lang direktang kapitbahay, kundi transitive
+  // closure din), para alinmang salita sa isang grupo ang gamitin ng
+  // user, magkatugma pa rin lahat ng iba pang kasapi ng grupong iyon.
+  function buildSymmetricSynonyms(map) {
+    const graph = new Map();
+    const addEdge = (a, b) => {
+      if (!graph.has(a)) graph.set(a, new Set());
+      graph.get(a).add(b);
+    };
+    Object.keys(map).forEach(key => {
+      (map[key] || []).forEach(val => {
+        addEdge(key, val);
+        addEdge(val, key);
+      });
+    });
+    const result = {};
+    graph.forEach((_, word) => {
+      const seen = new Set([word]);
+      const stack = [word];
+      while (stack.length) {
+        const cur = stack.pop();
+        const neighbors = graph.get(cur);
+        if (!neighbors) continue;
+        neighbors.forEach(n => { if (!seen.has(n)) { seen.add(n); stack.push(n); } });
+      }
+      seen.delete(word);
+      result[word] = Array.from(seen);
+    });
+    return result;
+  }
 
-  
-  
+  const EXPANDED_SYNONYMS = buildSymmetricSynonyms(SYNONYMS);
+
   const POLAR_PATTERNS = [
     /\b(pwede|puwede|maaari|kaya)\s+(ba|bang)\b/,
     /\bpwede\s+ba\b/, /\bpuwede\s+ba\b/,
@@ -218,7 +273,7 @@
   function expandTokens(tokens) {
     const expanded = new Set(tokens);
     tokens.forEach(t => {
-      if (SYNONYMS[t]) SYNONYMS[t].forEach(s => expanded.add(s));
+      if (EXPANDED_SYNONYMS[t]) EXPANDED_SYNONYMS[t].forEach(s => expanded.add(s));
     });
     return Array.from(expanded);
   }
@@ -406,6 +461,11 @@
     const s = STRINGS();
 
     if (results.length === 0) {
+      // BAGO: itala sa lokal na analytics log (see logUnansweredQuery sa
+      // itaas) tuwing walang eksakto/malapit na nahanap na sagot ang
+      // keyword search — kahit saang mode ito nangyari (Search/kb mode
+      // mismo, o AI Chatbot mode na na-fallback sa keyword search).
+      logUnansweredQuery(query, 'no_kb_result');
       const categories = Array.from(new Set((window.OMNIPOS_FAQ_KB || []).map(e => e.category)));
       return `
         <div class="faq-ai-noresult-inner">
@@ -1101,6 +1161,68 @@
                            // sent to the server as short-term context for
                            // follow-ups, at naka-save din sa localStorage.
 
+  // ---- BAGO: "unanswered questions" local analytics log ----------------
+  // Layunin: makilala kung anong mga tanong ang HINDI natutugunan nang
+  // maayos ng knowledge base, para may basehan kung anong bagong FAQ
+  // entries ang dapat idagdag — dating wala talagang tinatala nito,
+  // basta na lang nawawala ang impormasyong iyon. Dalawang klase ng
+  // "hindi natugunan" ang tinatala: (1) keyword search (kb mode, o AI
+  // fallback) na walang eksakto/malapit na nahanap na sagot, at (2)
+  // AI-generated na sagot na binigyan ng 👎 (thumbs down) na feedback.
+  // Naka-save lang ito nang lokal sa browser (localStorage) — walang
+  // ipinapadalang data kahit saan — kaya magagamit ito ng
+  // admin/developer sa pamamagitan ng OmniFAQ.getUnansweredLog() sa dev
+  // console habang naka-login sa device na iyon (o puwedeng i-export at
+  // ipadala sa isang admin analytics page balang araw kung kailangan).
+  const UNANSWERED_LOG_KEY = 'omnipos_faq_unanswered_log';
+  const UNANSWERED_LOG_MAX = 200;
+
+  function loadUnansweredLog() {
+    try {
+      const raw = localStorage.getItem(UNANSWERED_LOG_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
+  }
+
+  function logUnansweredQuery(query, reason) {
+    const q = (query || '').trim();
+    if (!q) return;
+    try {
+      const log = loadUnansweredLog();
+      log.push({ query: q, reason: reason || 'no_kb_result', lang: currentLang(), ts: new Date().toISOString() });
+      localStorage.setItem(UNANSWERED_LOG_KEY, JSON.stringify(log.slice(-UNANSWERED_LOG_MAX)));
+    } catch (e) {}
+  }
+
+  function clearUnansweredLog() {
+    try { localStorage.removeItem(UNANSWERED_LOG_KEY); } catch (e) {}
+  }
+
+  // BAGO: "conversation compaction" — dati, ang historyPayload na
+  // ipinapadala sa AI ay basta na lang ang HULING 8 turns
+  // (chatHistory.slice(-8)) — kapag lampas na dito ang haba ng usapan,
+  // buo-buong nawawala na lang (hindi na ipinapadala sa AI) ang
+  // mas lumang bahagi, kahit relevant pa ito sa follow-up ng user
+  // (hal. "yung una kong tinanong kanina..."). Dito, sa halip na basta
+  // itapon ang mga mas lumang turn, gumagawa ng maigsing (extractive,
+  // hindi AI-generated — walang dagdag na network call) na listahan ng
+  // mga naunang tanong bilang isang solong "context" entry, at idinurugtong
+  // ito bago ang huling 8 turns, para may kahit paalala pa rin ng buong
+  // usapan ang AI kahit mahaba na ito.
+  function summarizeOlderTurns(olderTurns) {
+    const questions = olderTurns
+      .filter(h => h.role === 'user' && h.text && h.text.trim())
+      .map(h => h.text.trim().slice(0, 80));
+    if (!questions.length) return null;
+    const isTl = currentLang() === 'tl';
+    const label = isTl
+      ? 'Mga naunang tanong sa usapang ito (para lang sa konteksto, hindi kailangang sagutin ulit)'
+      : 'Earlier questions already asked in this conversation (context only, no need to re-answer)';
+    return { role: 'user', text: `[${label}]: ${questions.join(' | ')}` };
+  }
+
   // ---- "Common Questions" shortcuts panel (Search/kb mode only) --------
   // BAGO: sa Search mode, ang mga shortcut/karaniwang tanong ay
   // nakatira na sa LOOB mismo ng .faq-ai-box (see index.html:
@@ -1238,14 +1360,29 @@
 
     const regenBtn = bubbleInner.querySelector('[data-action="regenerate"]');
     if (regenBtn) {
-      regenBtn.addEventListener('click', () => {
+      regenBtn.addEventListener('click', async () => {
         // Drop the stale assistant turn from memory, then re-ask.
         if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'assistant') {
           chatHistory.pop();
         }
         saveChatHistory();
         bubble.remove();
-        askAIAssistantChat(query, thread).then(saveChatHistory);
+        // BUGFIX: dati, hindi naka-gate sa setSendButtonLoading ang "Try
+        // again" (posibleng makapag-send ulit ang user habang nag-re-regenerate
+        // pa), at kung mag-fail ang re-attempt, walang ipinapakitang kahit
+        // ano (nawawala na lang ang loading bubble nang tahimik, walang KB
+        // fallback/retry option) — kabaligtaran ng ginagawa ng
+        // wireKbFallbackRetryAction sa ibabaw kapag nag-fail ang unang
+        // tanong. Ginawa itong pareho dito.
+        setSendButtonLoading(true);
+        try {
+          const handled = await askAIAssistantChat(query, thread);
+          if (!handled) appendKbAnswerBubble(query, thread, true);
+        } finally {
+          setSendButtonLoading(false);
+        }
+        saveChatHistory();
+        thread.scrollTop = thread.scrollHeight;
       });
     }
 
@@ -1259,6 +1396,12 @@
           if (label) label.textContent = btn.dataset.vote === 'up' ? s.feedbackThanksYes : s.feedbackThanksNo;
           feedbackEl.querySelectorAll('.faq-feedback-btn').forEach(b => b.disabled = true);
           if (btn.dataset.vote === 'down') {
+            // BAGO: itala rin sa analytics log ang mga AI sagot na
+            // binigyan ng 👎 — palatandaan ito na kahit nakasagot ang AI,
+            // mali/kulang/hindi kasiya-siya ito para sa user, kaya
+            // dapat ding suriin (hindi lang literal na "walang nahanap
+            // na sagot" ang tinatala rito).
+            logUnansweredQuery(query, 'ai_thumbs_down');
             const linkWrap = document.createElement('div');
             linkWrap.className = 'faq-feedback-fallback-link';
             linkWrap.innerHTML = `<button type="button" class="faq-chip">${escapeHtml(s.showKbInstead)}</button>`;
@@ -1567,7 +1710,20 @@
     // follow-up questions ("paano kung hindi gumana yun?") without the
     // user needing to repeat context — excludes the current question
     // itself, which is sent separately as the primary "question" field.
-    const historyPayload = chatHistory.slice(0, -1).slice(-8).map(h => ({ role: h.role, text: h.text }));
+    //
+    // BAGO: kapag mahaba na ang usapan, bukod sa huling 8 turns (verbatim),
+    // idinaragdag din bilang unang entry ang isang maigsing (extractive)
+    // buod ng mga naunang tanong (see summarizeOlderTurns) — sa halip na
+    // basta itapon nang tuluyan ang konteksto ng buong mas lumang bahagi
+    // ng usapan.
+    const priorTurns = chatHistory.slice(0, -1);
+    const recentTurns = priorTurns.slice(-8);
+    const olderTurns = priorTurns.slice(0, -8);
+    const olderSummary = summarizeOlderTurns(olderTurns);
+    const historyPayload = [
+      ...(olderSummary ? [olderSummary] : []),
+      ...recentTurns
+    ].map(h => ({ role: h.role, text: h.text }));
 
     const imageToSend = pendingImageDataUrl;
     const fileToSend = pendingFileDataUrl;
@@ -1804,7 +1960,14 @@
     closeTicketModal: closeTicketModal,
     submitTicket: submitTicket,
     refreshAiCreditPill: refreshAiCreditPill,
-    applyFullChatMode: applyFullChatMode
+    applyFullChatMode: applyFullChatMode,
+    // BAGO: pampublikong access sa "unanswered questions" analytics log
+    // (see UNANSWERED_LOG_KEY sa itaas) — para magamit ito ng
+    // admin/developer, hal. sa dev console (`OmniFAQ.getUnansweredLog()`)
+    // o kalaunan sa isang admin analytics page, para malaman kung anong
+    // mga tanong ang madalas hindi nasasagot ng kasalukuyang FAQ.
+    getUnansweredLog: loadUnansweredLog,
+    clearUnansweredLog: clearUnansweredLog
   };
 
   

@@ -150,7 +150,8 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'Roles & Permissions',
   question: 'How do I add a new user or cashier account?',
   keywords: ['add user', 'bagong cashier', 'gumawa ng account', 'new employee account', 'magdagdag ng user'],
-  answer: `<p>Go to the <strong>Settings</strong> tab (Admin access only), inside the <strong>Users Management</strong> tab. Click "Add User", fill in the username, password, and choose the role. The password you enter is automatically encrypted/secured — it is never stored as plain text.</p>`
+  answer: `<p>Go to the <strong>Settings</strong> tab (Admin access only), inside the <strong>Users Management</strong> tab. Click "Add User", fill in the username, password, and choose the role. The password you enter is automatically encrypted/secured — it is never stored as plain text.</p>
+  <p><strong>Note:</strong> As a safety default, <strong>"Staff"</strong> is now pre-selected in the role dropdown (it used to default to Admin) — this avoids accidentally creating an Admin account. Manually pick "Admin" only when it's actually needed.</p>`
 },
 {
   id: 'roles-edit-profile',
@@ -1230,17 +1231,14 @@ window.OMNIPOS_FAQ_KB_EN = [
   <p>OmniPOS doesn't have a separate "HR" module (payroll, etc.) — its scope is access management only.</p>`
 },
 {
-  id: 'shift-time-clock-attendance',
-  category: 'Shift / Z-Reading',
+  id: 'attendance-staff-selfie',
+  category: 'Remote Operations & Attendance',
   question: 'Does OmniPOS have time clock or attendance tracking?',
-  keywords: ['time clock', 'attendance', 'time in time out', 'employee attendance'],
-  verdict: 'hindi',
-  answer: `<p>There's no dedicated "Time Clock / Attendance" feature yet (for HR purposes) in OmniPOS.</p>
-  <p>The closest things to it:</p>
-  <ul>
-    <li><strong>Shift / Z-Reading</strong> — tracks when a cashier opens and closes a shift, along with cash reconciliation — this isn't for attendance/payroll, it's for cash accountability per shift</li>
-    <li><strong>User Logs</strong> — records login/logout timestamps per user, which can be used as a rough reference for time in/out</li>
-  </ul>`
+  keywords: ['time clock', 'attendance', 'time in time out', 'employee attendance', 'selfie attendance', 'staff attendance'],
+  verdict: 'oo',
+  answer: `<p>Yes — there's now a dedicated <strong>Staff Attendance</strong> page (subscription/PRO feature, sidebar → Staff Attendance) with <strong>Time In</strong> and <strong>Time Out</strong> buttons. Each punch requires a <strong>selfie photo</strong> taken with the device's camera, attached to the record as proof of who actually punched in (shown with a "Verified" badge).</p>
+  <p>These records also surface on the <strong>Remote Operations</strong> page (when enabled) as "Live attendance across branches", along with a staff activity report (shifts, hours, transactions, net sales) and attendance evidence (the selfies) that an Admin/manager can review from any branch.</p>
+  <p>This is still separate from <strong>Shift / Z-Reading</strong> (which is for per-shift cash accountability) and <strong>User Logs</strong> (login/logout timestamps) — you can still use those as additional reference.</p>`
 },
 {
   id: 'multibranch-management',
@@ -1361,6 +1359,59 @@ window.OMNIPOS_FAQ_KB_EN = [
   question: 'When should I create a Support Ticket?',
   keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
   answer: `<p>Create a <strong>Support Ticket</strong> when the FAQ or normal troubleshooting does not resolve the problem — for example, repeated system errors, unexpected behavior, or a feature that should work but does not.</p><p>If the AI Assistant ticket flow is available, the current conversation and basic device information may be attached to help the Admin/developer investigate faster. Never include passwords, API keys, tokens, or other secrets.</p>`
+},
+{
+  id: 'remoteops-dashboard-overview',
+  category: 'Remote Operations & Attendance',
+  question: 'What is the Remote Operations page?',
+  keywords: ['remote operations', 'remoteops', 'live command center', 'monitor branch online', 'mobile monitoring', 'workforce report'],
+  answer: `<p><strong>Remote Operations</strong> (subscription/PRO feature) is a "live command center" that shows, from any authorized device:</p>
+  <ul>
+    <li>Sales summary and count of <strong>live staff</strong> per branch</li>
+    <li>The most recent transactions across every branch</li>
+    <li><strong>Live attendance</strong> (time in/out + selfie) per branch</li>
+    <li><strong>Staff activity report</strong> (shifts, hours, transactions, net sales) filterable by date</li>
+    <li><strong>Attendance evidence</strong> — a log of the selfie photos for each time in/out, for manager review</li>
+  </ul>
+  <p>There's a "Refresh data" button and a sync status indicator (Connecting… / Live) so you know how current the data you're seeing is.</p>`
+},
+{
+  id: 'branches-page-overview',
+  category: 'Multi-Branch',
+  question: 'What is the difference between the Branches page and the "All Branches" widget on Overview?',
+  keywords: ['branches page', 'compare branches', 'branch health', 'live status branch', 'stock transfer', 'transfer request', 'new transfer'],
+  answer: `<p>The <strong>"All Branches" widget on Overview</strong> is just a quick summary (combined sales, transactions, low-stock snapshot) across every branch.</p>
+  <p>The dedicated <strong>Branches page</strong> (sidebar → Branches, premium feature) is more detailed — it shows live status/health per branch and low-stock alerts per branch, plus <strong>Stock Transfer Requests</strong> between branches — click <strong>"New Transfer"</strong> to request stock be moved from one branch to another.</p>`
+},
+{
+  id: 'inv-batch-lot-tracking',
+  category: 'Inventory',
+  question: 'What is Batch / Lot Tracking?',
+  keywords: ['batch tracking', 'lot tracking', 'lot number', 'expiry per batch', 'fefo', 'batch expiry', 'batchlots'],
+  answer: `<p>The <strong>Batch / Lot Tracking</strong> page shows every batch/lot recorded across all products — Quantity, Expiry Date, Status (<em>Expired</em>, <em>Expiring Soon</em> within 7 days, <em>Good</em>, or <em>No Expiry Set</em>), Cost Price, Supplier, and the date received.</p>
+  <p>Checkout uses the <strong>FEFO (First-Expiry, First-Out)</strong> method — the batch closest to expiring is used up first, to help prevent stock from expiring unused.</p>
+  <p>It includes search (product/code/lot number), a status filter, sorting (Nearest Expiry / Product Name / Highest Quantity), and CSV export.</p>`
+},
+{
+  id: 'bir-compliance-overview',
+  category: 'BIR Compliance',
+  question: 'What is the BIR Compliance page?',
+  keywords: ['bir compliance', 'agt', 'accumulated grand total', 'bir z-reading', 'e-journal', 'sales book', 'eis', 'invoice number bir'],
+  answer: `<p>This page shows the <strong>Accumulated Grand Total (AGT)</strong>, invoice numbering, and the <strong>BIR Z-Reading</strong> — this is <strong>separate</strong> from the cashier's Shift/Z-Reading (which is for cash count).</p>
+  <ul>
+    <li><strong>BIR Z-Reading</strong> — closes the current reading period (recording Beginning AGT, Ending AGT, Net Sales, and the covered invoice number range). This cannot be undone.</li>
+    <li><strong>Exports</strong> — download the e-Journal (.txt), Sales Book (.csv), and EIS (JSON) for a chosen date range (Philippine/Manila time).</li>
+    <li><strong>Z-Reading History</strong>, <strong>Void Log</strong>, and <strong>AGT Reset History</strong> — records of past Z-Readings, voids with their invoice numbers, and AGT resets.</li>
+  </ul>`
+},
+{
+  id: 'bir-agt-reset',
+  category: 'BIR Compliance',
+  question: 'How do I reset the Accumulated Grand Total (AGT)?',
+  keywords: ['reset agt', 'bagong ptu', 'bagong machine bir', 'agt reset'],
+  verdict: 'depende',
+  answer: `<p>This is only for <strong>special cases</strong> (e.g. a new machine/PTU, or when authorized by the BIR). A reason and password are required before it proceeds, so only an Admin/authorized personnel should do this.</p>
+  <p>It's recorded in the <strong>AGT Reset History</strong> (including the previous AGT, who authorized it, and the reason), and it does not affect invoice numbering.</p>`
 },
 
 ];

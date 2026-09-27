@@ -150,7 +150,8 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'Roles & Permissions',
   question: 'Paano magdagdag ng bagong user o cashier account?',
   keywords: ['add user', 'bagong cashier', 'gumawa ng account', 'new employee account', 'magdagdag ng user'],
-  answer: `<p>Pumunta sa <strong>Settings</strong> tab (Admin access lang), sa loob ng <strong>Users Management</strong> tab. I-click ang "Add User", punan ang username, password, at piliin ang role. Awtomatiko na ring naka-encrypt/naka-secure ang password na ilalagay mo — hindi ito kailanman naka-plain text.</p>`
+  answer: `<p>Pumunta sa <strong>Settings</strong> tab (Admin access lang), sa loob ng <strong>Users Management</strong> tab. I-click ang "Add User", punan ang username, password, at piliin ang role. Awtomatiko na ring naka-encrypt/naka-secure ang password na ilalagay mo — hindi ito kailanman naka-plain text.</p>
+  <p><strong>Note:</strong> Bilang safety default, <strong>"Staff"</strong> na ang paunang napipili sa role dropdown (dati Admin ang default) — para maiwasan ang di-sinasadyang paggawa ng Admin account. Piliin lang manu-mano ang "Admin" kung talagang kailangan.</p>`
 },
 {
   id: 'roles-edit-profile',
@@ -1230,17 +1231,14 @@ window.OMNIPOS_FAQ_KB_TL = [
   <p>Walang hiwalay na "HR" module (payroll, atbp.) ang OmniPOS — access-management lang ang saklaw nito.</p>`
 },
 {
-  id: 'shift-time-clock-attendance',
-  category: 'Shift / Z-Reading',
+  id: 'attendance-staff-selfie',
+  category: 'Remote Operations & Attendance',
   question: 'May time clock o attendance tracking ba ang OmniPOS?',
-  keywords: ['time clock', 'attendance', 'time in time out', 'pasok labas ng empleyado'],
-  verdict: 'hindi',
-  answer: `<p>Wala pang dedikadong "Time Clock / Attendance" feature (para sa HR purposes) ang OmniPOS.</p>
-  <p>Ang pinaka-malapit dito:</p>
-  <ul>
-    <li><strong>Shift / Z-Reading</strong> — tina-track nito ang oras ng pagbukas at pagsara ng shift ng isang cashier, kasama ang cash reconciliation — hindi ito para sa attendance/payroll, kundi para sa cash accountability kada shift</li>
-    <li><strong>User Logs</strong> — nagre-record ng login/logout timestamps kada user, na puwedeng magamit bilang rough na reference ng oras ng pasok/labas</li>
-  </ul>`
+  keywords: ['time clock', 'attendance', 'time in time out', 'pasok labas ng empleyado', 'selfie attendance', 'staff attendance'],
+  verdict: 'oo',
+  answer: `<p>Oo — mayroon nang dedikadong <strong>Staff Attendance</strong> page (subscription/PRO feature, sidebar → Staff Attendance) na may <strong>Time In</strong> at <strong>Time Out</strong> buttons. Kada punch, kinukuhanan ka ng <strong>selfie photo</strong> gamit ang camera ng device, na isinasama sa record bilang patunay kung sino talaga ang nag-punch (may "Verified" badge).</p>
+  <p>Makikita rin ang mga record na ito sa <strong>Remote Operations</strong> page (kung naka-enable) bilang "Live attendance across branches", kasama ang staff activity report (shifts, oras, transaksyon, net sales) at attendance evidence (mga selfie) na puwedeng i-review ng Admin/manager mula sa kahit anong branch.</p>
+  <p>Hiwalay pa rin ito sa <strong>Shift / Z-Reading</strong> (para sa cash accountability kada shift) at sa <strong>User Logs</strong> (login/logout timestamps) — pwede mo pa ring gamitin ang mga iyon bilang karagdagang reference.</p>`
 },
 {
   id: 'multibranch-management',
@@ -1381,6 +1379,59 @@ window.OMNIPOS_FAQ_KB_TL = [
   question: 'Kailan dapat gumawa ng Support Ticket?',
   keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
   answer: `<p>Gumawa ng <strong>Support Ticket</strong> kapag may problemang hindi mo maayos gamit ang FAQ o normal troubleshooting — halimbawa, paulit-ulit na system error, unexpected behavior, o feature na dapat gumana pero hindi.</p><p>Kung available ang AI Assistant ticket flow, maaaring maisama ang kasalukuyang conversation at basic device information para mas mabilis ma-review ng Admin/developer. Huwag isama sa ticket ang password, API key, token, o ibang secret.</p>`
+},
+{
+  id: 'remoteops-dashboard-overview',
+  category: 'Remote Operations & Attendance',
+  question: 'Ano ang Remote Operations page?',
+  keywords: ['remote operations', 'remoteops', 'live command center', 'monitor branch online', 'mobile monitoring', 'workforce report'],
+  answer: `<p>Ang <strong>Remote Operations</strong> (subscription/PRO feature) ay parang "live command center" na nagpapakita, mula sa kahit anong authorized device:</p>
+  <ul>
+    <li>Buod ng benta at bilang ng <strong>live na staff</strong> kada branch</li>
+    <li>Pinakabagong transaksyon mula sa lahat ng branch</li>
+    <li><strong>Live attendance</strong> (time in/out + selfie) kada branch</li>
+    <li><strong>Staff activity report</strong> (shifts, oras, transaksyon, net sales) na puwedeng i-filter kada petsa</li>
+    <li><strong>Attendance evidence</strong> — talaan ng mga selfie photo kada time in/out, para sa manager review</li>
+  </ul>
+  <p>May "Refresh data" button at sync status indicator (Connecting… / Live) para malaman kung gaano ka-updated ang datos na nakikita.</p>`
+},
+{
+  id: 'branches-page-overview',
+  category: 'Multi-Branch',
+  question: 'Ano ang pagkakaiba ng Branches page sa "All Branches" widget sa Overview?',
+  keywords: ['branches page', 'compare branches', 'branch health', 'live status branch', 'stock transfer', 'transfer request', 'new transfer'],
+  answer: `<p>Ang <strong>"All Branches" widget sa Overview</strong> ay mabilisang buod lang (combined sales, transactions, low-stock snapshot) mula sa lahat ng branch.</p>
+  <p>Ang dedikadong <strong>Branches page</strong> (sidebar → Branches, premium feature) ay mas detalyado — makikita dito ang live status/health kada branch at low-stock alerts kada branch, pati na ang <strong>Stock Transfer Request</strong> sa pagitan ng branches — i-click ang <strong>"New Transfer"</strong> para humiling ng paglipat ng stock mula sa isang branch papunta sa iba.</p>`
+},
+{
+  id: 'inv-batch-lot-tracking',
+  category: 'Inventory',
+  question: 'Ano ang Batch / Lot Tracking?',
+  keywords: ['batch tracking', 'lot tracking', 'lot number', 'expiry per batch', 'fefo', 'batch expiry', 'batchlots'],
+  answer: `<p>Ipinapakita ng <strong>Batch / Lot Tracking</strong> page ang bawat batch/lot na naitala sa lahat ng produkto — Quantity, Expiry Date, Status (<em>Expired</em>, <em>Expiring Soon</em> kung ≤7 araw na lang, <em>Good</em>, o <em>No Expiry Set</em>), Cost Price, Supplier, at petsa ng pagtanggap (Received).</p>
+  <p>Ginagamit ng checkout ang <strong>FEFO (First-Expiry, First-Out)</strong> na paraan — ang batch na pinaka-malapit nang mag-expire ang unang mauubos, para maiwasan ang pag-expire ng mga stock.</p>
+  <p>May Search (product/code/lot number), filter by status, sort (Nearest Expiry / Product Name / Highest Quantity), at Export CSV.</p>`
+},
+{
+  id: 'bir-compliance-overview',
+  category: 'BIR Compliance',
+  question: 'Ano ang BIR Compliance page?',
+  keywords: ['bir compliance', 'agt', 'accumulated grand total', 'bir z-reading', 'e-journal', 'sales book', 'eis', 'invoice number bir'],
+  answer: `<p>Ipinapakita rito ang <strong>Accumulated Grand Total (AGT)</strong>, invoice numbering, at ang <strong>BIR Z-Reading</strong> — <strong>hiwalay</strong> ito sa Shift/Z-Reading ng cashier (na para sa cash count).</p>
+  <ul>
+    <li><strong>BIR Z-Reading</strong> — isinasara ang kasalukuyang reading period (Beginning AGT, Ending AGT, Net Sales, saklaw na invoice numbers). Hindi na ito mababawi.</li>
+    <li><strong>Exports</strong> — pwedeng i-download ang e-Journal (.txt), Sales Book (.csv), at EIS (JSON) batay sa napiling date range (Philippine/Manila time).</li>
+    <li><strong>Z-Reading History</strong>, <strong>Void Log</strong>, at <strong>AGT Reset History</strong> — talaan ng mga naunang Z-Reading, void na may kaukulang invoice number, at reset ng AGT.</li>
+  </ul>`
+},
+{
+  id: 'bir-agt-reset',
+  category: 'BIR Compliance',
+  question: 'Paano mag-reset ng Accumulated Grand Total (AGT)?',
+  keywords: ['reset agt', 'bagong ptu', 'bagong machine bir', 'agt reset'],
+  verdict: 'depende',
+  answer: `<p>Para lang ito sa <strong>espesyal na kaso</strong> (hal. bagong machine/PTU, o kung pinahintulutan ng BIR). Kailangan muna ng dahilan at password bago ito matuloy, kaya dapat Admin/authorized personnel lang ang gumagawa nito.</p>
+  <p>Naitatala ito sa <strong>AGT Reset History</strong> (kasama ang previous AGT, sino ang nag-authorize, at dahilan), at hindi naaapektuhan ang invoice numbering.</p>`
 },
 
 ];

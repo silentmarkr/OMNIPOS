@@ -70,11 +70,20 @@ function resolveUnit(product, unitName) {
 // the product's own `price`, or a Store-Settings price level override.
 //   canUsePriceLevel: boolean — the caller (route) must have already checked the
 //   cashier's `price_level_select` permission when priceLevel is anything other
-//   than empty/'default'.
+//   than empty (no level / catalog price).
+// NOTE: only a blank/empty level means "no level". A level is NOT treated as
+// "no level" just because the store happened to name it "Retail" or "Default" —
+// doing that used to silently discard the price the owner set for a Price Level
+// with that exact name (e.g. a store that configured "Wholesale" and "Retail" as
+// its two named Price Levels would have "Retail" sales quietly re-priced at the
+// bare catalog price at checkout, even though the client correctly showed and
+// added the item at the Retail level's own price). The client only ever sends ''
+// or null for "no level", never the words "default"/"retail" as a stand-in, so
+// this special case had no legitimate use and only caused that collision.
 function resolveBasePrice(product, priceLevel, canUsePriceLevel) {
     const level = (priceLevel === undefined || priceLevel === null) ? '' : String(priceLevel).trim();
     const catalogPrice = round2(parseFloat(product && product.price) || 0);
-    if (!level || level.toLowerCase() === 'default' || level.toLowerCase() === 'retail') {
+    if (!level) {
         return { ok: true, basePrice: catalogPrice, levelUsed: null };
     }
     if (!canUsePriceLevel) {
@@ -125,9 +134,18 @@ function resolveLine(product, item, opts = {}) {
     const priceResult = resolveBasePrice(product, item.priceLevel, !!opts.canUsePriceLevel);
     if (!priceResult.ok) return { ok: false, error: `${product.name}: ${priceResult.error}` };
 
-    // A fixedPrice on the UOM entry replaces basePrice*factor entirely for that unit
-    // (e.g. a Box sold at a rounded price instead of 24 * per-piece price).
-    const unitPrice = unit.fixedPrice !== null ? unit.fixedPrice : round2(priceResult.basePrice * unit.factor);
+    // A fixedPrice on the UOM entry replaces basePrice*factor for that unit
+    // (e.g. a Box sold at a rounded price instead of 24 * per-piece price) —
+    // but it's a rounded convenience price calibrated against the product's
+    // plain catalog price only, never against a Price Level's own price. So
+    // once a Price Level override is actually in effect (priceResult.levelUsed
+    // set), the level's price must still take effect: the fixedPrice is
+    // ignored and the line is priced as basePrice(level) * factor instead.
+    // Without this, a product with a fixed unit price would keep charging that
+    // same flat amount no matter which Price Level (e.g. Wholesale) was
+    // selected, silently discarding the level's price.
+    const useFixedPrice = unit.fixedPrice !== null && !priceResult.levelUsed;
+    const unitPrice = useFixedPrice ? unit.fixedPrice : round2(priceResult.basePrice * unit.factor);
     const lineSubtotal = round2(unitPrice * quantity);
     const itemDiscount = Math.min(Math.max(0, parseFloat(item.itemDiscount) || 0), lineSubtotal);
 
@@ -169,6 +187,48 @@ function validateCartUnits(items) {
     return { ok: true };
 }
 
+// Same normalization resolveBasePrice() uses for a requested level: only a blank
+// value means "no level / Retail". A level actually named "Retail" or "Default"
+// by the store is a real, distinct level and must NOT be folded back into ''
+// here, or a sale under that named level would look "mixed" against a sale with
+// no level at all and get wrongly rejected/merged by validateCartPriceLevel().
+function normalizePriceLevelKey(raw) {
+    const level = (raw === undefined || raw === null) ? '' : String(raw).trim();
+    if (!level) return '';
+    return level;
+}
+
+// Enforces "one Price Level per sale": every line in the cart must request the SAME
+// Price Level (Retail/'' counts as a level too). This mirrors the POS UI's own cart-wide
+// price-level lock (checkCartPriceLevelGuard() in app.js — once the cart has an item, its
+// price level is locked and a conflicting scan/selection is rejected), but that check only
+// runs in the browser. This is the server-side backstop: it's what actually stops a sale
+// from being recorded with two different price levels — whether from a bug in the client,
+// a direct/modified API call, or a stale cached cart — for example the SAME product code
+// showing up twice at two different prices because one line kept its Retail price while
+// another line was quietly switched to Wholesale. Called once per transaction, before any
+// line is priced, so a mixed-level sale is rejected outright instead of silently billing
+// part of the cart at an unexpected price.
+function validateCartPriceLevel(items) {
+    let lockedLevel = null;
+    let lockedLabel = '';
+    for (const item of (items || [])) {
+        const key = normalizePriceLevelKey(item && item.priceLevel);
+        if (lockedLevel === null) {
+            lockedLevel = key;
+            lockedLabel = key || 'Retail';
+            continue;
+        }
+        if (key !== lockedLevel) {
+            return {
+                ok: false,
+                error: `Hindi puwedeng maghalo ng price level sa isang benta (${lockedLabel} at ${key || 'Retail'}) — tapusin o i-clear muna ang kasalukuyang benta bago lumipat ng price level.`
+            };
+        }
+    }
+    return { ok: true };
+}
+
 module.exports = {
     DECIMAL_PLACES,
     round,
@@ -177,5 +237,7 @@ module.exports = {
     resolveUnit,
     resolveBasePrice,
     resolveLine,
-    validateCartUnits
+    validateCartUnits,
+    normalizePriceLevelKey,
+    validateCartPriceLevel
 };

@@ -442,6 +442,16 @@ const FILE_PURCHASE_ORDERS ='purchaseOrders';
 const FILE_LOWSTOCK_TRACKING ='lowStockTracking';
 const FILE_STOCK_RETURNS ='stockReturns';
 const FILE_ATTENDANCE = 'attendanceRecords';
+// NEW (additive, does not touch any existing module/route): physical
+// inventory count sessions, consignment-from-supplier tracking, and a
+// damage/spoilage/waste log. Same JSON-blob-per-module pattern as every
+// other FILE_* above, so nothing about storage/backup/migration needs to
+// change for these to work (see getAllModuleNames() in db.js — it auto-
+// discovers modules from what's actually written).
+const FILE_INVENTORY_COUNTS = 'inventoryCounts';
+const FILE_CONSIGNMENTS = 'consignments';
+const FILE_WASTE_LOG = 'wasteLog';
+const FILE_SUPPLIERS = 'suppliers';
 
 // ============================================================================
 // RBAC (ROLES & PERMISSIONS) — SECTION START
@@ -492,6 +502,10 @@ const MENU_REGISTRY = [
     { key:'restock_direct_apply', label:'Reorder Alerts — Quick Restock Direct Apply (No Approval Needed)', group:'Reorder / Purchase Orders' },
     { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
     { key:'stock_return_manager_review', label:'Inventory — Finalize Manager Review on Damaged/Non-Restockable Items (2nd Reviewer, Separate From Initial Inspect)', group:'Reorder / Purchase Orders' },
+    { key:'inventory_count', label:'Inventory — Physical Count / Stock Take (Cycle Count, Apply Variance to Stock)', group:'Reorder / Purchase Orders' },
+    { key:'consignment_tracking', label:'Inventory — Consignment Tracking (Goods on Consignment From Suppliers, Settlement)', group:'Reorder / Purchase Orders' },
+    { key:'waste_log', label:'Inventory — Damage / Spoilage / Waste Log (Deducts Stock, Records Reason)', group:'Reorder / Purchase Orders' },
+    { key:'supplier_directory', label:'Inventory — Supplier/Vendor Directory (Reusable Supplier List Used by Consignment & Purchase Orders)', group:'Reorder / Purchase Orders' },
     { key:'branches', label:'Branches Page (View Combined Sales, Per-Branch Drilldown, Trends, Alerts, and Stock Transfers From Other Branches, Premium Feature)', group:'Multi-Branch' },
     { key:'remoteops', label:'Remote Operations & Staff Attendance (Phone Monitoring, Selfie Time In/Out, Staff Activity Reports)', group:'Remote Operations' },
     { key:'attendance', label:'Staff Attendance — Time In / Time Out With Selfie', group:'Remote Operations' },
@@ -2945,7 +2959,7 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
     ai_assistant: {
         id: 'ai_assistant',
         name: 'OmniPOS AI Assistant',
-        description: 'An advanced AI-powered assistant, embedded right inside the FAQ page, that reads/understands the store\'s OmniPOS FAQ Knowledge Base and answers Admin/user questions about how to use the system in natural language (Tagalog/English).',
+        description: 'An advanced AI-powered assistant, embedded right inside the Help page, that reads/understands the store\'s OmniPOS FAQ Knowledge Base and answers Admin/user questions about how to use the system in natural language (Tagalog/English).',
         price: { monthly: 179, yearly: 1790 }
     },
     remote_operations: {
@@ -3380,6 +3394,7 @@ const FEATURE_CATALOG = {
     advanced_reports: catalogEntry('advanced_reports', 'Sales Analytics & Advanced Reports', 799, 'module', 'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.'),
     purchase_orders: catalogEntry('purchase_orders', 'Purchase Orders Module', 999, 'module', 'Create and track Purchase Orders to suppliers, including reorder suggestions.'),
     batch_lot_tracking: catalogEntry('batch_lot_tracking', 'Batch/Lot Tracking & Expiry Management', 799, 'module', 'Track stock per delivery/lot with its own expiry date, FEFO (First-Expiry, First-Out) auto-deduction, and the dedicated Batch/Lot Tracking page with near-expiry alerts.'),
+    inventory_tools: catalogEntry('inventory_tools', 'Inventory Tools', 999, 'module', 'The dedicated Inventory Tools page: physical inventory counts (by category or selected items), consignment stock receiving/settlement, a damage/spoilage/waste log with automatic stock deduction, a dead-stock/slow-moving report, and a Supplier Directory.'),
     customer_crm: catalogEntry('customer_crm', 'Customer Profiles, Loyalty & Debtors', 799, 'module', 'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.'),
     shift_management: catalogEntry('shift_management', 'Multi-Cashier Shift Oversight & Z-Reading Reports', 699, 'module', 'Multi-cashier shift tracking and Z-Reading (cash count) reports.'),
     rbac_management: {
@@ -3407,7 +3422,7 @@ const FEATURE_CATALOG = {
         get price() { return MODULE_SUBSCRIPTION_PLANS.ai_assistant.price.monthly; },
         get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.ai_assistant.price; },
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
-        description: 'An advanced AI-powered assistant embedded in the FAQ page. It answers Admin/user questions about the system\'s flow/features in natural language, grounded on the OmniPOS FAQ Knowledge Base. Billed as a monthly or yearly subscription.'
+        description: 'An advanced AI-powered assistant embedded in the Help page. It answers Admin/user questions about the system\'s flow/features in natural language, grounded on the OmniPOS FAQ Knowledge Base. Billed as a monthly or yearly subscription.'
     },
     remote_operations: {
         name: 'Remote Operations & Attendance',
@@ -9259,7 +9274,53 @@ function normalizeProductUomFields(p) {
         });
         p.priceLevels = out;
     }
+    // priceLevelBarcodes: { levelName: aliasCode }. An alias code is a SEPARATE scannable
+    // barcode value (printed on a Wholesale/Reseller label) that resolves back to THIS same
+    // product record — same stock, same product code — but auto-selects that price level
+    // when scanned, instead of the cashier having to pick the level manually. Cross-product
+    // uniqueness (alias must not collide with any product's code or another product's alias)
+    // is checked separately in the /api/products routes, where the full product list is
+    // already loaded.
+    if ('priceLevelBarcodes' in p) {
+        const src = (p.priceLevelBarcodes && typeof p.priceLevelBarcodes === 'object' && !Array.isArray(p.priceLevelBarcodes)) ? p.priceLevelBarcodes : {};
+        const out = {};
+        Object.keys(src).slice(0, 10).forEach(k => {
+            const levelName = String(k).trim().slice(0, 30);
+            const alias = String(src[k] || '').trim().slice(0, 40);
+            if (levelName && alias) out[levelName] = alias;
+        });
+        p.priceLevelBarcodes = out;
+    }
     return p;
+}
+// Rejects an alias barcode (product.priceLevelBarcodes[level]) that collides with any
+// product's own code, or with another product's alias — scanning must always resolve to
+// exactly one product. `excludeCode` is the product being saved (so it doesn't conflict
+// with its own pre-existing aliases).
+function findPriceLevelBarcodeConflict(products, product, excludeCode) {
+    const aliases = (product && product.priceLevelBarcodes && typeof product.priceLevelBarcodes === 'object') ? product.priceLevelBarcodes : {};
+    const excludeKey = String(excludeCode || '').trim().toLowerCase();
+    for (const level of Object.keys(aliases)) {
+        const alias = String(aliases[level] || '').trim();
+        if (!alias) continue;
+        const aliasKey = alias.toLowerCase();
+        if (product.code && aliasKey === String(product.code).trim().toLowerCase()) {
+            return `Ang alias barcode "${alias}" (${level}) ay hindi pwedeng kapareho ng sarili nitong Product Code.`;
+        }
+        for (const other of products) {
+            if (String(other.code).trim().toLowerCase() === excludeKey) continue;
+            if (String(other.code).trim().toLowerCase() === aliasKey) {
+                return `Ang alias barcode "${alias}" (${level}) ay ginagamit na bilang Product Code ng "${other.name}" (${other.code}).`;
+            }
+            const otherAliases = (other.priceLevelBarcodes && typeof other.priceLevelBarcodes === 'object') ? other.priceLevelBarcodes : {};
+            for (const otherLevel of Object.keys(otherAliases)) {
+                if (String(otherAliases[otherLevel] || '').trim().toLowerCase() === aliasKey) {
+                    return `Ang alias barcode "${alias}" (${level}) ay ginagamit na ng "${other.name}" (${other.code}) para sa ${otherLevel}.`;
+                }
+            }
+        }
+    }
+    return null;
 }
 app.post('/api/products', requirePermission('products'), (req, res) => {
     const { product } = req.body;
@@ -9269,6 +9330,10 @@ app.post('/api/products', requirePermission('products'), (req, res) => {
     const codeExists = products.some(p => p.code.trim().toLowerCase() === product.code.trim().toLowerCase());
     if (codeExists) {
         return res.status(400).json({ success: false, message: `❌ Ang Product Code [${product.code}] ay ginagamit na!` });
+    }
+    const barcodeConflict = findPriceLevelBarcodeConflict(products, product, product.code);
+    if (barcodeConflict) {
+        return res.status(400).json({ success: false, message: `❌ ${barcodeConflict}` });
     }
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
@@ -9319,6 +9384,12 @@ function processProductUpdate(req, res) {
     normalizeProductUomFields(updatedData);
     const username = req.authUser.username;
     let products = readData(FILE_PRODUCTS);
+    if ('priceLevelBarcodes' in updatedData) {
+        const barcodeConflict = findPriceLevelBarcodeConflict(products, { code, priceLevelBarcodes: updatedData.priceLevelBarcodes }, code);
+        if (barcodeConflict) {
+            return res.status(400).json({ success: false, message: `❌ ${barcodeConflict}` });
+        }
+    }
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
     if (canApplyDirectly) {
@@ -10096,6 +10167,12 @@ async function processTransaction(req, res) {
     const cartUnitCheck = uomPricing.validateCartUnits(transaction.items || []);
     if (!cartUnitCheck.ok) {
         return res.status(400).json({ success: false, message: cartUnitCheck.error });
+    }
+    // Server-side backstop for "only one Price Level per sale" — see validateCartPriceLevel()
+    // in uom-pricing.js for why this can't be left to the client-side cart lock alone.
+    const cartLevelCheck = uomPricing.validateCartPriceLevel(transaction.items || []);
+    if (!cartLevelCheck.ok) {
+        return res.status(400).json({ success: false, message: cartLevelCheck.error });
     }
     const cashierIsAdmin = (req.authUser.role || '').toLowerCase() === 'admin';
     const canUsePriceLevel = cashierIsAdmin || !!getPermissionsForRole(req.authUser.role).price_level_select;
@@ -12467,6 +12544,537 @@ async function processStockReturnReview(req, res) {
         returnRecord: record
     });
 }
+
+// ============================================================================
+// NEW (additive) — PHYSICAL INVENTORY COUNT (STOCK TAKE / CYCLE COUNT)
+// ============================================================================
+function genCountId() { return 'CNT-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'); }
+
+app.get('/api/inventory-counts', requirePermission('inventory_count'), requireFeature('inventory_tools'), (req, res) => {
+    const status = String(req.query.status || '').trim().toLowerCase();
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    const filtered = status ? sessions.filter(s => String(s.status || '').toLowerCase() === status) : sessions;
+    res.json({ success: true, sessions: filtered });
+});
+
+app.post('/api/inventory-counts', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-start', 20, 10 * 60 * 1000), (req, res) => {
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    if (sessions.some(s => s.status === 'open')) {
+        return res.status(409).json({ success: false, message: 'May bukas nang physical count session. Kumpletuhin o kanselahin muna iyon bago magsimula ng bago.' });
+    }
+    const scope = String(req.body.scope || 'all').trim().toLowerCase();
+    const category = String(req.body.category || '').trim();
+    const codes = Array.isArray(req.body.codes) ? req.body.codes.map(c => String(c).trim()).filter(Boolean) : [];
+    const products = readData(FILE_PRODUCTS, []);
+    let targetProducts;
+    if (scope === 'category' && category) {
+        targetProducts = products.filter(p => String(p.category || '').trim().toLowerCase() === category.toLowerCase());
+    } else if (scope === 'codes' && codes.length) {
+        const codeSet = new Set(codes.map(c => c.toLowerCase()));
+        targetProducts = products.filter(p => codeSet.has(String(p.code || '').trim().toLowerCase()));
+    } else {
+        targetProducts = products;
+    }
+    if (!targetProducts.length) {
+        return res.status(400).json({ success: false, message: 'Walang product na tumugma sa napiling scope.' });
+    }
+    const session = {
+        id: genCountId(),
+        status: 'open',
+        scope,
+        category: scope === 'category' ? category : null,
+        notes: String(req.body.notes || '').trim(),
+        createdAt: new Date().toISOString(),
+        createdBy: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown',
+        finalizedAt: null,
+        finalizedBy: null,
+        items: targetProducts.map(p => ({
+            code: String(p.code || '').trim(),
+            name: p.name || '',
+            unit: p.baseUnit || 'unit',
+            systemQty: uomPricing.round(parseFloat(p.stock) || 0, uomPricing.DECIMAL_PLACES),
+            countedQty: null,
+            variance: null,
+            countedAt: null,
+            countedBy: null
+        }))
+    };
+    sessions.unshift(session);
+    writeData(FILE_INVENTORY_COUNTS, sessions);
+    logAction(session.createdBy, `PHYSICAL COUNT STARTED (${session.id}): ${session.items.length} item(s), scope=${scope}${category ? ' [' + category + ']' : ''}`);
+    res.json({ success: true, session });
+});
+
+app.put('/api/inventory-counts/:id', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-submit', 120, 10 * 60 * 1000), (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const counts = Array.isArray(req.body.counts) ? req.body.counts : [];
+    if (!counts.length) return res.status(400).json({ success: false, message: 'Walang binigay na bilang (counts).' });
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    const idx = sessions.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang count session.' });
+    const session = sessions[idx];
+    if (session.status !== 'open') {
+        return res.status(409).json({ success: false, message: 'Hindi na maaaring baguhin ang session na ito (hindi na open).' });
+    }
+    const byCode = new Map(counts.map(c => [String(c.code || '').trim().toLowerCase(), c]));
+    const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const now = new Date().toISOString();
+    let updated = 0;
+    session.items.forEach(item => {
+        const submitted = byCode.get(item.code.toLowerCase());
+        if (!submitted || submitted.countedQty === undefined || submitted.countedQty === null || submitted.countedQty === '') return;
+        const countedQty = toQty3(submitted.countedQty);
+        item.countedQty = countedQty;
+        item.variance = uomPricing.round(countedQty - item.systemQty, uomPricing.DECIMAL_PLACES);
+        item.countedAt = now;
+        item.countedBy = who;
+        updated++;
+    });
+    sessions[idx] = session;
+    writeData(FILE_INVENTORY_COUNTS, sessions);
+    res.json({ success: true, message: `${updated} item(s) na-update ang bilang.`, session });
+});
+
+app.post('/api/inventory-counts/:id/finalize', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-finalize', 10, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processFinalizeInventoryCount(req, res));
+});
+function processFinalizeInventoryCount(req, res) {
+    const id = String(req.params.id || '').trim();
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    const idx = sessions.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang count session.' });
+    const session = sessions[idx];
+    if (session.status !== 'open') {
+        return res.status(409).json({ success: false, message: 'Na-finalize na o cancelled na ang session na ito.' });
+    }
+    const uncounted = session.items.filter(i => i.countedQty === null || i.countedQty === undefined);
+    if (uncounted.length) {
+        return res.status(400).json({ success: false, message: `May ${uncounted.length} item(s) na wala pang bilang. Kumpletuhin muna ang lahat bago i-finalize.` });
+    }
+    const products = readData(FILE_PRODUCTS, []);
+    const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    let totalVarianceValue = 0;
+    let changedCount = 0;
+    for (const item of session.items) {
+        const diff = uomPricing.round(item.variance || 0, uomPricing.DECIMAL_PLACES);
+        if (Math.abs(diff) < 1e-6) continue;
+        const prod = productByCode.get(item.code.toLowerCase());
+        if (!prod) continue; // product deleted since count started — skip silently, variance stays on record for reference
+        if (diff > 0) {
+            addBaseStock(prod, diff);
+        } else {
+            deductProductStock(prod, -diff);
+        }
+        const cost = parseFloat(prod.costPrice) || parseFloat(prod.price) || 0;
+        totalVarianceValue += diff * cost;
+        changedCount++;
+    }
+    session.status = 'finalized';
+    session.finalizedAt = new Date().toISOString();
+    session.finalizedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    session.totalVarianceValue = uomPricing.round(totalVarianceValue, 2);
+    sessions[idx] = session;
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_INVENTORY_COUNTS, data: sessions }
+        ]);
+    } catch (error) {
+        console.error('Inventory count finalize commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Hindi na-save nang buo ang finalize. Walang permanenteng pagbabago na dapat naiwan; subukan muli.' });
+    }
+    logAction(session.finalizedBy, `PHYSICAL COUNT FINALIZED (${session.id}): ${changedCount} item(s) adjusted, net variance value ≈ ₱${session.totalVarianceValue.toFixed(2)}`);
+    res.json({ success: true, message: `Na-finalize ang count. ${changedCount} item(s) ang na-adjust.`, session });
+}
+
+app.delete('/api/inventory-counts/:id', requirePermission('inventory_count'), requireFeature('inventory_tools'), (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    const idx = sessions.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang count session.' });
+    if (sessions[idx].status === 'finalized') {
+        return res.status(409).json({ success: false, message: 'Hindi na makakansela ang isang session na na-finalize na.' });
+    }
+    sessions[idx].status = 'cancelled';
+    sessions[idx].cancelledAt = new Date().toISOString();
+    sessions[idx].cancelledBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    writeData(FILE_INVENTORY_COUNTS, sessions);
+    res.json({ success: true, message: 'Nakansela ang count session.' });
+});
+
+// ============================================================================
+// NEW (additive) — DAMAGE / SPOILAGE / WASTE LOG
+// ============================================================================
+const WASTE_CATEGORIES = new Set(['damage', 'spoilage', 'expired', 'breakage', 'other']);
+function genWasteId() { return 'WSTE-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'); }
+
+app.get('/api/waste-log', requirePermission('waste_log'), requireFeature('inventory_tools'), (req, res) => {
+    const { code, category, from, to } = req.query;
+    let entries = readData(FILE_WASTE_LOG, []);
+    if (code) entries = entries.filter(e => String(e.code || '').toLowerCase() === String(code).trim().toLowerCase());
+    if (category) entries = entries.filter(e => String(e.category || '').toLowerCase() === String(category).trim().toLowerCase());
+    if (from) { const t = new Date(from).getTime(); if (!isNaN(t)) entries = entries.filter(e => new Date(e.recordedAt).getTime() >= t); }
+    if (to) { const t = new Date(to).getTime(); if (!isNaN(t)) entries = entries.filter(e => new Date(e.recordedAt).getTime() <= t); }
+    const totalCostImpact = entries.reduce((s, e) => s + (parseFloat(e.costImpact) || 0), 0);
+    res.json({ success: true, entries, totalCostImpact: uomPricing.round(totalCostImpact, 2) });
+});
+
+app.post('/api/waste-log', requirePermission('waste_log'), requireFeature('inventory_tools'), rateLimit('waste-log-add', 60, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processAddWasteEntry(req, res));
+});
+function processAddWasteEntry(req, res) {
+    const code = String(req.body.code || '').trim();
+    const quantity = toQty3(req.body.quantity);
+    const category = String(req.body.category || 'other').trim().toLowerCase();
+    const reason = String(req.body.reason || '').trim();
+    if (!code || quantity <= 0) {
+        return res.status(400).json({ success: false, message: 'Kailangan ng product code at quantity na mas malaki sa zero.' });
+    }
+    if (!WASTE_CATEGORIES.has(category)) {
+        return res.status(400).json({ success: false, message: `Invalid category. Pumili sa: ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
+    }
+    const products = readData(FILE_PRODUCTS, []);
+    const prod = products.find(p => String(p.code || '').trim().toLowerCase() === code.toLowerCase());
+    if (!prod) return res.status(404).json({ success: false, message: `Product ${code} hindi nahanap.` });
+    const currentStock = uomPricing.round(parseFloat(prod.stock) || 0, uomPricing.DECIMAL_PLACES);
+    if (quantity > currentStock + 1e-6) {
+        return res.status(400).json({ success: false, message: `Ang stock ng ${prod.name || code} ay ${currentStock} lang — hindi maaaring mag-log ng ${quantity}.` });
+    }
+    deductProductStock(prod, quantity);
+    const cost = parseFloat(prod.costPrice) || parseFloat(prod.price) || 0;
+    const entries = readData(FILE_WASTE_LOG, []);
+    const entry = {
+        id: genWasteId(),
+        code, name: prod.name || '', unit: prod.baseUnit || 'unit',
+        quantity, category, reason,
+        costImpact: uomPricing.round(quantity * cost, 2),
+        notes: String(req.body.notes || '').trim(),
+        recordedAt: new Date().toISOString(),
+        recordedBy: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown'
+    };
+    entries.unshift(entry);
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_WASTE_LOG, data: entries }
+        ]);
+    } catch (error) {
+        console.error('Waste log commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Hindi na-save ang waste entry. Subukan muli.' });
+    }
+    logAction(entry.recordedBy, `WASTE LOG: ${quantity} x ${prod.name || code} (${category}) — ${reason || 'no reason given'} — est. loss ₱${entry.costImpact.toFixed(2)}`);
+    res.json({ success: true, message: 'Na-record ang waste/damage at na-deduct na sa stock.', entry });
+}
+
+// ============================================================================
+// NEW (additive) — CONSIGNMENT TRACKING (goods received from a supplier on
+// consignment: it arrives on the shelf and is sellable immediately, but the
+// supplier is only paid for what actually sells; unsold stock can be
+// returned).
+// ============================================================================
+function genConsignmentId() { return 'CNS-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'); }
+
+// Sums how much of `code` has been sold (in base units) at/after `sinceIso`,
+// by scanning completed transactions (voided sales are already removed from
+// FILE_TRANSACTIONS, and refunds are handled separately — this is a good-
+// enough operational figure for supplier settlement, not a BIR figure).
+function sumUnitsSoldSince(transactions, code, sinceIso) {
+    const sinceTime = new Date(sinceIso).getTime() || 0;
+    const lowerCode = String(code || '').trim().toLowerCase();
+    let total = 0;
+    for (const t of transactions) {
+        const at = new Date(t.isoDate || t.timestamp || t.date || 0).getTime();
+        if (isNaN(at) || at < sinceTime) continue;
+        if (!Array.isArray(t.items)) continue;
+        for (const item of t.items) {
+            if (String(item.code || '').trim().toLowerCase() !== lowerCode) continue;
+            const q = (typeof item.baseQty === 'number') ? item.baseQty : (parseFloat(item.quantity) || 0);
+            total += q;
+        }
+    }
+    return uomPricing.round(total, uomPricing.DECIMAL_PLACES);
+}
+
+function attachConsignmentComputedFields(record, transactions) {
+    const items = (record.items || []).map(item => {
+        const qtySoldTotal = sumUnitsSoldSince(transactions, item.code, record.dateReceived);
+        const qtySettled = uomPricing.round(parseFloat(item.qtySettled) || 0, uomPricing.DECIMAL_PLACES);
+        const qtyReturned = uomPricing.round(parseFloat(item.qtyReturned) || 0, uomPricing.DECIMAL_PLACES);
+        const qtyPendingSettlement = Math.max(0, uomPricing.round(qtySoldTotal - qtySettled, uomPricing.DECIMAL_PLACES));
+        const qtyUnsold = Math.max(0, uomPricing.round(item.qtyReceived - qtySoldTotal - qtyReturned, uomPricing.DECIMAL_PLACES));
+        return { ...item, qtySoldTotal, qtyPendingSettlement, qtyUnsold, payableNow: uomPricing.round(qtyPendingSettlement * (parseFloat(item.unitCost) || 0), 2) };
+    });
+    return { ...record, items };
+}
+
+app.get('/api/consignments', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), (req, res) => {
+    const status = String(req.query.status || '').trim().toLowerCase();
+    let records = readData(FILE_CONSIGNMENTS, []);
+    if (status) records = records.filter(r => String(r.status || '').toLowerCase() === status);
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    res.json({ success: true, consignments: records.map(r => attachConsignmentComputedFields(r, transactions)) });
+});
+
+app.post('/api/consignments', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-create', 30, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processCreateConsignment(req, res));
+});
+function processCreateConsignment(req, res) {
+    const supplierName = String(req.body.supplierName || '').trim();
+    const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!supplierName) return res.status(400).json({ success: false, message: 'Kailangan ng pangalan ng supplier.' });
+    if (!rawItems.length) return res.status(400).json({ success: false, message: 'Kailangan ng kahit isang item.' });
+    const products = readData(FILE_PRODUCTS, []);
+    const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    const items = [];
+    for (const raw of rawItems) {
+        const code = String(raw.code || '').trim();
+        const qtyReceived = toQty3(raw.qtyReceived);
+        const unitCost = Math.max(0, parseFloat(raw.unitCost) || 0);
+        if (!code || qtyReceived <= 0) continue;
+        const prod = productByCode.get(code.toLowerCase());
+        if (!prod) return res.status(404).json({ success: false, message: `Product ${code} hindi nahanap.` });
+        items.push({ code, name: prod.name || '', unit: prod.baseUnit || 'unit', qtyReceived, unitCost, qtySettled: 0, qtyReturned: 0 });
+    }
+    if (!items.length) return res.status(400).json({ success: false, message: 'Walang valid na item.' });
+    for (const item of items) {
+        const prod = productByCode.get(item.code.toLowerCase());
+        addBaseStock(prod, item.qtyReceived, { supplier: supplierName, notes: 'Received on consignment' });
+    }
+    const record = {
+        id: genConsignmentId(),
+        supplierName,
+        status: 'active',
+        notes: String(req.body.notes || '').trim(),
+        dateReceived: new Date().toISOString(),
+        createdBy: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown',
+        items,
+        settlements: []
+    };
+    const records = readData(FILE_CONSIGNMENTS, []);
+    records.unshift(record);
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_CONSIGNMENTS, data: records }
+        ]);
+    } catch (error) {
+        console.error('Consignment create commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Hindi na-save ang consignment. Subukan muli.' });
+    }
+    logAction(record.createdBy, `CONSIGNMENT RECEIVED (${record.id}) from ${supplierName}: ${items.length} product line(s) added to stock.`);
+    res.json({ success: true, message: 'Naitala ang consignment at naidagdag na sa stock.', consignment: record });
+}
+
+app.post('/api/consignments/:id/settle', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-settle', 60, 10 * 60 * 1000), (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!rawItems.length) return res.status(400).json({ success: false, message: 'Walang item na isesettle.' });
+    const records = readData(FILE_CONSIGNMENTS, []);
+    const idx = records.findIndex(r => r.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang consignment record.' });
+    const record = records[idx];
+    if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const computed = attachConsignmentComputedFields(record, transactions);
+    const byCode = new Map(rawItems.map(i => [String(i.code || '').trim().toLowerCase(), i]));
+    let settledAmount = 0, settledQtyTotal = 0;
+    for (const item of record.items) {
+        const submitted = byCode.get(item.code.toLowerCase());
+        if (!submitted) continue;
+        const computedItem = computed.items.find(c => c.code === item.code);
+        const settleQty = toQty3(submitted.settleQty);
+        if (settleQty <= 0) continue;
+        if (settleQty > computedItem.qtyPendingSettlement + 1e-6) {
+            return res.status(400).json({ success: false, message: `${item.name || item.code}: pinakamataas na pwedeng i-settle ngayon ay ${computedItem.qtyPendingSettlement}.` });
+        }
+        item.qtySettled = uomPricing.round((parseFloat(item.qtySettled) || 0) + settleQty, uomPricing.DECIMAL_PLACES);
+        settledQtyTotal += settleQty;
+        settledAmount += settleQty * (parseFloat(item.unitCost) || 0);
+    }
+    if (settledQtyTotal <= 0) {
+        return res.status(400).json({ success: false, message: 'Walang na-settle na quantity (baka lagpas sa pending o zero lahat).' });
+    }
+    record.settlements.push({
+        at: new Date().toISOString(),
+        by: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown',
+        amount: uomPricing.round(settledAmount, 2),
+        qty: uomPricing.round(settledQtyTotal, uomPricing.DECIMAL_PLACES)
+    });
+    records[idx] = record;
+    writeData(FILE_CONSIGNMENTS, records);
+    logAction(record.settlements[record.settlements.length - 1].by, `CONSIGNMENT SETTLED (${record.id}) with ${record.supplierName}: ₱${settledAmount.toFixed(2)} for ${settledQtyTotal} unit(s) sold.`);
+    res.json({ success: true, message: `Na-settle ang ₱${settledAmount.toFixed(2)} sa supplier.`, consignment: attachConsignmentComputedFields(record, transactions) });
+});
+
+app.post('/api/consignments/:id/return-unsold', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-return', 30, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processConsignmentReturnUnsold(req, res));
+});
+function processConsignmentReturnUnsold(req, res) {
+    const id = String(req.params.id || '').trim();
+    const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!rawItems.length) return res.status(400).json({ success: false, message: 'Walang item na ibabalik.' });
+    const records = readData(FILE_CONSIGNMENTS, []);
+    const idx = records.findIndex(r => r.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang consignment record.' });
+    const record = records[idx];
+    if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const computed = attachConsignmentComputedFields(record, transactions);
+    const products = readData(FILE_PRODUCTS, []);
+    const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    const byCode = new Map(rawItems.map(i => [String(i.code || '').trim().toLowerCase(), i]));
+    let anyReturned = false;
+    for (const item of record.items) {
+        const submitted = byCode.get(item.code.toLowerCase());
+        if (!submitted) continue;
+        const computedItem = computed.items.find(c => c.code === item.code);
+        const returnQty = toQty3(submitted.returnQty);
+        if (returnQty <= 0) continue;
+        if (returnQty > computedItem.qtyUnsold + 1e-6) {
+            return res.status(400).json({ success: false, message: `${item.name || item.code}: pinakamataas na pwedeng ibalik ay ${computedItem.qtyUnsold} (unsold).` });
+        }
+        const prod = productByCode.get(item.code.toLowerCase());
+        if (!prod) return res.status(404).json({ success: false, message: `Product ${item.code} hindi na nahanap sa katalogo.` });
+        const currentStock = uomPricing.round(parseFloat(prod.stock) || 0, uomPricing.DECIMAL_PLACES);
+        if (returnQty > currentStock + 1e-6) {
+            return res.status(400).json({ success: false, message: `Ang aktwal na stock ng ${prod.name || item.code} ay ${currentStock} lang.` });
+        }
+        deductProductStock(prod, returnQty);
+        item.qtyReturned = uomPricing.round((parseFloat(item.qtyReturned) || 0) + returnQty, uomPricing.DECIMAL_PLACES);
+        anyReturned = true;
+    }
+    if (!anyReturned) return res.status(400).json({ success: false, message: 'Walang na-proseso na return (baka lagpas sa unsold o zero lahat).' });
+    const stillOpen = record.items.some(item => {
+        const c = attachConsignmentComputedFields(record, transactions).items.find(x => x.code === item.code);
+        return c && (c.qtyUnsold > 1e-6 || c.qtyPendingSettlement > 1e-6);
+    });
+    record.status = stillOpen ? 'active' : 'closed';
+    records[idx] = record;
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_CONSIGNMENTS, data: records }
+        ]);
+    } catch (error) {
+        console.error('Consignment return commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Hindi na-save ang return. Subukan muli.' });
+    }
+    logAction(req.authUser && req.authUser.username, `CONSIGNMENT RETURN TO SUPPLIER (${record.id}, ${record.supplierName})`);
+    res.json({ success: true, message: 'Naibalik sa supplier ang unsold na item(s).', consignment: attachConsignmentComputedFields(record, transactions) });
+}
+
+// ============================================================================
+// NEW (additive) — DEAD STOCK / SLOW-MOVING REPORT (read-only; computed from
+// existing product + transaction data, nothing is written)
+// ============================================================================
+app.get('/api/reports/dead-stock', requirePermission('dashboard'), requireFeature('inventory_tools'), (req, res) => {
+    const days = Math.max(1, parseInt(req.query.days, 10) || 60);
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const products = readData(FILE_PRODUCTS, []);
+    const transactions = readData(FILE_TRANSACTIONS, []);
+    const lastSoldByCode = new Map();
+    for (const t of transactions) {
+        const at = new Date(t.isoDate || t.timestamp || t.date || 0).getTime();
+        if (isNaN(at) || !Array.isArray(t.items)) continue;
+        for (const item of t.items) {
+            const code = String(item.code || '').trim().toLowerCase();
+            if (!code) continue;
+            const prev = lastSoldByCode.get(code);
+            if (!prev || at > prev) lastSoldByCode.set(code, at);
+        }
+    }
+    const now = Date.now();
+    const results = products
+        .filter(p => (parseFloat(p.stock) || 0) > 1e-6)
+        .map(p => {
+            const code = String(p.code || '').trim().toLowerCase();
+            const lastSoldAt = lastSoldByCode.has(code) ? lastSoldByCode.get(code) : null;
+            const daysSinceLastSold = lastSoldAt ? Math.floor((now - lastSoldAt) / (24 * 60 * 60 * 1000)) : null;
+            const stock = uomPricing.round(parseFloat(p.stock) || 0, uomPricing.DECIMAL_PLACES);
+            const cost = parseFloat(p.costPrice) || parseFloat(p.price) || 0;
+            return {
+                code: p.code, name: p.name, category: p.category || '', stock,
+                lastSoldDate: lastSoldAt ? new Date(lastSoldAt).toISOString() : null,
+                daysSinceLastSold,
+                neverSold: !lastSoldAt,
+                tiedUpValue: uomPricing.round(stock * cost, 2)
+            };
+        })
+        .filter(r => r.neverSold || r.daysSinceLastSold >= days)
+        .sort((a, b) => (b.daysSinceLastSold ?? 999999) - (a.daysSinceLastSold ?? 999999));
+    const totalTiedUpValue = uomPricing.round(results.reduce((s, r) => s + r.tiedUpValue, 0), 2);
+    res.json({ success: true, days, items: results, totalTiedUpValue });
+});
+
+// ============================================================================
+// NEW (additive) — SUPPLIER / VENDOR DIRECTORY (a reusable, named list of
+// suppliers with contact info, so Consignment and Purchase Orders don't need
+// the supplier name free-typed every time — reduces typos/duplicate names).
+// Same JSON-blob-per-module pattern as the other NEW modules above.
+// ============================================================================
+function genSupplierId() { return 'SUP-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'); }
+function sanitizeSupplierInput(body) {
+    return {
+        name: String((body && body.name) || '').trim(),
+        contactPerson: String((body && body.contactPerson) || '').trim(),
+        phone: String((body && body.phone) || '').trim(),
+        email: String((body && body.email) || '').trim(),
+        address: String((body && body.address) || '').trim(),
+        notes: String((body && body.notes) || '').trim()
+    };
+}
+app.get('/api/suppliers', requirePermission('supplier_directory'), requireFeature('inventory_tools'), (req, res) => {
+    const suppliers = readData(FILE_SUPPLIERS, []).slice()
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    res.json({ success: true, suppliers });
+});
+app.post('/api/suppliers', requirePermission('supplier_directory'), requireFeature('inventory_tools'), rateLimit('supplier-create', 40, 10 * 60 * 1000), (req, res) => {
+    const input = sanitizeSupplierInput(req.body);
+    if (!input.name) return res.status(400).json({ success: false, message: 'Supplier name is required.' });
+    const suppliers = readData(FILE_SUPPLIERS, []);
+    const dup = suppliers.find(s => String(s.name || '').trim().toLowerCase() === input.name.toLowerCase());
+    if (dup) return res.status(409).json({ success: false, message: `A supplier named "${input.name}" already exists.` });
+    const username = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const supplier = {
+        id: genSupplierId(),
+        ...input,
+        createdBy: username,
+        createdAt: new Date().toISOString(),
+        updatedBy: username,
+        updatedAt: new Date().toISOString()
+    };
+    suppliers.push(supplier);
+    writeData(FILE_SUPPLIERS, suppliers);
+    logAction(username, `Added supplier "${supplier.name}" to the Supplier Directory.`);
+    res.json({ success: true, message: 'Supplier saved.', supplier });
+});
+app.put('/api/suppliers/:id', requirePermission('supplier_directory'), requireFeature('inventory_tools'), rateLimit('supplier-update', 60, 10 * 60 * 1000), (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const input = sanitizeSupplierInput(req.body);
+    if (!input.name) return res.status(400).json({ success: false, message: 'Supplier name is required.' });
+    const suppliers = readData(FILE_SUPPLIERS, []);
+    const idx = suppliers.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Supplier not found.' });
+    const dup = suppliers.find(s => s.id !== id && String(s.name || '').trim().toLowerCase() === input.name.toLowerCase());
+    if (dup) return res.status(409).json({ success: false, message: `A supplier named "${input.name}" already exists.` });
+    const username = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    suppliers[idx] = { ...suppliers[idx], ...input, updatedBy: username, updatedAt: new Date().toISOString() };
+    writeData(FILE_SUPPLIERS, suppliers);
+    logAction(username, `Updated supplier "${suppliers[idx].name}" in the Supplier Directory.`);
+    res.json({ success: true, message: 'Supplier updated.', supplier: suppliers[idx] });
+});
+app.delete('/api/suppliers/:id', requirePermission('supplier_directory'), requireFeature('inventory_tools'), rateLimit('supplier-delete', 40, 10 * 60 * 1000), (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const suppliers = readData(FILE_SUPPLIERS, []);
+    const idx = suppliers.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Supplier not found.' });
+    const removed = suppliers[idx];
+    suppliers.splice(idx, 1);
+    writeData(FILE_SUPPLIERS, suppliers);
+    const username = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    logAction(username, `Deleted supplier "${removed.name}" from the Supplier Directory.`);
+    res.json({ success: true, message: 'Supplier deleted.' });
+});
 
 app.post('/api/transactions/:transactionId/void', rateLimit('void-transaction', 8, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processVoidTransaction(req, res));
