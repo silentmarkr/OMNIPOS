@@ -620,7 +620,41 @@ const AI_ASSISTANT_LIMITED_ROLE_MODULES = new Set(['products', 'categories', 'pr
 // Mas maliit na cap dito, at ang FINAL na safety ay ang per-module size
 // budget sa buildAiDatabaseContextMessage() — pareho itong ginagawa
 // para dalawang layer ng proteksyon laban sa sobrang laking context.
-const AI_ASSISTANT_MAX_RECORDS_PER_MODULE = 30;
+// UPDATE: dating 30 ito, pero masyado namang MALIIT kumpara sa TUNAY na
+// context budget ng AI model — kinumpirma na 24,000 tokens ang context
+// window ng @cf/meta/llama-3.3-70b-instruct-fp8-fast (server.js), at
+// dinagdagan na rin ang per-request na size budget sa
+// buildAiDatabaseContextMessage() (MAX_CONTEXT_CHARS, 6000 -> 16000) para
+// tugma dito. Dahil ang MAX_CONTEXT_CHARS na iyon pa rin ang FINAL na
+// safety net (kahit tumaas ang cap na ito, hindi pa rin papayagang
+// lumagpas ang KABUUANG snapshot sa budget na iyon), ligtas na itaas din
+// ang per-module cap papuntang 60 — mas malaking porsyento ng isang
+// average/typical na module (hal. products) ang makikita nang buo bago
+// pa man kailanganing mag-truncate, sa halip na laging 30 lang kahit may
+// pang natitirang espasyo.
+const AI_ASSISTANT_MAX_RECORDS_PER_MODULE = 60;
+
+// BUG FIX: dati laging "data.slice(-CAP)" (kunin ang HULING N item ng array)
+// ang ginagamit sa ibaba kapag lumagpas sa cap ang isang module, sa
+// palagay na laging "oldest-first / naka-append gamit ang .push()" ang
+// pagkakasunod-sunod ng bawat module array — kaya "ang huling N" ay
+// palaging katumbas ng "ang pinakabagong N". PERO maraming module sa
+// buong app ang gumagamit ng .unshift() sa BAWAT bagong record (bagong
+// record laging pumupunta sa UNAHAN, index 0) — ibig sabihin NEWEST-FIRST
+// na talaga ang pagkakasunod-sunod: 'transactions' at 'userlogs' mismo ay
+// row-normalized pa at ORDER BY seq DESC sa SQL query (readRowNormalizedData
+// sa itaas), kaya newest-first din doon sa level ng database. Para sa mga
+// module na ito, ang dating "slice(-CAP)" ay kumukuha ng PINAKALUMANG N
+// records sa halip na pinakabago — kabaligtaran mismo ng layunin nito
+// (tingnan ang paliwanag sa AI_ASSISTANT_MAX_RECORDS_PER_MODULE sa itaas)
+// kaya kung minsan luma/hindi kasalukuyang customer/debt/refund/shift/
+// promo/attendance record ang nakikita/nababanggit ng AI sa halip na ang
+// mga totoong pinakabago, kapag lumagpas na sa 30 records ang module.
+const NEWEST_FIRST_MODULES = new Set([
+    'transactions', 'userlogs', 'customers', 'debts', 'refunds', 'stockReturns',
+    'shifts', 'promocodes', 'attendanceRecords', 'inventoryCounts', 'wasteLog',
+    'consignments', 'fraudAlerts'
+]);
 
 function getAiKnowledgeSnapshot(scope, focusModules) {
     const isFull = scope === 'full';
@@ -650,8 +684,13 @@ function getAiKnowledgeSnapshot(scope, focusModules) {
             if (data.length > AI_ASSISTANT_MAX_RECORDS_PER_MODULE) {
                 truncatedModules.push(moduleName);
                 // Panatilihin ang PINAKABAGONG records (mas kapaki-pakinabang
-                // sa karaniwang tanong kaysa sa pinakauna).
-                data = data.slice(-AI_ASSISTANT_MAX_RECORDS_PER_MODULE);
+                // sa karaniwang tanong kaysa sa pinakauna) — alamin muna kung
+                // newest-first (index 0 = bago) o oldest-first/append (dulo =
+                // bago) ang pagkakasunod-sunod ng module bago mag-slice, para
+                // laging tama ang direksyon (see NEWEST_FIRST_MODULES sa itaas).
+                data = NEWEST_FIRST_MODULES.has(moduleName)
+                    ? data.slice(0, AI_ASSISTANT_MAX_RECORDS_PER_MODULE)
+                    : data.slice(-AI_ASSISTANT_MAX_RECORDS_PER_MODULE);
             }
         }
         modules[moduleName] = data;

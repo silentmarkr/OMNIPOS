@@ -410,9 +410,16 @@ window.OMNIPOS_FAQ_KB_EN = [
 {
   id: 'reports-sales',
   category: 'Reports',
-  question: 'Where can I see total sales and the best-selling products?',
-  keywords: ['sales report', 'kabuuang benta', 'bestseller', 'top selling', 'gross income'],
-  answer: `<p>The <strong>Sales Report</strong> shows gross income, number of transactions, and the ranking of top-selling products — always up to date based on actual recorded sales.</p>`
+  question: 'What do the numbers at the top of the Sales Report/Sales Analytics page mean (Net Sales, Estimated Profit, etc.)?',
+  keywords: ['sales report', 'sales analytics', 'total sales', 'net sales', 'estimated profit', 'avg margin', 'transactions handled', 'gross income', 'profit this month', 'all time', 'today 30 days 7 days'],
+  answer: `<p>At the top of the <strong>Sales Report</strong> (titled "Sales Analytics") page there are 4 headline metric cards, based on the quick range chip you've selected (<strong>All Time / 30 Days / 7 Days / Today</strong>):</p>
+  <ul>
+    <li><strong>Net Sales</strong> — total sales AFTER refunds are subtracted (this is not "gross income" or profit — it's just sales).</li>
+    <li><strong>Transactions Handled</strong> — the number of countable transactions (had an actual payment received) within that range.</li>
+    <li><strong>Estimated Profit</strong> — this is the actual "profit" figure: Net Sales minus Cost of Goods Sold (based on each product's <strong>Cost Price</strong> field). If the Cost Price of the sold products is blank, this will show as low or zero — that's because cost data is missing, not because profit is actually zero.</li>
+    <li><strong>Avg. Margin %</strong> — Estimated Profit divided by Net Sales, shown as a percentage.</li>
+  </ul>
+  <p>Note: this quick range chip (All Time/30 Days/7 Days/Today) is separate from the more detailed <strong>Date Range</strong> selector on the chart below (which has its own Granularity, Chart Style, and "Custom Range…" option) — both affect the data shown, but they control different scopes.</p>`
 },
 {
   id: 'reports-user-logs',
@@ -835,7 +842,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'Premium Features',
   question: 'What premium modules does OmniPOS have?',
   keywords: ['premium features', 'paid modules', 'bayad na module', 'unlock feature', 'gembang icon', 'pro badge'],
-  answer: `<p>Besides Pro Themes, OmniPOS also has full modules locked as premium features until unlocked: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and the new <strong>OmniPOS AI Assistant</strong>.</p>
+  answer: `<p>Besides Pro Themes, OmniPOS also has full modules locked as premium features until unlocked: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Inventory Tools, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and the new <strong>OmniPOS AI Assistant</strong>.</p>
   <p>When you try to use a locked feature, its details (name, price, short explanation) appear along with the option to request an unlock.</p>
   <p><strong>Note:</strong> four of these are now <strong>subscriptions (monthly or yearly)</strong> instead of a one-time purchase — Cloud Backup, RBAC Management, Multi-Branch Dashboard, and AI Assistant. The rest of the modules/themes are still one-time purchases, permanently unlocked. See the dedicated FAQ on subscription modules for details.</p>`
 },
@@ -865,7 +872,8 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li>Once approved, you'll receive an OTP code — enter it to immediately activate Demo Mode.</li>
     <li>While active, you can use all premium modules and Pro Themes for free, until the set duration expires (or until the Admin ends it early).</li>
   </ol>
-  <p>If you've already actually purchased a feature before or during a demo, it's unaffected — it stays permanently unlocked even after the demo ends.</p>`
+  <p>If you've already actually purchased a feature before or during a demo, it's unaffected — it stays permanently unlocked even after the demo ends.</p>
+  <p><strong>Your real data is protected while trying things out.</strong> The moment Demo Mode starts, the system takes a full snapshot of your products, transactions, refunds, customers, debts, promo codes, shifts, purchase orders, stock returns, attendance, inventory counts, consignments, waste log, and suppliers. Anything you add, edit, or delete in those while the demo is running is automatically reverted back to exactly how it was before the demo started — whether the demo ends because you clicked "End Demo" or because its time limit simply ran out. Your user accounts/roles, store/receipt settings, and payment credentials are never touched by this, and the demo is still recorded in the audit log afterward.</p>`
 },
 {
   id: 'premium-cloud-backup',
@@ -1202,6 +1210,31 @@ window.OMNIPOS_FAQ_KB_EN = [
   <p>The workaround most users use: create a <strong>separate product code</strong> for each variant (e.g. "Shirt-Red-M", "Shirt-Red-L", "Shirt-Blue-M"), each with its own barcode, price, and stock count. You can use the same <strong>Category</strong> to keep them grouped together in the Inventory list and reports.</p>`
 },
 {
+  id: 'inventory-uom-multi-unit',
+  category: 'Inventory',
+  question: 'How do I sell a product in different units (e.g. per kilo, per sack, per box)?',
+  keywords: ['unit of measure', 'uom', 'per kilo', 'per sack', 'per box', 'multi-unit', 'other units', 'bulk unit', 'wholesale unit', 'add unit', 'base unit'],
+  answer: `<p>On the Product form there's a "Base Unit" field (e.g. "pcs" or "kg") — this is the unit that Stock Quantity and the regular Price are in. If you also want to sell the same product in a bigger unit (e.g. Box = 24 pcs, or Sack = 25 kg), use the <strong>"Other Units of Measure"</strong> section below Base Unit:</p>
+  <ul>
+    <li>Click <strong>"Add Unit"</strong>, enter the unit name (e.g. "Box", "Sack") and its <strong>conversion factor</strong> back to the Base Unit (e.g. 24 if 1 Box = 24 pcs).</li>
+    <li>There's an optional <strong>Fixed Price</strong> field per unit — if left blank, it's automatically calculated as (Base Unit Price × factor).</li>
+    <li>Up to 10 extra units are allowed per product.</li>
+  </ul>
+  <p>When <strong>"Allow decimal quantities"</strong> is enabled, you can also sell non-whole amounts (e.g. 0.5 kg) — useful for items sold by weight. At the POS Terminal, each cart line has a dropdown where the cashier picks which unit to sell in.</p>`
+},
+{
+  id: 'inventory-price-levels',
+  category: 'Inventory',
+  question: 'How do I set up Wholesale/Reseller pricing (Price Levels)?',
+  keywords: ['price level', 'wholesale price', 'reseller price', 'different price', 'wholesale', 'non-default price'],
+  answer: `<p>Go to <strong>Settings → Store &amp; Sales</strong>, find the "Price Levels" section, and enter the level names (e.g. "Wholesale, Reseller" — up to 10, comma-separated).</p>
+  <ul>
+    <li>Once saved, these levels appear on the <strong>Product form</strong> as an optional field where you can set a separate price per level, per product. The regular "Price" is always the Retail/default price.</li>
+    <li>At the POS Terminal, a "Price Level" dropdown appears in the cart summary — but <strong>not every account sees it</strong>: it requires the "POS Terminal — Select a Non-Default Price Level at Checkout" permission in the Roles &amp; Permissions Matrix (Admin always has access).</li>
+    <li>If a product has no price set for a given level, it falls back to the Retail Price (this also applies to Barcode Label printing).</li>
+  </ul>`
+},
+{
   id: 'transactions-discounts-promo',
   category: 'Discounts & Promo Codes',
   question: 'What kinds of discounts are supported at checkout?',
@@ -1393,6 +1426,21 @@ window.OMNIPOS_FAQ_KB_EN = [
   <p>It includes search (product/code/lot number), a status filter, sorting (Nearest Expiry / Product Name / Highest Quantity), and CSV export.</p>`
 },
 {
+  id: 'premium-inventory-tools',
+  category: 'Inventory',
+  question: 'What is Inventory Tools?',
+  keywords: ['inventory tools', 'physical count', 'consignment', 'waste log', 'damage log', 'dead stock', 'supplier directory', 'inventory count'],
+  answer: `<p><strong>Inventory Tools</strong> is a premium module (₱999, one-time purchase) with its own dedicated page, bundling five features together:</p>
+  <ul>
+    <li><strong>Physical Inventory Count</strong> — count actual stock by category or by hand-picked items, then compare against the system's on-hand quantity.</li>
+    <li><strong>Consignment</strong> — record consignment stock received from a supplier and settle it later (paying only for what was actually sold).</li>
+    <li><strong>Damage/Waste Log</strong> — log spoiled, damaged, or wasted stock, with automatic deduction from on-hand quantity.</li>
+    <li><strong>Dead-Stock Report</strong> — see slow-moving or non-moving products.</li>
+    <li><strong>Supplier Directory</strong> — a contacts list for your suppliers.</li>
+  </ul>
+  <p>Like other locked modules, clicking "Inventory Tools" in the sidebar while it's still locked shows the unlock/purchase prompt instead of opening the page — once purchased, it's permanently unlocked and opens in its own tab.</p>`
+},
+{
   id: 'bir-compliance-overview',
   category: 'BIR Compliance',
   question: 'What is the BIR Compliance page?',
@@ -1412,6 +1460,28 @@ window.OMNIPOS_FAQ_KB_EN = [
   verdict: 'depende',
   answer: `<p>This is only for <strong>special cases</strong> (e.g. a new machine/PTU, or when authorized by the BIR). A reason and password are required before it proceeds, so only an Admin/authorized personnel should do this.</p>
   <p>It's recorded in the <strong>AGT Reset History</strong> (including the previous AGT, who authorized it, and the reason), and it does not affect invoice numbering.</p>`
+},
+{
+  id: 'attendance-auto-close-stale',
+  category: 'Remote Operations & Attendance',
+  question: 'Why did an open Time In get closed out on its own?',
+  keywords: ['auto close', 'autoclosed', 'time in disappeared', 'timed out by itself', 'forgot to time out', 'stale session', 'no time out recorded'],
+  verdict: 'yes, it auto-closes',
+  answer: `<p>The Attendance system <strong>automatically closes a "stale" open Time In</strong>: if a Time In hasn't been followed by a Time Out within a configured number of hours (default 16 hours, set on the server via <code>ATTENDANCE_MAX_SHIFT_HOURS</code>), the system will automatically mark it as Timed Out.</p>
+  <p>You'll recognize this because the record is flagged <strong>"Auto-closed"</strong> with a reason (e.g. "No time-out was recorded within 16 hours of time-in"). This exists so a missed time-out doesn't stay "open/live" forever — it isn't a bug, and it doesn't change the original Time In's timestamp or selfie.</p>`
+},
+{
+  id: 'promo-usage-cap',
+  category: 'Discounts & Promo Codes',
+  question: 'Can I limit how many times a Promo Code can be used?',
+  keywords: ['promo code limit', 'max uses', 'usage cap', 'limited uses', 'per customer limit', 'reset usage', 'used count'],
+  verdict: 'yes',
+  answer: `<p>Yes — besides an expiry date and minimum spend, each Promo Code in the Promo Codes Manager supports two kinds of limits:</p>
+  <ul>
+    <li><strong>Max Uses (global)</strong> — the total number of times the code can be used across ALL customers/sales. Once reached, it will be rejected at checkout even while still "active".</li>
+    <li><strong>Per-Customer Limit</strong> — an optional limit on how many times a SINGLE customer can use it (the sale needs a customer attached for this to be enforced).</li>
+  </ul>
+  <p>Remaining uses show in the promo code list, and Admins have a <strong>"Reset Usage"</strong> button to zero out the used count/per-customer redemptions if the code needs to start fresh again.</p>`
 },
 
 ];

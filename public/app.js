@@ -1692,6 +1692,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
     ai_assistant: { name:'OmniPOS AI Assistant', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
     remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
+    inventory_tools: { name:'Inventory Tools', description:'Physical inventory counts, consignment stock receiving/settlement, a damage/waste log with automatic stock deduction, a dead-stock/slow-moving report, and a Supplier Directory.' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
     basic: { name:'Basic', autoBackupIntervalMs: 24 * 60 * 60 * 1000, extra:'30-day history.', price: { monthly: 129, yearly: 1290 }, storageQuotaMB: 250 },
@@ -1760,6 +1761,23 @@ function guardPremiumFeature(featureId) {
     }
     const fallback = PREMIUM_FEATURE_FALLBACK[featureId] || {};
     promptUnlockFeature(featureId, fallback.name, undefined, fallback.description);
+    return true;
+}
+// Inventory Tools opens as its own standalone page/tab (index.html's link
+// uses target="_blank") instead of switchView()'s in-app view system, so it
+// can't go through switchView's own VIEW_FEATURE_MAP lock check. Wired as
+// this link's onclick (see index.html: id="menu-inventory-tools"). While
+// locked, this stops the tab from opening at all and shows the same
+// purchase/unlock modal every other locked module uses; the page itself
+// still re-checks the lock on load (see inventory-tools.html) as a backstop
+// for a bookmarked/directly-typed URL, but the normal sidebar click should
+// never reach that inline "locked" page — it should be gated right here,
+// before a new tab is opened.
+function openInventoryToolsLink(event) {
+    if (guardPremiumFeature('inventory_tools')) {
+        if (event) event.preventDefault();
+        return false;
+    }
     return true;
 }
 const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations'];
@@ -3295,7 +3313,7 @@ function handleDemoExpired() {
             position:'top-end',
             icon:'info',
             title:'Demo Mode Ended',
-            text:'Refreshing the system...',
+            text:'Demo data has been reverted. Refreshing the system...',
             showConfirmButton: false,
             timer: 1500,
             timerProgressBar: true,
@@ -3323,7 +3341,7 @@ async function initDemoModeUI() {
 async function endDemoModeManually() {
     const confirmResult = await Swal.fire({
         title:'End Demo Mode?',
-        text:'This will immediately revert all premium features that were opened for the demo back to their locked state. This cannot be undone.',
+        text:'This will immediately revert all premium features that were opened for the demo back to their locked state, and revert any product/transaction/customer/other operational data added or changed during the demo back to exactly how it was before Demo Mode started. This cannot be undone.',
         icon:'warning',
         showCancelButton: true,
         confirmButtonText:'End Demo',
@@ -3359,6 +3377,7 @@ async function promptDemoMode() {
         title:'✨ Try Full Demo Mode',
         html:
 '<p style="margin:0 0 8px;">ALL premium features will be temporarily unlocked (nothing stays locked) — but only for a TIME LIMIT.</p>' +
+'<p style="margin:0 0 8px;font-size:0.82rem;color:#94a3b8;">Any products, transactions, customers, purchase orders, or other operational data you add/edit/delete while trying it out are sandboxed — they will be automatically reverted back to exactly how they were before Demo Mode started once it ends (whether it expires on its own or you end it early).</p>' +
 '<p style="font-size:0.82rem;color:#94a3b8;margin:0;">An activation request will be sent to the developer/store owner. Once approved, you will be given a 6-digit code to activate it.</p>',
         icon:'info',
         showCancelButton: true,

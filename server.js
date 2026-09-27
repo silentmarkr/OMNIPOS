@@ -6216,6 +6216,117 @@ function getDemoExpiry() {
     if (!token || !token.payload) return null;
     return typeof token.payload.expiresAt ==='number' ? token.payload.expiresAt : null;
 }
+// ---- Demo Mode data sandbox (snapshot & auto-restore) --------------------
+// Demo Mode temporarily unlocks EVERY premium feature so a store owner can
+// try things out — but anything they add/edit/delete while trying it out
+// (test products, test sales, test customers, etc.) must never permanently
+// change the real data. Instead of forking every single write endpoint into
+// a separate "demo" copy of the data (huge surface area, easy to miss one
+// and let something leak through), we take ONE full snapshot of every
+// business/operational data module the moment Demo Mode turns ON, and
+// restore that exact snapshot the moment it turns OFF — whether it was
+// ended manually or it simply expired. Net effect: once the demo window
+// closes, the real data is back to EXACTLY what it was before the demo
+// started, regardless of what was touched during it, so there's no risk of
+// demo activity accidentally reducing/altering real product, transaction,
+// or customer records.
+// Deliberately EXCLUDED from the sandbox: users/roles (resetting could log
+// people out or undo a real password/account change made during the demo
+// window), receipt/store/ux/advanced settings and payment/integration
+// credentials (system configuration, not "try-it-out" data), the
+// feature-unlock tokens themselves, and the audit log (userlogs) — so
+// there's still a record afterward that Demo Mode ran and what happened
+// during it.
+const DEMO_SANDBOX_MODULES = [
+    FILE_PRODUCTS, FILE_TRANSACTIONS, FILE_REFUNDS, FILE_REQUESTS, FILE_CATEGORIES,
+    FILE_CARTS, FILE_CUSTOMERS, FILE_DEBTS, FILE_PROMOCODES, FILE_SHIFTS, FILE_SHIFT_META,
+    FILE_PURCHASE_ORDERS, FILE_LOWSTOCK_TRACKING, FILE_STOCK_RETURNS, FILE_ATTENDANCE,
+    FILE_INVENTORY_COUNTS, FILE_CONSIGNMENTS, FILE_WASTE_LOG, FILE_SUPPLIERS, FILE_FRAUD_ALERTS
+];
+// Per-module "nothing saved yet" defaults, matched to what each module's own
+// normal readData(...) calls use elsewhere in this file. Most sandboxed
+// modules are plain lists, but a few are keyed objects (carts, shiftMeta,
+// lowStockTracking) and categories ships with starter values (DEFAULT_CATEGORIES)
+// instead of an empty list. readData() persists whatever default it's given
+// the first time it's asked for a module that has never been written yet, so
+// snapshotting/restoring with the WRONG default here wouldn't just mis-shape
+// the snapshot — it would immediately bake the wrong shape into the live data
+// too (e.g. wiping a never-touched store's default categories to [] the
+// moment Demo Mode starts, or turning the carts object into an array).
+const DEMO_SANDBOX_MODULE_DEFAULTS = {
+    [FILE_CATEGORIES]: DEFAULT_CATEGORIES,
+    [FILE_CARTS]: {},
+    [FILE_SHIFT_META]: {},
+    [FILE_LOWSTOCK_TRACKING]: {}
+};
+function demoSandboxDefaultFor(moduleName) {
+    return Object.prototype.hasOwnProperty.call(DEMO_SANDBOX_MODULE_DEFAULTS, moduleName)
+        ? DEMO_SANDBOX_MODULE_DEFAULTS[moduleName]
+        : [];
+}
+const FILE_DEMO_DATA_SNAPSHOT ='demoDataSnapshot';
+// Takes the "before" snapshot. Called exactly once, right when Demo Mode
+// transitions from OFF to ON. Never overwrites an existing snapshot — if one
+// is somehow already sitting there (e.g. the server restarted mid-demo
+// before it could restore/clear it), that older snapshot is still the true
+// pre-demo baseline and must win over whatever the data looks like right now.
+function snapshotDataForDemoStart() {
+    try {
+        const existing = readData(FILE_DEMO_DATA_SNAPSHOT, null);
+        if (existing && existing.modules) return;
+        const modules = {};
+        DEMO_SANDBOX_MODULES.forEach((moduleName) => {
+            modules[moduleName] = readData(moduleName, demoSandboxDefaultFor(moduleName));
+        });
+        writeData(FILE_DEMO_DATA_SNAPSHOT, { snapshotAt: new Date().toISOString(), modules });
+    } catch (err) {
+        console.error('⚠️ DEMO_SANDBOX: failed to snapshot data before starting Demo Mode:', err.message);
+    }
+}
+// Restores every sandboxed module back to its pre-demo snapshot, then clears
+// the snapshot. Safe to call any time, including when Demo Mode was never
+// active — it's a no-op whenever there's no snapshot on file.
+function restoreDataFromDemoSnapshotIfAny(triggeredBy) {
+    try {
+        const snapshot = readData(FILE_DEMO_DATA_SNAPSHOT, null);
+        if (!snapshot || !snapshot.modules) return false;
+        DEMO_SANDBOX_MODULES.forEach((moduleName) => {
+            const original = Object.prototype.hasOwnProperty.call(snapshot.modules, moduleName)
+                ? snapshot.modules[moduleName]
+                : demoSandboxDefaultFor(moduleName);
+            writeData(moduleName, original);
+        });
+        writeData(FILE_DEMO_DATA_SNAPSHOT, null);
+        logAction('System', `Demo Mode ended (${triggeredBy}) — restored ${DEMO_SANDBOX_MODULES.length} data module(s) to their pre-demo state. Nothing added/changed/deleted during the demo was kept.`);
+        return true;
+    } catch (err) {
+        console.error('⚠️ DEMO_SANDBOX: failed to restore data after Demo Mode ended:', err.message);
+        return false;
+    }
+}
+// Natural-expiry watchdog: isDemoActive() only checks the token's signature
+// and expiry lazily (whenever something happens to ask), there's no event
+// fired the moment it actually expires. This periodic check (plus one run
+// shortly after startup, in case the server was off exactly when a previous
+// demo expired) is what makes the auto-restore above still happen even when
+// nobody manually clicks "End Demo" right at expiry.
+function checkAndHandleDemoExpiry() {
+    try {
+        const snapshot = readData(FILE_DEMO_DATA_SNAPSHOT, null);
+        if (!snapshot || !snapshot.modules) return Promise.resolve(); // nothing pending — demo isn't running, or already cleaned up
+        if (isDemoActive()) return Promise.resolve(); // still running, leave the sandbox in place
+        // Same mutex used by sales/void/refund/restock/product-request-resolve,
+        // so the restore can never interleave with an in-flight write to one
+        // of the sandboxed modules (e.g. a sale ringing up right as the demo
+        // timer expires).
+        return transactionsMutexRunExclusive(() => restoreDataFromDemoSnapshotIfAny('expired'));
+    } catch (err) {
+        console.error('⚠️ DEMO_SANDBOX: expiry watchdog error:', err.message);
+        return Promise.resolve();
+    }
+}
+setTimeout(() => { checkAndHandleDemoExpiry().catch(() => {}); }, 5000).unref();
+setInterval(() => { checkAndHandleDemoExpiry().catch(() => {}); }, 60 * 1000).unref();
 function getPurchasedFeatureIds() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
@@ -6509,14 +6620,14 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
         'Your job is to help the logged-in user understand how to use OmniPOS (menus, features, system flow), AND to answer questions about this store\'s actual current data when a live data snapshot is provided to you as context — nothing else.',
         'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as context for "how do I..." questions — base those answers ONLY on that context.',
         'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
-        'That system message may also include a "Pre-computed store insights" block — already-calculated numbers for sales totals (today/yesterday/week/month revenue, transaction counts, day-over-day % change, top products), a cashier sales ranking for this month (topCashierThisMonth/lowestCashierThisMonth/cashierRankingThisMonth), per-cashier shift/Z-Reading cash variance (shifts.byCashier, mostShortCashier, mostOverCashier), inventory status (low stock, out of stock, expiring soon, expired items), a customer loyalty points ranking (topByPoints/lowestByPoints), and unreviewed Fraud Alert counts — plus an optional "suggestedSettings" list. ALWAYS use these pre-computed numbers as-is for that kind of question instead of counting/summing/averaging/ranking the raw records yourself — you are not reliable at exact arithmetic or ranking over long record lists, and this app already computes them correctly elsewhere (the Overview dashboard). A null "todayVsYesterdayPct" means there were no sales yesterday to compare against — say so plainly rather than inventing a percentage. A negative shift "totalVariance"/"avgVariance" means cash SHORT for that cashier; positive means cash OVER — state this plainly and neutrally (it can have innocent explanations like miscounting) rather than accusing the cashier of wrongdoing. When "suggestedSettings" has entries relevant to the question (or to a problem the user describes), you may mention them as a suggestion — explain what setting to change and why it would help, but always make clear you cannot change it yourself; the user has to do it in Settings.',
+        'That system message may also include a "Pre-computed store insights" block — already-calculated numbers for sales totals (today/yesterday/week/month revenue, transaction counts, day-over-day % change, top products), a cashier sales ranking for this month (topCashierThisMonth/lowestCashierThisMonth/cashierRankingThisMonth), per-cashier shift/Z-Reading cash variance (shifts.byCashier, mostShortCashier, mostOverCashier), inventory status (low stock, out of stock, expiring soon, expired items), a customer loyalty points ranking (topByPoints/lowestByPoints), and unreviewed Fraud Alert counts — plus an optional "suggestedSettings" list. ALWAYS use these pre-computed numbers as-is for that kind of question instead of counting/summing/averaging/ranking the raw records yourself — you are not reliable at exact arithmetic or ranking over long record lists, and this app already computes them correctly elsewhere (the Overview dashboard). Every revenue figure in this block (todayRevenue, yesterdayRevenue, weekRevenue, monthRevenue, cashierRankingThisMonth revenue, topCashierThisMonth/lowestCashierThisMonth revenue) is already NET of refunds — it already matches the "Total Sales"/"Net Sales" headline on the Sales Report page, so never add, subtract, or re-explain a refund adjustment on top of it. The separate todayRefunded/monthRefunded fields are the total amount refunded in that period (a different number from revenue, not something already subtracted a second time), and todayPaymentBreakdown/monthPaymentBreakdown break the net revenue down by payment method (CASH, GCASH, CARD, etc.) when the question is about a specific payment method\'s total. A null "todayVsYesterdayPct" means there were no sales yesterday to compare against — say so plainly rather than inventing a percentage. IMPORTANT distinction: "*Revenue" (todayRevenue/monthRevenue/etc.) is total SALES/BENTA — it is NOT the same thing as "kita"/"profit". When the user asks about "kita", "tubo", "profit", "netong kita", or "how much did we (actually) make/earn", answer using todayProfit/monthProfit (and todayProfitMarginPct/monthProfitMarginPct for the margin %) instead — these already subtract each sold product\'s recorded cost (Cost of Goods Sold) from revenue, matching the Sales Analytics report\'s "Estimated Profit". If todayProfitHasCostData/monthProfitHasCostData is false, that period\'s profit figure is unreliable (little or no product "cost" was ever set in Products) — say so plainly and suggest the user fill in the Cost field per product (Products page) for an accurate profit figure, rather than presenting a 0 or near-0 profit as if it were real. Never call plain revenue "kita"/"profit", and never call profit "benta"/"revenue" — they answer different questions. When asked for the TOTAL COST/VALUE of all products/stock/inventory currently on hand (e.g. "magkano lahat ng product namin", "total cost ng lahat ng produkto", "how much is our inventory worth"), use inventory.totalInventoryCostValue directly (Admin/authorized sessions only) — it is the sum of stock × cost across EVERY product in the store, already computed server-side, NOT just the products included in the snapshot below (that list can be a partial sample for large catalogs, so never add up the "cost"/"price" fields of the individual product records yourself for this kind of question). If inventory.totalInventoryCostValueHasCostData is false, say the figure is unreliable/near-zero because little or no product has a "Cost" set (Products page) rather than presenting it as a real total. If totalInventoryCostValue is missing entirely (non-admin/limited session), say this requires Admin access rather than estimating from the partial product list you can see. IMPORTANT distinction: topProductsThisWeek and topProductsThisMonth are TWO SEPARATE best-selling-by-quantity rankings over DIFFERENT periods — topProductsThisWeek covers only the last 7 days, topProductsThisMonth covers the current calendar month so far — never use one to answer a question about the other\'s period, and never describe topProductsThisWeek\'s numbers as being "this month\'s" top products or vice versa. A negative shift "totalVariance"/"avgVariance" means cash SHORT for that cashier; positive means cash OVER — state this plainly and neutrally (it can have innocent explanations like miscounting) rather than accusing the cashier of wrongdoing. When "suggestedSettings" has entries relevant to the question (or to a problem the user describes), you may mention them as a suggestion — explain what setting to change and why it would help, but always make clear you cannot change it yourself; the user has to do it in Settings.',
         'For questions about billing, subscriptions, backup cost/consumption, or database safety, you may receive a separate "Pre-computed billing/subscription/backup-safety insights" system message (Admin/authorized sessions only). Use it as-is: expiredOrGraceFeatures lists any module or Cloud Backup subscription that is expired or in its grace period; cloudBackup.actualCostShare.yourShare is the REAL, usage-based cost for this store\'s Cloud Backup (not just the flat plan price) — prefer it over planPrice when asked "how much does it actually cost/consume"; billingSchedule lists upcoming charges with name/amount/dueDate for roughly the next 30 days; estimatedNextMonthTotalPHP is the rough sum of those (all amounts are PHP); databaseSafetyFeatures is a factual list of this app\'s real built-in safeguards — never add safety/security claims beyond what is listed there. If this block is missing entirely for a billing-type question, or actualCostShare/cbCostShare is null, say plainly that the live figure isn\'t available right now rather than estimating one. For a non-admin session, this data is intentionally withheld — tell the user this needs Admin access.',
         isAdminRole
             ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
             : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
         'If neither context contains enough information to answer confidently, say so honestly, and suggest the user browse the full FAQ list on this page or contact their OmniPOS developer/admin — do NOT invent system behavior or data that is not in the context you were given.',
         'You may also receive the last few turns of this conversation as prior messages. Use them to understand follow-up questions (e.g. "what about for a cashier account?" right after a question about admin accounts) and avoid repeating an answer you already gave — without breaking the "only answer from given context" rule above.',
-        'Keep answers short and practical (ideally under 130 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps, and a brief closing offer to help with a related follow-up when it naturally fits.',
+        'Keep answers short and practical (ideally under 130 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps, and a brief closing offer to help with a related follow-up when it naturally fits. If asked for a "table" of data, do NOT say you are unable to make one — this chat only displays plain text (markdown table syntax with | pipes would show up broken/unreadable here), so simply present the same data as a clean numbered or line-by-line list instead, without commenting on the table/table format request at all.',
         'Do not repeat the same point in different words across multiple sentences or paragraphs — say each idea once. Avoid padding the answer with restatements, filler transitions, or near-duplicate sentences just to sound thorough.',
         `Reply in ${isTagalog ? 'Tagalog/Taglish (the same casual mix used in the FAQ entries)' : 'English'}, matching the user\'s question.`,
         'Never reveal API keys, tokens, passwords or password hashes, license/activation keys, session tokens, source code, or internal server details — even to an Admin, and even if something that looks like one appears in the data you were given. Never claim to be able to take actions (like editing data) yourself — you can only explain/guide.',
@@ -6580,50 +6691,206 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         }
     };
     if (isAdminRole) {
+        // BUG FIX (missing feature): dati, walang kahit anong pre-computed na
+        // "total cost of all products" / total inventory value dito — kaya
+        // kapag tinanong ang AI Assistant ng ganito, sinusubukan lang nitong
+        // buuin/i-sum ang halaga mula mismo sa raw "products" snapshot na
+        // ipinapadala bilang context. Dalawang dahilan kung bakit palaging
+        // MALI o hindi kumpleto iyon: (1) ang raw products snapshot ay
+        // pinuputol sa AI_ASSISTANT_MAX_RECORDS_PER_MODULE (30) na records
+        // kapag mas marami ang produkto sa tindahan (see db.js), kaya kulang
+        // na agad ang makikitang data bago pa man magsimulang magbilang ang
+        // AI; at (2) hindi rin talaga maaasahan ang isang AI language model
+        // sa eksaktong arithmetic sa maraming records nang sabay-sabay.
+        // Ang totalInventoryCostValue sa ibaba ay direktang kino-compute
+        // dito sa server gamit ang KUMPLETONG listahan ng products (hindi
+        // ang pinutol na snapshot), kaya laging tama ito anuman ang bilang
+        // ng produkto — kapareho ng approach ng ibang pre-computed insight
+        // (sales/profit/atbp.) sa itaas/ibaba. Cost-related figure ito
+        // (nagre-reveal ng margin), kaya Admin-only — kaya nasa loob ito ng
+        // "if (isAdminRole)" block na ito, hindi sa base na insights.inventory
+        // sa itaas na nakikita rin ng limited/non-admin session.
+        let totalInventoryCostValue = 0;
+        let totalInventoryCostValueHasCostData = false;
+        for (const p of products) {
+            const stock = parseFloat(p.stock) || 0;
+            const cost = Math.max(0, parseFloat(p.cost) || 0);
+            if (cost > 0) totalInventoryCostValueHasCostData = true;
+            if (stock > 0 && cost > 0) totalInventoryCostValue += stock * cost;
+        }
+        insights.inventory.totalInventoryCostValue = Number(totalInventoryCostValue.toFixed(2));
+        insights.inventory.totalInventoryCostValueHasCostData = totalInventoryCostValueHasCostData;
         let transactions = [];
         try { transactions = readData(FILE_TRANSACTIONS, []); } catch (err) { transactions = []; }
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
         const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const txDate = (t) => new Date(t.timestamp || t.date || t.createdAt || t.isoTimestamp || 0);
-        const sumRevenue = (txs) => txs.reduce((s, t) => s + (parseFloat(t.total) || 0), 0);
+        // FIX: dati "t.timestamp" ang UNANG sinusubukan dito, pero ang
+        // "timestamp" field ng isang tunay na transaction record ay isang
+        // DISPLAY STRING lang sa "DD/MM/YYYY, HH:MM:SS" na format (hal.
+        // "26/09/2026, 10:47:08") — hindi ito nauunawaan ng JS Date parser
+        // (aakalain nitong MM/DD/YYYY, kaya kapag lampas sa 12 ang araw,
+        // Invalid Date agad ito). Dahil laging "truthy" ang string na ito,
+        // hindi na ito nagpapatuloy pababa sa mas maaasahang ISO fields —
+        // kaya laging Invalid Date ang txDate(t), laging FALSE ang lahat ng
+        // ">= startOfX" comparison, at laging WALANG kasamang transaction
+        // ang todaysTxs/weekTxs/monthTxs — kahit may totoong benta. Ito
+        // ang dahilan kung bakit palaging 0 ang nakikita ng AI Assistant sa
+        // today/week/month revenue at transaction counts.
+        // Ang "isoDate" (at pangalawa, "createdAt") ang tunay/maaasahang
+        // ISO-8601 timestamp ng bawat transaction — ito rin mismo ang unang
+        // sinusubukan ng ibang parte ng codebase (hal. Sales Report,
+        // Transactions page, cloud sync) kaya dapat unahin din dito para
+        // magkatugma ang AI sa parehong petsa na ginagamit ng buong app.
+        const txDate = (t) => new Date(t.isoDate || t.createdAt || t.date || t.timestamp || t.isoTimestamp || 0);
+        // FIX: dating "total sales" ng AI Assistant ay basta sinusumahan
+        // lang ang raw tx.total (GROSS) ng bawat transaction — hindi
+        // isinasaalang-alang ang totalRefunded/refundStatus. Kapag may
+        // partial o full refund, mismatch ito laban sa TOTOONG net
+        // revenue na makikita sa Sales Report page (na tama namang
+        // nagbabawas ng refund) — ibang sagot ang AI kumpara sa Reports.
+        // Ang mga helper sa ibaba (grossOf/refundedOf/netOf/isCountable)
+        // ay kopya mismo ng parehong formula na ginagamit ng totoong
+        // Sales Report endpoint, para palaging magkatugma ang sagot ng
+        // AI sa Overview/Reports.
+        const grossOf = (t) => Math.max(0, parseFloat(t && t.total) || 0);
+        const refundedOf = (t) => {
+            const gross = grossOf(t);
+            if (t && t.refundStatus === 'full') return gross;
+            return Math.min(gross, Math.max(0, parseFloat(t && t.totalRefunded) || 0));
+        };
+        const netOf = (t) => Math.max(0, Math.round((grossOf(t) - refundedOf(t)) * 100) / 100);
+        const isCountable = (t) => netOf(t) > 0.009;
+        const sumRevenue = (txs) => txs.reduce((s, t) => s + netOf(t), 0);
+        const sumRefunded = (txs) => txs.reduce((s, t) => s + refundedOf(t), 0);
+        const paymentBreakdownOf = (txs) => {
+            const map = {};
+            txs.forEach((t) => {
+                const net = netOf(t);
+                if (net <= 0) return;
+                const method = String(t.method || t.payment_method || 'OTHER').toUpperCase();
+                map[method] = Number(((map[method] || 0) + net).toFixed(2));
+            });
+            return map;
+        };
+        const refundedQtyOf = (t, item) => {
+            const map = t && t.refundedQty && typeof t.refundedQty === 'object' ? t.refundedQty : {};
+            return toQty3(map[item && item.code != null ? String(item.code) : '']);
+        };
         const todaysTxs = transactions.filter((t) => txDate(t) >= startOfToday);
         const yesterdaysTxs = transactions.filter((t) => { const d = txDate(t); return d >= startOfYesterday && d < startOfToday; });
         const weekTxs = transactions.filter((t) => txDate(t) >= startOfWeek);
         const monthTxs = transactions.filter((t) => txDate(t) >= startOfMonth);
-        const productRanking = {};
-        weekTxs.forEach((tx) => {
-            (tx.items || []).forEach((i) => {
-                const qty = toQty3(i.quantity);
-                if (!i.name || qty <= 0) return;
-                productRanking[i.name] = (productRanking[i.name] || 0) + qty;
+        // BUG FIX: dating "topProductsThisWeek" ranking mula sa weekTxs
+        // lang ang meron dati — walang katapat na "this month" na
+        // ranking. Kaya kapag "ngayong buwan"/"this month" ang literal na
+        // tinanong (hal. "anong produkto ang pinakamabenta ngayong
+        // buwan?"), wala talagang tamang pre-computed na sagot ang AI —
+        // minsan ang nangyayari, ang topProductsThisWeek (7 araw lang)
+        // pa rin ang ginagamit/isinasagot habang inilalarawan bilang
+        // data "ngayong buwan", na MALI (mismatch ng label at saklaw ng
+        // petsa). Ginawang reusable helper ang dating inline logic para
+        // magamit pareho sa weekTxs at monthTxs, at dinagdag ang tunay na
+        // "topProductsThisMonth" (see insights.sales sa ibaba) — hiwalay
+        // at tama ang saklaw ng bawat isa.
+        const rankProductsSoldBy = (txs) => {
+            const map = {};
+            txs.forEach((tx) => {
+                (tx.items || []).forEach((i) => {
+                    const soldQty = toQty3(i.quantity);
+                    const remainingQty = Math.max(0, uomPricing.round(soldQty - Math.min(soldQty, refundedQtyOf(tx, i)), uomPricing.DECIMAL_PLACES));
+                    if (!i.name || remainingQty <= 0) return;
+                    map[i.name] = (map[i.name] || 0) + remainingQty;
+                });
             });
-        });
-        const topProductsThisWeek = Object.entries(productRanking).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
+            return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5);
+        };
+        const topProductsThisWeek = rankProductsSoldBy(weekTxs);
+        const topProductsThisMonth = rankProductsSoldBy(monthTxs);
+        // FIX: "kita"/"profit" ang literal na tinatanong ng maraming Admin
+        // ("magkano ang kita namin ngayong buwan?"), pero wala noon kahit
+        // isang profit/cost field dito sa insights.sales — todayRevenue/
+        // monthRevenue lang, na REVENUE (kabuuang benta), hindi "kita"
+        // (revenue minus cost of goods sold). Kaya sinasagot ng AI ang
+        // revenue habang "kita" talaga ang tinatanong — mismatch, at kung
+        // minsan tila "wala sa data" ang sagot dahil walang ganitong field.
+        // Ang parehong formula (item.cost * natitirang qty pagkatapos ng
+        // refund) na ginagamit ng /api/reports/sales-analytics ang kopya
+        // dito, para tugma ang "kita" ng AI Assistant sa Sales Analytics
+        // report — hindi basta pinaghuhulaan/kino-compute mula sa AI mismo.
+        const profitInfoOf = (txs) => {
+            let revenue = 0;
+            let cost = 0;
+            let anyCostRecorded = false;
+            txs.forEach((tx) => {
+                (tx.items || []).forEach((i) => {
+                    const soldQty = toQty3(i.quantity);
+                    const remainingQty = Math.max(0, uomPricing.round(soldQty - Math.min(soldQty, refundedQtyOf(tx, i)), uomPricing.DECIMAL_PLACES));
+                    if (!i.name || remainingQty <= 0) return;
+                    const itemGross = Math.max(0, (parseFloat(i.price) || 0) * soldQty - Math.max(0, parseFloat(i.itemDiscount) || 0));
+                    const itemNetRevenue = soldQty > 0 ? itemGross * (remainingQty / soldQty) : 0;
+                    const unitCost = Math.max(0, parseFloat(i.cost) || 0);
+                    if (unitCost > 0) anyCostRecorded = true;
+                    revenue += itemNetRevenue;
+                    cost += unitCost * remainingQty;
+                });
+            });
+            const profit = Math.max(-Infinity, revenue - cost);
+            return {
+                profit: Number(profit.toFixed(2)),
+                marginPct: revenue > 0 ? Number(((profit / revenue) * 100).toFixed(1)) : 0,
+                anyCostRecorded
+            };
+        };
+        const todayProfitInfo = profitInfoOf(todaysTxs);
+        const monthProfitInfo = profitInfoOf(monthTxs);
         const todayRevenue = sumRevenue(todaysTxs);
         const yesterdayRevenue = sumRevenue(yesterdaysTxs);
         const vsYesterdayPct = yesterdayRevenue > 0
             ? Number((((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100).toFixed(1))
             : null;
+        const todayTransactionCount = todaysTxs.filter(isCountable).length;
+        const weekTransactionCount = weekTxs.filter(isCountable).length;
         insights.sales = {
+            // NOTE sa lahat ng *Revenue field sa ibaba: NET na (pagkatapos
+            // ibawas ang refund) — tugma ito sa "Total Sales/Net Sales"
+            // headline ng Sales Report page, HINDI raw/gross sale total.
             todayRevenue: Number(todayRevenue.toFixed(2)),
-            todayTransactionCount: todaysTxs.length,
+            todayTransactionCount,
+            todayRefunded: Number(sumRefunded(todaysTxs).toFixed(2)),
+            todayPaymentBreakdown: paymentBreakdownOf(todaysTxs),
             yesterdayRevenue: Number(yesterdayRevenue.toFixed(2)),
-            yesterdayTransactionCount: yesterdaysTxs.length,
+            yesterdayTransactionCount: yesterdaysTxs.filter(isCountable).length,
             todayVsYesterdayPct: vsYesterdayPct,
             weekRevenue: Number(sumRevenue(weekTxs).toFixed(2)),
-            weekTransactionCount: weekTxs.length,
+            weekTransactionCount,
             monthRevenue: Number(sumRevenue(monthTxs).toFixed(2)),
-            monthTransactionCount: monthTxs.length,
-            avgTransactionValueThisWeek: weekTxs.length ? Number((sumRevenue(weekTxs) / weekTxs.length).toFixed(2)) : 0,
-            topProductsThisWeek
+            monthTransactionCount: monthTxs.filter(isCountable).length,
+            monthRefunded: Number(sumRefunded(monthTxs).toFixed(2)),
+            monthPaymentBreakdown: paymentBreakdownOf(monthTxs),
+            avgTransactionValueThisWeek: weekTransactionCount ? Number((sumRevenue(weekTxs) / weekTransactionCount).toFixed(2)) : 0,
+            topProductsThisWeek,
+            topProductsThisMonth,
+            // "Kita"/profit (NOT the same as *Revenue above): Revenue minus
+            // Cost of Goods Sold (product.cost), same formula as the Sales
+            // Analytics report's "Estimated Profit". anyCostRecorded=false
+            // means walang naka-set na cost sa mga naibentang produkto sa
+            // period na iyon kaya 0 ang profit dahil kulang ang cost data,
+            // hindi dahil talagang zero ang kita.
+            todayProfit: todayProfitInfo.profit,
+            todayProfitMarginPct: todayProfitInfo.marginPct,
+            todayProfitHasCostData: todayProfitInfo.anyCostRecorded,
+            monthProfit: monthProfitInfo.profit,
+            monthProfitMarginPct: monthProfitInfo.marginPct,
+            monthProfitHasCostData: monthProfitInfo.anyCostRecorded
         };
         const cashierRevenueMap = {};
         monthTxs.forEach((tx) => {
+            if (!isCountable(tx)) return;
             const c = tx.cashier || 'Unknown';
             if (!cashierRevenueMap[c]) cashierRevenueMap[c] = { revenue: 0, transactionCount: 0 };
-            cashierRevenueMap[c].revenue += (parseFloat(tx.total) || 0);
+            cashierRevenueMap[c].revenue += netOf(tx);
             cashierRevenueMap[c].transactionCount += 1;
         });
         const cashierRankingThisMonth = Object.entries(cashierRevenueMap)
@@ -6882,7 +7149,24 @@ async function buildAiDatabaseContextMessage(role, question = '') {
         return msgs.length > 1 ? msgs : msgs[0];
     }
 
-    const MAX_CONTEXT_CHARS = 6000;
+    // BUG FIX (masyadong maliit na limit): dating 6000 lang ang budget na
+    // ito para sa buong "Live OmniPOS store data snapshot" — kaya madalas
+    // na-o-omit NANG BUO ang ibang module (see omittedForSize sa ibaba)
+    // kahit may kasagutan pa naman doon, at kahit noon pa lang, walang
+    // kinalaman ang laki ng budget na ito sa TUNAY na kaya ng AI model
+    // (@cf/meta/llama-3.3-70b-instruct-fp8-fast sa RELAY, tingnan ang
+    // CF_AI_MODEL) — 24,000 tokens ang context window nito (input+output
+    // magkasama), habang ang ibang parte ng request na ito (system prompt
+    // ~8.5k chars, hanggang 8 FAQ entries, hanggang 6 turn ng history,
+    // client diagnostics, at posibleng isang buong attached file/document
+    // na hanggang 20,000 characters — see AI_ASSISTANT_MAX_EXTRACTED_CHARS)
+    // ay kayang-kaya pa ring umabot ng mga ~46,000 characters sa pinaka-
+    // worst-case, may malaking natitirang espasyo pa rin bago pa maabot
+    // ang totoong ceiling ng model. 16000 dito (~2.6x mas malaki) ay
+    // sadyang pinili para may malaking margin pa rin kahit sabay-sabay
+    // mangyari ang worst-case na sitwasyon sa itaas — hindi ito basta
+    // pagdodoble nang walang batayan.
+    const MAX_CONTEXT_CHARS = 16000;
     const includedModules = {};
     const omittedForSize = [];
     let usedChars = 2 + (insightsJson ? insightsJson.length + 12 : 0);
@@ -7021,12 +7305,30 @@ const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     { keywords: ['debts?', 'debtors?', 'utang', 'c-credit'], view: 'debts', label: 'Open Debtors' },
     { keywords: ['sales? reports?', 'benta.{0,3}report', 'ulat ng benta'], view: 'reports', label: 'Open Reports' },
     { keywords: ['(user|system|activity) logs?', 'audit trail', 'login history', 'aksyon ng user'], view: 'logs', label: 'Open User Logs' },
-    { keywords: ['barcodes?'], view: 'barcode', label: 'Open Barcode Tools' }
+    { keywords: ['barcodes?'], view: 'barcode', label: 'Open Barcode Tools' },
+    // BAGO: idinagdag ang mga sumusunod na view na dating wala sa listahan
+    // kahit may sariling FAQ/menu page na sila (BIR Compliance, Batch/Lot
+    // Tracking, Staff Attendance, Remote Operations, Branches, at ang
+    // Voided/Refunded stock-return inspection workflow) — dati, kapag
+    // tinanong ang mga topic na ito, may sagot pa rin ang AI Assistant
+    // pero walang lumalabas na "Open X" quick-action button papunta sa
+    // mismong page.
+    { keywords: ['bir compliance', 'agt', 'z-reading exports?', 'buwis', 'official receipts?', 'sales invoices?'], view: 'bir_compliance', label: 'Open BIR Compliance' },
+    { keywords: ['batch(es)?', 'lots?', 'fefo', 'batch.{0,3}lot'], view: 'batchlots', label: 'Open Batch/Lot Tracking' },
+    { keywords: ['attendance', 'time in', 'time out', 'selfie', 'pasok', 'labas', 'clock in', 'clock out'], view: 'attendance', label: 'Open Staff Attendance' },
+    { keywords: ['remote operations?', 'remoteops', 'monitor(ing)?', 'live dashboard'], view: 'remoteops', label: 'Open Remote Operations' },
+    { keywords: ['branch(es)?', 'sanga', 'sangay', 'multi-branch', 'store locations?'], view: 'branches', label: 'Open Branches' },
+    { keywords: ['stock return inspection', 'ibalik sa stock', 'voided.{0,3}refunded'], view: 'stock_return_inspection', label: 'Open Voided/Refunded' }
 ];
 const SUGGESTED_ACTION_QUESTION_WEIGHT = 3;
 const SUGGESTED_ACTION_ANSWER_WEIGHT = 1;
 const SUGGESTED_ACTION_MIN_SCORE = 3;
-const SUGGESTED_ACTION_MAX_RESULTS = 2;
+// BAGO: mula 2 -> 3, dahil mas marami na ngayong view categories sa itaas
+// (dating 10, ngayon 16) kaya mas malamang na tumugma nang sabay ang 2+
+// talagang magkaibang topic sa iisang tanong (hal. parehong "batch" at
+// "expiry" keywords) — nang hindi nawawalan ng ibang totoong kapaki-
+// pakinabang na suggestion dahil lang sa 2-result cap.
+const SUGGESTED_ACTION_MAX_RESULTS = 3;
 function computeSuggestedActions(question, answerText) {
     const q = String(question || '').toLowerCase();
     const a = String(answerText || '').toLowerCase();
@@ -7788,6 +8090,7 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
     }
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
+    const wasActiveBeforeThisConfirm = isDemoActive();
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-demo`, {
             method:'POST',
@@ -7807,6 +8110,14 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
         }
         data.tokens[DEMO_FEATURE_ID] = relayData.token;
         writeData(FILE_FEATURE_UNLOCKS, data);
+        // Snapshot the real data BEFORE the demo can touch anything, but only
+        // on the OFF -> ON transition (not on a redundant/duplicate confirm).
+        // Wrapped in the same mutex as sales/void/refund/restock so the
+        // snapshot can't be taken mid-write (e.g. half a sale already
+        // applied to products but not yet to transactions).
+        if (!wasActiveBeforeThisConfirm) {
+            await transactionsMutexRunExclusive(() => snapshotDataForDemoStart());
+        }
         logAction(username ||'Unknown','Na-activate ang Demo Mode');
         res.json({
             success: true,
@@ -7834,10 +8145,16 @@ app.post('/api/features/end-demo', async (req, res) => {
     }
     const data = readFeatureUnlocks();
     if (!data.tokens[DEMO_FEATURE_ID]) {
+        // Defensive: if a snapshot is somehow still sitting there even though
+        // the token is already gone (e.g. a previous restore attempt failed
+        // partway), clean it up now instead of leaving stale pre-demo data
+        // parked forever.
+        await transactionsMutexRunExclusive(() => restoreDataFromDemoSnapshotIfAny('manual end (already inactive)'));
         return res.json({ success: true, alreadyInactive: true, message:'Wala namang aktibong Demo Mode.' });
     }
     delete data.tokens[DEMO_FEATURE_ID];
     writeData(FILE_FEATURE_UNLOCKS, data);
+    await transactionsMutexRunExclusive(() => restoreDataFromDemoSnapshotIfAny(`manual end by ${req.authUser.username || 'Unknown'}`));
     logAction(req.authUser.username,'Manual na tinapos ang Demo Mode bago pa man mag-expire.');
     if (RELAY_API_KEY) {
         try {
@@ -7857,7 +8174,7 @@ app.post('/api/features/end-demo', async (req, res) => {
     }
     res.json({
         success: true,
-        message:'Demo Mode has been closed.',
+        message:'Demo Mode has been closed. Any data added or changed during the demo has been reverted.',
         unlockedFeatureIds: getUnlockedFeatureIds(),
         fullyPurchased: isFullyProUnlocked()
     });

@@ -1702,9 +1702,16 @@
     const loadingBubble = appendAssistantBubble(thread, `
       <div class="faq-ai-badge faq-ai-thinking"><i class="fa-solid fa-robot fa-spin"></i> ${s.aiThinking}</div>`);
 
-    const candidates = search(query, 6).map(r => ({
+    // BAGO: 6 -> 8 candidates, at 900 -> 1100 chars kada answer snippet.
+    // Ang server (/api/ai-assistant/ask) ay tumatanggap na talaga ng
+    // hanggang 8 context entries (300-char question / 1200-char answer
+    // cap kada isa) mula pa noon, pero 6 lang dating pinapadala ng
+    // client — kaya may reserved na grounding capacity na hindi
+    // nagagamit. Ito ay mas maraming/mas kumpletong FAQ context papunta
+    // sa AI model nang walang dagdag na backend change.
+    const candidates = search(query, 8).map(r => ({
       question: r.entry.question,
-      answer: stripHtml(r.entry.answer).slice(0, 900)
+      answer: stripHtml(r.entry.answer).slice(0, 1100)
     }));
     // Short-term memory sent to the server so the AI can handle natural
     // follow-up questions ("paano kung hindi gumana yun?") without the
@@ -2012,7 +2019,16 @@
       recognition.maxAlternatives = 1;
       recognition.lang = currentLang() === 'tl' ? 'fil-PH' : 'en-US';
       baseText = input.value.trim();
-      recognition.onstart = () => { setListening(true); input.focus(); };
+      // BUG FIX: dating tinatawag dito ang input.focus() — pero sa mobile
+      // browsers, ang pag-focus sa isang tunay/editable na <input> ay
+      // AWTOMATIKONG nagpapalabas ng on-screen/virtual keyboard, kahit
+      // dictation via mic (hindi typing) ang layunin ng user dito. Iyon
+      // ang naging bug: laging lumalabas ang keyboard sa mobile tuwing
+      // ginagamit ang mic button. Hindi naman kailangan ng focus() para
+      // gumana ang voice input mismo — direkta namang sina-set ang
+      // input.value sa onresult sa ibaba anuman ang focus state, kaya
+      // tinanggal na lang ito.
+      recognition.onstart = () => { setListening(true); };
       recognition.onresult = (event) => {
         let transcript = '';
         for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;

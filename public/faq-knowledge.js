@@ -410,9 +410,16 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'reports-sales',
   category: 'Reports',
-  question: 'Saan ko makikita ang kabuuang benta at pinaka-bestseller na produkto?',
-  keywords: ['sales report', 'kabuuang benta', 'bestseller', 'top selling', 'gross income'],
-  answer: `<p>Sa <strong>Sales Report</strong> makikita ang gross income, bilang ng transaksyon, at ranking ng top-selling na produkto — laging updated ito base sa aktwal na naitalang benta.</p>`
+  question: 'Ano ang makikita sa itaas ng Sales Report/Sales Analytics page (Net Sales, Estimated Profit, atbp.)?',
+  keywords: ['sales report', 'sales analytics', 'kabuuang benta', 'net sales', 'estimated profit', 'avg margin', 'transactions handled', 'gross income', 'kita ngayong buwan', 'all time', 'today 30 days 7 days'],
+  answer: `<p>Sa itaas ng <strong>Sales Report</strong> (pinamagatang "Sales Analytics") page, may 4 na headline metric card, base sa napiling quick range chip (<strong>All Time / 30 Days / 7 Days / Today</strong>):</p>
+  <ul>
+    <li><strong>Net Sales</strong> — kabuuang benta PAGKATAPOS ibawas ang refund (hindi ito "gross income" o kita/profit — benta lang ito).</li>
+    <li><strong>Transactions Handled</strong> — bilang ng mabibilang na transaksyon (nagkaroon ng aktwal na natanggap na bayad) sa loob ng range.</li>
+    <li><strong>Estimated Profit</strong> — dito talaga makikita ang "kita"/tubo: Net Sales minus Cost of Goods Sold (batay sa <strong>Cost Price</strong> field ng bawat produkto). Kung walang laman ang Cost Price ng mga naibentang produkto, mababa o zero ang makikitang Estimated Profit dahil kulang lang ang cost data — hindi ito nangangahulugang talagang zero ang kita.</li>
+    <li><strong>Avg. Margin %</strong> — Estimated Profit hinati sa Net Sales, bilang porsyento.</li>
+  </ul>
+  <p>Tandaan: hiwalay ang quick range chip na ito (All Time/30 Days/7 Days/Today) sa mas detalyadong <strong>Date Range</strong> selector ng chart sa ibaba (na may sariling Granularity, Chart Style, at "Custom Range…" na opsyon) — pareho silang nag-a-affect ng datos pero magkaiba ang saklaw ng kontrol.</p>`
 },
 {
   id: 'reports-user-logs',
@@ -835,7 +842,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'Premium Features',
   question: 'Anong mga premium module meron sa OmniPOS?',
   keywords: ['premium features', 'paid modules', 'bayad na module', 'unlock feature', 'gembang icon', 'pro badge'],
-  answer: `<p>Bukod sa Pro Themes, may mga buong modyul din ng OmniPOS na naka-lock bilang premium feature hangga't hindi pa ito naka-unlock: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at ang bagong <strong>OmniPOS AI Assistant</strong>.</p>
+  answer: `<p>Bukod sa Pro Themes, may mga buong modyul din ng OmniPOS na naka-lock bilang premium feature hangga't hindi pa ito naka-unlock: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Inventory Tools, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at ang bagong <strong>OmniPOS AI Assistant</strong>.</p>
   <p>Kapag sinubukang gamitin ang isang naka-lock na feature, lalabas ang detalye nito (pangalan, presyo, maikling paliwanag) at ang opsyong mag-request ng unlock.</p>
   <p><strong>Paalala:</strong> apat dito ang <strong>subscription na (buwanan o taunan)</strong> sa halip na isang beses lang bayaran — Cloud Backup, RBAC Management, Multi-Branch Dashboard, at AI Assistant. Ang iba pang module/theme ay isang beses lang bayaran, permanente nang naka-unlock. Tingnan ang hiwalay na FAQ tungkol sa mga subscription module para sa detalye.</p>`
 },
@@ -865,7 +872,8 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li>Kapag na-approve, may matatanggap kang OTP code — ilagay ito para agad ma-activate ang Demo Mode.</li>
     <li>Habang aktibo, magagamit mo ang lahat ng premium module at Pro Theme nang walang bayad, hanggang sa mag-expire ang itinakdang tagal (o hanggang tapusin ito ng Admin nang mas maaga).</li>
   </ol>
-  <p>Kung may na-purchase ka nang aktwal na feature bago o habang may demo, hindi ito maaapektuhan — permanenteng nananatili itong naka-unlock kahit matapos ang demo.</p>`
+  <p>Kung may na-purchase ka nang aktwal na feature bago o habang may demo, hindi ito maaapektuhan — permanenteng nananatili itong naka-unlock kahit matapos ang demo.</p>
+  <p><strong>Protektado ang totoong data mo habang sumusubok.</strong> Sa mismong simula ng Demo Mode, kukunan ng buong snapshot ang iyong mga produkto, transaksyon, refund, customer, utang (debts), promo code, shift, purchase order, stock return, attendance, inventory count, consignment, waste log, at supplier. Anumang idagdag, i-edit, o i-delete mo sa mga ito habang tumatakbo ang demo ay awtomatikong ibabalik pabalik sa eksaktong dating estado nito pagkatapos ng demo — pareho kung tinapos mo ito manually gamit ang "End Demo" o kung nag-expire lang ito nang mag-isa. Hindi kasali dito ang user accounts/roles, settings ng tindahan/resibo, at payment credentials, at naitatala pa rin ito sa audit log pagkatapos.</p>`
 },
 {
   id: 'premium-cloud-backup',
@@ -1202,6 +1210,31 @@ window.OMNIPOS_FAQ_KB_TL = [
   <p>Ang workaround na ginagamit ng mga user: gumawa ng <strong>hiwalay na product code</strong> para sa bawat variant (hal. "Shirt-Red-M", "Shirt-Red-L", "Shirt-Blue-M"), bawat isa ay may sariling barcode, presyo, at stock count. Puwede mong gamitin ang parehong <strong>Category</strong> para magkasama-sama sila sa Inventory list at reports.</p>`
 },
 {
+  id: 'inventory-uom-multi-unit',
+  category: 'Inventory',
+  question: 'Paano magbenta ng produkto sa iba\'t ibang unit (hal. per kilo, per sako, per kahon)?',
+  keywords: ['unit of measure', 'uom', 'per kilo', 'per sako', 'per kahon', 'multi-unit', 'ibang unit', 'bulto', 'wholesale unit', 'add unit', 'base unit'],
+  answer: `<p>Sa Product form, may "Base Unit" field (hal. "pcs" o "kg") — ito ang unit ng Stock Quantity at regular Price na inilagay mo. Kung gusto mong ibenta rin ang parehong produkto sa mas malaking unit (hal. Kahon = 24 pcs, o Sako = 25 kg), gamitin ang <strong>"Other Units of Measure"</strong> section sa ibaba ng Base Unit:</p>
+  <ul>
+    <li>I-click ang <strong>"Add Unit"</strong>, ilagay ang pangalan ng unit (hal. "Kahon", "Sako") at ang <strong>conversion factor</strong> nito papunta sa Base Unit (hal. 24 kung 1 Kahon = 24 pcs).</li>
+    <li>May optional na <strong>Fixed Price</strong> field bawat unit — kung iiwan itong blangko, awtomatikong kukwentahin ito base sa (Presyo ng Base Unit × factor).</li>
+    <li>Hanggang 10 extra na unit kada produkto ang puwede.</li>
+  </ul>
+  <p>Kapag naka-enable ang <strong>"Allow decimal quantities"</strong>, puwede ring magbenta ng hindi buong bilang (hal. 0.5 kg) — kapaki-pakinabang ito para sa mga produktong tinitimbang. Sa POS Terminal, may dropdown sa bawat linya ng cart kung saan pipiliin ng cashier kung aling unit ang gagamitin sa pagbenta.</p>`
+},
+{
+  id: 'inventory-price-levels',
+  category: 'Inventory',
+  question: 'Paano gumawa ng Wholesale/Reseller na presyo (Price Levels)?',
+  keywords: ['price level', 'wholesale price', 'reseller price', 'ibang presyo', 'wholesale', 'presyo level', 'non-default price'],
+  answer: `<p>Pumunta sa <strong>Settings → Store &amp; Sales</strong>, hanapin ang seksyong "Price Levels", at ilagay ang mga pangalan ng level (hal. "Wholesale, Reseller" — hanggang 10, magkahiwalay ng comma).</p>
+  <ul>
+    <li>Kapag na-save, lalabas na ang mga level na ito sa <strong>Product form</strong> bilang optional na field kung saan puwede kang maglagay ng hiwalay na presyo bawat level, bawat produkto. Ang regular na "Price" ang laging Retail/default.</li>
+    <li>Sa POS Terminal, lalabas ang isang "Price Level" dropdown sa cart summary — pero <strong>hindi lahat ng account ang makikita ito</strong>: kailangan muna ng permission na "POS Terminal — Select a Non-Default Price Level at Checkout" sa Roles &amp; Permissions Matrix (Admin ang laging may access dito).</li>
+    <li>Kung walang naka-set na presyo para sa isang level sa isang partikular na produkto, babalik ito sa Retail Price bilang fallback (kasama rin ito sa Barcode Label printing).</li>
+  </ul>`
+},
+{
   id: 'transactions-discounts-promo',
   category: 'Discounts & Promo Codes',
   question: 'Anong mga klase ng discount ang suportado sa checkout?',
@@ -1413,6 +1446,21 @@ window.OMNIPOS_FAQ_KB_TL = [
   <p>May Search (product/code/lot number), filter by status, sort (Nearest Expiry / Product Name / Highest Quantity), at Export CSV.</p>`
 },
 {
+  id: 'premium-inventory-tools',
+  category: 'Inventory',
+  question: 'Ano ang Inventory Tools?',
+  keywords: ['inventory tools', 'physical count', 'consignment', 'waste log', 'damage log', 'dead stock', 'supplier directory', 'inventory count'],
+  answer: `<p>Ang <strong>Inventory Tools</strong> ay isang premium module (₱999, isang beses lang bayaran) na may sariling dedicated page, na naglalaman ng limang feature:</p>
+  <ul>
+    <li><strong>Physical Inventory Count</strong> — bilangin ang aktwal na stock ayon sa category o sa hand-picked na items, tapos ikumpara sa on-hand quantity ng system.</li>
+    <li><strong>Consignment</strong> — itala ang consignment stock na natanggap mula sa supplier at i-settle ito sa ibang pagkakataon (babayaran lang ang aktwal na nabenta).</li>
+    <li><strong>Damage/Waste Log</strong> — itala ang sirang, nasirang, o nasayang na stock, na may automatic deduction sa on-hand quantity.</li>
+    <li><strong>Dead-Stock Report</strong> — tingnan ang mabagal o hindi na gumagalaw na mga produkto.</li>
+    <li><strong>Supplier Directory</strong> — listahan ng contact ng iyong mga supplier.</li>
+  </ul>
+  <p>Katulad ng ibang naka-lock na module, kapag pinindot ang "Inventory Tools" sa sidebar habang naka-lock pa, lalabas ang unlock/purchase prompt sa halip na direktang mabuksan ang page — pagkatapos mabili, permanente na itong naka-unlock at bubukas sa sarili nitong tab.</p>`
+},
+{
   id: 'bir-compliance-overview',
   category: 'BIR Compliance',
   question: 'Ano ang BIR Compliance page?',
@@ -1432,6 +1480,28 @@ window.OMNIPOS_FAQ_KB_TL = [
   verdict: 'depende',
   answer: `<p>Para lang ito sa <strong>espesyal na kaso</strong> (hal. bagong machine/PTU, o kung pinahintulutan ng BIR). Kailangan muna ng dahilan at password bago ito matuloy, kaya dapat Admin/authorized personnel lang ang gumagawa nito.</p>
   <p>Naitatala ito sa <strong>AGT Reset History</strong> (kasama ang previous AGT, sino ang nag-authorize, at dahilan), at hindi naaapektuhan ang invoice numbering.</p>`
+},
+{
+  id: 'attendance-auto-close-stale',
+  category: 'Remote Operations & Attendance',
+  question: 'Bakit na-time-out na lang basta ang isang open na Time In ko/ng staff?',
+  keywords: ['auto close', 'autoclosed', 'nawala time in', 'nag-time out mismo', 'nakalimutan mag time out', 'stale session', 'forgot to time out', 'walang time out'],
+  verdict: 'oo, may auto-close',
+  answer: `<p>May <strong>automatic na pag-close ng "nabitin"/stale na Time In</strong> ang Attendance system: kung may Time In na hindi pa na-time-out sa loob ng tinakdang bilang ng oras (default 16 oras, naka-configure sa server via <code>ATTENDANCE_MAX_SHIFT_HOURS</code>), awtomatiko itong ise-set na Timed Out ng system.</p>
+  <p>Ma-uunawaan mo kung alin ang ganito dahil naka-mark ang record na <strong>"Auto-closed"</strong> kasama ang dahilan (hal. "No time-out was recorded within 16 hours of time-in"). Ginagawa ito para hindi na-stuck bilang "walang katapusan/live" ang isang na-miss na time-out — hindi ito bug, at hindi rin nito binabago ang selfie/oras ng orihinal na Time In.</p>`
+},
+{
+  id: 'promo-usage-cap',
+  category: 'Discounts & Promo Codes',
+  question: 'Puwede bang limitahan ang bilang ng beses na magagamit ang isang Promo Code?',
+  keywords: ['promo code limit', 'max uses', 'usage cap', 'ilang beses lang', 'per customer limit', 'reset usage', 'used count'],
+  verdict: 'oo',
+  answer: `<p>Oo — bukod sa expiry date at minimum spend, may dalawang klase ng limitasyon ang bawat Promo Code sa Promo Codes Manager:</p>
+  <ul>
+    <li><strong>Max Uses (global)</strong> — kabuuang bilang ng beses na puwedeng gamitin ang code sa LAHAT ng customer/benta. Kapag naabot na, hindi na ito tatanggapin sa checkout kahit "active" pa ito.</li>
+    <li><strong>Per-Customer Limit</strong> — opsyonal na limitasyon kung ilang beses puwedeng gamitin ng IISANG customer (kailangang naka-attach ang customer sa transaksyon para ma-enforce ito).</li>
+  </ul>
+  <p>Makikita ang natitirang uses (<em>remaining uses</em>) sa listahan ng promo codes, at may <strong>"Reset Usage"</strong> button ang Admin para i-zero muli ang used count/per-customer redemptions kung kailangang gamitin ulit ng code mula sa umpisa.</p>`
 },
 
 ];
