@@ -1531,6 +1531,9 @@ app.post('/api/receipt-settings/token-activate/confirm', requirePermission('rece
                 return res.status(402).json({
                     success: false,
                     insufficient: true,
+                    reserveProtected: !!relayData.reserveProtected,
+                    costSafetyNetMode: relayData.costSafetyNetMode,
+                    reserveFloorTokens: relayData.reserveFloorTokens,
                     balanceTokens: relayData.balanceTokens,
                     requiredTokens: relayData.requiredTokens,
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
@@ -5945,7 +5948,7 @@ app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
     prefs.autoSyncEnabled = !!enabled;
     saveCloudTokenPrefs(prefs);
     logAction(req.authUser.username, `${prefs.autoSyncEnabled ? 'Enabled' : 'Disabled'} Cloud Backup Auto-Sync (Omni Tokens page)`);
-    res.json({ success: true, autoSyncEnabled: prefs.autoSyncEnabled, message: prefs.autoSyncEnabled ? 'Auto-Sync is now ON.' : 'Auto-Sync is now OFF — scheduled cloud backups will pause to save tokens. Manual backup/restore still works if you have enough tokens.' });
+    res.json({ success: true, autoSyncEnabled: prefs.autoSyncEnabled, message: prefs.autoSyncEnabled ? 'Auto-Sync is now ON.' : 'Auto-Sync is now OFF — scheduled cloud backups will pause, so per-sync charges stop. Note: a separate storage holding fee still applies for as long as your backup data stays stored. Manual backup/restore still works if you have enough tokens.' });
 });
 app.post('/api/admin/cloud-tokens/purchase', rateLimit('cloud-tokens-purchase', 10, 15 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
@@ -8393,6 +8396,9 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
                 return res.status(402).json({
                     success: false,
                     insufficient: true,
+                    reserveProtected: !!relayData.reserveProtected,
+                    costSafetyNetMode: relayData.costSafetyNetMode,
+                    reserveFloorTokens: relayData.reserveFloorTokens,
                     balanceTokens: relayData.balanceTokens,
                     requiredTokens: relayData.requiredTokens,
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
@@ -8533,6 +8539,9 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
                 return res.status(402).json({
                     success: false,
                     insufficient: true,
+                    reserveProtected: !!relayData.reserveProtected,
+                    costSafetyNetMode: relayData.costSafetyNetMode,
+                    reserveFloorTokens: relayData.reserveFloorTokens,
                     balanceTokens: relayData.balanceTokens,
                     requiredTokens: relayData.requiredTokens,
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'

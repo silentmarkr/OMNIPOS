@@ -2175,6 +2175,19 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
     }
     if (!confirmData.success) {
         if (confirmData.insufficient) {
+            if (confirmData.reserveProtected) {
+                const buyResult = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Blocked by Cost Safety Net',
+                    html: confirmData.message || `This purchase would leave the balance below the ${confirmData.reserveFloorTokens} token buffer set aside for storage/sync costs.`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Buy Omni Tokens',
+                    cancelButtonText: 'Not now',
+                    confirmButtonColor: '#7c3aed'
+                });
+                if (buyResult.isConfirmed) switchView('cloudtokens');
+                return null;
+            }
             const buyResult = await Swal.fire({
                 icon: 'info',
                 title: 'Not Enough Omni Tokens',
@@ -2686,6 +2699,19 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
     }
     if (!confirmData.success) {
         if (confirmData.insufficient) {
+            if (confirmData.reserveProtected) {
+                const buyResult = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Blocked by Cost Safety Net',
+                    html: confirmData.message || `This purchase would leave the balance below the ${confirmData.reserveFloorTokens} token buffer set aside for storage/sync costs.`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Buy Omni Tokens',
+                    cancelButtonText: 'Not now',
+                    confirmButtonColor: '#7c3aed'
+                });
+                if (buyResult.isConfirmed) switchView('cloudtokens');
+                return false;
+            }
             const buyResult = await Swal.fire({
                 icon: 'info',
                 title: 'Not Enough Omni Tokens',
@@ -16312,6 +16338,19 @@ async function activateReceiptCreditViaTokens(quantity = 1) {
     }
     if (!confirmData.success) {
         if (confirmData.insufficient) {
+            if (confirmData.reserveProtected) {
+                const buyResult = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Blocked by Cost Safety Net',
+                    html: confirmData.message || `This purchase would leave the balance below the ${confirmData.reserveFloorTokens} token buffer set aside for storage/sync costs.`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Buy Omni Tokens',
+                    cancelButtonText: 'Not now',
+                    confirmButtonColor: '#7c3aed'
+                });
+                if (buyResult.isConfirmed) switchView('cloudtokens');
+                return;
+            }
             const unavailableQuote = confirmData.quote || quote;
             const buyResult = await Swal.fire({
                 icon: 'info',
