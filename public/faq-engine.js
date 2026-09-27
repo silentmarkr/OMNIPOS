@@ -184,7 +184,8 @@
       fileTooLarge: 'That file is too large. Please attach a smaller document (max ~8MB).',
       fileUnsupported: 'Unsupported file type. Supported: images, PDF, DOCX, TXT, CSV.',
       backToCommon: 'Back to common questions',
-      newSearch: 'New search'
+      newSearch: 'New search',
+      scrollToLatest: 'Scroll to latest'
     },
     tl: {
       badge: 'Sagot batay sa OmniPOS System Knowledge Base',
@@ -239,7 +240,8 @@
       fileTooLarge: 'Masyadong malaki ang file. Mag-attach ng mas maliit na dokumento (max ~8MB).',
       fileUnsupported: 'Hindi suportadong file type. Suportado: larawan, PDF, DOCX, TXT, CSV.',
       backToCommon: 'Bumalik sa mga karaniwang tanong',
-      newSearch: 'Bagong paghahanap'
+      newSearch: 'Bagong paghahanap',
+      scrollToLatest: 'Pumunta sa pinakabago'
     }
   };
 
@@ -1267,7 +1269,75 @@
       container.innerHTML = '<div class="faq-chat-thread" id="faq-chat-thread"></div>';
       thread = container.querySelector('#faq-chat-thread');
     }
+    // BAGO: floating "scroll to bottom" arrow — dating wala nito, kaya
+    // kapag nag-scroll pataas ang user para balikan/basahin ang lumang
+    // bahagi ng usapan, walang malinaw na paraan para makita (o
+    // malaman) na may mas bago pa palang mensahe/sagot sa ibaba maliban
+    // sa manual na pag-scroll pababa. Ipinapakita ito sa tuwing hindi
+    // nasa (o malapit sa) pinaka-ilalim ng thread ang view.
+    ensureScrollToBottomButton(container, thread);
     return thread;
+  }
+
+  // Idinudugtong bilang absolutely-positioned na sibling ng
+  // .faq-chat-thread (hindi bahagi ng thread mismo), kaya hindi ito
+  // naaapektuhan ng innerHTML rebuilds ng thread content, at hindi rin
+  // ito nase-scroll palabas ng view kasabay ng mga bubble.
+  function ensureScrollToBottomButton(container, thread) {
+    let btn = container.querySelector('#faq-scroll-bottom-btn');
+    if (btn) {
+      updateScrollToBottomButton(thread);
+      return btn;
+    }
+    const label = STRINGS().scrollToLatest;
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'faq-scroll-bottom-btn';
+    btn.className = 'faq-scroll-bottom-btn';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.innerHTML = '<i class="fa-solid fa-arrow-down"></i>';
+    btn.addEventListener('click', () => {
+      thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+    });
+    container.appendChild(btn);
+    thread.addEventListener('scroll', () => updateScrollToBottomButton(thread), { passive: true });
+    // Sinusubaybayan ang laki ng laman ng thread (bagong bubble, o
+    // lumalaking sagot habang tina-type-out) para awtomatikong
+    // ma-update ang visibility ng buton kahit hindi mismo nag-scroll
+    // ang user — hal. habang tuloy-tuloy pang lumalaki ang AI answer.
+    if (typeof MutationObserver !== 'undefined') {
+      const observer = new MutationObserver(() => updateScrollToBottomButton(thread));
+      observer.observe(thread, { childList: true, subtree: true, characterData: true });
+    }
+    updateScrollToBottomButton(thread);
+    return btn;
+  }
+
+  function updateScrollToBottomButton(thread) {
+    if (!thread) return;
+    const container = thread.parentElement;
+    const btn = container && container.querySelector('#faq-scroll-bottom-btn');
+    if (!btn) return;
+    const distanceFromBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+    btn.classList.toggle('faq-scroll-bottom-btn-visible', distanceFromBottom > 48);
+  }
+
+  // BAGO: sa halip na basta i-jump ang scroll papuntang PINAKA-ILALIM
+  // (scrollHeight) ng thread sa tuwing may bagong bubble (dating
+  // gawi — nagtatabon ng bagong tanong ng user, at pinuputol ang simula
+  // ng mahahabang sagot ng AI), dito ang simula/head mismo ng
+  // ibinigay na bubble ang tinitiyak na makikita (block:'start') —
+  // gumagana ito kapareho para sa user bubble (pagkatapos magsend) at
+  // assistant bubble (pagsisimula ng sagot ng AI).
+  function scrollBubbleIntoView(bubbleEl, thread) {
+    if (!bubbleEl) return;
+    try {
+      bubbleEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      if (thread) thread.scrollTop = bubbleEl.offsetTop;
+    }
+    if (thread) updateScrollToBottomButton(thread);
   }
 
   function appendUserBubble(thread, text) {
@@ -1305,6 +1375,7 @@
       <div class="faq-ai-badge"><i class="fa-solid fa-wand-magic-sparkles"></i> ${s.badge}</div>
       ${buildKbAnswerInnerHtml(query)}`;
     const bubble = appendAssistantBubble(thread, html);
+    scrollBubbleIntoView(bubble, thread);
     wireBubbleFaqLinks(bubble);
     chatHistory.push({ role: 'assistant', text: stripHtml(buildKbAnswerInnerHtml(query)).slice(0, 500) });
     saveChatHistory();
@@ -1337,7 +1408,6 @@
         setSendButtonLoading(false);
       }
       saveChatHistory();
-      thread.scrollTop = thread.scrollHeight;
     });
   }
 
@@ -1382,7 +1452,6 @@
           setSendButtonLoading(false);
         }
         saveChatHistory();
-        thread.scrollTop = thread.scrollHeight;
       });
     }
 
@@ -1701,6 +1770,13 @@
 
     const loadingBubble = appendAssistantBubble(thread, `
       <div class="faq-ai-badge faq-ai-thinking"><i class="fa-solid fa-robot fa-spin"></i> ${s.aiThinking}</div>`);
+    // BAGO: dito na mismo isinasagawa ang scroll papunta sa BAGONG
+    // bubble (hindi na hinihintay matapos mag-type-out ang buong sagot)
+    // — ang SIMULA/head ng bubble na ito (parehong sa "thinking" state
+    // at sa habang tina-type-out ang sagot, dahil iisa lang itong
+    // element sa buong proseso) ang mananatiling nakikita, kahit
+    // lumaki pa ang sagot pababa.
+    scrollBubbleIntoView(loadingBubble, thread);
 
     // BAGO: 6 -> 8 candidates, at 900 -> 1100 chars kada answer snippet.
     // Ang server (/api/ai-assistant/ask) ay tumatanggap na talaga ng
@@ -1838,7 +1914,12 @@
         wireAiBubbleActions(loadingBubble, query, answerText, thread);
         renderSuggestedActions(bubbleInner, data.suggestedActions);
         renderFollowUpChips(bubbleInner, candidates, query, thread);
-        thread.scrollTop = thread.scrollHeight;
+        // BAGO: hindi na ito puwersahang isinasagad sa ilalim
+        // (scrollHeight) ng thread — nananatili sa itaas ng view ang
+        // simula ng sagot (see scrollBubbleIntoView sa itaas kanina),
+        // dito ipina-refresh lang ang visibility ng floating
+        // "scroll to bottom" na buton batay sa bagong laki ng thread.
+        updateScrollToBottomButton(thread);
       });
       return true;
     } catch (err) {
@@ -1916,6 +1997,18 @@
       chatHistory.push({ role: 'user', text: q });
       saveChatHistory();
 
+      // BAGO: kada send ng tanong (composer, Enter key, o pag-click sa
+      // isang suggested/follow-up question chip — iisa lang itong
+      // ask() function ang tinatawag ng lahat ng ito), tiniyak muna na
+      // makikita ang KASASEND lang na tanong (block:'start'), sa halip
+      // na basta i-jump agad ang view papuntang PINAKA-ILALIM ng thread
+      // (dating gawi — natatabunan agad ito ng lalabas na AI bubble).
+      // Ang simula/head ng papasok na AI bubble naman ang tinitiyak na
+      // makikita habang tumatagal (see scrollBubbleIntoView sa loob ng
+      // askAIAssistantChat/appendKbAnswerBubble) — kahit mahaba pa ang
+      // sagot, hindi na ito basta isasagad sa ilalim ang scroll.
+      scrollBubbleIntoView(userBubble, thread);
+
       const handled = await (async () => {
         setSendButtonLoading(true);
         try {
@@ -1928,9 +2021,6 @@
         appendKbAnswerBubble(q, thread, true);
       }
       saveChatHistory();
-
-      resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      thread.scrollTop = thread.scrollHeight;
     },
     newConversation: resetConversation,
     goTo: goTo,
