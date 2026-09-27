@@ -512,6 +512,7 @@ const MENU_REGISTRY = [
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
     { key:'pending_requests', label:'Users — Pending Requests Tab', group:'Users & Access' },
+    { key:'requests_resolve_own_password', label:'Users — Pending Requests: Authorizer — Approve/Reject Using Own Password (Admin Password Not Required)', group:'Users & Access' },
     { key:'roles_permissions_view', label:'Users — Roles & Permissions Tab (opening/viewing the RBAC matrix)', group:'Users & Access' },
     { key:'edit_user_profile', label:'Edit User Profile (Widget)', group:'Users & Access' },
     { key:'logs',         label:'User Logs', group:'Users & Access' },
@@ -539,12 +540,12 @@ const DEFAULT_ROLES = [
     {
         name:'Staff',
         protected: false,
-        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, debt_delete_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, product_delete_own_password: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
+        permissions: { overview: true, terminal: true, dashboard: true, products: true, barcode: true, transactions: true, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: true, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, debt_delete_own_password: false, shiftreport: true, shiftreport_view_amounts: true, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, product_delete_own_password: false, users_manage: false, pending_requests: false, requests_resolve_own_password: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
     },
     {
         name:'Cashier',
         protected: false,
-        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, debt_delete_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, product_delete_own_password: false, users_manage: false, pending_requests: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
+        permissions: { overview: false, terminal: true, dashboard: false, products: false, barcode: false, transactions: false, transactions_view_all: false, void_own_password: false, refund: false, refund_own_password: false, reports: false, users: false, logs: false, edit_user_profile: false, customers: false, loyalty_card_issue: false, loyalty_redeem_own_password: false, debts: false, debt_delete_own_password: false, shiftreport: false, shiftreport_view_amounts: false, shift_close_control: false, shift_close_own_password: false, restock_direct_apply: false, products_direct_apply: false, product_delete_own_password: false, users_manage: false, pending_requests: false, requests_resolve_own_password: false, roles_permissions_view: false, reset_restore: false, terminal_settings_view: false, receipt_settings_view: false, receipt_settings_direct_apply: false, store_settings_view: false, store_settings_direct_apply: false, ux_settings_view: false, ux_settings_direct_apply: false, advanced_settings_view: false, advanced_settings_direct_apply: false, fraud_alerts_view: false, relay_unlock_request: false, branches: false, remoteops: false, attendance: true, cloud_tokens_view: false }
     }
 ];
 function getRoles() {
@@ -708,9 +709,20 @@ function verifyLoyaltyCardToken(customer, rawToken) {
 // override family as: findVoidAuthorizer / findRefundAuthorizer /
 // findManualDiscountAuthorizer / findShiftCloseAuthorizer /
 // findTerminalSettingsAuthorizer / findOmniTokenUnlockAuthorizer /
-// findDebtDeleteAuthorizer / findProductDeleteAuthorizer.)
+// findDebtDeleteAuthorizer / findProductDeleteAuthorizer /
+// findRequestsAuthorizer.)
 function findLoyaltyRedeemAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'loyalty_redeem_own_password');
+}
+// Pending Requests (Users tab) — lets a non-Admin role Approve/Reject queued
+// operation-alteration requests (product ADD/UPDATE/DELETE/RESTOCK, profile
+// edits, receipt/store/ux/advanced settings changes, etc.) using their OWN
+// password, as long as their role has the "requests_resolve_own_password"
+// ("Authorizer") permission enabled — same delegation model as the other
+// *_own_password overrides above, so an Admin doesn't have to be called over
+// just to accept/reject a pending request.
+function findRequestsAuthorizer(users, password) {
+    return findPasswordAuthorizer(users, password,'requests_resolve_own_password');
 }
 // ============================================================================
 // RBAC (ROLES & PERMISSIONS) — SECTION END
@@ -9923,7 +9935,29 @@ app.get('/api/products/image-search/thumb-proxy', rateLimit('image-search-thumb-
 app.get('/api/requests', requirePermission('pending_requests'), (req, res) => {
     res.json(readData(FILE_REQUESTS));
 });
-app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 * 60 * 1000), verifyAdmin, async (req, res) => {
+// Gate for resolving (approve/reject) a pending request: an Admin (with the
+// Admin password) can always resolve, OR — new — any role holding the
+// "requests_resolve_own_password" ("Authorizer") permission can resolve
+// using their OWN password instead, same delegation model as
+// findVoidAuthorizer/findRefundAuthorizer/etc. This intentionally does NOT
+// reuse the stricter verifyAdmin() middleware, since that one always
+// requires an actual Admin account.
+async function requireRequestsAuthorizer(req, res, next) {
+    const { username, adminPassword } = req.body;
+    if (!username) {
+        return res.status(400).json({ success: false, message:'May kulang na impormasyon (Username required).' });
+    }
+    if (!adminPassword) {
+        return res.status(400).json({ success: false, message:'Kailangan ng password para sa aksyong ito.' });
+    }
+    const users = readData(FILE_USERS);
+    const authResult = await findRequestsAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:'Maling password. Hindi pinahintulutan ang aksyong ito.' });
+    }
+    next();
+}
+app.post('/api/requests/:id/resolve', rateLimit('admin-resolve-request', 15, 10 * 60 * 1000), requireRequestsAuthorizer, async (req, res) => {
     // BUGFIX: parehong dahilan gaya ng quick-restock/PO-receive/batch endpoints —
     // ang ADD/UPDATE/DELETE/RESTOCK branches sa ibaba ay read-modify-write din sa
     // parehong FILE_PRODUCTS blob (kasama na ang bagong addBaseStock() call sa

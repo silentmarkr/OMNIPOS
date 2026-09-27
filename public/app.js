@@ -1566,7 +1566,8 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'batches-btn-lock':'batch_lot_tracking',
 'menu-branches-lock':'multi_branch',
 'menu-attendance-lock':'remote_operations',
-'menu-remoteops-lock':'remote_operations'
+'menu-remoteops-lock':'remote_operations',
+'menu-inventory-tools-lock':'inventory_tools'
 };
 function updateRolesPermissionsLockState() {
     const wrap = document.getElementById('roles-permissions-matrix-wrap');
@@ -3231,7 +3232,14 @@ function ensureSidebarProBadge() {
 function renderSidebarProBadge(fullyPurchased, demoActive) {
     const el = ensureSidebarProBadge();
     if (!el) return;
-    const showCrown = fullyPurchased || demoActive;
+    // Fully purchased (permanently unlocked) is the only state that should
+    // turn this into a static, non-clickable crown. Demo Mode is temporary,
+    // so even while it's active the icon must stay a clickable lock — the
+    // person can still reach the Upgrade options modal to buy before the
+    // demo timer runs out. (Per-feature menu items keep showing their own
+    // PRO badge during demo via updateSidebarFeatureLocks()/
+    // SIDEBAR_FEATURE_LOCK_MAP — unaffected by this.)
+    const showCrown = fullyPurchased;
     const iconEl = el.querySelector('.sidebar-pro-badge-icon');
     el.classList.toggle('is-crown', showCrown);
     if (iconEl) {
@@ -3239,8 +3247,12 @@ function renderSidebarProBadge(fullyPurchased, demoActive) {
     }
     if (showCrown) {
         el.disabled = true;
-        el.title = fullyPurchased ?'PRO — Fully Unlocked' :'PRO — Demo Mode Active';
+        el.title ='PRO — Fully Unlocked';
         el.onclick = null;
+    } else if (demoActive) {
+        el.disabled = false;
+        el.title ='Demo Mode Active — See Upgrade Options';
+        el.onclick = () => showUpgradeTiersModal();
     } else {
         el.disabled = false;
         el.title ='Try Full Demo';
@@ -21695,6 +21707,11 @@ async function loadPendingRequestsTable() {
             return;
         }
         const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
+        // "Authorizer" delegation: a non-Admin role with the
+        // requests_resolve_own_password permission enabled can also
+        // Approve/Reject, using their own password instead of the Admin
+        // password (mirrors requireRequestsAuthorizer on the server).
+        const canResolveRequests = isAdmin || !!(currentPermissions && currentPermissions['requests_resolve_own_password']);
                 requests.forEach(r => {
             let summaryDetails ='N/A';
             if (r.type ==='PROFILE_UPDATE') {
@@ -21716,12 +21733,12 @@ async function loadPendingRequestsTable() {
                 <td style="font-size:0.85rem; max-width:300px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(summaryDetails)}">${escapeHtml(summaryDetails)}</td>
                 <td>${escapeHtml(r.timestamp)}</td>
                 <td>
-                    <div class="action-icon-btns-row" ${!isAdmin ?'style="display:none;"' :''}>
+                    <div class="action-icon-btns-row" ${!canResolveRequests ?'style="display:none;"' :''}>
                         <!-- REFACTORED WORKFLOW CONTROLS: Extraneous character literals sanitized from the index tracking logic rows below -->
                         <button class="btn-icon-action edit" style="background-color:#22c55e;" onclick="resolveStaffOperationRequest('${safeReqId}', 'APPROVE')" title="Approve Changes"><i class="fa-solid fa-square-check"></i></button>
                         <button class="btn-icon-action delete" onclick="resolveStaffOperationRequest('${safeReqId}', 'REJECT')" title="Reject Changes"><i class="fa-solid fa-rectangle-xmark"></i></button>
                     </div>
-                    ${!isAdmin ?'<span style="font-size:0.8rem; color:#64748b; font-style:italic;">Admin Check Required</span>' :''}
+                    ${!canResolveRequests ?'<span style="font-size:0.8rem; color:#64748b; font-style:italic;">Admin or Authorizer Check Required</span>' :''}
                 </td>
             `;
             tbody.appendChild(row);
@@ -21741,8 +21758,19 @@ async function resolveStaffOperationRequest(id, decisionAction) {
         confirmButtonText: `Yes, ${decisionAction.toLowerCase()}`
     });
     if(!confirmation.isConfirmed) return;
-    const adminPassword = await promptAdminPasswordConfirm(`${decisionAction} request ${id}`);
-    if (!adminPassword) return;
+    const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
+    const { value: adminPassword } = await Swal.fire({
+        title:'🔒 Confirm Authorization',
+        html: isAdmin
+            ?`To continue with: <b>${decisionAction} request ${id}</b>, re-enter the Admin password:`
+            :`Admin or authorized Approver (Authorizer) password is required to <b>${decisionAction.toLowerCase()}</b> request ${id}.`,
+        input:'password',
+        inputPlaceholder: isAdmin ?'Admin password' :'Admin/Authorizer password',
+        showCancelButton: true,
+        confirmButtonColor:'#2563eb',
+        cancelButtonColor:'#ef4444'
+    });
+    if (!adminPassword || adminPassword.trim() ==='') return;
     try {
         const res = await authFetch(`${API_URL}/requests/${id}/resolve`, {
             method:'POST',
