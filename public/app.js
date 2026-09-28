@@ -8003,6 +8003,30 @@ function renderCloudTokensOverview(data) {
     } else if (safetyNetRow) {
         safetyNetRow.style.display = 'none';
     }
+    // GAWA/BAGO: paunang babala bago mabura ang cloud backup dahil sa matagal na utang.
+    // Local data sa device na ito ay HINDI ginagalaw ng purge.
+    const purgeBannerEl = document.getElementById('ct-purge-warning-banner');
+    const purgeTextEl = document.getElementById('ct-purge-warning-text');
+    if (purgeBannerEl && purgeTextEl) {
+        let purgeDays = null;
+        if (data.wallet && data.wallet.available) {
+            if (data.wallet.purgeAt) {
+                const purgeMs = new Date(data.wallet.purgeAt).getTime();
+                if (Number.isFinite(purgeMs)) purgeDays = Math.max(0, Math.ceil((purgeMs - Date.now()) / 86400000));
+            }
+            if (purgeDays === null && typeof data.wallet.daysUntilPurge === 'number') purgeDays = data.wallet.daysUntilPurge;
+        }
+        if (purgeDays !== null) {
+            const need = data.wallet.tokensToResume;
+            const topUp = (typeof need === 'number' && need > 0) ? ` Buy at least ${ctFmtNum(need)} Omni Tokens to keep it.` : ' Buy Omni Tokens to keep it.';
+            purgeTextEl.textContent = purgeDays === 0
+                ? `Your cloud backup is scheduled for deletion today because of an unpaid Omni Tokens balance.${topUp} Your data on this device is not affected.`
+                : `Your cloud backup will be deleted in ${purgeDays} day${purgeDays === 1 ? '' : 's'} because of an unpaid Omni Tokens balance.${topUp} Your data on this device is not affected.`;
+            purgeBannerEl.style.display = 'flex';
+        } else {
+            purgeBannerEl.style.display = 'none';
+        }
+    }
     const balanceEl = document.getElementById('ct-balance-number');
     const banner = document.getElementById('ct-insufficient-banner');
     if (data.wallet && data.wallet.available) {

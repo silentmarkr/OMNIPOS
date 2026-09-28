@@ -3161,11 +3161,20 @@ async function fetchCloudTokenWallet(installationId) {
             realRestoreCostTokens: typeof data.realRestoreCostTokens === 'number' ? data.realRestoreCostTokens : null,
             realRestoreCostTokensExact: typeof data.realRestoreCostTokensExact === 'number' ? data.realRestoreCostTokensExact : null,
             realRestoreCostBasedOnKnownSize: !!data.realRestoreCostBasedOnKnownSize,
-            costSafetyNet: data.costSafetyNet || null
+            costSafetyNet: data.costSafetyNet || null,
+            // Debt lockout state from RELAY (read-only while the balance is negative or below the resume buffer)
+            inDebt: !!data.inDebt,
+            tokensToResume: typeof data.tokensToResume === 'number' ? data.tokensToResume : 0,
+            // Paunang babala bago mabura ang cloud backup dahil sa utang (null kung wala)
+            daysUntilPurge: typeof data.daysUntilPurge === 'number' ? data.daysUntilPurge : null,
+            purgeAt: typeof data.purgeAt === 'string' ? data.purgeAt : null
         };
     } catch (err) {
         return { ok: false, reason: err.message };
     }
+}
+function buildCloudDebtPausedMessage(wallet, actionLabel) {
+    return `Cloud Backup ${actionLabel} is paused: this account has an unpaid Omni Tokens balance. Buy at least ${wallet.tokensToResume} more Omni Tokens to resume. Nothing was charged and nothing was written to the cloud.`;
 }
 async function fetchCloudTokenPackages() {
     if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
@@ -5921,7 +5930,11 @@ app.get('/api/admin/cloud-tokens/overview', requirePermission('cloud_tokens_view
             ledger: walletResult.ok ? walletResult.ledger : [],
             pendingPurchases: walletResult.ok ? walletResult.pendingPurchases : [],
             unavailableReason: walletResult.ok ? null : walletResult.reason,
-            costSafetyNet: walletResult.ok ? (walletResult.costSafetyNet || null) : null
+            costSafetyNet: walletResult.ok ? (walletResult.costSafetyNet || null) : null,
+            inDebt: walletResult.ok ? !!walletResult.inDebt : false,
+            tokensToResume: walletResult.ok ? (walletResult.tokensToResume || 0) : 0,
+            daysUntilPurge: walletResult.ok ? walletResult.daysUntilPurge : null,
+            purgeAt: walletResult.ok ? walletResult.purgeAt : null
         },
         packages: {
             available: packagesResult.ok,
@@ -5981,14 +5994,15 @@ app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
         const tokenCostForToggle = (walletForToggle.ok && typeof walletForToggle.realSyncCostTokens === 'number')
             ? walletForToggle.realSyncCostTokens
             : getCloudTokenCostPerSync(tierForToggle);
-        if (walletForToggle.ok && walletForToggle.balanceTokens < tokenCostForToggle) {
+        if (walletForToggle.ok && (walletForToggle.inDebt || walletForToggle.balanceTokens < tokenCostForToggle)) {
             return res.status(402).json({
                 success: false,
                 insufficientTokens: true,
+                ...(walletForToggle.inDebt ? { inDebt: true, tokensToResume: walletForToggle.tokensToResume } : {}),
                 balanceTokens: walletForToggle.balanceTokens,
                 tokenCostPerSync: tokenCostForToggle,
                 autoSyncEnabled: prefs.autoSyncEnabled,
-                message: `Cannot turn Auto-Sync ON — insufficient Cloud Backup tokens (balance: ${walletForToggle.balanceTokens}, needed: ${tokenCostForToggle} per sync). Please buy more tokens on the Omni Tokens page first.`
+                message: walletForToggle.inDebt ? buildCloudDebtPausedMessage(walletForToggle, 'Auto-Sync') : `Cannot turn Auto-Sync ON — insufficient Cloud Backup tokens (balance: ${walletForToggle.balanceTokens}, needed: ${tokenCostForToggle} per sync). Please buy more tokens on the Omni Tokens page first.`
             });
         }
     }
@@ -6055,14 +6069,15 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
             ? walletForSync.realSyncCostTokensExact
             : getCloudTokenCostPerSyncExact(tokenTierForSync)) * 1000
     ) / 1000;
-    if (walletForSync.ok && walletForSync.balanceTokens < tokenCostForSync) {
+    if (walletForSync.ok && (walletForSync.inDebt || walletForSync.balanceTokens < tokenCostForSync)) {
         return res.status(402).json({
             success: false,
             insufficientTokens: true,
+            ...(walletForSync.inDebt ? { inDebt: true, tokensToResume: walletForSync.tokensToResume } : {}),
             balanceTokens: walletForSync.balanceTokens,
             tokenCostPerSync: tokenCostForSync,
             tokenCostPerSyncExact: tokenCostForSyncExact,
-            message: `Insufficient Cloud Backup tokens (balance: ${walletForSync.balanceTokens}, needed: ~${tokenCostForSyncExact} per sync on average). Please buy more Omni Tokens on the Omni Tokens page.`
+            message: walletForSync.inDebt ? buildCloudDebtPausedMessage(walletForSync, 'sync') : `Insufficient Cloud Backup tokens (balance: ${walletForSync.balanceTokens}, needed: ~${tokenCostForSyncExact} per sync on average). Please buy more Omni Tokens on the Omni Tokens page.`
         });
     }
     const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username);
@@ -6094,8 +6109,8 @@ async function maybeRunAutomaticCloudBackup() {
     const tokenCostForAuto = (walletForAuto.ok && typeof walletForAuto.realSyncCostTokens === 'number')
         ? walletForAuto.realSyncCostTokens
         : getCloudTokenCostPerSync(subscription.tier || 'basic');
-    if (walletForAuto.ok && walletForAuto.balanceTokens < tokenCostForAuto) {
-        console.warn(`⚠️ AUTO_CLOUD_BACKUP: skipped — insufficient Cloud Backup tokens (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}). Bumili ng tokens sa Omni Tokens page.`);
+    if (walletForAuto.ok && (walletForAuto.inDebt || walletForAuto.balanceTokens < tokenCostForAuto)) {
+        console.warn(`⚠️ AUTO_CLOUD_BACKUP: skipped — ${walletForAuto.inDebt ? `Cloud Backup paused (unpaid Omni Tokens balance; buy at least ${walletForAuto.tokensToResume} more to resume)` : 'insufficient Cloud Backup tokens'} (balance: ${walletForAuto.balanceTokens}, kailangan: ${tokenCostForAuto}). Bumili ng tokens sa Omni Tokens page.`);
         const prefsToForceOff = getCloudTokenPrefs();
         if (prefsToForceOff.autoSyncEnabled) {
             prefsToForceOff.autoSyncEnabled = false;
@@ -6165,14 +6180,15 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
                 ? walletForRestore.realRestoreCostTokensExact
                 : getCloudTokenCostPerRestoreExact(tokenTierForRestore)) * 1000
         ) / 1000;
-        if (walletForRestore.ok && walletForRestore.balanceTokens < tokenCostForRestore) {
+        if (walletForRestore.ok && (walletForRestore.inDebt || walletForRestore.balanceTokens < tokenCostForRestore)) {
             return res.status(402).json({
                 success: false,
                 insufficientTokens: true,
+                ...(walletForRestore.inDebt ? { inDebt: true, tokensToResume: walletForRestore.tokensToResume } : {}),
                 balanceTokens: walletForRestore.balanceTokens,
                 tokenCostPerRestore: tokenCostForRestore,
                 tokenCostPerRestoreExact: tokenCostForRestoreExact,
-                message: `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, needed: ~${tokenCostForRestoreExact} for this restore). Please buy more Omni Tokens on the Omni Tokens page.`
+                message: walletForRestore.inDebt ? buildCloudDebtPausedMessage(walletForRestore, 'restore') : `Insufficient Cloud Backup tokens (balance: ${walletForRestore.balanceTokens}, needed: ~${tokenCostForRestoreExact} for this restore). Please buy more Omni Tokens on the Omni Tokens page.`
             });
         }
     }
@@ -6671,7 +6687,7 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
         'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as context for "how do I..." questions — base those answers ONLY on that context.',
         'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
         'That system message may also include a "Pre-computed store insights" block — already-calculated numbers for sales totals (today/yesterday/week/month revenue, transaction counts, day-over-day % change, top products), a cashier sales ranking for this month (topCashierThisMonth/lowestCashierThisMonth/cashierRankingThisMonth), per-cashier shift/Z-Reading cash variance (shifts.byCashier, mostShortCashier, mostOverCashier), inventory status (low stock, out of stock, expiring soon, expired items), a customer loyalty points ranking (topByPoints/lowestByPoints), and unreviewed Fraud Alert counts — plus an optional "suggestedSettings" list. ALWAYS use these pre-computed numbers as-is for that kind of question instead of counting/summing/averaging/ranking the raw records yourself — you are not reliable at exact arithmetic or ranking over long record lists, and this app already computes them correctly elsewhere (the Overview dashboard). Every revenue figure in this block (todayRevenue, yesterdayRevenue, weekRevenue, monthRevenue, cashierRankingThisMonth revenue, topCashierThisMonth/lowestCashierThisMonth revenue) is already NET of refunds — it already matches the "Total Sales"/"Net Sales" headline on the Sales Report page, so never add, subtract, or re-explain a refund adjustment on top of it. The separate todayRefunded/monthRefunded fields are the total amount refunded in that period (a different number from revenue, not something already subtracted a second time), and todayPaymentBreakdown/monthPaymentBreakdown break the net revenue down by payment method (CASH, GCASH, CARD, etc.) when the question is about a specific payment method\'s total. A null "todayVsYesterdayPct" means there were no sales yesterday to compare against — say so plainly rather than inventing a percentage. IMPORTANT distinction: "*Revenue" (todayRevenue/monthRevenue/etc.) is total SALES/BENTA — it is NOT the same thing as "kita"/"profit". When the user asks about "kita", "tubo", "profit", "netong kita", or "how much did we (actually) make/earn", answer using todayProfit/monthProfit (and todayProfitMarginPct/monthProfitMarginPct for the margin %) instead — these already subtract each sold product\'s recorded cost (Cost of Goods Sold) from revenue, matching the Sales Analytics report\'s "Estimated Profit". If todayProfitHasCostData/monthProfitHasCostData is false, that period\'s profit figure is unreliable (little or no product "cost" was ever set in Products) — say so plainly and suggest the user fill in the Cost field per product (Products page) for an accurate profit figure, rather than presenting a 0 or near-0 profit as if it were real. Never call plain revenue "kita"/"profit", and never call profit "benta"/"revenue" — they answer different questions. When asked for the TOTAL COST/VALUE of all products/stock/inventory currently on hand (e.g. "magkano lahat ng product namin", "total cost ng lahat ng produkto", "how much is our inventory worth"), use inventory.totalInventoryCostValue directly (Admin/authorized sessions only) — it is the sum of stock × cost across EVERY product in the store, already computed server-side, NOT just the products included in the snapshot below (that list can be a partial sample for large catalogs, so never add up the "cost"/"price" fields of the individual product records yourself for this kind of question). If inventory.totalInventoryCostValueHasCostData is false, say the figure is unreliable/near-zero because little or no product has a "Cost" set (Products page) rather than presenting it as a real total. If totalInventoryCostValue is missing entirely (non-admin/limited session), say this requires Admin access rather than estimating from the partial product list you can see. IMPORTANT distinction: topProductsThisWeek and topProductsThisMonth are TWO SEPARATE best-selling-by-quantity rankings over DIFFERENT periods — topProductsThisWeek covers only the last 7 days, topProductsThisMonth covers the current calendar month so far — never use one to answer a question about the other\'s period, and never describe topProductsThisWeek\'s numbers as being "this month\'s" top products or vice versa. A negative shift "totalVariance"/"avgVariance" means cash SHORT for that cashier; positive means cash OVER — state this plainly and neutrally (it can have innocent explanations like miscounting) rather than accusing the cashier of wrongdoing. When "suggestedSettings" has entries relevant to the question (or to a problem the user describes), you may mention them as a suggestion — explain what setting to change and why it would help, but always make clear you cannot change it yourself; the user has to do it in Settings.',
-        'For questions about billing, subscriptions, backup cost/consumption, or database safety, you may receive a separate "Pre-computed billing/subscription/backup-safety insights" system message (Admin/authorized sessions only). Use it as-is: expiredOrGraceFeatures lists any module or Cloud Backup subscription that is expired or in its grace period; cloudBackup.actualCostShare.yourShare is the REAL, usage-based cost for this store\'s Cloud Backup (not just the flat plan price) — prefer it over planPrice when asked "how much does it actually cost/consume"; billingSchedule lists upcoming charges with name/amount/dueDate for roughly the next 30 days; estimatedNextMonthTotalPHP is the rough sum of those (all amounts are PHP); databaseSafetyFeatures is a factual list of this app\'s real built-in safeguards — never add safety/security claims beyond what is listed there. If this block is missing entirely for a billing-type question, or actualCostShare/cbCostShare is null, say plainly that the live figure isn\'t available right now rather than estimating one. For a non-admin session, this data is intentionally withheld — tell the user this needs Admin access.',
+        'For questions about billing, subscriptions, backup cost/consumption, or database safety, you may receive a separate "Pre-computed billing/subscription/backup-safety insights" system message (Admin/authorized sessions only). Use it as-is: expiredOrGraceFeatures lists any module or Cloud Backup subscription that is expired or in its grace period; cloudBackup.actualCostShare.yourShare is the REAL, usage-based cost for this store\'s Cloud Backup (not just the flat plan price) — prefer it over planPrice when asked "how much does it actually cost/consume", but always present it as usage cost so far, NEVER as the amount due or the renewal price; each billingSchedule entry\'s amount is the plan price actually due, and for Cloud Backup its usageCostSoFarPHP is the separate usage cost so far; billingSchedule lists upcoming charges with name/amount/dueDate for roughly the next 30 days; estimatedNextMonthTotalPHP is the rough sum of those (all amounts are PHP); databaseSafetyFeatures is a factual list of this app\'s real built-in safeguards — never add safety/security claims beyond what is listed there. If this block is missing entirely for a billing-type question, or actualCostShare/cbCostShare is null, say plainly that the live figure isn\'t available right now rather than estimating one. For a non-admin session, this data is intentionally withheld — tell the user this needs Admin access.',
         isAdminRole
             ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
             : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
@@ -7096,7 +7112,6 @@ async function computeAiBillingInsights(isAdminRole) {
         actualCostShare: (cbCostShare && cbCostShare.success)
             ? {
                 hasUsage: !!cbCostShare.hasUsage,
-                totalCostAllClientsPHP: cbCostShare.totalCostPHP ?? null,
                 yourShare: cbCostShare.yourShare || null,
                 checkedAt: cbCostShare.checkedAt || null
             }
@@ -7121,11 +7136,14 @@ async function computeAiBillingInsights(isAdminRole) {
     if (cbSubscription.active && cloudBackup.expiresAt) {
         const dueInMs = new Date(cloudBackup.expiresAt).getTime() - now;
         if (dueInMs <= UPCOMING_WINDOW_MS) {
-            const realAmount = cloudBackup.actualCostShare?.yourShare?.finalPricePHP;
+            // BUGFIX: kapag active ang subscription, 0 ang maintenanceFeePHP kaya ang
+            // finalPricePHP ay usage cost lang (ilang piso) — hindi ito ang renewal price.
+            // Ang due amount ay ang plan price; ang usage share ay hiwalay na impormasyon.
+            const usageShare = cloudBackup.actualCostShare?.yourShare?.baseCostPHP;
             billingSchedule.push({
                 name: `Cloud Backup (${cloudBackup.tierName || cbSubscription.tier})`,
-                amount: typeof realAmount === 'number' ? realAmount : cbPrice,
-                isActualCostShare: typeof realAmount === 'number',
+                amount: cbPrice,
+                usageCostSoFarPHP: typeof usageShare === 'number' ? usageShare : null,
                 dueDate: cloudBackup.expiresAt,
                 billingCycle: cbSubscription.billingCycle
             });
@@ -7963,6 +7981,58 @@ function getForgotPasswordRecipientEmail() {
     const senderEmail = creds && typeof creds.user === 'string' ? creds.user.trim() : '';
     return emailPattern.test(senderEmail) ? senderEmail : '';
 }
+// ===================================================================
+// GAWA/BAGO: EMAIL REMINDER BAGO ANG CLOUD BACKUP PURGE.
+// Tuwing 6 na oras, chine-check ang wallet sa RELAY. Kapag may nakaambang
+// purge (daysUntilPurge), nagpapadala ng email sa may-ari kapag umabot na
+// sa 30, 10 at 2 araw na lang ang natitira (katumbas ng araw 30, 50 at 58
+// ng utang kung 60 araw ang CLOUD_BACKUP_DEBT_PURGE_DAYS sa RELAY).
+// Hindi nagdodoble: tinatandaan sa 'cloudPurgeReminderState' kung aling
+// threshold ang naipadala na para sa partikular na purgeAt. Kapag nabayaran
+// ang utang (walang purgeAt), nire-reset ang state.
+// Recipient: recovery/2FA email ng Admin, o ang Sender Gmail kung wala.
+// ===================================================================
+const FILE_CLOUD_PURGE_REMINDER_STATE = 'cloudPurgeReminderState';
+const CLOUD_PURGE_REMINDER_THRESHOLDS_DAYS = [30, 10, 2];
+async function runCloudPurgeReminderCheck() {
+    try {
+        // Walang gate sa subscription: ang debt purge sa RELAY ay hindi tumitingin dito,
+        // kaya dapat may babala kahit expired na ang subscription.
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const wallet = await fetchCloudTokenWallet(installationId);
+        if (!wallet.ok) return;
+        const state = readData(FILE_CLOUD_PURGE_REMINDER_STATE, { purgeAt: null, sent: [] }) || { purgeAt: null, sent: [] };
+        if (!wallet.purgeAt || typeof wallet.daysUntilPurge !== 'number') {
+            if (state.purgeAt || (state.sent && state.sent.length)) writeData(FILE_CLOUD_PURGE_REMINDER_STATE, { purgeAt: null, sent: [] });
+            return;
+        }
+        const sent = (state.purgeAt === wallet.purgeAt && Array.isArray(state.sent)) ? state.sent : [];
+        const due = CLOUD_PURGE_REMINDER_THRESHOLDS_DAYS.filter(t => wallet.daysUntilPurge <= t && !sent.includes(t));
+        if (due.length === 0) return;
+        const creds = getOtpMailCredentials();
+        const recipient = getForgotPasswordRecipientEmail();
+        if (!creds || !recipient) return;
+        const days = wallet.daysUntilPurge;
+        const need = wallet.tokensToResume > 0 ? `Buy at least ${wallet.tokensToResume} Omni Tokens on the Omni Tokens page to resume Cloud Backup and keep your cloud backup.` : 'Buy Omni Tokens on the Omni Tokens page to keep your cloud backup.';
+        await sendMailSmart(creds.user, creds.pass, {
+            from: `"OmniPOS Cloud Backup" <${creds.user}>`,
+            to: recipient,
+            subject: days <= 0
+                ? 'OmniPOS: Your cloud backup is scheduled for deletion today'
+                : `OmniPOS: Your cloud backup will be deleted in ${days} day${days === 1 ? '' : 's'}`,
+            text: `Your OmniPOS Cloud Backup has an unpaid Omni Tokens balance.\n\n`
+                + (days <= 0 ? `The cloud backup is scheduled to be deleted today.\n\n` : `The cloud backup will be permanently deleted in ${days} day${days === 1 ? '' : 's'} (${new Date(wallet.purgeAt).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila' })}).\n\n`)
+                + `${need}\n\n`
+                + `Your data on this device is not affected. Only the copy stored in the cloud is deleted.`
+        });
+        writeData(FILE_CLOUD_PURGE_REMINDER_STATE, { purgeAt: wallet.purgeAt, sent: [...new Set([...sent, ...due])] });
+        logAction('System', `Sent Cloud Backup purge reminder email (${days} day(s) left).`);
+    } catch (err) {
+        console.error('Cloud purge reminder check failed:', err.message);
+    }
+}
+setTimeout(runCloudPurgeReminderCheck, 90 * 1000);
+setInterval(runCloudPurgeReminderCheck, 6 * 60 * 60 * 1000).unref();
 function isForgotPasswordAvailable() {
     return !!(getOtpMailCredentials() && getForgotPasswordRecipientEmail());
 }
