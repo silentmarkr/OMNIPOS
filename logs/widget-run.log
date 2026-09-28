@@ -9200,3 +9200,5 @@ MODE: Production (Public/Online Access Enabled)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://0.0.0.0:3000
 MODE: Production (Public/Online Access Enabled)
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
