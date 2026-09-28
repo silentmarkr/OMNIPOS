@@ -1859,6 +1859,11 @@ function updateCloudBackupLockState() {
         updateCloudBackupGetButtonPrice(getBtn);
         stopCloudBackupCostShareAutoRefresh();
     }
+    // GAWA/BAGO: hiwalay ito sa Cloud Backup unlock state — ang Devices/
+    // License na Neon database (device allow-list, atbp.) ay ginagamit ng
+    // LAHAT ng installation, kahit hindi pa naka-subscribe sa Cloud Backup.
+    refreshDeviceLicenseCostShare();
+    startDeviceLicenseCostShareAutoRefresh();
 }
 async function updateCloudBackupGetButtonPrice(getBtn) {
     await refreshCloudBackupPlansLive();
@@ -2000,6 +2005,102 @@ function stopCloudBackupCostShareAutoRefresh() {
         clearInterval(cloudBackupCostShareRefreshTimer);
         cloudBackupCostShareRefreshTimer = null;
     }
+}
+// GAWA/BAGO: kaparehong pattern gaya ng refresh/render CloudBackupCostShare
+// sa itaas, pero para sa Devices/License na Neon database (tingnan ang
+// /api/devices-license/cost-share sa OMNIPOS server.js at
+// /relay/devices/cost-allocation sa RELAY). Mas simple ito kaysa sa Cloud
+// Backup na bersyon (walang storage/compute % breakdown, walang
+// maintenance-fee/lifetime na konsepto) dahil pantay-pantay lang ang
+// hati (hindi proportional-by-size) at walang hiwalay na subscription
+// plan ang Devices/License data mismo — infra cost lang na dala-dala ng
+// LAHAT ng installation.
+// Throttle + single-flight: tinatawag ito ng updateCloudBackupLockState()
+// (madalas tawagin) at ng timer — iwas paulit-ulit/sabay-sabay na request
+// sa RELAY (mabigat ang computation doon).
+let deviceLicenseCostShareInFlight = false;
+let deviceLicenseCostShareLastFetchAt = 0;
+const DEVICE_LICENSE_COST_SHARE_MIN_GAP_MS = 60 * 1000;
+async function refreshDeviceLicenseCostShare(force) {
+    const wrap = document.getElementById('devices-license-cost-share-wrap');
+    if (!wrap) return;
+    if (deviceLicenseCostShareInFlight) return;
+    if (!force && (Date.now() - deviceLicenseCostShareLastFetchAt) < DEVICE_LICENSE_COST_SHARE_MIN_GAP_MS) return;
+    deviceLicenseCostShareInFlight = true;
+    try {
+        const res = await authFetch(`${API_URL}/devices-license/cost-share`);
+        const data = await res.json();
+        deviceLicenseCostShareLastFetchAt = Date.now();
+        renderDeviceLicenseCostShare(data);
+    } catch (err) {
+        wrap.style.display = 'none';
+    } finally {
+        deviceLicenseCostShareInFlight = false;
+    }
+}
+let deviceLicenseCostShareRefreshTimer = null;
+const DEVICE_LICENSE_COST_SHARE_REFRESH_MS = 30 * 60 * 1000;
+function startDeviceLicenseCostShareAutoRefresh() {
+    if (deviceLicenseCostShareRefreshTimer) return;
+    deviceLicenseCostShareRefreshTimer = setInterval(() => {
+        if (document.hidden) return;
+        refreshDeviceLicenseCostShare();
+    }, DEVICE_LICENSE_COST_SHARE_REFRESH_MS);
+}
+function stopDeviceLicenseCostShareAutoRefresh() {
+    if (deviceLicenseCostShareRefreshTimer) {
+        clearInterval(deviceLicenseCostShareRefreshTimer);
+        deviceLicenseCostShareRefreshTimer = null;
+    }
+}
+function renderDeviceLicenseCostShare(data) {
+    const wrap = document.getElementById('devices-license-cost-share-wrap');
+    const basis = document.getElementById('devices-license-cost-share-basis');
+    const warningBox = document.getElementById('devices-license-cost-share-warning');
+    const sizeEl = document.getElementById('devices-license-cost-share-size');
+    const totalEl = document.getElementById('devices-license-cost-share-total');
+    if (!wrap || !basis || !warningBox || !sizeEl || !totalEl) return;
+
+    if (!data || !data.success || !data.hasUsage || !data.yourShare || typeof data.yourShare.sharePHP !== 'number') {
+        wrap.style.display = 'none';
+        return;
+    }
+    const share = data.yourShare;
+    const fmtPHP = (n) => (typeof n === 'number' && isFinite(n))
+        ? `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '₱—';
+
+    wrap.style.display = 'block';
+
+    // "dapat makatotohanang bill para sa nagamit nila, naka-depende sa
+    // storage na inuupload nila ang cost": ang share dito ay PROPORTIONAL
+    // sa AKTWAL na sariling na-store na device/license data (share.bytes),
+    // hindi pantay-pantay na hati sa lahat ng client (tingnan ang
+    // splitBasis/computeDeviceLicenseCostAllocation() sa RELAY). Kapag
+    // may Neon API usage data na, "real-neon-usage" ang costBasis — ang
+    // TOTOONG binayaran sa Neon (hindi na estimate) ang hinahati.
+    // Kapag paid na ang Neon plan: totoong Neon usage/rates ('real-neon-usage'
+    // o 'configured-plan-estimate'). Habang Free pa: rates ng reference tier
+    // na pinili sa RELAY admin ('reference-tier-*'). Pareho, hatian ay ayon
+    // sa sariling storage ng client.
+    const tierLabel = data.formulaTier ? String(data.formulaTier).charAt(0).toUpperCase() + String(data.formulaTier).slice(1) : '';
+    if (data.costBasis === 'real-neon-usage') {
+        basis.textContent = 'Actual Neon billing';
+        basis.style.background = 'rgba(22,163,74,0.12)';
+        basis.style.color = '#16a34a';
+    } else if (data.costBasis === 'configured-plan-estimate') {
+        basis.textContent = tierLabel ? `Neon ${tierLabel} rates (estimate)` : 'Neon rates (estimate)';
+        basis.style.background = 'rgba(22,163,74,0.12)';
+        basis.style.color = '#16a34a';
+    } else {
+        basis.textContent = tierLabel ? `Live usage · ${tierLabel} rates` : 'Based on your usage';
+        basis.style.background = 'rgba(37,99,235,0.12)';
+        basis.style.color = '#2563eb';
+    }
+
+    renderIconMessage(warningBox, data.warning, 'fa-triangle-exclamation', 'block');
+    sizeEl.textContent = typeof share.sizeMB === 'number' ? `${share.sizeMB.toLocaleString('en-PH', { maximumFractionDigits: 2 })} MB` : '—';
+    totalEl.textContent = fmtPHP(share.sharePHP);
 }
 const LEADING_EMOJI_STRIP_REGEX = /^(?:[\s]*[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}][\u{FE0E}\u{FE0F}\u{200D}]?)+[\s]*/u;
 function renderIconMessage(el, message, iconClass, displayStyle) {
@@ -7874,6 +7975,29 @@ function renderCloudTokensOverview(data) {
     }
     const toggleEl = document.getElementById('ct-autosync-toggle');
     if (toggleEl) toggleEl.checked = !!(data.cloudBackup && data.cloudBackup.autoSyncEnabled);
+    // GAWA/BAGO: Cost Safety Net info row — ipinapakita LANG kapag may
+    // aktibong mode ('reserve'/'prepay') para dito sa installation na ito
+    // (tingnan ang server-side na paliwanag malapit sa costSafetyNetForWallet
+    // sa RELAY server.js). Layunin: makita ng client MISMO, bago pa man
+    // subukan ang isang "ibang bagay" na pagbili, kung magkano ang
+    // buffer na hawak-hawak para sa storage/sync costs niya — hindi na
+    // lang sa "Blocked by Cost Safety Net" modal makikita ito.
+    const safetyNetRow = document.getElementById('ct-safetynet-row');
+    const safetyNetModeEl = document.getElementById('ct-safetynet-mode');
+    const safetyNetDescEl = document.getElementById('ct-safetynet-desc');
+    const csn = data.wallet && data.wallet.costSafetyNet;
+    if (safetyNetRow && csn && csn.mode && csn.mode !== 'none') {
+        if (safetyNetModeEl) safetyNetModeEl.textContent = csn.mode === 'prepay' ? 'Prepay & book' : 'Reserve threshold';
+        if (safetyNetDescEl) {
+            const floorLabel = `${ctFmtNum(csn.floor)} token(s)`;
+            safetyNetDescEl.textContent = csn.mode === 'prepay'
+                ? `${floorLabel} booked this cycle for storage/sync costs. Protected from plan/add-on purchases until it's drawn down by real charges${csn.nextRebookLabel ? ` (next re-book: ${new Date(csn.nextRebookLabel).toLocaleDateString()})` : ''}.`
+                : `${floorLabel} kept as a buffer for storage/sync costs. Plan/add-on purchases that would drop your balance below this amount will be blocked.`;
+        }
+        safetyNetRow.style.display = 'flex';
+    } else if (safetyNetRow) {
+        safetyNetRow.style.display = 'none';
+    }
     const balanceEl = document.getElementById('ct-balance-number');
     const banner = document.getElementById('ct-insufficient-banner');
     if (data.wallet && data.wallet.available) {
@@ -24491,6 +24615,7 @@ async function handleLogout(type ='manual') {
     try { stopInventoryStockPolling(); } catch (e) {}
     try { stopReorderPolling(); } catch (e) {}
     try { stopCloudBackupCostShareAutoRefresh(); } catch (e) {}
+    try { stopDeviceLicenseCostShareAutoRefresh(); } catch (e) {}
     try { stopRemoteOperationsAutoRefresh(); } catch (e) {}
 
     try {

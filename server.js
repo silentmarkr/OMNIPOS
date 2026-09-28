@@ -3160,7 +3160,8 @@ async function fetchCloudTokenWallet(installationId) {
             realSyncCostBasedOnKnownSize: !!data.realSyncCostBasedOnKnownSize,
             realRestoreCostTokens: typeof data.realRestoreCostTokens === 'number' ? data.realRestoreCostTokens : null,
             realRestoreCostTokensExact: typeof data.realRestoreCostTokensExact === 'number' ? data.realRestoreCostTokensExact : null,
-            realRestoreCostBasedOnKnownSize: !!data.realRestoreCostBasedOnKnownSize
+            realRestoreCostBasedOnKnownSize: !!data.realRestoreCostBasedOnKnownSize,
+            costSafetyNet: data.costSafetyNet || null
         };
     } catch (err) {
         return { ok: false, reason: err.message };
@@ -5510,6 +5511,51 @@ app.get('/api/cloud-backup/cost-share', async (req, res) => {
     const relayData = await fetchCloudBackupCostShare(installationId);
     res.json(relayData);
 });
+// GAWA/BAGO: kaparehong proxy pattern gaya ng fetchCloudBackupCostShare/
+// /api/cloud-backup/cost-share sa itaas, pero para sa Devices/License na
+// Neon database sa RELAY (tingnan ang /relay/devices/cost-allocation sa
+// RELAY server.js) — laging may makikitang realtime na cost estimate ang
+// client kahit "Free" pa ang naka-configure sa RELAY admin, at
+// awtomatikong lilipat papuntang totoong Neon usage cost sa sandaling
+// may na-configure/na-detect na totoong bayad na Neon plan.
+async function fetchDeviceLicenseCostShare(installationId) {
+    if (!RELAY_API_KEY) return { success: false, message: 'RELAY_API_KEY is not configured.' };
+    try {
+        const relayRes = await relayFetch(
+            `${RELAY_URL}/relay/devices/cost-allocation?installationId=${encodeURIComponent(installationId)}`,
+            { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }
+        );
+        const relayData = await parseRelayResponse(relayRes);
+        return relayData || { success: false, message: 'No response from RELAY.' };
+    } catch (err) {
+        return { success: false, message: 'Could not fetch the Devices/License cost share: ' + err.message };
+    }
+}
+app.get('/api/devices-license/cost-share', async (req, res) => {
+    if (!RELAY_API_KEY) {
+        return res.json({ success: false, message: 'RELAY_API_KEY is not configured.' });
+    }
+    const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+    const relayData = await fetchDeviceLicenseCostShare(installationId);
+    // Whitelist lang ang ipinapasa sa browser — hindi kasama ang anumang
+    // internal/business data (hal. total cost o ibang client) na maaaring
+    // dumating mula sa RELAY.
+    if (!relayData || relayData.success !== true) {
+        return res.json({ success: false, message: (relayData && relayData.message) || 'Devices/License cost share is unavailable.' });
+    }
+    const share = relayData.yourShare && typeof relayData.yourShare === 'object' ? relayData.yourShare : null;
+    res.json({
+        success: true,
+        hasUsage: !!relayData.hasUsage,
+        checkedAt: relayData.checkedAt || null,
+        costBasis: relayData.costBasis || null,
+        formulaTier: relayData.formulaTier || null,
+        splitBasis: relayData.splitBasis || null,
+        warning: relayData.warning || null,
+        message: relayData.message || null,
+        yourShare: share ? { sizeMB: share.sizeMB, sharePHP: share.sharePHP } : null
+    });
+});
 let cloudBackupUploadInFlight = false;
 const CLOUD_BACKUP_CHUNK_SIZE_BYTES = 100 * 1024;
 const CLOUD_BACKUP_CHUNK_TIERS = [
@@ -5874,7 +5920,8 @@ app.get('/api/admin/cloud-tokens/overview', requirePermission('cloud_tokens_view
             sufficientForSync,
             ledger: walletResult.ok ? walletResult.ledger : [],
             pendingPurchases: walletResult.ok ? walletResult.pendingPurchases : [],
-            unavailableReason: walletResult.ok ? null : walletResult.reason
+            unavailableReason: walletResult.ok ? null : walletResult.reason,
+            costSafetyNet: walletResult.ok ? (walletResult.costSafetyNet || null) : null
         },
         packages: {
             available: packagesResult.ok,
