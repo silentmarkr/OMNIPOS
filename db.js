@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 // BUG FIX: dating laging path.join(__dirname, 'database') ang DB_DIR —
@@ -149,6 +150,10 @@ function migrateBlobToRowStoreIfNeeded(moduleName) {
 ROW_NORMALIZED_MODULES.forEach((moduleName) => migrateBlobToRowStoreIfNeeded(moduleName));
 
 const blobStringCache = new Map();
+// Lite products view cache (tingnan ang "PRODUCTS LITE VIEW" section sa baba).
+// Nakadeklara dito sa taas para hindi ma-TDZ kapag tinawag ang writeData nang maaga.
+let productsViewCache = null;
+let productImageMapTimer = null;
 
 function readData(moduleName, defaultData = []) {
     if (ROW_NORMALIZED_MODULES.has(moduleName)) {
@@ -206,6 +211,7 @@ function writeData(moduleName, data) {
 
         
         blobStringCache.set(moduleName, json);
+        if (moduleName === 'products') invalidateProductsViewCache();
         return true;
     } catch (error) {
         console.error(`Error writing SQLite data para sa module "${moduleName}":`, error);
@@ -267,7 +273,10 @@ function runDatabaseTransaction(changes) {
         }
         db.exec('COMMIT');
         for (const [moduleName, json] of cacheUpdates.entries()) {
-            if (!ROW_NORMALIZED_MODULES.has(moduleName)) blobStringCache.set(moduleName, json);
+            if (!ROW_NORMALIZED_MODULES.has(moduleName)) {
+                blobStringCache.set(moduleName, json);
+                if (moduleName === 'products') invalidateProductsViewCache();
+            }
         }
         return true;
     } catch (error) {
@@ -709,7 +718,128 @@ function getAiKnowledgeSnapshot(scope, focusModules) {
     };
 }
 
-module.exports = { db, readData, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
+// ---------------------------------------------------------------------------
+// PRODUCTS "LITE" VIEW
+// Ang mga product photo ay nakasave bilang base64 data URL mismo sa loob ng
+// products JSON, kaya ang bawat GET /api/products ay nagpapadala (at ang
+// browser ay nagpa-parse) ng lahat ng HD image kahit table lang ang
+// kailangan. Ang "lite" view ay ang parehong listahan pero WALANG mabibigat
+// na image (image/images), may dagdag lang na imageVer/imageCount para
+// malaman ng client kung kailangan pang kunin ang photo. Ang mga photo ay
+// kinukuha nang paunti-unti gamit ang getProductImagesByCodes().
+//
+// Naka-cache ang lite view (at ang naka-serialize na JSON nito) hangga't hindi
+// nagbabago ang products blob (ini-invalidate sa writeData/runDatabaseTransaction),
+// kaya hindi na kailangang i-parse/i-stringify ang buong HD blob sa bawat request.
+// ---------------------------------------------------------------------------
+const PRODUCT_INLINE_IMAGE_MAX_CHARS = 2048;
+const PRODUCT_IMAGE_MAP_TTL_MS = 60 * 1000;
+function invalidateProductsViewCache() {
+    productsViewCache = null;
+    if (productImageMapTimer) {
+        clearTimeout(productImageMapTimer);
+        productImageMapTimer = null;
+    }
+}
+
+function isHeavyProductImage(value) {
+    return typeof value === 'string' && value.length > PRODUCT_INLINE_IMAGE_MAX_CHARS;
+}
+
+function buildProductsView(list, keepImages) {
+    const imageMap = keepImages ? new Map() : null;
+    const lite = list.map((p) => {
+        if (!p || typeof p !== 'object') return p;
+        const gallery = Array.isArray(p.images) ? p.images : null;
+        const heavyMain = isHeavyProductImage(p.image);
+        const heavyGallery = !!gallery && gallery.some(isHeavyProductImage);
+        if (!heavyMain && !heavyGallery) return p;
+
+        const hash = crypto.createHash('md5');
+        if (typeof p.image === 'string') hash.update(p.image);
+        if (gallery) gallery.forEach((g) => { if (typeof g === 'string') hash.update(g); });
+        const imageVer = hash.digest('hex').slice(0, 12);
+
+        const copy = { ...p, imageVer };
+        if (heavyMain) copy.image = '';
+        if (heavyGallery) {
+            copy.imageCount = gallery.filter(Boolean).length;
+            copy.images = [];
+        }
+        if (imageMap && p.code != null) {
+            imageMap.set(String(p.code), {
+                ver: imageVer,
+                image: typeof p.image === 'string' ? p.image : '',
+                images: gallery || []
+            });
+        }
+        return copy;
+    });
+    return { lite, imageMap };
+}
+
+function getProductsBlobString() {
+    if (blobStringCache.has('products')) return blobStringCache.get('products');
+    const row = selectStmt.get('products');
+    if (!row) return null;
+    blobStringCache.set('products', row.data);
+    return row.data;
+}
+
+function touchProductImageMapTimer() {
+    if (productImageMapTimer) clearTimeout(productImageMapTimer);
+    productImageMapTimer = setTimeout(() => {
+        productImageMapTimer = null;
+        if (productsViewCache) productsViewCache.imageMap = null;
+    }, PRODUCT_IMAGE_MAP_TTL_MS);
+    if (typeof productImageMapTimer.unref === 'function') productImageMapTimer.unref();
+}
+
+/**
+ * Ibinabalik ang { lite, liteJson, imageMap } o null kung hindi magamit
+ * (walang products row / sira ang JSON) — sa ganoong kaso, ang caller ay
+ * bumabalik sa normal na readData('products').
+ */
+function getProductsView(needImages) {
+    try {
+        const raw = getProductsBlobString();
+        if (typeof raw !== 'string' || raw.length === 0) return null;
+        const cache = productsViewCache;
+        if (cache && cache.rawLength === raw.length && (!needImages || cache.imageMap)) {
+            if (cache.imageMap) touchProductImageMapTimer();
+            return cache;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return null;
+        const keepImages = !!needImages;
+        const built = buildProductsView(parsed, keepImages);
+        productsViewCache = {
+            rawLength: raw.length,
+            lite: built.lite,
+            liteJson: JSON.stringify(built.lite),
+            imageMap: built.imageMap
+        };
+        if (keepImages) touchProductImageMapTimer();
+        return productsViewCache;
+    } catch (err) {
+        console.error('⚠️ Hindi nabuo ang lite products view, babalik sa full products read:', err);
+        return null;
+    }
+}
+
+function getProductImagesByCodes(codes) {
+    const view = getProductsView(true);
+    if (!view || !view.imageMap) return null;
+    const out = {};
+    (Array.isArray(codes) ? codes : []).forEach((code) => {
+        const key = String(code);
+        const entry = view.imageMap.get(key);
+        if (entry) out[key] = entry;
+    });
+    return out;
+}
+
+module.exports = { getProductsView, getProductImagesByCodes, db, readData, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

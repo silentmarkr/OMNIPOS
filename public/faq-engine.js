@@ -1276,6 +1276,15 @@
     // sa manual na pag-scroll pababa. Ipinapakita ito sa tuwing hindi
     // nasa (o malapit sa) pinaka-ilalim ng thread ang view.
     ensureScrollToBottomButton(container, thread);
+    if (!thread._faqTailWired) {
+      thread._faqTailWired = true;
+      thread.style.overflowAnchor = 'none';
+      if (typeof MutationObserver !== 'undefined') {
+        new MutationObserver(() => updateChatTailSpace(thread))
+          .observe(thread, { childList: true, subtree: true, characterData: true });
+      }
+      window.addEventListener('resize', () => updateChatTailSpace(thread), { passive: true });
+    }
     return thread;
   }
 
@@ -1332,12 +1341,66 @@
   // assistant bubble (pagsisimula ng sagot ng AI).
   function scrollBubbleIntoView(bubbleEl, thread) {
     if (!bubbleEl) return;
+    thread = thread || bubbleEl.closest('.faq-chat-thread');
+    if (!thread) return;
+    // AYOS: dati, bubbleEl.scrollIntoView() ang ginagamit dito. Ang
+    // scrollIntoView ay nag-i-scroll ng LAHAT ng scrollable na parent (pati
+    // ang buong page/main content), kaya lumilipat ang buong screen (lalo na
+    // sa desktop) pagkatapos mag-send. Ngayon, ang loob LANG ng chat thread
+    // ang ini-scroll, gamit ang sarili nitong scrollTo().
+    //
+    // Ang inaangklahan ay laging ang KASASEND lang na tanong ng user: kapag
+    // assistant bubble ang ibinigay, hinahanap ang tanong na sinasagot nito.
+    // Sa ganitong paraan, ang tanong ay nasa pinaka-itaas ng chat at ang
+    // header ng sagot ng AI ay makikita agad sa ilalim nito.
+    const anchor = findChatScrollAnchor(bubbleEl);
+    thread._faqScrollAnchor = anchor;
+    updateChatTailSpace(thread);
+    const top = Math.max(0, getChatAnchorTop(anchor, thread));
     try {
-      bubbleEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      thread.scrollTo({ top, behavior: 'smooth' });
     } catch (e) {
-      if (thread) thread.scrollTop = bubbleEl.offsetTop;
+      thread.scrollTop = top;
     }
-    if (thread) updateScrollToBottomButton(thread);
+    updateScrollToBottomButton(thread);
+  }
+
+  function findChatScrollAnchor(bubbleEl) {
+    let el = bubbleEl;
+    while (el) {
+      if (el.classList && el.classList.contains('faq-chat-user')) return el;
+      el = el.previousElementSibling;
+    }
+    return bubbleEl;
+  }
+
+  // Posisyon ng anchor sa loob ng scrollable na thread (walang paggalaw ng page).
+  function getChatAnchorTop(anchor, thread) {
+    const cs = window.getComputedStyle(thread);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    return anchor.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop - padTop;
+  }
+
+  // Para maiakyat ang tanong sa pinaka-itaas kahit maikli pa ang sagot,
+  // nilalagyan ng sapat na espasyo sa ibaba ang thread (padding-bottom).
+  // Lumiliit ito habang humahaba ang sagot, at nagiging 0 kapag mahaba na.
+  function updateChatTailSpace(thread) {
+    if (!thread) return;
+    const anchor = thread._faqScrollAnchor;
+    const basePad = thread._faqBasePadBottom != null
+      ? thread._faqBasePadBottom
+      : (thread._faqBasePadBottom = parseFloat(window.getComputedStyle(thread).paddingBottom) || 0);
+    if (!anchor || !anchor.isConnected || anchor.parentElement !== thread) {
+      if (thread.style.paddingBottom) thread.style.paddingBottom = '';
+      return;
+    }
+    const currentPad = parseFloat(window.getComputedStyle(thread).paddingBottom) || basePad;
+    const naturalHeight = thread.scrollHeight - (currentPad - basePad);
+    const belowAnchor = naturalHeight - getChatAnchorTop(anchor, thread);
+    const extra = Math.max(0, Math.ceil(thread.clientHeight - belowAnchor));
+    const wanted = extra > 0 ? (basePad + extra) : basePad;
+    if (Math.abs(wanted - currentPad) < 1) return;
+    thread.style.paddingBottom = extra > 0 ? wanted + 'px' : '';
   }
 
   function appendUserBubble(thread, text) {

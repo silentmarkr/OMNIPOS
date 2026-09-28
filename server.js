@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
+const { db: sqliteDb, getProductsView, getProductImagesByCodes, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const webauthn = require('./webauthn');
@@ -9341,7 +9341,67 @@ app.get('/api/products', (req, res) => {
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
     res.set('X-Active-Terminals', String(SESSIONS.size));
+    // PERFORMANCE: ?lite=1 = parehong listahan pero WALANG mabibigat na base64
+    // photo (image/images). May dagdag na imageVer/imageCount para malaman ng
+    // client kung anong photo ang kukunin pa gamit ang POST /api/products/images.
+    // Naka-cache sa server hangga't hindi nagbabago ang products, kaya halos
+    // instant kahit HD lahat ng photo. Kung may problema sa lite view, awtomatiko
+    // itong bumabalik sa buong listahan sa ibaba.
+    if (req.query && String(req.query.lite) === '1') {
+        const view = getProductsView(false);
+        if (view && view.liteJson) {
+            return res.type('application/json').send(view.liteJson);
+        }
+    }
     res.json(readData(FILE_PRODUCTS));
+});
+// Kunin ang buong data (kasama ang photo) ng ISANG product lang — para sa Edit
+// form, imbes na i-download ang buong listahan ng lahat ng HD photo.
+app.get('/api/product-full/:code', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    const wanted = String(req.params.code || '').trim().toLowerCase();
+    const products = readData(FILE_PRODUCTS);
+    const product = Array.isArray(products)
+        ? products.find(p => p && String(p.code || '').trim().toLowerCase() === wanted)
+        : null;
+    if (!product) {
+        return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+    res.json({ success: true, product });
+});
+// Batch na pagkuha ng photo (image + images gallery) para sa mga product code
+// na hiningi ng client. Maliit na batch lang bawat request para hindi mabigat.
+app.post('/api/products/images', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    const rawCodes = req.body && Array.isArray(req.body.codes) ? req.body.codes : null;
+    if (!rawCodes) {
+        return res.status(400).json({ success: false, message: 'codes must be an array.' });
+    }
+    const codes = rawCodes
+        .filter(c => typeof c === 'string' || typeof c === 'number')
+        .map(c => String(c))
+        .slice(0, 40);
+    if (!codes.length) {
+        return res.json({ success: true, items: {} });
+    }
+    let items = getProductImagesByCodes(codes);
+    if (!items) {
+        // Fallback kung hindi magamit ang cached view: basahin nang diretso.
+        items = {};
+        const products = readData(FILE_PRODUCTS);
+        const wanted = new Set(codes);
+        (Array.isArray(products) ? products : []).forEach(p => {
+            if (!p || p.code == null || !wanted.has(String(p.code))) return;
+            items[String(p.code)] = {
+                ver: null,
+                image: typeof p.image === 'string' ? p.image : '',
+                images: Array.isArray(p.images) ? p.images : []
+            };
+        });
+    }
+    res.json({ success: true, items });
 });
 app.get('/api/products/export', requirePermission('products'), requireFeature('advanced_reports'), (req, res) => {
     try {

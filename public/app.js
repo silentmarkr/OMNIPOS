@@ -11095,11 +11095,8 @@ async function silentRefreshInventoryStock() {
 
     const requestVersion = productCatalogMutationVersion;
     try {
-        const res = await authFetch(`${API_URL}/products`);
-        if (!res.ok) return;
+        const { res, products: freshProducts } = await fetchProductsLiteMerged();
         updateActiveTerminalCountFromResponse(res);
-        const freshProducts = await res.json();
-        if (!Array.isArray(freshProducts)) return;
         if (requestVersion !== productCatalogMutationVersion || productDeleteInProgress) {
             console.warn('Ignored stale silent stock-poll response after a product mutation.');
             return;
@@ -11110,6 +11107,7 @@ async function silentRefreshInventoryStock() {
         }
         cachedInventoryProducts = freshProducts;
         patchInventoryProductsTableInPlace();
+        hydratePendingProductImages();
     } catch (e) {
     }
 }
@@ -11146,7 +11144,17 @@ function patchInventoryProductsTableInPlace() {
         const imgEl = cells[0] && cells[0].querySelector('img.inv-thumb');
         const wantsImage = !!p.image;
         const hasImage = !!imgEl;
-        if (wantsImage !== hasImage || (wantsImage && imgEl.getAttribute('src') !== p.image)) {
+        let imageChanged = false;
+        if (p._imgPending) {
+            // Kinukuha pa ang photo sa background — huwag galawin ang cell na ito.
+        } else if (wantsImage !== hasImage) {
+            imageChanged = true;
+        } else if (wantsImage) {
+            imageChanged = p.imageVer
+                ? imgEl.dataset.imgVer !== String(p.imageVer)
+                : imgEl.getAttribute('src') !== p.image;
+        }
+        if (imageChanged) {
 
             renderInventoryProductsTable();
             return;
@@ -11573,11 +11581,16 @@ function togglePdDescription() {
         btn.dataset.expanded ='true';
     }
 }
-function showProductDetails(code, context ='pos') {
+function showProductDetails(code, context ='pos', photoRetried = false) {
     const p = context ==='inventory'
         ? (cachedInventoryProducts.find(prod => prod.code === code) || globalProducts.find(prod => prod.code === code))
         : (globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code));
     if (!p) return;
+    if (p._imgPending && !photoRetried) {
+        // Hindi pa dumarating ang photo(s) ng product na ito (lite load) — kunin muna, saka buksan.
+        fetchAndApplyProductImages([p.code]).then(() => showProductDetails(code, context, true));
+        return;
+    }
     productDetailsModalCode = code;
     const cartItem = shoppingCart.find(item => item.code === p.code);
     const qtyInCart = cartItem ? cartItem.quantity : 0;
@@ -17190,6 +17203,217 @@ function renderTransactionsRows(transactions) {
 }
 let cachedInventoryProducts = [];
 
+// ---------------------------------------------------------------------------
+// LITE PRODUCT LOADING (mabilis na Inventory kahit HD ang mga photo)
+// Ang /api/products?lite=1 ay walang laman na mabibigat na base64 photo, kaya
+// agad na lumalabas ang table. Ang mga photo ay kinukuha nang paunti-unti sa
+// background (POST /api/products/images) at nilalagay sa productImageStore
+// para hindi na ulitin habang hindi nagbabago ang photo (imageVer).
+// ---------------------------------------------------------------------------
+const PRODUCT_IMAGE_CHUNK_SIZE = 5;
+const PRODUCT_IMAGE_PARALLEL_REQUESTS = 2;
+const PRODUCT_IMAGE_RETRY_BACKOFF_MS = 15000;
+const productImageStore = new Map();
+let inventoryLoadsInFlight = 0;
+let inventoryLoadFailed = false;
+let productImageHydrationBusy = false;
+let productImageHydrationRerun = false;
+let productImageHydrationLastFailAt = 0;
+let inventoryPhotoProgress = { done: 0, total: 0 };
+
+function mergeLiteProductsWithImageStore(list) {
+    const merged = list.map(p => {
+        if (!p || typeof p !== 'object' || !p.imageVer) return p;
+        const stored = productImageStore.get(String(p.code));
+        if (stored && stored.ver === p.imageVer) {
+            return { ...p, image: stored.image, images: stored.images };
+        }
+        return { ...p, _imgPending: true };
+    });
+    if (merged.length) {
+        const liveCodes = new Set(merged.map(p => (p && p.code != null) ? String(p.code) : ''));
+        for (const key of Array.from(productImageStore.keys())) {
+            if (!liveCodes.has(key)) productImageStore.delete(key);
+        }
+    }
+    return merged;
+}
+async function fetchProductsLiteMerged() {
+    const res = await authFetch(`${API_URL}/products?lite=1`, { cache:'no-store' });
+    if (!res.ok) throw new Error(`Failed to load products (${res.status})`);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error('Invalid products response.');
+    return { res, products: mergeLiteProductsWithImageStore(data) };
+}
+function updateInventoryLoadStatus() {
+    const table = document.getElementById('products-table-body')?.closest('table');
+    if (!table || !table.parentNode) return;
+    let bar = document.getElementById('inv-load-status');
+    let text = '';
+    if (inventoryLoadsInFlight > 0) {
+        text = 'Loading products…';
+    } else if (inventoryPhotoProgress.total > 0 && inventoryPhotoProgress.done < inventoryPhotoProgress.total) {
+        text = `Loading photos… ${inventoryPhotoProgress.done} / ${inventoryPhotoProgress.total}`;
+    }
+    if (!text) {
+        if (bar) bar.style.display = 'none';
+        return;
+    }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'inv-load-status';
+        bar.setAttribute('role', 'status');
+        bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 0 8px 0;border-radius:8px;background:rgba(59,130,246,0.10);color:#2563eb;font-size:0.85rem;font-weight:600;';
+        table.parentNode.insertBefore(bar, table);
+    }
+    bar.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>${escapeHtml(text)}</span>`;
+    bar.style.display = 'flex';
+}
+function buildInventoryPhotoNode(p) {
+    const code = p.code;
+    if (p.image) {
+        const img = document.createElement('img');
+        img.className = 'inv-thumb';
+        img.alt = p.name || 'Product';
+        img.title = 'View details';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        if (p.imageVer) img.dataset.imgVer = String(p.imageVer);
+        img.addEventListener('click', () => showProductDetails(code, 'inventory'));
+        img.src = p.image;
+        return img;
+    }
+    const box = document.createElement('div');
+    box.className = 'inv-thumb-fallback';
+    box.title = 'View details';
+    box.addEventListener('click', () => showProductDetails(code, 'inventory'));
+    box.innerHTML = p._imgPending
+        ? '<i class="fa-solid fa-spinner fa-spin"></i>'
+        : `<i class="${getCategoryIconClass(p.category)}"></i>`;
+    return box;
+}
+function updateInventoryRowImage(code) {
+    const tbody = document.getElementById('products-table-body');
+    if (!tbody) return;
+    const row = Array.from(tbody.querySelectorAll('tr')).find(r => r.getAttribute('data-code') === String(code));
+    if (!row) return;
+    const cell = row.querySelector('td');
+    const p = (cachedInventoryProducts || []).find(prod => prod && String(prod.code) === String(code));
+    if (!cell || !p || p._imgPending) return;
+    cell.innerHTML = '';
+    cell.appendChild(buildInventoryPhotoNode(p));
+}
+function applyFetchedProductImage(code, image, images, ver) {
+    [cachedInventoryProducts, globalProducts].forEach(list => {
+        if (!Array.isArray(list)) return;
+        list.forEach(p => {
+            if (p && p._imgPending && String(p.code) === code) {
+                p.image = image;
+                p.images = images;
+                if (ver) p.imageVer = ver;
+                p._imgPending = false;
+            }
+        });
+    });
+}
+function clearPendingProductImageFlag(code) {
+    [cachedInventoryProducts, globalProducts].forEach(list => {
+        if (!Array.isArray(list)) return;
+        list.forEach(p => {
+            if (p && p._imgPending && String(p.code) === code) p._imgPending = false;
+        });
+    });
+}
+// Kinukuha ang photo ng mga naka-list na product code. Palaging nililinis ang
+// _imgPending flag ng mga code na ito (kahit nag-fail) para walang paulit-ulit na loop.
+async function fetchAndApplyProductImages(codes) {
+    const list = Array.from(new Set((codes || []).map(c => String(c))));
+    if (!list.length) return;
+    let items = null;
+    try {
+        const res = await authFetch(`${API_URL}/products/images`, {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ codes: list }),
+            timeoutMs: 90000
+        });
+        if (!res.ok) throw new Error(`Failed to load product photos (${res.status})`);
+        const data = await res.json();
+        if (!data || !data.success || !data.items || typeof data.items !== 'object') {
+            throw new Error('Invalid product photos response.');
+        }
+        items = data.items;
+    } catch (e) {
+        console.warn('Could not load product photos:', e);
+        productImageHydrationLastFailAt = Date.now();
+    }
+    list.forEach(code => {
+        const item = items ? items[code] : null;
+        if (item && typeof item === 'object') {
+            const image = typeof item.image === 'string' ? item.image : '';
+            const images = Array.isArray(item.images) ? item.images : [];
+            if (item.ver) productImageStore.set(code, { ver: item.ver, image, images });
+            applyFetchedProductImage(code, image, images, item.ver);
+        } else if (items) {
+            // Nag-succeed ang request pero walang photo para sa code na ito (hal. nabura na):
+            // tandaan para hindi ito hilingin ulit sa bawat refresh.
+            const current = (cachedInventoryProducts || []).find(p => p && String(p.code) === code);
+            if (current && current.imageVer) productImageStore.set(code, { ver: current.imageVer, image: '', images: [] });
+        }
+        clearPendingProductImageFlag(code);
+        updateInventoryRowImage(code);
+    });
+}
+function getPendingProductImageCodes() {
+    return (Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [])
+        .filter(p => p && p._imgPending && p.code != null)
+        .map(p => String(p.code));
+}
+async function hydratePendingProductImages() {
+    if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) return;
+    if (productImageHydrationBusy) {
+        productImageHydrationRerun = true;
+        return;
+    }
+    productImageHydrationBusy = true;
+    try {
+        do {
+            productImageHydrationRerun = false;
+            if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) break;
+            const startPending = getPendingProductImageCodes();
+            if (!startPending.length) break;
+            inventoryPhotoProgress = { done: 0, total: startPending.length };
+            updateInventoryLoadStatus();
+            let guard = 0;
+            while (guard++ < 500) {
+                const pending = getPendingProductImageCodes();
+                if (!pending.length) break;
+                const jobs = [];
+                for (let i = 0; i < PRODUCT_IMAGE_PARALLEL_REQUESTS; i++) {
+                    const chunk = pending.slice(i * PRODUCT_IMAGE_CHUNK_SIZE, (i + 1) * PRODUCT_IMAGE_CHUNK_SIZE);
+                    if (chunk.length) jobs.push(fetchAndApplyProductImages(chunk));
+                }
+                await Promise.all(jobs);
+                const remaining = getPendingProductImageCodes().length;
+                inventoryPhotoProgress.done = Math.max(0, inventoryPhotoProgress.total - remaining);
+                updateInventoryLoadStatus();
+                if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) {
+                    // May nag-fail: huwag iwanang umiikot ang spinner. Susubukan ulit sa susunod na refresh.
+                    getPendingProductImageCodes().forEach(code => {
+                        clearPendingProductImageFlag(code);
+                        updateInventoryRowImage(code);
+                    });
+                    break;
+                }
+            }
+        } while (productImageHydrationRerun);
+    } finally {
+        productImageHydrationBusy = false;
+        inventoryPhotoProgress = { done: 0, total: 0 };
+        updateInventoryLoadStatus();
+    }
+}
+
 let productCatalogMutationVersion = 0;
 let productDeleteInProgress = false;
 const columnFilters = { code: new Set(), name: new Set(), category: new Set(), supplier: new Set(), price: new Set(), stock: new Set(), expiryDate: new Set(), hasSpecs: new Set() };
@@ -17198,7 +17422,9 @@ function productHasDetails(p) {
     const hasDescription = !!(p.description && p.description.trim());
     const hasSpecsList = Array.isArray(p.specs) && p.specs.some(s => s && ((s.key && s.key.trim()) || (s.value && s.value.trim())));
     const hasGallery = Array.isArray(p.images) && p.images.filter(Boolean).length > 0;
-    return hasDescription || hasSpecsList || hasGallery;
+    // Habang hindi pa nakukuha ang gallery photos (lite load), gamitin muna ang bilang mula sa server.
+    const hasPendingGallery = !!p._imgPending && Number(p.imageCount) > 0;
+    return hasDescription || hasSpecsList || hasGallery || hasPendingGallery;
 }
 function getColumnDisplayValue(field, p) {
     switch (field) {
@@ -17649,12 +17875,16 @@ async function reviewStockReturn(returnId) {
 }
 async function loadInventoryProductsTable() {
     const requestVersion = productCatalogMutationVersion;
+    inventoryLoadsInFlight++;
+    inventoryLoadFailed = false;
+    updateInventoryLoadStatus();
+    if (!Array.isArray(cachedInventoryProducts) || cachedInventoryProducts.length === 0) {
+        // Unang load: ipakita agad ang "Loading" imbes na blangkong table.
+        renderInventoryProductsTable();
+    }
     try {
 
-        const res = await authFetch(`${API_URL}/products`, { cache:'no-store' });
-        if (!res.ok) throw new Error(`Failed to load products (${res.status})`);
-        const data = await res.json();
-        if (!Array.isArray(data)) throw new Error('Invalid products response.');
+        const { products: data } = await fetchProductsLiteMerged();
 
         if (requestVersion !== productCatalogMutationVersion || productDeleteInProgress) {
             console.warn('Ignored stale /api/products response after a product mutation.');
@@ -17666,9 +17896,13 @@ async function loadInventoryProductsTable() {
         }
     } catch (e) {
         console.error('Failed to refresh inventory products:', e);
-
+        inventoryLoadFailed = true;
+    } finally {
+        inventoryLoadsInFlight = Math.max(0, inventoryLoadsInFlight - 1);
     }
     renderInventoryProductsTable();
+    updateInventoryLoadStatus();
+    hydratePendingProductImages();
 }
 function filterInventoryTable() {
     renderInventoryProductsTable();
@@ -17677,6 +17911,17 @@ function renderInventoryProductsTable() {
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
     tbody.innerHTML ='';
+    if ((!Array.isArray(cachedInventoryProducts) || cachedInventoryProducts.length === 0)) {
+        if (inventoryLoadsInFlight > 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:28px 12px;color:#64748b;"><i class="fa-solid fa-spinner fa-spin"></i> Loading products…</td></tr>';
+            return;
+        }
+        if (inventoryLoadFailed) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:28px 12px;color:#dc2626;">Could not load the products. <button type="button" class="btn-clear" style="color:var(--primary-blue);font-weight:600;" onclick="loadInventoryProductsTable()"><i class="fa-solid fa-rotate-right"></i> Retry</button></td></tr>';
+            return;
+        }
+    }
+    const fragment = document.createDocumentFragment();
     const searchBox = document.getElementById('inventory-search');
     const query = searchBox ? searchBox.value.trim().toLowerCase() :'';
     try {
@@ -17710,7 +17955,7 @@ function renderInventoryProductsTable() {
                 const safeCodeAttr = safeCode.replace(/'/g,'&#39;');
                 const hasDetails = productHasDetails(p);
                 row.innerHTML = `
-                    <td>${p.image ? `<img class="inv-thumb" src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="View details">` : `<div class="inv-thumb-fallback" onclick="showProductDetails('${safeCodeAttr}', 'inventory')" title="View details"><i class="${getCategoryIconClass(p.category)}"></i></div>`}</td>
+                    <td></td>
                     <td class="font-bold">${safeCode}</td>
                     <td>${escapeHtml(p.name)}</td>
                     <td><span class="badge-role cashier">${escapeHtml(p.category)}</span></td>
@@ -17730,11 +17975,13 @@ function renderInventoryProductsTable() {
                         </div>
                     </td>
                 `;
-                tbody.appendChild(row);
+                row.firstElementChild.appendChild(buildInventoryPhotoNode(p));
+                fragment.appendChild(row);
             } catch (rowError) {
                 console.error("Skipped a product in the Inventory table due to a row render error:", p, rowError);
             }
         });
+        tbody.appendChild(fragment);
     } catch (renderError) {
         console.error("Failed to render Inventory product table:", renderError);
     }
@@ -17783,8 +18030,12 @@ function openProductModal(mode, code ='') {
         document.getElementById('p-form-specs').value ='';
         setProductGalleryImages([]);
         updateProductSpecsButtonLabel();
-        authFetch(`${API_URL}/products`).then(r => r.json()).then(prods => {
-            let match = prods.find(p => p.code === code);
+        authFetch(`${API_URL}/product-full/${encodeURIComponent(code)}`, { cache:'no-store' }).then(async r => {
+            if (r.status === 404) return null;
+            if (!r.ok) throw new Error(`Failed to load product (${r.status})`);
+            const data = await r.json();
+            return (data && data.product) ? data.product : null;
+        }).then(match => {
             if(match) {
                 codeInput.value = match.code;
                 document.getElementById('p-form-name').value = match.name;
@@ -23038,9 +23289,12 @@ function openInventoryScanner() {
     };
 }
 async function handleInventoryScanResult(code) {
-    authFetch(`${API_URL}/products`)
-        .then(res => res.json())
-        .then(data => { cachedInventoryProducts = data; globalProducts = data; })
+    fetchProductsLiteMerged()
+        .then(({ products }) => {
+            cachedInventoryProducts = products;
+            globalProducts = products;
+            hydratePendingProductImages();
+        })
         .catch(e => console.warn("Failed to background-refresh products:", e));
     const product = cachedInventoryProducts.find(p => p.code === code);
     if (!product) {
