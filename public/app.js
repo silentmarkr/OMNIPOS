@@ -2135,12 +2135,13 @@ function renderCloudBackupCostShare(data) {
 
     wrap.style.display = 'block';
 
+    const cbTierLabel = data.formulaTier ? ` · ${String(data.formulaTier).charAt(0).toUpperCase()}${String(data.formulaTier).slice(1)} rates` : '';
     if (data.costBasis === 'projected-full-period') {
-        basis.textContent = 'Stable monthly projection';
+        basis.textContent = 'Stable monthly projection' + cbTierLabel;
         basis.style.background = 'rgba(37,99,235,0.12)';
         basis.style.color = '#2563eb';
     } else {
-        basis.textContent = 'Early sample — may change';
+        basis.textContent = 'Early sample — may change' + cbTierLabel;
         basis.style.background = 'rgba(217,119,6,0.12)';
         basis.style.color = '#b45309';
     }
