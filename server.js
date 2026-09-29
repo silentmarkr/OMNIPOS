@@ -3246,6 +3246,16 @@ function applyUpgradeTierPricingOverlay(remoteUpgradeTiers) {
     upgradeTierPricingOverlay = remoteUpgradeTiers;
 }
 let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
+// Support desk state pushed by RELAY (closed until RELAY says otherwise).
+let supportDeskCache = { open: false, message: '', updateSeq: '0' };
+function applySupportDeskOverlay(remote) {
+    if (!remote || typeof remote !== 'object') return;
+    supportDeskCache = {
+        open: remote.open === true,
+        message: typeof remote.message === 'string' ? remote.message.slice(0, 300) : '',
+        updateSeq: String(remote.updateSeq === undefined || remote.updateSeq === null ? '0' : remote.updateSeq)
+    };
+}
 function applyActivationFlagsOverlay(remoteFlags) {
     if (!remoteFlags || typeof remoteFlags !== 'object') return;
     activationFlagsCache = {
@@ -3277,6 +3287,10 @@ function loadCloudBackupPricingCache() {
         }
         if (cached && cached.activationFlags) {
             applyActivationFlagsOverlay(cached.activationFlags);
+        }
+        // Restore the last known desk state; the next pricing refresh corrects it.
+        if (cached && cached.supportDesk) {
+            applySupportDeskOverlay(cached.supportDesk);
         }
     } catch (err) {
     }
@@ -3324,6 +3338,11 @@ async function fetchCloudBackupPricing() {
         }
         if (data && data.success && data.activationFlags) {
             applyActivationFlagsOverlay(data.activationFlags);
+        }
+        if (data && data.success) {
+            // An old RELAY without the support desk field means "closed".
+            applySupportDeskOverlay(data.supportDesk || { open: false, message: '', updateSeq: '0' });
+            onSupportDeskSignal();
         }
     } catch (err) {
         console.warn('⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback:', err.message);
@@ -6692,6 +6711,7 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
             ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
             : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
         'ABOUT YOUR OWN CAPABILITIES (this is factual, answer from it directly when the user asks what you can do, and never contradict it): you are NOT text-only. In this chat the user can tap the paperclip (attach) button next to the message box to attach ONE item per question: (a) an image/screenshot (JPG, PNG, WEBP, etc., up to about 4MB), which is analyzed by a separate vision model so you CAN look at it and describe or troubleshoot what it shows; or (b) a document (PDF, DOCX, TXT, CSV, MD, LOG, up to about 8MB), whose text is extracted and given to you (long documents are truncated, and a scanned/image-only PDF with no text layer cannot be read — suggest attaching it as an image/screenshot instead). The user can also use the microphone button to dictate a question by voice. Attachments only exist when they are actually included with the CURRENT message; if the user asks about a picture/file but none is attached to this message, do NOT say you are unable to analyze pictures — tell them to tap the paperclip button, attach it, and send it together with their question. Real limits you should mention only when relevant: one attachment at a time, no video/audio files, you cannot open links or websites, you cannot see anything on their screen unless they attach a screenshot, and an image can occasionally fail to process (in which case ask them to try again or use a clearer/smaller image). Do not describe yourself as "text-based only".',
+        'DIRECT LINKS / SHORTCUTS (factual, never contradict it): under each of your answers this chat automatically shows tappable \"Go to ...\" shortcut buttons that jump straight to the relevant page or Settings tab (all under the Settings menu — for example Roles & Permissions, Store & Sales, Receipt Customization, Appearance, Advanced, Online Payments, Fraud Alerts, System, Users Management, Pending Requests; and pages like Products, Transactions, Reports). So NEVER say you cannot provide a direct link or shortcut to a page or setting. When the user asks where a setting is, name its exact path in words (e.g. \"Settings > Roles & Permissions\", \"Settings > Store & Sales\", \"Settings > Receipt Customization\", \"Settings > Appearance\", \"Settings > Advanced\", \"Settings > Online Payments\", \"Settings > System\") and mention they can tap the shortcut button below your answer. Some buttons only appear if the user\'s role is allowed to open that page. Buttons for premium features that are not yet purchased show a lock icon and open the purchase window instead of the page — when you are told a feature is locked, remind the user of that in one short sentence.',
         'If neither context contains enough information to answer confidently, say so honestly, and suggest the user browse the full FAQ list on this page or contact their OmniPOS developer/admin — do NOT invent system behavior or data that is not in the context you were given.',
         'You may also receive the last few turns of this conversation as prior messages. Use them to understand follow-up questions (e.g. "what about for a cashier account?" right after a question about admin accounts) and avoid repeating an answer you already gave — without breaking the "only answer from given context" rule above.',
         'Keep answers short and practical (ideally under 130 words), using plain text (no markdown headers, no code blocks). You may use short line breaks between steps, and a brief closing offer to help with a related follow-up when it naturally fits. If asked for a "table" of data, do NOT say you are unable to make one — this chat only displays plain text (markdown table syntax with | pipes would show up broken/unreadable here), so simply present the same data as a clean numbered or line-by-line list instead, without commenting on the table/table format request at all.',
@@ -7320,7 +7340,7 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
             body: JSON.stringify({ messages, vision: !!vision, installationId, attachmentType: attachmentType || null, requestId: requestId || null })
-        }, vision ? 32000 : 22000);
+        }, 50000);
         const data = await relayRes.json().catch(() => null);
         if (!relayRes.ok || !data) {
             return { success: false, statusCode: relayRes.status || 502, ...(data || {}), message: (data && data.message) || `AI relay request failed (HTTP ${relayRes.status}).` };
@@ -7383,11 +7403,24 @@ const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     { keywords: ['void', 'refund', 'cancel(l)?ed? transaction', 'kanselahin ang transaksyon'], view: 'transactions', label: 'Open Transactions' },
     { keywords: ['inventory', 'stocks?', 'products?', 'reorder', 'purchase orders?', 'imbentaryo', 'produkto', 'expir(e|ing|ed|y)'], view: 'products', label: 'Open Products' },
     { keywords: ['shifts?', 'z-readings?', 'zreadings?', 'cash count', 'kaban', 'variance', 'shortage', 'kulang'], view: 'shiftreport', label: 'Open Shift Report' },
-    { keywords: ['cashiers?', 'employees?', 'user accounts?', 'roles?', 'permissions?', 'empleyado', 'pahintulot'], view: 'users', label: 'Open Users' },
-    { keywords: ['frauds?', 'anomal(y|ies)', 'suspicious activity', 'kaduda-duda'], view: 'users', label: 'Open Fraud Alerts' },
-    { keywords: ['customers?', 'loyalty', 'points?', 'kustomer'], view: 'customers', label: 'Open Customers' },
-    { keywords: ['debts?', 'debtors?', 'utang', 'c-credit'], view: 'debts', label: 'Open Debtors' },
-    { keywords: ['sales? reports?', 'benta.{0,3}report', 'ulat ng benta'], view: 'reports', label: 'Open Reports' },
+    // BAGO: may optional na "tab" na ang bawat suggestion papunta sa Settings
+    // (Users) page — para ang chip ay diretso sa mismong tab (hal. Roles &
+    // Permissions, Store & Sales, Receipt Customization) at hindi lang sa
+    // Settings page. Ang "tab" ay ID ng panel sa loob ng #view-users
+    // (whitelisted din sa client, see OMNI_SETTINGS_TAB_BUTTONS sa faq-engine.js).
+    { keywords: ['cashiers?', 'employees?', 'user accounts?', 'empleyado', 'add (a )?(new )?users?', 'add ng (bagong )?user', 'magdagdag ng (bagong )?user', 'gumawa ng (bagong )?user', 'users? management', 'bagong user'], view: 'users', tab: 'manage-users-tab', label: 'Open Users Management' },
+    { keywords: ['roles?', 'permissions?', 'role permissions?', 'pahintulot', 'karapatan', 'access (rights?|levels?)', 'custom roles?'], view: 'users', tab: 'roles-permissions-tab', feature: 'rbac_management', label: 'Open Roles & Permissions' },
+    { keywords: ['pending requests?', 'pending approvals?', 'approval requests?', 'access requests?'], view: 'users', tab: 'pending-requests-tab', label: 'Open Pending Requests' },
+    { keywords: ['receipt (customi[sz]ation|settings?|logo|footer|header|layout|design|template)', 'customi[sz]e (the |my )?receipts?', 'resibo (logo|footer|header|disenyo|settings?)', 'sender gmail', 'app password', 'google app', 'store logo'], view: 'users', tab: 'receipt-custom-tab', label: 'Open Receipt Customization' },
+    { keywords: ['store settings?', 'store (and|&) sales', 'currency', 'tax', 'vat', 'senior citizens?', 'pwd', 'senior/pwd', 'price level names?', 'accepted payment methods?', 'gcash qr', 'earn rate', 'redeem value', 'bir details'], view: 'users', tab: 'store-settings-tab', label: 'Open Store & Sales Settings' },
+    { keywords: ['appearance', 'dark mode', 'light mode', 'themes?', 'accent colou?r', 'font size', 'card style', 'low.stock (alert )?threshold', 'scanner sound', 'dashboard widgets?', 'reduced motion', 'high contrast', 'kulay'], view: 'users', tab: 'ux-settings-tab', label: 'Open Appearance Settings' },
+    { keywords: ['advanced settings?', 'idle auto.?lock', 'auto.?lock', 'lock (the )?terminal', 'customer.?facing display', 'customer display', 'webhooks?', 'two.?factor', '2fa', 'login otp', 'otp', 'fraud (detection|sensitivity|email)', 'anomaly detection', 'compact view'], view: 'users', tab: 'advanced-settings-tab', label: 'Open Advanced Settings' },
+    { keywords: ['online payments?', 'paymongo', 'xendit', 'payment gateway', 'gateways?', 'qr ?ph', 'secret keys?'], view: 'users', tab: 'online-payments-tab', label: 'Open Online Payments' },
+    { keywords: ['hard reset', 'factory reset', 'reset (the )?system', 'restore', 'system update', 'cloud backup', 'backups?', 'sync with relay', 'i-reset'], view: 'users', tab: 'reset-restore-panel', label: 'Open System (Backup & Reset)' },
+    { keywords: ['frauds?', 'anomal(y|ies)', 'suspicious activity', 'kaduda-duda'], view: 'users', tab: 'fraud-alerts-tab', label: 'Open Fraud Alerts' },
+    { keywords: ['customers?', 'loyalty', 'points?', 'kustomer'], view: 'customers', feature: 'customer_crm', label: 'Open Customers' },
+    { keywords: ['debts?', 'debtors?', 'utang', 'c-credit'], view: 'debts', feature: 'customer_crm', label: 'Open Debtors' },
+    { keywords: ['sales? reports?', 'benta.{0,3}report', 'ulat ng benta'], view: 'reports', feature: 'advanced_reports', label: 'Open Reports' },
     { keywords: ['(user|system|activity) logs?', 'audit trail', 'login history', 'aksyon ng user'], view: 'logs', label: 'Open User Logs' },
     { keywords: ['barcodes?'], view: 'barcode', label: 'Open Barcode Tools' },
     // BAGO: idinagdag ang mga sumusunod na view na dating wala sa listahan
@@ -7398,11 +7431,21 @@ const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     // pero walang lumalabas na "Open X" quick-action button papunta sa
     // mismong page.
     { keywords: ['bir compliance', 'agt', 'z-reading exports?', 'buwis', 'official receipts?', 'sales invoices?'], view: 'bir_compliance', label: 'Open BIR Compliance' },
-    { keywords: ['batch(es)?', 'lots?', 'fefo', 'batch.{0,3}lot'], view: 'batchlots', label: 'Open Batch/Lot Tracking' },
-    { keywords: ['attendance', 'time in', 'time out', 'selfie', 'pasok', 'labas', 'clock in', 'clock out'], view: 'attendance', label: 'Open Staff Attendance' },
-    { keywords: ['remote operations?', 'remoteops', 'monitor(ing)?', 'live dashboard'], view: 'remoteops', label: 'Open Remote Operations' },
-    { keywords: ['branch(es)?', 'sanga', 'sangay', 'multi-branch', 'store locations?'], view: 'branches', label: 'Open Branches' },
-    { keywords: ['stock return inspection', 'ibalik sa stock', 'voided.{0,3}refunded'], view: 'stock_return_inspection', label: 'Open Voided/Refunded' }
+    { keywords: ['batch(es)?', 'lots?', 'fefo', 'batch.{0,3}lot'], view: 'batchlots', feature: 'batch_lot_tracking', label: 'Open Batch/Lot Tracking' },
+    { keywords: ['attendance', 'time in', 'time out', 'selfie', 'pasok', 'labas', 'clock in', 'clock out'], view: 'attendance', feature: 'remote_operations', label: 'Open Staff Attendance' },
+    { keywords: ['remote operations?', 'remoteops', 'monitor(ing)?', 'live dashboard'], view: 'remoteops', feature: 'remote_operations', label: 'Open Remote Operations' },
+    { keywords: ['branch(es)?', 'sanga', 'sangay', 'multi-branch', 'store locations?'], view: 'branches', feature: 'multi_branch', label: 'Open Branches' },
+    { keywords: ['stock return inspection', 'ibalik sa stock', 'voided.{0,3}refunded'], view: 'stock_return_inspection', label: 'Open Voided/Refunded' },
+    // BAGO: mga page na dating walang shortcut chip kahit nasa sidebar/menu
+    // naman (Overview, POS Terminal, Inventory Dashboard, Reorder Alerts, Help,
+    // Omni Tokens). Lahat ng "view" dito ay dumadaan pa rin sa client-side
+    // whitelist + permission check (see OMNI_SUGGESTED_VIEWS sa faq-engine.js).
+    { keywords: ['overview', 'home dashboard', 'landing page', 'home page', 'pangunahing pahina'], view: 'overview', label: 'Open Overview' },
+    { keywords: ['pos terminal', 'terminal', 'cash register', 'checkout', 'mag-checkout', 'cart', 'point of sale', 'magbenta', 'mag-benta'], view: 'terminal', label: 'Open POS Terminal' },
+    { keywords: ['inventory dashboard', 'stock dashboard'], view: 'dashboard', label: 'Open Inventory Dashboard' },
+    { keywords: ['reorder alerts?', 'reorder', 'purchase orders?', 'restock alerts?', 'low stock alerts?', 'mag-reorder'], view: 'reorder', feature: 'purchase_orders', label: 'Open Reorder Alerts' },
+    { keywords: ['help page', 'faq', 'knowledge base', 'tulong'], view: 'faq', label: 'Open Help' },
+    { keywords: ['omni tokens?', 'tokens?', 'buy tokens?', 'token balance', 'ai credits?'], view: 'cloudtokens', label: 'Open Omni Tokens', adminOnly: true }
 ];
 const SUGGESTED_ACTION_QUESTION_WEIGHT = 3;
 const SUGGESTED_ACTION_ANSWER_WEIGHT = 1;
@@ -7413,11 +7456,18 @@ const SUGGESTED_ACTION_MIN_SCORE = 3;
 // "expiry" keywords) — nang hindi nawawalan ng ibang totoong kapaki-
 // pakinabang na suggestion dahil lang sa 2-result cap.
 const SUGGESTED_ACTION_MAX_RESULTS = 3;
-function computeSuggestedActions(question, answerText) {
+function computeSuggestedActions(question, answerText, isAdminRole) {
     const q = String(question || '').toLowerCase();
     const a = String(answerText || '').toLowerCase();
+    // BAGO: alamin kung aling premium feature ang hindi pa nabibili/naka-activate
+    // sa store na ito, para ang chip ay maitatak na "locked" (hindi diretsong
+    // magbubukas ng page — purchase modal ang lalabas sa client).
+    let unlockedIds = null;
+    try { unlockedIds = getUnlockedFeatureIds(); } catch (e) { unlockedIds = null; }
     const scored = [];
     for (const entry of AI_ASSISTANT_VIEW_SUGGESTIONS) {
+        // Admin-only page (hal. Omni Tokens) — hindi ino-offer sa non-admin.
+        if (entry.adminOnly && !isAdminRole) continue;
         let score = 0;
         for (const kw of entry.keywords) {
             let re;
@@ -7429,13 +7479,25 @@ function computeSuggestedActions(question, answerText) {
             if (re.test(q)) score += SUGGESTED_ACTION_QUESTION_WEIGHT;
             else if (re.test(a)) score += SUGGESTED_ACTION_ANSWER_WEIGHT;
         }
-        if (score > 0) scored.push({ view: entry.view, label: entry.label, score });
+        if (score > 0) scored.push({ view: entry.view, tab: entry.tab, feature: entry.feature, label: entry.label, score });
     }
     scored.sort((x, y) => y.score - x.score);
     return scored
         .filter((s) => s.score >= SUGGESTED_ACTION_MIN_SCORE)
         .slice(0, SUGGESTED_ACTION_MAX_RESULTS)
-        .map(({ view, label }) => ({ view, label }));
+        .map(({ view, tab, feature, label }) => {
+            const out = tab ? { view, tab, label } : { view, label };
+            if (feature) {
+                const info = FEATURE_CATALOG[feature];
+                out.featureId = feature;
+                out.featureName = info ? info.name : feature;
+                out.isSubscription = !!(info && info.isSubscription);
+                // Kung hindi makuha ang listahan ng unlocked features, huwag
+                // mag-claim ng lock (client + switchView pa rin ang final gate).
+                out.locked = Array.isArray(unlockedIds) ? !unlockedIds.includes(feature) : false;
+            }
+            return out;
+        });
 }
 function isAiAssistantVisionConfigured() {
     return isAiAssistantConfigured();
@@ -7577,9 +7639,30 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     const isAdminRole = (userRole || '').toLowerCase() === 'admin';
     const dbContextMsg = await buildAiDatabaseContextMessage(userRole, question);
     const dbContextMsgs = dbContextMsg ? (Array.isArray(dbContextMsg) ? dbContextMsg : [dbContextMsg]) : [];
+    // BAGO: kapag ang tanong ay tungkol sa premium feature na hindi pa nabibili
+    // sa store na ito, sabihan ang AI na magdagdag ng maikling paalala (ang
+    // shortcut button naman ay lock/purchase modal ang bubuksan, hindi ang page).
+    const lockedFeatureMsgs = [];
+    try {
+        const lockedHits = computeSuggestedActions(question, '', isAdminRole).filter((x) => x.locked);
+        if (lockedHits.length) {
+            const seenLocked = new Set();
+            const lockedLines = [];
+            for (const h of lockedHits) {
+                if (seenLocked.has(h.featureId)) continue;
+                seenLocked.add(h.featureId);
+                lockedLines.push(`- "${h.featureName}" (${h.isSubscription ? 'monthly/yearly subscription' : 'one-time unlock purchase'})`);
+            }
+            lockedFeatureMsgs.push({
+                role: 'system',
+                content: 'LOCKED FEATURES NOTE (from the server, factual): the user\'s question touches the following premium feature(s) that are NOT yet purchased/activated on this store:\n' + lockedLines.join('\n') + '\nStill answer what the feature is/does using the context, but ALSO add ONE short reminder sentence that this feature is not yet activated in this store and needs a purchase/subscription first, and that the lock shortcut button under your answer opens the purchase options (it does NOT open the page directly). Do not give step-by-step instructions as if they could already use it, and never invent prices — the purchase window shows the real price.'
+            });
+        }
+    } catch (e) { /* hindi dapat mabigo ang sagot dahil sa paalalang ito */ }
     const baseMessages = [
         { role: 'system', content: buildAiAssistantSystemPrompt(lang, isAdminRole) },
         { role: 'system', content: `OmniPOS FAQ Knowledge Base entries relevant to this question:\n\n${contextText}` },
+        ...lockedFeatureMsgs,
         ...dbContextMsgs,
         ...(fileContextMsg ? [fileContextMsg] : []),
         ...(diagnosticMsg ? [diagnosticMsg] : []),
@@ -7619,7 +7702,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     }
 
     const creditStatusAfter = result.credits || null;
-    const suggestedActions = computeSuggestedActions(question, result.answer);
+    const suggestedActions = computeSuggestedActions(question, result.answer, isAdminRole);
     const usedLiveData = dbContextMsgs.length > 0 && questionLooksDataRelated(question) && /\d/.test(String(result.answer || ''));
     const interactionId = logAiAssistantInteraction({
         username, question, lang,
@@ -7734,7 +7817,184 @@ app.get('/api/ai-assistant/analytics', async (req, res) => {
         credits: relayCredits
     });
 });
-app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('support-ticket-create', 5, 15 * 60 * 1000, (retryAfterSec) => `Sobra na sa allowed na support tickets. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), (req, res) => {
+// ---------------------------------------------------------------------
+// SUPPORT TICKET <-> RELAY SYNC (RELAY-controlled, no polling)
+// ---------------------------------------------------------------------
+// Tickets are always saved locally first (works offline). RELAY controls when
+// they are handled through the "support desk" switch:
+//   - Desk CLOSED (default): new tickets stay queued locally and NOTHING is
+//     sent to RELAY.
+//   - Desk OPEN: queued tickets are forwarded (POST /relay/support-tickets,
+//     idempotent by installationId + ticket id).
+// The desk state arrives inside the /relay/pricing response that OMNIPOS
+// already fetches (startup, every 30 minutes, and when the ticket list is
+// opened), together with an "updateSeq" marker. Developer statuses/replies
+// (GET /relay/support-tickets/status) are pulled ONLY when that marker
+// differs from the last one processed, whether the desk is open or closed.
+// There is no dedicated support timer.
+let supportTicketSyncRerun = false; // a sync was requested while another was running -> run once more afterwards
+const SUPPORT_TICKET_SYNC_DEADLINE_MS = 12000;
+const SUPPORT_TICKET_SYNC_BATCH = 10;
+const FILE_AI_SUPPORT_SYNC_STATE = 'aiSupportSyncState';
+function sanitizeSupportTicketDiagnostics(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const out = {};
+    let count = 0;
+    for (const [k, v] of Object.entries(raw)) {
+        if (count >= 20) break;
+        const key = String(k).slice(0, 60);
+        if (typeof v === 'string') out[key] = v.slice(0, 300);
+        else if (typeof v === 'number' && Number.isFinite(v)) out[key] = v;
+        else if (typeof v === 'boolean') out[key] = v;
+        else continue;
+        count++;
+    }
+    return count ? out : null;
+}
+function supportTicketsPendingPush(tickets) {
+    return tickets.some((t) => !t.relaySynced && !t.relaySyncFailed);
+}
+function readSupportSyncState() {
+    const st = readData(FILE_AI_SUPPORT_SYNC_STATE, {});
+    return (st && typeof st === 'object' && !Array.isArray(st)) ? st : {};
+}
+let supportTicketSyncPromise = null;
+function syncSupportTicketsWithRelay(opts = {}) {
+    if (!RELAY_API_KEY) return Promise.resolve({ skipped: true, reason: 'no_relay_key' });
+    if (supportTicketSyncPromise) {
+        // A sync is already running: ask for one more pass afterwards and let
+        // the caller wait for the running one (so a freshly opened ticket list
+        // shows up-to-date data instead of returning early).
+        supportTicketSyncRerun = true;
+        return supportTicketSyncPromise.catch(() => ({ skipped: true, reason: 'busy' }));
+    }
+    supportTicketSyncPromise = runSupportTicketSync(opts).finally(() => {
+        supportTicketSyncPromise = null;
+        if (supportTicketSyncRerun) {
+            supportTicketSyncRerun = false;
+            setImmediate(() => { syncSupportTicketsWithRelay({ pullStatuses: true }).catch(() => {}); });
+        }
+    });
+    return supportTicketSyncPromise;
+}
+async function runSupportTicketSync({ pullStatuses = true } = {}) {
+    const startedAt = Date.now();
+    const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+    const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    const storeName = (receiptSettings && receiptSettings.storeName) || null;
+    const headers = { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY };
+    const pushed = new Map();
+    const failedPermanently = new Set();
+    let deskClosedByRelay = false;
+    // New tickets are sent ONLY while RELAY says the desk is open.
+    const pending = supportDeskCache.open
+        ? readData(FILE_AI_SUPPORT_TICKETS, []).filter((t) => !t.relaySynced && !t.relaySyncFailed).slice(0, SUPPORT_TICKET_SYNC_BATCH)
+        : [];
+    for (const t of pending) {
+        if (Date.now() - startedAt > SUPPORT_TICKET_SYNC_DEADLINE_MS) break;
+        let relayRes;
+        try {
+            relayRes = await relayFetch(`${RELAY_URL}/relay/support-tickets`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ installationId, storeName, username: t.username || undefined, ticket: t })
+            }, 6000);
+        } catch (err) {
+            break; // offline / RELAY down: keep everything queued for the next signal
+        }
+        const data = await relayRes.json().catch(() => null);
+        if (relayRes.ok && data && data.success) {
+            pushed.set(t.id, data);
+        } else if (data && data.code === 'SUPPORT_DESK_CLOSED') {
+            deskClosedByRelay = true; // RELAY closed the desk since our last signal
+            break;
+        } else if (relayRes.status === 400) {
+            failedPermanently.add(t.id); // RELAY rejected the content itself; do not retry forever
+        } else {
+            break; // 403 (device not allowed yet), 429, 5xx: retry on a later signal
+        }
+    }
+    if (deskClosedByRelay) supportDeskCache = { ...supportDeskCache, open: false };
+
+    // Pull statuses/replies only when RELAY reports a change for this
+    // installation (updateSeq differs from the last one processed) or right
+    // after tickets were pushed. This works even while the desk is closed, so
+    // replies that were already written still arrive.
+    const syncState = readSupportSyncState();
+    const seqNow = String(supportDeskCache.updateSeq || '0');
+    const lastSeq = String(syncState.lastSeq === undefined || syncState.lastSeq === null ? '0' : syncState.lastSeq);
+    const anySynced = readData(FILE_AI_SUPPORT_TICKETS, []).some((t) => t.relaySynced);
+    const shouldPull = pullStatuses && (pushed.size > 0 || (anySynced && seqNow !== lastSeq));
+    let statusMap = new Map();
+    let pullOk = false;
+    let seqFromRelay = null;
+    if (shouldPull && Date.now() - startedAt <= SUPPORT_TICKET_SYNC_DEADLINE_MS) {
+        try {
+            const relayRes = await relayFetch(`${RELAY_URL}/relay/support-tickets/status?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 6000);
+            const data = await relayRes.json().catch(() => null);
+            if (relayRes.ok && data && data.success && Array.isArray(data.tickets)) {
+                statusMap = new Map(data.tickets.map((row) => [String(row.localTicketId), row]));
+                seqFromRelay = (data.updateSeq === undefined || data.updateSeq === null) ? null : String(data.updateSeq);
+                pullOk = true;
+            }
+        } catch (err) { /* ignore: statuses just stay as they were */ }
+    }
+    // Re-read fresh data AFTER the network calls and merge by id, so a ticket
+    // created or edited meanwhile is never overwritten.
+    const fresh = readData(FILE_AI_SUPPORT_TICKETS, []);
+    let changed = false;
+    for (const t of fresh) {
+        if (pushed.has(t.id) && !t.relaySynced) {
+            t.relaySynced = true;
+            t.relaySyncedAt = new Date().toISOString();
+            changed = true;
+        }
+        if (failedPermanently.has(t.id) && !t.relaySyncFailed) {
+            t.relaySyncFailed = true;
+            changed = true;
+        }
+        if (!t.relaySynced) continue;
+        const info = statusMap.get(String(t.id)) || pushed.get(t.id);
+        if (!info) continue;
+        const nextNote = info.adminNote || '';
+        if (t.relayStatus !== info.status || (t.relayNote || '') !== nextNote) {
+            t.relayStatus = info.status;
+            t.relayNote = nextNote;
+            t.relayUpdatedAt = info.updatedAt || new Date().toISOString();
+            // When the developer resolves/closes a ticket, mirror it locally
+            // so it does not stay "Open" in the store admin's list.
+            if ((info.status === 'resolved' || info.status === 'closed') && (t.status === 'open' || t.status === 'in_progress')) {
+                t.status = info.status;
+                t.updatedAt = t.relayUpdatedAt;
+            }
+            changed = true;
+        }
+    }
+    if (changed) writeData(FILE_AI_SUPPORT_TICKETS, fresh);
+    // Remember the marker RELAY returned WITH the statuses (not the older one
+    // from the pricing response), so our own push does not cause an extra pull.
+    if (pullOk) writeData(FILE_AI_SUPPORT_SYNC_STATE, { lastSeq: seqFromRelay !== null ? seqFromRelay : seqNow, lastPullAt: new Date().toISOString() });
+    return { success: true, pushed: pushed.size, pulled: pullOk };
+}
+// Called after every RELAY pricing refresh (the existing signal channel).
+// Makes no request unless there is something to send (desk open + queued
+// tickets) or RELAY reports new activity for this installation.
+function onSupportDeskSignal() {
+    try {
+        if (!RELAY_API_KEY) return;
+        const tickets = readData(FILE_AI_SUPPORT_TICKETS, []);
+        const st = readSupportSyncState();
+        const lastSeq = String(st.lastSeq === undefined || st.lastSeq === null ? '0' : st.lastSeq);
+        const needPush = supportDeskCache.open && supportTicketsPendingPush(tickets);
+        const needPull = tickets.some((t) => t.relaySynced) && String(supportDeskCache.updateSeq || '0') !== lastSeq;
+        if (!needPush && !needPull) return;
+        syncSupportTicketsWithRelay({ pullStatuses: true }).catch(() => {});
+    } catch (err) { /* never let the signal handler throw */ }
+}
+app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('support-ticket-create', 5, 15 * 60 * 1000, (retryAfterSec) => `You have reached the support ticket limit. Please try again in ${retryAfterSec} seconds.`), async (req, res) => {
+    // Refresh the desk state on demand (throttled to once per minute, 4s max)
+    // so a ticket created right after support reopens is sent immediately.
+    try { await refreshCloudBackupPricingIfStale(); } catch (_) {}
     const username = (req.authUser && req.authUser.username) || 'Unknown';
     const subject = (typeof req.body?.subject === 'string' ? req.body.subject.trim() : '').slice(0, 150) || 'Omni AI support request';
     const message = (typeof req.body?.message === 'string' ? req.body.message.trim() : '').slice(0, 4000);
@@ -7744,7 +8004,7 @@ app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('supp
             text: (typeof t?.text === 'string' ? t.text : '').slice(0, 800)
         })).filter((t) => t.text)
         : [];
-    const diagnostics = (req.body?.diagnostics && typeof req.body.diagnostics === 'object') ? req.body.diagnostics : null;
+    const diagnostics = sanitizeSupportTicketDiagnostics(req.body?.diagnostics);
     if (!message && !transcript.length) {
         return res.status(400).json({ success: false, message: 'Please describe the issue before submitting a ticket.' });
     }
@@ -7762,13 +8022,26 @@ app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('supp
     tickets.unshift(ticket);
     writeData(FILE_AI_SUPPORT_TICKETS, tickets.slice(0, AI_ASSISTANT_TICKET_CAP));
     logAction(username, `Created an Omni AI support ticket: "${subject}"`);
-    res.json({ success: true, ticket });
+    // Best-effort: if the RELAY support desk is open, forward the ticket in
+    // the background. Otherwise (desk closed / RELAY unreachable) it stays
+    // queued locally and is sent on the next desk-open signal.
+    syncSupportTicketsWithRelay({ pullStatuses: false }).catch(() => {});
+    res.json({ success: true, ticket, supportDeskOpen: !!supportDeskCache.open, supportDeskMessage: supportDeskCache.message || '' });
 });
-app.get('/api/support-tickets', (req, res) => {
+app.get('/api/support-tickets', async (req, res) => {
     if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin access required.' });
     }
-    res.json({ success: true, tickets: readData(FILE_AI_SUPPORT_TICKETS, []) });
+    // Refresh the desk signal on demand (throttled), then sync only if the
+    // desk is open. When it is closed this makes no support request to RELAY.
+    try { await refreshCloudBackupPricingIfStale(); } catch (_) {}
+    try { await syncSupportTicketsWithRelay({ pullStatuses: true }); } catch (_) {}
+    res.json({
+        success: true,
+        relayConfigured: !!RELAY_API_KEY,
+        supportDesk: { open: !!supportDeskCache.open, message: supportDeskCache.message || '' },
+        tickets: readData(FILE_AI_SUPPORT_TICKETS, [])
+    });
 });
 app.patch('/api/support-tickets/:id', (req, res) => {
     if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {

@@ -606,7 +606,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   <ol>
     <li>Enter a <strong>Subject</strong> (short summary) and <strong>describe the issue</strong> — what happened and what you've already tried.</li>
     <li>Your current AI conversation and basic device info are automatically attached to the ticket, so the developer/admin can help you faster.</li>
-    <li>Submit the ticket to send it directly to the system's developer/admin.</li>
+    <li>Submit the ticket. It is always saved on your device first. If the developer's support desk is open, it is sent to the developer automatically; if the desk is closed, it stays saved on this device and is sent automatically once support reopens.</li>
   </ol>`
 },
 
@@ -1313,15 +1313,9 @@ window.OMNIPOS_FAQ_KB_EN = [
 },
 {
   id: 'faq-ai-attachment', category: 'FAQ & Support',
-  question: 'Can I attach a screenshot or file to Omni AI? Can the AI read pictures?',
-  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment', 'picture', 'analyze picture', 'read image', 'can ai see images', 'text-only', 'text based', 'paperclip', 'pdf ai', 'docx ai'],
-  answer: `<p>Yes — <strong>Omni AI can read and analyze images and documents</strong>. It is not text-only.</p><ul><li>Tap the <strong>paperclip (attach)</strong> button next to the message box, choose a <strong>screenshot/image</strong> (up to ~4MB) or a <strong>document</strong> (PDF, DOCX, TXT, CSV — up to ~8MB), then type your question and send it <em>together</em> with the attachment.</li><li>One attachment per question.</li><li>The attachment must be <strong>part of the message you send</strong> — the AI cannot see a picture you did not attach, or anything on your screen without a screenshot.</li></ul><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
-},
-{
-  id: 'faq-ai-attachment-troubleshoot', category: 'FAQ & Support',
-  question: 'Why can\'t Omni AI read my attachment or picture?',
-  keywords: ['cannot read attachment', 'image not read', 'ai cannot see image', 'image analysis failed', 'attachment error', 'attach not working', 'pdf not readable', 'scanned pdf', 'try again attachment'],
-  answer: `<p>Common causes and fixes:</p><ul><li><strong>The attachment was not included</strong> — make sure a preview/file name appears above the message box <em>before</em> you send. If you only asked \"can you read pictures?\" without attaching anything, the AI has nothing to look at.</li><li><strong>Image analysis failed on one attempt</strong> — press <strong>Try again</strong> or re-attach a clearer, smaller screenshot.</li><li><strong>File too large</strong> — images: ~4MB max; documents: ~8MB max.</li><li><strong>Scanned PDF</strong> (page images with no text) — cannot be read as a document; screenshot the page and attach it as an image instead.</li><li><strong>Unsupported file</strong> — images, PDF, DOCX, TXT and CSV are supported. Video/audio are not.</li><li><strong>AI credits used up</strong> — images and files cost more credits than plain text questions.</li></ul><p>If it keeps failing, create a Support Ticket so the developer/admin can investigate.</p>`
+  question: 'Can I attach a screenshot or file to Omni AI?',
+  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
+  answer: `<p>Yes, when the attachment control is available in your Omni AI. You can attach a <strong>screenshot or supported file</strong> to give the assistant more context about a problem.</p><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
 },
 {
   id: 'faq-ai-voice', category: 'FAQ & Support',
@@ -1398,6 +1392,33 @@ window.OMNIPOS_FAQ_KB_EN = [
   question: 'When should I create a Support Ticket?',
   keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
   answer: `<p>Create a <strong>Support Ticket</strong> when the FAQ or normal troubleshooting does not resolve the problem — for example, repeated system errors, unexpected behavior, or a feature that should work but does not.</p><p>If Omni AI ticket flow is available, the current conversation and basic device information may be attached to help the Admin/developer investigate faster. Never include passwords, API keys, tokens, or other secrets.</p>`
+},
+{
+  id: 'faq-support-ticket-status',
+  category: 'FAQ & Support',
+  question: 'How do I see my support tickets and the developer\'s reply?',
+  keywords: ['support tickets list', 'ticket status', 'developer reply', 'ticket reply', 'sent to developer', 'my tickets', 'ticket inbox', 'view tickets'],
+  answer: `<p>An <strong>Admin</strong> can review every ticket saved on this server from the Omni AI chat (Omni AI must be unlocked and in AI mode):</p>
+  <ol>
+    <li>Open the chat and tap the <strong>inbox icon</strong> in the quick-action row (\"Support tickets (Admin)\").</li>
+    <li>The newest 50 tickets are shown with their subject, who created them, and whether each one reached the developer: <strong>Sent to developer</strong> (with the developer's status), <strong>Waiting to be sent</strong>, or <strong>Could not be sent</strong>. If RELAY is not configured on the server, tickets simply stay local.</li>
+    <li>When the developer replies, the reply appears in a highlighted box under the ticket.</li>
+    <li>Use the <strong>Store status</strong> dropdown (Open, In progress, Resolved, Closed) to track the ticket on your side. If the developer marks a ticket Resolved or Closed, your local status follows automatically.</li>
+  </ol>
+  <p>Non-admin users cannot open this list.</p>`
+},
+{
+  id: 'faq-support-desk-closed',
+  category: 'FAQ & Support',
+  question: 'Why does it say the support team is currently unavailable?',
+  keywords: ['support unavailable', 'support desk closed', 'ticket queued', 'ticket waiting', 'support offline', 'ticket not sent', 'support hours'],
+  answer: `<p>The developer controls when support tickets are being handled (the <strong>support desk</strong>). While the desk is closed, your ticket is <strong>still saved</strong> on this device and shows \"Waiting to be sent\". Nothing is lost, and there is no need to create the same ticket again.</p>
+  <ul>
+    <li>Once the desk reopens, waiting tickets are sent automatically. The store checks the desk state at startup, about every 30 minutes, and when you open the ticket list or create a ticket.</li>
+    <li>The developer may show a short message (for example, support hours) in the yellow banner at the top of the ticket list.</li>
+    <li>Sending needs an internet connection. If the connection is down, the ticket stays saved and is retried later.</li>
+    <li>You can create up to 5 tickets every 15 minutes.</li>
+  </ul>`
 },
 {
   id: 'remoteops-dashboard-overview',

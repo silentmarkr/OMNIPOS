@@ -606,7 +606,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   <ol>
     <li>Maglagay ng <strong>Subject</strong> (maikling buod) at <strong>ilarawan ang isyu</strong> — ano ang nangyari at ano na ang nasubukan mong gawin.</li>
     <li>Awtomatikong isasama sa ticket ang kasalukuyan mong AI conversation at basic device info, para mas mabilis matulungan ka ng developer/admin.</li>
-    <li>I-submit ang ticket para maipasa ito direkta sa developer/admin ng system.</li>
+    <li>I-submit ang ticket. Palaging na-sa-save muna ito sa device mo. Kung bukas ang support desk ng developer, awtomatiko itong maipapadala sa developer; kung sarado ang desk, mananatili itong naka-save sa device na ito at awtomatikong ipapadala kapag nagbukas na ulit ang support.</li>
   </ol>`
 },
 
@@ -1318,16 +1318,9 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'faq-ai-attachment',
   category: 'FAQ & Support',
-  question: 'Pwede bang mag-attach ng screenshot o file sa Omni AI? Kaya bang magbasa ng picture ang AI?',
-  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment', 'picture', 'larawan', 'analyze picture', 'mag analyze ng picture', 'basahin ang picture', 'kaya ba ng ai ang picture', 'text-based', 'paperclip', 'pdf ai', 'docx ai'],
-  answer: `<p>Oo — <strong>kaya ng Omni AI na magbasa/mag-analyze ng larawan at dokumento</strong>. Hindi ito text-only.</p><ul><li>I-tap ang <strong>paperclip (attach)</strong> button sa tabi ng message box, pumili ng <strong>screenshot/larawan</strong> (hanggang ~4MB) o <strong>dokumento</strong> (PDF, DOCX, TXT, CSV — hanggang ~8MB), saka i-type ang tanong mo at i-send <em>kasama</em> nito.</li><li>Isang attachment lang kada tanong.</li><li>Kailangang <strong>kasama sa mismong message</strong> ang attachment — hindi mababasa ng AI ang picture na hindi mo na-attach, o ang nasa screen mo kung walang screenshot.</li></ul><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
-},
-{
-  id: 'faq-ai-attachment-troubleshoot',
-  category: 'FAQ & Support',
-  question: 'Bakit hindi nababasa ng Omni AI ang attachment o picture ko?',
-  keywords: ['hindi mabasa attachment', 'hindi nababasa ang picture', 'ai hindi makabasa ng image', 'image analysis failed', 'attachment error', 'hindi gumagana ang attach', 'pdf hindi mabasa', 'scanned pdf', 'try again attachment'],
-  answer: `<p>Ito ang mga karaniwang dahilan at ayos:</p><ul><li><strong>Hindi nasama ang attachment</strong> — siguraduhing may lumabas na preview/pangalan ng file sa itaas ng message box <em>bago</em> mag-send. Kung tinanong mo lang "kaya mo ba ang picture?" nang walang attachment, walang makikita ang AI.</li><li><strong>Pumalya ang image analysis sa isang subok</strong> — pindutin ang <strong>Try again</strong> o i-attach muli ang mas malinaw at mas maliit na screenshot.</li><li><strong>Masyadong malaki ang file</strong> — larawan: ~4MB max; dokumento: ~8MB max.</li><li><strong>Scanned PDF</strong> (larawan lang ng pahina, walang text) — hindi mababasa bilang dokumento; i-screenshot ang pahina at i-attach bilang larawan.</li><li><strong>Hindi suportadong file</strong> — suportado ang larawan, PDF, DOCX, TXT, CSV. Hindi kaya ang video/audio.</li><li><strong>Naubos ang AI credits</strong> — mas mataas ang gastos ng larawan/file kaysa sa text lang.</li></ul><p>Kung paulit-ulit pa rin, gumawa ng Support Ticket para matingnan ng developer/admin.</p>`
+  question: 'Pwede bang mag-attach ng screenshot o file sa Omni AI?',
+  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
+  answer: `<p>Oo, kung available ang attachment control sa iyong Omni AI. Maaari kang mag-attach ng <strong>screenshot o supported file</strong> para maunawaan ng assistant ang problemang ipinapakita mo.</p><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
 },
 {
   id: 'faq-ai-voice',
@@ -1419,6 +1412,33 @@ window.OMNIPOS_FAQ_KB_TL = [
   question: 'Kailan dapat gumawa ng Support Ticket?',
   keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
   answer: `<p>Gumawa ng <strong>Support Ticket</strong> kapag may problemang hindi mo maayos gamit ang FAQ o normal troubleshooting — halimbawa, paulit-ulit na system error, unexpected behavior, o feature na dapat gumana pero hindi.</p><p>Kung available ang Omni AI ticket flow, maaaring maisama ang kasalukuyang conversation at basic device information para mas mabilis ma-review ng Admin/developer. Huwag isama sa ticket ang password, API key, token, o ibang secret.</p>`
+},
+{
+  id: 'faq-support-ticket-status',
+  category: 'FAQ & Support',
+  question: 'Paano ko makikita ang mga support ticket ko at ang sagot ng developer?',
+  keywords: ['support tickets list', 'ticket status', 'sagot ng developer', 'reply ng developer', 'naipadala sa developer', 'mga ticket ko', 'ticket inbox', 'tingnan ang tickets'],
+  answer: `<p>Ang <strong>Admin</strong> ay maaaring mag-review ng lahat ng ticket na naka-save sa server na ito mula sa Omni AI chat (kailangang naka-unlock ang Omni AI at nasa AI mode):</p>
+  <ol>
+    <li>Buksan ang chat at pindutin ang <strong>inbox icon</strong> sa quick-action row (\"Mga support ticket (Admin)\").</li>
+    <li>Makikita ang pinakabagong 50 ticket kasama ang subject, kung sino ang gumawa, at kung nakarating ba ito sa developer: <strong>Naipadala sa developer</strong> (kasama ang status ng developer), <strong>Naghihintay maipadala</strong>, o <strong>Hindi naipadala</strong>. Kung walang naka-configure na RELAY sa server, lokal lang ang mga ticket.</li>
+    <li>Kapag sumagot ang developer, lalabas ang sagot sa naka-highlight na kahon sa ilalim ng ticket.</li>
+    <li>Gamitin ang <strong>Status sa store</strong> dropdown (Bukas, Ginagawa, Naayos, Sarado) para masubaybayan ang ticket sa panig mo. Kapag minarkahan ng developer na Naayos o Sarado ang ticket, susunod na awtomatiko ang lokal na status.</li>
+  </ol>
+  <p>Hindi mabubuksan ng non-admin na user ang listahang ito.</p>`
+},
+{
+  id: 'faq-support-desk-closed',
+  category: 'FAQ & Support',
+  question: 'Bakit nakasulat na walang available na support team ngayon?',
+  keywords: ['support unavailable', 'support desk closed', 'ticket queued', 'ticket naghihintay', 'support offline', 'hindi naipadala ang ticket', 'support hours'],
+  answer: `<p>Ang developer ang nagpapasya kung kailan inaasikaso ang mga support ticket (ang <strong>support desk</strong>). Habang sarado ang desk, <strong>naka-save pa rin</strong> ang ticket mo sa device na ito at nakalagay na \"Naghihintay maipadala\". Walang mawawala, at hindi mo na kailangang gumawa ulit ng parehong ticket.</p>
+  <ul>
+    <li>Kapag nagbukas na ulit ang desk, awtomatikong ipapadala ang mga naghihintay na ticket. Chine-check ng store ang estado ng desk sa startup, humigit-kumulang bawat 30 minuto, at kapag binuksan mo ang listahan ng ticket o gumawa ka ng ticket.</li>
+    <li>Maaaring maglagay ang developer ng maikling mensahe (halimbawa, support hours) sa dilaw na banner sa itaas ng listahan ng ticket.</li>
+    <li>Kailangan ng internet connection para maipadala. Kung walang koneksyon, mananatiling naka-save ang ticket at susubukan ulit mamaya.</li>
+    <li>Maaari kang gumawa ng hanggang 5 ticket kada 15 minuto.</li>
+  </ul>`
 },
 {
   id: 'remoteops-dashboard-overview',

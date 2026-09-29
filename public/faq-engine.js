@@ -155,6 +155,7 @@
       aiThinking: 'Omni AI is thinking...',
       aiGeneratedBadge: 'Omni AI answer — based on the OmniPOS FAQ Knowledge Base',
       aiFallbackNotice: 'Omni AI is unavailable right now — showing knowledge base search results instead.',
+      aiProviderDown: 'Omni AI has reached its daily usage limit on the AI provider, so it cannot answer right now. You were not charged any credits. Showing knowledge base results instead — please try the AI again later.',
       showKbInstead: 'Show knowledge base results instead',
       followUpsLabel: 'You might also ask:',
       retryIn: 'You can ask again in',
@@ -164,6 +165,14 @@
       quickExplainError: 'Explain last error',
       quickTicket: 'Create support ticket',
       quickInsights: 'Omni AI insights (Admin)',
+      quickTickets: 'Support tickets (Admin)',
+      tkTitle: 'Support Tickets', tkNone: 'No support tickets yet.', tkError: 'Could not load support tickets.', tkSaveError: 'Could not update the ticket status.',
+      tkStOpen: 'Open', tkStProg: 'In progress', tkStResolved: 'Resolved', tkStClosed: 'Closed',
+      tkSentToDev: 'Sent to developer', tkQueued: 'Waiting to be sent to the developer (will retry automatically)', tkNoRelay: 'RELAY is not configured on this server, so tickets stay local', tkSyncFailed: 'Could not be sent to the developer',
+      tkDevStatus: 'Developer status', tkDevReply: 'Developer reply', tkYourStatus: 'Store status', tkMore: 'Showing the newest 50 tickets.',
+      tkDeskClosed: 'Support is currently unavailable. Saved on this device; it will be sent automatically when support reopens',
+      tkDeskBanner: 'The support team is currently unavailable. Tickets you create are saved here and sent automatically once support reopens.',
+      ticketSuccessQueued: 'Ticket saved! The support team is currently unavailable, so it will be sent automatically when they are back.',
       quickCredits: 'Show AI credits',
       insTitle: 'Omni AI Insights', insTotal: 'Total questions', insAnswered: 'Answered', insHelpful: 'Helpful rate',
       insAvg: 'Avg. response', insTop: 'Most asked', insDown: 'Most downvoted (👎)', insFailed: 'Recent failed / unanswered',
@@ -175,6 +184,9 @@
       creditsExhausted: 'Monthly AI credits used up for this store. Resets next month.',
       attachRemoved: 'Screenshot removed.',
       goTo: 'Go to',
+      unlockTo: 'Unlock',
+      lockedNoteSubscription: 'Reminder: "{name}" is not yet activated in this store. It needs a subscription first — tap the lock button to see the plans and price.',
+      lockedNoteOneTime: 'Reminder: "{name}" is not yet activated in this store. It needs a one-time purchase first — tap the lock button to see the price.',
       ticketModalTitle: 'Create Support Ticket',
       ticketSubjectLabel: 'Subject',
       ticketMessageLabel: 'Describe the issue',
@@ -216,6 +228,7 @@
       aiThinking: 'Iniisip ng Omni AI ang sagot...',
       aiGeneratedBadge: 'Sagot ng Omni AI — batay sa OmniPOS FAQ Knowledge Base',
       aiFallbackNotice: 'Hindi available ang Omni AI sa ngayon — ipinapakita na lang ang resulta ng knowledge base search.',
+      aiProviderDown: 'Naabot na ng Omni AI ang daily limit ng AI provider kaya hindi ito makasagot ngayon. Hindi ka nasingil ng credits. Ipinapakita muna ang resulta ng knowledge base — subukan ulit ang AI mamaya.',
       showKbInstead: 'Ipakita na lang ang resulta ng knowledge base',
       followUpsLabel: 'Baka gusto mo ring itanong:',
       retryIn: 'Puwede ka nang magtanong ulit pagkalipas ng',
@@ -225,6 +238,14 @@
       quickExplainError: 'Ipaliwanag ang huling error',
       quickTicket: 'Gumawa ng support ticket',
       quickInsights: 'Omni AI insights (Admin)',
+      quickTickets: 'Mga support ticket (Admin)',
+      tkTitle: 'Mga Support Ticket', tkNone: 'Wala pang support ticket.', tkError: 'Hindi ma-load ang mga support ticket.', tkSaveError: 'Hindi ma-update ang status ng ticket.',
+      tkStOpen: 'Bukas', tkStProg: 'Ginagawa', tkStResolved: 'Naayos', tkStClosed: 'Sarado',
+      tkSentToDev: 'Naipadala sa developer', tkQueued: 'Naghihintay maipadala sa developer (awtomatikong susubukan ulit)', tkNoRelay: 'Walang naka-configure na RELAY sa server na ito, kaya lokal lang ang mga ticket', tkSyncFailed: 'Hindi naipadala sa developer',
+      tkDevStatus: 'Status ng developer', tkDevReply: 'Sagot ng developer', tkYourStatus: 'Status sa store', tkMore: 'Ipinapakita ang pinakabagong 50 ticket.',
+      tkDeskClosed: 'Walang available na support ngayon. Naka-save sa device na ito; awtomatikong ipapadala kapag bumalik na ang support',
+      tkDeskBanner: 'Walang available na support team ngayon. Ang mga ticket na gagawin mo ay naka-save dito at awtomatikong ipapadala kapag bumalik na ang support.',
+      ticketSuccessQueued: 'Naka-save ang ticket! Walang available na support team ngayon, kaya awtomatiko itong ipapadala kapag bumalik na sila.',
       quickCredits: 'Ipakita ang AI credits',
       insTitle: 'Omni AI Insights', insTotal: 'Kabuuang tanong', insAnswered: 'Nasagot', insHelpful: 'Helpful rate',
       insAvg: 'Avg. bilis ng sagot', insTop: 'Pinakamadalas itanong', insDown: 'Pinaka-nabigyan ng 👎', insFailed: 'Kamakailang nabigo / hindi nasagot',
@@ -236,6 +257,9 @@
       creditsExhausted: 'Naubos na ang buwanang AI credits ng store na ito. Mare-reset sa susunod na buwan.',
       attachRemoved: 'Naalis ang screenshot.',
       goTo: 'Pumunta sa',
+      unlockTo: 'I-unlock ang',
+      lockedNoteSubscription: 'Paalala: ang "{name}" ay hindi pa naka-activate sa store na ito. Kailangan muna ng subscription — pindutin ang lock button para makita ang plans at presyo.',
+      lockedNoteOneTime: 'Paalala: ang "{name}" ay hindi pa naka-activate sa store na ito. Kailangan muna itong bilhin (one-time) — pindutin ang lock button para makita ang presyo.',
       ticketModalTitle: 'Gumawa ng Support Ticket',
       ticketSubjectLabel: 'Paksa',
       ticketMessageLabel: 'Ilarawan ang problema',
@@ -1485,15 +1509,25 @@
     });
   }
 
+  // BUGFIX: dati, KAHIT ano ang dahilan ng pagpalya ng AI (naubos na ang
+  // daily quota ng AI provider, timeout, walang internet, atbp.), iisa
+  // lang ang lumalabas — "Omni AI is unavailable" + "Try again" — kaya
+  // kapag talagang down ang provider, paulit-ulit at walang saysay ang
+  // "Try again". Ngayon, itinatago rito ang dahilan ng huling pagpalya
+  // para makapili ng tamang mensahe (at itago ang walang-saysay na
+  // retry button kapag ang provider mismo ang naubusan ng quota).
+  let lastAiFailure = null;
+
   function appendKbAnswerBubble(query, thread, wasAiAttempted) {
     const s = STRINGS();
+    const providerDown = !!(wasAiAttempted && lastAiFailure && lastAiFailure.providerUnavailable);
     const html = `
       ${wasAiAttempted ? `
         <div class="faq-ai-fallback-notice">
-          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${s.aiFallbackNotice}</div>
-          <button type="button" class="faq-chip faq-retry-ai-btn" data-action="retry-ai">
+          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${providerDown ? s.aiProviderDown : s.aiFallbackNotice}</div>
+          ${providerDown ? '' : `<button type="button" class="faq-chip faq-retry-ai-btn" data-action="retry-ai">
             <i class="fa-solid fa-arrow-rotate-right"></i> ${s.regenerate}
-          </button>
+          </button>`}
         </div>` : ''}
       <div class="faq-ai-badge"><i class="fa-solid fa-wand-magic-sparkles"></i> ${s.badge}</div>
       ${buildKbAnswerInnerHtml(query)}`;
@@ -1799,6 +1833,7 @@
       <button type="button" class="faq-quick-action-chip" data-quick="explain-error" title="${escapeHtml(s.quickExplainError)}" aria-label="${escapeHtml(s.quickExplainError)}"><i class="fa-solid fa-bug"></i></button>
       <button type="button" class="faq-quick-action-chip" data-quick="ticket" title="${escapeHtml(s.quickTicket)}" aria-label="${escapeHtml(s.quickTicket)}"><i class="fa-solid fa-life-ring"></i></button>
       ${isCurrentUserAdmin() ? `<button type="button" class="faq-quick-action-chip" data-quick="insights" title="${escapeHtml(s.quickInsights)}" aria-label="${escapeHtml(s.quickInsights)}"><i class="fa-solid fa-chart-line"></i></button>` : ''}
+      ${isCurrentUserAdmin() ? `<button type="button" class="faq-quick-action-chip" data-quick="tickets" title="${escapeHtml(s.quickTickets)}" aria-label="${escapeHtml(s.quickTickets)}"><i class="fa-solid fa-inbox"></i></button>` : ''}
       <button type="button" class="faq-quick-action-chip faq-credit-chip" data-quick="credits" title="${escapeHtml(s.quickCredits)}" aria-label="${escapeHtml(s.quickCredits)}" aria-controls="ai-assistant-credit-expiry" aria-expanded="${creditRowOpen ? 'true' : 'false'}"><i class="fa-solid fa-bolt"></i></button>`;
     box.querySelectorAll('[data-quick]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1807,6 +1842,7 @@
         else if (kind === 'explain-error') { pendingDiagnosticsRequested = true; window.OmniFAQ.ask(STRINGS().explainErrorQuestion); }
         else if (kind === 'ticket') { openTicketModal(); }
         else if (kind === 'insights') { openInsightsModal(); }
+        else if (kind === 'tickets') { openTicketsListModal(); }
         else if (kind === 'credits') { showAiCreditRowTemporarily(); }
       });
     });
@@ -1891,6 +1927,81 @@
     }
   }
 
+  // ---- support tickets list (Admin) ------------------------------------
+  // Lists the tickets saved on this server, including whether each one
+  // reached the developer (RELAY) and the developer's status/reply.
+  async function openTicketsListModal() {
+    const s = STRINGS();
+    const showHtml = (html, didOpen) => {
+      if (window.Swal && typeof window.Swal.fire === 'function') {
+        window.Swal.fire({ title: s.tkTitle, html, width: 620, confirmButtonText: s.insClose, didOpen });
+      } else {
+        alert(html.replace(/<[^>]+>/g, ' '));
+      }
+    };
+    const statusLabel = (v) => ({ open: s.tkStOpen, in_progress: s.tkStProg, resolved: s.tkStResolved, closed: s.tkStClosed }[v] || String(v || ''));
+    try {
+      const res = await authFetch(`${API_URL}/support-tickets`, { timeoutMs: 30000 });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d || d.success === false || !Array.isArray(d.tickets)) {
+        showHtml(`<p>${escapeHtml((d && d.message) || s.tkError)}</p>`);
+        return;
+      }
+      if (!d.tickets.length) { showHtml(`<p>${escapeHtml(s.tkNone)}</p>`); return; }
+      const shown = d.tickets.slice(0, 50);
+      const rows = shown.map((t) => {
+        let sync;
+        if (t.relaySynced) sync = s.tkSentToDev + (t.relayStatus ? ` — ${s.tkDevStatus}: ${statusLabel(t.relayStatus)}` : '');
+        else if (t.relaySyncFailed) sync = s.tkSyncFailed;
+        else if (!d.relayConfigured) sync = s.tkNoRelay;
+        else if (!(d.supportDesk && d.supportDesk.open)) sync = s.tkDeskClosed;
+        else sync = s.tkQueued;
+        const when = t.createdAt ? new Date(t.createdAt).toLocaleString() : '';
+        const options = ['open', 'in_progress', 'resolved', 'closed']
+          .map((v) => `<option value="${v}"${t.status === v ? ' selected' : ''}>${escapeHtml(statusLabel(v))}</option>`).join('');
+        const msg = String(t.message || '').slice(0, 300);
+        const reply = t.relayNote
+          ? `<div class="faq-tk-reply"><strong>${escapeHtml(s.tkDevReply)}:</strong> <span>${escapeHtml(t.relayNote)}</span></div>`
+          : '';
+        return `<div class="faq-tk-card">
+          <div class="faq-tk-head"><strong>${escapeHtml(t.subject || '')}</strong><span class="faq-tk-time">${escapeHtml(when)}</span></div>
+          <div class="faq-tk-meta">${escapeHtml(t.username || '')} • ${escapeHtml(sync)}</div>
+          ${msg ? `<div class="faq-tk-msg">${escapeHtml(msg)}</div>` : ''}
+          ${reply}
+          <div class="faq-tk-status-row"><span>${escapeHtml(s.tkYourStatus)}:</span><select class="faq-tk-select" data-ticket-id="${escapeHtml(String(t.id))}">${options}</select></div>
+        </div>`;
+      }).join('');
+      const more = d.tickets.length > shown.length ? `<div class="faq-tk-meta" style="margin-top:8px;">${escapeHtml(s.tkMore)}</div>` : '';
+      const deskOpen = !!(d.supportDesk && d.supportDesk.open);
+      const banner = (d.relayConfigured && !deskOpen)
+        ? `<div class="faq-tk-banner">${escapeHtml((d.supportDesk && d.supportDesk.message) || s.tkDeskBanner)}</div>`
+        : '';
+      showHtml(`<div class="faq-tk-wrap">${banner}${rows}${more}</div>`, (popup) => {
+        popup.querySelectorAll('select[data-ticket-id]').forEach((sel) => {
+          sel.dataset.prev = sel.value;
+          sel.addEventListener('change', async () => {
+            const prev = sel.dataset.prev;
+            try {
+              const r = await authFetch(`${API_URL}/support-tickets/${encodeURIComponent(sel.dataset.ticketId)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: sel.value })
+              });
+              const out = await r.json().catch(() => null);
+              if (!r.ok || !out || out.success === false) { sel.value = prev; alert((out && out.message) || s.tkSaveError); }
+              else sel.dataset.prev = sel.value;
+            } catch (e) {
+              sel.value = prev;
+              alert(s.tkSaveError);
+            }
+          });
+        });
+      });
+    } catch (e) {
+      showHtml(`<p>${escapeHtml(s.tkError)}</p>`);
+    }
+  }
+
   function refreshTicketButtonVisibility() {
     const btn = document.getElementById('faq-ticket-btn');
     // BAGO: naka-tali ang Support Ticket sa "kasalukuyang AI
@@ -1901,22 +2012,208 @@
 
   // ---- suggested "safe action" chips (navigate only, never a
   // data-changing action) under an AI answer ------------------------------
+  // BAGO: ang mga Settings tab (sa loob ng Settings/Users page) na puwedeng
+  // puntahan ng suggested-action chip. Key = panel ID ("tab" na galing sa
+  // server), value = ID ng tab button sa index.html. Ang pag-click sa
+  // mismong button ang ginagamit (parehong ginagawa ng user) para tumakbo
+  // rin ang permission check at ang load function ng bawat tab.
+  const OMNI_SETTINGS_TAB_BUTTONS = {
+    'manage-users-tab': 'manage-users-tab-btn',
+    'pending-requests-tab': 'pending-requests-counter-tab',
+    'roles-permissions-tab': 'roles-permissions-tab-btn',
+    'receipt-custom-tab': 'receipt-custom-tab-btn',
+    'store-settings-tab': 'store-settings-tab-btn',
+    'ux-settings-tab': 'ux-settings-tab-btn',
+    'advanced-settings-tab': 'advanced-settings-tab-btn',
+    'online-payments-tab': 'online-payments-tab-btn',
+    'fraud-alerts-tab': 'fraud-alerts-counter-tab',
+    'reset-restore-panel': 'reset-restore-btn'
+  };
+
+  // BAGO: whitelist ng lahat ng page (view) na puwedeng puntahan ng chip.
+  // Value = permission key na ginagamit ng switchView() sa app.js para sa
+  // view na iyon (batchlots -> products, gaya ng sa switchView), o null kung
+  // walang hiwalay na permission. Ang view na wala sa listahang ito ay hindi
+  // ipinapakita kahit ipadala ng server.
+  const OMNI_SUGGESTED_VIEWS = {
+    overview: 'overview',
+    terminal: 'terminal',
+    dashboard: 'dashboard',
+    products: 'products',
+    barcode: 'barcode',
+    stock_return_inspection: 'stock_return_inspection',
+    batchlots: 'products',
+    reorder: 'reorder',
+    transactions: 'transactions',
+    bir_compliance: 'bir_compliance',
+    reports: 'reports',
+    customers: 'customers',
+    debts: 'debts',
+    shiftreport: 'shiftreport',
+    branches: 'branches',
+    attendance: 'attendance',
+    remoteops: 'remoteops',
+    logs: 'logs',
+    users: 'users',
+    faq: null,
+    cloudtokens: null // Admin-only, hindi bahagi ng Roles & Permissions
+  };
+  const OMNI_ADMIN_ONLY_VIEWS = { cloudtokens: true };
+
+  // Itinatago ang chip papunta sa page/Settings tab na hindi naman papayagang
+  // buksan ng role ng user (para hindi siya mapunta sa maling page). Sinusunod
+  // ang parehong patakaran ng switchView() at isUserTabAllowed() sa app.js.
+  function isSuggestedActionAllowed(a) {
+    if (!a || !a.view) return false;
+    if (!Object.prototype.hasOwnProperty.call(OMNI_SUGGESTED_VIEWS, a.view)) return false;
+    if (a.tab && !Object.prototype.hasOwnProperty.call(OMNI_SETTINGS_TAB_BUTTONS, a.tab)) return false;
+    if (a.tab && a.view !== 'users') return false;
+    try {
+      const user = JSON.parse(localStorage.getItem('omnipos_user') || 'null');
+      const isAdmin = ((user && user.role) || '').toLowerCase() === 'admin';
+      if (isAdmin) return true;
+      if (OMNI_ADMIN_ONLY_VIEWS[a.view]) return false;
+      const permKey = OMNI_SUGGESTED_VIEWS[a.view];
+      if (permKey && typeof currentPermissions !== 'undefined' && currentPermissions
+          && Object.prototype.hasOwnProperty.call(currentPermissions, permKey)
+          && !currentPermissions[permKey]) return false;
+      if (a.tab && typeof window.isUserTabAllowed === 'function' && !window.isUserTabAllowed(a.tab)) return false;
+    } catch (e) { /* kapag hindi mabasa ang user/permissions, ipakita pa rin ang chip; switchView pa rin ang final na gate */ }
+    return true;
+  }
+
+  // BAGO: premium feature na kailangan ng bawat page/tab — galing sa
+  // sariling listahan ng client (hindi pinagkakatiwalaan ang featureId na
+  // galing sa server para sa pag-open ng purchase modal). Kapareho ito ng
+  // VIEW_FEATURE_MAP sa switchView() ng app.js. Sinadyang WALA ang shiftreport
+  // dito: may sarili itong special na patakaran (guardShiftReportAccess) na
+  // pinapayagan pa rin ang admin/naka-open na shift, kaya switchView na ang
+  // bahala roon.
+  const OMNI_VIEW_FEATURES = {
+    customers: 'customer_crm',
+    debts: 'customer_crm',
+    reports: 'advanced_reports',
+    reorder: 'purchase_orders',
+    branches: 'multi_branch',
+    attendance: 'remote_operations',
+    remoteops: 'remote_operations',
+    batchlots: 'batch_lot_tracking'
+  };
+  const OMNI_TAB_FEATURES = { 'roles-permissions-tab': 'rbac_management' };
+  const OMNI_SUBSCRIPTION_FEATURES = { rbac_management: true, multi_branch: true, remote_operations: true, ai_assistant: true };
+
+  function suggestedActionFeatureId(a) {
+    if (!a) return null;
+    if (a.tab && Object.prototype.hasOwnProperty.call(OMNI_TAB_FEATURES, a.tab)) return OMNI_TAB_FEATURES[a.tab];
+    if (Object.prototype.hasOwnProperty.call(OMNI_VIEW_FEATURES, a.view)) return OMNI_VIEW_FEATURES[a.view];
+    return null;
+  }
+
+  // Naka-lock ba ang feature? Ang server ang batayan (may sariling listahan
+  // ng unlocked features); kung wala siyang ibinigay, ang cache ng app.js
+  // (kung na-load na) ang gagamitin.
+  function isSuggestedActionLocked(a) {
+    const featureId = suggestedActionFeatureId(a);
+    if (!featureId) return false;
+    if (typeof a.locked === 'boolean') return a.locked;
+    try {
+      if (typeof isFeatureUnlockedCached === 'function' && typeof unlockedFeatureIdsCache !== 'undefined'
+          && Array.isArray(unlockedFeatureIdsCache)) {
+        return !isFeatureUnlockedCached(featureId);
+      }
+    } catch (e) { /* hindi mabasa ang cache — huwag mag-claim ng lock */ }
+    return false;
+  }
+
+  function suggestedActionFeatureName(a, featureId) {
+    if (a && typeof a.featureName === 'string' && a.featureName.trim()) return a.featureName.trim().slice(0, 120);
+    try {
+      if (typeof PREMIUM_FEATURE_FALLBACK !== 'undefined' && PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].name) {
+        return PREMIUM_FEATURE_FALLBACK[featureId].name;
+      }
+    } catch (e) { /* fallback sa ID */ }
+    return featureId;
+  }
+
+  function ensureSuggestedLockStyles() {
+    if (document.getElementById('faq-suggested-lock-styles')) return;
+    const st = document.createElement('style');
+    st.id = 'faq-suggested-lock-styles';
+    st.textContent = `
+      .faq-suggested-action-btn.is-locked { border-color: #d97706; color: #b45309; background: rgba(245,158,11,0.10); }
+      .faq-suggested-action-btn.is-locked:hover { background: #d97706; color: #fff; }
+      .faq-suggested-lock-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 8px 10px; font-size: 0.78rem; line-height: 1.4; border-radius: 8px; border: 1px solid rgba(217,119,6,0.35); background: rgba(245,158,11,0.08); color: #92400e; }
+      .faq-suggested-lock-note i { margin-top: 2px; }
+      body.dark-mode .faq-suggested-action-btn.is-locked, .dark .faq-suggested-action-btn.is-locked { color: #fbbf24; border-color: #f59e0b; }
+      body.dark-mode .faq-suggested-lock-note, .dark .faq-suggested-lock-note { color: #fcd34d; }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function openSuggestedAction(a) {
+    // BAGO: kapag naka-lock ang premium feature, HINDI dinidiretso ang page —
+    // ang purchase/subscription modal ng app ang bubukas (guardPremiumFeature).
+    // Kung nabili na pala ito mula nang lumabas ang chip, ibabalik nito
+    // ang false at tuloy ang normal na pagbukas ng page sa ibaba.
+    const featureId = suggestedActionFeatureId(a);
+    if (featureId && isSuggestedActionLocked(a) && typeof window.guardPremiumFeature === 'function') {
+      try {
+        if (window.guardPremiumFeature(featureId) === true) return;
+      } catch (e) { /* kung pumalya ang modal, switchView pa rin ang final gate sa ibaba */ }
+    }
+    if (typeof window.switchView === 'function') window.switchView(a.view);
+    const tabBtnId = a.tab ? OMNI_SETTINGS_TAB_BUTTONS[a.tab] : null;
+    if (!tabBtnId) return;
+    // Parehong pattern ng ibang "open settings" shortcut sa app.js: hintayin
+    // munang ma-render/ma-refresh ng switchView ang page bago pindutin ang tab.
+    setTimeout(() => {
+      const viewEl = document.getElementById('view-' + a.view);
+      if (!viewEl || viewEl.style.display === 'none') return; // na-redirect ng permission/feature gate
+      const tabBtn = document.getElementById(tabBtnId);
+      if (tabBtn) tabBtn.click();
+    }, 50);
+  }
+
   function renderSuggestedActions(container, actions) {
-    if (!Array.isArray(actions) || !actions.length) return;
+    if (!Array.isArray(actions)) return;
+    const allowed = actions.filter(isSuggestedActionAllowed);
+    if (!allowed.length) return;
+    ensureSuggestedLockStyles();
     const s = STRINGS();
     const wrap = document.createElement('div');
     wrap.className = 'faq-suggested-actions';
-    actions.forEach(a => {
+    const notes = [];
+    const notedFeatures = {};
+    allowed.forEach(a => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'faq-suggested-action-btn';
-      btn.innerHTML = `<i class="fa-solid fa-arrow-right"></i> ${escapeHtml(s.goTo)} ${escapeHtml(a.label || a.view)}`;
-      btn.addEventListener('click', () => {
-        if (typeof window.switchView === 'function') window.switchView(a.view);
-      });
+      // Tinatanggal ang nangunguna na "Open " sa label para hindi maging
+      // "Go to Open Users" / "Pumunta sa Open Users".
+      const shownLabel = String(a.label || a.view).replace(/^Open\s+/i, '');
+      const featureId = suggestedActionFeatureId(a);
+      if (featureId && isSuggestedActionLocked(a)) {
+        btn.classList.add('is-locked');
+        btn.innerHTML = `<i class="fa-solid fa-lock"></i> ${escapeHtml(s.unlockTo)} ${escapeHtml(shownLabel)}`;
+        if (!notedFeatures[featureId]) {
+          notedFeatures[featureId] = true;
+          const name = suggestedActionFeatureName(a, featureId);
+          const isSub = typeof a.isSubscription === 'boolean' ? a.isSubscription : !!OMNI_SUBSCRIPTION_FEATURES[featureId];
+          notes.push((isSub ? s.lockedNoteSubscription : s.lockedNoteOneTime).replace('{name}', () => name));
+        }
+      } else {
+        btn.innerHTML = `<i class="fa-solid fa-arrow-right"></i> ${escapeHtml(s.goTo)} ${escapeHtml(shownLabel)}`;
+      }
+      btn.addEventListener('click', () => openSuggestedAction(a));
       wrap.appendChild(btn);
     });
     container.appendChild(wrap);
+    notes.forEach(text => {
+      const note = document.createElement('div');
+      note.className = 'faq-suggested-lock-note';
+      note.innerHTML = `<i class="fa-solid fa-lock"></i><span>${escapeHtml(text)}</span>`;
+      container.appendChild(note);
+    });
   }
 
   // ---- support ticket modal ---------------------------------------------
@@ -1971,10 +2268,12 @@
         return;
       }
       closeTicketModal();
+      // Support desk closed (RELAY-controlled): the ticket is saved locally and sent later.
+      const successText = (data.supportDeskOpen === false) ? s.ticketSuccessQueued : s.ticketSuccess;
       if (window.Swal && typeof window.Swal.fire === 'function') {
-        window.Swal.fire({ icon: 'success', title: s.ticketSuccess, timer: 2200, showConfirmButton: false });
+        window.Swal.fire({ icon: 'success', title: successText, timer: data.supportDeskOpen === false ? 4200 : 2200, showConfirmButton: false });
       } else {
-        alert(s.ticketSuccess);
+        alert(successText);
       }
     } catch (e) {
       alert(s.ticketError);
@@ -1998,6 +2297,7 @@
   async function askAIAssistantChat(query, thread) {
     const lang = currentLang();
     const s = STRINGS();
+    lastAiFailure = null;
 
     const loadingBubble = appendAssistantBubble(thread, `
       <div class="faq-ai-badge faq-ai-thinking">${omniLogoIcon('1.15em', true)} ${s.aiThinking}</div>`);
@@ -2061,7 +2361,10 @@
           diagnostics: wantsDiagnostics ? gatherDiagnostics() : undefined,
           clientErrors: wantsDiagnostics ? (CAPTURED_ERRORS.length ? CAPTURED_ERRORS : [s.noErrorsCaptured]) : undefined
         }),
-        timeoutMs: 30000
+        // BUGFIX: dati 30s — mas maikli pa sa kabuuang oras na ibinibigay
+        // ng server/RELAY (at ng vision→text fallback), kaya pumapalya
+        // ("Try again") ang mabagal pero tumatakbo pang request.
+        timeoutMs: 90000
       });
       const data = await res.json().catch(() => null);
 
@@ -2107,12 +2410,20 @@
         if (data && data.featureLocked && typeof guardPremiumFeature === 'function') {
           guardPremiumFeature('ai_assistant');
         }
+        lastAiFailure = {
+          status: res.status,
+          providerUnavailable: !!(data && data.providerUnavailable),
+          message: (data && data.message) || ''
+        };
+        // Ibinalik na ng RELAY ang credits ng palyang request — i-refresh
+        // ang credit pill para tugma ang ipinapakitang balanse.
+        if (data && data.credits) { try { refreshAiCreditPill(data.credits); } catch (e) {} }
         loadingBubble.remove();
         return false;
       }
 
       const answerText = (data.answer || '').trim();
-      if (!answerText) { loadingBubble.remove(); return false; }
+      if (!answerText) { lastAiFailure = { status: res.status, providerUnavailable: false, message: 'empty' }; loadingBubble.remove(); return false; }
 
       chatHistory.push({ role: 'assistant', text: answerText.slice(0, 500) });
       if (data.credits) refreshAiCreditPill(data.credits);
@@ -2154,6 +2465,7 @@
       });
       return true;
     } catch (err) {
+      lastAiFailure = { status: 0, providerUnavailable: false, message: (err && err.message) || '' };
       loadingBubble.remove();
       return false;
     }

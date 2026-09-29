@@ -9209,6 +9209,59 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
   }
 }
 
+/* ------------------------------------------------------------------
+   Omni AI > Support tickets list (Admin). Colors come from the active
+   theme: light mode uses the base variables, dark mode and every Pro
+   theme use the --dm-* variables that each theme file redefines.
+   ------------------------------------------------------------------ */
+.faq-tk-wrap { text-align: left; font-size: 0.85rem; max-height: 60vh; overflow-y: auto; }
+.faq-tk-banner {
+  padding: 8px 10px; border-radius: 8px; margin-bottom: 4px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: color-mix(in srgb, var(--warning-gold, #f59e0b) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning-gold, #f59e0b) 40%, transparent);
+  color: var(--text-primary, #1e293b);
+}
+.faq-tk-card {
+  border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px;
+  padding: 8px 10px; margin-top: 8px; background: var(--card-bg, transparent);
+}
+.faq-tk-head { display: flex; justify-content: space-between; gap: 8px; color: var(--text-primary, #1e293b); }
+.faq-tk-time { color: var(--text-muted, #64748b); font-size: 0.75rem; white-space: nowrap; }
+.faq-tk-meta { color: var(--text-muted, #64748b); font-size: 0.78rem; }
+.faq-tk-msg { margin-top: 4px; white-space: pre-wrap; color: var(--text-primary, #1e293b); }
+.faq-tk-reply {
+  margin-top: 6px; padding: 6px 8px; border-radius: 8px; color: var(--text-primary, #1e293b);
+  background: rgba(37, 99, 235, 0.12);
+  background: color-mix(in srgb, var(--primary-blue, #2563eb) 12%, transparent);
+  border-left: 3px solid var(--primary-blue, #2563eb);
+}
+.faq-tk-reply span { white-space: pre-wrap; }
+.faq-tk-status-row { margin-top: 6px; display: flex; align-items: center; gap: 6px; color: var(--text-muted, #64748b); font-size: 0.78rem; }
+.faq-tk-select {
+  padding: 4px 8px; border-radius: 6px; font-family: inherit; font-size: 0.82rem;
+  border: 1px solid var(--border-color, #cbd5e1); background: #fff; color: var(--text-primary, #1e293b);
+}
+.faq-tk-select:focus { outline: none; border-color: var(--primary-blue, #2563eb); }
+body.dark-mode .faq-tk-banner { color: var(--dm-text-primary, #f5f5f7); }
+body.dark-mode .faq-tk-card { border-color: var(--dm-border, rgba(255,255,255,0.12)); background: var(--dm-surface-alt, transparent); }
+body.dark-mode .faq-tk-head,
+body.dark-mode .faq-tk-msg,
+body.dark-mode .faq-tk-reply { color: var(--dm-text-primary, #f5f5f7); }
+body.dark-mode .faq-tk-time,
+body.dark-mode .faq-tk-meta,
+body.dark-mode .faq-tk-status-row { color: var(--dm-text-muted, #9a9ba8); }
+body.dark-mode .faq-tk-reply {
+  background: var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
+  border-left-color: var(--dm-accent, #7c5cff);
+}
+body.dark-mode .faq-tk-select {
+  background: var(--dm-bg, #121218); color: var(--dm-text-primary, #f5f5f7); border-color: var(--dm-border, rgba(255,255,255,0.12));
+}
+body.dark-mode .faq-tk-select option { background: var(--dm-surface, #1c1c24); color: var(--dm-text-primary, #f5f5f7); }
+body.dark-mode .faq-tk-select:focus { border-color: var(--dm-accent, #7c5cff); }
+
 .faq-ticket-modal-backdrop {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
   display: flex; align-items: center; justify-content: center;
@@ -14974,7 +15027,14 @@ body.dark-mode #view-reorder .search-box-container input {
   /* AI credits/expiry row: hidden by default, slides down under the
      toggle buttons for a few seconds when the credit chip is tapped.
      Absolutely positioned so it never shifts the chat layout. */
-  #view-faq .faq-top-bar#faq-top-bar { position: relative !important; }
+  /* BUGFIX (Help > Search toggle): dating `position: relative` lang ito, pero
+     may natirang `top: 72px` mula sa lumang sticky rule ng
+     `#view-faq:not(.faq-fullchat-mode) .faq-top-bar` — kapag relative, ang
+     `top` ay nagiging AKTWAL na offset, kaya itinutulak pababa ng 72px ang
+     toggle bar (malaking blangkong puwang sa itaas) at tumatakip ito sa
+     unang mga row ng listahan (hal. "Staff Requests"). Nire-reset ang
+     `top`/`bottom` para manatili ito sa natural na puwesto nito. */
+  #view-faq .faq-top-bar#faq-top-bar { position: relative !important; top: auto !important; bottom: auto !important; }
   #view-faq .faq-top-bar#faq-top-bar::after { display: none !important; }
   #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry {
     position: absolute !important;
