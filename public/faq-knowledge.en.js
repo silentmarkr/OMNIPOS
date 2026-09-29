@@ -1313,9 +1313,15 @@ window.OMNIPOS_FAQ_KB_EN = [
 },
 {
   id: 'faq-ai-attachment', category: 'FAQ & Support',
-  question: 'Can I attach a screenshot or file to Omni AI?',
-  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
-  answer: `<p>Yes, when the attachment control is available in your Omni AI. You can attach a <strong>screenshot or supported file</strong> to give the assistant more context about a problem.</p><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
+  question: 'Can I attach a screenshot or file to Omni AI? Can the AI read pictures?',
+  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment', 'picture', 'analyze picture', 'read image', 'can ai see images', 'text-only', 'text based', 'paperclip', 'pdf ai', 'docx ai'],
+  answer: `<p>Yes — <strong>Omni AI can read and analyze images and documents</strong>. It is not text-only.</p><ul><li>Tap the <strong>paperclip (attach)</strong> button next to the message box, choose a <strong>screenshot/image</strong> (up to ~4MB) or a <strong>document</strong> (PDF, DOCX, TXT, CSV — up to ~8MB), then type your question and send it <em>together</em> with the attachment.</li><li>One attachment per question.</li><li>The attachment must be <strong>part of the message you send</strong> — the AI cannot see a picture you did not attach, or anything on your screen without a screenshot.</li></ul><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
+},
+{
+  id: 'faq-ai-attachment-troubleshoot', category: 'FAQ & Support',
+  question: 'Why can\'t Omni AI read my attachment or picture?',
+  keywords: ['cannot read attachment', 'image not read', 'ai cannot see image', 'image analysis failed', 'attachment error', 'attach not working', 'pdf not readable', 'scanned pdf', 'try again attachment'],
+  answer: `<p>Common causes and fixes:</p><ul><li><strong>The attachment was not included</strong> — make sure a preview/file name appears above the message box <em>before</em> you send. If you only asked \"can you read pictures?\" without attaching anything, the AI has nothing to look at.</li><li><strong>Image analysis failed on one attempt</strong> — press <strong>Try again</strong> or re-attach a clearer, smaller screenshot.</li><li><strong>File too large</strong> — images: ~4MB max; documents: ~8MB max.</li><li><strong>Scanned PDF</strong> (page images with no text) — cannot be read as a document; screenshot the page and attach it as an image instead.</li><li><strong>Unsupported file</strong> — images, PDF, DOCX, TXT and CSV are supported. Video/audio are not.</li><li><strong>AI credits used up</strong> — images and files cost more credits than plain text questions.</li></ul><p>If it keeps failing, create a Support Ticket so the developer/admin can investigate.</p>`
 },
 {
   id: 'faq-ai-voice', category: 'FAQ & Support',

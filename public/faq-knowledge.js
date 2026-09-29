@@ -1318,9 +1318,16 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'faq-ai-attachment',
   category: 'FAQ & Support',
-  question: 'Pwede bang mag-attach ng screenshot o file sa Omni AI?',
-  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
-  answer: `<p>Oo, kung available ang attachment control sa iyong Omni AI. Maaari kang mag-attach ng <strong>screenshot o supported file</strong> para maunawaan ng assistant ang problemang ipinapakita mo.</p><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
+  question: 'Pwede bang mag-attach ng screenshot o file sa Omni AI? Kaya bang magbasa ng picture ang AI?',
+  keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment', 'picture', 'larawan', 'analyze picture', 'mag analyze ng picture', 'basahin ang picture', 'kaya ba ng ai ang picture', 'text-based', 'paperclip', 'pdf ai', 'docx ai'],
+  answer: `<p>Oo — <strong>kaya ng Omni AI na magbasa/mag-analyze ng larawan at dokumento</strong>. Hindi ito text-only.</p><ul><li>I-tap ang <strong>paperclip (attach)</strong> button sa tabi ng message box, pumili ng <strong>screenshot/larawan</strong> (hanggang ~4MB) o <strong>dokumento</strong> (PDF, DOCX, TXT, CSV — hanggang ~8MB), saka i-type ang tanong mo at i-send <em>kasama</em> nito.</li><li>Isang attachment lang kada tanong.</li><li>Kailangang <strong>kasama sa mismong message</strong> ang attachment — hindi mababasa ng AI ang picture na hindi mo na-attach, o ang nasa screen mo kung walang screenshot.</li></ul><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
+},
+{
+  id: 'faq-ai-attachment-troubleshoot',
+  category: 'FAQ & Support',
+  question: 'Bakit hindi nababasa ng Omni AI ang attachment o picture ko?',
+  keywords: ['hindi mabasa attachment', 'hindi nababasa ang picture', 'ai hindi makabasa ng image', 'image analysis failed', 'attachment error', 'hindi gumagana ang attach', 'pdf hindi mabasa', 'scanned pdf', 'try again attachment'],
+  answer: `<p>Ito ang mga karaniwang dahilan at ayos:</p><ul><li><strong>Hindi nasama ang attachment</strong> — siguraduhing may lumabas na preview/pangalan ng file sa itaas ng message box <em>bago</em> mag-send. Kung tinanong mo lang "kaya mo ba ang picture?" nang walang attachment, walang makikita ang AI.</li><li><strong>Pumalya ang image analysis sa isang subok</strong> — pindutin ang <strong>Try again</strong> o i-attach muli ang mas malinaw at mas maliit na screenshot.</li><li><strong>Masyadong malaki ang file</strong> — larawan: ~4MB max; dokumento: ~8MB max.</li><li><strong>Scanned PDF</strong> (larawan lang ng pahina, walang text) — hindi mababasa bilang dokumento; i-screenshot ang pahina at i-attach bilang larawan.</li><li><strong>Hindi suportadong file</strong> — suportado ang larawan, PDF, DOCX, TXT, CSV. Hindi kaya ang video/audio.</li><li><strong>Naubos ang AI credits</strong> — mas mataas ang gastos ng larawan/file kaysa sa text lang.</li></ul><p>Kung paulit-ulit pa rin, gumawa ng Support Ticket para matingnan ng developer/admin.</p>`
 },
 {
   id: 'faq-ai-voice',
