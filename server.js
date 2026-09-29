@@ -7595,6 +7595,65 @@ app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), async (req, r
         return res.status(502).json({ success: false, message: err.message || 'Hindi makuha ang AI credit status mula sa RELAY.' });
     }
 });
+// BAGO: Omni AI upgrade plans (Basic/Plus/Pro). Ang pangalan, presyo (Omni
+// Tokens), monthly credits at daily cap ay hawak ng RELAY (admin page) —
+// ang OMNIPOS ay nagpapakita lang at nagpapasa ng pagbili.
+app.get('/api/ai-assistant/plans', requireFeature('ai_assistant'), async (req, res) => {
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' });
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/plans?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 10000);
+        const data = await relayRes.json().catch(() => null);
+        if (!relayRes.ok || !data) return res.status(relayRes.status || 502).json(data || { success: false, message: 'AI plans relay request failed.' });
+        let balanceTokens = null;
+        try {
+            const wallet = await fetchCloudTokenWallet(installationId);
+            if (wallet && wallet.ok) balanceTokens = wallet.balanceTokens;
+        } catch (_) {}
+        return res.json({ ...data, balanceTokens });
+    } catch (err) {
+        return res.status(502).json({ success: false, message: err.message || 'Hindi makuha ang AI plans mula sa RELAY.' });
+    }
+});
+app.post('/api/ai-assistant/plans/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-plan-purchase', 10, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.omniTokenActivationEnabled) {
+        return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try again later.' });
+    }
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    const tierId = typeof req.body?.tierId === 'string' ? req.body.tierId.trim().slice(0, 40) : '';
+    const adminPassword = typeof req.body?.adminPassword === 'string' ? req.body.adminPassword : '';
+    if (!tierId) return res.status(400).json({ success: false, message: 'Missing plan.' });
+    if (!adminPassword) return res.status(400).json({ success: false, message: 'An admin password is required to approve this purchase.' });
+    const users = readData(FILE_USERS);
+    const authResult = await findOmniTokenUnlockAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The purchase was not authorized.' });
+    }
+    const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/plans/purchase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, tierId, clientRequestId: crypto.randomUUID() })
+        }, 20000);
+        const data = await parseRelayResponse(relayRes);
+        if (!data.success) {
+            return res.status(relayRes.status && relayRes.status >= 400 ? relayRes.status : 400).json({
+                success: false,
+                insufficient: !!data.insufficient,
+                reserveProtected: !!data.reserveProtected,
+                balanceTokens: data.balanceTokens,
+                requiredTokens: data.requiredTokens,
+                message: data.message || 'Failed to activate the AI plan.'
+            });
+        }
+        logAction((req.authUser && req.authUser.username) || authResult.user.username || 'Unknown', `Purchased Omni AI plan "${data.tier && data.tier.name}" using Omni Tokens (admin-approved by ${authResult.user.username})`);
+        return res.json(data);
+    } catch (err) {
+        console.error('Could not reach the Unlock Relay (ai-plan purchase):', err);
+        return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
 app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa Omni AI. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
         return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang Omni AI sa server na ito (kailangan ng RELAY_API_KEY sa .env, at CF_ACCOUNT_ID/CF_AI_API_TOKEN sa RELAY/.env ng developer). Kontakin ang developer/admin.' });

@@ -1810,9 +1810,20 @@
       const remaining = data.remaining;
       const limit = data.limit;
       pill.style.display = 'inline-flex';
+      const ps = planStrings();
+      const daily = data.daily && typeof data.daily.cap === 'number' && !data.daily.unlimited ? data.daily : null;
+      const dailyDone = !!(daily && daily.used >= daily.cap);
       pill.classList.toggle('low', limit > 0 && remaining / limit <= 0.15 && remaining > 0);
-      pill.classList.toggle('exhausted', remaining <= 0);
-      pill.innerHTML = `<i class="fa-solid fa-bolt"></i> ${escapeHtml(s.creditsLabel)}: ${remaining}/${limit}`;
+      pill.classList.toggle('exhausted', remaining <= 0 || dailyDone);
+      pill.innerHTML = `<i class="fa-solid fa-bolt"></i> ${escapeHtml(s.creditsLabel)}: ${remaining}/${limit}` +
+        (daily ? ` · ${Math.min(daily.used, daily.cap)}/${daily.cap} ${escapeHtml(ps.today)}` : '') +
+        (data.tier && data.tier.name ? ` · ${escapeHtml(data.tier.name)}` : '');
+      pill.title = ps.pillTitle;
+      pill.style.cursor = 'pointer';
+      if (!pill.dataset.planBound) {
+        pill.dataset.planBound = '1';
+        pill.addEventListener('click', () => openAiPlansModal());
+      }
       syncWrap();
     } catch (e) {
       pill.style.display = 'none';
@@ -2217,6 +2228,105 @@
   }
 
   // ---- support ticket modal ---------------------------------------------
+  // ---- AI upgrade plans (Basic/Plus/Pro) — RELAY-controlled ---------------
+  // Lahat ng presyo/limits ay galing sa RELAY (/api/ai-assistant/plans);
+  // walang naka-hardcode na presyo dito.
+  const PLAN_STRINGS = {
+    en: {
+      upgradeBtn: 'Upgrade AI plan', today: 'today', pillTitle: 'Tap to see Omni AI plans',
+      title: 'Omni AI Plans', loading: 'Loading plans...', loadError: 'Could not load the plans right now. Please try again later.',
+      current: 'Current plan', none: 'Free allowance', perMonth: 'credits / month', perDay: 'questions / day', unlimited: 'Unlimited',
+      tokens: 'Omni Tokens', upgradeFor: 'Upgrade for', balance: 'Your balance', buy: 'Choose', owned: 'Active', validUntil: 'Valid until',
+      noPlans: 'No upgrade plans are available right now.', adminPwTitle: 'Admin approval', adminPwText: 'Enter an admin password to buy the {name} plan for {cost} Omni Tokens.',
+      adminPwPlaceholder: 'Admin password', confirm: 'Buy', cancel: 'Cancel', buying: 'Activating...', close: 'Close',
+      successTitle: 'Plan activated', failTitle: 'Could not activate the plan', insufficient: 'Not enough Omni Tokens. Buy more tokens first.'
+    },
+    tl: {
+      upgradeBtn: 'I-upgrade ang AI plan', today: 'ngayon', pillTitle: 'I-tap para makita ang Omni AI plans',
+      title: 'Omni AI Plans', loading: 'Kinukuha ang plans...', loadError: 'Hindi makuha ang plans ngayon. Subukan muli mamaya.',
+      current: 'Kasalukuyang plan', none: 'Libreng allowance', perMonth: 'credits / buwan', perDay: 'tanong / araw', unlimited: 'Walang limit',
+      tokens: 'Omni Tokens', upgradeFor: 'I-upgrade sa halagang', balance: 'Balanse mo', buy: 'Piliin', owned: 'Aktibo', validUntil: 'Valid hanggang',
+      noPlans: 'Walang available na upgrade plan ngayon.', adminPwTitle: 'Pahintulot ng Admin', adminPwText: 'Ilagay ang admin password para bilhin ang {name} plan sa halagang {cost} Omni Tokens.',
+      adminPwPlaceholder: 'Admin password', confirm: 'Bilhin', cancel: 'Kanselahin', buying: 'Ina-activate...', close: 'Isara',
+      successTitle: 'Na-activate ang plan', failTitle: 'Hindi ma-activate ang plan', insufficient: 'Kulang ang Omni Tokens. Bumili muna ng tokens.'
+    }
+  };
+  function planStrings() { return PLAN_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
+  async function openAiPlansModal() {
+    const ps = planStrings();
+    const swal = window.Swal && typeof window.Swal.fire === 'function' ? window.Swal : null;
+    if (!swal) { alert(ps.loadError); return; }
+    swal.fire({ title: ps.title, html: `<div style="padding:12px 0;">${escapeHtml(ps.loading)}</div>`, showConfirmButton: false, showCloseButton: true, width: 560 });
+    let data = null;
+    try {
+      const res = await authFetch(`${API_URL}/ai-assistant/plans`, { timeoutMs: 15000 });
+      data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.success) data = null;
+    } catch (e) { data = null; }
+    if (!data) {
+      swal.fire({ title: ps.title, html: `<div style="padding:8px 0;">${escapeHtml(ps.loadError)}</div>`, confirmButtonText: ps.close, width: 560 });
+      return;
+    }
+    const cap = (n) => n === 0 ? ps.unlimited : String(n);
+    const validUntil = data.validUntil ? new Date(data.validUntil).toLocaleDateString() : '';
+    const cards = (data.plans || []).map((p) => {
+      const action = p.isCurrent
+        ? `<span style="font-weight:700;color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.owned)}</span>`
+        : (p.canPurchase
+          ? `<button type="button" class="faq-plan-buy-btn" data-tier="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" data-cost="${p.costTokens}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(data.currentTier ? ps.upgradeFor : ps.buy)} ${p.costTokens} ${escapeHtml(ps.tokens)}</button>`
+          : '');
+      return `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:12px 14px;margin:8px 0;text-align:left;${p.isCurrent ? 'outline:2px solid #16a34a;' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:1.05rem;">${escapeHtml(p.name)}</strong>
+          <span style="font-weight:700;">${p.priceTokens} ${escapeHtml(ps.tokens)}</span>
+        </div>
+        <div style="font-size:.85rem;opacity:.85;margin:4px 0 8px;">${p.monthlyCredits} ${escapeHtml(ps.perMonth)} · ${escapeHtml(cap(p.dailyCap))} ${escapeHtml(ps.perDay)}</div>
+        <div>${action}</div>
+      </div>`;
+    }).join('') || `<div style="padding:8px 0;">${escapeHtml(ps.noPlans)}</div>`;
+    const cur = data.currentTier ? `${escapeHtml(ps.current)}: <strong>${escapeHtml(data.currentTier.name)}</strong>` : `${escapeHtml(ps.current)}: ${escapeHtml(ps.none)}`;
+    const bal = typeof data.balanceTokens === 'number' ? ` · ${escapeHtml(ps.balance)}: <strong>${data.balanceTokens}</strong> ${escapeHtml(ps.tokens)}` : '';
+    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}`;
+    swal.fire({
+      title: ps.title, html, showConfirmButton: false, showCloseButton: true, width: 560,
+      didOpen: (popup) => {
+        popup.querySelectorAll('.faq-plan-buy-btn').forEach((btn) => {
+          btn.addEventListener('click', () => buyAiPlan(btn.dataset.tier, btn.dataset.name, btn.dataset.cost));
+        });
+      }
+    });
+  }
+  async function buyAiPlan(tierId, name, cost) {
+    const ps = planStrings();
+    const swal = window.Swal;
+    const pw = await swal.fire({
+      title: ps.adminPwTitle,
+      text: ps.adminPwText.replace('{name}', name).replace('{cost}', cost),
+      input: 'password', inputPlaceholder: ps.adminPwPlaceholder,
+      showCancelButton: true, confirmButtonText: ps.confirm, cancelButtonText: ps.cancel,
+      inputValidator: (v) => (!v ? ps.adminPwPlaceholder : undefined)
+    });
+    if (!pw.isConfirmed) { openAiPlansModal(); return; }
+    swal.fire({ title: ps.buying, allowOutsideClick: false, showConfirmButton: false, didOpen: () => swal.showLoading() });
+    let data = null; let status = 0;
+    try {
+      const res = await authFetch(`${API_URL}/ai-assistant/plans/purchase`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tierId, adminPassword: pw.value }), timeoutMs: 30000
+      });
+      status = res.status;
+      data = await res.json().catch(() => null);
+    } catch (e) { data = null; }
+    if (data && data.success) {
+      if (data.credits) refreshAiCreditPill(data.credits); else refreshAiCreditPill();
+      await swal.fire({ icon: 'success', title: ps.successTitle, text: data.message || '', confirmButtonText: ps.close });
+      return;
+    }
+    const msg = (data && data.message) || (status === 402 ? ps.insufficient : ps.loadError);
+    await swal.fire({ icon: 'error', title: ps.failTitle, text: msg, confirmButtonText: ps.close });
+    openAiPlansModal();
+  }
+
   function openTicketModal() {
     const backdrop = document.getElementById('faq-ticket-modal-backdrop');
     if (!backdrop) return;
@@ -2370,13 +2480,16 @@
 
       // AI credit/billing: monthly quota exhausted — offer a support
       // ticket instead of silently failing.
-      if (res.status === 402 && data && data.creditsExhausted) {
+      if (res.status === 402 && data && (data.creditsExhausted || data.dailyLimitReached)) {
         refreshAiCreditPill(data);
+        const ps = planStrings();
         loadingBubble.querySelector('.faq-chat-bubble').innerHTML = `
-          <div class="faq-ai-fallback-notice"><i class="fa-solid fa-battery-empty"></i>
+          <div class="faq-ai-fallback-notice"><i class="fa-solid ${data.dailyLimitReached ? 'fa-hourglass-end' : 'fa-battery-empty'}"></i>
             <span>${escapeHtml(data.message || s.creditsExhausted)}</span>
           </div>
+          <button type="button" class="faq-chip" id="faq-credit-upgrade-btn"><i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeBtn)}</button>
           <button type="button" class="faq-chip" id="faq-credit-exhausted-ticket-btn"><i class="fa-solid fa-life-ring"></i> ${escapeHtml(s.quickTicket)}</button>`;
+        loadingBubble.querySelector('#faq-credit-upgrade-btn')?.addEventListener('click', () => openAiPlansModal());
         loadingBubble.querySelector('#faq-credit-exhausted-ticket-btn')?.addEventListener('click', openTicketModal);
         if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'user') chatHistory.pop();
         return true;
@@ -2571,6 +2684,7 @@
     goTo: goTo,
     renderFullList: renderFullList,
     renderAiModeToggle: renderAiModeToggle,
+    openAiPlans: openAiPlansModal,
     search: search,
     suggest: suggest,
     onInput: function (value) {
