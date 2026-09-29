@@ -33,7 +33,7 @@
       searchBtn: 'Search',
       commonQuestions: 'Common Questions',
       newConvo: 'New conversation',
-      aiUpsell: 'Unlock the AI Assistant for smarter, more natural answers based on this Help Center'
+      aiUpsell: 'Unlock Omni AI for smarter, more natural answers based on this Help Center'
     },
     tl: {
       pageTitle: 'Help',
@@ -43,7 +43,7 @@
       searchBtn: 'Hanapin',
       commonQuestions: 'Mga Karaniwang Tanong',
       newConvo: 'Bagong usapan',
-      aiUpsell: 'I-unlock ang AI Assistant para sa mas matalino at natural na sagot batay sa Help Center na ito'
+      aiUpsell: 'I-unlock ang Omni AI para sa mas matalino at natural na sagot batay sa Help Center na ito'
     }
   };
 

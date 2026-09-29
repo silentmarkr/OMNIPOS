@@ -1690,7 +1690,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     advanced_reports: { name:'Sales Analytics & Advanced Reports', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
-    ai_assistant: { name:'OmniPOS AI Assistant', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
+    ai_assistant: { name:'Omni AI', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
     remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
     inventory_tools: { name:'Inventory Tools', description:'Physical inventory counts, consignment stock receiving/settlement, a damage/waste log with automatic stock deduction, a dead-stock/slow-moving report, and a Supplier Directory.' },
 };
@@ -3756,6 +3756,12 @@ function switchView(viewKey, opts) {
     if (topHeaderEl) {
         topHeaderEl.classList.toggle('terminal-header-mode', viewKey ==='terminal');
         topHeaderEl.classList.toggle('overview-header-mode', viewKey ==='overview');
+    }
+    const headerHelpBtn = document.getElementById('header-help-btn');
+    if (headerHelpBtn) {
+        headerHelpBtn.classList.toggle('active', viewKey === 'faq');
+        if (viewKey === 'faq') headerHelpBtn.setAttribute('aria-current', 'page');
+        else headerHelpBtn.removeAttribute('aria-current');
     }
     const bottomNavEl = document.getElementById('app-bottom-nav');
     if (bottomNavEl) {

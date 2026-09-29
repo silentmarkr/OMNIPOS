@@ -602,7 +602,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'FAQ & Support',
   question: 'Paano kung wala sa FAQ ang sagot sa tanong ko?',
   keywords: ['create support ticket', 'contact support', 'walang sagot sa faq', 'magtanong sa developer', 'submit ticket'],
-  answer: `<p>Kung hindi masagot ng FAQ (o ng AI Assistant, kung naka-unlock) ang tanong mo, may button para <strong>"Create Support Ticket"</strong>:</p>
+  answer: `<p>Kung hindi masagot ng FAQ (o ng Omni AI, kung naka-unlock) ang tanong mo, may button para <strong>"Create Support Ticket"</strong>:</p>
   <ol>
     <li>Maglagay ng <strong>Subject</strong> (maikling buod) at <strong>ilarawan ang isyu</strong> — ano ang nangyari at ano na ang nasubukan mong gawin.</li>
     <li>Awtomatikong isasama sa ticket ang kasalukuyan mong AI conversation at basic device info, para mas mabilis matulungan ka ng developer/admin.</li>
@@ -842,9 +842,9 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'Premium Features',
   question: 'Anong mga premium module meron sa OmniPOS?',
   keywords: ['premium features', 'paid modules', 'bayad na module', 'unlock feature', 'gembang icon', 'pro badge'],
-  answer: `<p>Bukod sa Pro Themes, may mga buong modyul din ng OmniPOS na naka-lock bilang premium feature hangga't hindi pa ito naka-unlock: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Inventory Tools, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at ang bagong <strong>OmniPOS AI Assistant</strong>.</p>
+  answer: `<p>Bukod sa Pro Themes, may mga buong modyul din ng OmniPOS na naka-lock bilang premium feature hangga't hindi pa ito naka-unlock: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Inventory Tools, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at ang bagong <strong>Omni AI</strong>.</p>
   <p>Kapag sinubukang gamitin ang isang naka-lock na feature, lalabas ang detalye nito (pangalan, presyo, maikling paliwanag) at ang opsyong mag-request ng unlock.</p>
-  <p><strong>Paalala:</strong> apat dito ang <strong>subscription na (buwanan o taunan)</strong> sa halip na isang beses lang bayaran — Cloud Backup, RBAC Management, Multi-Branch Dashboard, at AI Assistant. Ang iba pang module/theme ay isang beses lang bayaran, permanente nang naka-unlock. Tingnan ang hiwalay na FAQ tungkol sa mga subscription module para sa detalye.</p>`
+  <p><strong>Paalala:</strong> apat dito ang <strong>subscription na (buwanan o taunan)</strong> sa halip na isang beses lang bayaran — Cloud Backup, RBAC Management, Multi-Branch Dashboard, at Omni AI. Ang iba pang module/theme ay isang beses lang bayaran, permanente nang naka-unlock. Tingnan ang hiwalay na FAQ tungkol sa mga subscription module para sa detalye.</p>`
 },
 {
   id: 'premium-bundle-tiers',
@@ -856,7 +856,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   <ul>
     <li><strong>Basic Upgrade</strong> — Sales Analytics & Advanced Reports + Promo Codes Module.</li>
     <li><strong>Standard Upgrade</strong> — lahat sa Basic, plus Customer Profiles & Loyalty at Multi-Cashier Shift Oversight.</li>
-    <li><strong>Pro Upgrade</strong> — LAHAT ng ibang module AT LAHAT ng Pro Theme — walang matitirang naka-lock, <strong>MALIBAN</strong> sa Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at AI Assistant, dahil hiwalay na itong bina-bill bilang sarili nilang subscription (buwanan/taunan), hindi kasama sa mga bundle/upgrade tier na ito.</li>
+    <li><strong>Pro Upgrade</strong> — LAHAT ng ibang module AT LAHAT ng Pro Theme — walang matitirang naka-lock, <strong>MALIBAN</strong> sa Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, at Omni AI, dahil hiwalay na itong bina-bill bilang sarili nilang subscription (buwanan/taunan), hindi kasama sa mga bundle/upgrade tier na ito.</li>
   </ul>
   <p>Kung mayroon ka nang nabili dati sa mga indibidwal na feature na kasama sa isang tier, awtomatikong bababa ang presyo ng bundle na iyon para hindi ka na muling magbayad para sa parehong feature.</p>`
 },
@@ -886,9 +886,9 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'premium-module-subscriptions',
   category: 'Premium Features',
-  question: 'Paano gumagana ang subscription para sa RBAC, Multi-Branch, at AI Assistant?',
+  question: 'Paano gumagana ang subscription para sa RBAC, Multi-Branch, at Omni AI?',
   keywords: ['module subscription', 'buwanang bayad', 'monthly yearly subscription', 'rbac subscription', 'multi branch subscription', 'grace period', 'nag expire subscription'],
-  answer: `<p>Ang <strong>Roles & Permissions (RBAC) Management</strong>, <strong>Multi-Branch Dashboard</strong>, at <strong>OmniPOS AI Assistant</strong> ay hindi na isang beses lang bayaran — <strong>subscription</strong> na ito, na pwedeng buwanan o taunan (mas mura kada buwan kung taunan ang piliin).</p>
+  answer: `<p>Ang <strong>Roles & Permissions (RBAC) Management</strong>, <strong>Multi-Branch Dashboard</strong>, at <strong>Omni AI</strong> ay hindi na isang beses lang bayaran — <strong>subscription</strong> na ito, na pwedeng buwanan o taunan (mas mura kada buwan kung taunan ang piliin).</p>
   <ul>
     <li>Habang aktibo ang subscription, magagamit ang buong feature.</li>
     <li>Kapag nag-expire nang hindi na-renew, may <strong>7 araw na grace period</strong> muna bago i-lock ulit ang feature — sapat na oras para makapag-renew nang hindi biglaang natitigil ang paggamit.</li>
@@ -899,9 +899,9 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'premium-ai-assistant',
   category: 'Premium Features',
-  question: 'Ano ang OmniPOS AI Assistant at paano ito naiiba sa dating FAQ search?',
-  keywords: ['ai assistant', 'artificial intelligence', 'ai chatbot', 'cloudflare workers ai', 'smart faq', 'ai sa faq'],
-  answer: `<p>Ang <strong>OmniPOS AI Assistant</strong> ay isang advanced na help assistant na nakapaloob sa loob mismo ng FAQ page. Sa halip na basta maghanap ng eksaktong tugmang keyword tulad ng dating search, binabasa at inuunawa ng isang tunay na AI model ang tanong mo, tapos sasagot ito sa natural na Tagalog/English batay sa OmniPOS FAQ Knowledge Base.</p>
+  question: 'Ano ang Omni AI at paano ito naiiba sa dating FAQ search?',
+  keywords: ['omni ai', 'ai assistant', 'artificial intelligence', 'ai chatbot', 'cloudflare workers ai', 'smart faq', 'ai sa faq'],
+  answer: `<p>Ang <strong>Omni AI</strong> ay isang advanced na help assistant na nakapaloob sa loob mismo ng FAQ page. Sa halip na basta maghanap ng eksaktong tugmang keyword tulad ng dating search, binabasa at inuunawa ng isang tunay na AI model ang tanong mo, tapos sasagot ito sa natural na Tagalog/English batay sa OmniPOS FAQ Knowledge Base.</p>
   <ul>
     <li>Ang TANGING pinagbabatayan ng sagot nito ay ang FAQ Knowledge Base ng system — hindi ito free-roaming chatbot na sasagot ng kahit anong tanong.</li>
     <li>Kailangan itong "i-unlock" muna bilang subscription module (buwanan/taunan) bago ito gumana.</li>
@@ -1297,16 +1297,16 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'faq-ai-vs-search',
   category: 'FAQ & Support',
-  question: 'Ano ang pagkakaiba ng Keyword Search at AI Assistant?',
-  keywords: ['keyword search', 'ai assistant', 'ai vs search', 'faq mode', 'search mode', 'chatbot mode'],
-  answer: `<p><strong>Keyword Search</strong> ay mabilis na naghahanap sa built-in FAQ Knowledge Base at ipinapakita ang pinaka-angkop na documented answer.</p><p><strong>AI Assistant</strong> naman ay mas conversational: kaya nitong intindihin ang natural na tanong, follow-up questions, at ang context ng naunang usapan. Kapag may sapat na FAQ o live system context, iyon ang pagbabasehan nito.</p><p>Kung kailangan mo ng eksaktong documented instructions, gamitin ang Keyword Search. Kung gusto mong magtanong na parang nakikipag-usap sa isang helper, mas bagay ang AI Assistant.</p>`
+  question: 'Ano ang pagkakaiba ng Keyword Search at Omni AI?',
+  keywords: ['keyword search', 'omni ai', 'ai assistant', 'ai vs search', 'faq mode', 'search mode', 'chatbot mode'],
+  answer: `<p><strong>Keyword Search</strong> ay mabilis na naghahanap sa built-in FAQ Knowledge Base at ipinapakita ang pinaka-angkop na documented answer.</p><p><strong>Omni AI</strong> naman ay mas conversational: kaya nitong intindihin ang natural na tanong, follow-up questions, at ang context ng naunang usapan. Kapag may sapat na FAQ o live system context, iyon ang pagbabasehan nito.</p><p>Kung kailangan mo ng eksaktong documented instructions, gamitin ang Keyword Search. Kung gusto mong magtanong na parang nakikipag-usap sa isang helper, mas bagay ang Omni AI.</p>`
 },
 {
   id: 'faq-ai-followup',
   category: 'FAQ & Support',
   question: 'Pwede ba akong mag-follow-up sa AI nang hindi inuulit ang buong tanong?',
   keywords: ['follow up ai', 'follow-up question', 'context', 'multi turn', 'ituloy ang tanong', 'same conversation'],
-  answer: `<p>Oo. Sa <strong>AI Assistant</strong>, maaaring gamitin ang naunang messages bilang context ng kasalukuyang usapan.</p><p>Halimbawa: una mong itanong kung paano mag-void, tapos sabihin mong <em>“paano naman kung cashier lang ako?”</em> Maiintindihan ng AI na tungkol pa rin iyon sa naunang topic.</p><p>Kung gusto mong magsimula ng ibang topic nang malinis, gamitin ang <strong>New Conversation</strong>.</p>`
+  answer: `<p>Oo. Sa <strong>Omni AI</strong>, maaaring gamitin ang naunang messages bilang context ng kasalukuyang usapan.</p><p>Halimbawa: una mong itanong kung paano mag-void, tapos sabihin mong <em>“paano naman kung cashier lang ako?”</em> Maiintindihan ng AI na tungkol pa rin iyon sa naunang topic.</p><p>Kung gusto mong magsimula ng ibang topic nang malinis, gamitin ang <strong>New Conversation</strong>.</p>`
 },
 {
   id: 'faq-ai-try-again-copy-feedback',
@@ -1318,23 +1318,23 @@ window.OMNIPOS_FAQ_KB_TL = [
 {
   id: 'faq-ai-attachment',
   category: 'FAQ & Support',
-  question: 'Pwede bang mag-attach ng screenshot o file sa AI Assistant?',
+  question: 'Pwede bang mag-attach ng screenshot o file sa Omni AI?',
   keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
-  answer: `<p>Oo, kung available ang attachment control sa iyong AI Assistant. Maaari kang mag-attach ng <strong>screenshot o supported file</strong> para maunawaan ng assistant ang problemang ipinapakita mo.</p><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
+  answer: `<p>Oo, kung available ang attachment control sa iyong Omni AI. Maaari kang mag-attach ng <strong>screenshot o supported file</strong> para maunawaan ng assistant ang problemang ipinapakita mo.</p><p>Mas maganda kung malinaw ang screenshot at may kasamang maikling paliwanag kung ano mismo ang gusto mong malaman. Huwag mag-upload ng passwords, API keys, tokens, o ibang sensitibong secret.</p>`
 },
 {
   id: 'faq-ai-voice',
   category: 'FAQ & Support',
-  question: 'Paano gamitin ang voice input sa FAQ AI Assistant?',
+  question: 'Paano gamitin ang voice input sa FAQ Omni AI?',
   keywords: ['voice input', 'microphone', 'magsalita sa ai', 'voice search', 'speech to text', 'mic'],
-  answer: `<p>Kung supported ng browser ang voice input, i-tap ang <strong>microphone</strong> button sa FAQ search box at magsalita. Ang nakuha nitong text ay ilalagay sa tanong para maaari mo itong i-submit sa search o AI Assistant.</p><p>Kung hindi gumagana, tiyaking may microphone permission ang browser. May ilang browser/device na hindi sumusuporta sa speech recognition, kaya maaaring kailanganing mag-type na lang.</p>`
+  answer: `<p>Kung supported ng browser ang voice input, i-tap ang <strong>microphone</strong> button sa FAQ search box at magsalita. Ang nakuha nitong text ay ilalagay sa tanong para maaari mo itong i-submit sa search o Omni AI.</p><p>Kung hindi gumagana, tiyaking may microphone permission ang browser. May ilang browser/device na hindi sumusuporta sa speech recognition, kaya maaaring kailanganing mag-type na lang.</p>`
 },
 {
   id: 'faq-ai-credits',
   category: 'Premium Features',
   question: 'Ano ang AI credits at bakit minsan hindi ako makapagtanong sa AI?',
   keywords: ['ai credits', 'credit limit', 'naubos ai', 'monthly ai', 'ai quota', 'ai usage'],
-  answer: `<p>Ang <strong>AI credits</strong> ang usage allowance para sa AI Assistant ng store. Kapag naabot na ang available monthly allowance, hindi muna makakagawa ng bagong AI request hanggang sa susunod na reset o hanggang sa maayos ng Admin/developer ang subscription o allowance.</p><p>Hindi nito binubura ang existing FAQ Knowledge Base. Maaari mo pa ring gamitin ang <strong>Keyword Search</strong> kung available ito.</p>`
+  answer: `<p>Ang <strong>AI credits</strong> ang usage allowance para sa Omni AI ng store. Kapag naabot na ang available monthly allowance, hindi muna makakagawa ng bagong AI request hanggang sa susunod na reset o hanggang sa maayos ng Admin/developer ang subscription o allowance.</p><p>Hindi nito binubura ang existing FAQ Knowledge Base. Maaari mo pa ring gamitin ang <strong>Keyword Search</strong> kung available ito.</p>`
 },
 {
   id: 'faq-void-refund-stock',
@@ -1411,7 +1411,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'FAQ & Support',
   question: 'Kailan dapat gumawa ng Support Ticket?',
   keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
-  answer: `<p>Gumawa ng <strong>Support Ticket</strong> kapag may problemang hindi mo maayos gamit ang FAQ o normal troubleshooting — halimbawa, paulit-ulit na system error, unexpected behavior, o feature na dapat gumana pero hindi.</p><p>Kung available ang AI Assistant ticket flow, maaaring maisama ang kasalukuyang conversation at basic device information para mas mabilis ma-review ng Admin/developer. Huwag isama sa ticket ang password, API key, token, o ibang secret.</p>`
+  answer: `<p>Gumawa ng <strong>Support Ticket</strong> kapag may problemang hindi mo maayos gamit ang FAQ o normal troubleshooting — halimbawa, paulit-ulit na system error, unexpected behavior, o feature na dapat gumana pero hindi.</p><p>Kung available ang Omni AI ticket flow, maaaring maisama ang kasalukuyang conversation at basic device information para mas mabilis ma-review ng Admin/developer. Huwag isama sa ticket ang password, API key, token, o ibang secret.</p>`
 },
 {
   id: 'remoteops-dashboard-overview',

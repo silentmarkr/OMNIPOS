@@ -602,7 +602,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'FAQ & Support',
   question: 'What if my question isn\'t answered in the FAQ?',
   keywords: ['create support ticket', 'contact support', 'faq has no answer', 'ask the developer', 'submit ticket'],
-  answer: `<p>If the FAQ (or the AI Assistant, if unlocked) can't answer your question, there's a <strong>"Create Support Ticket"</strong> button:</p>
+  answer: `<p>If the FAQ (or Omni AI, if unlocked) can't answer your question, there's a <strong>"Create Support Ticket"</strong> button:</p>
   <ol>
     <li>Enter a <strong>Subject</strong> (short summary) and <strong>describe the issue</strong> — what happened and what you've already tried.</li>
     <li>Your current AI conversation and basic device info are automatically attached to the ticket, so the developer/admin can help you faster.</li>
@@ -842,9 +842,9 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'Premium Features',
   question: 'What premium modules does OmniPOS have?',
   keywords: ['premium features', 'paid modules', 'bayad na module', 'unlock feature', 'gembang icon', 'pro badge'],
-  answer: `<p>Besides Pro Themes, OmniPOS also has full modules locked as premium features until unlocked: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Inventory Tools, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and the new <strong>OmniPOS AI Assistant</strong>.</p>
+  answer: `<p>Besides Pro Themes, OmniPOS also has full modules locked as premium features until unlocked: Purchase Orders Module, Customer Profiles & Loyalty, Promo Codes Module, Sales Analytics & Advanced Reports, Multi-Cashier Shift Oversight & Z-Reading, Inventory Tools, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and the new <strong>Omni AI</strong>.</p>
   <p>When you try to use a locked feature, its details (name, price, short explanation) appear along with the option to request an unlock.</p>
-  <p><strong>Note:</strong> four of these are now <strong>subscriptions (monthly or yearly)</strong> instead of a one-time purchase — Cloud Backup, RBAC Management, Multi-Branch Dashboard, and AI Assistant. The rest of the modules/themes are still one-time purchases, permanently unlocked. See the dedicated FAQ on subscription modules for details.</p>`
+  <p><strong>Note:</strong> four of these are now <strong>subscriptions (monthly or yearly)</strong> instead of a one-time purchase — Cloud Backup, RBAC Management, Multi-Branch Dashboard, and Omni AI. The rest of the modules/themes are still one-time purchases, permanently unlocked. See the dedicated FAQ on subscription modules for details.</p>`
 },
 {
   id: 'premium-bundle-tiers',
@@ -856,7 +856,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   <ul>
     <li><strong>Basic Upgrade</strong> — Sales Analytics & Advanced Reports + Promo Codes Module.</li>
     <li><strong>Standard Upgrade</strong> — everything in Basic, plus Customer Profiles & Loyalty and Multi-Cashier Shift Oversight.</li>
-    <li><strong>Pro Upgrade</strong> — EVERY other module AND EVERY Pro Theme — nothing left locked, <strong>EXCEPT</strong> Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and AI Assistant, since these are billed separately as their own subscription (monthly/yearly) and are not included in these bundle/upgrade tiers.</li>
+    <li><strong>Pro Upgrade</strong> — EVERY other module AND EVERY Pro Theme — nothing left locked, <strong>EXCEPT</strong> Cloud Backup, Roles & Permissions (RBAC) Management, Multi-Branch Dashboard, and Omni AI, since these are billed separately as their own subscription (monthly/yearly) and are not included in these bundle/upgrade tiers.</li>
   </ul>
   <p>If you've already purchased individual features that are included in a tier, the price of that bundle is automatically reduced so you don't pay again for the same feature.</p>`
 },
@@ -886,9 +886,9 @@ window.OMNIPOS_FAQ_KB_EN = [
 {
   id: 'premium-module-subscriptions',
   category: 'Premium Features',
-  question: 'How does the subscription for RBAC, Multi-Branch, and AI Assistant work?',
+  question: 'How does the subscription for RBAC, Multi-Branch, and Omni AI work?',
   keywords: ['module subscription', 'buwanang bayad', 'monthly yearly subscription', 'rbac subscription', 'multi branch subscription', 'grace period', 'nag expire subscription'],
-  answer: `<p><strong>Roles & Permissions (RBAC) Management</strong>, <strong>Multi-Branch Dashboard</strong>, and <strong>OmniPOS AI Assistant</strong> are no longer one-time purchases — they're <strong>subscriptions</strong> now, billed monthly or yearly (yearly is cheaper per month).</p>
+  answer: `<p><strong>Roles & Permissions (RBAC) Management</strong>, <strong>Multi-Branch Dashboard</strong>, and <strong>Omni AI</strong> are no longer one-time purchases — they're <strong>subscriptions</strong> now, billed monthly or yearly (yearly is cheaper per month).</p>
   <ul>
     <li>While the subscription is active, the full feature is available.</li>
     <li>If it expires without renewal, there's a <strong>7-day grace period</strong> before the feature is locked again — enough time to renew without an abrupt interruption.</li>
@@ -899,9 +899,9 @@ window.OMNIPOS_FAQ_KB_EN = [
 {
   id: 'premium-ai-assistant',
   category: 'Premium Features',
-  question: 'What is the OmniPOS AI Assistant and how is it different from the old FAQ search?',
-  keywords: ['ai assistant', 'artificial intelligence', 'ai chatbot', 'cloudflare workers ai', 'smart faq', 'ai sa faq'],
-  answer: `<p>The <strong>OmniPOS AI Assistant</strong> is an advanced help assistant embedded right inside the FAQ page. Instead of just matching exact keywords like the old search, a real AI model reads and understands your question, then answers in natural Tagalog/English based on the OmniPOS FAQ Knowledge Base.</p>
+  question: 'What is Omni AI and how is it different from the old FAQ search?',
+  keywords: ['omni ai', 'ai assistant', 'artificial intelligence', 'ai chatbot', 'cloudflare workers ai', 'smart faq', 'ai sa faq'],
+  answer: `<p><strong>Omni AI</strong> is an advanced help assistant embedded right inside the FAQ page. Instead of just matching exact keywords like the old search, a real AI model reads and understands your question, then answers in natural Tagalog/English based on the OmniPOS FAQ Knowledge Base.</p>
   <ul>
     <li>Its ONLY source of answers is the system's FAQ Knowledge Base — it's not a free-roaming chatbot that answers anything.</li>
     <li>It needs to be unlocked first as a subscription module (monthly/yearly) before it works.</li>
@@ -1295,15 +1295,15 @@ window.OMNIPOS_FAQ_KB_EN = [
 },
 {
   id: 'faq-ai-vs-search', category: 'FAQ & Support',
-  question: 'What is the difference between Keyword Search and the AI Assistant?',
-  keywords: ['keyword search', 'ai assistant', 'ai vs search', 'faq mode', 'search mode', 'chatbot mode'],
-  answer: `<p><strong>Keyword Search</strong> quickly searches the built-in FAQ Knowledge Base and shows the closest documented answer.</p><p>The <strong>AI Assistant</strong> is more conversational: it can understand natural questions, follow-ups, and the context of the current conversation. When context is provided, it is grounded on the available FAQ or live system information.</p><p>Use Keyword Search for a direct documented answer; use AI Assistant when you want a more conversational helper.</p>`
+  question: 'What is the difference between Keyword Search and Omni AI?',
+  keywords: ['keyword search', 'omni ai', 'ai assistant', 'ai vs search', 'faq mode', 'search mode', 'chatbot mode'],
+  answer: `<p><strong>Keyword Search</strong> quickly searches the built-in FAQ Knowledge Base and shows the closest documented answer.</p><p><strong>Omni AI</strong> is more conversational: it can understand natural questions, follow-ups, and the context of the current conversation. When context is provided, it is grounded on the available FAQ or live system information.</p><p>Use Keyword Search for a direct documented answer; use Omni AI when you want a more conversational helper.</p>`
 },
 {
   id: 'faq-ai-followup', category: 'FAQ & Support',
   question: 'Can I ask a follow-up question without repeating the whole question?',
   keywords: ['follow up ai', 'follow-up question', 'context', 'multi turn', 'continue question', 'same conversation'],
-  answer: `<p>Yes. The <strong>AI Assistant</strong> can use recent messages as conversation context.</p><p>For example, after asking how to void a transaction, you can ask <em>“What if I am only a cashier?”</em> and the assistant can understand that it refers to the same topic.</p><p>Use <strong>New Conversation</strong> when you want to start a fresh topic.</p>`
+  answer: `<p>Yes. <strong>Omni AI</strong> can use recent messages as conversation context.</p><p>For example, after asking how to void a transaction, you can ask <em>“What if I am only a cashier?”</em> and the assistant can understand that it refers to the same topic.</p><p>Use <strong>New Conversation</strong> when you want to start a fresh topic.</p>`
 },
 {
   id: 'faq-ai-try-again-copy-feedback', category: 'FAQ & Support',
@@ -1313,21 +1313,21 @@ window.OMNIPOS_FAQ_KB_EN = [
 },
 {
   id: 'faq-ai-attachment', category: 'FAQ & Support',
-  question: 'Can I attach a screenshot or file to the AI Assistant?',
+  question: 'Can I attach a screenshot or file to Omni AI?',
   keywords: ['attach screenshot', 'upload image ai', 'screenshot ai', 'file ai', 'image question', 'attachment'],
-  answer: `<p>Yes, when the attachment control is available in your AI Assistant. You can attach a <strong>screenshot or supported file</strong> to give the assistant more context about a problem.</p><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
+  answer: `<p>Yes, when the attachment control is available in your Omni AI. You can attach a <strong>screenshot or supported file</strong> to give the assistant more context about a problem.</p><p>Use a clear screenshot and explain what you want to know. Do not upload passwords, API keys, tokens, or other secrets.</p>`
 },
 {
   id: 'faq-ai-voice', category: 'FAQ & Support',
-  question: 'How do I use voice input in the FAQ AI Assistant?',
+  question: 'How do I use voice input in the FAQ Omni AI?',
   keywords: ['voice input', 'microphone', 'speak to ai', 'voice search', 'speech to text', 'mic'],
-  answer: `<p>If your browser supports voice input, tap the <strong>microphone</strong> button in the FAQ search box and speak. The recognized text is placed into the question field so you can submit it to Search or the AI Assistant.</p><p>If it does not work, check the browser microphone permission. Some browsers/devices do not support speech recognition, so typing may be required.</p>`
+  answer: `<p>If your browser supports voice input, tap the <strong>microphone</strong> button in the FAQ search box and speak. The recognized text is placed into the question field so you can submit it to Search or Omni AI.</p><p>If it does not work, check the browser microphone permission. Some browsers/devices do not support speech recognition, so typing may be required.</p>`
 },
 {
   id: 'faq-ai-credits', category: 'Premium Features',
   question: 'What are AI credits and why can I sometimes not ask the AI?',
   keywords: ['ai credits', 'credit limit', 'ai exhausted', 'monthly ai', 'ai quota', 'ai usage'],
-  answer: `<p><strong>AI credits</strong> are the usage allowance for the store's AI Assistant. When the monthly allowance is exhausted, new AI requests may be blocked until the next reset or until the Admin/developer adjusts the subscription or allowance.</p><p>This does not remove the FAQ Knowledge Base. Keyword Search may still be available.</p>`
+  answer: `<p><strong>AI credits</strong> are the usage allowance for the store's Omni AI. When the monthly allowance is exhausted, new AI requests may be blocked until the next reset or until the Admin/developer adjusts the subscription or allowance.</p><p>This does not remove the FAQ Knowledge Base. Keyword Search may still be available.</p>`
 },
 {
   id: 'faq-void-refund-stock', category: 'Transactions',
@@ -1391,7 +1391,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   id: 'faq-support-ticket-guidance', category: 'FAQ & Support',
   question: 'When should I create a Support Ticket?',
   keywords: ['support ticket', 'report bug', 'technical problem', 'system issue', 'help ticket', 'developer support'],
-  answer: `<p>Create a <strong>Support Ticket</strong> when the FAQ or normal troubleshooting does not resolve the problem — for example, repeated system errors, unexpected behavior, or a feature that should work but does not.</p><p>If the AI Assistant ticket flow is available, the current conversation and basic device information may be attached to help the Admin/developer investigate faster. Never include passwords, API keys, tokens, or other secrets.</p>`
+  answer: `<p>Create a <strong>Support Ticket</strong> when the FAQ or normal troubleshooting does not resolve the problem — for example, repeated system errors, unexpected behavior, or a feature that should work but does not.</p><p>If Omni AI ticket flow is available, the current conversation and basic device information may be attached to help the Admin/developer investigate faster. Never include passwords, API keys, tokens, or other secrets.</p>`
 },
 {
   id: 'remoteops-dashboard-overview',

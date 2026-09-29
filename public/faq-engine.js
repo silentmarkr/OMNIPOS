@@ -139,7 +139,7 @@
       collapseAll: 'Collapse all',
       aiModeAi: 'AI Chatbot',
       aiModeKb: 'Search',
-      aiModeLockedHint: 'Unlock the AI Assistant for smarter, more natural answers based on this FAQ',
+      aiModeLockedHint: 'Unlock Omni AI for smarter, more natural answers based on this FAQ',
       newConversation: 'New conversation',
       feedbackPrompt: 'Was this helpful?',
       feedbackThanksYes: 'Thanks for the feedback!',
@@ -152,9 +152,9 @@
       voiceUnsupported: 'Voice input is not supported by this browser.',
       voicePermissionDenied: 'Microphone access was denied. Allow microphone access in your browser settings and try again.',
       voiceError: 'Voice input could not start. Please try again.',
-      aiThinking: 'AI Assistant is thinking...',
-      aiGeneratedBadge: 'AI Assistant answer — based on the OmniPOS FAQ Knowledge Base',
-      aiFallbackNotice: 'The AI Assistant is unavailable right now — showing knowledge base search results instead.',
+      aiThinking: 'Omni AI is thinking...',
+      aiGeneratedBadge: 'Omni AI answer — based on the OmniPOS FAQ Knowledge Base',
+      aiFallbackNotice: 'Omni AI is unavailable right now — showing knowledge base search results instead.',
       showKbInstead: 'Show knowledge base results instead',
       followUpsLabel: 'You might also ask:',
       retryIn: 'You can ask again in',
@@ -163,6 +163,11 @@
       quickDiagnostics: 'Run diagnostics',
       quickExplainError: 'Explain last error',
       quickTicket: 'Create support ticket',
+      quickInsights: 'Omni AI insights (Admin)',
+      quickCredits: 'Show AI credits',
+      insTitle: 'Omni AI Insights', insTotal: 'Total questions', insAnswered: 'Answered', insHelpful: 'Helpful rate',
+      insAvg: 'Avg. response', insTop: 'Most asked', insDown: 'Most downvoted (👎)', insFailed: 'Recent failed / unanswered',
+      insNone: 'None yet', insError: 'Could not load Omni AI insights.', insClose: 'Close', insRated: 'rated', insLoading: 'Loading insights...',
       diagnosticsQuestion: 'Please run a quick diagnostic check and tell me if anything looks unusual.',
       explainErrorQuestion: 'Can you explain the recent error(s) captured in my browser and what I should do about it?',
       noErrorsCaptured: 'No recent JavaScript errors have been captured in this browser session — that\'s a good sign!',
@@ -200,7 +205,7 @@
       collapseAll: 'I-collapse lahat',
       aiModeAi: 'AI Chatbot',
       aiModeKb: 'Search',
-      aiModeLockedHint: 'I-unlock ang AI Assistant para sa mas matalino at natural na sagot batay sa FAQ na ito',
+      aiModeLockedHint: 'I-unlock ang Omni AI para sa mas matalino at natural na sagot batay sa FAQ na ito',
       newConversation: 'Bagong usapan',
       feedbackPrompt: 'Nakatulong ba ito?',
       feedbackThanksYes: 'Salamat sa feedback!',
@@ -208,9 +213,9 @@
       copyAnswer: 'Kopyahin',
       copied: 'Nakopya!',
       regenerate: 'Subukan ulit',
-      aiThinking: 'Iniisip ng AI Assistant ang sagot...',
-      aiGeneratedBadge: 'Sagot ng AI Assistant — batay sa OmniPOS FAQ Knowledge Base',
-      aiFallbackNotice: 'Hindi available ang AI Assistant sa ngayon — ipinapakita na lang ang resulta ng knowledge base search.',
+      aiThinking: 'Iniisip ng Omni AI ang sagot...',
+      aiGeneratedBadge: 'Sagot ng Omni AI — batay sa OmniPOS FAQ Knowledge Base',
+      aiFallbackNotice: 'Hindi available ang Omni AI sa ngayon — ipinapakita na lang ang resulta ng knowledge base search.',
       showKbInstead: 'Ipakita na lang ang resulta ng knowledge base',
       followUpsLabel: 'Baka gusto mo ring itanong:',
       retryIn: 'Puwede ka nang magtanong ulit pagkalipas ng',
@@ -219,6 +224,11 @@
       quickDiagnostics: 'Mag-run ng diagnostics',
       quickExplainError: 'Ipaliwanag ang huling error',
       quickTicket: 'Gumawa ng support ticket',
+      quickInsights: 'Omni AI insights (Admin)',
+      quickCredits: 'Ipakita ang AI credits',
+      insTitle: 'Omni AI Insights', insTotal: 'Kabuuang tanong', insAnswered: 'Nasagot', insHelpful: 'Helpful rate',
+      insAvg: 'Avg. bilis ng sagot', insTop: 'Pinakamadalas itanong', insDown: 'Pinaka-nabigyan ng 👎', insFailed: 'Kamakailang nabigo / hindi nasagot',
+      insNone: 'Wala pa', insError: 'Hindi ma-load ang Omni AI insights.', insClose: 'Isara', insRated: 'na-rate', insLoading: 'Nilo-load ang insights...',
       diagnosticsQuestion: 'Pakisuri ang quick diagnostic at sabihin kung may kakaiba.',
       explainErrorQuestion: 'Pwede mo bang ipaliwanag ang kamakailang error sa browser ko at ano ang dapat kong gawin?',
       noErrorsCaptured: 'Walang na-capture na JavaScript error sa browser session na ito — magandang tanda iyan!',
@@ -778,7 +788,7 @@
   // ibaba — walang epekto sa mga hindi pa nag-a-upgrade.
   //
   // BAGO: kahit naka-unlock ang subscription, may sariling toggle pa
-  // ang user (AI Assistant vs Keyword Search — see renderAiModeToggle)
+  // ang user (Omni AI vs Keyword Search — see renderAiModeToggle)
   // na naka-save sa localStorage, para siya mismo ang pumili kung
   // gagamitin ang AI model o ang dating plain keyword search. Bukod
   // dito, may "memory" na rin ang usapan (chatHistory) para may
@@ -839,7 +849,7 @@
       <div class="faq-mode-toggle" data-active="${mode}">
         <div class="faq-mode-slider"></div>
         <button type="button" class="faq-mode-option ${mode === 'ai' ? 'active' : ''}" data-mode="ai">
-          <i class="fa-solid fa-robot"></i> ${s.aiModeAi}
+          ${omniLogoIcon('1.05em', false)} ${s.aiModeAi}
         </button>
         <button type="button" class="faq-mode-option ${mode === 'kb' ? 'active' : ''}" data-mode="kb">
           <i class="fa-solid fa-magnifying-glass"></i> ${s.aiModeKb}
@@ -913,7 +923,7 @@
     const s = STRINGS();
     resultBox.innerHTML = `
       <div class="faq-chat-empty-state">
-        <i class="fa-solid fa-robot"></i>
+        <span style="color:var(--primary-blue,#2563eb);opacity:0.85;display:inline-flex;">${omniLogoIcon('2.4rem', false)}</span>
         <h4>${escapeHtml(s.emptyTitle)}</h4>
         <p>${escapeHtml(s.emptyBody)}</p>
       </div>`;
@@ -941,7 +951,7 @@
         appendUserBubble(thread, h.text);
       } else {
         appendAssistantBubble(thread, `
-          <div class="faq-ai-badge"><i class="fa-solid fa-robot"></i> ${s.aiGeneratedBadge}</div>
+          <div class="faq-ai-badge">${omniLogoIcon('1.1em', false)} ${s.aiGeneratedBadge}</div>
           <div class="faq-ai-body" style="white-space:pre-wrap;">${escapeHtml(h.text)}</div>`);
       }
     });
@@ -1080,10 +1090,60 @@
   // viewport, at itinatakda bilang min-height ng box (kasabay ng
   // display:flex sa style.css) para laging maabot ng composer-dock
   // ang tunay na ibaba.
+  // Sinusukat ang tunay na taas ng bottom nav (kasama ang safe-area) at
+  // itinatakda bilang --faq-bottom-nav-h sa #view-faq, para eksaktong 3px
+  // lang ang pagitan ng composer at ng bottom nav sa mobile chat.
+  function syncFaqBottomNavHeight() {
+    const view = document.getElementById('view-faq');
+    if (!view) return;
+    const nav = document.getElementById('app-bottom-nav');
+    const h = nav ? nav.offsetHeight : 0;
+    if (h > 0) view.style.setProperty('--faq-bottom-nav-h', `${h}px`);
+    else view.style.removeProperty('--faq-bottom-nav-h');
+  }
+
+  // ---- mobile: i-lock ang mismong page habang nasa Help ---------------
+  // Sa mobile (<= 768px), fixed ang buong Help page: hindi na nag-i-scroll
+  // ang dokumento/body, at ang loob lang ng chatbox (thread / search
+  // results) ang nag-i-scroll — kaya laging pareho ang 3px gap sa ibabaw
+  // ng bottom nav. Awtomatikong inaalis ang lock kapag lumipat ng view,
+  // nag-logout (main-view nakatago), o lumaki ang screen (> 768px).
+  function syncFaqPageLock() {
+    const view = document.getElementById('view-faq');
+    const mainView = document.getElementById('main-view');
+    const visible = !!view && view.style.display !== 'none' && view.offsetParent !== null &&
+      !!mainView && mainView.style.display !== 'none';
+    const lock = visible && window.innerWidth <= 768;
+    const wasLocked = document.documentElement.classList.contains('faq-page-lock');
+    document.documentElement.classList.toggle('faq-page-lock', lock);
+    document.body.classList.toggle('faq-page-lock', lock);
+    // Kapag kakapasok lang sa lock, ibalik sa itaas ang page para hindi
+    // ma-stuck na naka-scroll pababa (walang paraan nang bumalik kapag lock na).
+    if (lock && !wasLocked) window.scrollTo(0, 0);
+  }
+
+  let faqPageLockWired = false;
+  function wireFaqPageLock() {
+    if (faqPageLockWired) return;
+    faqPageLockWired = true;
+    window.addEventListener('resize', syncFaqPageLock);
+    window.addEventListener('orientationchange', syncFaqPageLock);
+    if (typeof MutationObserver === 'function') {
+      const mo = new MutationObserver(syncFaqPageLock);
+      const view = document.getElementById('view-faq');
+      const mainView = document.getElementById('main-view');
+      if (view) mo.observe(view, { attributes: true, attributeFilter: ['style', 'class'] });
+      if (mainView) mo.observe(mainView, { attributes: true, attributeFilter: ['style'] });
+    }
+    syncFaqPageLock();
+  }
+
   function syncFaqBoxMinHeight() {
+    syncFaqPageLock();
     const view = document.getElementById('view-faq');
     const box = document.getElementById('faq-ai-box');
     if (!view || !box) return;
+    syncFaqBottomNavHeight();
     if (view.style.display === 'none' || view.classList.contains('faq-fullchat-mode') || window.innerWidth >= 1025) {
       box.style.removeProperty('min-height');
       return;
@@ -1442,7 +1502,7 @@
     wireBubbleFaqLinks(bubble);
     chatHistory.push({ role: 'assistant', text: stripHtml(buildKbAnswerInnerHtml(query)).slice(0, 500) });
     saveChatHistory();
-    // BAGO: "Try again" button — kapag nag-fail ang AI Assistant at
+    // BAGO: "Try again" button — kapag nag-fail ang Omni AI at
     // bumalik na lang sa keyword-based na sagot, dating tahimik lang
     // itong tinatanggap; ngayon, may malinaw na buton para subukan
     // ulit ang AI (hindi lang basta tanggapin ang KB fallback).
@@ -1474,7 +1534,7 @@
     });
   }
 
-  function wireAiBubbleActions(bubble, query, answerText, thread) {
+  function wireAiBubbleActions(bubble, query, answerText, thread, interactionId) {
     const s = STRINGS();
     const bubbleInner = bubble.querySelector('.faq-chat-bubble');
 
@@ -1527,6 +1587,20 @@
           const label = feedbackEl.querySelector('.faq-feedback-label');
           if (label) label.textContent = btn.dataset.vote === 'up' ? s.feedbackThanksYes : s.feedbackThanksNo;
           feedbackEl.querySelectorAll('.faq-feedback-btn').forEach(b => b.disabled = true);
+          // BAGO: ipinapadala na sa server ang 👍/👎 (dati, 👎 lang ang
+          // tinatala at sa browser lang) para lumabas sa AI analytics.
+          // Fire-and-forget — hindi dapat maantala/masira ang UI kapag
+          // nag-fail ang request.
+          if (interactionId) {
+            try {
+              authFetch(`${API_URL}/ai-assistant/feedback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interactionId, vote: btn.dataset.vote }),
+                timeoutMs: 10000
+              }).catch(() => {});
+            } catch (e) {}
+          }
           if (btn.dataset.vote === 'down') {
             // BAGO: itala rin sa analytics log ang mga AI sagot na
             // binigyan ng 👎 — palatandaan ito na kahit nakasagot ang AI,
@@ -1679,7 +1753,7 @@
     const syncWrap = () => { if (typeof window.syncAiCreditExpiryWrapper === 'function') window.syncAiCreditExpiryWrapper(); };
     // BAGO: hiling ng user — walang dapat makikitang AI credit/expiration
     // pill maliban sa AI Chatbot mode mismo (hindi sa Search/kb mode, at
-    // hindi rin kapag naka-lock/hindi pa na-unlock ang AI Assistant).
+    // hindi rin kapag naka-lock/hindi pa na-unlock ang Omni AI).
     if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { pill.style.display = 'none'; syncWrap(); return; }
     const s = STRINGS();
     try {
@@ -1717,22 +1791,105 @@
   function renderQuickActions() {
     const box = document.getElementById('faq-quick-actions');
     if (!box) return;
-    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; return; }
+    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; hideAiCreditRowNow(); return; }
     const s = STRINGS();
+    const creditRowOpen = !!document.getElementById('ai-assistant-credit-expiry')?.classList.contains('faq-credit-open');
     box.innerHTML = `
       <button type="button" class="faq-quick-action-chip" data-quick="diagnostics" title="${escapeHtml(s.quickDiagnostics)}" aria-label="${escapeHtml(s.quickDiagnostics)}"><i class="fa-solid fa-stethoscope"></i></button>
       <button type="button" class="faq-quick-action-chip" data-quick="explain-error" title="${escapeHtml(s.quickExplainError)}" aria-label="${escapeHtml(s.quickExplainError)}"><i class="fa-solid fa-bug"></i></button>
-      <button type="button" class="faq-quick-action-chip" data-quick="ticket" title="${escapeHtml(s.quickTicket)}" aria-label="${escapeHtml(s.quickTicket)}"><i class="fa-solid fa-life-ring"></i></button>`;
+      <button type="button" class="faq-quick-action-chip" data-quick="ticket" title="${escapeHtml(s.quickTicket)}" aria-label="${escapeHtml(s.quickTicket)}"><i class="fa-solid fa-life-ring"></i></button>
+      ${isCurrentUserAdmin() ? `<button type="button" class="faq-quick-action-chip" data-quick="insights" title="${escapeHtml(s.quickInsights)}" aria-label="${escapeHtml(s.quickInsights)}"><i class="fa-solid fa-chart-line"></i></button>` : ''}
+      <button type="button" class="faq-quick-action-chip faq-credit-chip" data-quick="credits" title="${escapeHtml(s.quickCredits)}" aria-label="${escapeHtml(s.quickCredits)}" aria-controls="ai-assistant-credit-expiry" aria-expanded="${creditRowOpen ? 'true' : 'false'}"><i class="fa-solid fa-bolt"></i></button>`;
     box.querySelectorAll('[data-quick]').forEach(btn => {
       btn.addEventListener('click', () => {
         const kind = btn.dataset.quick;
         if (kind === 'diagnostics') { pendingDiagnosticsRequested = true; window.OmniFAQ.ask(STRINGS().diagnosticsQuestion); }
         else if (kind === 'explain-error') { pendingDiagnosticsRequested = true; window.OmniFAQ.ask(STRINGS().explainErrorQuestion); }
         else if (kind === 'ticket') { openTicketModal(); }
+        else if (kind === 'insights') { openInsightsModal(); }
+        else if (kind === 'credits') { showAiCreditRowTemporarily(); }
       });
     });
   }
   let pendingDiagnosticsRequested = false;
+
+  // ---- mobile-only: AI credit row (hidden by default) -------------------
+  // Sa mobile view (<= 768px), nakatago ang AI credits/expiry row bilang
+  // default. Ang credit chip (katabi ng Omni AI insights) ang naglalabas
+  // nito sa ilalim ng mga toggle button (slide-down) sa loob ng 5 segundo,
+  // tapos kusa itong bumabalik sa hide. Ang aktwal na pagtago/pagpapakita
+  // ay CSS lang (.faq-credit-open sa style.css, mobile media query lang);
+  // sa desktop/tablet ay walang epekto ang class na ito.
+  const AI_CREDIT_ROW_VISIBLE_MS = 5000;
+  let aiCreditRowTimer = null;
+  function setAiCreditRowOpen(open) {
+    const wrap = document.getElementById('ai-assistant-credit-expiry');
+    if (wrap) wrap.classList.toggle('faq-credit-open', !!open);
+    document.querySelectorAll('[data-quick="credits"]').forEach(b => b.setAttribute('aria-expanded', open ? 'true' : 'false'));
+  }
+  function hideAiCreditRowNow() {
+    if (aiCreditRowTimer) { clearTimeout(aiCreditRowTimer); aiCreditRowTimer = null; }
+    setAiCreditRowOpen(false);
+  }
+  function showAiCreditRowTemporarily() {
+    if (aiCreditRowTimer) clearTimeout(aiCreditRowTimer);
+    setAiCreditRowOpen(true);
+    // i-refresh ang bilang ng credits para laging bago ang makikita.
+    Promise.resolve(refreshAiCreditPill()).catch(() => {});
+    aiCreditRowTimer = setTimeout(() => {
+      aiCreditRowTimer = null;
+      setAiCreditRowOpen(false);
+    }, AI_CREDIT_ROW_VISIBLE_MS);
+  }
+
+
+  // BAGO: Omni AI Insights (Admin lang). Dati, kinakalkula na ng server
+  // (/api/ai-assistant/analytics) ang stats pero walang screen na
+  // nagpapakita nito. Ang server pa rin ang nagba-block sa non-admin
+  // (403) — ang pag-check dito sa client ay para lang itago ang button.
+  function isCurrentUserAdmin() {
+    try {
+      const u = JSON.parse(localStorage.getItem('omnipos_user') || 'null');
+      return !!(u && String(u.role || '').toLowerCase() === 'admin');
+    } catch (e) { return false; }
+  }
+
+  async function openInsightsModal() {
+    const s = STRINGS();
+    const showHtml = (html) => {
+      if (window.Swal && typeof window.Swal.fire === 'function') {
+        window.Swal.fire({ title: s.insTitle, html, width: 560, confirmButtonText: s.insClose });
+      } else {
+        alert(html.replace(/<[^>]+>/g, ' '));
+      }
+    };
+    try {
+      const res = await authFetch(`${API_URL}/ai-assistant/analytics`, { timeoutMs: 15000 });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d || d.success === false) { showHtml(`<p>${escapeHtml((d && d.message) || s.insError)}</p>`); return; }
+      const stat = (label, value) => `<div style="flex:1;min-width:120px;background:rgba(100,116,139,0.1);border-radius:10px;padding:8px 10px;text-align:center;"><div style="font-size:1.15rem;font-weight:700;">${escapeHtml(String(value))}</div><div style="font-size:0.72rem;opacity:0.75;">${escapeHtml(label)}</div></div>`;
+      const list = (rows, fmt) => rows && rows.length
+        ? `<ul style="margin:4px 0 0;padding-left:18px;">${rows.map(r => `<li>${fmt(r)}</li>`).join('')}</ul>`
+        : `<div style="opacity:0.6;">${escapeHtml(s.insNone)}</div>`;
+      const section = (title, body) => `<div style="margin-top:12px;"><strong>${escapeHtml(title)}</strong>${body}</div>`;
+      const rated = (d.thumbsUp || 0) + (d.thumbsDown || 0);
+      const helpful = d.helpfulRate === null || d.helpfulRate === undefined ? '—' : `${d.helpfulRate}% (${rated} ${s.insRated})`;
+      const html = `<div style="text-align:left;font-size:0.85rem;">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${stat(s.insTotal, d.totalQuestions || 0)}
+          ${stat(s.insAnswered, `${d.answerRate || 0}%`)}
+          ${stat(s.insHelpful, helpful)}
+          ${stat(s.insAvg, `${((d.avgTookMs || 0) / 1000).toFixed(1)}s`)}
+        </div>
+        ${section(s.insTop, list(d.topQuestions, r => `${escapeHtml(r.question)} <span style="opacity:0.6;">×${r.count}</span>`))}
+        ${section(s.insDown, list(d.topDownvoted, r => `${escapeHtml(r.question)} <span style="opacity:0.6;">×${r.count}</span>`))}
+        ${section(s.insFailed, list(d.unansweredRecent, r => escapeHtml(r.question || '')))}
+      </div>`;
+      showHtml(html);
+    } catch (e) {
+      showHtml(`<p>${escapeHtml(s.insError)}</p>`);
+    }
+  }
 
   function refreshTicketButtonVisibility() {
     const btn = document.getElementById('faq-ticket-btn');
@@ -1827,12 +1984,23 @@
     }
   }
 
+  // BAGO: OmniPOS logo (yung "O" na may dot, kapareho ng app icon sa home
+  // screen) bilang icon ng Omni AI — kapalit ng lahat ng robot icon.
+  // Inline SVG na gumagamit ng currentColor kaya sumusunod sa kulay ng
+  // badge/button. Kapag spin=true, ginagamit ang built-in na "fa-spin"
+  // keyframes ng Font Awesome (walang kailangang baguhin sa CSS).
+  function omniLogoIcon(size, spin) {
+    return '<svg viewBox="108 108 296 296" width="' + size + '" height="' + size + '" fill="none" aria-hidden="true" style="vertical-align:-0.2em;' +
+      (spin ? 'animation:fa-spin 1.1s linear infinite;' : '') +
+      '"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>';
+  }
+
   async function askAIAssistantChat(query, thread) {
     const lang = currentLang();
     const s = STRINGS();
 
     const loadingBubble = appendAssistantBubble(thread, `
-      <div class="faq-ai-badge faq-ai-thinking"><i class="fa-solid fa-robot fa-spin"></i> ${s.aiThinking}</div>`);
+      <div class="faq-ai-badge faq-ai-thinking">${omniLogoIcon('1.15em', true)} ${s.aiThinking}</div>`);
     // BAGO: dito na mismo isinasagawa ang scroll papunta sa BAGONG
     // bubble (hindi na hinihintay matapos mag-type-out ang buong sagot)
     // — ang SIMULA/head ng bubble na ito (parehong sa "thinking" state
@@ -1953,7 +2121,7 @@
       const contextBadge = data.aiContext && data.aiContext.liveStoreData
         ? `<span class="faq-ai-live-context" title="Gumamit ang AI ng relevant live OmniPOS store data"><i class="fa-solid fa-database"></i> Live data</span>`
         : '';
-      bubbleInner.innerHTML = `<div class="faq-ai-badge"><i class="fa-solid fa-robot"></i> ${s.aiGeneratedBadge} ${contextBadge}</div>`;
+      bubbleInner.innerHTML = `<div class="faq-ai-badge">${omniLogoIcon('1.1em', false)} ${s.aiGeneratedBadge} ${contextBadge}</div>`;
       const bodyEl = document.createElement('div');
       bodyEl.className = 'faq-ai-body';
       bubbleInner.appendChild(bodyEl);
@@ -1974,7 +2142,7 @@
             <button type="button" class="faq-feedback-btn" data-vote="down" title="${escapeHtml(s.feedbackPrompt)}"><i class="fa-solid fa-thumbs-down"></i></button>
           </span>`;
         bubbleInner.appendChild(actions);
-        wireAiBubbleActions(loadingBubble, query, answerText, thread);
+        wireAiBubbleActions(loadingBubble, query, answerText, thread, data.interactionId);
         renderSuggestedActions(bubbleInner, data.suggestedActions);
         renderFollowUpChips(bubbleInner, candidates, query, thread);
         // BAGO: hindi na ito puwersahang isinasagad sa ilalim
@@ -2002,9 +2170,11 @@
     const icon = btn.querySelector('i');
     if (!icon) return;
     if (loading) {
-      icon.className = 'fa-solid fa-robot fa-spin';
+      icon.className = '';
+      icon.innerHTML = omniLogoIcon('1.15em', true);
       btn.disabled = true;
     } else {
+      icon.innerHTML = '';
       icon.className = 'fa-solid fa-arrow-up';
       btn.disabled = false;
     }
@@ -2149,60 +2319,241 @@
       btn.setAttribute('aria-disabled', 'true');
       return;
     }
+
+    // BAGO: dati, continuous = false — kaya kusang tumitigil ang mic ng
+    // browser pagkatapos ng maikling pause (~1-2s) at naputol ang
+    // pagsasalita ng user. Ngayon: tuloy-tuloy ang pakikinig, at kusa
+    // lang tumitigil kapag tahimik na nang sapat na tagal (o kapag tinap
+    // ulit ang mic / pinindot ang Send).
+    const SILENCE_AFTER_SPEECH_MS = 3500;   // hintay matapos ang huling salita
+    const SILENCE_BEFORE_SPEECH_MS = 8000;  // hintay na magsimulang magsalita
+    const MAX_SESSION_MS = 90000;           // safety cap
+    const MAX_IDLE_RESTARTS = 1;            // ilang beses lang mag-restart kung wala pang naririnig
+    const RESTART_DELAY_MS = 60;            // maikling gap para hindi maputol ang susunod na salita
+
     let recognition = null;
-    let listening = false;
-    let baseText = '';
+    let listening = false;      // UI state
+    let wantListening = false;  // intensyon ng user (para sa auto-restart)
+    let baseText = '';          // text na nasa box bago/sa labas ng kasalukuyang session
+    let skipCount = 0;          // ilang results ang hindi na isasama (kapag nag-edit ang user)
+    let latestResultsLen = 0;
+    let heardSpeech = false;
+    let idleRestarts = 0;
+    let silenceTimer = null;
+    let maxTimer = null;
+    let restartTimer = null;
+
+    const L = () => STRINGS_BY_LANG[currentLang()] || STRINGS_BY_LANG.en;
     const setListening = (active) => {
       listening = active;
       btn.classList.toggle('is-listening', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-      btn.setAttribute('aria-label', active ? (STRINGS_BY_LANG[currentLang()]?.voiceListening || 'Listening… tap the microphone again to stop.') : (STRINGS_BY_LANG[currentLang()]?.voiceInput || 'Voice input'));
-      btn.title = active ? (STRINGS_BY_LANG[currentLang()]?.voiceListening || 'Listening… tap the microphone again to stop.') : (STRINGS_BY_LANG[currentLang()]?.voiceInput || 'Voice input');
+      btn.setAttribute('aria-label', active ? (L().voiceListening || 'Listening… tap the microphone again to stop.') : (L().voiceInput || 'Voice input'));
+      btn.title = active ? (L().voiceListening || 'Listening… tap the microphone again to stop.') : (L().voiceInput || 'Voice input');
       const icon = btn.querySelector('i');
       if (icon) icon.className = active ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
     };
     const showVoiceError = (message) => {
       if (typeof window.Swal !== 'undefined' && typeof Swal.fire === 'function') Swal.fire({ toast: true, position: 'top', icon: 'warning', title: message, showConfirmButton: false, timer: 3000 });
     };
-    btn.addEventListener('click', () => {
-      if (listening) { try { recognition?.stop(); } catch (_) {} return; }
-      recognition = new Recognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = currentLang() === 'tl' ? 'fil-PH' : 'en-US';
-      baseText = input.value.trim();
-      // BUG FIX: dating tinatawag dito ang input.focus() — pero sa mobile
-      // browsers, ang pag-focus sa isang tunay/editable na <input> ay
-      // AWTOMATIKONG nagpapalabas ng on-screen/virtual keyboard, kahit
-      // dictation via mic (hindi typing) ang layunin ng user dito. Iyon
-      // ang naging bug: laging lumalabas ang keyboard sa mobile tuwing
-      // ginagamit ang mic button. Hindi naman kailangan ng focus() para
-      // gumana ang voice input mismo — direkta namang sina-set ang
-      // input.value sa onresult sa ibaba anuman ang focus state, kaya
-      // tinanggal na lang ito.
-      recognition.onstart = () => { setListening(true); };
-      recognition.onresult = (event) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;
-        transcript = transcript.trim();
+    // BAGO: siguraduhing ang PINAKABAGONG sinabi (dulo ng text) ang
+    // nakikita sa maliit na single-line box — dati nananatili sa simula
+    // ang view kaya nakatago ang bagong text kapag humaba na. Hindi
+    // tinatawag ang focus() (iiwas sa pag-pop ng keyboard sa mobile).
+    const scrollInputToEnd = () => {
+      const apply = () => {
+        try {
+          if (document.activeElement === input) {
+            const len = input.value.length;
+            input.setSelectionRange(len, len);
+          }
+        } catch (_) {}
+        input.scrollLeft = input.scrollWidth;
+      };
+      apply();
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(apply);
+    };
+    const clearTimers = () => {
+      clearTimeout(silenceTimer); clearTimeout(maxTimer); clearTimeout(restartTimer);
+      silenceTimer = maxTimer = restartTimer = null;
+    };
+    const finish = () => {
+      wantListening = false;
+      clearTimers();
+      recognition = null;
+      setListening(false);
+      scrollInputToEnd();
+    };
+    const armSilenceTimer = () => {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => stopListening(false), heardSpeech ? SILENCE_AFTER_SPEECH_MS : SILENCE_BEFORE_SPEECH_MS);
+    };
+    // abort=false -> stop() (hinihintay pa ang huling final result);
+    // abort=true  -> abort() (ginagamit kapag Send na, para hindi na
+    // maibalik sa box ang text pagkatapos itong i-clear).
+    function stopListening(abort) {
+      wantListening = false;
+      clearTimers();
+      const r = recognition;
+      if (!r) { finish(); return; }
+      if (abort) { r.onresult = null; }
+      try { abort ? r.abort() : r.stop(); } catch (_) { finish(); return; }
+      if (abort) finish();
+    }
+
+    // BUG FIX (nauulit ang text): sa Android Chrome, kapag continuous +
+    // interimResults, KADA update ng sinasabi ay lumalabas bilang BAGONG
+    // entry sa event.results (hal. "Bakit" -> "Bakit yung" -> "Bakit yung
+    // narinig"...) sa halip na iisang entry na napapalitan. Kapag idinikit
+    // lahat ng entries, nagiging "Bakit Bakit yung Bakit yung narinig...".
+    // Dito pinagsasama nang matalino ang mga piraso: kung ang bagong piraso
+    // ay pagpapahaba/pagwawasto ng nauna, papalitan ito (hindi idadagdag);
+    // kung magkaibang parirala talaga, saka lang idadagdag.
+    const speechWords = (s) => s.toLowerCase().replace(/[.,!?;:"“”]/g, '').split(/\s+/).filter(Boolean);
+    const isWordPrefix = (shorter, longer) => {
+      if (!shorter.length || shorter.length > longer.length) return false;
+      for (let i = 0; i < shorter.length; i++) {
+        if (i === shorter.length - 1) { if (!longer[i].startsWith(shorter[i])) return false; }
+        else if (shorter[i] !== longer[i]) return false;
+      }
+      return true;
+    };
+    const sharedPrefixLen = (a, b) => {
+      let n = 0;
+      while (n < a.length && n < b.length && a[n] === b[n]) n++;
+      return n;
+    };
+    const mergeSpeechPieces = (pieces) => {
+      const merged = [];
+      for (const piece of pieces) {
+        if (!merged.length) { merged.push(piece); continue; }
+        const last = merged[merged.length - 1];
+        const lw = speechWords(last);
+        const pw = speechWords(piece);
+        if (!pw.length) continue;
+        if (isWordPrefix(lw, pw)) { merged[merged.length - 1] = piece; continue; }   // pagpapahaba ng nauna
+        if (isWordPrefix(pw, lw)) continue;                                           // mas maikling kopya ng nauna
+        const minLen = Math.min(lw.length, pw.length);
+        const shared = sharedPrefixLen(lw, pw);
+        if (shared >= 2 && shared / minLen >= 0.75) {                                 // pagwawasto ng salita sa gitna/dulo
+          if (pw.length >= lw.length) merged[merged.length - 1] = piece;
+          continue;
+        }
+        // overlap sa dulo ng nauna at simula ng bago (sliding window)
+        let overlap = 0;
+        for (let k = Math.min(lw.length, pw.length) - 1; k >= 2; k--) {
+          if (lw.slice(lw.length - k).join(' ') === pw.slice(0, k).join(' ')) { overlap = k; break; }
+        }
+        if (overlap) { merged[merged.length - 1] = last + ' ' + piece.split(/\s+/).slice(overlap).join(' '); continue; }
+        merged.push(piece);
+      }
+      return merged.join(' ');
+    };
+
+    const startSession = () => {
+      const r = new Recognition();
+      recognition = r;
+      let sessionHadResult = false;
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 1;
+      r.lang = currentLang() === 'tl' ? 'fil-PH' : 'en-US';
+      r.onstart = () => { setListening(true); };
+      r.onresult = (event) => {
+        if (recognition !== r) return;
+        latestResultsLen = event.results.length;
+        // Binubuo mula sa lahat ng results ng session (hindi lang ang
+        // pinakabago) para hindi nawawala o dumodoble ang mga naunang
+        // bahagi ng sinabi sa tuloy-tuloy na pakikinig.
+        // Pinag-uugnay ng iisang espasyo ang bawat bahagi — may mga
+        // browser na hindi naglalagay ng leading space sa mga sumunod
+        // na result (kaya dati nagdidikit ang mga salita).
+        const parts = [];
+        for (let i = skipCount; i < event.results.length; i++) {
+          const piece = String(event.results[i][0].transcript || '').trim();
+          if (piece) parts.push(piece);
+        }
+        const transcript = mergeSpeechPieces(parts);
         if (!transcript) return;
-        input.value = baseText ? `${baseText} ${transcript}` : transcript;
+        sessionHadResult = true;
+        heardSpeech = true;
+        idleRestarts = 0;
+        armSilenceTimer();
+        const sep = baseText && !/\s$/.test(baseText) ? ' ' : '';
+        input.value = baseText + sep + transcript;
         input.dispatchEvent(new Event('input', { bubbles: true }));
         if (typeof window.OmniFAQ?.onInput === 'function') window.OmniFAQ.onInput(input.value);
+        scrollInputToEnd();
       };
-      recognition.onerror = (event) => {
-        const lang = STRINGS_BY_LANG[currentLang()] || STRINGS_BY_LANG.en;
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') showVoiceError(lang.voicePermissionDenied);
+      r.onerror = (event) => {
+        const lang = L();
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') { wantListening = false; showVoiceError(lang.voicePermissionDenied); }
+        else if (event.error === 'audio-capture' || event.error === 'network') { wantListening = false; showVoiceError(lang.voiceError); }
         else if (event.error !== 'aborted' && event.error !== 'no-speech') showVoiceError(lang.voiceError);
       };
-      recognition.onend = () => { setListening(false); recognition = null; };
-      try { recognition.start(); } catch (_) { setListening(false); recognition = null; showVoiceError((STRINGS_BY_LANG[currentLang()] || STRINGS_BY_LANG.en).voiceError); }
+      r.onend = () => {
+        if (recognition !== r) return;
+        recognition = null;
+        // Minsan kusang tinatapos ng browser (lalo na sa mobile) ang
+        // session kahit tuloy pa ang user — i-restart nang tahimik,
+        // habang nananatiling "listening" ang button.
+        if (wantListening) {
+          // BUG FIX (patay-sindi ang mic): dati, kahit tahimik lang ang
+          // user, paulit-ulit na nire-restart ang session tuwing tinatapos
+          // ito ng browser (no-speech timeout) — bawat restart ay may
+          // beep at nagfa-flicker ang mic indicator, at hindi kayang
+          // patahimikin ng JS ang beep na iyon. Ngayon: mag-restart LANG
+          // kung katatapos lang ng session na may narinig (tuloy pa ang
+          // pagdidikta). Kapag tahimik na ang session — hindi na
+          // nire-restart; tahimik na itong matatapos.
+          if (!sessionHadResult) {
+            idleRestarts++;
+            if (heardSpeech || idleRestarts > MAX_IDLE_RESTARTS) { finish(); return; }
+          }
+          baseText = input.value.trim();
+          skipCount = 0;
+          latestResultsLen = 0;
+          restartTimer = setTimeout(() => {
+            if (!wantListening) return;
+            try { startSession(); } catch (_) { finish(); }
+          }, RESTART_DELAY_MS);
+          return;
+        }
+        finish();
+      };
+      r.start();
+    };
+
+    btn.addEventListener('click', () => {
+      if (wantListening || listening) { stopListening(false); return; }
+      wantListening = true;
+      heardSpeech = false;
+      idleRestarts = 0;
+      baseText = input.value.trim();
+      skipCount = 0;
+      latestResultsLen = 0;
+      maxTimer = setTimeout(() => stopListening(false), MAX_SESSION_MS);
+      armSilenceTimer();
+      try { startSession(); } catch (_) { finish(); showVoiceError(L().voiceError); }
     });
+
+    // Kapag nag-type/nag-edit mismo ang user habang nakikinig, huwag
+    // burahin ang ginawa niya — gawing bagong baseng text ito.
+    input.addEventListener('input', (e) => {
+      if (!e.isTrusted || !wantListening) return;
+      baseText = input.value;
+      skipCount = latestResultsLen;
+    });
+    // Send (button o Enter) = itigil agad ang mic para hindi na
+    // maibalik ang text sa box pagkatapos itong ma-clear.
+    const sendBtn = document.getElementById('faq-send-btn');
+    if (sendBtn) sendBtn.addEventListener('click', () => { if (wantListening || listening) stopListening(true); }, true);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (wantListening || listening)) stopListening(true); }, true);
   }
 
   function initFullListAndDeepLink() {
     renderFullList();
+    wireFaqPageLock();
     renderAiModeToggle();
     setupSlashShortcut();
     setupFaqComposerKeyboardHandling();

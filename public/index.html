@@ -215,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260924-3">
+    <link rel="stylesheet" href="style.css?v=20260929-2">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -425,6 +425,9 @@
                 </div>
                 <span class="header-page-title" id="header-page-title"></span>
                 <div class="header-right">
+                    <button class="header-icon-btn btn-help-header" id="header-help-btn" onclick="switchView('faq')" title="Help" aria-label="Help">
+                        <i class="fa-solid fa-circle-question"></i>
+                    </button>
                     <button class="header-icon-btn btn-lowstock-bell" id="lowstock-bell-btn" onclick="switchView('reorder')" title="Reorder Alerts">
                         <i class="fa-solid fa-bell"></i>
                         <span id="lowstock-bell-badge" class="lowstock-bell-badge" style="display:none;">0</span>
@@ -2658,7 +2661,7 @@
                 <input type="email" id="adv-2fa-recipient-email" placeholder="e.g. owner@gmail.com" autocomplete="off">
             </div>
 
-            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:20px 0 8px;"><i class="fa-solid fa-robot"></i> AI-Powered Fraud &amp; Anomaly Detection</h4>
+            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:20px 0 8px;"><svg viewBox="108 108 296 296" width="1.1em" height="1.1em" fill="none" aria-hidden="true" style="vertical-align:-0.2em;"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg> AI-Powered Fraud &amp; Anomaly Detection</h4>
             <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 8px;">Automatically flags unusual discounts, rapid void/refund activity, oversized refunds, and off-hours sales by comparing each cashier's activity against their own history. Detected incidents never block a sale — they only get logged to the Fraud Alerts tab (and optionally emailed).</p>
             <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                 <input type="checkbox" id="adv-fraud-detection-enabled" style="width:auto;" onchange="toggleFraudDetectionFields()" autocomplete="off">
@@ -2824,7 +2827,7 @@
     <div id="fraud-alerts-tab" class="tab-content-panel" style="display:none;">
         <div class="receipt-custom-container" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
             <h3 style="margin-top:0; display:flex; align-items:center; gap:8px; font-size:1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
-                <i class="fa-solid fa-robot"></i> AI Fraud &amp; Anomaly Alerts
+                <svg viewBox="108 108 296 296" width="1.1em" height="1.1em" fill="none" aria-hidden="true" style="vertical-align:-0.2em;"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg> AI Fraud &amp; Anomaly Alerts
             </h3>
             <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
                 Incidents automatically flagged by the Fraud Detection Engine (enable it in the Advanced tab). Reviewing an alert marks it as handled — it stays in the audit trail permanently.
@@ -3250,7 +3253,7 @@
                             </button>
                         </div>
                         <div id="ai-assistant-credit-expiry" class="ai-credit-expiry-group" style="display:none;" aria-label="AI Credits and expiration">
-                            <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="AI Assistant monthly credits"></div>
+                            <div id="ai-assistant-credit-pill" class="ai-credit-pill" style="display:none;" title="Omni AI monthly credits"></div>
                             <div id="ai-assistant-subscription-status" class="faq-subscription-compact" style="display:none;"></div>
                         </div>
                         <div id="faq-ai-mode-toggle" class="faq-mode-toggle-wrap"></div>
@@ -3305,7 +3308,7 @@
                             </div>
                             <div id="faq-ai-upsell" style="display:none;">
                                 <a href="#" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
-                                    <i class="fa-solid fa-robot"></i> <span id="faq-ai-upsell-text">Unlock the AI Assistant for smarter, more natural answers based on this Help Center</span>
+                                    <svg viewBox="108 108 296 296" width="1.1em" height="1.1em" fill="none" aria-hidden="true" style="vertical-align:-0.2em;"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg> <span id="faq-ai-upsell-text">Unlock Omni AI for smarter, more natural answers based on this Help Center</span>
                                 </a>
                             </div>
                         </div>
@@ -4920,7 +4923,7 @@
 <script src="faq-lang.js"></script>
 <script src="faq-engine.js"></script>
 <script src="offline-storage.js?v=20260922-1"></script>
-<script src="app.js?v=20260926-2"></script>
+<script src="app.js?v=20260929-2"></script>
 <script src="app1.js?v=20260921-2"></script>
 
 

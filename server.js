@@ -2973,7 +2973,7 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
     },
     ai_assistant: {
         id: 'ai_assistant',
-        name: 'OmniPOS AI Assistant',
+        name: 'Omni AI',
         description: 'An advanced AI-powered assistant, embedded right inside the Help page, that reads/understands the store\'s OmniPOS FAQ Knowledge Base and answers Admin/user questions about how to use the system in natural language (Tagalog/English).',
         price: { monthly: 179, yearly: 1790 }
     },
@@ -3441,7 +3441,7 @@ const FEATURE_CATALOG = {
         description: 'Combine sales, transaction count, and low-stock snapshots from ALL branches of the business (different devices/locations) into one combined view on the Overview page — near real-time, updated every few minutes via Relay. Now offered as a monthly or yearly subscription instead of a one-time purchase.'
     },
     ai_assistant: {
-        name: 'OmniPOS AI Assistant',
+        name: 'Omni AI',
         category: 'module',
         isSubscription: true,
         get price() { return MODULE_SUBSCRIPTION_PLANS.ai_assistant.price.monthly; },
@@ -6682,7 +6682,7 @@ function isAiAssistantConfigured() {
 function buildAiAssistantSystemPrompt(lang, isAdminRole) {
     const isTagalog = lang === 'tl';
     return [
-        'You are the "OmniPOS AI Assistant", an in-app help assistant embedded in the OmniPOS Point-of-Sale system.',
+        'You are the "Omni AI", an in-app help assistant embedded in the OmniPOS Point-of-Sale system.',
         'Your job is to help the logged-in user understand how to use OmniPOS (menus, features, system flow), AND to answer questions about this store\'s actual current data when a live data snapshot is provided to you as context — nothing else.',
         'You will be given a list of relevant Question/Answer entries from the OmniPOS FAQ Knowledge Base as context for "how do I..." questions — base those answers ONLY on that context.',
         'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
@@ -6759,7 +6759,7 @@ function computeAiStoreInsightsUncached(isAdminRole) {
     if (isAdminRole) {
         // BUG FIX (missing feature): dati, walang kahit anong pre-computed na
         // "total cost of all products" / total inventory value dito — kaya
-        // kapag tinanong ang AI Assistant ng ganito, sinusubukan lang nitong
+        // kapag tinanong ang Omni AI ng ganito, sinusubukan lang nitong
         // buuin/i-sum ang halaga mula mismo sa raw "products" snapshot na
         // ipinapadala bilang context. Dalawang dahilan kung bakit palaging
         // MALI o hindi kumpleto iyon: (1) ang raw products snapshot ay
@@ -6802,7 +6802,7 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         // kaya laging Invalid Date ang txDate(t), laging FALSE ang lahat ng
         // ">= startOfX" comparison, at laging WALANG kasamang transaction
         // ang todaysTxs/weekTxs/monthTxs — kahit may totoong benta. Ito
-        // ang dahilan kung bakit palaging 0 ang nakikita ng AI Assistant sa
+        // ang dahilan kung bakit palaging 0 ang nakikita ng Omni AI sa
         // today/week/month revenue at transaction counts.
         // Ang "isoDate" (at pangalawa, "createdAt") ang tunay/maaasahang
         // ISO-8601 timestamp ng bawat transaction — ito rin mismo ang unang
@@ -6810,7 +6810,7 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         // Transactions page, cloud sync) kaya dapat unahin din dito para
         // magkatugma ang AI sa parehong petsa na ginagamit ng buong app.
         const txDate = (t) => new Date(t.isoDate || t.createdAt || t.date || t.timestamp || t.isoTimestamp || 0);
-        // FIX: dating "total sales" ng AI Assistant ay basta sinusumahan
+        // FIX: dating "total sales" ng Omni AI ay basta sinusumahan
         // lang ang raw tx.total (GROSS) ng bawat transaction — hindi
         // isinasaalang-alang ang totalRefunded/refundStatus. Kapag may
         // partial o full refund, mismatch ito laban sa TOTOONG net
@@ -6883,7 +6883,7 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         // minsan tila "wala sa data" ang sagot dahil walang ganitong field.
         // Ang parehong formula (item.cost * natitirang qty pagkatapos ng
         // refund) na ginagamit ng /api/reports/sales-analytics ang kopya
-        // dito, para tugma ang "kita" ng AI Assistant sa Sales Analytics
+        // dito, para tugma ang "kita" ng Omni AI sa Sales Analytics
         // report — hindi basta pinaghuhulaan/kino-compute mula sa AI mismo.
         const profitInfoOf = (txs) => {
             let revenue = 0;
@@ -7170,7 +7170,7 @@ async function buildAiDatabaseContextMessage(role, question = '') {
     try {
         snapshot = getAiKnowledgeSnapshot(isAdminRole ? 'full' : 'limited');
     } catch (err) {
-        console.error('⚠️ Hindi na-build ang AI Assistant database context:', err);
+        console.error('⚠️ Hindi na-build ang Omni AI database context:', err);
         return null;
     }
     let insights = null;
@@ -7179,7 +7179,7 @@ async function buildAiDatabaseContextMessage(role, question = '') {
         insights = computeAiStoreInsights(isAdminRole);
         insightsJson = JSON.stringify(insights);
     } catch (err) {
-        console.error('⚠️ Hindi na-compute ang AI Assistant store insights:', err);
+        console.error('⚠️ Hindi na-compute ang Omni AI store insights:', err);
         insights = null;
         insightsJson = null;
     }
@@ -7200,7 +7200,7 @@ async function buildAiDatabaseContextMessage(role, question = '') {
                 };
             }
         } catch (err) {
-            console.error('⚠️ Hindi na-compute ang AI Assistant billing insights:', err);
+            console.error('⚠️ Hindi na-compute ang Omni AI billing insights:', err);
         }
     }
 
@@ -7333,7 +7333,7 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         return { success: true, answer: data.answer.trim(), credits: data.credits || null, creditCost: Number(data.creditCost) || 0 };
     } catch (err) {
         if (err && err.code === 'NO_INTERNET') {
-            return { success: false, message: 'No internet connection has been detected on this device — this needed AI Assistant.' };
+            return { success: false, message: 'No internet connection has been detected on this device — this needed Omni AI.' };
         }
         return {
             success: false,
@@ -7351,17 +7351,32 @@ app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) =
 });
 
 function logAiAssistantInteraction(entry) {
+    // BAGO: nagbabalik na ngayon ng interaction id para magamit ng client
+    // sa pag-send ng 👍/👎 feedback (see /api/ai-assistant/feedback).
+    const id = Date.now() + Math.random().toString(36).slice(2, 7);
     try {
         const logs = readData(FILE_AI_ASSISTANT_LOGS, []);
         logs.unshift({
-            id: Date.now() + Math.random().toString(36).slice(2, 7),
+            id,
             timestamp: new Date().toISOString(),
             ...entry
         });
         writeData(FILE_AI_ASSISTANT_LOGS, logs.slice(0, AI_ASSISTANT_LOG_CAP));
     } catch (err) {
-        console.error('⚠️ Hindi na-log ang AI Assistant interaction:', err);
+        console.error('⚠️ Hindi na-log ang Omni AI interaction:', err);
     }
+    return id;
+}
+// BAGO: heuristic kung ang tanong ay tungkol sa aktwal na store data
+// (hindi lang "paano gamitin"), para ang "Live data" badge sa chat ay
+// lumabas lang kapag talagang relevant — at hindi sa bawat sagot.
+const AI_LIVE_DATA_QUESTION_RE = /\b(how many|how much|total|today|yesterday|this (week|month)|top|lowest|highest|low stock|out of stock|expir\w*|sales?|revenue|profit|ilan|magkano|benta|kita|kahapon|buwan|linggo|natitira|utang|pinakamataas|pinakamababa)\b/i;
+// Ang mga "how-to" na tanong ay sinasagot mula sa FAQ, hindi sa live data,
+// kahit may salitang gaya ng "sales" o "stock" sa loob nito.
+const AI_HOWTO_QUESTION_RE = /^\s*(how (do|to|can|does)|paano|pano|what is|what does|ano ang|ano po ang|saan)\b/i;
+function questionLooksDataRelated(question) {
+    const q = String(question || '');
+    return !AI_HOWTO_QUESTION_RE.test(q) && AI_LIVE_DATA_QUESTION_RE.test(q);
 }
 const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     { keywords: ['void', 'refund', 'cancel(l)?ed? transaction', 'kanselahin ang transaksyon'], view: 'transactions', label: 'Open Transactions' },
@@ -7378,7 +7393,7 @@ const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     // kahit may sariling FAQ/menu page na sila (BIR Compliance, Batch/Lot
     // Tracking, Staff Attendance, Remote Operations, Branches, at ang
     // Voided/Refunded stock-return inspection workflow) — dati, kapag
-    // tinanong ang mga topic na ito, may sagot pa rin ang AI Assistant
+    // tinanong ang mga topic na ito, may sagot pa rin ang Omni AI
     // pero walang lumalabas na "Open X" quick-action button papunta sa
     // mismong page.
     { keywords: ['bir compliance', 'agt', 'z-reading exports?', 'buwis', 'official receipts?', 'sales invoices?'], view: 'bir_compliance', label: 'Open BIR Compliance' },
@@ -7517,9 +7532,9 @@ app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), async (req, r
         return res.status(502).json({ success: false, message: err.message || 'Hindi makuha ang AI credit status mula sa RELAY.' });
     }
 });
-app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa AI Assistant. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
+app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa Omni AI. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
-        return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang AI Assistant sa server na ito (kailangan ng RELAY_API_KEY sa .env, at CF_ACCOUNT_ID/CF_AI_API_TOKEN sa RELAY/.env ng developer). Kontakin ang developer/admin.' });
+        return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang Omni AI sa server na ito (kailangan ng RELAY_API_KEY sa .env, at CF_ACCOUNT_ID/CF_AI_API_TOKEN sa RELAY/.env ng developer). Kontakin ang developer/admin.' });
     }
     const question = typeof req.body?.question === 'string' ? req.body.question.trim().slice(0, 800) : '';
     const lang = req.body?.lang === 'tl' ? 'tl' : 'en';
@@ -7589,7 +7604,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
         result = await callCloudflareWorkersVisionAI(visionMessages, requestId);
         if (!result.success) {
             visionFailureReason = result.message || 'Unknown vision error.';
-            console.error(`⚠️ AI Assistant vision call failed (falling back to text-only): ${visionFailureReason}`);
+            console.error(`⚠️ Omni AI vision call failed (falling back to text-only): ${visionFailureReason}`);
             result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but it could not be analyzed by the image model. Let them know you can't view images right now and ask them to describe what they see instead.)` }], 'image', requestId);
         }
     } else {
@@ -7604,14 +7619,58 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
 
     const creditStatusAfter = result.credits || null;
     const suggestedActions = computeSuggestedActions(question, result.answer);
-    logAiAssistantInteraction({ username, question, lang, hasImage: !!imageDataUrl, hasFile: !!fileDataUrl, answered: true, tookMs, creditCost: result.creditCost || 0, visionError: visionFailureReason || undefined });
+    const usedLiveData = dbContextMsgs.length > 0 && questionLooksDataRelated(question) && /\d/.test(String(result.answer || ''));
+    const interactionId = logAiAssistantInteraction({
+        username, question, lang,
+        hasImage: !!imageDataUrl, hasFile: !!fileDataUrl,
+        answered: true, tookMs, creditCost: result.creditCost || 0,
+        usedLiveData,
+        answerPreview: String(result.answer || '').slice(0, 400),
+        feedback: null,
+        visionError: visionFailureReason || undefined
+    });
 
     res.json({
         success: true,
         answer: result.answer,
         suggestedActions,
-        credits: creditStatusAfter
+        credits: creditStatusAfter,
+        interactionId,
+        aiContext: { liveStoreData: usedLiveData }
     });
+});
+// BAGO: 👍/👎 feedback ng user sa sagot ng Omni AI. Dati, sa browser
+// lang nakikita ang 👎 at ang 👍 ay hindi tinatala kahit saan — kaya walang
+// paraan ang admin/developer para malaman kung gaano kakapaki-pakinabang
+// ang mga sagot. Ang isang user ay puwede lang mag-vote sa sarili niyang
+// interaction, at isang beses lang kada sagot.
+app.post('/api/ai-assistant/feedback', requireFeature('ai_assistant'), rateLimit('ai-assistant-feedback', 60, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming feedback. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), (req, res) => {
+    const interactionId = typeof req.body?.interactionId === 'string' ? req.body.interactionId.slice(0, 60) : '';
+    const vote = req.body?.vote === 'up' ? 'up' : (req.body?.vote === 'down' ? 'down' : null);
+    if (!interactionId || !vote) {
+        return res.status(400).json({ success: false, message: 'Missing interactionId or invalid vote.' });
+    }
+    const username = (req.authUser && req.authUser.username) || 'Unknown';
+    try {
+        const logs = readData(FILE_AI_ASSISTANT_LOGS, []);
+        const entry = logs.find((l) => l && l.id === interactionId);
+        if (!entry) {
+            return res.status(404).json({ success: false, message: 'Interaction not found (maaaring luma na at natanggal na sa log).' });
+        }
+        if (entry.username !== username) {
+            return res.status(403).json({ success: false, message: 'Hindi mo puwedeng i-rate ang sagot ng ibang user.' });
+        }
+        if (entry.feedback) {
+            return res.json({ success: true, alreadyRecorded: true });
+        }
+        entry.feedback = vote;
+        entry.feedbackAt = new Date().toISOString();
+        writeData(FILE_AI_ASSISTANT_LOGS, logs);
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('⚠️ Hindi na-save ang Omni AI feedback:', err);
+        return res.status(500).json({ success: false, message: 'Hindi na-save ang feedback.' });
+    }
 });
 app.get('/api/ai-assistant/analytics', async (req, res) => {
     if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
@@ -7632,6 +7691,22 @@ app.get('/api/ai-assistant/analytics', async (req, res) => {
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10)
         .map(([question, count]) => ({ question, count }));
+    // BAGO: answer-quality metrics mula sa 👍/👎 feedback ng mga user.
+    const thumbsUp = logs.filter((l) => l.feedback === 'up').length;
+    const thumbsDown = logs.filter((l) => l.feedback === 'down').length;
+    const rated = thumbsUp + thumbsDown;
+    const downCounts = {};
+    logs.forEach((l) => {
+        if (l.feedback !== 'down') return;
+        const key = (l.question || '').trim().toLowerCase();
+        if (!key) return;
+        downCounts[key] = (downCounts[key] || 0) + 1;
+    });
+    const topDownvoted = Object.entries(downCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([question, count]) => ({ question, count }));
+    const unansweredRecent = logs.filter((l) => !l.answered).slice(0, 10).map((l) => ({ question: l.question, error: l.error, timestamp: l.timestamp }));
     let relayCredits = null;
     try {
         if (RELAY_API_KEY) {
@@ -7649,13 +7724,18 @@ app.get('/api/ai-assistant/analytics', async (req, res) => {
         withImage,
         avgTookMs,
         topQuestions,
+        thumbsUp,
+        thumbsDown,
+        helpfulRate: rated ? Math.round((thumbsUp / rated) * 100) : null,
+        topDownvoted,
+        unansweredRecent,
         recent: logs.slice(0, 50),
         credits: relayCredits
     });
 });
 app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('support-ticket-create', 5, 15 * 60 * 1000, (retryAfterSec) => `Sobra na sa allowed na support tickets. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), (req, res) => {
     const username = (req.authUser && req.authUser.username) || 'Unknown';
-    const subject = (typeof req.body?.subject === 'string' ? req.body.subject.trim() : '').slice(0, 150) || 'AI Assistant support request';
+    const subject = (typeof req.body?.subject === 'string' ? req.body.subject.trim() : '').slice(0, 150) || 'Omni AI support request';
     const message = (typeof req.body?.message === 'string' ? req.body.message.trim() : '').slice(0, 4000);
     const transcript = Array.isArray(req.body?.transcript)
         ? req.body.transcript.slice(-20).map((t) => ({
@@ -7680,7 +7760,7 @@ app.post('/api/support-tickets', requireFeature('ai_assistant'), rateLimit('supp
     };
     tickets.unshift(ticket);
     writeData(FILE_AI_SUPPORT_TICKETS, tickets.slice(0, AI_ASSISTANT_TICKET_CAP));
-    logAction(username, `Created an AI Assistant support ticket: "${subject}"`);
+    logAction(username, `Created an Omni AI support ticket: "${subject}"`);
     res.json({ success: true, ticket });
 });
 app.get('/api/support-tickets', (req, res) => {
@@ -7703,7 +7783,7 @@ app.patch('/api/support-tickets/:id', (req, res) => {
     const status = allowedStatuses.includes(req.body?.status) ? req.body.status : tickets[idx].status;
     tickets[idx] = { ...tickets[idx], status, updatedAt: new Date().toISOString() };
     writeData(FILE_AI_SUPPORT_TICKETS, tickets);
-    logAction(req.authUser.username, `Updated AI Assistant support ticket #${id} to "${status}"`);
+    logAction(req.authUser.username, `Updated Omni AI support ticket #${id} to "${status}"`);
     res.json({ success: true, ticket: tickets[idx] });
 });
 async function parseRelayResponse(relayRes) {

@@ -14962,3 +14962,98 @@ body.dark-mode #view-reorder .search-box-container input {
         border-color: #e2e8f0;
     }
 }
+
+/* ===== Mobile Help / AI Chatbot: credit chip + tighter bottom gap ===== */
+.faq-quick-actions .faq-credit-chip { display: none; }
+@media screen and (max-width: 768px) {
+  .faq-quick-actions .faq-credit-chip { display: inline-flex; }
+  .faq-quick-actions .faq-credit-chip[aria-expanded="true"] {
+    background: var(--primary-blue, #2563eb); color: #fff;
+  }
+
+  /* AI credits/expiry row: hidden by default, slides down under the
+     toggle buttons for a few seconds when the credit chip is tapped.
+     Absolutely positioned so it never shifts the chat layout. */
+  #view-faq .faq-top-bar#faq-top-bar { position: relative !important; }
+  #view-faq .faq-top-bar#faq-top-bar::after { display: none !important; }
+  #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry {
+    position: absolute !important;
+    top: calc(100% + 4px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: max-content !important;
+    margin: 0 auto !important;
+    z-index: 70;
+    max-width: calc(100% - 8px) !important;
+    background: linear-gradient(rgba(37,99,235,.06), rgba(37,99,235,.06)), #ffffff !important;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-10px);
+    transition: opacity .22s ease, transform .26s ease, visibility 0s linear .26s;
+  }
+  #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry.faq-credit-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+    transition: opacity .22s ease, transform .26s ease, visibility 0s;
+  }
+  body.dark-mode #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry,
+  .dark #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry {
+    background: linear-gradient(rgba(59,130,246,.10), rgba(59,130,246,.10)), var(--dm-surface, #1f2937) !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Chat fills the screen down to the bottom nav; composer sits 3px above it. */
+  #view-faq.faq-fullchat-mode {
+    padding-bottom: 0;
+    height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px))));
+    max-height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px))));
+  }
+  @supports (height: 100dvh) {
+    #view-faq.faq-fullchat-mode {
+      height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px))));
+      max-height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px))));
+    }
+  }
+  #view-faq.faq-fullchat-mode .faq-composer-dock {
+    padding-bottom: calc(3px + var(--faq-kb-offset, 0px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry { transition: none !important; }
+}
+
+/* ===== Help page: fixed page on mobile (only the chatbox scrolls) ===== */
+@media screen and (max-width: 768px) {
+  html.faq-page-lock,
+  body.faq-page-lock {
+    overflow: hidden !important;
+    height: 100% !important;
+    overscroll-behavior: none;
+  }
+  #view-faq .faq-chat-thread,
+  #view-faq #faq-kb-shortcuts,
+  #view-faq .faq-ai-result-box {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ===== Header Help button: same look/behaviour as its neighbours ===== */
+.header-icon-btn.btn-help-header.active { color: var(--primary-blue, #2563eb); }
+body.dark-mode .top-header button.header-icon-btn.btn-help-header.active {
+  color: var(--dm-accent, #7c5cff) !important;
+}
+@media screen and (max-width: 768px) {
+  .top-header.terminal-header-mode .btn-help-header { display: none !important; }
+}
+.top-header.terminal-header-mode.terminal-daymode .btn-help-header { color: #334155; }
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .btn-help-header {
+  color: #1e293b !important;
+}
+body.dark-mode .top-header.terminal-header-mode.terminal-daymode .btn-help-header:hover {
+  color: var(--dm-accent, #7c5cff) !important;
+}
