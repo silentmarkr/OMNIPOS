@@ -2252,6 +2252,13 @@
     }
   };
   function planStrings() { return PLAN_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
+  const EXTRA_STRINGS = {
+    en: { title: 'Extra credits', hint: 'Cheaper than upgrading: adds credits and daily limit, valid until the end of this month.', credits: 'credits', left: 'left this month', buy: 'Buy',
+          adminPwText: 'Enter an admin password to buy {name} ({credits} credits) for {cost} Omni Tokens.', bought: 'Bought this month', perCredit: 'token/credit' },
+    tl: { title: 'Extra credits', hint: 'Mas tipid kaysa mag-upgrade: dagdag credits at daily limit, valid hanggang katapusan ng buwan.', credits: 'credits', left: 'natitira ngayong buwan', buy: 'Bilhin',
+          adminPwText: 'Maglagay ng admin password para bilhin ang {name} ({credits} credits) sa halagang {cost} Omni Tokens.', bought: 'Nabili ngayong buwan', perCredit: 'token/credit' }
+  };
+  function extraStrings() { return EXTRA_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
   async function openAiPlansModal() {
     const ps = planStrings();
     const swal = window.Swal && typeof window.Swal.fire === 'function' ? window.Swal : null;
@@ -2274,7 +2281,7 @@
         ? `<span style="font-weight:700;color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.owned)}</span>`
         : (p.canPurchase
           ? `<button type="button" class="faq-plan-buy-btn" data-tier="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" data-cost="${p.costTokens}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(data.currentTier ? ps.upgradeFor : ps.buy)} ${p.costTokens} ${escapeHtml(ps.tokens)}</button>`
-          : '');
+          : (p.locked ? `<span style="font-size:.85rem;font-weight:700;color:#dc2626;"><i class="fa-solid fa-lock"></i> ${escapeHtml(p.lockedReason || '')}</span>` : ''));
       return `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:12px 14px;margin:8px 0;text-align:left;${p.isCurrent ? 'outline:2px solid #16a34a;' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:1.05rem;">${escapeHtml(p.name)}</strong>
@@ -2286,12 +2293,26 @@
     }).join('') || `<div style="padding:8px 0;">${escapeHtml(ps.noPlans)}</div>`;
     const cur = data.currentTier ? `${escapeHtml(ps.current)}: <strong>${escapeHtml(data.currentTier.name)}</strong>` : `${escapeHtml(ps.current)}: ${escapeHtml(ps.none)}`;
     const bal = typeof data.balanceTokens === 'number' ? ` · ${escapeHtml(ps.balance)}: <strong>${data.balanceTokens}</strong> ${escapeHtml(ps.tokens)}` : '';
-    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}`;
+    const es = extraStrings();
+    const ex = data.extraCredits;
+    const extraHtml = (ex && ex.enabled && Array.isArray(ex.packs) && ex.packs.length) ? `<div style="margin-top:14px;text-align:left;">
+        <strong style="font-size:1.02rem;">${escapeHtml(es.title)}</strong>
+        <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(es.hint)}${ex.available !== null && ex.available !== undefined ? ` · ${ex.available} ${escapeHtml(es.left)}` : ''}${ex.purchasedCredits ? ` · ${escapeHtml(es.bought)}: ${ex.purchasedCredits}` : ''}</div>
+        ${ex.packs.map((k) => `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div><strong>${escapeHtml(k.name)}</strong><div style="font-size:.8rem;opacity:.8;">${k.credits} ${escapeHtml(es.credits)}${k.dailyBonus ? ` · +${k.dailyBonus} ${escapeHtml(ps.perDay)}` : ''} · ${k.pricePerCredit} ${escapeHtml(es.perCredit)}</div></div>
+          <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;">${k.priceTokens} ${escapeHtml(ps.tokens)}</span>
+          ${k.canPurchase ? `<button type="button" class="faq-extra-buy-btn" data-pack="${escapeHtml(k.id)}" data-name="${escapeHtml(k.name)}" data-cost="${k.priceTokens}" data-credits="${k.credits}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(es.buy)}</button>` : `<span style="font-size:.8rem;color:#dc2626;max-width:180px;">${escapeHtml(k.unavailableReason || '')}</span>`}</div>
+        </div>`).join('')}
+      </div>` : '';
+    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${extraHtml}`;
     swal.fire({
       title: ps.title, html, showConfirmButton: false, showCloseButton: true, width: 560,
       didOpen: (popup) => {
         popup.querySelectorAll('.faq-plan-buy-btn').forEach((btn) => {
           btn.addEventListener('click', () => buyAiPlan(btn.dataset.tier, btn.dataset.name, btn.dataset.cost));
+        });
+        popup.querySelectorAll('.faq-extra-buy-btn').forEach((btn) => {
+          btn.addEventListener('click', () => buyExtraCredits(btn.dataset.pack, btn.dataset.name, btn.dataset.cost, btn.dataset.credits));
         });
       }
     });
@@ -2313,6 +2334,38 @@
       const res = await authFetch(`${API_URL}/ai-assistant/plans/purchase`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tierId, adminPassword: pw.value }), timeoutMs: 30000
+      });
+      status = res.status;
+      data = await res.json().catch(() => null);
+    } catch (e) { data = null; }
+    if (data && data.success) {
+      if (data.credits) refreshAiCreditPill(data.credits); else refreshAiCreditPill();
+      await swal.fire({ icon: 'success', title: ps.successTitle, text: data.message || '', confirmButtonText: ps.close });
+      return;
+    }
+    const msg = (data && data.message) || (status === 402 ? ps.insufficient : ps.loadError);
+    await swal.fire({ icon: 'error', title: ps.failTitle, text: msg, confirmButtonText: ps.close });
+    openAiPlansModal();
+  }
+
+  async function buyExtraCredits(packId, name, cost, credits) {
+    const ps = planStrings();
+    const es = extraStrings();
+    const swal = window.Swal;
+    const pw = await swal.fire({
+      title: ps.adminPwTitle,
+      text: es.adminPwText.replace('{name}', name).replace('{credits}', credits).replace('{cost}', cost),
+      input: 'password', inputPlaceholder: ps.adminPwPlaceholder,
+      showCancelButton: true, confirmButtonText: ps.confirm, cancelButtonText: ps.cancel,
+      inputValidator: (v) => (!v ? ps.adminPwPlaceholder : undefined)
+    });
+    if (!pw.isConfirmed) { openAiPlansModal(); return; }
+    swal.fire({ title: ps.buying, allowOutsideClick: false, showConfirmButton: false, didOpen: () => swal.showLoading() });
+    let data = null; let status = 0;
+    try {
+      const res = await authFetch(`${API_URL}/ai-assistant/extra-credits/purchase`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packId, adminPassword: pw.value }), timeoutMs: 30000
       });
       status = res.status;
       data = await res.json().catch(() => null);
