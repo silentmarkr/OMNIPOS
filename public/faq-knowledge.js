@@ -938,6 +938,7 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li>Ipapadala muna ang backup na ito sa email mo — <strong>kung mag-fail ang email</strong> (hal. maling app password), <strong>ihihinto ang buong reset</strong> at LIGTAS pa rin ang data.</li>
     <li>Kapag successful ang email, saka lang isasagawa ang pagbura: babalik ang users sa default set of accounts, at mabubura ang lahat ng business/transactional data — products, transactions, refunds, requests, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, shift records, user activity logs, loyalty card security data, at Fraud & Anomaly Alerts (kasama na ang live fraud-velocity counters na ginagamit sa detection) — habang babalik naman sa default set ang categories.</li>
   </ol>
+  <p><strong>BIR Compliance data (opsyonal):</strong> Bilang default, HINDI nabubura ng Hard Reset ang BIR Compliance data (Accumulated Grand Total/AGT, invoice numbering, BIR Z-Reading history, void log, at AGT reset history) — kasama pa rin ito sa backup file. Sa Hard Reset panel, may checkbox na <strong>"Also reset BIR Compliance data"</strong>: kapag pinili ito (may dagdag na confirmation), ihihiwalay ang BIR data mula sa main backup at ipapadala bilang <strong>HIWALAY na attachment</strong> sa email (omnipos_bir_compliance_backup), saka lang ito buburahin — babalik sa zero ang AGT at magsisimulang muli sa INV-000001 ang invoice numbering.</p>
   <p><strong>Sinasadyang HINDI ginagalaw:</strong> ang bilang ng LIBRENG pag-customize ng resibo, pati na rin ang device identity/license data (installation ID, hardware fingerprint, device verification, Relay authorization) at system configuration (Store Settings, UX Settings, Receipt Settings, Advanced Settings, Roles & Permissions, Connectivity Mode) — para hindi magamit ang Factory Reset para lang maibalik ang 2 free attempts, at para hindi nawawala ang identity/configuration ng device.</p>`
 },
 {
@@ -945,7 +946,7 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'System Reset',
   question: 'Paano mag-restore mula sa backup file?',
   keywords: ['restore backup', 'ibalik ang backup', 'import backup file', 'recover data'],
-  answer: `<p>Sa Restore Backup feature, kailangan ang Admin username, password, at ang backup file (galing sa dating Factory Reset email o manual export). Kapag na-verify ang admin credentials, ise-synchronize pabalik sa system ang <strong>bawat data module na nasa backup file na iyon</strong> — kasama ang users, products, transactions, refunds, user logs, requests, categories, carts, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, at Fraud & Anomaly Alerts, pati na rin ang iba pang module na naroroon sa file.</p>`
+  answer: `<p>Sa Restore Backup feature, kailangan ang Admin username, password, at ang backup file (galing sa dating Factory Reset email o manual export). Kapag na-verify ang admin credentials, ise-synchronize pabalik sa system ang <strong>bawat data module na nasa backup file na iyon</strong> — kasama ang users, products, transactions, refunds, user logs, requests, categories, carts, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, at Fraud & Anomaly Alerts, pati na rin ang iba pang module na naroroon sa file. Ang hiwalay na BIR compliance backup file (galing sa Hard Reset na may "Also reset BIR Compliance data") ay pwede ring i-restore sa parehong paraan.</p>`
 },
 
 {
@@ -1506,7 +1507,8 @@ window.OMNIPOS_FAQ_KB_TL = [
   keywords: ['reset agt', 'bagong ptu', 'bagong machine bir', 'agt reset'],
   verdict: 'depende',
   answer: `<p>Para lang ito sa <strong>espesyal na kaso</strong> (hal. bagong machine/PTU, o kung pinahintulutan ng BIR). Kailangan muna ng dahilan at password bago ito matuloy, kaya dapat Admin/authorized personnel lang ang gumagawa nito.</p>
-  <p>Naitatala ito sa <strong>AGT Reset History</strong> (kasama ang previous AGT, sino ang nag-authorize, at dahilan), at hindi naaapektuhan ang invoice numbering.</p>`
+  <p>Naitatala ito sa <strong>AGT Reset History</strong> (kasama ang previous AGT, sino ang nag-authorize, at dahilan), at hindi naaapektuhan ang invoice numbering.</p>
+  <p>Kung gusto mong burahin nang buo ang BIR data (kasama ang invoice numbering), hindi ito ang paraan — nasa <strong>System Hard Reset</strong> ang opsyong "Also reset BIR Compliance data", na nagpapadala muna ng hiwalay na backup file ng BIR data sa email bago ito burahin.</p>`
 },
 {
   id: 'attendance-auto-close-stale',

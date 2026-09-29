@@ -546,13 +546,55 @@ function stripRedactedFields(moduleName, data) {
     });
 }
 
+// BACKUP COMPLETENESS FIX: ang mga module ay ginagawa lang sa SQLite kapag
+// unang na-sulat (lazy). Kaya ang isang backup na kinuha bago pa nagamit ang
+// isang feature (hal. BIR Compliance: birState/birVoids/birZReadingHistory/
+// birResetHistory) ay WALANG laman para sa module na iyon, at ang 'birState'
+// ay maaaring nakasave pa bilang literal na `null` (getBirState() reads it with
+// a `null` default, which readData() persists) — na nilalaktawan naman ng
+// restore. Resulta: hindi nababalik ang BIR data (AGT, invoice numbering)
+// mula sa auto-backup. Ang registry na ito ay nagbibigay ng "nothing saved
+// yet" default para sa bawat kilalang module para SIYA ay laging kasama sa
+// backup (gamit ang default, walang isinusulat sa database).
+const KNOWN_MODULE_DEFAULTS = new Map();
+function registerModuleDefaults(defaultsByModule) {
+    Object.entries(defaultsByModule || {}).forEach(([moduleName, def]) => {
+        KNOWN_MODULE_DEFAULTS.set(moduleName, def);
+    });
+}
+function resolveModuleDefault(moduleName) {
+    const def = KNOWN_MODULE_DEFAULTS.get(moduleName);
+    const value = typeof def === 'function' ? def() : def;
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+function moduleExistsInStore(moduleName) {
+    if (ROW_NORMALIZED_MODULES.has(moduleName)) return true;
+    try { return !!selectStmt.get(moduleName); } catch (err) { return false; }
+}
+function readModuleForBackup(moduleName) {
+    const hasKnownDefault = KNOWN_MODULE_DEFAULTS.has(moduleName);
+    if (hasKnownDefault && !moduleExistsInStore(moduleName)) {
+        return resolveModuleDefault(moduleName);
+    }
+    let data = readData(moduleName, hasKnownDefault ? resolveModuleDefault(moduleName) : []);
+    if ((data === null || data === undefined) && hasKnownDefault) {
+        data = resolveModuleDefault(moduleName);
+    }
+    return data;
+}
+function getBackupModuleNames(excludedSet) {
+    const names = new Set(getAllModuleNames());
+    KNOWN_MODULE_DEFAULTS.forEach((_def, moduleName) => names.add(moduleName));
+    return Array.from(names).filter((m) => !(excludedSet && excludedSet.has(m)));
+}
+
 function getCloudBackupPayload() {
-    const moduleNames = getAllModuleNames().filter((m) => !ALWAYS_EXCLUDED_FROM_CLOUD_SYNC.has(m));
+    const moduleNames = getBackupModuleNames(ALWAYS_EXCLUDED_FROM_CLOUD_SYNC);
     const modules = {};
     let totalRecords = 0;
 
     for (const moduleName of moduleNames) {
-        const data = stripRedactedFields(moduleName, readData(moduleName, []));
+        const data = stripRedactedFields(moduleName, readModuleForBackup(moduleName));
         modules[moduleName] = data;
         if (Array.isArray(data)) totalRecords += data.length;
     }
@@ -568,12 +610,12 @@ function getCloudBackupPayload() {
 }
 
 function getFullDatabaseSnapshot() {
-    const moduleNames = getAllModuleNames();
+    const moduleNames = getBackupModuleNames(null);
     const modules = {};
     let totalRecords = 0;
 
     for (const moduleName of moduleNames) {
-        const data = readData(moduleName, []);
+        const data = readModuleForBackup(moduleName);
         modules[moduleName] = data;
         if (Array.isArray(data)) totalRecords += data.length;
     }
@@ -839,7 +881,7 @@ function getProductImagesByCodes(codes) {
     return out;
 }
 
-module.exports = { getProductsView, getProductImagesByCodes, db, readData, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus };
+module.exports = { getProductsView, getProductImagesByCodes, db, readData, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

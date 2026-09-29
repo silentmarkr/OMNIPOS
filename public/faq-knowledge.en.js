@@ -938,6 +938,7 @@ window.OMNIPOS_FAQ_KB_EN = [
     <li>This backup is sent to your email first — <strong>if the email fails</strong> (e.g. wrong app password), <strong>the entire reset is stopped</strong> and your data remains SAFE.</li>
     <li>Once the email succeeds, only then does the erasing happen: users revert to the default set of accounts, and all business/transactional data is deleted — products, transactions, refunds, requests, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, shift records, user activity logs, loyalty card security data, and Fraud & Anomaly Alerts (including the live fraud-velocity counters used for detection) — while categories revert to the default set.</li>
   </ol>
+  <p><strong>BIR Compliance data (optional):</strong> By default, the Hard Reset does NOT erase BIR Compliance data (Accumulated Grand Total/AGT, invoice numbering, BIR Z-Reading history, void log, and AGT reset history) — it is still included in the backup file. In the Hard Reset panel there is an <strong>"Also reset BIR Compliance data"</strong> checkbox: when selected (with an extra confirmation), the BIR data is split out of the main backup and emailed as a <strong>SEPARATE attachment</strong> (omnipos_bir_compliance_backup), and only then erased — the AGT returns to zero and invoice numbering starts over at INV-000001.</p>
   <p><strong>Deliberately left untouched:</strong> the count of FREE receipt customizations, plus device identity/license data (installation ID, hardware fingerprint, device verification, Relay authorization) and system configuration (Store Settings, UX Settings, Receipt Settings, Advanced Settings, Roles & Permissions, Connectivity Mode) — so Factory Reset can't be used just to get the 2 free attempts back, and the device doesn't lose its identity or configuration.</p>`
 },
 {
@@ -945,7 +946,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   category: 'System Reset',
   question: 'How do I restore from a backup file?',
   keywords: ['restore backup', 'ibalik ang backup', 'import backup file', 'recover data'],
-  answer: `<p>In the Restore Backup feature, you need the Admin username, password, and the backup file (from a previous Factory Reset email or a manual export). Once the admin credentials are verified, <strong>every data module found in that backup file</strong> is synced back into the system — this covers users, products, transactions, refunds, user logs, requests, categories, carts, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, and Fraud & Anomaly Alerts, plus any other module present in the file.</p>`
+  answer: `<p>In the Restore Backup feature, you need the Admin username, password, and the backup file (from a previous Factory Reset email or a manual export). Once the admin credentials are verified, <strong>every data module found in that backup file</strong> is synced back into the system — this covers users, products, transactions, refunds, user logs, requests, categories, carts, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, loyalty security data, and Fraud & Anomaly Alerts, plus any other module present in the file. The separate BIR compliance backup file (from a Hard Reset with "Also reset BIR Compliance data") can be restored the same way.</p>`
 },
 
 {
@@ -1486,7 +1487,8 @@ window.OMNIPOS_FAQ_KB_EN = [
   keywords: ['reset agt', 'bagong ptu', 'bagong machine bir', 'agt reset'],
   verdict: 'depende',
   answer: `<p>This is only for <strong>special cases</strong> (e.g. a new machine/PTU, or when authorized by the BIR). A reason and password are required before it proceeds, so only an Admin/authorized personnel should do this.</p>
-  <p>It's recorded in the <strong>AGT Reset History</strong> (including the previous AGT, who authorized it, and the reason), and it does not affect invoice numbering.</p>`
+  <p>It's recorded in the <strong>AGT Reset History</strong> (including the previous AGT, who authorized it, and the reason), and it does not affect invoice numbering.</p>
+  <p>If you want to erase the BIR data completely (including invoice numbering), this is not the way — the <strong>System Hard Reset</strong> has an "Also reset BIR Compliance data" option that first emails a separate backup file of the BIR data before erasing it.</p>`
 },
 {
   id: 'attendance-auto-close-stale',

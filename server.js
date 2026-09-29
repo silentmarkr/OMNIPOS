@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, getProductsView, getProductImagesByCodes, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus } = require('./db');
+const { db: sqliteDb, getProductsView, getProductImagesByCodes, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const webauthn = require('./webauthn');
@@ -452,6 +452,28 @@ const FILE_INVENTORY_COUNTS = 'inventoryCounts';
 const FILE_CONSIGNMENTS = 'consignments';
 const FILE_WASTE_LOG = 'wasteLog';
 const FILE_SUPPLIERS = 'suppliers';
+
+// BACKUP COMPLETENESS: SQLite modules only exist once they've been written at
+// least once, so a backup taken before a feature was ever used (or one where
+// the module was saved as a literal `null`, like birState) used to silently
+// omit that data — most importantly the BIR Compliance modules (AGT, invoice
+// numbering, Z-Reading history, void log, reset history). Registering a
+// "nothing saved yet" default for every operational module guarantees that the
+// auto local backup, the Cloud Backup payload and the Hard Reset email ALWAYS
+// contain all of them. (Device identity/licensing lives in 'featureUnlocks'
+// and always exists, so it needs no default here.)
+registerModuleDefaults({
+    [FILE_PRODUCTS]: [], [FILE_TRANSACTIONS]: [], [FILE_REFUNDS]: [], [FILE_REQUESTS]: [],
+    [FILE_CATEGORIES]: DEFAULT_CATEGORIES, [FILE_CARTS]: {}, [FILE_CUSTOMERS]: [], [FILE_DEBTS]: [],
+    [FILE_PROMOCODES]: [], [FILE_SHIFTS]: [], [FILE_SHIFT_META]: {}, [FILE_PURCHASE_ORDERS]: [],
+    [FILE_LOWSTOCK_TRACKING]: {}, [FILE_STOCK_RETURNS]: [], [FILE_ATTENDANCE]: [],
+    [FILE_INVENTORY_COUNTS]: [], [FILE_CONSIGNMENTS]: [], [FILE_WASTE_LOG]: [], [FILE_SUPPLIERS]: [],
+    fraudAlerts: [], loyaltySecurity: {},
+    ...Object.fromEntries(birCompliance.BIR_MODULE_NAMES.map((name) => [
+        name,
+        name === 'birState' ? () => birCompliance.getBirState() : []
+    ]))
+});
 
 // ============================================================================
 // RBAC (ROLES & PERMISSIONS) — SECTION START
@@ -6152,6 +6174,77 @@ if (!AUTO_BACKUP_DISABLED) {
     setTimeout(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, 2 * 60 * 1000);
     setInterval(() => { maybeRunAutomaticCloudBackup().catch(err => console.error('⚠️ AUTO_CLOUD_BACKUP heartbeat error:', err.message)); }, AUTO_CLOUD_BACKUP_HEARTBEAT_MS).unref();
 }
+// RESTORE FIX (installation ID changed + device blocked in RELAY after restoring an auto-backup):
+// Every backup (auto local .json, Cloud Backup, Hard Reset email) contains the WHOLE 'featureUnlocks'
+// module, i.e. the device identity used by the ANTI-CLONE check: installationId, deviceSeed (part of the
+// hardware fingerprint), verifiedFingerprint, devicePermit, relayAuthorized, ... The old restore wrote that
+// module straight back, so restoring a backup taken at a different moment (e.g. before the device was ever
+// verified, or before RELAY reassigned its ID) swapped the device's CURRENT identity for a stale one:
+// a different installationId and/or a different deviceSeed -> a different fingerprint. RELAY then either
+// sees an unknown/unauthorised installation (blocked until "Allow") or a known installationId coming from
+// a "different" machine (flagged as clone). A backup taken right before a Hard Reset "worked" only because
+// its identity happened to still equal the current one. Identity belongs to THIS physical device, not to
+// the business data, so a restore must never replace it.
+// 'sessions' (live login tokens) and 'demoDataSnapshot' (runtime state tied to the demo token) are also
+// runtime-only: they stay INSIDE the backup files but are never applied on restore.
+const RESTORE_NEVER_APPLY_MODULES = new Set([SESSIONS_MODULE, 'demoDataSnapshot']);
+function mergeRestoredFeatureUnlocks(backupFeatureUnlocks) {
+    const current = readData(FILE_FEATURE_UNLOCKS, DEFAULT_FEATURE_UNLOCKS);
+    const currentInstallationId = getOrCreateInstallationId(current);
+    const merged = { ...current };
+    const backup = (backupFeatureUnlocks && typeof backupFeatureUnlocks === 'object' && !Array.isArray(backupFeatureUnlocks))
+        ? backupFeatureUnlocks
+        : null;
+    if (!backup) return merged;
+    const now = Date.now();
+    // Unlock tokens are signed per installationId, so only tokens issued to THIS installation are useful.
+    // Existing (newer) tokens always win; the backup only fills in what is missing.
+    const tokens = (current.tokens && typeof current.tokens === 'object') ? { ...current.tokens } : {};
+    if (backup.tokens && typeof backup.tokens === 'object') {
+        for (const [featureId, token] of Object.entries(backup.tokens)) {
+            if (tokens[featureId]) continue;
+            if (!token || !token.payload || token.payload.installationId !== currentInstallationId) continue;
+            if (typeof token.payload.expiresAt === 'number' && now > token.payload.expiresAt) continue;
+            tokens[featureId] = token;
+        }
+    }
+    merged.tokens = tokens;
+    if (backup.installationId && backup.installationId === currentInstallationId) {
+        if (!current.cloudBackupPlan && backup.cloudBackupPlan) merged.cloudBackupPlan = backup.cloudBackupPlan;
+        if (backup.moduleSubscriptions && typeof backup.moduleSubscriptions === 'object') {
+            merged.moduleSubscriptions = { ...backup.moduleSubscriptions, ...(current.moduleSubscriptions || {}) };
+        }
+    }
+    return merged;
+}
+// One restore routine for BOTH the file restore (/api/restore-backup) and the Cloud Backup restore, so the
+// device-identity protection can never be missed in one of the two paths.
+function applyRestoredModules(modules) {
+    const restoredModuleNames = [];
+    const skippedModuleNames = [];
+    const accountsNeedingPasswordReset = [];
+    for (const [moduleName, data] of Object.entries(modules || {})) {
+        if (moduleName === 'timestamp') continue;
+        if (data === undefined || data === null) continue;
+        if (RESTORE_NEVER_APPLY_MODULES.has(moduleName)) {
+            skippedModuleNames.push(moduleName);
+            continue;
+        }
+        if (moduleName === FILE_USERS && Array.isArray(data)) {
+            const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
+            writeData(moduleName, merged);
+            accountsNeedingPasswordReset.push(...needReset);
+            restoredModuleNames.push(moduleName);
+        } else if (moduleName === FILE_FEATURE_UNLOCKS) {
+            writeData(moduleName, mergeRestoredFeatureUnlocks(data));
+            restoredModuleNames.push(moduleName);
+        } else if (Array.isArray(data) || typeof data === 'object') {
+            writeData(moduleName, data);
+            restoredModuleNames.push(moduleName);
+        }
+    }
+    return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset };
+}
 function mergeRestoredUsers(restoredUsers) {
     const currentUsers = readData(FILE_USERS, []);
     const currentByUsername = new Map(
@@ -6259,19 +6352,8 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
             return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the cloud backup restore.' });
         }
         const modules = relayData.modules || {};
-        let restoredCount = 0;
-        const accountsNeedingPasswordReset = [];
-        for (const [moduleName, data] of Object.entries(modules)) {
-            if (moduleName === 'users' && Array.isArray(data)) {
-                const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
-                writeData(moduleName, merged);
-                accountsNeedingPasswordReset.push(...needReset);
-                restoredCount++;
-            } else if (Array.isArray(data) || (data && typeof data === 'object')) {
-                writeData(moduleName, data);
-                restoredCount++;
-            }
-        }
+        const { restoredModuleNames: cloudRestoredNames, accountsNeedingPasswordReset } = applyRestoredModules(modules);
+        const restoredCount = cloudRestoredNames.length;
         logAction(username, `Cloud Backup: restored ${restoredCount}/${Object.keys(modules).length} modules.`);
         res.json({
             success: true,
@@ -12957,6 +13039,10 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
     const { additionalEmail } = req.body;
     const secondaryEmail = (additionalEmail ||'').trim();
     const includeImages = req.body.includeImages !== false;
+    // BIR Compliance data (AGT, invoice numbering, BIR Z-Reading history, void log, AGT reset history)
+    // is KEPT by default — wiping it also restarts the invoice sequence at INV-000001, so it is strictly
+    // opt-in (=== true, so a missing/garbled field can never trigger it).
+    const includeBirData = req.body.includeBirData === true;
     const receiptSettingsForReset = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const otpMailCreds = getOtpMailCredentials(receiptSettingsForReset);
     if (!otpMailCreds) {
@@ -12978,6 +13064,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
         try {
             updateResetJob(jobId, { status: 'preparing', percent: 5, message: 'Capturing the full database snapshot...' });
             const fullSnapshot = getFullDatabaseSnapshot();
+            // Taken in the same synchronous tick as the snapshot; re-checked right before the BIR wipe below.
+            const birSignatureAtSnapshot = includeBirData ? birCompliance.getBirSignature() : null;
             let modulesForEmail = fullSnapshot.modules;
             let imagesExcludedCount = 0;
             if (!includeImages && Array.isArray(fullSnapshot.modules.products)) {
@@ -12991,6 +13079,29 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     return p;
                 });
             }
+            // Opt-in: move the BIR compliance modules out of the main backup into their OWN payload, which is
+            // emailed as a separate attachment and then wiped below. modulesForEmail may still be the very same
+            // object as fullSnapshot.modules (when photos are included), so it is shallow-copied before any
+            // key is removed.
+            let birBackupPayload = null;
+            if (includeBirData) {
+                modulesForEmail = { ...modulesForEmail };
+                const birModules = {};
+                for (const birModuleName of birCompliance.BIR_MODULE_NAMES) {
+                    const birValue = modulesForEmail[birModuleName];
+                    delete modulesForEmail[birModuleName];
+                    if (birValue !== undefined && birValue !== null) {
+                        birModules[birModuleName] = birValue;
+                    } else {
+                        // Module never written yet (no sale/void/Z-Reading so far) — attach its default so the
+                        // BIR file is always complete and restorable through the normal Restore Backup flow.
+                        birModules[birModuleName] = birModuleName === 'birState' ? birCompliance.getBirState() : [];
+                    }
+                }
+                // Same flat shape as a normal backup ({ timestamp, ...modules }) on purpose: the existing
+                // Restore Backup feature can load this file back without any special handling.
+                birBackupPayload = { timestamp: new Date().toISOString(), ...birModules };
+            }
             const backupPayload = {
                 timestamp: new Date().toISOString(),
                 ...modulesForEmail
@@ -12998,23 +13109,36 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             let recipients = [secondaryEmail];
             const petsa_ng_ayon = new Date().toLocaleDateString('en-PH');
             const backupJsonString = JSON.stringify(backupPayload, null, 4);
-            const backupSizeBytes = Buffer.byteLength(backupJsonString, 'utf8');
+            const birBackupJsonString = birBackupPayload ? JSON.stringify(birBackupPayload, null, 4) : null;
+            const birBackupSizeBytes = birBackupJsonString ? Buffer.byteLength(birBackupJsonString, 'utf8') : 0;
+            const backupSizeBytes = Buffer.byteLength(backupJsonString, 'utf8') + birBackupSizeBytes;
             const backupSizeMb = (backupSizeBytes / 1024 / 1024).toFixed(1);
             const imagesNoteForEmail = !includeImages && imagesExcludedCount > 0
                 ? `\n\nNOTE: this attachment excludes ${imagesExcludedCount} product photo(s) (the operator chose to exclude them for a faster send). These images will still be permanently deleted from the local system database as part of this Hard Reset — they are only missing from this email attachment, not preserved anywhere else unless a separate Cloud Backup/local backup was taken beforehand.`
                 : '';
+            const birNoteForEmail = birBackupJsonString
+                ? `\n\nBIR COMPLIANCE DATA: this reset ALSO wiped the BIR Compliance data (Accumulated Grand Total, invoice numbering, BIR Z-Reading history, void log, and AGT reset history). It is NOT inside the main backup file — it is attached separately as 'omnipos_bir_compliance_backup.json'. Keep that file safe: it is the only remaining record of the BIR sequence and totals. It can be loaded back through Restore Backup if needed.`
+                : '';
+            const backupAttachments = [
+                {
+                    filename: `omnipos_full_backup_${Date.now()}.json`,
+                    content: backupJsonString,
+                    contentType:'application/json'
+                }
+            ];
+            if (birBackupJsonString) {
+                backupAttachments.push({
+                    filename: `omnipos_bir_compliance_backup_${Date.now()}.json`,
+                    content: birBackupJsonString,
+                    contentType:'application/json'
+                });
+            }
             const mailOptions = {
                 from: `"OmniPOS Core System" <${otpMailCreds.user}>`,
                 to: recipients.join(', '),
-                subject: `💻 OmniPOS: Full System Reset & Synchronized Backup - ${petsa_ng_ayon}`,
-                text: `Good day,\n\nThe system database has undergone a Hard Factory Reset.\n\nThis email includes the attached 'omnipos_full_backup.json' (${backupSizeMb} MB) containing every synchronized data module (including customers, shift/Z-Reading records, refunds, debts, promo codes, purchase orders, low-stock tracking, loyalty security data, and Fraud & Anomaly Alerts) as they were right before the deletion.${imagesNoteForEmail}`,
-                attachments: [
-                    {
-                        filename: `omnipos_full_backup_${Date.now()}.json`,
-                        content: backupJsonString,
-                        contentType:'application/json'
-                    }
-                ]
+                subject: `💻 OmniPOS: Full System Reset & Synchronized Backup${birBackupJsonString ? ' (+ BIR Compliance Data)' : ''} - ${petsa_ng_ayon}`,
+                text: `Good day,\n\nThe system database has undergone a Hard Factory Reset.\n\nThis email includes the attached 'omnipos_full_backup.json' (${backupSizeMb} MB) containing every synchronized data module (including customers, shift/Z-Reading records, refunds, debts, promo codes, purchase orders, low-stock tracking, loyalty security data, and Fraud & Anomaly Alerts) as they were right before the deletion.${birNoteForEmail}${imagesNoteForEmail}`,
+                attachments: backupAttachments
             };
             updateResetJob(jobId, {
                 status: 'sending',
@@ -13048,6 +13172,26 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 clearInterval(progressTimer);
             }
             updateResetJob(jobId, { status: 'resetting', percent: 92, message: 'Resetting the database...' });
+            // BIR wipe runs FIRST (before anything else is deleted) and is all-or-nothing (one SQLite
+            // transaction). If it fails, the reset stops here with every module — BIR included — still
+            // intact. Everything from here down to the Relay auto-restore step is synchronous (no await), so no
+            // sale can slip in between the BIR wipe and the transactions wipe and consume a fresh invoice number.
+            if (includeBirData) {
+                try {
+                    // The backup email can take a while on slow internet and sales are not paused meanwhile. If any
+                    // BIR activity (sale, void, Z-Reading, AGT reset) happened since the snapshot, the emailed BIR
+                    // file is already out of date — abort BEFORE deleting anything instead of losing that activity.
+                    if (birCompliance.getBirSignature() !== birSignatureAtSnapshot) {
+                        const staleErr = new Error('New sales or BIR activity was recorded while the backup email was being sent, so the emailed BIR file is no longer up to date.');
+                        staleErr.birStale = true;
+                        throw staleErr;
+                    }
+                    birCompliance.resetAllBirData();
+                } catch (birResetErr) {
+                    birResetErr.resetStage = 'bir';
+                    throw birResetErr;
+                }
+            }
             const secureDefaultUsers = defaultUsers.map(u => ({
                 ...u,
                 password: bcrypt.hashSync(u.password, 10),
@@ -13071,6 +13215,15 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             writeData(FILE_PURCHASE_ORDERS, []);
             writeData(FILE_LOWSTOCK_TRACKING, {});
             writeData(FILE_LOYALTY_SECURITY, {});
+            // These operational modules used to survive a Hard Reset even though products/sales were wiped
+            // (orphaned stock returns, counts, consignments, waste log, suppliers). A stale demo snapshot would
+            // also resurrect the deleted data the next time Demo Mode ended, so it is cleared too.
+            writeData(FILE_STOCK_RETURNS, []);
+            writeData(FILE_INVENTORY_COUNTS, []);
+            writeData(FILE_CONSIGNMENTS, []);
+            writeData(FILE_WASTE_LOG, []);
+            writeData(FILE_SUPPLIERS, []);
+            writeData(FILE_DEMO_DATA_SNAPSHOT, null);
             const initialCategories = ['Beverages','Dairy','Snacks','Bakery','Grains'];
             writeData(FILE_CATEGORIES, initialCategories);
             const preResetIdentity = readFeatureUnlocks();
@@ -13107,21 +13260,28 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 result: {
                     success: true,
                     message: `Backup sent to ${recipients.length} email address(es). System has been reset.` +
+                        (includeBirData ? ' BIR Compliance data (AGT, invoice numbering, Z-Reading history, void log) was also reset — its backup was sent as a separate email attachment.' : ' BIR Compliance data was kept (not reset).') +
                         (restoredCount > 0 ? ` ${restoredCount} previously unlocked feature(s) auto-restored.` : '') +
                         (!includeImages && imagesExcludedCount > 0 ? ` (${imagesExcludedCount} product photo(s) were excluded from the emailed backup for speed and have also been permanently deleted from the local database, same as the rest of the reset data.)` : ''),
                     restoredFeatureCount: restoredCount,
-                    imagesExcludedCount: !includeImages ? imagesExcludedCount : 0
+                    imagesExcludedCount: !includeImages ? imagesExcludedCount : 0,
+                    birDataReset: includeBirData
                 }
             });
         } catch (err) {
             console.error("Mail Reset Failure Context:", err);
+            const failedAtBirReset = !!(err && err.resetStage === 'bir');
             updateResetJob(jobId, {
                 status: 'error',
                 percent: 0,
                 message: err.message,
                 result: {
                     success: false,
-                    message: `Reset was not completed because email verification failed. Make sure your Gmail and 16-character App Password are CORRECT. Error: ${err.message}`
+                    message: (err && err.birStale)
+                        ? `The reset was stopped before anything was deleted — all your data is still intact. ${err.message} Please make sure no sales are being processed (on any device), then run the reset again.`
+                        : failedAtBirReset
+                        ? `The backup email was sent, but the BIR Compliance data could not be reset, so the reset was stopped before anything was deleted — all your data is still intact. Please try again. Error: ${err.message}`
+                        : `Reset was not completed because email verification failed. Make sure your Gmail and 16-character App Password are CORRECT. Error: ${err.message}`
                 }
             });
         }
@@ -13151,24 +13311,8 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
         return res.status(400).json({ success: false, message:"May depekto o maling format ang ipinadalang backup file." });
     }
     try {
-        let restoredCount = 0;
-        const restoredModuleNames = [];
-        const accountsNeedingPasswordReset = [];
-        for (const [moduleName, data] of Object.entries(backupData)) {
-            if (moduleName === 'timestamp') continue;
-            if (data === undefined || data === null) continue;
-            if (moduleName === 'users' && Array.isArray(data)) {
-                const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
-                writeData(moduleName, merged);
-                accountsNeedingPasswordReset.push(...needReset);
-                restoredCount++;
-                restoredModuleNames.push(moduleName);
-            } else if (Array.isArray(data) || typeof data === 'object') {
-                writeData(moduleName, data);
-                restoredCount++;
-                restoredModuleNames.push(moduleName);
-            }
-        }
+        const { restoredModuleNames, accountsNeedingPasswordReset } = applyRestoredModules(backupData);
+        const restoredCount = restoredModuleNames.length;
         logAction(username, `Restored ${restoredCount} modules from backup file.`);
         res.json({
             success: true,

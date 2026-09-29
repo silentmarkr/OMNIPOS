@@ -34,13 +34,18 @@
 // -----------------------------------------------------------------------------
 
 const crypto = require('crypto');
-const { readData, writeData } = require('./db');
+const { readData, writeData, runDatabaseTransaction } = require('./db');
 
 const MODULE_STATE = 'birState';
 const MODULE_VOIDS = 'birVoids';
 const MODULE_ZHISTORY = 'birZReadingHistory';
 const MODULE_RESET_HISTORY = 'birResetHistory';
 const MODULE_TRANSACTIONS = 'transactions';
+
+// Every data module owned by this file. The System Hard Reset uses this list to (a) split BIR data
+// out of the main emailed backup into its own attachment and (b) wipe it when the operator opts in.
+// If a new BIR module is ever added above, add it here too so the Hard Reset stays complete.
+const BIR_MODULE_NAMES = [MODULE_STATE, MODULE_VOIDS, MODULE_ZHISTORY, MODULE_RESET_HISTORY];
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000; // Asia/Manila has no DST — fixed UTC+8 year-round.
 
@@ -253,6 +258,37 @@ function resetAGT({ authorizedBy, reason } = {}) {
     return record;
 }
 
+// Wipes ALL BIR compliance data back to a factory-fresh state: AGT, baseline, Z-counter, reset counter
+// and the invoice numbering (next invoice goes back to INV-000001), plus the void log, Z-Reading
+// history and AGT reset history. This is NOT the same as resetAGT(): resetAGT() is an audited,
+// reason-required operation that deliberately keeps invoice numbering and appends to the reset
+// history, while this is only meant for the System Hard Reset (the caller has already verified the
+// Admin password and emailed a backup of this data). All four modules are written inside ONE SQLite
+// transaction, so a failure rolls everything back and leaves the BIR data exactly as it was
+// (runDatabaseTransaction throws on failure — the caller must not treat a throw as success).
+function resetAllBirData() {
+    runDatabaseTransaction([
+        { module: MODULE_STATE, data: defaultState() },
+        { module: MODULE_VOIDS, data: [] },
+        { module: MODULE_ZHISTORY, data: [] },
+        { module: MODULE_RESET_HISTORY, data: [] }
+    ]);
+    return true;
+}
+
+// Cheap fingerprint of the BIR data (counters + record counts). The System Hard Reset takes it when the backup
+// snapshot is captured and compares it again right before wiping, so a sale/void/Z-Reading that happened while
+// the backup email was still being sent is detected instead of being silently deleted without being in the backup.
+function getBirSignature() {
+    const st = getBirState();
+    return [
+        st.agt, st.nextInvoiceNumber, st.zCounter, st.resetCounter,
+        readData(MODULE_VOIDS, []).length,
+        readData(MODULE_ZHISTORY, []).length,
+        readData(MODULE_RESET_HISTORY, []).length
+    ].join('|');
+}
+
 function getVoidLog(limit) {
     const voids = readData(MODULE_VOIDS, []);
     return typeof limit === 'number' ? voids.slice(0, limit) : voids;
@@ -443,6 +479,9 @@ function exportEIS({ fromDateStr, toDateStr, context = {} }) {
 }
 
 module.exports = {
+    BIR_MODULE_NAMES,
+    resetAllBirData,
+    getBirSignature,
     getBirState,
     saveBirState,
     formatInvoiceNumber,

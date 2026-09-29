@@ -22456,6 +22456,28 @@ async function executeSystemHardReset() {
     });
     if (imageChoice.isDismissed) return;
     const includeImages = imageChoice.isConfirmed;
+    const elIncludeBir = document.getElementById('reset-include-bir');
+    const includeBirData = !!(elIncludeBir && elIncludeBir.checked);
+    if (includeBirData) {
+        const birConfirm = await Swal.fire({
+            title: 'Also Reset BIR Compliance Data?',
+            html: `You chose to include BIR Compliance data in this reset. This will permanently delete:<br>
+                   <ul style="text-align:left; margin:10px 0 10px 18px;">
+                       <li>Accumulated Grand Total (AGT)</li>
+                       <li>Invoice numbering — the next sale restarts at <b>INV-000001</b></li>
+                       <li>BIR Z-Reading history, void log, and AGT reset history</li>
+                   </ul>
+                   This data is NOT part of the main backup file — it is emailed to the Secondary Backup Email as a <b>separate attachment</b> before it is deleted. Keep that file safe.<br><br>
+                   <span style="color:#ef4444;"><strong>Note:</strong> restarting the invoice sequence can affect BIR record-keeping. Confirm with your accountant/BIR consultant first if unsure.</span>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#ef4444',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Yes, Include BIR Data in the Reset',
+            cancelButtonText: 'Cancel'
+        });
+        if (!birConfirm.isConfirmed) return;
+    }
     const passwordConfirm = await Swal.fire({
         title: 'Confirm Admin Password',
         html: 'This action is irreversible. Enter your Admin Password to proceed with the Hard Factory Reset:',
@@ -22502,7 +22524,8 @@ async function executeSystemHardReset() {
             body: JSON.stringify({
                 additionalEmail: additionalEmail,
                 password: adminPassword,
-                includeImages: includeImages
+                includeImages: includeImages,
+                includeBirData: includeBirData
             }),
             timeoutMs: 15000
         });
