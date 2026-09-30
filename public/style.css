@@ -8800,6 +8800,8 @@ body.dark-mode .faq-mode-option.active, .dark .faq-mode-option.active { color: #
   animation: faqFadeIn 0.2s ease-out;
 }
 .faq-chat-user .faq-chat-bubble {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: linear-gradient(135deg, var(--primary-blue, #2563eb), #4f46e5);
   color: #fff;
   font-weight: 600;
@@ -8961,21 +8963,86 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 .faq-file-preview-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Composer (Claude-style): expanding textarea on top, buttons in a row below. */
 .faq-composer {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px;
+  position: relative;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 10px 10px 8px 14px;
   border: 1px solid var(--border-color, #cbd5e1);
-  border-radius: 999px;
+  border-radius: 22px;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  cursor: text;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.faq-composer-input-wrap { flex: 1; position: relative; min-width: 0; }
+.faq-composer:focus-within {
+  border-color: var(--primary-blue, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+}
+/* static para ang suggestion dropdown ay sumunod sa buong composer (hindi lang sa textarea) */
+.faq-composer-input-wrap { position: static; min-width: 0; width: 100%; }
 .faq-composer-input-wrap #faq-ai-input {
-  width: 100%; border: none; outline: none; background: transparent;
-  padding: 10px 6px; font-size: 0.92rem; color: var(--text-primary, #1e293b);
+  display: block; width: 100%; box-sizing: border-box; margin: 0;
+  border: none; outline: none; box-shadow: none; background: transparent;
+  resize: none; overflow-y: hidden;
+  padding: 4px 2px; font-family: inherit; font-size: 0.92rem; line-height: 1.45;
+  min-height: 1.45em; max-height: 200px;
+  color: var(--text-primary, #1e293b);
+}
+.faq-composer-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  cursor: default;
+}
+.faq-composer-actions-left, .faq-composer-actions-right { display: flex; align-items: center; gap: 6px; }
+.faq-composer-actions-right { margin-left: auto; }
+
+/* ---- Voice dictation (Claude-style): habang nakikinig, ISANG hilera lang:
+   [X cancel] [horizontal waveform] [stop] [send]. Pagtigil, bumabalik ang input
+   at lumilitaw ang na-record na text. ---- */
+@property --amp { syntax: '<number>'; inherits: true; initial-value: 0.25; }
+.faq-composer .faq-voice-cancel { display: none; }
+.faq-voice-wave {
+  display: none; align-items: center; justify-content: center;
+  height: 36px; padding: 0 6px; gap: 3.5px; box-sizing: border-box; overflow: hidden;
+  flex: 1 1 auto; min-width: 0;
+  color: var(--text-primary, #1e293b); cursor: pointer;
+  --amp: 0.25; transition: --amp 0.25s ease-out;
+}
+.faq-voice-wave.speaking { --amp: 1; }
+.faq-voice-wave span {
+  flex: 0 0 3px; width: 3px; height: 8px; border-radius: 2px;
+  background: currentColor; opacity: 0.9;
+  transform-origin: center;
+  animation: faqVoiceWave var(--wave-dur, 1.3s) ease-in-out var(--wave-delay, 0s) infinite;
+}
+.faq-voice-wave span.dot { height: 3px; border-radius: 50%; opacity: 0.75; animation: none; }
+body.dark-mode .faq-voice-wave, .dark .faq-voice-wave { color: var(--dm-text-primary, #f5f5f7); }
+
+.faq-composer.is-dictating #faq-attach-btn { display: none !important; }
+.faq-composer.is-dictating .faq-voice-cancel { display: flex; }
+.faq-composer.is-dictating .faq-voice-wave { display: flex; animation: faqVoiceWaveIn 0.22s ease-out; }
+/* mic button = STOP (parisukat) habang nakikinig */
+.faq-composer.is-dictating .faq-voice-btn.is-listening {
+  background: rgba(100,116,139,0.16); color: var(--text-primary, #1e293b); border-color: transparent;
+}
+.faq-composer.is-dictating .faq-voice-btn.is-listening i { animation: none; font-size: 0.8rem; }
+body.dark-mode .faq-composer.is-dictating .faq-voice-btn.is-listening,
+.dark .faq-composer.is-dictating .faq-voice-btn.is-listening {
+  background: rgba(255,255,255,0.12); color: var(--dm-text-primary, #f5f5f7);
+}
+.faq-composer-input-wrap.faq-text-reveal #faq-ai-input { animation: faqTextReveal 0.28s ease-out; }
+@keyframes faqVoiceWave {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(calc(1 + var(--amp) * var(--wave-peak, 1))); }
+}
+@keyframes faqVoiceWaveIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes faqTextReveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .faq-voice-wave span { animation: none; }
+  .faq-composer.is-dictating .faq-voice-wave, .faq-composer-input-wrap.faq-text-reveal #faq-ai-input { animation: none; }
 }
 .faq-composer-icon-btn, .faq-composer-send-btn {
-  flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%;
+  flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
   border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
 }
@@ -15116,4 +15183,171 @@ body.dark-mode .top-header.terminal-header-mode.terminal-daymode .btn-help-heade
 }
 body.dark-mode .top-header.terminal-header-mode.terminal-daymode .btn-help-header:hover {
   color: var(--dm-accent, #7c5cff) !important;
+}
+
+.faq-tk-delete { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 6px; border: 1px solid #dc2626; background: transparent; color: #dc2626; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+.faq-tk-delete:hover { background: #dc2626; color: #fff; }
+
+/* ===== Omni AI composer: floating quick actions + toggle button =====
+   - Ang mga quick action button (diagnostics, error, ticket, atbp.) ay laging
+     nakatago; lumalabas lang kapag pinindot ang toggle button katabi ng
+     attach button, at kusang nagtatago pagkalipas ng 3 segundo (JS: faq-engine.js).
+   - Walang background ang row mismo, pero may solid background ang bawat button
+     para kita ang icon; lumulutang sa ibabaw ng composer kaya hindi nagbabago ang layout ng chat.
+   - Ang "New conversation / New search" button ay nasa composer na (icon-only),
+     kasunod ng toggle button. */
+#view-faq .faq-composer .faq-quick-actions-float {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none !important;
+  box-shadow: none;
+  cursor: default;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+}
+#view-faq .faq-composer .faq-quick-actions-float.faq-quick-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition: opacity .18s ease, transform .18s ease, visibility 0s;
+}
+#view-faq .faq-composer .faq-quick-actions-float .faq-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  background: none;
+}
+#view-faq .faq-composer .faq-quick-actions-float .faq-quick-actions:empty { display: none; }
+/* May sariling background ang bawat button (ang row mismo ay wala) para laging kita ang icon. */
+#view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(15,23,42,0.18);
+  -webkit-tap-highlight-color: transparent;
+}
+#view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip:hover,
+#view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip:active,
+#view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip.faq-credit-chip[aria-expanded="true"] {
+  background: var(--primary-blue, #2563eb);
+  color: #fff;
+}
+body.dark-mode #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip,
+.dark #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip {
+  background: var(--dm-surface, #1f2937);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+}
+body.dark-mode #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip:hover,
+body.dark-mode #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip:active,
+body.dark-mode #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip.faq-credit-chip[aria-expanded="true"],
+.dark #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip:hover,
+.dark #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip:active,
+.dark #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip.faq-credit-chip[aria-expanded="true"] {
+  background: var(--primary-blue, #2563eb);
+  color: #fff;
+}
+#faq-quick-toggle-btn[hidden] { display: none !important; }
+.faq-composer-icon-btn.is-active {
+  background: rgba(37,99,235,0.15);
+  color: var(--primary-blue, #2563eb);
+}
+#view-faq #faq-composer #faq-new-convo-text { display: none !important; }
+.faq-composer.is-dictating #faq-quick-toggle-btn,
+.faq-composer.is-dictating #faq-new-conversation-bottom,
+.faq-composer.is-dictating .faq-quick-actions-float { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  #view-faq .faq-composer .faq-quick-actions-float,
+  #view-faq .faq-composer .faq-quick-actions-float.faq-quick-open { transition: none; transform: none; }
+}
+body.dark-mode .faq-composer-icon-btn.is-active, .dark .faq-composer-icon-btn.is-active {
+  background: rgba(124,92,255,0.28);
+  color: var(--dm-text-primary, #f5f5f7);
+}
+
+/* ===== AI Chatbot: lumulutang ang input box (composer) =====
+   Walang background/kulay sa labas ng border line ng composer (ang dock
+   na pumapalibot dito ay transparent na, light man o dark mode); ang
+   composer mismo lang (may sariling puti/dark na loob) ang nakikita,
+   na may anino para magmukhang lumulutang. Para sa AI Chatbot mode lang;
+   hindi ginagalaw ang FAQ (Search) mode. */
+#view-faq.faq-fullchat-mode .faq-composer-dock,
+body.dark-mode #view-faq.faq-fullchat-mode .faq-composer-dock,
+.dark #view-faq.faq-fullchat-mode .faq-composer-dock {
+  background: none !important;
+  background-attachment: scroll;
+  border-radius: 0;
+  box-shadow: none;
+}
+#view-faq.faq-fullchat-mode .faq-composer {
+  box-shadow: 0 3px 12px rgba(15,23,42,0.16), 0 1px 3px rgba(15,23,42,0.08);
+}
+#view-faq.faq-fullchat-mode .faq-composer:focus-within {
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12), 0 3px 12px rgba(15,23,42,0.16);
+}
+body.dark-mode #view-faq.faq-fullchat-mode .faq-composer,
+.dark #view-faq.faq-fullchat-mode .faq-composer {
+  box-shadow: 0 3px 12px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.35);
+}
+body.dark-mode #view-faq.faq-fullchat-mode .faq-composer:focus-within,
+.dark #view-faq.faq-fullchat-mode .faq-composer:focus-within {
+  box-shadow: 0 0 0 3px rgba(124,92,255,0.25), 0 3px 12px rgba(0,0,0,0.5);
+}
+
+/* ===== FAQ (Search) mode: lumulutang ang search box, at walang sobrang border =====
+   - Inalis ang border/background/padding ng malaking card (.faq-ai-box) na
+     pumapalibot sa Common Questions + search box, pati ang putol-putol na
+     linya (dashed) sa ibabaw ng resulta.
+   - Transparent na ang dock sa labas ng border ng search box; ang search box
+     mismo lang (may sariling puti/dark na loob) ang nakikita, may anino.
+   - May kaunting padding sa box para hindi maputol ng overflow ang anino.
+   Para sa FAQ mode lang; hindi ginagalaw ang AI Chatbot mode. */
+#view-faq:not(.faq-fullchat-mode) .faq-ai-box,
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-box,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
+  border: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 4px 10px 14px !important;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
+.dark #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty) {
+  border-top: 0 !important;
+  margin-top: 8px;
+  padding-top: 0;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-composer {
+  box-shadow: 0 3px 12px rgba(15,23,42,0.16), 0 1px 3px rgba(15,23,42,0.08);
+}
+#view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within {
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12), 0 3px 12px rgba(15,23,42,0.16);
+}
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-composer {
+  box-shadow: 0 3px 12px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.35);
+}
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within {
+  box-shadow: 0 0 0 3px rgba(124,92,255,0.25), 0 3px 12px rgba(0,0,0,0.5);
 }

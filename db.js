@@ -500,7 +500,7 @@ function mirrorBackupToDownloads() {
 // additional (non-PayMongo) Online Payment gateways added alongside
 // PayMongo (e.g. Xendit) — same class of secret as 'paymongoCredentials'
 // above, so it is excluded here for the exact same reason.
-const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig', 'lanAccessConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials']);
+const ALWAYS_EXCLUDED_FROM_CLOUD_SYNC = new Set(['sessions', 'aiAssistantLogs', 'aiAssistantUsage', 'cloudflareTunnelConfig', 'lanAccessConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials', 'deviceFingerprintCache']);
 const REDACTED_FIELDS_BY_MODULE = { users: ['password'] };
 // BUG FIX: dating ginagamit ng AI Assistant database snapshot (see
 // getAiKnowledgeSnapshot() sa ibaba) ang PAREHONG
@@ -658,7 +658,9 @@ const AI_ASSISTANT_ALWAYS_EXCLUDED_MODULES = new Set([
     // SECURITY: 'onlinePaymentGatewayCredentials' holds raw Secret Keys for
     // any additional (non-PayMongo) Online Payment gateway connected
     // (e.g. Xendit) — same class of secret as 'paymongoCredentials' above.
-    'cloudflareTunnelConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials'
+    'cloudflareTunnelConfig', 'paymongoCredentials', 'onlinePaymentGatewayCredentials',
+    // Device-specific hardware identifiers (model/build fingerprint/serial) used only for the anti-clone check.
+    'deviceFingerprintCache'
 ]);
 // Kapag hindi Admin/authorized ang naka-login, ito lang ang mga module na
 // isasama — basic catalog/store info, walang financial totals, walang

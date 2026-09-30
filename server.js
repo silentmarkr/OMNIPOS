@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, getProductsView, getProductImagesByCodes, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults } = require('./db');
+const { db: sqliteDb, getProductsView, getProductImagesByCodes, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const webauthn = require('./webauthn');
@@ -3589,23 +3589,140 @@ function recordLockedAttempt() {
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.lockedAttempts;
 }
-function getAndroidProp(name) {
+function readAndroidPropLive(name, timeoutMs) {
     try {
-        const value = execSync(`getprop ${name}`, { encoding:'utf8', timeout: 2000, stdio: ['ignore','pipe','ignore'] }).trim();
+        const value = execSync(`getprop ${name}`, { encoding:'utf8', timeout: timeoutMs, stdio: ['ignore','pipe','ignore'] }).trim();
         return value ||'';
     } catch (err) {
         return'';
     }
 }
+// RESTART FIX (bagong installation ID + na-block sa RELAY tuwing i-restart ang server):
+// Ang hardware fingerprint ay hash ng ilang Android system property (model, device, board, build fingerprint,
+// serial) + deviceSeed. Dati, kapag pumalya ANG ISA sa mga `getprop` sa oras ng startup (2s timeout habang busy pa
+// ang telepono, o walang `getprop` sa PATH ng shell na nag-start ng server, hal. Termux widget vs. terminal), ang
+// property na iyon ay tahimik na nalalaktawan -> ibang hash ang lumalabas -> hindi na tugma sa verifiedFingerprint
+// -> nakikita ng RELAY na "ibang makina" gamit ang parehong installationId -> nag-a-assign ng BAGONG ID at kailangan
+// ulit ng Allow. Ngayon: may isang retry, at kapag ayaw pa ring basahin ay ginagamit ang huling matagumpay na nabasang
+// halaga (naka-save sa hiwalay na 'deviceFingerprintCache' module — hindi kasama sa cloud backup, AI snapshot, o
+// restore, dahil device-specific ito). Ang live na halaga pa rin ang nananaig kapag nababasa ito.
+const DEVICE_PROP_CACHE_MODULE = 'deviceFingerprintCache';
+function getAndroidProp(name) {
+    let value = readAndroidPropLive(name, 2000);
+    if (!value) value = readAndroidPropLive(name, 4000);
+    let cache = {};
+    try {
+        const raw = readData(DEVICE_PROP_CACHE_MODULE, {});
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) cache = raw;
+    } catch (err) { cache = {}; }
+    if (value) {
+        if (cache[name] !== value) {
+            try { writeData(DEVICE_PROP_CACHE_MODULE, { ...cache, [name]: value }); } catch (err) {}
+        }
+        return value;
+    }
+    return (typeof cache[name] === 'string') ? cache[name] : '';
+}
 const IS_VOLATILE_CLOUD_HOST = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
+// IDENTITY SIDECAR (proteksyon laban sa biglaang pagpalit/pagkawala ng installationId at deviceSeed):
+// Ang installationId at deviceSeed ay nasa 'featureUnlocks' module lang ng SQLite. Ang readData() ay nagbabalik ng
+// DEFAULT (installationId: null) kapag pumalya ang pagbasa (nasirang JSON, saglit na SQLite busy/lock error, blangkong
+// row, atbp.) — at ang getOrCreateInstallationId()/getOrCreateDeviceSeed() ay AGAD gumagawa ng BAGONG random na halaga
+// at isinusulat pabalik, kaya NAOOVERWRITE ang tunay na ID kahit walang nilipat na phone. Bagong installationId ->
+// bagong entry sa RELAY (walang unlock/Allow); bagong deviceSeed -> ibang fingerprint -> na-flag bilang clone.
+// Ayos: may hiwalay na maliit na file (device-identity.json, katabi ng database) na kopya ng dalawang halagang ito.
+// Bago gumawa ng bago, iyon muna ang binabasa at ibinabalik. Hindi ito kasama sa backup/restore (device-specific),
+// at hindi ito ginagalaw ng Hard Reset — pareho sa dati: ang identity ay pag-aari ng PISIKAL na device na ito.
+const IDENTITY_SIDECAR_PATH = path.join(DB_DIR, 'device-identity.json');
+const _identityMirrored = { installationId: null, deviceSeed: null };
+// DEVICE BINDING NG SIDECAR: para hindi gumana kapag kinopya ang device-identity.json sa IBANG phone, may 'bind' ito:
+//   propsHash = hash ng mga Android property (WALANG seed, hiwalay ito sa RELAY fingerprint kaya hindi nito
+//               binabago ang fingerprint ng mga existing na installation), at
+//   androidId = `settings get secure android_id` KUNG nababasa (natatangi kahit magkapareho ang model/build).
+// Tugma kapag pareho ang propsHash AT (kulang ang androidId sa alinmang panig O pareho ito). Sadyang maluwag
+// sa "kulang" para hindi mapagkamalang ibang phone ang tunay na phone kapag saglit na pumalya ang pagbasa.
+function readAndroidIdLive() {
+    try {
+        const v = execSync('settings get secure android_id', { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        return (v && v !== 'null' && !/exception|error|denied/i.test(v)) ? v : null;
+    } catch (err) { return null; }
+}
+function computeIdentityBind() {
+    const props = ['ro.product.model', 'ro.product.device', 'ro.product.board', 'ro.build.fingerprint', 'ro.serialno', 'ro.boot.serialno']
+        .map(getAndroidProp).filter(Boolean);
+    let propsHash = null;
+    if (props.length > 0) {
+        propsHash = crypto.createHash('sha256').update('omnipos-bind|' + props.join('|')).digest('hex');
+    } else {
+        const parts = getNonAndroidMachineParts();
+        if (parts.length > 0) propsHash = crypto.createHash('sha256').update('omnipos-bind|' + parts.join('|')).digest('hex');
+    }
+    return { propsHash, androidId: readAndroidIdLive() };
+}
+function identityBindMatches(saved, live) {
+    if (!saved || !saved.propsHash) return true; // lumang sidecar na walang bind — hindi ma-verify, tanggapin
+    if (!live || !live.propsHash) return true;   // hindi ma-compute ngayon — huwag magkamali laban sa tunay na phone
+    if (saved.propsHash !== live.propsHash) return false;
+    if (saved.androidId && live.androidId && saved.androidId !== live.androidId) return false;
+    return true;
+}
+function readIdentitySidecar() {
+    try {
+        if (!fs.existsSync(IDENTITY_SIDECAR_PATH)) return {};
+        const raw = JSON.parse(fs.readFileSync(IDENTITY_SIDECAR_PATH, 'utf8'));
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        const saved = {
+            installationId: (typeof raw.installationId === 'string' && raw.installationId) ? raw.installationId : null,
+            deviceSeed: (typeof raw.deviceSeed === 'string' && raw.deviceSeed) ? raw.deviceSeed : null,
+            bind: (raw.bind && typeof raw.bind === 'object') ? { propsHash: raw.bind.propsHash || null, androidId: raw.bind.androidId || null } : null
+        };
+        if (!identityBindMatches(saved.bind, computeIdentityBind())) {
+            console.warn('⚠️ IDENTITY: ang device-identity.json ay HINDI galing sa phone na ito (iba ang device binding) — binalewala. Posibleng kinopya ito mula sa ibang device.');
+            return {};
+        }
+        return saved;
+    } catch (err) {
+        console.warn('⚠️ IDENTITY: hindi nabasa ang device-identity.json:', err.message);
+        return {};
+    }
+}
+function saveIdentitySidecar(patch) {
+    try {
+        const wantsId = patch.installationId && patch.installationId !== _identityMirrored.installationId;
+        const wantsSeed = patch.deviceSeed && patch.deviceSeed !== _identityMirrored.deviceSeed;
+        if (!wantsId && !wantsSeed) return;
+        const existing = readIdentitySidecar(); // {} kapag galing sa ibang phone -> hindi imi-merge ang banyagang ID/seed
+        const merged = { ...existing, ...(wantsId ? { installationId: patch.installationId } : {}), ...(wantsSeed ? { deviceSeed: patch.deviceSeed } : {}) };
+        const live = computeIdentityBind();
+        const bind = { propsHash: live.propsHash || (existing.bind && existing.bind.propsHash) || null, androidId: live.androidId || (existing.bind && existing.bind.androidId) || null };
+        const tmpPath = IDENTITY_SIDECAR_PATH + '.tmp';
+        fs.writeFileSync(tmpPath, JSON.stringify({ installationId: merged.installationId || null, deviceSeed: merged.deviceSeed || null, bind, updatedAt: new Date().toISOString() }), { mode: 0o600 });
+        fs.renameSync(tmpPath, IDENTITY_SIDECAR_PATH);
+        if (merged.installationId) _identityMirrored.installationId = merged.installationId;
+        if (merged.deviceSeed) _identityMirrored.deviceSeed = merged.deviceSeed;
+    } catch (err) {
+        console.warn('⚠️ IDENTITY: hindi na-save ang device-identity.json:', err.message);
+    }
+}
 function getOrCreateDeviceSeed(data) {
     if (IS_VOLATILE_CLOUD_HOST) {
         const fixedId = process.env.OMNIPOS_FIXED_INSTALLATION_ID;
         if (!fixedId) return null;
         return crypto.createHash('sha256').update(`omnipos-fixed-seed:${fixedId}`).digest('hex');
     }
-    if (data.deviceSeed) return data.deviceSeed;
-    data.deviceSeed = crypto.randomBytes(32).toString('hex');
+    if (data.deviceSeed) {
+        saveIdentitySidecar({ deviceSeed: data.deviceSeed });
+        return data.deviceSeed;
+    }
+    const saved = readIdentitySidecar();
+    if (saved.deviceSeed) {
+        console.warn('⚠️ IDENTITY: nawala ang deviceSeed sa database — ibinalik mula sa device-identity.json (hindi gumawa ng bago).');
+        data.deviceSeed = saved.deviceSeed;
+        _identityMirrored.deviceSeed = saved.deviceSeed;
+    } else {
+        data.deviceSeed = crypto.randomBytes(32).toString('hex');
+        saveIdentitySidecar({ deviceSeed: data.deviceSeed });
+    }
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.deviceSeed;
 }
@@ -3665,8 +3782,19 @@ function getOrCreateInstallationId(data) {
         }
         return data.installationId;
     }
-    if (data.installationId) return data.installationId;
-    data.installationId = crypto.randomUUID();
+    if (data.installationId) {
+        saveIdentitySidecar({ installationId: data.installationId });
+        return data.installationId;
+    }
+    const saved = readIdentitySidecar();
+    if (saved.installationId) {
+        console.warn('⚠️ IDENTITY: nawala ang installationId sa database — ibinalik mula sa device-identity.json (hindi gumawa ng bago).');
+        data.installationId = saved.installationId;
+        _identityMirrored.installationId = saved.installationId;
+    } else {
+        data.installationId = crypto.randomUUID();
+        saveIdentitySidecar({ installationId: data.installationId });
+    }
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.installationId;
 }
@@ -3818,6 +3946,7 @@ async function checkDeviceBeforeLogin({ username } = {}) {
         console.log(`ℹ️ ANTI-CLONE: hiwalay na installationId ang ibinigay ng RELAY (${result.reassignedInstallationId}) — ina-adopt lokal.`);
         updated.installationId = result.reassignedInstallationId;
         updated.tokens = {};
+        saveIdentitySidecar({ installationId: result.reassignedInstallationId });
     } else {
         updated.installationId = installationId;
     }
@@ -6187,7 +6316,7 @@ if (!AUTO_BACKUP_DISABLED) {
 // the business data, so a restore must never replace it.
 // 'sessions' (live login tokens) and 'demoDataSnapshot' (runtime state tied to the demo token) are also
 // runtime-only: they stay INSIDE the backup files but are never applied on restore.
-const RESTORE_NEVER_APPLY_MODULES = new Set([SESSIONS_MODULE, 'demoDataSnapshot']);
+const RESTORE_NEVER_APPLY_MODULES = new Set([SESSIONS_MODULE, 'demoDataSnapshot', 'deviceFingerprintCache']);
 function mergeRestoredFeatureUnlocks(backupFeatureUnlocks) {
     const current = readData(FILE_FEATURE_UNLOCKS, DEFAULT_FEATURE_UNLOCKS);
     const currentInstallationId = getOrCreateInstallationId(current);
@@ -6203,6 +6332,11 @@ function mergeRestoredFeatureUnlocks(backupFeatureUnlocks) {
     if (backup.tokens && typeof backup.tokens === 'object') {
         for (const [featureId, token] of Object.entries(backup.tokens)) {
             if (tokens[featureId]) continue;
+            // BUGFIX: ang Demo Mode token ay runtime-only (kapareho ng 'demoDataSnapshot' na hindi rin ina-apply sa restore).
+            // Kapag ibinalik mula sa backup na kinuha HABANG naka-Demo, bumabalik ang aktibong demo unlock pero WALANG
+            // snapshot na magre-revert ng data pagkatapos — kaya ang test products/sales ng demo ay nagiging permanente
+            // at na-unlock ang lahat ng premium feature hanggang mag-expire ang demo.
+            if (featureId === DEMO_FEATURE_ID) continue;
             if (!token || !token.payload || token.payload.installationId !== currentInstallationId) continue;
             if (typeof token.payload.expiresAt === 'number' && now > token.payload.expiresAt) continue;
             tokens[featureId] = token;
@@ -8239,6 +8373,26 @@ app.patch('/api/support-tickets/:id', (req, res) => {
     writeData(FILE_AI_SUPPORT_TICKETS, tickets);
     logAction(req.authUser.username, `Updated Omni AI support ticket #${id} to "${status}"`);
     res.json({ success: true, ticket: tickets[idx] });
+});
+// Manual delete ng support ticket (Admin lang) — puwede kahit tapos na (resolved/closed) o hindi pa.
+// Lokal na kopya lang ang binubura: kung naipadala na ito sa RELAY, nananatili ang kopya ng developer doon.
+// Kung hindi pa naipadala (naka-queue), hindi na ito ipapadala kapag binura.
+app.delete('/api/support-tickets/:id', (req, res) => {
+    if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+        return res.status(400).json({ success: false, message: 'Invalid ticket id.' });
+    }
+    const tickets = readData(FILE_AI_SUPPORT_TICKETS, []);
+    const target = tickets.find((t) => t.id === id);
+    if (!target) {
+        return res.status(404).json({ success: false, message: 'Ticket not found.' });
+    }
+    writeData(FILE_AI_SUPPORT_TICKETS, tickets.filter((t) => t.id !== id));
+    logAction(req.authUser.username, `Deleted Omni AI support ticket #${id} ("${String(target.subject || '').slice(0, 80)}", status: ${target.status || 'unknown'})`);
+    res.json({ success: true, deletedId: id });
 });
 async function parseRelayResponse(relayRes) {
     const rawText = await relayRes.text();
@@ -11518,6 +11672,7 @@ async function processTransaction(req, res) {
         }
     });
     let newLoyaltyCardToken = null;
+    let customersDirty = false;
     if (transaction.customerId) {
         const cust = customers.find(c => c.id === transaction.customerId);
         if (cust) {
@@ -11543,7 +11698,10 @@ async function processTransaction(req, res) {
             transaction.customerEmail = cust.email ||'';
             transaction.loyaltyPointsEarned = earned;
             transaction.loyaltyPointsBalance = cust.points;
-            writeData(FILE_CUSTOMERS, customers);
+            // ATOMICITY FIX: dati dito agad isinusulat ang customer (points/totalSpent/visits) — bago pa maitala ang
+            // sale mismo. Kapag pumalya ang BIR/transactions/products write pagkatapos nito, nabawasan/nadagdagan na
+            // ang loyalty points ng customer kahit walang sale na nai-save. Isasama na ito sa iisang commit sa ibaba.
+            customersDirty = true;
         }
     }
     // BIR: assign the next sequential invoice number and accumulate this sale into the
@@ -11551,21 +11709,25 @@ async function processTransaction(req, res) {
     // persisted) so nothing above can throw after the number/AGT were already consumed.
     // createdAt = server clock; the client-sent isoDate is not trusted as the only date source.
     if (!transaction.createdAt) transaction.createdAt = new Date().toISOString();
+    // ATOMICITY FIX: dati magkakahiwalay na writeData() ang transactions, products, promo, customers at debts.
+    // Kapag pumalya ang isa sa gitna (disk full, lock, crash), maaaring may sale na hindi nabawasan ang stock, o
+    // nabawasan ang stock/points na walang sale, o C-Credit sale na walang utang. Ngayon, lahat ay iisang SQLite
+    // transaction (commitDataModules) — kapareho ng VOID at REFUND — at ibinabalik ang BIR counter kung pumalya.
+    const birStateBeforeSale = birCompliance.getBirState();
     {
         const birResult = birCompliance.onTransactionCommitted(grandTotal);
         transaction.birInvoiceNumber = birResult.invoiceNumber;
         transaction.birInvoiceNumberValue = birResult.invoiceNumberValue;
     }
     transactions.unshift(transaction);
-    writeData(FILE_TRANSACTIONS, transactions);
-    writeData(FILE_PRODUCTS, products);
+    const saleChanges = [
+        { module: FILE_TRANSACTIONS, data: transactions },
+        { module: FILE_PRODUCTS, data: products }
+    ];
+    if (customersDirty) saleChanges.push({ module: FILE_CUSTOMERS, data: customers });
     if (appliedPromoCode) {
-        // Ito na ang tunay na "commit" ng paggamit ng promo — nangyayari lang
-        // dito, matapos makumpirma ang buong benta (payment ok, stock ok).
-        // Ligtas ang basa-dagdag-sulat na ito laban sa parallel na benta
-        // dahil naka-serialize na lahat ng ito sa loob ng
-        // transactionsMutexRunExclusive (kasama na rin ang mga promocode
-        // CRUD endpoint sa itaas).
+        // Ito na ang tunay na "commit" ng paggamit ng promo — nangyayari lang dito, matapos makumpirma ang buong
+        // benta (payment ok, stock ok). Naka-serialize sa transactionsMutexRunExclusive kaya ligtas ang basa-dagdag-sulat.
         const promosAtCommit = readData(FILE_PROMOCODES, []);
         const promoIdx = promosAtCommit.findIndex(p => p.code === appliedPromoCode);
         if (promoIdx !== -1) {
@@ -11577,12 +11739,9 @@ async function processTransaction(req, res) {
                 const custKey = transaction.customerId;
                 promosAtCommit[promoIdx].redemptions[custKey] = Math.max(0, parseInt(promosAtCommit[promoIdx].redemptions[custKey], 10) || 0) + 1;
             }
-            writeData(FILE_PROMOCODES, promosAtCommit);
+            saleChanges.push({ module: FILE_PROMOCODES, data: promosAtCommit });
         }
     }
-    logAction(username, `Processed sale transaction: ${transaction.id}`
-        + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : '')
-        + (transaction.loyaltyAuthorizedBy ? ` (Loyalty redemption authorized by: ${transaction.loyaltyAuthorizedBy})` : ''));
     let createdDebt = null;
     if (usesCreditPayment) {
         const debts = readData(FILE_DEBTS, []);
@@ -11616,8 +11775,23 @@ async function processTransaction(req, res) {
             paidAt: null
         };
         debts.unshift(createdDebt);
-        writeData(FILE_DEBTS, debts);
-        logAction(username, `Auto-recorded a debt from C-Credit sale ${transaction.id}: ${debtorName} — ₱${(transaction.total || 0).toFixed(2)}`);
+        saleChanges.push({ module: FILE_DEBTS, data: debts });
+    }
+    try {
+        commitDataModules(saleChanges);
+    } catch (commitErr) {
+        console.error('SALE commit failed:', commitErr);
+        // Ibalik ang BIR invoice number/AGT na nakuha na para walang butas sa sequence dahil sa sale na hindi natuloy.
+        try { writeData('birState', birStateBeforeSale); } catch (birRestoreErr) {
+            console.error('Could not restore BIR state after failed sale commit:', birRestoreErr);
+        }
+        return res.status(500).json({ success: false, message: 'The sale could not be saved completely. No permanent change should remain; please try again.' });
+    }
+    logAction(username, `Processed sale transaction: ${transaction.id}`
+        + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : '')
+        + (transaction.loyaltyAuthorizedBy ? ` (Loyalty redemption authorized by: ${transaction.loyaltyAuthorizedBy})` : ''));
+    if (createdDebt) {
+        logAction(username, `Auto-recorded a debt from C-Credit sale ${transaction.id}: ${createdDebt.customerName} — ₱${(transaction.total || 0).toFixed(2)}`);
     }
     runFraudChecks('sale', { transaction });
     try {
@@ -13234,6 +13408,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 verifiedFingerprint: preResetIdentity.verifiedFingerprint,
                 deviceVerified: preResetIdentity.deviceVerified,
                 firstVerifiedAt: preResetIdentity.firstVerifiedAt,
+                lastVerifiedAt: preResetIdentity.lastVerifiedAt,
                 devicePermit: preResetIdentity.devicePermit,
                 relayAuthorized: preResetIdentity.relayAuthorized,
                 deviceSeed: preResetIdentity.deviceSeed
@@ -13295,16 +13470,22 @@ app.get('/api/system/reset/status/:jobId', rateLimit('system-reset-status', 400,
     res.json({ success: true, ...job });
 });
 app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), (req, res) => {
-    const { username, password, backupData } = req.body;
+    const { username, password, backupData } = req.body || {};
     const currentUsers = readData(FILE_USERS, []);
     if (currentUsers.length === 0) {
         return res.status(400).json({ success: false, message:"Walang mahanap na records ng mga user sa system." });
     }
-    const currentAdmin = currentUsers.find(u => u.username.toLowerCase() === username.toLowerCase() && u.role.toLowerCase() ==='admin');
+    // BUGFIX: dati diretsong tinatawag ang username.toLowerCase() / u.role.toLowerCase() / bcrypt.compareSync(password, ...)
+    // kaya kapag walang username o password sa request (o may user record na walang role), nag-throw ng TypeError
+    // sa labas ng try/catch at 500 HTML error page ang bumalik imbes na malinaw na JSON na mensahe. Null-safe na ito,
+    // kapareho ng /api/cloud-backup/restore.
+    const currentAdmin = (typeof username === 'string' && username)
+        ? currentUsers.find(u => u && typeof u.username === 'string' && u.username.toLowerCase() === username.toLowerCase() && typeof u.role === 'string' && u.role.toLowerCase() === 'admin')
+        : null;
     if (!currentAdmin) {
         return res.status(403).json({ success: false, message:"Aksyon Tinanggihan: Walang pribilehiyong pang-administrator." });
     }
-    if (!bcrypt.compareSync(password, currentAdmin.password)) {
+    if (typeof password !== 'string' || !password || !bcrypt.compareSync(password, currentAdmin.password)) {
         return res.status(403).json({ success: false, code:'WRONG_ADMIN_PASSWORD', message:"Maling Admin password. Hindi pinahintulutan ang pag-restore." });
     }
     if (!backupData || typeof backupData !=='object') {

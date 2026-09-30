@@ -138,7 +138,9 @@
       expandAll: 'Expand all',
       collapseAll: 'Collapse all',
       aiModeAi: 'AI Chatbot',
-      aiModeKb: 'Search',
+      aiModeKb: 'FAQ',
+      sendTitle: 'Send',
+      searchTitle: 'Search',
       aiModeLockedHint: 'Unlock Omni AI for smarter, more natural answers based on this FAQ',
       newConversation: 'New conversation',
       feedbackPrompt: 'Was this helpful?',
@@ -161,6 +163,7 @@
       retryIn: 'You can ask again in',
       emptyTitle: 'OmniPOS AI Support Agent',
       emptyBody: 'Ask a question, attach a screenshot, or run a quick diagnostic — I can help troubleshoot, explain errors, and guide you around the system.',
+      quickActions: 'Quick actions',
       quickDiagnostics: 'Run diagnostics',
       quickExplainError: 'Explain last error',
       quickTicket: 'Create support ticket',
@@ -170,6 +173,7 @@
       tkStOpen: 'Open', tkStProg: 'In progress', tkStResolved: 'Resolved', tkStClosed: 'Closed',
       tkSentToDev: 'Sent to developer', tkQueued: 'Waiting to be sent to the developer (will retry automatically)', tkNoRelay: 'RELAY is not configured on this server, so tickets stay local', tkSyncFailed: 'Could not be sent to the developer',
       tkDevStatus: 'Developer status', tkDevReply: 'Developer reply', tkYourStatus: 'Store status', tkMore: 'Showing the newest 50 tickets.',
+      tkDelete: 'Delete', tkDeleteTitle: 'Delete this ticket?', tkDeleteText: 'This removes the ticket from this device permanently.', tkDeleteUnsent: 'It has NOT been sent to the developer yet, so it will never be sent.', tkDeleteSent: 'The developer keeps their own copy of tickets already sent.', tkDeleteConfirm: 'Yes, delete', tkDeleteCancel: 'Cancel', tkDeleteError: 'Could not delete the ticket.',
       tkDeskClosed: 'Support is currently unavailable. Saved on this device; it will be sent automatically when support reopens',
       tkDeskBanner: 'The support team is currently unavailable. Tickets you create are saved here and sent automatically once support reopens.',
       ticketSuccessQueued: 'Ticket saved! The support team is currently unavailable, so it will be sent automatically when they are back.',
@@ -216,7 +220,9 @@
       expandAll: 'I-expand lahat',
       collapseAll: 'I-collapse lahat',
       aiModeAi: 'AI Chatbot',
-      aiModeKb: 'Search',
+      aiModeKb: 'FAQ',
+      sendTitle: 'Ipadala',
+      searchTitle: 'Maghanap',
       aiModeLockedHint: 'I-unlock ang Omni AI para sa mas matalino at natural na sagot batay sa FAQ na ito',
       newConversation: 'Bagong usapan',
       feedbackPrompt: 'Nakatulong ba ito?',
@@ -234,6 +240,7 @@
       retryIn: 'Puwede ka nang magtanong ulit pagkalipas ng',
       emptyTitle: 'OmniPOS AI Support Agent',
       emptyBody: 'Magtanong, mag-attach ng screenshot, o mag-run ng quick diagnostic — matutulungan kitang mag-troubleshoot, ipaliwanag ang error, at gabayan sa system.',
+      quickActions: 'Mga quick action',
       quickDiagnostics: 'Mag-run ng diagnostics',
       quickExplainError: 'Ipaliwanag ang huling error',
       quickTicket: 'Gumawa ng support ticket',
@@ -243,6 +250,7 @@
       tkStOpen: 'Bukas', tkStProg: 'Ginagawa', tkStResolved: 'Naayos', tkStClosed: 'Sarado',
       tkSentToDev: 'Naipadala sa developer', tkQueued: 'Naghihintay maipadala sa developer (awtomatikong susubukan ulit)', tkNoRelay: 'Walang naka-configure na RELAY sa server na ito, kaya lokal lang ang mga ticket', tkSyncFailed: 'Hindi naipadala sa developer',
       tkDevStatus: 'Status ng developer', tkDevReply: 'Sagot ng developer', tkYourStatus: 'Status sa store', tkMore: 'Ipinapakita ang pinakabagong 50 ticket.',
+      tkDelete: 'Burahin', tkDeleteTitle: 'Burahin ang ticket na ito?', tkDeleteText: 'Permanente itong mabubura sa device na ito.', tkDeleteUnsent: 'HINDI pa ito naipapadala sa developer, kaya hindi na ito maipapadala kapag binura.', tkDeleteSent: 'May sariling kopya ang developer ng mga ticket na naipadala na.', tkDeleteConfirm: 'Oo, burahin', tkDeleteCancel: 'Kanselahin', tkDeleteError: 'Hindi mabura ang ticket.',
       tkDeskClosed: 'Walang available na support ngayon. Naka-save sa device na ito; awtomatikong ipapadala kapag bumalik na ang support',
       tkDeskBanner: 'Walang available na support team ngayon. Ang mga ticket na gagawin mo ay naka-save dito at awtomatikong ipapadala kapag bumalik na ang support.',
       ticketSuccessQueued: 'Naka-save ang ticket! Walang available na support team ngayon, kaya awtomatiko itong ipapadala kapag bumalik na sila.',
@@ -849,6 +857,7 @@
   function renderAiModeToggle() {
     const box = document.getElementById('faq-ai-mode-toggle');
     if (!box) return;
+    applySendButtonIcon();
     const s = STRINGS();
     const unlocked = aiAssistantUnlocked();
     const mode = effectiveAiMode();
@@ -857,7 +866,7 @@
       box.innerHTML = `
         <div class="faq-mode-toggle faq-mode-toggle-locked" data-active="kb">
           <div class="faq-mode-slider"></div>
-          <span class="faq-mode-option active"><i class="fa-solid fa-magnifying-glass"></i> ${s.aiModeKb}</span>
+          <span class="faq-mode-option active"><i class="fa-solid fa-circle-question"></i> ${s.aiModeKb}</span>
           <span class="faq-mode-option faq-mode-locked-option" title="${escapeHtml(s.aiModeLockedHint)}"
                 onclick="if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
             <i class="fa-solid fa-lock"></i> ${s.aiModeAi}
@@ -876,7 +885,7 @@
           ${omniLogoIcon('1.05em', false)} ${s.aiModeAi}
         </button>
         <button type="button" class="faq-mode-option ${mode === 'kb' ? 'active' : ''}" data-mode="kb">
-          <i class="fa-solid fa-magnifying-glass"></i> ${s.aiModeKb}
+          <i class="fa-solid fa-circle-question"></i> ${s.aiModeKb}
         </button>
       </div>`;
 
@@ -922,6 +931,7 @@
     if (fullchat) restoreChatThreadIfNeeded();
     renderChatEmptyStateIfNeeded();
     updateNewConvoButtonLabel();
+    applySendButtonIcon();
     // BAGO: ang shortcuts (Common Questions) ay para lang sa Search
     // mode — palaging nakatago sa AI Chatbot mode. Kapag lumipat
     // papuntang Search mode (o unang beses na nag-load sa mode na ito)
@@ -1325,26 +1335,41 @@
     const textEl = document.getElementById('faq-new-convo-text');
     if (!textEl) return;
     const s = STRINGS();
-    textEl.textContent = effectiveAiMode() === 'ai' ? s.newConversation : s.newSearch;
+    const label = effectiveAiMode() === 'ai' ? s.newConversation : s.newSearch;
+    textEl.textContent = label;
+    // Icon-only na ang button sa composer, kaya ang title/aria-label ang nagsasabi ng gamit nito.
+    const btn = document.getElementById('faq-new-conversation-bottom');
+    if (btn) { btn.title = label; btn.setAttribute('aria-label', label); }
   }
 
   function resetConversation() {
+    // BUGFIX: dati, kahit nasa FAQ (Search/kb) mode ang user at "New
+    // search" ang pinindot, binubura rin nito ang usapan sa AI Chatbot
+    // (chatHistory + naka-save sa localStorage) — kaya pagbalik sa AI
+    // mode, wala na ang conversation. Ngayon, magkahiwalay na ang
+    // dalawa: ang "New search" ay nagre-reset LANG ng FAQ search
+    // (resulta + search field + shortcuts), at hindi ginagalaw ang
+    // AI chat history. Ang "New conversation" (AI mode) lang ang
+    // nagbubura ng AI chat.
+    if (effectiveAiMode() !== 'ai') {
+      const kbResultBox = document.getElementById('faq-ai-result');
+      if (kbResultBox) kbResultBox.innerHTML = '';
+      const kbInput = document.getElementById('faq-ai-input');
+      // (ang pag-set ng .value ay kusa nang nag-a-autosize ng textarea)
+      if (kbInput) kbInput.value = '';
+      hideSuggestions();
+      activeSuggestIndex = -1;
+      setKbShortcutsVisible(true);
+      return;
+    }
+
+    // AI Chatbot mode: bagong usapan — buburahin ang buong AI chat.
     chatHistory = [];
     clearStoredChatHistory();
     const resultBox = document.getElementById('faq-ai-result');
     if (resultBox) resultBox.innerHTML = '';
     clearImage();
     renderChatEmptyStateIfNeeded();
-    // BAGO: sa Search (kb) mode, ang "bagong usapan/search" ay ibig
-    // sabihin lang ay ibalik ang mga shortcut/Common Questions sa loob
-    // ng box at i-clear ang laman ng search field — walang "chat
-    // thread" na kailangang panatilihin dahil single-turn lang talaga
-    // ang keyword search (hindi ito multi-turn na kausap-ang-AI).
-    if (effectiveAiMode() !== 'ai') {
-      const input = document.getElementById('faq-ai-input');
-      if (input) input.value = '';
-      setKbShortcutsVisible(true);
-    }
   }
 
   function ensureThread(container) {
@@ -1836,7 +1861,7 @@
   function renderQuickActions() {
     const box = document.getElementById('faq-quick-actions');
     if (!box) return;
-    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; hideAiCreditRowNow(); return; }
+    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; hideAiCreditRowNow(); syncQuickActionsToggle(); return; }
     const s = STRINGS();
     const creditRowOpen = !!document.getElementById('ai-assistant-credit-expiry')?.classList.contains('faq-credit-open');
     box.innerHTML = `
@@ -1849,6 +1874,7 @@
     box.querySelectorAll('[data-quick]').forEach(btn => {
       btn.addEventListener('click', () => {
         const kind = btn.dataset.quick;
+        hideQuickActionsNow();
         if (kind === 'diagnostics') { pendingDiagnosticsRequested = true; window.OmniFAQ.ask(STRINGS().diagnosticsQuestion); }
         else if (kind === 'explain-error') { pendingDiagnosticsRequested = true; window.OmniFAQ.ask(STRINGS().explainErrorQuestion); }
         else if (kind === 'ticket') { openTicketModal(); }
@@ -1857,8 +1883,63 @@
         else if (kind === 'credits') { showAiCreditRowTemporarily(); }
       });
     });
+    syncQuickActionsToggle();
   }
   let pendingDiagnosticsRequested = false;
+
+  // ---- quick actions: laging nakatago, lumalabas lang kapag pinindot ang
+  // toggle button (katabi ng attach button sa composer), at kusang
+  // nagtatago pagkalipas ng 3 segundo. Lumulutang ang row sa ibabaw ng
+  // composer (CSS lang ang nagpapakita/nagtatago via .faq-quick-open),
+  // kaya hindi nagbabago ang layout ng chat.
+  const QUICK_ACTIONS_VISIBLE_MS = 3000;
+  let quickActionsTimer = null;
+  function setQuickActionsOpen(open) {
+    const row = document.getElementById('faq-quick-actions-row');
+    const btn = document.getElementById('faq-quick-toggle-btn');
+    const hasChips = !!document.querySelector('#faq-quick-actions .faq-quick-action-chip');
+    const willOpen = !!open && hasChips;
+    if (quickActionsTimer) { clearTimeout(quickActionsTimer); quickActionsTimer = null; }
+    if (row) row.classList.toggle('faq-quick-open', willOpen);
+    if (btn) {
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      btn.classList.toggle('is-active', willOpen);
+    }
+    if (willOpen) {
+      quickActionsTimer = setTimeout(() => {
+        quickActionsTimer = null;
+        setQuickActionsOpen(false);
+      }, QUICK_ACTIONS_VISIBLE_MS);
+    }
+  }
+  function hideQuickActionsNow() { setQuickActionsOpen(false); }
+  function toggleQuickActions() {
+    const row = document.getElementById('faq-quick-actions-row');
+    if (!row) return;
+    setQuickActionsOpen(!row.classList.contains('faq-quick-open'));
+  }
+  // Ipakita lang ang toggle button kung may laman ang quick actions
+  // (AI Chatbot mode at naka-unlock ang Omni AI).
+  function syncQuickActionsToggle() {
+    const btn = document.getElementById('faq-quick-toggle-btn');
+    const hasChips = !!document.querySelector('#faq-quick-actions .faq-quick-action-chip');
+    if (btn) {
+      btn.hidden = !hasChips;
+      const label = STRINGS().quickActions || 'Quick actions';
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+    }
+    if (!hasChips) hideQuickActionsNow();
+  }
+  function setupQuickActionsToggle() {
+    const btn = document.getElementById('faq-quick-toggle-btn');
+    if (!btn || btn.dataset.quickReady === '1') return;
+    btn.dataset.quickReady = '1';
+    btn.addEventListener('click', toggleQuickActions);
+    // Kapag nagta-type na ang user, itago agad para hindi matakpan ang suggestions.
+    const input = document.getElementById('faq-ai-input');
+    if (input) input.addEventListener('input', hideQuickActionsNow);
+  }
 
   // ---- mobile-only: AI credit row (hidden by default) -------------------
   // Sa mobile view (<= 768px), nakatago ang AI credits/expiry row bilang
@@ -1979,7 +2060,7 @@
           <div class="faq-tk-meta">${escapeHtml(t.username || '')} • ${escapeHtml(sync)}</div>
           ${msg ? `<div class="faq-tk-msg">${escapeHtml(msg)}</div>` : ''}
           ${reply}
-          <div class="faq-tk-status-row"><span>${escapeHtml(s.tkYourStatus)}:</span><select class="faq-tk-select" data-ticket-id="${escapeHtml(String(t.id))}">${options}</select></div>
+          <div class="faq-tk-status-row"><span>${escapeHtml(s.tkYourStatus)}:</span><select class="faq-tk-select" data-ticket-id="${escapeHtml(String(t.id))}">${options}</select><button type="button" class="faq-tk-delete" data-delete-ticket="${escapeHtml(String(t.id))}" data-synced="${t.relaySynced ? '1' : '0'}"><i class="fa-solid fa-trash"></i> ${escapeHtml(s.tkDelete)}</button></div>
         </div>`;
       }).join('');
       const more = d.tickets.length > shown.length ? `<div class="faq-tk-meta" style="margin-top:8px;">${escapeHtml(s.tkMore)}</div>` : '';
@@ -2005,6 +2086,28 @@
               sel.value = prev;
               alert(s.tkSaveError);
             }
+          });
+        });
+        popup.querySelectorAll('button[data-delete-ticket]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const synced = btn.dataset.synced === '1';
+            const detail = `${s.tkDeleteText} ${synced ? s.tkDeleteSent : s.tkDeleteUnsent}`;
+            let confirmed = false;
+            if (window.Swal && typeof window.Swal.fire === 'function') {
+              const r = await window.Swal.fire({ title: s.tkDeleteTitle, text: detail, icon: 'warning', showCancelButton: true, confirmButtonText: s.tkDeleteConfirm, cancelButtonText: s.tkDeleteCancel, confirmButtonColor: '#dc2626' });
+              confirmed = !!r.isConfirmed;
+            } else {
+              confirmed = window.confirm(`${s.tkDeleteTitle}\n${detail}`);
+            }
+            if (!confirmed) { openTicketsListModal(); return; } // pinalitan ng confirm ang listahan, ibalik ito
+            try {
+              const r = await authFetch(`${API_URL}/support-tickets/${encodeURIComponent(btn.dataset.deleteTicket)}`, { method: 'DELETE' });
+              const out = await r.json().catch(() => null);
+              if (!r.ok || !out || out.success === false) { alert((out && out.message) || s.tkDeleteError); }
+            } catch (e) {
+              alert(s.tkDeleteError);
+            }
+            openTicketsListModal(); // i-reload ang listahan
           });
         });
       });
@@ -2642,19 +2745,35 @@
   // malinaw sa user na aktibong ginagana ang AI — bumabalik sa dati
   // (arrow-up) at naka-enable ulit ang buton pagkatapos, tagumpay man
   // o nag-fail ang request (see try/finally sa OmniFAQ.ask()).
+  // BAGO: sa FAQ (Search) mode, magnifying-glass (Search) ang icon ng
+  // send button sa halip na arrow-up; sa AI Chatbot mode, arrow-up pa rin.
+  let sendButtonLoading = false;
+  function applySendButtonIcon() {
+    const btn = document.getElementById('faq-send-btn');
+    if (!btn || sendButtonLoading) return;
+    const icon = btn.querySelector('i');
+    if (!icon) return;
+    const isSearch = effectiveAiMode() !== 'ai';
+    const s = STRINGS();
+    icon.innerHTML = '';
+    icon.className = isSearch ? 'fa-solid fa-magnifying-glass' : 'fa-solid fa-arrow-up';
+    const label = isSearch ? (s.searchTitle || 'Search') : (s.sendTitle || 'Send');
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  }
   function setSendButtonLoading(loading) {
     const btn = document.getElementById('faq-send-btn');
     if (!btn) return;
     const icon = btn.querySelector('i');
     if (!icon) return;
+    sendButtonLoading = !!loading;
     if (loading) {
       icon.className = '';
       icon.innerHTML = omniLogoIcon('1.15em', true);
       btn.disabled = true;
     } else {
-      icon.innerHTML = '';
-      icon.className = 'fa-solid fa-arrow-up';
       btn.disabled = false;
+      applySendButtonIcon();
     }
   }
 
@@ -2757,7 +2876,16 @@
       if (event.key === 'ArrowUp') { event.preventDefault(); moveSuggestion(-1); return; }
       if (event.key === 'Escape') { hideSuggestions(); return; }
       if (event.key === 'Enter') {
+        // IME composition (hal. Android/JP keyboards): huwag i-send.
+        if (event.isComposing || event.keyCode === 229) return;
+        // Shift+Enter = bagong linya (textarea na ang input).
+        if (event.shiftKey) return;
+        // AI Chatbot mode sa touch device: Enter = bagong linya (parang
+        // Claude), ang Send button ang nagpapadala. Sa Search mode,
+        // laging Enter = search kahit sa mobile.
+        if (effectiveAiMode() === 'ai' && isTouchPrimaryInput()) return;
         if (confirmActiveSuggestion()) { event.preventDefault(); return; }
+        event.preventDefault(); // pigilan ang pagpasok ng newline sa textarea
         window.OmniFAQ.ask(event.target.value);
       }
     },
@@ -2786,6 +2914,70 @@
     initFullListAndDeepLink();
   }
 
+  // ---- auto-expanding composer textarea ---------------------------------
+  // Ang #faq-ai-input ay textarea na lumalaki ayon sa dami ng text (hanggang
+  // max-height sa CSS, pagkatapos ay nag-i-scroll sa loob). Tinatawag ang
+  // resize sa bawat pag-type, at pati sa PROGRAMMATIC na pagbabago ng
+  // `.value` (clear pagkatapos mag-send, voice input, suggestion click, atbp.)
+  // gamit ang value-setter hook sa mismong element — kaya hindi na kailangang
+  // galawin ang bawat lugar na nagse-set ng input.value.
+  function isTouchPrimaryInput() {
+    try { return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); }
+    catch (_) { return false; }
+  }
+
+  function autosizeFaqInput() {
+    const el = document.getElementById('faq-ai-input');
+    if (!el) return;
+    if (el.offsetParent === null) { if (!el.value) el.style.height = ''; return; } // nakatago pa
+    el.style.height = 'auto';
+    const maxH = parseFloat(getComputedStyle(el).maxHeight) || 200;
+    const needed = el.scrollHeight;
+    el.style.height = Math.min(needed, maxH) + 'px';
+    el.style.overflowY = needed > maxH ? 'auto' : 'hidden';
+  }
+
+  let faqAutosizeWired = false;
+  function setupFaqInputAutosize() {
+    const el = document.getElementById('faq-ai-input');
+    if (!el || faqAutosizeWired) return;
+    faqAutosizeWired = true;
+
+    try {
+      const proto = Object.getPrototypeOf(el);
+      const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value') ||
+                   Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && desc.get && desc.set) {
+        Object.defineProperty(el, 'value', {
+          configurable: true,
+          get() { return desc.get.call(this); },
+          set(v) { desc.set.call(this, v); autosizeFaqInput(); }
+        });
+      }
+    } catch (_) {}
+
+    el.addEventListener('input', autosizeFaqInput);
+    window.addEventListener('resize', autosizeFaqInput);
+    window.addEventListener('orientationchange', autosizeFaqInput);
+
+    // Pindutin ang blangkong bahagi ng composer = i-focus ang textarea.
+    const box = document.getElementById('faq-composer');
+    if (box) {
+      box.addEventListener('click', (ev) => {
+        if (ev.target.closest('button, a, textarea, input, .faq-suggest-box')) return;
+        if (ev.target.closest('.faq-composer-actions')) return;
+        el.focus();
+      });
+    }
+
+    // Kapag ipinakita ang Help view (dating nakatago = walang sukat), i-sync ulit.
+    if (typeof MutationObserver === 'function') {
+      const view = document.getElementById('view-faq');
+      if (view) new MutationObserver(autosizeFaqInput).observe(view, { attributes: true, attributeFilter: ['style', 'class'] });
+    }
+    autosizeFaqInput();
+  }
+
   function setupFaqVoiceInput() {
     const btn = document.getElementById('faq-voice-btn');
     const input = document.getElementById('faq-ai-input');
@@ -2804,11 +2996,14 @@
     // pagsasalita ng user. Ngayon: tuloy-tuloy ang pakikinig, at kusa
     // lang tumitigil kapag tahimik na nang sapat na tagal (o kapag tinap
     // ulit ang mic / pinindot ang Send).
-    const SILENCE_AFTER_SPEECH_MS = 3500;   // hintay matapos ang huling salita
-    const SILENCE_BEFORE_SPEECH_MS = 8000;  // hintay na magsimulang magsalita
-    const MAX_SESSION_MS = 90000;           // safety cap
-    const MAX_IDLE_RESTARTS = 1;            // ilang beses lang mag-restart kung wala pang naririnig
+    // BAGO: hindi na kusang namamatay ang mic dahil sa katahimikan o haba
+    // ng oras. Tumitigil LANG ito kapag pinindot ang stop (mic) button,
+    // ang X (cancel), ang Send/Enter, o kapag may malubhang error (hal.
+    // walang permiso sa mic). Kung tinapos ng browser ang session, kusa
+    // itong ini-restart habang nakikinig pa.
     const RESTART_DELAY_MS = 60;            // maikling gap para hindi maputol ang susunod na salita
+    const RESTART_IDLE_DELAY_MS = 300;      // mas mahabang gap kung walang narinig sa nagtapos na session (iwas mabilis na loop)
+    const MAX_CONSECUTIVE_ERRORS = 3;       // ilang sunod-sunod na error bago sumuko
 
     let recognition = null;
     let listening = false;      // UI state
@@ -2817,9 +3012,7 @@
     let skipCount = 0;          // ilang results ang hindi na isasama (kapag nag-edit ang user)
     let latestResultsLen = 0;
     let heardSpeech = false;
-    let idleRestarts = 0;
-    let silenceTimer = null;
-    let maxTimer = null;
+    let consecutiveErrors = 0;
     let restartTimer = null;
 
     const L = () => STRINGS_BY_LANG[currentLang()] || STRINGS_BY_LANG.en;
@@ -2831,7 +3024,71 @@
       btn.title = active ? (L().voiceListening || 'Listening… tap the microphone again to stop.') : (L().voiceInput || 'Voice input');
       const icon = btn.querySelector('i');
       if (icon) icon.className = active ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
+      // Waveform habang nakikinig (nakatago ang input); pagtigil, ibalik ang
+      // input at lumitaw ang na-record na text.
+      const composer = document.getElementById('faq-composer');
+      if (composer) {
+        const wasActive = composer.classList.contains('is-dictating');
+        composer.classList.toggle('is-dictating', active);
+        if (active && !wasActive) fillVoiceWave();
+        if (!active && wasActive) {
+          const wave = document.getElementById('faq-voice-wave');
+          if (wave) wave.classList.remove('speaking');
+          autosizeFaqInput();
+        }
+      }
     };
+    // Waveform (horizontal na linya ng guhit, may tuldok sa magkabilang dulo).
+    // Ang bilang ng guhit ay ayon sa lapad na available; gumagalaw nang
+    // banayad, at lumalaki ang galaw kapag may nade-detect na salita.
+    let suppressReveal = false;
+    let speakingTimer = null;
+    function ensureVoiceWave() {
+      let wave = document.getElementById('faq-voice-wave');
+      if (wave) return wave;
+      const composer = document.getElementById('faq-composer');
+      if (!composer) return null;
+      wave = document.createElement('div');
+      wave.id = 'faq-voice-wave';
+      wave.className = 'faq-voice-wave';
+      wave.setAttribute('aria-hidden', 'true');
+      wave.addEventListener('click', () => btn.click()); // pindutin ang waveform = itigil
+      const left = composer.querySelector('.faq-composer-actions-left');
+      if (left) left.insertAdjacentElement('afterend', wave); else composer.appendChild(wave);
+      return wave;
+    }
+    function fillVoiceWave() {
+      const wave = ensureVoiceWave();
+      if (!wave) return;
+      const width = wave.clientWidth;
+      if (!width) return;
+      const PITCH = 6.5;
+      const n = Math.max(12, Math.floor((width - 12) / PITCH));
+      if (wave.children.length === n) return;
+      wave.innerHTML = '';
+      for (let i = 0; i < n; i++) {
+        const bar = document.createElement('span');
+        const edge = Math.min(i, n - 1 - i);
+        if (edge < 3) bar.className = 'dot';
+        // pseudo-random pero pareho palagi para stable ang itsura
+        const r1 = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;
+        bar.style.setProperty('--wave-dur', (1.15 + r1 * 0.5).toFixed(2) + 's');
+        bar.style.setProperty('--wave-delay', (-(i * 0.06) % 1.6).toFixed(2) + 's');
+        bar.style.setProperty('--wave-peak', (0.5 + r1 * 1.4).toFixed(2));
+        wave.appendChild(bar);
+      }
+    }
+    function pulseVoiceWave() {
+      const wave = document.getElementById('faq-voice-wave');
+      if (!wave) return;
+      wave.classList.add('speaking');
+      clearTimeout(speakingTimer);
+      speakingTimer = setTimeout(() => wave.classList.remove('speaking'), 700);
+    }
+    window.addEventListener('resize', () => {
+      const composer = document.getElementById('faq-composer');
+      if (composer && composer.classList.contains('is-dictating')) fillVoiceWave();
+    });
     const showVoiceError = (message) => {
       if (typeof window.Swal !== 'undefined' && typeof Swal.fire === 'function') Swal.fire({ toast: true, position: 'top', icon: 'warning', title: message, showConfirmButton: false, timer: 3000 });
     };
@@ -2848,13 +3105,14 @@
           }
         } catch (_) {}
         input.scrollLeft = input.scrollWidth;
+        input.scrollTop = input.scrollHeight;
       };
       apply();
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(apply);
     };
     const clearTimers = () => {
-      clearTimeout(silenceTimer); clearTimeout(maxTimer); clearTimeout(restartTimer);
-      silenceTimer = maxTimer = restartTimer = null;
+      clearTimeout(restartTimer);
+      restartTimer = null;
     };
     const finish = () => {
       wantListening = false;
@@ -2862,10 +3120,6 @@
       recognition = null;
       setListening(false);
       scrollInputToEnd();
-    };
-    const armSilenceTimer = () => {
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(() => stopListening(false), heardSpeech ? SILENCE_AFTER_SPEECH_MS : SILENCE_BEFORE_SPEECH_MS);
     };
     // abort=false -> stop() (hinihintay pa ang huling final result);
     // abort=true  -> abort() (ginagamit kapag Send na, para hindi na
@@ -2956,8 +3210,8 @@
         if (!transcript) return;
         sessionHadResult = true;
         heardSpeech = true;
-        idleRestarts = 0;
-        armSilenceTimer();
+        consecutiveErrors = 0;
+        pulseVoiceWave();
         const sep = baseText && !/\s$/.test(baseText) ? ' ' : '';
         input.value = baseText + sep + transcript;
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2967,8 +3221,13 @@
       r.onerror = (event) => {
         const lang = L();
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') { wantListening = false; showVoiceError(lang.voicePermissionDenied); }
-        else if (event.error === 'audio-capture' || event.error === 'network') { wantListening = false; showVoiceError(lang.voiceError); }
-        else if (event.error !== 'aborted' && event.error !== 'no-speech') showVoiceError(lang.voiceError);
+        else if (event.error === 'audio-capture' || event.error === 'network' || event.error === 'language-not-supported') { wantListening = false; showVoiceError(lang.voiceError); }
+        else if (event.error !== 'aborted' && event.error !== 'no-speech') {
+          // ibang error: subukan ulit, pero sumuko kung paulit-ulit para hindi mag-loop.
+          consecutiveErrors++;
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) { wantListening = false; }
+          showVoiceError(lang.voiceError);
+        }
       };
       r.onend = () => {
         if (recognition !== r) return;
@@ -2977,25 +3236,20 @@
         // session kahit tuloy pa ang user — i-restart nang tahimik,
         // habang nananatiling "listening" ang button.
         if (wantListening) {
-          // BUG FIX (patay-sindi ang mic): dati, kahit tahimik lang ang
-          // user, paulit-ulit na nire-restart ang session tuwing tinatapos
-          // ito ng browser (no-speech timeout) — bawat restart ay may
-          // beep at nagfa-flicker ang mic indicator, at hindi kayang
-          // patahimikin ng JS ang beep na iyon. Ngayon: mag-restart LANG
-          // kung katatapos lang ng session na may narinig (tuloy pa ang
-          // pagdidikta). Kapag tahimik na ang session — hindi na
-          // nire-restart; tahimik na itong matatapos.
-          if (!sessionHadResult) {
-            idleRestarts++;
-            if (heardSpeech || idleRestarts > MAX_IDLE_RESTARTS) { finish(); return; }
-          }
+          // BAGO: laging mag-restart habang gustong makinig ng user (hindi
+          // na humihinto kahit tahimik o mahaba na ang oras). Kapag
+          // nakaalis na sa Help page (nakatago ang input), itigil para
+          // hindi tuloy-tuloy na nakabukas ang mic sa background.
+          if (input.offsetParent === null) { finish(); return; }
           baseText = input.value.trim();
           skipCount = 0;
           latestResultsLen = 0;
           restartTimer = setTimeout(() => {
+            restartTimer = null;
             if (!wantListening) return;
+            if (input.offsetParent === null) { finish(); return; }
             try { startSession(); } catch (_) { finish(); }
-          }, RESTART_DELAY_MS);
+          }, sessionHadResult ? RESTART_DELAY_MS : RESTART_IDLE_DELAY_MS);
           return;
         }
         finish();
@@ -3003,17 +3257,29 @@
       r.start();
     };
 
+    let dictOrigText = '';
     btn.addEventListener('click', () => {
       if (wantListening || listening) { stopListening(false); return; }
+      dictOrigText = input.value;
       wantListening = true;
       heardSpeech = false;
-      idleRestarts = 0;
+      consecutiveErrors = 0;
       baseText = input.value.trim();
       skipCount = 0;
       latestResultsLen = 0;
-      maxTimer = setTimeout(() => stopListening(false), MAX_SESSION_MS);
-      armSilenceTimer();
       try { startSession(); } catch (_) { finish(); showVoiceError(L().voiceError); }
+    });
+
+    // X (cancel): itigil ang pakikinig at itapon ang na-record sa session na ito;
+    // ibalik ang text na nasa box bago magsimula ang dictation.
+    const cancelBtn = document.getElementById('faq-voice-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => {
+      suppressReveal = true;
+      stopListening(true);
+      suppressReveal = false;
+      input.value = dictOrigText;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      autosizeFaqInput();
     });
 
     // Kapag nag-type/nag-edit mismo ang user habang nakikinig, huwag
@@ -3036,7 +3302,9 @@
     renderAiModeToggle();
     setupSlashShortcut();
     setupFaqComposerKeyboardHandling();
+    setupFaqInputAutosize();
     setupFaqVoiceInput();
+    setupQuickActionsToggle();
     const ticketBackdrop = document.getElementById('faq-ticket-modal-backdrop');
     if (ticketBackdrop) {
       ticketBackdrop.addEventListener('click', (ev) => {

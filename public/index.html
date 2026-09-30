@@ -215,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260929-2">
+    <link rel="stylesheet" href="style.css?v=20260930-8">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -2863,47 +2863,6 @@
         </p>
     </div>
 
-    <div class="system-reset-container rr-card" data-rr-card="reset-hard" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
-            <i class="fa-solid fa-power-off"></i> System Hard Reset
-            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
-        </h3>
-        <div class="rr-card-body">
-        <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
-            Warning: This process will generate a final system backup, dispatch it to the designated email endpoints below, and permanently purge all transaction logs, active databases, inventory records, and historical logs. This action is irreversible.
-        </p>
-
-        <div id="reset-google-app-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
-            <i class="fa-solid fa-spinner fa-spin"></i> Retrieving verified Google App status&hellip;
-        </div>
-
-        <div style="margin-bottom: 14px;">
-            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Type "RESET" to confirm target execution:</label>
-            <input type="text" id="reset-confirm-word" class="rr-terminal-input" placeholder="RESET" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.95rem;" autocomplete="off">
-        </div>
-
-        <div style="margin-bottom: 20px;">
-            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Secondary Backup Email <span style="font-weight:normal;">(will receive the backup file)</span>:</label>
-            <input type="email" id="reset-additional-email" class="rr-terminal-input" placeholder="backup-recipient@gmail.com" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;" autocomplete="off">
-        </div>
-
-        <div style="margin-bottom: 20px; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(245, 158, 11, 0.06);">
-            <label for="reset-include-bir" style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-main, inherit); line-height: 1.4;">
-                <input type="checkbox" id="reset-include-bir" style="margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer;">
-                <span>Also reset BIR Compliance data
-                    <span style="display: block; font-weight: normal; color: var(--text-muted); margin-top: 4px;">
-                        Wipes the Accumulated Grand Total (AGT), invoice numbering (restarts at INV-000001), BIR Z-Reading history, void log, and AGT reset history. Its data is sent to the Secondary Backup Email as a <strong>separate attachment</strong>, apart from the main backup file. Leave unchecked to keep your BIR records untouched.
-                    </span>
-                </span>
-            </label>
-        </div>
-
-        <button id="reset-execute-btn" onclick="executeSystemHardReset()" style="width: 100%; padding: 12px; background: var(--danger-red); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
-            <i class="fa-solid fa-dumpster"></i> Compile Backup & Execute Hard Reset
-        </button>
-        </div>
-    </div>
-
     <div class="relay-sync-container rr-card" data-rr-card="relay-sync" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
         <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
             <i class="fa-solid fa-arrows-rotate"></i> Restore Purchased Features
@@ -3047,6 +3006,47 @@
                 <i class="fa-solid fa-file-import"></i> Initialize State Schema Restore
             </button>
         </div>
+        </div>
+    </div>
+
+    <div class="system-reset-container rr-card" data-rr-card="reset-hard" style="margin-top: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--top-header-bg, #ffffff); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+        <h3 class="rr-card-header" onclick="toggleResetRestoreCard(this)" style="color: var(--danger-red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; cursor: pointer;">
+            <i class="fa-solid fa-power-off"></i> System Hard Reset
+            <i class="fa-solid fa-chevron-down rr-card-chevron" style="margin-left:auto; font-size:0.85rem; color:#94a3b8;"></i>
+        </h3>
+        <div class="rr-card-body">
+        <p style="font-size: 0.85rem; margin-bottom: 18px; color: var(--text-muted); line-height: 1.5;">
+            Warning: This process will generate a final system backup, dispatch it to the designated email endpoints below, and permanently purge all transaction logs, active databases, inventory records, and historical logs. This action is irreversible.
+        </p>
+
+        <div id="reset-google-app-status" class="rr-status-box" style="margin-bottom: 14px; padding: 12px 14px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border-color);">
+            <i class="fa-solid fa-spinner fa-spin"></i> Retrieving verified Google App status&hellip;
+        </div>
+
+        <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Type "RESET" to confirm target execution:</label>
+            <input type="text" id="reset-confirm-word" class="rr-terminal-input" placeholder="RESET" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.95rem;" autocomplete="off">
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-muted);">Secondary Backup Email <span style="font-weight:normal;">(will receive the backup file)</span>:</label>
+            <input type="email" id="reset-additional-email" class="rr-terminal-input" placeholder="backup-recipient@gmail.com" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;" autocomplete="off">
+        </div>
+
+        <div style="margin-bottom: 20px; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(245, 158, 11, 0.06);">
+            <label for="reset-include-bir" style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-main, inherit); line-height: 1.4;">
+                <input type="checkbox" id="reset-include-bir" style="margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer;">
+                <span>Also reset BIR Compliance data
+                    <span style="display: block; font-weight: normal; color: var(--text-muted); margin-top: 4px;">
+                        Wipes the Accumulated Grand Total (AGT), invoice numbering (restarts at INV-000001), BIR Z-Reading history, void log, and AGT reset history. Its data is sent to the Secondary Backup Email as a <strong>separate attachment</strong>, apart from the main backup file. Leave unchecked to keep your BIR records untouched.
+                    </span>
+                </span>
+            </label>
+        </div>
+
+        <button id="reset-execute-btn" onclick="executeSystemHardReset()" style="width: 100%; padding: 12px; background: var(--danger-red); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
+            <i class="fa-solid fa-dumpster"></i> Compile Backup & Execute Hard Reset
+        </button>
         </div>
     </div>
 </div>
@@ -3280,13 +3280,6 @@
                         <div id="faq-ai-result" class="faq-ai-result-box"></div>
 
                         <div class="faq-composer-dock" id="faq-composer-dock">
-                            <div class="faq-quick-actions-row" id="faq-quick-actions-row">
-                                <div id="faq-quick-actions" class="faq-quick-actions"></div>
-                                <button type="button" id="faq-new-conversation-bottom" class="faq-new-conversation-btn" onclick="OmniFAQ.newConversation()" title="Start a new conversation">
-                                    <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
-                                </button>
-                            </div>
-
                             <div id="faq-image-preview-wrap" class="faq-image-preview-wrap" style="display:none;">
                                 <img id="faq-image-preview" alt="Attached screenshot preview" style="display:none;">
                                 <span id="faq-file-preview-chip" class="faq-file-preview-chip" style="display:none;">
@@ -3297,25 +3290,44 @@
                             </div>
 
                             <div class="faq-composer" id="faq-composer">
-                                <button type="button" class="faq-composer-icon-btn" id="faq-attach-btn" title="Attach a screenshot, PDF, Word doc, or text/CSV file" onclick="OmniFAQ.triggerAttach()">
-                                    <i class="fa-solid fa-paperclip"></i>
-                                </button>
-                                <button type="button" class="faq-composer-icon-btn faq-voice-btn" id="faq-voice-btn" title="Voice input" aria-label="Voice input" aria-pressed="false">
-                                    <i class="fa-solid fa-microphone"></i>
-                                </button>
                                 <input type="file" id="faq-ai-image-input" accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
+                                <div id="faq-quick-actions-row" class="faq-quick-actions-float" role="toolbar" aria-label="Quick actions">
+                                    <div id="faq-quick-actions" class="faq-quick-actions"></div>
+                                </div>
                                 <div class="faq-composer-input-wrap">
-                                    <input type="text" id="faq-ai-input" placeholder="e.g. how to void a transaction, what is a shift, how to use a promo code..."
+                                    <textarea id="faq-ai-input" rows="1" placeholder="Reply to OmniAI..."
                                            autocomplete="off"
+                                           enterkeyhint="send"
                                            oninput="OmniFAQ.onInput(this.value)"
                                            onkeydown="OmniFAQ.onKeyDown(event)"
                                            onfocus="OmniFAQ.onInput(this.value)"
-                                           onblur="setTimeout(OmniFAQ.hideSuggestions, 150)">
+                                           onblur="setTimeout(OmniFAQ.hideSuggestions, 150)"></textarea>
                                     <div id="faq-ai-suggestions" class="faq-suggest-box" style="display:none;"></div>
                                 </div>
-                                <button type="button" class="faq-composer-send-btn" id="faq-send-btn" title="Send" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
-                                    <i class="fa-solid fa-arrow-up"></i>
-                                </button>
+                                <div class="faq-composer-actions">
+                                    <div class="faq-composer-actions-left">
+                                        <button type="button" class="faq-composer-icon-btn faq-voice-cancel" id="faq-voice-cancel" title="Cancel dictation" aria-label="Cancel dictation">
+                                            <i class="fa-solid fa-xmark"></i>
+                                        </button>
+                                        <button type="button" class="faq-composer-icon-btn" id="faq-attach-btn" title="Attach a screenshot, PDF, Word doc, or text/CSV file" onclick="OmniFAQ.triggerAttach()">
+                                            <i class="fa-solid fa-paperclip"></i>
+                                        </button>
+                                        <button type="button" class="faq-composer-icon-btn" id="faq-quick-toggle-btn" title="Quick actions" aria-label="Quick actions" aria-controls="faq-quick-actions-row" aria-expanded="false" hidden>
+                                            <i class="fa-solid fa-toolbox"></i>
+                                        </button>
+                                        <button type="button" class="faq-composer-icon-btn" id="faq-new-conversation-bottom" onclick="OmniFAQ.newConversation()" title="Start a new conversation" aria-label="Start a new conversation">
+                                            <i class="fa-solid fa-rotate-left"></i> <span id="faq-new-convo-text">New conversation</span>
+                                        </button>
+                                    </div>
+                                    <div class="faq-composer-actions-right">
+                                        <button type="button" class="faq-composer-icon-btn faq-voice-btn" id="faq-voice-btn" title="Voice input" aria-label="Voice input" aria-pressed="false">
+                                            <i class="fa-solid fa-microphone"></i>
+                                        </button>
+                                        <button type="button" class="faq-composer-send-btn" id="faq-send-btn" title="Send" onclick="OmniFAQ.ask(document.getElementById('faq-ai-input').value)">
+                                            <i class="fa-solid fa-arrow-up"></i>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                             <div id="faq-ai-upsell" style="display:none;">
                                 <a href="#" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
