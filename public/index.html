@@ -215,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260930-8">
+    <link rel="stylesheet" href="style.css?v=20260930-13">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -3402,6 +3402,203 @@
                    }
                    body.dark-mode .faq-lang-option, .dark .faq-lang-option { color: var(--dm-text-secondary, #9a9ba8); }
                    body.dark-mode .faq-lang-option.active, .dark .faq-lang-option.active { color: #fff; }
+               </style>
+
+               <style id="faq-top-toggles-uniform">
+                   /* ===== Help page: top toggle buttons (Eng/Tag + AI Chatbot/FAQ) =====
+                      100% magkapareho ang posisyon at spacing sa Day mode, Dark mode at
+                      LAHAT ng theme (Pro themes), at sa AI Chatbot at FAQ mode.
+                      Nasa dulo ng dokumento ang block na ito at mataas ang specificity
+                      (html body #view-faq #id) + !important, kaya hindi ito nao-override
+                      ng css/themes/*.css. Sukat/posisyon lang ang nakapirmi dito; ang
+                      mga kulay ay sumusunod pa rin sa bawat theme. */
+                   html body #view-faq.app-view { padding-top: 4px !important; }
+                   html body #view-faq #faq-classic-header,
+                   html body #view-faq #faq-classic-header h2 { margin: 0 !important; padding: 0 !important; }
+                   html body #view-faq #faq-top-bar.faq-top-bar {
+                       background: none !important;
+                       background-image: none !important;
+                       border: 0 !important;
+                       border-radius: 0 !important;
+                       box-shadow: none !important;
+                       -webkit-backdrop-filter: none !important;
+                       backdrop-filter: none !important;
+                       padding: 0 !important;
+                       margin-top: 0 !important;
+                       margin-bottom: 3px !important;
+                       gap: 0 8px !important;
+                       min-height: 0 !important;
+                       box-sizing: border-box !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-lang-toggle.faq-lang-toggle {
+                       margin: 0 !important;
+                       padding: 4px !important;
+                       gap: 2px !important;
+                       border-width: 1px !important;
+                       border-style: solid !important;
+                       box-sizing: border-box !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-lang-toggle .faq-lang-option {
+                       margin: 0 !important;
+                       padding: 6px 12px !important;
+                       gap: 5px !important;
+                       border: 0 !important;
+                       font-size: 0.82rem !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle {
+                       margin-top: 0 !important;
+                       margin-bottom: 0 !important;
+                       margin-right: 0 !important;
+                       padding: 0 !important;
+                       gap: 10px !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-toggle {
+                       margin: 0 !important;
+                       padding: 4px !important;
+                       display: inline-grid !important;
+                       grid-template-columns: 1fr 1fr !important;
+                       width: max-content !important;
+                       min-width: 0 !important;
+                       max-width: 100% !important;
+                       border-width: 1px !important;
+                       border-style: solid !important;
+                       box-sizing: border-box !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-slider {
+                       top: 4px !important;
+                       bottom: 4px !important;
+                       left: 4px !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-option {
+                       margin: 0 !important;
+                       padding: 6px 10px !important;
+                       gap: 5px !important;
+                       border: 0 !important;
+                       font-size: 0.78rem !important;
+                       flex: 0 0 auto !important;
+                       min-width: max-content !important;
+                   }
+                   /* ang icon (OmniAI logo / ? icon) ay hindi lumiliit: sinusunod ang sukat nito */
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-option svg {
+                       flex: 0 0 auto !important;
+                       width: 1.05em !important;
+                       height: 1.05em !important;
+                       min-width: 1.05em !important;
+                       min-height: 1.05em !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-option i {
+                       flex: 0 0 auto !important;
+                   }
+               </style>
+
+               <style id="faq-float-layout">
+                   /* ===== Help page (AI Chatbot + FAQ): lumulutang na top toggles at composer =====
+                      - Umaabot ang chat/FAQ area hanggang sa gitna ng top toggles (sa itaas)
+                        at gitna ng search box / text box (sa ibaba), nasa likod nila; kaya
+                        nakikita ang laman sa paligid ng mga kurba at mukhang talagang
+                        naka-float ang mga button at ang box.
+                      - Transparent ang labas ng search box / text box (dock) at ng top bar.
+                      - --faq-top-h / --faq-dock-h ay sinusukat ng faq-engine.js
+                        (setupFaqFloatLayout) at ginagamit bilang padding ng scroll area
+                        para hindi matakpan ang unang at huling laman. */
+                   html body #view-faq #faq-top-bar.faq-top-bar {
+                       position: relative !important;
+                       top: auto !important;
+                       z-index: 30 !important;
+                       flex-shrink: 0 !important;
+                       pointer-events: none;
+                   }
+                   html body #view-faq #faq-top-bar.faq-top-bar > * { pointer-events: auto; }
+                   html body #view-faq #faq-ai-box.faq-ai-box {
+                       position: relative !important;
+                       display: flex !important;
+                       flex-direction: column !important;
+                       flex: 1 1 auto !important;
+                       min-height: 0 !important;
+                       margin-top: calc(-1 * var(--faq-top-h, 48px)) !important;
+                       padding-top: 0 !important;
+                       padding-bottom: 0 !important;
+                   }
+                   /* dock = nakapatong sa ilalim ng box, transparent sa labas ng composer */
+                   html body #view-faq #faq-composer-dock.faq-composer-dock {
+                       position: absolute !important;
+                       left: 0 !important;
+                       right: 0 !important;
+                       bottom: 0 !important;
+                       top: auto !important;
+                       z-index: 25 !important;
+                       margin: 0 !important;
+                       background: none !important;
+                       background-image: none !important;
+                       border: 0 !important;
+                       border-radius: 0 !important;
+                       box-shadow: none !important;
+                       -webkit-backdrop-filter: none !important;
+                       backdrop-filter: none !important;
+                       pointer-events: none;
+                   }
+                   html body #view-faq #faq-composer-dock.faq-composer-dock > * { pointer-events: auto; }
+                   /* AI Chatbot: ang thread ay umaabot sa likod ng toggles at composer */
+                   html body #view-faq.faq-fullchat-mode .faq-ai-result-box {
+                       flex: 1 1 auto !important;
+                       min-height: 0 !important;
+                   }
+                   html body #view-faq.faq-fullchat-mode .faq-chat-thread {
+                       padding-top: var(--faq-top-h, 48px) !important;
+                       padding-bottom: calc(var(--faq-dock-h, 110px) + var(--faq-tail-extra, 0px)) !important;
+                       box-sizing: border-box !important;
+                   }
+                   html body #view-faq.faq-fullchat-mode .faq-scroll-bottom-btn {
+                       bottom: calc(var(--faq-dock-h, 110px) + 10px) !important;
+                   }
+                   /* FAQ (Search): ang listahan / resulta ay umaabot din sa likod nila */
+                   html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
+                   html body #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty) {
+                       padding-top: var(--faq-top-h, 48px) !important;
+                       padding-bottom: var(--faq-dock-h, 110px) !important;
+                       box-sizing: border-box !important;
+                   }
+                   html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts > h3:first-child { margin-top: 0 !important; }
+               </style>
+
+               <style id="faq-frosted-glass">
+                   /* ===== Bahagyang blur + translucent (frosted glass, tulad ng Claude.ai) =====
+                      Loob ng search box / text box (composer) at ng dalawang toggle sa taas.
+                      Kita nang bahagya ang laman sa likod nila (dahil umaabot ang chat area
+                      sa ilalim nila) pero malabo (blur) at hindi nakakabasa-distract.
+                      Mga kulay lang ang binago (translucent); hindi ginagalaw ang sukat/
+                      posisyon. Ang mga aktibong toggle (asul) at mga button ay nananatiling solid. */
+                   html body #view-faq #faq-composer.faq-composer {
+                       background: rgba(255, 255, 255, 0.72) !important;
+                       -webkit-backdrop-filter: blur(10px) saturate(1.15) !important;
+                       backdrop-filter: blur(10px) saturate(1.15) !important;
+                   }
+                   html body #view-faq #faq-top-bar #faq-lang-toggle.faq-lang-toggle,
+                   html body #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-toggle {
+                       background: rgba(255, 255, 255, 0.62) !important;
+                       background-image: none !important;
+                       -webkit-backdrop-filter: blur(10px) saturate(1.15) !important;
+                       backdrop-filter: blur(10px) saturate(1.15) !important;
+                   }
+                   /* dark mode at lahat ng dark-based Pro themes (sumusunod sa --dm-surface) */
+                   html body.dark-mode #view-faq #faq-composer.faq-composer,
+                   html body.dark #view-faq #faq-composer.faq-composer,
+                   html .dark body #view-faq #faq-composer.faq-composer {
+                       background: rgba(31, 41, 55, 0.62) !important;
+                       background: color-mix(in srgb, var(--dm-surface, #1f2937) 62%, transparent) !important;
+                   }
+                   html body.dark-mode #view-faq #faq-top-bar #faq-lang-toggle.faq-lang-toggle,
+                   html body.dark-mode #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-toggle,
+                   html body.dark #view-faq #faq-top-bar #faq-lang-toggle.faq-lang-toggle,
+                   html body.dark #view-faq #faq-top-bar #faq-ai-mode-toggle .faq-mode-toggle {
+                       background: rgba(31, 41, 55, 0.55) !important;
+                       background: color-mix(in srgb, var(--dm-surface, #1f2937) 55%, transparent) !important;
+                   }
+                   /* ang loob ng composer mismo ay walang sariling solid na kulay */
+                   html body #view-faq #faq-composer .faq-composer-input-wrap,
+                   html body #view-faq #faq-composer #faq-ai-input {
+                       background: transparent !important;
+                   }
                </style>
 
                 <section id="view-attendance" class="app-view operations-view operations-attendance-view" style="display:none;">

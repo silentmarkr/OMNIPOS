@@ -137,10 +137,12 @@
       suggestHeader: 'Matching questions in the knowledge base',
       expandAll: 'Expand all',
       collapseAll: 'Collapse all',
-      aiModeAi: 'AI Chatbot',
+      aiModeAi: 'OmniAI',
       aiModeKb: 'FAQ',
       sendTitle: 'Send',
       searchTitle: 'Search',
+      chatPlaceholder: 'Reply to OmniAI...',
+      searchPlaceholder: 'Search FAQ...',
       aiModeLockedHint: 'Unlock Omni AI for smarter, more natural answers based on this FAQ',
       newConversation: 'New conversation',
       feedbackPrompt: 'Was this helpful?',
@@ -219,10 +221,12 @@
       suggestHeader: 'Mga tugmang tanong sa knowledge base',
       expandAll: 'I-expand lahat',
       collapseAll: 'I-collapse lahat',
-      aiModeAi: 'AI Chatbot',
+      aiModeAi: 'OmniAI',
       aiModeKb: 'FAQ',
       sendTitle: 'Ipadala',
       searchTitle: 'Maghanap',
+      chatPlaceholder: 'Reply to OmniAI...',
+      searchPlaceholder: 'Maghanap sa FAQ...',
       aiModeLockedHint: 'I-unlock ang Omni AI para sa mas matalino at natural na sagot batay sa FAQ na ito',
       newConversation: 'Bagong usapan',
       feedbackPrompt: 'Nakatulong ba ito?',
@@ -1191,6 +1195,60 @@
     box.style.minHeight = available > 0 ? `${available}px` : '';
   }
 
+
+  // ---- floating layout: lumulutang ang top toggles at ang composer -----
+  // Ang chat/FAQ area ay umaabot na sa likod ng top toggles (hanggang sa
+  // gitna nila) at sa likod ng composer (hanggang sa gitna nito), kaya
+  // nakikita ang laman sa mga gilid/kurba at mukhang talagang lumulutang
+  // ang mga button at search/text box. Dahil nakapatong (overlay) ang mga
+  // ito, sinusukat dito ang aktwal na taas nila at itinatakda bilang CSS
+  // vars sa #view-faq: --faq-top-h (taas ng top bar + gap) at --faq-dock-h
+  // (taas ng composer dock, kasama ang keyboard offset). Ginagamit ito ng
+  // CSS (index.html, #faq-float-layout) bilang padding sa itaas/ibaba ng
+  // scroll area para hindi matakpan ang unang/huling laman.
+  let faqFloatLayoutWired = false;
+  // itinatakda lang kapag nagbago, para hindi mag-loop ang MutationObserver
+  function setFloatVar(view, name, value) {
+    if (view.style.getPropertyValue(name) !== value) view.style.setProperty(name, value);
+  }
+  function syncFaqFloatVars() {
+    const view = document.getElementById('view-faq');
+    if (!view) return;
+    const top = document.getElementById('faq-top-bar');
+    const dock = document.getElementById('faq-composer-dock');
+    if (top && top.offsetHeight > 0) {
+      const mb = parseFloat(getComputedStyle(top).marginBottom) || 0;
+      setFloatVar(view, '--faq-top-h', `${Math.round(top.offsetHeight + mb)}px`);
+    }
+    if (dock && dock.offsetHeight > 0) {
+      setFloatVar(view, '--faq-dock-h', `${Math.round(dock.offsetHeight)}px`);
+    }
+  }
+  function setupFaqFloatLayout() {
+    if (faqFloatLayoutWired) return;
+    faqFloatLayoutWired = true;
+    const view = document.getElementById('view-faq');
+    const top = document.getElementById('faq-top-bar');
+    const dock = document.getElementById('faq-composer-dock');
+    if (!view) return;
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => syncFaqFloatVars());
+      if (top) ro.observe(top);
+      if (dock) ro.observe(dock);
+    }
+    if (typeof MutationObserver === 'function') {
+      // pagpalit ng mode/view (class/style) at pagbabago ng laman ng dock
+      const mo = new MutationObserver(() => syncFaqFloatVars());
+      mo.observe(view, { attributes: true, attributeFilter: ['class', 'style'] });
+      if (dock) mo.observe(dock, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+    }
+    window.addEventListener('resize', syncFaqFloatVars);
+    window.addEventListener('orientationchange', syncFaqFloatVars);
+    syncFaqFloatVars();
+    setTimeout(syncFaqFloatVars, 0);
+    setTimeout(syncFaqFloatVars, 300);
+  }
+
   let faqBoxMinHeightWired = false;
   function wireFaqBoxMinHeightSync() {
     if (faqBoxMinHeightWired) return;
@@ -1448,7 +1506,7 @@
   // ibinigay na bubble ang tinitiyak na makikita (block:'start') —
   // gumagana ito kapareho para sa user bubble (pagkatapos magsend) at
   // assistant bubble (pagsisimula ng sagot ng AI).
-  function scrollBubbleIntoView(bubbleEl, thread) {
+  function scrollBubbleIntoView(bubbleEl, thread, opts) {
     if (!bubbleEl) return;
     thread = thread || bubbleEl.closest('.faq-chat-thread');
     if (!thread) return;
@@ -1462,7 +1520,10 @@
     // assistant bubble ang ibinigay, hinahanap ang tanong na sinasagot nito.
     // Sa ganitong paraan, ang tanong ay nasa pinaka-itaas ng chat at ang
     // header ng sagot ng AI ay makikita agad sa ilalim nito.
-    const anchor = findChatScrollAnchor(bubbleEl);
+    // BAGO: kapag dumating na ang sagot ng AI (opts.anchorSelf), ang HEAD
+    // mismo ng sagot (ang assistant bubble) ang iaangat sa pinaka-itaas ng
+    // chat, sa ilalim lang ng mga toggle — hindi na ang tanong ng user.
+    const anchor = (opts && opts.anchorSelf) ? bubbleEl : findChatScrollAnchor(bubbleEl);
     thread._faqScrollAnchor = anchor;
     updateChatTailSpace(thread);
     const top = Math.max(0, getChatAnchorTop(anchor, thread));
@@ -1485,6 +1546,9 @@
 
   // Posisyon ng anchor sa loob ng scrollable na thread (walang paggalaw ng page).
   function getChatAnchorTop(anchor, thread) {
+    // Ang tanong na sinend ay iniaakyat sa ILALIM LANG ng mga toggle sa
+    // taas (hindi umaabot sa likod nila): ang padding-top ng thread ay
+    // kasing-taas ng top bar (--faq-top-h), kaya doon ito humihinto.
     const cs = window.getComputedStyle(thread);
     const padTop = parseFloat(cs.paddingTop) || 0;
     return anchor.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop - padTop;
@@ -1495,21 +1559,25 @@
   // Lumiliit ito habang humahaba ang sagot, at nagiging 0 kapag mahaba na.
   function updateChatTailSpace(thread) {
     if (!thread) return;
+    // BUGFIX: dati, inline `padding-bottom` ang ginagamit dito, pero may
+    // `padding-bottom: var(--faq-dock-h) !important` na sa CSS (para sa
+    // floating composer) kaya hindi tumatama ang inline style — walang
+    // dagdag na espasyo sa ilalim, kaya hindi makaakyat ang tanong sa
+    // tuktok. Ngayon, CSS variable (--faq-tail-extra) ang ginagamit, at
+    // nasa loob ito ng padding-bottom ng thread (see index.html,
+    // #faq-float-layout).
     const anchor = thread._faqScrollAnchor;
-    const basePad = thread._faqBasePadBottom != null
-      ? thread._faqBasePadBottom
-      : (thread._faqBasePadBottom = parseFloat(window.getComputedStyle(thread).paddingBottom) || 0);
+    const curExtra = parseFloat(thread.style.getPropertyValue('--faq-tail-extra')) || 0;
     if (!anchor || !anchor.isConnected || anchor.parentElement !== thread) {
-      if (thread.style.paddingBottom) thread.style.paddingBottom = '';
+      if (curExtra) thread.style.removeProperty('--faq-tail-extra');
       return;
     }
-    const currentPad = parseFloat(window.getComputedStyle(thread).paddingBottom) || basePad;
-    const naturalHeight = thread.scrollHeight - (currentPad - basePad);
+    const naturalHeight = thread.scrollHeight - curExtra;
     const belowAnchor = naturalHeight - getChatAnchorTop(anchor, thread);
     const extra = Math.max(0, Math.ceil(thread.clientHeight - belowAnchor));
-    const wanted = extra > 0 ? (basePad + extra) : basePad;
-    if (Math.abs(wanted - currentPad) < 1) return;
-    thread.style.paddingBottom = extra > 0 ? wanted + 'px' : '';
+    if (Math.abs(extra - curExtra) < 1) return;
+    if (extra > 0) thread.style.setProperty('--faq-tail-extra', extra + 'px');
+    else thread.style.removeProperty('--faq-tail-extra');
   }
 
   function appendUserBubble(thread, text) {
@@ -2760,6 +2828,10 @@
     const label = isSearch ? (s.searchTitle || 'Search') : (s.sendTitle || 'Send');
     btn.title = label;
     btn.setAttribute('aria-label', label);
+    // Placeholder ng input ay sumusunod din sa mode: FAQ -> "Search FAQ...",
+    // AI Chatbot -> "Reply to OmniAI...".
+    const inputEl = document.getElementById('faq-ai-input');
+    if (inputEl) inputEl.placeholder = isSearch ? s.searchPlaceholder : s.chatPlaceholder;
   }
   function setSendButtonLoading(loading) {
     const btn = document.getElementById('faq-send-btn');
@@ -3305,6 +3377,7 @@
     setupFaqInputAutosize();
     setupFaqVoiceInput();
     setupQuickActionsToggle();
+    setupFaqFloatLayout();
     const ticketBackdrop = document.getElementById('faq-ticket-modal-backdrop');
     if (ticketBackdrop) {
       ticketBackdrop.addEventListener('click', (ev) => {

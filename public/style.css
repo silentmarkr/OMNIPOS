@@ -15351,3 +15351,227 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within,
 .dark #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within {
   box-shadow: 0 0 0 3px rgba(124,92,255,0.25), 0 3px 12px rgba(0,0,0,0.5);
 }
+
+/* ===== FAQ (Search) mode: gap sa nav = gap ng AI Chatbot; 0px gap sa result box =====
+   - Ang taas ng view ay sinusukat na gaya ng AI Chatbot (hanggang sa taas ng
+     bottom nav lang), at ang dock ay 3px lang ang pagitan sa nav.
+   - Inalis ang padding sa ilalim ng box at sa ibabaw ng dock, at ang margin/
+     padding sa ilalim ng listahan/resulta, kaya direktang dumidikit ang
+     result box sa search box (walang nasasayang na space).
+   - overflow: visible sa box para hindi maputol ang anino ng search box;
+     ang listahan/resulta mismo ang may sariling scroll. */
+#view-faq:not(.faq-fullchat-mode) .faq-ai-box {
+  padding: 4px 10px 0 !important;
+  overflow: visible !important;
+}
+#view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
+#view-faq:not(.faq-fullchat-mode) .faq-ai-result-box {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+  padding-bottom: calc(3px + var(--faq-kb-offset, 0px)) !important;
+}
+@media screen and (max-width: 768px) {
+  #view-faq:not(.faq-fullchat-mode) {
+    padding-bottom: 0 !important;
+    height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+    max-height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+  }
+  @supports (height: 100dvh) {
+    #view-faq:not(.faq-fullchat-mode) {
+      height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+      max-height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+    }
+  }
+  /* ang JS (syncFaqBoxMinHeight) ay nag-se-set ng min-height na batay sa ibang
+     reserve; flex:1 na ang pumupuno kaya huwag nang pilitin */
+  #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
+    min-height: 0 !important;
+  }
+}
+
+/* ===== FAQ (Search) mode: top bar (Eng/Tag + AI Chatbot/FAQ toggles) =====
+   - Walang kulay (transparent) na ang lalagyan ng dalawang toggle, light at
+     dark mode, kaya ang buong background ng system ang nakikita at
+     nakalitaw ang mga toggle mismo (may kaunting anino).
+   - Binawasan ang mga sobrang spacing: padding sa loob ng bar, margin sa
+     ilalim, row-gap, margin ng lumang header, at padding sa itaas ng view.
+   Para sa FAQ mode lang; hindi ginagalaw ang AI Chatbot mode. */
+#view-faq:not(.faq-fullchat-mode),
+#view-faq:not(.faq-fullchat-mode):not(.x) {
+  padding-top: 4px !important;
+}
+#view-faq:not(.faq-fullchat-mode) #faq-classic-header,
+#view-faq:not(.faq-fullchat-mode) #faq-classic-header h2 {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-top-bar,
+#view-faq:not(.faq-fullchat-mode) .faq-top-bar#faq-top-bar,
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-top-bar,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-top-bar {
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 10px !important;
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+  gap: 0 8px !important;
+}
+#view-faq:not(.faq-fullchat-mode) #faq-lang-toggle,
+#view-faq:not(.faq-fullchat-mode) .faq-mode-toggle {
+  box-shadow: 0 2px 8px rgba(15,23,42,0.14), inset 0 1px 2px rgba(0,0,0,0.06);
+}
+body.dark-mode #view-faq:not(.faq-fullchat-mode) #faq-lang-toggle,
+.dark #view-faq:not(.faq-fullchat-mode) #faq-lang-toggle,
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-mode-toggle,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-mode-toggle {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+}
+
+/* ===== AI Chatbot mode, dark mode: top bar = kapareho ng light mode at ng FAQ =====
+   Dati, sa dark mode lang may tint na background (accent 16%) + padding 6px 0
+   ang lalagyan ng dalawang toggle kaya nagkaroon ng bahagyang gap at may
+   kulay sa labas ng toggle. Ngayon transparent na, walang dagdag na padding,
+   at pare-pareho ang hitsura ng light/dark sa Chatbot at FAQ mode. */
+body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar,
+.dark #view-faq.faq-fullchat-mode .faq-top-bar,
+body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar#faq-top-bar,
+.dark #view-faq.faq-fullchat-mode .faq-top-bar#faq-top-bar {
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* ===== FAQ (Search) mode: gap at position ng search box = AI Chatbot text box =====
+   Kinopya ang mismong sukat ng AI Chatbot (.faq-fullchat-mode):
+   - Gilid: padding ng view 12px (<=1024px) / 30px (desktop), at wala nang
+     dagdag na padding sa gilid ng .faq-ai-box, kaya pareho ang lapad at
+     kaliwa/kanang posisyon ng search box at ng chatbot text box.
+   - Dock: 1px sa itaas, 4px sa ibaba (3px sa phone), kasama ang keyboard
+     offset — kapareho ng chatbot.
+   - Taas ng view sa tablet (769-1024px) = chatbot din.
+   - Ang top bar ay walang dagdag na gilid (gaya ng chatbot) para pantay ang
+     pagkakahanay ng mga toggle. */
+#view-faq:not(.faq-fullchat-mode) .faq-ai-box {
+  padding: 4px 0 0 !important;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-top-bar,
+#view-faq:not(.faq-fullchat-mode) .faq-top-bar#faq-top-bar,
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-top-bar,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-top-bar {
+  padding: 0 !important;
+}
+#view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
+  padding-top: 1px !important;
+  padding-bottom: calc(4px + var(--faq-kb-offset, 0px)) !important;
+}
+@media (max-width: 1024px) {
+  #view-faq:not(.faq-fullchat-mode) {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    height: calc(100vh - 69px - 70px) !important;
+    max-height: calc(100vh - 69px - 70px) !important;
+  }
+}
+@media screen and (max-width: 768px) {
+  #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
+    padding-bottom: calc(3px + var(--faq-kb-offset, 0px)) !important;
+  }
+  #view-faq:not(.faq-fullchat-mode) {
+    height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+    max-height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+  }
+  @supports (height: 100dvh) {
+    #view-faq:not(.faq-fullchat-mode) {
+      height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+      max-height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+    }
+  }
+}
+
+/* ===== FAQ (Search) mode: 0px gap sa ibabaw ng search box (kapareho ng AI Chatbot) =====
+   Ang natitirang puwang ay galing sa:
+   - .faq-ai-result-box (base rule: margin-top 16px) na nananatili kahit
+     walang laman, kaya may 16px sa pagitan ng listahan at ng search box;
+   - margin-bottom ng huling category/item sa loob ng listahan at resulta.
+   Ngayon 0 na lahat ng iyon, kaya dumidikit ang listahan/resulta sa search box. */
+#view-faq:not(.faq-fullchat-mode) .faq-ai-result-box,
+#view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box,
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
+.dark #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty) {
+  margin: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border: 0 !important;
+}
+#view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts > :last-child,
+#view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts .faq-container > :last-child,
+#view-faq:not(.faq-fullchat-mode) .faq-ai-result-box > :last-child {
+  margin-bottom: 0 !important;
+}
+#view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Dark mode: siguraduhing tumatama rin ang gilid/gap/dock ng FAQ gaya ng
+   light mode (pinataas ang specificity gamit ang body.dark-mode/.dark). */
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-box,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
+  padding: 4px 0 0 !important;
+  overflow: visible !important;
+  background: none !important;
+  border: 0 !important;
+}
+body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
+.dark #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
+  padding-top: 1px !important;
+  margin-top: 0 !important;
+  padding-bottom: calc(4px + var(--faq-kb-offset, 0px)) !important;
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+body.dark-mode #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
+.dark #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+@media (max-width: 1024px) {
+  body.dark-mode #view-faq:not(.faq-fullchat-mode),
+  .dark #view-faq:not(.faq-fullchat-mode) {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    height: calc(100vh - 69px - 70px) !important;
+    max-height: calc(100vh - 69px - 70px) !important;
+  }
+}
+@media screen and (max-width: 768px) {
+  body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
+  .dark #view-faq:not(.faq-fullchat-mode) .faq-composer-dock {
+    padding-bottom: calc(3px + var(--faq-kb-offset, 0px)) !important;
+  }
+  body.dark-mode #view-faq:not(.faq-fullchat-mode),
+  .dark #view-faq:not(.faq-fullchat-mode) {
+    padding-bottom: 0 !important;
+    height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+    max-height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+  }
+  @supports (height: 100dvh) {
+    body.dark-mode #view-faq:not(.faq-fullchat-mode),
+    .dark #view-faq:not(.faq-fullchat-mode) {
+      height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+      max-height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
+    }
+  }
+}
