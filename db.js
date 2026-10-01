@@ -53,6 +53,107 @@ const upsertStmt = db.prepare(`
         updated_at = excluded.updated_at
 `);
 
+// Product photos are stored separately from the catalog JSON so stock/price writes
+// never rewrite megabytes of base64 image data. The table is inside the same SQLite
+// database, so local/offline backups remain self-contained.
+db.exec(`
+    CREATE TABLE IF NOT EXISTS product_images (
+        code       TEXT PRIMARY KEY,
+        image      TEXT NOT NULL DEFAULT '',
+        images     TEXT NOT NULL DEFAULT '[]',
+        image_ver  TEXT,
+        updated_at TEXT NOT NULL
+    );
+`);
+const productImageSelectAllStmt = db.prepare('SELECT code, image, images, image_ver FROM product_images');
+const productImageSelectVersionsStmt = db.prepare('SELECT code, image_ver FROM product_images');
+const productImageDeleteStmt = db.prepare('DELETE FROM product_images WHERE code = ?');
+const productImageUpsertStmt = db.prepare(`
+    INSERT INTO product_images (code, image, images, image_ver, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(code) DO UPDATE SET
+        image = excluded.image,
+        images = excluded.images,
+        image_ver = excluded.image_ver,
+        updated_at = excluded.updated_at
+`);
+
+function productImageVersion(image, images) {
+    const hash = crypto.createHash('md5');
+    if (typeof image === 'string') hash.update(image);
+    if (Array.isArray(images)) images.forEach((value) => {
+        if (typeof value === 'string') hash.update(value);
+    });
+    return hash.digest('hex').slice(0, 12);
+}
+function isProductImagePayloadPresent(product) {
+    return !!product && typeof product === 'object' &&
+        (Object.prototype.hasOwnProperty.call(product, 'image') ||
+         Object.prototype.hasOwnProperty.call(product, 'images'));
+}
+function stripProductImagesForStorage(products) {
+    return (Array.isArray(products) ? products : []).map((product) => {
+        if (!product || typeof product !== 'object') return product;
+        const copy = { ...product };
+        delete copy.image;
+        delete copy.images;
+        return copy;
+    });
+}
+function syncProductImages(products, now) {
+    const list = Array.isArray(products) ? products : [];
+    const incomingCodes = new Set();
+    const existingVersions = new Map(productImageSelectVersionsStmt.all().map((row) => [String(row.code), row.image_ver || '']));
+
+    for (const product of list) {
+        if (!product || product.code == null) continue;
+        const code = String(product.code);
+        incomingCodes.add(code);
+        if (!isProductImagePayloadPresent(product)) continue;
+        const image = typeof product.image === 'string' ? product.image : '';
+        const images = Array.isArray(product.images) ? product.images : [];
+        const ver = productImageVersion(image, images);
+        // Avoid rewriting the HD base64 payload when a stock/price/product write did not
+        // actually change the photo. This is especially important for product edits and
+        // void/refund/restock operations on a catalog containing many large images.
+        if (existingVersions.get(code) !== ver) {
+            productImageUpsertStmt.run(code, image, JSON.stringify(images), ver, now);
+        }
+    }
+
+    // Product add/edit/delete/restore writes are authoritative and must clean up image
+    // rows for deleted products even when the remaining catalog happens to contain no
+    // image fields. High-frequency photo-free transaction writes bypass this function's
+    // image sync entirely in writeDataDirectInTransaction() below.
+    if (incomingCodes.size === 0) {
+        db.exec('DELETE FROM product_images');
+    } else {
+        const placeholders = Array.from(incomingCodes, () => '?').join(',');
+        db.prepare(`DELETE FROM product_images WHERE code NOT IN (${placeholders})`).run(...incomingCodes);
+    }
+}
+function loadProductImagesMap() {
+    const map = new Map();
+    for (const row of productImageSelectAllStmt.all()) {
+        let images = [];
+        try { images = JSON.parse(row.images || '[]'); } catch (_) {}
+        map.set(String(row.code), {
+            ver: row.image_ver || productImageVersion(row.image || '', images),
+            image: row.image || '',
+            images: Array.isArray(images) ? images : []
+        });
+    }
+    return map;
+}
+function mergeProductImages(products) {
+    const imageMap = loadProductImagesMap();
+    return (Array.isArray(products) ? products : []).map((product) => {
+        if (!product || typeof product !== 'object' || product.code == null) return product;
+        const entry = imageMap.get(String(product.code));
+        return entry ? { ...product, image: entry.image, images: entry.images, imageVer: entry.ver } : product;
+    });
+}
+
 const ROW_NORMALIZED_MODULES = new Set(['transactions', 'userlogs']);
 
 db.exec(`
@@ -160,7 +261,6 @@ function readData(moduleName, defaultData = []) {
         try {
             const hasAnyRows = rowCountStmt.get(moduleName).cnt > 0;
             if (!hasAnyRows) {
-
                 writeRowNormalizedData(moduleName, defaultData);
                 return defaultData;
             }
@@ -170,32 +270,50 @@ function readData(moduleName, defaultData = []) {
             return defaultData;
         }
     }
-
     try {
-        let rawData;
-        if (blobStringCache.has(moduleName)) {
-            rawData = blobStringCache.get(moduleName);
-        } else {
+        let rawData = blobStringCache.get(moduleName);
+        if (rawData === undefined) {
             const row = selectStmt.get(moduleName);
-
             if (!row) {
-                
                 writeData(moduleName, defaultData);
-                return defaultData;
+                return moduleName === 'products' ? mergeProductImages(defaultData) : defaultData;
             }
-
             rawData = row.data;
             blobStringCache.set(moduleName, rawData);
         }
-
-        if (!rawData || rawData.trim() === '') {
-            return defaultData;
-        }
-
-        return JSON.parse(rawData);
+        if (!rawData || rawData.trim() === '') return defaultData;
+        const parsed = JSON.parse(rawData);
+        return moduleName === 'products' && Array.isArray(parsed) ? mergeProductImages(parsed) : parsed;
     } catch (err) {
         console.error(`⚠️ May sira sa SQLite data ng module "${moduleName}". Ibinalik ang default data.`, err);
         return defaultData;
+    }
+}
+
+function readDataLite(moduleName, defaultData = []) {
+    if (moduleName !== 'products') return readData(moduleName, defaultData);
+    try {
+        let rawData = blobStringCache.get('products');
+        if (rawData === undefined) {
+            const row = selectStmt.get('products');
+            if (!row) return Array.isArray(defaultData) ? defaultData : [];
+            rawData = row.data;
+            blobStringCache.set('products', rawData);
+        }
+        if (!rawData || rawData.trim() === '') return [];
+        const parsed = JSON.parse(rawData);
+        if (!Array.isArray(parsed)) return [];
+        const imageMap = loadProductImagesMap();
+        return parsed.map((product) => {
+            if (!product || typeof product !== 'object') return product;
+            const entry = imageMap.get(String(product.code));
+            return entry
+                ? { ...product, imageVer: entry.ver, imageCount: entry.images.length + (entry.image ? 1 : 0) }
+                : product;
+        });
+    } catch (err) {
+        console.error('⚠️ Hindi mabasa ang lite products data:', err);
+        return Array.isArray(defaultData) ? defaultData : [];
     }
 }
 
@@ -204,14 +322,28 @@ function writeData(moduleName, data) {
         writeRowNormalizedData(moduleName, data);
         return true;
     }
-
+    if (moduleName === 'products') {
+        const now = new Date().toISOString();
+        try {
+            const list = Array.isArray(data) ? data : [];
+            db.exec('BEGIN IMMEDIATE');
+            syncProductImages(list, now);
+            const json = JSON.stringify(stripProductImagesForStorage(list));
+            upsertStmt.run(moduleName, json, now);
+            db.exec('COMMIT');
+            blobStringCache.set(moduleName, json);
+            invalidateProductsViewCache();
+            return true;
+        } catch (error) {
+            try { db.exec('ROLLBACK'); } catch (_) {}
+            console.error(`Error writing SQLite data para sa module "${moduleName}":`, error);
+            return false;
+        }
+    }
     try {
         const json = JSON.stringify(data);
         upsertStmt.run(moduleName, json, new Date().toISOString());
-
-        
         blobStringCache.set(moduleName, json);
-        if (moduleName === 'products') invalidateProductsViewCache();
         return true;
     } catch (error) {
         console.error(`Error writing SQLite data para sa module "${moduleName}":`, error);
@@ -249,6 +381,17 @@ function writeDataDirectInTransaction(moduleName, data, now) {
         return JSON.stringify(list);
     }
 
+    if (moduleName === 'products') {
+        const list = Array.isArray(data) ? data : [];
+        // Sales/stock transactions intentionally pass a photo-free lite catalog.
+        // There is no image mutation in that path, so skip all image-table work.
+        // Full product writes still synchronize and clean up the photo table.
+        const hasImagePayload = list.some(isProductImagePayloadPresent);
+        if (hasImagePayload) syncProductImages(list, now);
+        const json = JSON.stringify(stripProductImagesForStorage(list));
+        upsertStmt.run(moduleName, json, now);
+        return json;
+    }
     const json = JSON.stringify(data);
     upsertStmt.run(moduleName, json, now);
     return json;
@@ -830,6 +973,18 @@ function getProductsBlobString() {
     return row.data;
 }
 
+// Ibinabalik ang NAKA-SERIALIZE nang products JSON (parehong laman ng readData('products'))
+// nang hindi pa ito pina-parse/ini-stringify ulit — para sa mabilis na buong /api/products.
+function getProductsRawJson() {
+    try {
+        const raw = getProductsBlobString();
+        if (typeof raw !== 'string' || raw.length <= 1 || raw.trimStart().charAt(0) !== '[') return null;
+        return JSON.stringify(mergeProductImages(JSON.parse(raw)));
+    } catch (e) {
+        return null;
+    }
+}
+
 function touchProductImageMapTimer() {
     if (productImageMapTimer) clearTimeout(productImageMapTimer);
     productImageMapTimer = setTimeout(() => {
@@ -855,35 +1010,82 @@ function getProductsView(needImages) {
         }
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return null;
-        const keepImages = !!needImages;
-        const built = buildProductsView(parsed, keepImages);
+        const imageMap = loadProductImagesMap();
+        const lite = parsed.map((product) => {
+            if (!product || typeof product !== 'object') return product;
+            const entry = imageMap.get(String(product.code));
+            return entry
+                ? { ...product, image: '', images: [], imageVer: entry.ver, imageCount: entry.images.length + (entry.image ? 1 : 0) }
+                : product;
+        });
         productsViewCache = {
             rawLength: raw.length,
-            lite: built.lite,
-            liteJson: JSON.stringify(built.lite),
-            imageMap: built.imageMap
+            lite,
+            liteJson: JSON.stringify(lite),
+            imageMap: needImages ? imageMap : null
         };
-        if (keepImages) touchProductImageMapTimer();
+        if (needImages) touchProductImageMapTimer();
         return productsViewCache;
     } catch (err) {
-        console.error('⚠️ Hindi nabuo ang lite products view, babalik sa full products read:', err);
+        console.error('⚠️ Hindi nabuo ang lite products view:', err);
         return null;
     }
 }
 
 function getProductImagesByCodes(codes) {
-    const view = getProductsView(true);
-    if (!view || !view.imageMap) return null;
+    const wanted = Array.from(new Set((Array.isArray(codes) ? codes : [])
+        .filter((code) => code !== null && code !== undefined)
+        .map((code) => String(code)))).slice(0, 100);
     const out = {};
-    (Array.isArray(codes) ? codes : []).forEach((code) => {
-        const key = String(code);
-        const entry = view.imageMap.get(key);
-        if (entry) out[key] = entry;
-    });
+    if (!wanted.length) return out;
+
+    // Query only the requested product codes. The previous implementation scanned and
+    // JSON-parsed the entire photo table for every 40-code background request, which
+    // became another hidden bottleneck as the catalog grew.
+    const placeholders = wanted.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT code, image, images, image_ver FROM product_images WHERE code IN (${placeholders})`).all(...wanted);
+    for (const row of rows) {
+        let images = [];
+        try { images = JSON.parse(row.images || '[]'); } catch (_) {}
+        out[String(row.code)] = {
+            ver: row.image_ver || productImageVersion(row.image || '', images),
+            image: row.image || '',
+            images: Array.isArray(images) ? images : []
+        };
+    }
     return out;
 }
 
-module.exports = { getProductsView, getProductImagesByCodes, db, readData, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
+
+function migrateLegacyProductImages() {
+    try {
+        const row = selectStmt.get('products');
+        if (!row || typeof row.data !== 'string' || !row.data.trim()) return;
+        const parsed = JSON.parse(row.data);
+        if (!Array.isArray(parsed)) return;
+        const hasImages = parsed.some((p) => isProductImagePayloadPresent(p) &&
+            ((typeof p.image === 'string' && p.image.length > 0) || (Array.isArray(p.images) && p.images.length > 0)));
+        if (!hasImages) return;
+        const now = new Date().toISOString();
+        db.exec('BEGIN IMMEDIATE');
+        try {
+            syncProductImages(parsed, now);
+            const json = JSON.stringify(stripProductImagesForStorage(parsed));
+            upsertStmt.run('products', json, now);
+            db.exec('COMMIT');
+            blobStringCache.set('products', json);
+            console.log('✅ Migrated product HD photos to product_images.');
+        } catch (err) {
+            try { db.exec('ROLLBACK'); } catch (_) {}
+            throw err;
+        }
+    } catch (err) {
+        console.error('⚠️ Product photo migration failed; legacy product data was left untouched:', err);
+    }
+}
+migrateLegacyProductImages();
+
+module.exports = { getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

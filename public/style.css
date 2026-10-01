@@ -3307,9 +3307,18 @@ body.dark-mode .search-box-container input::placeholder {
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
 }
+.t-prod-preview-btn::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+}
 .t-prod-preview-btn:active {
     background: rgba(15, 23, 42, 0.85);
-    transform: scale(0.94);
+}
+/* Habang pinipindot ang eye icon / larawan (list view), hindi gumagalaw o lumiliit ang card — para tama ang tinatamaan ng click. */
+.t-product-card.preview-pressing,
+.t-product-card.preview-pressing:active {
+    transform: none !important;
 }
 .t-prod-icon img {
     width: 100%;
@@ -5380,6 +5389,10 @@ body.dark-mode .avatar-photo-box {
 @keyframes slideUp {
     from { transform: translateY(15px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
+}
+/* Product details: walang entrance animation at walang transform/opacity — iwas kisap (blink) ng buong modal. */
+#product-details-modal .modal-card {
+    animation: none;
 }
 .modal-header {
     padding: 20px;

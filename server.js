@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, getProductsView, getProductImagesByCodes, readData, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
+const { db: sqliteDb, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const webauthn = require('./webauthn');
@@ -10028,6 +10028,26 @@ app.post('/api/products/checkout', requirePermission('terminal'), (req, res) => 
         message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin para baguhin ang stock nang walang naitatalang benta at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
 });
+// Naka-gzip na kopya ng lite products JSON (kino-cache hangga't hindi nagbabago ang
+// listahan) — mas maliit ang laman sa LAN/mobile data, at hindi na ginagawa ulit ang
+// gzip sa bawat poll ng bawat terminal.
+let productsLiteGzipCache = { src: null, buf: null };
+function sendProductsLiteJson(req, res, liteJson) {
+    try {
+        const acceptEncoding = String((req.headers && req.headers['accept-encoding']) || '');
+        if (liteJson.length > 1024 && /\bgzip\b/i.test(acceptEncoding)) {
+            if (productsLiteGzipCache.src !== liteJson) {
+                productsLiteGzipCache = { src: liteJson, buf: zlib.gzipSync(liteJson, { level: 4 }) };
+            }
+            res.set('Content-Encoding', 'gzip');
+            res.set('Vary', 'Accept-Encoding');
+            return res.type('application/json').send(productsLiteGzipCache.buf);
+        }
+    } catch (e) {
+        res.removeHeader('Content-Encoding');
+    }
+    return res.type('application/json').send(liteJson);
+}
 app.get('/api/products', (req, res) => {
     // Product inventory is mutable; do not let browsers/proxies serve a stale
     // cached snapshot immediately after add/update/delete operations.
@@ -10044,8 +10064,14 @@ app.get('/api/products', (req, res) => {
     if (req.query && String(req.query.lite) === '1') {
         const view = getProductsView(false);
         if (view && view.liteJson) {
-            return res.type('application/json').send(view.liteJson);
+            return sendProductsLiteJson(req, res, view.liteJson);
         }
+    }
+    // PERFORMANCE: ipadala nang diretso ang naka-serialize na products blob imbes na
+    // i-JSON.parse (buong HD photo) at i-res.json (stringify ulit) sa bawat request.
+    const rawProductsJson = getProductsRawJson();
+    if (rawProductsJson) {
+        return res.type('application/json').send(rawProductsJson);
     }
     res.json(readData(FILE_PRODUCTS));
 });
@@ -11318,7 +11344,7 @@ async function processTransaction(req, res) {
                 : 'A transaction with this ID already exists. The duplicate sale was not created.'
         });
     }
-    let products = readData(FILE_PRODUCTS);
+    let products = readDataLite(FILE_PRODUCTS);
     let customers = readData(FILE_CUSTOMERS, []);
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const enabledMethodKeys = Object.entries(storeSettings.paymentMethods)
@@ -11607,7 +11633,7 @@ async function processTransaction(req, res) {
                 : `${discountAuthResult.user.username} (RBAC)`;
         }
     }
-    products = readData(FILE_PRODUCTS);
+    products = readDataLite(FILE_PRODUCTS);
     const freshStockIssues = [];
     for (const code of Object.keys(requestedBaseQtyByCode)) {
         const prod = products.find(p => p.code === code);

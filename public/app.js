@@ -8981,7 +8981,7 @@ async function ovRunDashboardMetricsCycle() {
 
         const [txData, prodData, usersData] = await Promise.all([
             ovFetchJsonOrNull(`${API_URL}/transactions`),
-            ovFetchJsonOrNull(`${API_URL}/products`),
+            ovFetchJsonOrNull(`${API_URL}/products?lite=1`),
             canViewUsers ? ovFetchJsonOrNull(`${API_URL}/users?requester=${encodeURIComponent(currentUsername)}`) : Promise.resolve(null)
         ]);
         let serverTxs;
@@ -10964,20 +10964,15 @@ function renderDashboardDOM(revenue, orders, products, lowStock, noStock, users,
 }
 async function loadTerminalCatalog() {
     try {
-        const response = await authFetch(`${API_URL}/products`);
-        if (!response.ok) throw new Error(`Products fetch failed: HTTP ${response.status}`);
-        const data = await response.json();
-        if (!Array.isArray(data)) throw new Error('Products fetch returned a non-array payload');
-        globalProducts = await applyPendingOfflineStockDeductions(data);
-        try {
-            ovWriteJsonCache('cached_products', globalProducts);
-        } catch (cacheErr) {
-            console.warn('Terminal Catalog: hindi na-cache sa localStorage (malamang quota, dahil sa laki ng product photos) — hindi ito problema, gagamitin pa rin ang fresh data mula server.', cacheErr);
-        }
+        // Lite list (walang mabibigat na photo) = halos instant; photo ay background.
+        const { products } = await fetchGlobalProductsLite();
+        globalProducts = products;
+        cacheGlobalProductsThrottled(true);
         updateCategoryChipsDynamic();
         updateDropdownCategoriesDynamic();
         renderTerminalProducts();
         broadcastIdleShowcase();
+        hydratePendingTerminalPhotos();
     } catch (e) {
         console.warn('Terminal Catalog: Local offline fallback active. Retaining local environmental storage matrix snapshots.', e);
         globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
@@ -11032,19 +11027,15 @@ async function silentRefreshTerminalStock() {
     const paymentModalEl = document.getElementById('payment-modal');
     if (paymentModalEl && paymentModalEl.style.display ==='flex') return;
     if (document.querySelector('.swal2-container')) return;
+    // Walang saysay mag-poll kapag nakatago ang tab/app (walang nakatingin).
+    if (typeof document.hidden === 'boolean' && document.hidden) return;
     try {
-        const response = await authFetch(`${API_URL}/products`);
-        if (!response.ok) return;
-        updateActiveTerminalCountFromResponse(response);
-        const freshProducts = await response.json();
-        if (!Array.isArray(freshProducts)) return;
-        globalProducts = await applyPendingOfflineStockDeductions(freshProducts);
-        try {
-            ovWriteJsonCache('cached_products', globalProducts);
-        } catch (cacheErr) {
-            console.warn('Silent stock refresh: hindi na-cache sa localStorage (malamang quota) — hindi ito problema, ipi-proceed pa rin ang render gamit ang fresh data.', cacheErr);
-        }
+        const { res, products } = await fetchGlobalProductsLite();
+        updateActiveTerminalCountFromResponse(res);
+        globalProducts = products;
+        cacheGlobalProductsThrottled(false);
         patchTerminalProductsInPlace();
+        hydratePendingTerminalPhotos();
     } catch (e) {
     }
 }
@@ -11336,6 +11327,24 @@ function onTerminalSearchInput() {
         if (!__termSearchIsScan) renderTerminalProducts();
     }, TERM_SEARCH_FILTER_DELAY_MS);
 }
+// Habang pinipindot ang eye icon (o ang larawan sa list view), huwag i-"press" ang buong card:
+// kapag lumiit/gumalaw ang card sa pagpindot, nalilihis ang button at ang click ay napupunta sa card (nai-add sa cart).
+function guardPreviewPress(el, card) {
+    if (!el || !card || el.__previewPressGuard) return;
+    el.__previewPressGuard = true;
+    const release = () => card.classList.remove('preview-pressing');
+    el.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        card.classList.add('preview-pressing');
+    });
+    ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'].forEach(evt => el.addEventListener(evt, release));
+}
+// Ang card ay naka-render na sa nakaraang poll; kunin ang pinakabagong data (stock/presyo) ng product pagka-click.
+function getLatestTerminalProduct(p) {
+    if (!p || !Array.isArray(globalProducts)) return p;
+    const latest = globalProducts.find(x => x && x.code === p.code);
+    return latest || p;
+}
 function renderTerminalProducts() {
     hideProductImagePeek();
     const searchBox = document.getElementById('terminal-search');
@@ -11374,17 +11383,27 @@ function renderTerminalProducts() {
                     : '';
                 card.innerHTML = `
                     ${cartBadgeHtml}
-                    <div class="t-prod-icon"${isListView ? ' title="Tap image for details"' : ' title="Tap to add"'}>${p.image ? `<img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name ||'Product')}" draggable="false">` : `<i class="${iconClass}"></i>`}${previewBtnHtml}</div>
+                    <div class="t-prod-icon"${isListView ? ' title="Tap image for details"' : ' title="Tap to add"'}>${p.image ? `<img class="t-prod-img-slot" draggable="false" decoding="async">` : `<i class="${iconClass}"></i>`}${previewBtnHtml}</div>
                     <h4>${escapeHtml(p.name ||'Unnamed Product')}</h4>
                     <div class="t-prod-price">₱${(parseFloat(p.price) || 0).toFixed(2)}${productPriceSuffix(p)}</div>
                     <div class="t-prod-stock" title="Stock: ${availableStock}" aria-label="Stock: ${availableStock}"><i class="fa-solid fa-box" aria-hidden="true"></i> ${availableStock}</div>
                 `;
-                card.onclick = () => addItemToCart(p);
+                if (p.image) {
+                    // I-set via DOM (hindi sa innerHTML string) para hindi i-escape/i-parse ang MB na base64.
+                    const imgSlot = card.querySelector('img.t-prod-img-slot');
+                    if (imgSlot) {
+                        imgSlot.alt = p.name || 'Product';
+                        imgSlot.src = p.image;
+                        if (p.imageVer) imgSlot.dataset.imgVer = String(p.imageVer);
+                    }
+                }
+                card.onclick = () => addItemToCart(getLatestTerminalProduct(p));
                 attachInstantTapFeedback(card, { hapticMs: 12 });
                 const prodIconEl = card.querySelector('.t-prod-icon');
                 if (isListView) {
                     if (prodIconEl) {
                         prodIconEl.classList.add('t-prod-icon-clickable');
+                        guardPreviewPress(prodIconEl, card);
                         prodIconEl.addEventListener('click', (e) => {
                             e.stopPropagation();
                             showProductDetails(p.code);
@@ -11393,7 +11412,9 @@ function renderTerminalProducts() {
                 } else {
                     const previewBtn = card.querySelector('.t-prod-preview-btn');
                     if (previewBtn) {
+                        guardPreviewPress(previewBtn, card);
                         previewBtn.addEventListener('click', (e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             showProductDetails(p.code);
                         });
@@ -11441,15 +11462,19 @@ function updateProductCardInPlace(code) {
         const iconEl = card.querySelector('.t-prod-icon img, .t-prod-icon i');
         const wantsImage = !!p.image;
         const hasImage = !!(iconEl && iconEl.tagName === 'IMG');
-        if (wantsImage !== hasImage || (wantsImage && iconEl.getAttribute('src') !== p.image)) {
+        const imageChanged = wantsImage && hasImage && (p.imageVer
+            ? iconEl.dataset.imgVer !== String(p.imageVer)
+            : iconEl.getAttribute('src') !== p.image);
+        if (wantsImage !== hasImage || imageChanged) {
 
             const iconBox = card.querySelector('.t-prod-icon');
             if (iconBox) {
                 const previewBtn = iconBox.querySelector('.t-prod-preview-btn');
                 if (iconEl) iconEl.remove();
                 const newNode = wantsImage
-                    ? Object.assign(document.createElement('img'), { src: p.image, alt: p.name || 'Product', draggable: false })
+                    ? Object.assign(document.createElement('img'), { src: p.image, alt: p.name || 'Product', draggable: false, decoding: 'async' })
                     : Object.assign(document.createElement('i'), { className: getCategoryIconClass(p.category) });
+                if (wantsImage && p.imageVer) newNode.dataset.imgVer = String(p.imageVer);
                 iconBox.insertBefore(newNode, previewBtn || null);
             }
         }
@@ -11483,48 +11508,71 @@ let pdGalleryImages = [];
 let pdGalleryCurrentIndex = 0;
 let pdGalleryLastAlt = 'Product';
 let pdGalleryFallbackIconClass = 'fa-solid fa-box';
+let pdOpenToken = 0;
+const pdPhotoWaiting = new Set();
 function renderProductDetailsGallery(p) {
     const thumbsContainer = document.getElementById('pd-gallery-thumbs');
     const photoBox = document.getElementById('pd-photo-box');
-    if (!photoBox) return;
+    if (!photoBox) return null;
     pdGalleryFallbackIconClass = getCategoryIconClass(p.category);
     const mainImage = p.image ||'';
     const gallery = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
     pdGalleryImages = mainImage ? [mainImage, ...gallery] : gallery;
     pdGalleryCurrentIndex = 0;
-    pdGalleryLastAlt = (p.name ||'Product').replace(/"/g,'&quot;');
-    renderPdMainPhoto();
-    if (!thumbsContainer) return;
+    pdGalleryLastAlt = p.name ||'Product';
+    // Ibinabalik ang main <img> (kung meron) para ma-decode muna bago ipakita ang modal.
+    const mainImgEl = renderPdMainPhoto();
+    if (!thumbsContainer) return mainImgEl;
     if (pdGalleryImages.length > 1) {
         thumbsContainer.style.display ='flex';
-        thumbsContainer.innerHTML = pdGalleryImages.map((src, idx) => `
-            <div class="pd-gallery-thumb-item${idx === 0 ?' active-thumb' :''}" onclick="switchProductDetailsPhoto(${idx})">
-                <img src="${src}" alt="${pdGalleryLastAlt} photo ${idx + 1}">
-            </div>
-        `).join('');
+        thumbsContainer.textContent = '';
+        const thumbsFragment = document.createDocumentFragment();
+        // DOM ang gamit (hindi innerHTML string) para hindi i-parse ulit ang MB na base64 ng bawat photo.
+        pdGalleryImages.forEach((src, idx) => {
+            const item = document.createElement('div');
+            item.className = 'pd-gallery-thumb-item' + (idx === 0 ? ' active-thumb' : '');
+            item.addEventListener('click', () => switchProductDetailsPhoto(idx));
+            const thumbImg = document.createElement('img');
+            thumbImg.decoding = 'async';
+            thumbImg.alt = `${pdGalleryLastAlt} photo ${idx + 1}`;
+            thumbImg.src = src;
+            item.appendChild(thumbImg);
+            thumbsFragment.appendChild(item);
+        });
+        thumbsContainer.appendChild(thumbsFragment);
     } else {
         thumbsContainer.style.display ='none';
         thumbsContainer.innerHTML ='';
     }
     bindPdGallerySwipe();
+    return mainImgEl;
 }
 function renderPdMainPhoto() {
     const photoBox = document.getElementById('pd-photo-box');
     const prevBtn = document.getElementById('pd-photo-prev-btn');
     const nextBtn = document.getElementById('pd-photo-next-btn');
-    if (!photoBox) return;
+    if (!photoBox) return null;
     const hasMultiple = pdGalleryImages.length > 1;
     if (prevBtn) prevBtn.style.display = hasMultiple ? 'flex' : 'none';
     if (nextBtn) nextBtn.style.display = hasMultiple ? 'flex' : 'none';
     if (!pdGalleryImages.length) {
         photoBox.innerHTML = `<i class="${pdGalleryFallbackIconClass}"></i>`;
-        return;
+        return null;
     }
     const src = pdGalleryImages[pdGalleryCurrentIndex];
-    const counterHtml = pdGalleryImages.length > 1
-        ? `<span class="pd-gallery-counter">${pdGalleryCurrentIndex + 1}/${pdGalleryImages.length}</span>`
-        : '';
-    photoBox.innerHTML = `<img src="${src}" alt="${pdGalleryLastAlt}">${counterHtml}`;
+    const img = document.createElement('img');
+    img.decoding = 'async';
+    img.alt = pdGalleryLastAlt;
+    img.src = src;
+    photoBox.textContent = '';
+    photoBox.appendChild(img);
+    if (hasMultiple) {
+        const counter = document.createElement('span');
+        counter.className = 'pd-gallery-counter';
+        counter.textContent = `${pdGalleryCurrentIndex + 1}/${pdGalleryImages.length}`;
+        photoBox.appendChild(counter);
+    }
+    return img;
 }
 function switchProductDetailsPhoto(idx) {
     if (idx < 0) idx = pdGalleryImages.length - 1;
@@ -11592,16 +11640,26 @@ function showProductDetails(code, context ='pos', photoRetried = false) {
         ? (cachedInventoryProducts.find(prod => prod.code === code) || globalProducts.find(prod => prod.code === code))
         : (globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code));
     if (!p) return;
-    if (p._imgPending && !photoRetried) {
+    if (p._imgPending && !photoRetried && Date.now() - productImageHydrationLastFailAt >= PRODUCT_IMAGE_RETRY_BACKOFF_MS) {
         // Hindi pa dumarating ang photo(s) ng product na ito (lite load) — kunin muna, saka buksan.
-        fetchAndApplyProductImages([p.code]).then(() => showProductDetails(code, context, true));
+        // May limit na 4s at walang dobleng request kapag inulit ang tap, para hindi "hindi bumubukas" ang item.
+        const waitKey = String(p.code);
+        if (pdPhotoWaiting.has(waitKey)) return;
+        pdPhotoWaiting.add(waitKey);
+        let waitTimer = null;
+        const limit = new Promise(resolve => { waitTimer = setTimeout(resolve, 4000); });
+        Promise.race([fetchAndApplyProductImages([p.code]).catch(() => {}), limit]).then(() => {
+            clearTimeout(waitTimer);
+            pdPhotoWaiting.delete(waitKey);
+            showProductDetails(code, context, true);
+        });
         return;
     }
     productDetailsModalCode = code;
     const cartItem = shoppingCart.find(item => item.code === p.code);
     const qtyInCart = cartItem ? cartItem.quantity : 0;
     const availableStock = Math.max(0, qty3((parseFloat(p.stock) || 0) - (cartItem ? getCartBaseQty(cartItem) : 0)));
-    renderProductDetailsGallery(p);
+    const pdMainImgEl = renderProductDetailsGallery(p);
     document.getElementById('pd-modal-title').innerText = p.name ||'Unnamed Product';
     document.getElementById('pd-code').innerText = p.code;
     document.getElementById('pd-category').innerText = p.category ||'—';
@@ -11687,8 +11745,22 @@ function showProductDetails(code, context ='pos', photoRetried = false) {
             addBtn.onclick = addProductFromDetailsModal;
         }
     }
-    document.getElementById('product-details-modal').classList.toggle('terminal-origin', context ==='pos');
-    document.getElementById('product-details-modal').style.display ='flex';
+    const pdModalEl = document.getElementById('product-details-modal');
+    pdModalEl.classList.toggle('terminal-origin', context ==='pos');
+    // Ipakita lang ang modal kapag na-decode na ang main photo — iwas "blink" (walang laman -> biglang lalabas ang litrato).
+    const pdMyToken = ++pdOpenToken;
+    let pdRevealed = false;
+    const pdReveal = () => {
+        if (pdRevealed || pdMyToken !== pdOpenToken) return;
+        pdRevealed = true;
+        pdModalEl.style.display ='flex';
+    };
+    if (pdMainImgEl && typeof pdMainImgEl.decode === 'function') {
+        pdMainImgEl.decode().then(pdReveal, pdReveal);
+        setTimeout(pdReveal, 350);
+    } else {
+        pdReveal();
+    }
 }
 function addProductFromDetailsModal() {
     if (!productDetailsModalCode) return;
@@ -13175,6 +13247,7 @@ function resetCartDiscountAndCustomerState() {
 }
 function closeModal(modalId) {
     document.getElementById(modalId).style.display ='none';
+    if (modalId ==='product-details-modal') pdOpenToken++;
     if (modalId ==='receipt-modal') document.body.classList.remove('print-target-receipt');
     if (modalId ==='barcode-preview-modal') document.body.classList.remove('print-target-barcode');
 }
@@ -17220,6 +17293,55 @@ const PRODUCT_IMAGE_CHUNK_SIZE = 5;
 const PRODUCT_IMAGE_PARALLEL_REQUESTS = 2;
 const PRODUCT_IMAGE_RETRY_BACKOFF_MS = 15000;
 const productImageStore = new Map();
+
+let productImageStoreHydrated = false;
+let productImageStoreHydrationPromise = null;
+let productImagePersistTimer = null;
+
+async function hydratePersistentProductImageStore() {
+    if (productImageStoreHydrated) return;
+    if (productImageStoreHydrationPromise) return productImageStoreHydrationPromise;
+    productImageStoreHydrationPromise = (async () => {
+        try {
+            const cached = window.OfflineStorage?.getLargeCache
+                ? await window.OfflineStorage.getLargeCache('cached_product_images')
+                : null;
+            if (cached && typeof cached === 'object') {
+                Object.entries(cached).forEach(([code, value]) => {
+                    if (!value || typeof value !== 'object') return;
+                    productImageStore.set(String(code), {
+                        ver: value.ver || '',
+                        image: typeof value.image === 'string' ? value.image : '',
+                        images: Array.isArray(value.images) ? value.images : []
+                    });
+                });
+            }
+        } catch (e) {
+            console.warn('Could not hydrate offline product photos:', e);
+        } finally {
+            productImageStoreHydrated = true;
+            productImageStoreHydrationPromise = null;
+        }
+    })();
+    return productImageStoreHydrationPromise;
+}
+
+function schedulePersistentProductImageStoreSave() {
+    if (!window.OfflineStorage?.putLargeCache) return;
+    if (productImageStorePersistTimer) clearTimeout(productImageStorePersistTimer);
+    productImageStorePersistTimer = setTimeout(() => {
+        productImageStorePersistTimer = null;
+        const snapshot = {};
+        productImageStore.forEach((value, code) => {
+            snapshot[String(code)] = {
+                ver: value?.ver || '',
+                image: typeof value?.image === 'string' ? value.image : '',
+                images: Array.isArray(value?.images) ? value.images : []
+            };
+        });
+        window.OfflineStorage.putLargeCache('cached_product_images', snapshot).catch(() => {});
+    }, 1000);
+}
 let inventoryLoadsInFlight = 0;
 let inventoryLoadFailed = false;
 let productImageHydrationBusy = false;
@@ -17230,6 +17352,8 @@ let inventoryPhotoProgress = { done: 0, total: 0 };
 function mergeLiteProductsWithImageStore(list) {
     const merged = list.map(p => {
         if (!p || typeof p !== 'object' || !p.imageVer) return p;
+        // Walang photo (imageCount = 0): wala nang kukunin, kaya hindi na ito dadaan sa _imgPending/spinner.
+        if (Number(p.imageCount) === 0 && !p.image) return p;
         const stored = productImageStore.get(String(p.code));
         if (stored && stored.ver === p.imageVer) {
             return { ...p, image: stored.image, images: stored.images };
@@ -17245,11 +17369,108 @@ function mergeLiteProductsWithImageStore(list) {
     return merged;
 }
 async function fetchProductsLiteMerged() {
-    const res = await authFetch(`${API_URL}/products?lite=1`, { cache:'no-store' });
-    if (!res.ok) throw new Error(`Failed to load products (${res.status})`);
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('Invalid products response.');
-    return { res, products: mergeLiteProductsWithImageStore(data) };
+    await hydratePersistentProductImageStore();
+    try {
+        const res = await authFetch(`${API_URL}/products?lite=1`, { cache:'no-store' });
+        if (!res.ok) throw new Error(`Failed to load products (${res.status})`);
+        const data = await res.json();
+        if (!Array.isArray(data)) throw new Error('Invalid products response.');
+        return { res, products: mergeLiteProductsWithImageStore(data), offline: false };
+    } catch (networkError) {
+        // Offline/reconnect-safe fallback: cached_products is already a lite catalog,
+        // while cached_product_images keeps the HD photos in IndexedDB.
+        let cached = null;
+        try {
+            cached = window.OfflineStorage?.getLargeCache
+                ? await window.OfflineStorage.getLargeCache('cached_products')
+                : null;
+        } catch (_) {}
+        if (!Array.isArray(cached)) {
+            try { cached = JSON.parse(localStorage.getItem('cached_products') || 'null'); } catch (_) {}
+        }
+        if (!Array.isArray(cached)) throw networkError;
+        return {
+            res: { headers: { get: () => null } },
+            products: mergeLiteProductsWithImageStore(cached),
+            offline: true
+        };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LITE LOADING PARA SA TERMINAL (POS) AT IBA PANG GLOBAL NA PRODUCT LIST
+// Dati, ang Terminal ay kumukuha ng BUONG /products (kasama ang lahat ng HD
+// base64 photo) tuwing 1-5 segundo at sine-save pa ang buong listahan sa
+// cache — kaya bumabagal ang pag-load, scan, at cart. Ngayon: lite list muna
+// (instant), tapos ang mga photo ay kinukuha sa background nang paunti-unti.
+// ---------------------------------------------------------------------------
+const TERMINAL_PHOTO_CHUNK_SIZE = 10;
+const TERMINAL_PHOTO_PARALLEL_REQUESTS = 2;
+const PRODUCT_CACHE_WRITE_MIN_MS = 30000;
+let terminalPhotoHydrationBusy = false;
+let terminalPhotoHydrationRerun = false;
+let productCacheLastWriteAt = 0;
+async function fetchGlobalProductsLite() {
+    const { res, products } = await fetchProductsLiteMerged();
+    return { res, products: await applyPendingOfflineStockDeductions(products) };
+}
+function cacheGlobalProductsThrottled(force) {
+    const now = Date.now();
+    if (!force && now - productCacheLastWriteAt < PRODUCT_CACHE_WRITE_MIN_MS) return;
+    productCacheLastWriteAt = now;
+    try {
+        const lite = (Array.isArray(globalProducts) ? globalProducts : []).map((p) => {
+            if (!p || typeof p !== 'object') return p;
+            const copy = { ...p };
+            delete copy.image;
+            delete copy.images;
+            delete copy._imgPending;
+            return copy;
+        });
+        ovWriteJsonCache('cached_products', lite);
+    } catch (e) {}
+}
+function backgroundRefreshProductsLite() {
+    return fetchGlobalProductsLite()
+        .then(r => { globalProducts = r.products; })
+        .catch(e => console.warn('Failed to background-refresh products:', e));
+}
+function getPendingTerminalPhotoCodes() {
+    return (Array.isArray(globalProducts) ? globalProducts : [])
+        .filter(p => p && p._imgPending && p.code != null)
+        .map(p => String(p.code));
+}
+async function hydratePendingTerminalPhotos() {
+    if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) return;
+    if (terminalPhotoHydrationBusy) {
+        terminalPhotoHydrationRerun = true;
+        return;
+    }
+    terminalPhotoHydrationBusy = true;
+    let fetchedAny = false;
+    try {
+        do {
+            terminalPhotoHydrationRerun = false;
+            let guard = 0;
+            while (guard++ < 500) {
+                if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) break;
+                const pending = getPendingTerminalPhotoCodes();
+                if (!pending.length) break;
+                const jobs = [];
+                for (let i = 0; i < TERMINAL_PHOTO_PARALLEL_REQUESTS; i++) {
+                    const chunk = pending.slice(i * TERMINAL_PHOTO_CHUNK_SIZE, (i + 1) * TERMINAL_PHOTO_CHUNK_SIZE);
+                    if (chunk.length) jobs.push(fetchAndApplyProductImages(chunk));
+                }
+                fetchedAny = true;
+                await Promise.all(jobs);
+            }
+        } while (terminalPhotoHydrationRerun);
+    } finally {
+        terminalPhotoHydrationBusy = false;
+    }
+    if (fetchedAny && typeof broadcastIdleShowcase === 'function') {
+        try { broadcastIdleShowcase(); } catch (e) {}
+    }
 }
 function updateInventoryLoadStatus() {
     const table = document.getElementById('products-table-body')?.closest('table');
@@ -17363,12 +17584,18 @@ async function fetchAndApplyProductImages(codes) {
         } else if (items) {
             // Nag-succeed ang request pero walang photo para sa code na ito (hal. nabura na):
             // tandaan para hindi ito hilingin ulit sa bawat refresh.
-            const current = (cachedInventoryProducts || []).find(p => p && String(p.code) === code);
+            const current = (cachedInventoryProducts || []).find(p => p && String(p.code) === code)
+                || (Array.isArray(globalProducts) ? globalProducts : []).find(p => p && String(p.code) === code);
             if (current && current.imageVer) productImageStore.set(code, { ver: current.imageVer, image: '', images: [] });
         }
         clearPendingProductImageFlag(code);
         updateInventoryRowImage(code);
+        if (typeof updateProductCardInPlace === 'function') updateProductCardInPlace(code);
     });
+    // Persist once per completed batch rather than rewriting the entire HD-photo map
+    // once for every product in the batch. This keeps background photo hydration from
+    // becoming its own IndexedDB bottleneck.
+    if (items) schedulePersistentProductImageStoreSave();
 }
 function getPendingProductImageCodes() {
     return (Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [])
@@ -20495,7 +20722,7 @@ async function deleteProductTrigger(code) {
 let barcodeGenProductsByCode = {};
 async function loadBarcodeGeneratorModule() {
     try {
-        const res = await authFetch(`${API_URL}/products`);
+        const res = await authFetch(`${API_URL}/products?lite=1`);
         const products = await res.json();
         barcodeGenProductsByCode = {};
         const tbody = document.getElementById('barcode-table-body');
@@ -22349,13 +22576,23 @@ function markServerCartStale() {
 function clearServerCartStaleMarker() {
     try { localStorage.removeItem(getStaleServerCartKey()); } catch (e) {  }
 }
+// PERFORMANCE: ang bawat cart line ay kopya ng buong product ({...product}) kaya
+// kasama ang base64 photo. Dati, bawat idagdag/baguhin sa cart ay nagpapadala
+// (at nagsusulat sa database) ng MB-MB na photo. Hindi kailangan ng cart ang photo.
+function stripCartPhotosForSave(cart) {
+    return (Array.isArray(cart) ? cart : []).map(line => {
+        if (!line || typeof line !== 'object') return line;
+        const { image, images, imageVer, imageCount, _imgPending, ...rest } = line;
+        return rest;
+    });
+}
 async function postCartToServer() {
     const res = await authFetch(`${API_URL}/cart`, {
         method:'POST',
         headers: {'Content-Type':'application/json' },
         body: JSON.stringify({
             username: currentUser.username,
-            cart: shoppingCart
+            cart: stripCartPhotosForSave(shoppingCart)
         })
     });
     if (res && res.ok) clearServerCartStaleMarker();
@@ -23479,10 +23716,7 @@ async function handleScanStockPromptInput(rawCode) {
     const input = document.getElementById('stock-scan-input');
     const statusEl = document.getElementById('stock-scan-status');
     const saveBtn = document.getElementById('stock-scan-save-btn');
-    authFetch(`${API_URL}/products`)
-        .then(res => res.json())
-        .then(data => { globalProducts = data; })
-        .catch(e => console.warn("Failed to background-refresh products:", e));
+    backgroundRefreshProductsLite();
     addProductScanSession.active = true;
     const match = globalProducts.find(p => p.code === cleanCode);
     const codeInput = document.getElementById('p-form-code');
@@ -23550,10 +23784,7 @@ async function handleScanStockPromptInput(rawCode) {
 }
 async function handleProductFormScanResult(code) {
     if (!code) return;
-    authFetch(`${API_URL}/products`)
-        .then(res => res.json())
-        .then(data => { globalProducts = data; })
-        .catch(e => console.warn("Failed to background-refresh products:", e));
+    backgroundRefreshProductsLite();
     addProductScanSession.active = true;
     const match = globalProducts.find(p => p.code === code);
     const codeInput = document.getElementById('p-form-code');
@@ -23624,10 +23855,7 @@ async function handleHardwareScanProductForm(scannedCode) {
     if (!cleanCode) return;
     const modeInput = document.getElementById('p-form-mode');
     if (!modeInput || modeInput.value !=='ADD') return;
-    authFetch(`${API_URL}/products`)
-        .then(res => res.json())
-        .then(data => { globalProducts = data; })
-        .catch(e => console.warn("Failed to background-refresh products:", e));
+    backgroundRefreshProductsLite();
     addProductScanSession.active = true;
     const match = globalProducts.find(p => p.code === cleanCode);
     const codeInput = document.getElementById('p-form-code');
@@ -23922,11 +24150,8 @@ function refreshProductsForScan() {
     if (scanProductsRefreshPromise) return scanProductsRefreshPromise;
     scanProductsRefreshPromise = (async () => {
         try {
-            const res = await authFetch(`${API_URL}/products`);
-            if (!res || !res.ok) return false;
-            const data = await res.json();
-            if (!Array.isArray(data)) return false;
-            globalProducts = await applyPendingOfflineStockDeductions(data);
+            const { products } = await fetchGlobalProductsLite();
+            globalProducts = products;
             scanProductsLastRefreshAt = Date.now();
             return true;
         } catch (e) {
@@ -24712,11 +24937,11 @@ function updateDropdownCategoriesDynamic() {
 async function initializeSystem() {
     if (!currentUser) return;
     try {
-        const [productsRes, categoriesRes] = await Promise.all([
-            authFetch(`${API_URL}/products`),
+        const [productsLite, categoriesRes] = await Promise.all([
+            fetchGlobalProductsLite(),
             authFetch(`${API_URL}/categories`)
         ]);
-        globalProducts = await applyPendingOfflineStockDeductions(await productsRes.json());
+        globalProducts = productsLite.products;
         customCategories = await categoriesRes.json();
         updateDropdownCategoriesDynamic();
         if (typeof loadDashboardMetrics ==='function') {
