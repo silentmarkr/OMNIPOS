@@ -716,7 +716,15 @@
       if (parentCategory && 'open' in parentCategory) parentCategory.open = true;
       if ('open' in target) target.open = true;
       setTimeout(() => {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // AYOS: sa FAQ (Search) mode, nakatago ang buong listahan (#faq-kb-shortcuts)
+        // habang may resulta, kaya ang scrollIntoView dito ay walang makikitang
+        // target at nag-i-scroll lang ng page/parent (dito nagmumula ang pagtalon
+        // ng resulta sa ilalim ng toggles). Sa AI mode, hindi ginagalaw.
+        if (effectiveAiMode() === 'ai') {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          keepFaqResultBelowToggles(resultBox);
+        }
         target.classList.add('faq-item-flash');
         setTimeout(() => target.classList.remove('faq-item-flash'), 1600);
       }, resultBox ? 350 : 0);

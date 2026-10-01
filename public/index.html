@@ -3564,6 +3564,22 @@
                        box-sizing: border-box !important;
                    }
                    html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts > h3:first-child { margin-top: 0 !important; }
+                   /* MOBILE FIX (FAQ/Search mode lang): sa dark mode at lahat ng Pro theme, may
+                      lumang rule sa style.css (body.dark-mode / .dark #view-faq ...
+                      .faq-ai-result-box:not(:empty)) na may `padding-top: 0 !important` at
+                      `padding-bottom: 0 !important` at MAS MATAAS ang specificity kaysa sa rule sa
+                      itaas, kaya nawawala ang padding ng result box at napupunta ang HEAD ng
+                      resulta sa likod ng top toggles (at ang dulo sa likod ng composer).
+                      Dinoble ang #view-faq para laging manalo ito sa lahat ng mode/theme.
+                      Hindi ito tumatama sa AI Chatbot (.faq-fullchat-mode) kaya hindi nagagalaw
+                      ang scroll behavior niya. */
+                   @media (max-width: 768px) {
+                       html body #view-faq#view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty) {
+                           padding-top: var(--faq-top-h, 48px) !important;
+                           padding-bottom: var(--faq-dock-h, 110px) !important;
+                           box-sizing: border-box !important;
+                       }
+                   }
                    /* kapag may scrollIntoView / anchor jump sa FAQ mode, humihinto ito sa ILALIM ng top toggles */
                    html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
                    html body #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box {
