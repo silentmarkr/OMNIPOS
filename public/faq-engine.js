@@ -702,7 +702,11 @@
     if (effectiveAiMode() !== 'ai') setKbShortcutsVisible(false);
     if (resultBox) {
       renderAnswer(question, resultBox, { showBackLink: true });
-      resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // AYOS: sa FAQ (Search) mode, hindi na ginagamit ang scrollIntoView
+      // (nag-i-scroll ito ng mga parent at napupunta ang header ng resulta
+      // sa ilalim ng top toggles). Ang AI mode ay hindi ginagalaw.
+      if (effectiveAiMode() !== 'ai') keepFaqResultBelowToggles(resultBox);
+      else resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     const targetId = slugId(id);
@@ -913,6 +917,7 @@
         if (nextMode === 'kb' && input) input.value = '';
 
         renderAiModeToggle();
+        if (nextMode === 'kb') keepFaqResultBelowToggles(document.getElementById('faq-ai-result'));
       });
     });
 
@@ -1191,7 +1196,15 @@
     // tugma sa reserved bottom offset na ginagamit na ng .faq-composer-dock
     // mismo (see @media max-width:1024px sa itaas), plus maliit na buffer.
     const bottomReserve = window.innerWidth <= 1024 ? 76 : 6;
-    const available = Math.round(window.innerHeight - top - bottomReserve);
+    let available = Math.round(window.innerHeight - top - bottomReserve);
+    // AYOS: huwag lumampas sa aktwal na espasyo sa loob ng #view-faq. Dati,
+    // window.innerHeight lang ang batayan, kaya pagkatapos gumamit ng AI
+    // Chatbot at bumalik sa FAQ, mas mataas ang box kaysa sa view
+    // (overflow hidden) at nai-scroll ng browser ang view pataas, kaya
+    // napupunta ang header ng resulta sa ilalim ng top toggles.
+    const viewRect = view.getBoundingClientRect();
+    const roomInView = Math.round(viewRect.bottom - top);
+    if (viewRect.height > 0 && roomInView > 0 && roomInView < available) available = roomInView;
     box.style.minHeight = available > 0 ? `${available}px` : '';
   }
 
@@ -1206,6 +1219,50 @@
   // (taas ng composer dock, kasama ang keyboard offset). Ginagamit ito ng
   // CSS (index.html, #faq-float-layout) bilang padding sa itaas/ibaba ng
   // scroll area para hindi matakpan ang unang/huling laman.
+  // AYOS: FAQ (Search) mode lang. Ang #faq-ai-result mismo ang nag-i-scroll
+  // (may padding-top na kasing-taas ng top toggles), kaya dapat laging
+  // nasa scrollTop 0 ang simula ng resulta at hindi dapat gumalaw ang
+  // mga parent (#faq-ai-box / #view-faq). Hindi ito ginagamit sa AI Chatbot.
+  function keepFaqResultBelowToggles(resultBox) {
+    if (!resultBox) return;
+    const apply = () => {
+      if (effectiveAiMode() === 'ai') return;
+      resultBox.scrollTop = 0;
+      const box = document.getElementById('faq-ai-box');
+      const view = document.getElementById('view-faq');
+      if (box && box.scrollTop) box.scrollTop = 0;
+      if (view && view.scrollTop) view.scrollTop = 0;
+    };
+    apply();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(apply);
+    setTimeout(apply, 120);
+  }
+  // Guard: ang #faq-ai-box (overflow hidden) ay hindi dapat mag-scroll sa
+  // FAQ mode — kapag may nag-scroll dito (hal. scrollIntoView ng browser
+  // kapag lumabas ang keyboard) at natabunan ng toggles ang header, ibinabalik.
+  function guardFaqBoxScroll() {
+    const box = document.getElementById('faq-ai-box');
+    if (!box || box._faqScrollGuard) return;
+    box._faqScrollGuard = true;
+    const viewEl = document.getElementById('view-faq');
+    if (viewEl) {
+      // ang #view-faq (overflow hidden) ay hindi rin dapat nai-scroll sa FAQ mode
+      viewEl.addEventListener('scroll', () => {
+        if (!viewEl.scrollTop) return;
+        if (viewEl.classList.contains('faq-fullchat-mode')) return;
+        if (effectiveAiMode() === 'ai') return;
+        viewEl.scrollTop = 0;
+      }, { passive: true });
+    }
+    box.addEventListener('scroll', () => {
+      const view = document.getElementById('view-faq');
+      if (!box.scrollTop) return;
+      if (view && view.classList.contains('faq-fullchat-mode')) return;
+      if (effectiveAiMode() === 'ai') return;
+      box.scrollTop = 0;
+    }, { passive: true });
+  }
+
   let faqFloatLayoutWired = false;
   // itinatakda lang kapag nagbago, para hindi mag-loop ang MutationObserver
   function setFloatVar(view, name, value) {
@@ -1227,6 +1284,7 @@
   function setupFaqFloatLayout() {
     if (faqFloatLayoutWired) return;
     faqFloatLayoutWired = true;
+    guardFaqBoxScroll();
     const view = document.getElementById('view-faq');
     const top = document.getElementById('faq-top-bar');
     const dock = document.getElementById('faq-composer-dock');
@@ -2880,7 +2938,7 @@
         clearImage();
         setKbShortcutsVisible(false);
         renderAnswer(q, resultBox, { showBackLink: true });
-        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        keepFaqResultBelowToggles(resultBox);
         return;
       }
 

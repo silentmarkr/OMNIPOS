@@ -3413,6 +3413,11 @@
                       ng css/themes/*.css. Sukat/posisyon lang ang nakapirmi dito; ang
                       mga kulay ay sumusunod pa rin sa bawat theme. */
                    html body #view-faq.app-view { padding-top: 4px !important; }
+                   /* Desktop: hindi na ipinapakita ang "Help" title sa FAQ (Search) mode para
+                      hindi matulak pababa ang FAQ. (Ang mobile ay hindi ginagalaw.) */
+                   @media (min-width: 769px) {
+                       html body #view-faq #faq-classic-header { display: none !important; }
+                   }
                    html body #view-faq #faq-classic-header,
                    html body #view-faq #faq-classic-header h2 { margin: 0 !important; padding: 0 !important; }
                    html body #view-faq #faq-top-bar.faq-top-bar {
@@ -3559,6 +3564,14 @@
                        box-sizing: border-box !important;
                    }
                    html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts > h3:first-child { margin-top: 0 !important; }
+                   /* kapag may scrollIntoView / anchor jump sa FAQ mode, humihinto ito sa ILALIM ng top toggles */
+                   html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
+                   html body #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box {
+                       scroll-padding-top: var(--faq-top-h, 48px) !important;
+                   }
+                   html body #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts .faq-category {
+                       scroll-margin-top: var(--faq-top-h, 48px);
+                   }
                </style>
 
                <style id="faq-frosted-glass">
