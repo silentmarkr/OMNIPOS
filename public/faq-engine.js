@@ -160,6 +160,7 @@
       aiGeneratedBadge: 'Omni AI answer — based on the OmniPOS FAQ Knowledge Base',
       aiFallbackNotice: 'Omni AI is unavailable right now — showing knowledge base search results instead.',
       aiProviderDown: 'Omni AI has reached its daily usage limit on the AI provider, so it cannot answer right now. You were not charged any credits. Showing knowledge base results instead — please try the AI again later.',
+      aiProviderBusy: 'The AI provider is temporarily unavailable or busy, so Omni AI could not answer this time. You were not charged any credits. Showing knowledge base results instead — please try again in a moment.',
       showKbInstead: 'Show knowledge base results instead',
       followUpsLabel: 'You might also ask:',
       retryIn: 'You can ask again in',
@@ -239,6 +240,7 @@
       aiGeneratedBadge: 'Sagot ng Omni AI — batay sa OmniPOS FAQ Knowledge Base',
       aiFallbackNotice: 'Hindi available ang Omni AI sa ngayon — ipinapakita na lang ang resulta ng knowledge base search.',
       aiProviderDown: 'Naabot na ng Omni AI ang daily limit ng AI provider kaya hindi ito makasagot ngayon. Hindi ka nasingil ng credits. Ipinapakita muna ang resulta ng knowledge base — subukan ulit ang AI mamaya.',
+      aiProviderBusy: 'Pansamantalang hindi available o abala ang AI provider kaya hindi nakasagot ang Omni AI ngayon. Hindi ka nasingil ng credits. Ipinapakita muna ang resulta ng knowledge base — subukan ulit sa ilang sandali.',
       showKbInstead: 'Ipakita na lang ang resulta ng knowledge base',
       followUpsLabel: 'Baka gusto mo ring itanong:',
       retryIn: 'Puwede ka nang magtanong ulit pagkalipas ng',
@@ -1680,11 +1682,14 @@
   function appendKbAnswerBubble(query, thread, wasAiAttempted) {
     const s = STRINGS();
     const providerDown = !!(wasAiAttempted && lastAiFailure && lastAiFailure.providerUnavailable);
+    // Tunay na ubos na ang daily quota (RELAY-confirmed) — walang saysay ang Retry. Kapag pansamantalang error lang
+    // (rate limit/capacity/outage), iba ang mensahe at may Retry button pa rin.
+    const providerQuotaOut = !!(providerDown && lastAiFailure.providerExhausted);
     const html = `
       ${wasAiAttempted ? `
         <div class="faq-ai-fallback-notice">
-          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${providerDown ? s.aiProviderDown : s.aiFallbackNotice}</div>
-          ${providerDown ? '' : `<button type="button" class="faq-chip faq-retry-ai-btn" data-action="retry-ai">
+          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${providerQuotaOut ? s.aiProviderDown : (providerDown ? s.aiProviderBusy : s.aiFallbackNotice)}</div>
+          ${providerQuotaOut ? '' : `<button type="button" class="faq-chip faq-retry-ai-btn" data-action="retry-ai">
             <i class="fa-solid fa-arrow-rotate-right"></i> ${s.regenerate}
           </button>`}
         </div>` : ''}
@@ -2816,6 +2821,7 @@
         lastAiFailure = {
           status: res.status,
           providerUnavailable: !!(data && data.providerUnavailable),
+          providerExhausted: !!(data && data.providerExhausted),
           message: (data && data.message) || ''
         };
         // Ibinalik na ng RELAY ang credits ng palyang request — i-refresh
@@ -2897,7 +2903,30 @@
     // Placeholder ng input ay sumusunod din sa mode: FAQ -> "Search FAQ...",
     // AI Chatbot -> "Reply to OmniAI...".
     const inputEl = document.getElementById('faq-ai-input');
-    if (inputEl) inputEl.placeholder = isSearch ? s.searchPlaceholder : s.chatPlaceholder;
+    if (inputEl) {
+      inputEl.placeholder = isSearch ? s.searchPlaceholder : s.chatPlaceholder;
+      // BAGO: sa mobile keyboard, "Search/Go" ang action key sa FAQ (Search)
+      // mode; "Send" naman sa AI Chatbot mode.
+      inputEl.setAttribute('enterkeyhint', isSearch ? 'search' : 'send');
+    }
+    syncSendButtonReady();
+  }
+  // BAGO: sa FAQ (Search) mode, ang magnifying-glass ay mukhang disabled
+  // (kulay abo) habang walang laman ang search box, at nagiging buong
+  // kulay (ready to search) pagka-type ng kahit anong text. Hindi ginagamit
+  // ang `disabled` attribute para hindi masira ang click/Enter flow; klase
+  // lang (faq-send-idle) ang nagpapabago ng itsura. Sa AI Chatbot mode,
+  // hindi ito ginagalaw (laging buong kulay ang arrow-up).
+  function syncSendButtonReady() {
+    const btn = document.getElementById('faq-send-btn');
+    if (!btn) return;
+    const inputEl = document.getElementById('faq-ai-input');
+    const isSearch = effectiveAiMode() !== 'ai';
+    const empty = !inputEl || !String(inputEl.value || '').trim();
+    const idle = isSearch && empty;
+    btn.classList.toggle('faq-send-idle', idle);
+    if (isSearch) btn.setAttribute('aria-disabled', idle ? 'true' : 'false');
+    else btn.removeAttribute('aria-disabled');
   }
   function setSendButtonLoading(loading) {
     const btn = document.getElementById('faq-send-btn');
@@ -2947,6 +2976,9 @@
         setKbShortcutsVisible(false);
         renderAnswer(q, resultBox, { showBackLink: true });
         keepFaqResultBelowToggles(resultBox);
+        // BAGO: pagkatapos mag-search (Enter / Go / Search button), isara
+        // ang keyboard sa pamamagitan ng pag-blur ng search box.
+        if (input) input.blur();
         return;
       }
 
@@ -2999,6 +3031,7 @@
     suggest: suggest,
     onInput: function (value) {
       renderSuggestions(value);
+      syncSendButtonReady();
       // BAGO: sa Search (kb) mode, kapag na-clear/binura ang laman ng
       // search box (bagong paghahanap), ibalik ang mga shortcut/Common
       // Questions at alisin ang natitirang sagot — hindi na kailangang
@@ -3022,7 +3055,11 @@
         // Claude), ang Send button ang nagpapadala. Sa Search mode,
         // laging Enter = search kahit sa mobile.
         if (effectiveAiMode() === 'ai' && isTouchPrimaryInput()) return;
-        if (confirmActiveSuggestion()) { event.preventDefault(); return; }
+        if (confirmActiveSuggestion()) {
+          event.preventDefault();
+          if (effectiveAiMode() !== 'ai') event.target.blur();
+          return;
+        }
         event.preventDefault(); // pigilan ang pagpasok ng newline sa textarea
         window.OmniFAQ.ask(event.target.value);
       }
@@ -3089,7 +3126,7 @@
         Object.defineProperty(el, 'value', {
           configurable: true,
           get() { return desc.get.call(this); },
-          set(v) { desc.set.call(this, v); autosizeFaqInput(); }
+          set(v) { desc.set.call(this, v); autosizeFaqInput(); syncSendButtonReady(); }
         });
       }
     } catch (_) {}

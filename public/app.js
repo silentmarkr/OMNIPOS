@@ -23900,6 +23900,56 @@ function describeAddedCartLine(product) {
         ? `✔ Added: ${product.name} — ${priceTxt} (${line.priceLevel} price)`
         : `✔ Added: ${product.name} — ${priceTxt} (Retail/base price)`;
 }
+// PERFORMANCE (scan -> cart): dati, bawat scan ay naghihintay muna ng buong
+// GET /products (kasama ang lahat ng base64 photo) + sine-save pa ang buong
+// listahan sa localStorage/IndexedDB BAGO i-add sa cart — kaya bumagal ang scan.
+// Ngayon: agad na hinahanap sa globalProducts na nasa memory (laging fresh dahil
+// sa terminal stock polling). Network lang ang hinihintay kapag WALANG tumugma
+// (hal. bagong product/alias na hindi pa nasa listahan). May throttled na
+// background refresh na hindi naghihintay ang scan.
+let scanProductsRefreshPromise = null;
+let scanProductsLastRefreshAt = 0;
+const SCAN_BG_REFRESH_MIN_MS = 5000;
+function ensureScanProductsLoaded() {
+    if (Array.isArray(globalProducts) && globalProducts.length > 0) return;
+    try {
+        const cached = JSON.parse(localStorage.getItem('cached_products') || '[]');
+        if (Array.isArray(cached)) globalProducts = cached;
+    } catch (e) {}
+    if (!Array.isArray(globalProducts)) globalProducts = [];
+}
+function refreshProductsForScan() {
+    if (scanProductsRefreshPromise) return scanProductsRefreshPromise;
+    scanProductsRefreshPromise = (async () => {
+        try {
+            const res = await authFetch(`${API_URL}/products`);
+            if (!res || !res.ok) return false;
+            const data = await res.json();
+            if (!Array.isArray(data)) return false;
+            globalProducts = await applyPendingOfflineStockDeductions(data);
+            scanProductsLastRefreshAt = Date.now();
+            return true;
+        } catch (e) {
+            console.warn('Failed to refresh products for scan (using in-memory/cached data):', e);
+            return false;
+        } finally {
+            scanProductsRefreshPromise = null;
+        }
+    })();
+    return scanProductsRefreshPromise;
+}
+async function resolveScanMatchFast(code) {
+    ensureScanProductsLoaded();
+    let match = resolveScannedProductCode(code);
+    if (match) {
+        // Hindi hinihintay — para lang gumanda ang freshness ng stock/price.
+        if (Date.now() - scanProductsLastRefreshAt > SCAN_BG_REFRESH_MIN_MS) refreshProductsForScan();
+        return match;
+    }
+    // Walang tumugma: baka bagong product/alias — mag-refresh nang isang beses at ulitin.
+    await refreshProductsForScan();
+    return resolveScannedProductCode(code);
+}
 async function handleScannedBarcode(scannedCode, skipRetailVerification = false) {
     const now = Date.now();
     if (scannedCode === lastScannedCode && (now - lastScannedTime < 1000)) {
@@ -23907,19 +23957,7 @@ async function handleScannedBarcode(scannedCode, skipRetailVerification = false)
     }
     lastScannedCode = scannedCode;
     lastScannedTime = now;
-    if (!globalProducts || globalProducts.length === 0) {
-        globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
-    }
-
-    try {
-        const res = await authFetch(`${API_URL}/products`);
-        const data = await res.json();
-        globalProducts = await applyPendingOfflineStockDeductions(data);
-        ovWriteJsonCache('cached_products', globalProducts);
-    } catch (e) {
-        console.warn("Failed to refresh products before resolving scan (using cached data):", e);
-    }
-    const scanMatch = resolveScannedProductCode(scannedCode);
+    const scanMatch = await resolveScanMatchFast(scannedCode);
     const product = scanMatch && scanMatch.product;
     if (product) {
 
@@ -25617,19 +25655,7 @@ async function handleHardwareScanTerminal(scannedCode) {
     }
     lastScannedCode = cleanCode;
     lastScannedTime = now;
-    if (!globalProducts || globalProducts.length === 0) {
-        globalProducts = JSON.parse(localStorage.getItem('cached_products') ||'[]');
-    }
-
-    try {
-        const res = await authFetch(`${API_URL}/products`);
-        const data = await res.json();
-        globalProducts = await applyPendingOfflineStockDeductions(data);
-        ovWriteJsonCache('cached_products', globalProducts);
-    } catch (e) {
-        console.warn("Failed to refresh products before resolving scan (using cached data):", e);
-    }
-    const scanMatch = resolveScannedProductCode(cleanCode);
+    const scanMatch = await resolveScanMatchFast(cleanCode);
     const product = scanMatch && scanMatch.product;
     if (product) {
 

@@ -9055,6 +9055,14 @@ body.dark-mode .faq-composer.is-dictating .faq-voice-btn.is-listening,
 }
 .faq-composer-send-btn:hover { transform: scale(1.05); }
 .faq-composer-send-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+.faq-composer-send-btn.faq-send-idle {
+  background: rgba(100,116,139,0.18); color: rgba(100,116,139,0.55);
+  cursor: default; transform: none;
+}
+.faq-composer-send-btn.faq-send-idle:hover { transform: none; }
+body.dark-mode .faq-composer-send-btn.faq-send-idle, .dark .faq-composer-send-btn.faq-send-idle {
+  background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.35);
+}
 body.dark-mode .faq-composer, .dark .faq-composer {
   background: var(--dm-surface, #1f2937); border-color: var(--dm-border, rgba(255,255,255,0.12));
 }

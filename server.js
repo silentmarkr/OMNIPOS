@@ -3411,8 +3411,11 @@ async function fetchGroupDiscount(installationId) {
     return { deviceCount: 1, discountPercent: 0 };
 }
 loadCloudBackupPricingCache();
-fetchCloudBackupPricing();
-setInterval(fetchCloudBackupPricing, CLOUD_BACKUP_PRICING_REFRESH_MS).unref?.();
+// BUGFIX: dating dito tinatawag agad ang fetchCloudBackupPricing() — at tinatawag nito ang getOrCreateInstallationId(),
+// na gumagamit ng IDENTITY_SIDECAR_PATH at _identityMirrored na naka-declare PA LANG sa mas ibaba (TDZ: "Cannot access
+// '_identityMirrored' before initialization"). Kapag nawala ang installationId sa database, hindi nababasa ang
+// device-identity.json at gumagawa ng BAGONG ID. Inilipat ang unang tawag sa ibaba ng identity helpers (hanapin ang
+// "SIMULA NG PRICING FETCH"), kaya buo na ang lahat ng kailangan nito bago ito tumakbo.
 function catalogEntry(featureId, fallbackName, fallbackPrice, category, description) {
     return {
         category,
@@ -3798,6 +3801,9 @@ function getOrCreateInstallationId(data) {
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.installationId;
 }
+// SIMULA NG PRICING FETCH — dito na tinatawag (pagkatapos ma-declare ang IDENTITY_SIDECAR_PATH/_identityMirrored at ang identity helpers).
+fetchCloudBackupPricing();
+setInterval(fetchCloudBackupPricing, CLOUD_BACKUP_PRICING_REFRESH_MS).unref?.();
 function verifyUnlockToken(token, expectedInstallationId, expectedFeatureId) {
     if (!token || !token.payload || !token.signature) return false;
     const { installationId, featureId, issuedAt, expiresAt } = token.payload;
