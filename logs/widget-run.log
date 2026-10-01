@@ -9704,3 +9704,12 @@ Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
 ⚠️  Could not reach Relay for auto-restore check: fetch failed
 ⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-10-01 13:09:06] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-01 13:09:09] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 5 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-01T03:25:55.338Z).
+⚠️ IDENTITY: hindi na-save ang device-identity.json: Cannot access '_identityMirrored' before initialization
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

@@ -810,8 +810,8 @@ function hideProductImagePeek() {
 const SYSTEM_CONFIG = {
     appName:"OmniPOS System",
     serverName:"Core API Gateway",
-    getErrorMessage: (msg) => `[${SYSTEM_CONFIG.serverName}] Error: ${msg}`,
-    getSuccessMessage: (msg) => `[${SYSTEM_CONFIG.appName}] Success: ${msg}`
+    getErrorMessage: (msg) => `${msg}`,
+    getSuccessMessage: (msg) => `${msg}`
 };
 let currentUser = null;
 try {
@@ -1706,7 +1706,7 @@ function formatAutoBackupIntervalPhrase(ms) {
         const mins = Math.round(ms / 60000);
         return `Automatic cloud backup every ${mins} minute${mins === 1 ? '' : 's'}`;
     }
-    if (hours === 1) return 'Automatic cloud backup every hour (near real-time)';
+    if (hours === 1) return 'Automatic cloud backup every hour';
     if (Number.isInteger(hours) && hours % 24 === 0) {
         const days = hours / 24;
         return days === 1 ? 'Once-a-day automatic cloud backup' : `Automatic cloud backup every ${days} days`;
@@ -3656,11 +3656,11 @@ if (categorySelect) {
                         updateDropdownCategoriesDynamic();
                         this.value = cleanCategory;
                     } else {
-                        Swal.fire('Error',"Classification entry write failure: " + data.message,'error');
+                        Swal.fire('Error',"Could not save the category: " + data.message,'error');
                     }
                 } catch (err) {
                     console.error("Error saving category:", err);
-                    Swal.fire('System Pipeline Fault','Unable to write data changes to server database registers.','error');
+                    Swal.fire('Could Not Save','Your changes could not be saved to the server. Please try again.','error');
                 }
             } else {
                 this.selectedIndex = 0;
@@ -7431,7 +7431,7 @@ async function handleEditProfileSubmit(e) {
             });
             const data = await res.json();
             if (!(res.ok && data.success)) {
-                Swal.fire('Execution Interrupted', SYSTEM_CONFIG.getErrorMessage(data.message ||'Process failed to complete requests.'),'error');
+                Swal.fire('Update Failed', SYSTEM_CONFIG.getErrorMessage(data.message ||'The request could not be completed.'),'error');
                 return;
             }
             profileWentPending = !!data.pending;
@@ -7454,7 +7454,7 @@ async function handleEditProfileSubmit(e) {
             });
             const pwData = await pwRes.json();
             if (!(pwRes.ok && pwData.success)) {
-                Swal.fire('Execution Interrupted', SYSTEM_CONFIG.getErrorMessage(pwData.message ||'Process failed to complete requests.'),'error');
+                Swal.fire('Update Failed', SYSTEM_CONFIG.getErrorMessage(pwData.message ||'The request could not be completed.'),'error');
                 return;
             }
         }
@@ -7467,7 +7467,7 @@ async function handleEditProfileSubmit(e) {
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Gateway Error', SYSTEM_CONFIG.getErrorMessage('Remote network transport paths disrupted.'),'error');
+        Swal.fire('Connection Error', SYSTEM_CONFIG.getErrorMessage('Could not reach the server. Please try again.'),'error');
     }
 }
 document.getElementById('edit-profile-form')?.addEventListener('submit', handleEditProfileSubmit);
@@ -12038,7 +12038,7 @@ function addItemToCart(product, forcedLevel) {
         if (qty3(existing.quantity + 1) <= maxQty + 1e-9) {
             existing.quantity = qty3(existing.quantity + 1);
         } else {
-            Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
+            Swal.fire('Stock Limit','You can\'t add more than the available stock.','warning');
             return false;
         }
     } else {
@@ -12054,7 +12054,7 @@ function addItemToCart(product, forcedLevel) {
             if (maxQty > 0 && productAllowsDecimal(product)) {
                 line.quantity = maxQty;
             } else {
-                Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
+                Swal.fire('Stock Limit','You can\'t add more than the available stock.','warning');
                 return false;
             }
         }
@@ -12084,7 +12084,7 @@ async function adjustCartQty(code, adjustment) {
                 cancelButtonColor:'#ef4444'
             });
             if (!adminPassword || adminPassword.trim() ==="") {
-                Swal.fire('Cancelled','Operation Cancelled: Item quantity reduction aborted.','info');
+                Swal.fire('Cancelled','Quantity change was cancelled.','info');
                 return;
             }
             try {
@@ -12101,13 +12101,13 @@ async function adjustCartQty(code, adjustment) {
                 authMethod ="PASSWORD_VERIFIED";
             } catch (error) {
                 console.error(error);
-                Swal.fire('Pipeline Connection Error','Failed to complete secure supervisor authorization procedures.','error');
+                Swal.fire('Connection Error','Could not verify the supervisor authorization. Please check your connection and try again.','error');
                 return;
             }
         } else {
             const result = await Swal.fire({
-                title:'⚠️ Administrative Deletion',
-                text: `Are you certain you want to reduce quantity to zero and remove product asset "${item.name}" from the active cart?`,
+                title:'⚠️ Remove Item',
+                text: `Reduce the quantity to zero and remove "${item.name}" from the cart?`,
                 icon:'warning',
                 showCancelButton: true,
                 confirmButtonColor:'#ef4444',
@@ -12141,13 +12141,13 @@ async function adjustCartQty(code, adjustment) {
         }
         shoppingCart = shoppingCart.filter(i => i.code !== code);
         renderCartRows(code);
-        Swal.fire('Success', `Item asset [ ${item.name} ] extracted from memory array lines successfully.`,'success');
+        Swal.fire('Success', `${item.name} was removed from the cart.`,'success');
         return;
     }
     const origin = globalProducts.find(p => p.code === code);
     const maxQty = origin ? getMaxCartQtyForLine(item, origin) : Infinity;
     if (origin && newQuantity > maxQty + 1e-9) {
-        Swal.fire('Stock Limit','Cannot exceed available stock bounds.','warning');
+        Swal.fire('Stock Limit','You can\'t add more than the available stock.','warning');
         if (maxQty > 0) item.quantity = maxQty;
     } else {
         item.quantity = newQuantity;
@@ -12189,7 +12189,7 @@ async function removeCartItem(code) {
             cancelButtonColor:'#ef4444'
         });
         if (!adminPassword || adminPassword.trim() ==="") {
-            Swal.fire('Cancelled','Operation Cancelled: Line item void procedures aborted.','info');
+            Swal.fire('Cancelled','Item void was cancelled.','info');
             return;
         }
         try {
@@ -12206,18 +12206,18 @@ async function removeCartItem(code) {
             authMethod ="PASSWORD_VERIFIED";
         } catch (error) {
             console.error(error);
-            Swal.fire('Pipeline Error','Failed to complete secure supervisor authorization tracking procedures.','error');
+            Swal.fire('Connection Error','Could not verify the supervisor authorization. Please check your connection and try again.','error');
             return;
         }
     } else {
         const result = await Swal.fire({
-            title:'⚠️ Administrative Deletion',
-            text: `Are you certain you want to purge and void line item allocation parameters maps for product entries asset "${targetItem.name}" from the active cart?`,
+            title:'⚠️ Void Item',
+            text: `Void "${targetItem.name}" and remove it from the cart?`,
             icon:'warning',
             showCancelButton: true,
             confirmButtonColor:'#ef4444',
             cancelButtonColor:'#64748b',
-            confirmButtonText:'Yes, purge it'
+            confirmButtonText:'Yes, void it'
         });
         if (!result.isConfirmed) return;
         authMethod ="ADMIN_BYPASS";
@@ -12237,7 +12237,7 @@ async function removeCartItem(code) {
                     quantity: targetItem.quantity,
                     priceEach: targetItem.price,
                     totalAmount: (targetItem.price * targetItem.quantity),
-                    message: `Line item voided and purged directly via X button (${authMethod}).`
+                    message: `Line item voided via the X button (${authMethod}).`
                 }
             })
         });
@@ -12246,11 +12246,11 @@ async function removeCartItem(code) {
     }
     shoppingCart = shoppingCart.filter(i => i.code !== code);
     renderCartRows(code);
-    Swal.fire('Voided', `Item asset identifier profile [ ${targetItem.name} ] voided and extracted successfully.`,'success');
+    Swal.fire('Voided', `${targetItem.name} was voided and removed from the cart.`,'success');
 }
 async function handleClearCart() {
     if (shoppingCart.length === 0) {
-        Swal.fire('Empty Cart','Operation Aborted: The shopping cart is completely empty.','warning');
+        Swal.fire('Empty Cart','The cart is already empty.','warning');
         return;
     }
     const itemsCount = shoppingCart.length;
@@ -12276,7 +12276,7 @@ async function handleClearCart() {
         await sendVoidLog("ADMIN_BYPASS");
         shoppingCart = [];
         renderCartRows();
-        Swal.fire('Cleared','Administrative Clearance: Transaction basket architecture cleared and recorded successfully.','success');
+        Swal.fire('Cleared','The cart was cleared and the void was recorded.','success');
         return;
     }
     const { value: adminPassword } = await Swal.fire({
@@ -12289,7 +12289,7 @@ async function handleClearCart() {
         cancelButtonColor:'#ef4444'
     });
     if (!adminPassword || adminPassword.trim() ==="") {
-        Swal.fire('Aborted','Request Aborted: Master basket void process canceled. Missing credentials.','info');
+        Swal.fire('Aborted','Clearing the cart was cancelled. No authorization password was entered.','info');
         return;
     }
     try {
@@ -12303,13 +12303,13 @@ async function handleClearCart() {
             await sendVoidLog("PASSWORD_VERIFIED");
             shoppingCart = [];
             renderCartRows();
-            Swal.fire('Cleared','Administrative Clearance Granted: Transaction cart schema cleared and record elements voided successfully.','success');
+            Swal.fire('Cleared','Authorization approved. The cart was cleared and the items were voided.','success');
         } else {
-            Swal.fire('Access Violation', data.message ||"Invalid credential token authorization parameters. Command rejected.",'error');
+            Swal.fire('Authorization Failed', data.message ||"The password is incorrect or not authorized to do this. Please try again.",'error');
         }
     } catch (error) {
         console.error(error);
-        Swal.fire('Pipeline Error','Unable to contact remote host engine. Administrative token validation cannot proceed.','error');
+        Swal.fire('Connection Error','Could not reach the server to verify the authorization. Please try again.','error');
     }
 }
 function getHeldSalesStorageKey() {
@@ -13517,7 +13517,7 @@ function recalcSplitPaymentTotals() {
 }
 function openPaymentModal() {
     if(shoppingCart.length === 0) {
-        Swal.fire('Checkout Error','Cart checkout is completely empty.','warning');
+        Swal.fire('Checkout Error','The cart is empty. Add an item before checking out.','warning');
         return;
     }
     let totalString = document.getElementById('summary-total').innerText;
@@ -13568,7 +13568,7 @@ async function submitFinalPaymentTransactionInner() {
         }
         const allocated = Math.round(activeLines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0) * 100) / 100;
         if (allocated < dueAmount) {
-            Swal.fire('Validation Error', `Payment validation exception: Still short by ₱${(dueAmount - allocated).toFixed(2)} in the split payment allocation.`,'error');
+            Swal.fire('Validation Error', `Still short by ₱${(dueAmount - allocated).toFixed(2)} in the split payment.`,'error');
             return;
         }
         const lineMissingRef = activeLines.find(l => (l.method ==='GCASH' || l.method ==='MAYA') && !String(l.reference ||'').trim());
@@ -13587,7 +13587,7 @@ async function submitFinalPaymentTransactionInner() {
     } else {
         received = parseFloat(document.getElementById('pay-modal-received-input').value) || 0;
         if (received < dueAmount) {
-            Swal.fire('Validation Error','Payment validation exception: Tender value below transaction charge subtotal.','error');
+            Swal.fire('Validation Error','The amount tendered is lower than the total due.','error');
             return;
         }
         let ewalletReference ='';
@@ -13828,7 +13828,7 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Loyalty Redemption Not Authorized', output.message,'warning');
         } else if (output.featureLocked) {
         } else {
-            Swal.fire('Server Error', `API Server Exception Error: ${output.message}`,'error');
+            Swal.fire('Server Error', `The sale could not be completed: ${output.message}`,'error');
         }
     } catch (e) {
         console.warn('Transaction submission failed:', e);
@@ -13859,7 +13859,7 @@ async function submitFinalPaymentTransactionInner() {
         triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments);
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         updateOfflineQueueIndicator();
-        Swal.fire('Offline Stored', 'The transaction was saved securely on this device and will sync when the same cashier is online again.', 'warning');
+        Swal.fire('Offline Stored', 'The transaction was saved on this device and will sync when the same cashier is online again.', 'warning');
     }
 }
 let currentReceiptLoyaltyQr = null;
@@ -17167,7 +17167,7 @@ function renderTransactionsRows(transactions) {
     if (!tbody) return;
     tbody.innerHTML ='';
     if (transactions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No transaction logs located within active archive parameters.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No transactions found.</td></tr>`;
         return;
     }
     transactions.forEach(tx => {
@@ -19273,7 +19273,7 @@ async function handleProductFormSubmit(e) {
     if (mode ==='ADD' && !isScanRestock) {
         const barcodeExists = globalProducts.some(p => p.code === code.trim());
         if (barcodeExists) {
-            Swal.fire('Collision Detected','❌ System Database Collision: This tracking code identifier is already allocated!','error');
+            Swal.fire('Duplicate Code','❌ This product code is already in use. Please use a different code.','error');
             return;
         }
     }
@@ -19303,7 +19303,7 @@ async function handleProductFormSubmit(e) {
                 addProductScanSession.lastScannedFormCode = null;
                 Swal.fire({
                     title:'Success',
-                    text: reply.message ||'Product schema records modified cleanly.',
+                    text: reply.message ||'The product was saved.',
                     icon:'success',
                     timer: 1200,
                     showConfirmButton: false
@@ -19316,15 +19316,15 @@ async function handleProductFormSubmit(e) {
                 codeInput.removeAttribute('disabled');
                 codeInput.focus();
             } else {
-                Swal.fire('Success', reply.message ||'Product schema records modified cleanly.','success');
+                Swal.fire('Success', reply.message ||'The product was saved.','success');
                 closeModal('product-modal');
             }
         } else {
-            Swal.fire('Validation Error', reply.message ||'System Database Fault: Validation process rejected input variables.','error');
+            Swal.fire('Validation Error', reply.message ||'The product could not be saved. Please check the details and try again.','error');
         }
     } catch (error) {
         console.error(error);
-        Swal.fire('Connection Lost','❌ Connection Lost: Unable to contact system data nodes.','error');
+        Swal.fire('Connection Lost','❌ Could not reach the server. Please try again.','error');
     }
 }
 async function downloadAuthFetch(url, fallbackFilename) {
@@ -20485,7 +20485,7 @@ async function deleteProductTrigger(code) {
         }
     } catch(e) {
         console.error('Product delete error:', e);
-        Swal.fire('Error','Failed to delete the selected product asset.','error');
+        Swal.fire('Error','Failed to delete the selected product.','error');
     } finally {
         productDeleteInProgress = false;
 
@@ -21986,7 +21986,7 @@ async function promptAdminPasswordConfirm(actionLabel) {
 async function handleUserFormSubmit(e) {
     e.preventDefault();
     if (!currentUser || !currentUser.username) {
-        Swal.fire('Session Expired', SYSTEM_CONFIG.getErrorMessage("Operational Context Exception: Active user session null."),'error');
+        Swal.fire('Session Expired', SYSTEM_CONFIG.getErrorMessage("Your session has expired. Please log in again."),'error');
         return;
     }
     const formUsername = document.getElementById('u-form-username').value.trim();
@@ -21996,7 +21996,7 @@ async function handleUserFormSubmit(e) {
     const formAvatar = document.getElementById('u-form-avatar').value || null;
     if (userFormEditingUsername) {
         if (!formUsername) {
-            Swal.fire('Missing Values', SYSTEM_CONFIG.getErrorMessage("Validation Constraint Violation: Identity fields cannot be blank."),'warning');
+            Swal.fire('Missing Values', SYSTEM_CONFIG.getErrorMessage("Username and password cannot be blank."),'warning');
             return;
         }
         const adminPassword = await promptAdminPasswordConfirm(`Edit user account: ${userFormEditingUsername}`);
@@ -22046,11 +22046,11 @@ async function handleUserFormSubmit(e) {
                 if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
                 e.target.reset();
             } else {
-                Swal.fire('Execution Interrupted', SYSTEM_CONFIG.getErrorMessage(data.message ||"Process failed to complete requests."),'error');
+                Swal.fire('Update Failed', SYSTEM_CONFIG.getErrorMessage(data.message ||"The request could not be completed."),'error');
             }
         } catch (err) {
             console.error(err);
-            Swal.fire('Gateway Error', SYSTEM_CONFIG.getErrorMessage("Remote network transport paths disrupted."),'error');
+            Swal.fire('Connection Error', SYSTEM_CONFIG.getErrorMessage("Could not reach the server. Please try again."),'error');
         }
         return;
     }
@@ -22062,7 +22062,7 @@ async function handleUserFormSubmit(e) {
         avatar: formAvatar
     };
     if (!userPayload.username || !userPayload.password) {
-        Swal.fire('Missing Values', SYSTEM_CONFIG.getErrorMessage("Validation Constraint Violation: Identity fields cannot be blank."),'warning');
+        Swal.fire('Missing Values', SYSTEM_CONFIG.getErrorMessage("Username and password cannot be blank."),'warning');
         return;
     }
     const adminPassword = await promptAdminPasswordConfirm(`New user account: ${userPayload.username}`);
@@ -22075,17 +22075,17 @@ async function handleUserFormSubmit(e) {
         });
         const data = await res.json();
         if (res.ok && data.success) {
-            Swal.fire('Created', SYSTEM_CONFIG.getSuccessMessage("System Credentials Provisioned successfully."),'success');
+            Swal.fire('Created', SYSTEM_CONFIG.getSuccessMessage("The user account has been created."),'success');
             closeModal('user-modal');
             if (typeof loadUsersTable ==='function') loadUsersTable();
             if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
             e.target.reset();
         } else {
-            Swal.fire('Execution Interrupted', SYSTEM_CONFIG.getErrorMessage(data.message ||"Process failed to complete requests."),'error');
+            Swal.fire('Could Not Create User', SYSTEM_CONFIG.getErrorMessage(data.message ||"The request could not be completed."),'error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Gateway Error', SYSTEM_CONFIG.getErrorMessage("Remote network transport paths disrupted."),'error');
+        Swal.fire('Connection Error', SYSTEM_CONFIG.getErrorMessage("Could not reach the server. Please try again."),'error');
     }
 }
 let pendingAvatarTargetUser = null;
@@ -22119,21 +22119,21 @@ async function saveUserAvatar() {
                 renderSidebarUserWidget();
             }
         } else {
-            Swal.fire('Execution Interrupted', SYSTEM_CONFIG.getErrorMessage(data.message ||'Process failed to complete requests.'),'error');
+            Swal.fire('Update Failed', SYSTEM_CONFIG.getErrorMessage(data.message ||'The request could not be completed.'),'error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Gateway Error', SYSTEM_CONFIG.getErrorMessage('Remote network transport paths disrupted.'),'error');
+        Swal.fire('Connection Error', SYSTEM_CONFIG.getErrorMessage('Could not reach the server. Please try again.'),'error');
     }
 }
 async function deleteUserAccount(targetUsername) {
     if (!currentUser || currentUser.role.toLowerCase() !=='admin') {
-        Swal.fire('Restricted Access',"Access Control Exception: Action restricted to administrative operators.",'error');
+        Swal.fire('Restricted Access',"Only Admin accounts can do this.",'error');
         return;
     }
     const confirmation = await Swal.fire({
-        title:'Critical Structural Warning',
-        text: `Are you absolute certain you want to permanently delete system profile entries for [ ${targetUsername} ]?`,
+        title:'Delete this account?',
+        text: `This will permanently delete the account of [ ${targetUsername} ]. This cannot be undone.`,
         icon:'warning',
         showCancelButton: true,
         confirmButtonColor:'#ef4444',
@@ -22155,11 +22155,11 @@ async function deleteUserAccount(targetUsername) {
             if (typeof loadUsersTable ==='function') loadUsersTable();
             if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
         } else {
-            Swal.fire('Error Trace', output.message,'error');
+            Swal.fire('Could Not Delete', output.message,'error');
         }
     } catch (err) {
         console.error(err);
-        Swal.fire('Infrastructure Failure',"Transport Infrastructure Failure: Endpoint routing mechanisms dropped.",'error');
+        Swal.fire('Connection Error',"Could not reach the server. Please check your connection and try again.",'error');
     }
 }
 async function loadPendingRequestsTable() {
@@ -22190,7 +22190,7 @@ async function loadPendingRequestsTable() {
             } else if(r.type ==='ADD' || r.type ==='UPDATE') {
                 summaryDetails = `Name: ${r.data?.name ||'N/A'} | Price: ₱${r.data?.price || 0} | Stock: ${r.data?.stock || 0}`;
             } else {
-                summaryDetails = `Remove targeted item code allocation from system array database record tracking rows completely.`;
+                summaryDetails = `Delete this product from the system.`;
             }
             const row = document.createElement('tr');
             const safeReqId = escapeHtml(r.id).replace(/'/g,'&#39;');
@@ -22218,7 +22218,7 @@ async function loadPendingRequestsTable() {
 async function resolveStaffOperationRequest(id, decisionAction) {
     const confirmation = await Swal.fire({
         title:'Confirm Request Resolution',
-        text: `Execute action: ${decisionAction.toLowerCase()} on request payload ID reference ${id}?`,
+        text: `Are you sure you want to ${decisionAction.toLowerCase()} request ${id}?`,
         icon:'question',
         showCancelButton: true,
         confirmButtonColor: decisionAction ==='APPROVE' ?'#22c55e' :'#ef4444',
@@ -22255,11 +22255,11 @@ async function resolveStaffOperationRequest(id, decisionAction) {
                 if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
             }
         } else {
-            Swal.fire('Operation Rejection', `❌ Operation Rejection: ${msg.message ||'The central ledger engine encountered difficulties.'}`,'error');
+            Swal.fire('Request Rejected', `❌ ${msg.message ||'The request could not be completed. Please try again.'}`,'error');
         }
     } catch (e) {
         console.error(e);
-        Swal.fire('Host Interface Break','Unable to stabilize connection vectors heading toward system data microservices.','error');
+        Swal.fire('Connection Error','Could not reach the server. Please try again.','error');
     }
 }
 const AUDIT_LOG_KEYWORD_MAP = {
@@ -23875,7 +23875,7 @@ function startLiveScanner() {
     })
     .catch(err => {
         console.error("Camera acquisition failed:", err);
-        document.getElementById('qr-scanner-feedback').innerText ='Hardware Exception: Failed to instantiate camera viewport stream layer. Check environmental tracking permissions config values.';
+        document.getElementById('qr-scanner-feedback').innerText ='Could not start the camera. Please allow camera access in your browser settings, then try again.';
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     });
 }
@@ -24021,7 +24021,7 @@ function handleScannedTransaction(scannedCode) {
             reopenReceiptFromHistory(match.id);
         }, 1000);
     } else {
-        document.getElementById('qr-scanner-feedback').innerText = `❌ Search Exception Error: No corporate transaction logs record references correspond to target ID identifier parameters [ ${cleanCode} ]`;
+        document.getElementById('qr-scanner-feedback').innerText = `❌ No transaction found for [ ${cleanCode} ].`;
         document.getElementById('qr-scanner-feedback').style.color ='#ef4444';
     }
 }
@@ -26565,3 +26565,81 @@ async function resetBirAgt() {
         Swal.fire('Reset Failed', escapeHtml(err.message || 'Could not reset the AGT.'), 'error');
     }
 }
+
+/* ===== Help > OmniAI Chatbot: immersive (full-screen) mode on mobile =====
+   When the AI Chatbot is open on a phone, hide the app header and the bottom nav so the chat gets
+   the whole screen. The layout itself is in index.html (<style id="faq-immersive-layout">).
+   Active only if ALL are true: phone width, Help view visible, AI Chatbot mode (faq-fullchat-mode).
+   Exit paths: the back button (goes to Home), switching to FAQ (Search) mode, opening any other
+   view, or the phone's back gesture (handled by the existing popstate/switchView logic). */
+(function initFaqImmersiveMode() {
+    const FAQ_IMMERSIVE_MOBILE_MAX = 768;
+    const FAQ_IMMERSIVE_BAR_HIDE_AFTER = 120;
+    const FAQ_IMMERSIVE_SCROLL_STEP = 6;
+    let faqImmersiveLastScrollTop = 0;
+
+    function faqImmersiveShouldBeActive() {
+        const view = document.getElementById('view-faq');
+        if (!view) return false;
+        if (window.innerWidth > FAQ_IMMERSIVE_MOBILE_MAX) return false;
+        if (!view.classList.contains('faq-fullchat-mode')) return false;
+        if (getComputedStyle(view).display === 'none') return false;
+        const mainView = document.getElementById('main-view');
+        if (mainView && getComputedStyle(mainView).display === 'none') return false;
+        return true;
+    }
+    function setFaqImmersiveBarHidden(hidden) {
+        document.body.classList.toggle('faq-immersive-bar-hidden', !!hidden);
+    }
+    function syncFaqImmersiveMode() {
+        const shouldBeOn = faqImmersiveShouldBeActive();
+        const isOn = document.body.classList.contains('faq-immersive');
+        if (shouldBeOn === isOn) return;
+        document.body.classList.toggle('faq-immersive', shouldBeOn);
+        document.documentElement.classList.toggle('faq-immersive', shouldBeOn);
+        setFaqImmersiveBarHidden(false);
+        faqImmersiveLastScrollTop = 0;
+        // Let faq-engine.js re-measure the top bar / composer after the layout change.
+        window.dispatchEvent(new Event('resize'));
+    }
+    function onFaqImmersiveScroll(event) {
+        if (!document.body.classList.contains('faq-immersive')) return;
+        const resultBox = document.getElementById('faq-ai-result');
+        const target = event.target;
+        if (!resultBox || !target || !(target === resultBox || resultBox.contains(target))) return;
+        const top = target.scrollTop || 0;
+        const delta = top - faqImmersiveLastScrollTop;
+        faqImmersiveLastScrollTop = top;
+        if (top < 40 || delta < -FAQ_IMMERSIVE_SCROLL_STEP) setFaqImmersiveBarHidden(false);
+        else if (delta > FAQ_IMMERSIVE_SCROLL_STEP && top > FAQ_IMMERSIVE_BAR_HIDE_AFTER) setFaqImmersiveBarHidden(true);
+    }
+    function wireFaqImmersiveMode() {
+        const view = document.getElementById('view-faq');
+        if (!view) return;
+        if (typeof MutationObserver === 'function') {
+            const mo = new MutationObserver(syncFaqImmersiveMode);
+            mo.observe(view, { attributes: true, attributeFilter: ['class', 'style'] });
+            const mainView = document.getElementById('main-view');
+            if (mainView) mo.observe(mainView, { attributes: true, attributeFilter: ['style', 'class'] });
+            // A new / cleared chat re-renders the empty state: always bring the top bar back then.
+            const resultBox = document.getElementById('faq-ai-result');
+            if (resultBox) {
+                new MutationObserver(() => {
+                    if (resultBox.querySelector('.faq-chat-empty-state')) setFaqImmersiveBarHidden(false);
+                }).observe(resultBox, { childList: true });
+            }
+        }
+        view.addEventListener('scroll', onFaqImmersiveScroll, true);
+        window.addEventListener('resize', syncFaqImmersiveMode);
+        window.addEventListener('orientationchange', () => setTimeout(syncFaqImmersiveMode, 150));
+        syncFaqImmersiveMode();
+    }
+
+    window.exitFaqImmersiveToHome = function exitFaqImmersiveToHome() {
+        if (typeof switchView === 'function') switchView('overview');
+        syncFaqImmersiveMode();
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireFaqImmersiveMode);
+    else wireFaqImmersiveMode();
+})();
