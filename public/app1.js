@@ -245,7 +245,7 @@ body.dark-mode .di-pay-bar-track{background:rgba(255,255,255,.1)}
         if (!panels) return;
         try {
             const [resProd, resTx] = await Promise.all([
-                authFetch(`${API_URL}/products`),
+                authFetch(`${API_URL}/products?lite=1`),
                 authFetch(`${API_URL}/transactions`)
             ]);
             const products = resProd.ok ? await resProd.json() : JSON.parse(localStorage.getItem('cached_products') || '[]');

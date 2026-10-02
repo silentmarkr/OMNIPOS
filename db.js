@@ -67,6 +67,15 @@ db.exec(`
 `);
 const productImageSelectAllStmt = db.prepare('SELECT code, image, images, image_ver FROM product_images');
 const productImageSelectVersionsStmt = db.prepare('SELECT code, image_ver FROM product_images');
+// Magaan na metadata lang (walang base64): ver + bilang ng photo. Hindi binabasa ang HD image/images.
+const productImageSelectMetaStmt = db.prepare(`
+    SELECT code, image_ver,
+           CASE WHEN length(image) > 0 THEN 1 ELSE 0 END AS has_main,
+           CASE WHEN json_valid(images) THEN json_array_length(images) ELSE 0 END AS gallery_count
+    FROM product_images
+`);
+const productImageSelectMainCodesStmt = db.prepare("SELECT code FROM product_images WHERE length(image) > 0");
+const productImageSelectOneStmt = db.prepare('SELECT image, images FROM product_images WHERE code = ?');
 const productImageDeleteStmt = db.prepare('DELETE FROM product_images WHERE code = ?');
 const productImageUpsertStmt = db.prepare(`
     INSERT INTO product_images (code, image, images, image_ver, updated_at)
@@ -97,6 +106,9 @@ function stripProductImagesForStorage(products) {
         const copy = { ...product };
         delete copy.image;
         delete copy.images;
+        // Derived (galing sa product_images) — hindi dapat maisave sa catalog JSON dahil lumalang stale.
+        delete copy.imageVer;
+        delete copy.imageCount;
         return copy;
     });
 }
@@ -110,8 +122,24 @@ function syncProductImages(products, now) {
         const code = String(product.code);
         incomingCodes.add(code);
         if (!isProductImagePayloadPresent(product)) continue;
-        const image = typeof product.image === 'string' ? product.image : '';
-        const images = Array.isArray(product.images) ? product.images : [];
+        const hasMainKey = Object.prototype.hasOwnProperty.call(product, 'image');
+        const hasGalleryKey = Object.prototype.hasOwnProperty.call(product, 'images');
+        let image = typeof product.image === 'string' ? product.image : '';
+        let images = Array.isArray(product.images) ? product.images : [];
+        // Kapag isa lang sa image/images ang kasama sa payload (hal. lite product na binago
+        // lang ang main photo), HUWAG burahin ang kabila — kunin ito mula sa kasalukuyang row.
+        if (hasMainKey !== hasGalleryKey) {
+            const current = productImageSelectOneStmt.get(code);
+            if (current) {
+                if (!hasMainKey) image = current.image || '';
+                if (!hasGalleryKey) {
+                    try {
+                        const parsedGallery = JSON.parse(current.images || '[]');
+                        images = Array.isArray(parsedGallery) ? parsedGallery : [];
+                    } catch (_) { images = []; }
+                }
+            }
+        }
         const ver = productImageVersion(image, images);
         // Avoid rewriting the HD base64 payload when a stock/price/product write did not
         // actually change the photo. This is especially important for product edits and
@@ -290,6 +318,65 @@ function readData(moduleName, defaultData = []) {
     }
 }
 
+function loadProductImageMetaMap() {
+    const map = new Map();
+    let missingVerCodes = null;
+    for (const row of productImageSelectMetaStmt.all()) {
+        const gallery = Number(row.gallery_count) || 0;
+        const code = String(row.code);
+        map.set(code, {
+            ver: row.image_ver || '',
+            imageCount: gallery + (Number(row.has_main) ? 1 : 0)
+        });
+        if (!row.image_ver) (missingVerCodes || (missingVerCodes = [])).push(code);
+    }
+    // Bihirang kaso (lumang row na walang image_ver): kuwentahin ang version para hindi maging
+    // walang-imageVer ang product at hindi na kailanman makuha ng client ang photo nito.
+    // Ang mga row lang na ito ang binabasa nang buo.
+    if (missingVerCodes) {
+        for (let i = 0; i < missingVerCodes.length; i += 100) {
+            const chunk = missingVerCodes.slice(i, i + 100);
+            const fixed = getProductImagesByCodes(chunk);
+            for (const code of chunk) {
+                const entry = fixed[code];
+                if (entry) map.get(code).ver = entry.ver;
+            }
+        }
+    }
+    return map;
+}
+
+// Products catalog nang WALANG anumang photo at WALANG binabasang HD base64 mula sa
+// product_images. Para sa mga operasyong stock/price/list lang ang kailangan.
+// Ligtas itong isulat pabalik gamit ang writeData(): walang image/images key kaya hindi
+// nagagalaw ang photo table (tanging pagtanggal ng product code ang naglilinis ng photo row).
+function readProductsNoImages(defaultData = []) {
+    try {
+        let rawData = blobStringCache.get('products');
+        if (rawData === undefined) {
+            const row = selectStmt.get('products');
+            if (!row) return Array.isArray(defaultData) ? defaultData : [];
+            rawData = row.data;
+            blobStringCache.set('products', rawData);
+        }
+        if (!rawData || rawData.trim() === '') return Array.isArray(defaultData) ? defaultData : [];
+        const parsed = JSON.parse(rawData);
+        if (!Array.isArray(parsed)) return Array.isArray(defaultData) ? defaultData : [];
+        // Defensive: kung may natirang legacy image sa blob, tanggalin sa returned copy lang
+        // (hindi ito mawawala sa database dahil ang product_images table ang source of truth).
+        return parsed.map((product) => {
+            if (!product || typeof product !== 'object') return product;
+            if (!('image' in product) && !('images' in product) && !('imageVer' in product) && !('imageCount' in product)) return product;
+            const copy = { ...product };
+            delete copy.image; delete copy.images; delete copy.imageVer; delete copy.imageCount;
+            return copy;
+        });
+    } catch (err) {
+        console.error('⚠️ Hindi mabasa ang products (walang photo):', err);
+        return Array.isArray(defaultData) ? defaultData : [];
+    }
+}
+
 function readDataLite(moduleName, defaultData = []) {
     if (moduleName !== 'products') return readData(moduleName, defaultData);
     try {
@@ -303,13 +390,15 @@ function readDataLite(moduleName, defaultData = []) {
         if (!rawData || rawData.trim() === '') return [];
         const parsed = JSON.parse(rawData);
         if (!Array.isArray(parsed)) return [];
-        const imageMap = loadProductImagesMap();
+        const metaMap = loadProductImageMetaMap();
         return parsed.map((product) => {
             if (!product || typeof product !== 'object') return product;
-            const entry = imageMap.get(String(product.code));
-            return entry
-                ? { ...product, imageVer: entry.ver, imageCount: entry.images.length + (entry.image ? 1 : 0) }
-                : product;
+            const copy = { ...product };
+            delete copy.image; delete copy.images;
+            const entry = metaMap.get(String(product.code));
+            if (entry) { copy.imageVer = entry.ver; copy.imageCount = entry.imageCount; }
+            else { delete copy.imageVer; delete copy.imageCount; }
+            return copy;
         });
     } catch (err) {
         console.error('⚠️ Hindi mabasa ang lite products data:', err);
@@ -752,13 +841,28 @@ function getCloudBackupPayload() {
     };
 }
 
-function getFullDatabaseSnapshot() {
+function getFullDatabaseSnapshot(options = {}) {
+    const excludeProductImages = !!(options && options.excludeProductImages);
     const moduleNames = getBackupModuleNames(null);
     const modules = {};
     let totalRecords = 0;
+    let productsWithImagesExcluded = 0;
 
     for (const moduleName of moduleNames) {
-        const data = readModuleForBackup(moduleName);
+        let data;
+        if (excludeProductImages && moduleName === 'products' && moduleExistsInStore('products')) {
+            // Hindi na binabasa ang HD photo kung itatapon lang din. Binibilang ang mga product
+            // na may photo (main o gallery) mula sa magaang metadata para tama ang "excluded" count.
+            data = readProductsNoImages([]);
+            const metaMap = loadProductImageMetaMap();
+            for (const product of data) {
+                if (!product || typeof product !== 'object' || product.code == null) continue;
+                const entry = metaMap.get(String(product.code));
+                if (entry && entry.imageCount > 0) productsWithImagesExcluded++;
+            }
+        } else {
+            data = readModuleForBackup(moduleName);
+        }
         modules[moduleName] = data;
         if (Array.isArray(data)) totalRecords += data.length;
     }
@@ -767,6 +871,7 @@ function getFullDatabaseSnapshot() {
         modules,
         moduleNames,
         totalRecords,
+        productsWithImagesExcluded,
         generatedAt: new Date().toISOString()
     };
 }
@@ -873,7 +978,9 @@ function getAiKnowledgeSnapshot(scope, focusModules) {
     let totalRecords = 0;
 
     for (const moduleName of allowedModules) {
-        let data = stripRedactedFields(moduleName, readData(moduleName, []));
+        // Ang AI ay walang pakinabang sa HD base64 photo (sinasayang lang nito ang context budget),
+        // kaya ang products ay binabasa nang walang photo at hindi hinahawakan ang product_images.
+        let data = stripRedactedFields(moduleName, moduleName === 'products' ? readProductsNoImages([]) : readData(moduleName, []));
         data = stripFieldsForAiSnapshot(moduleName, data);
         if (Array.isArray(data)) {
             totalRecords += data.length;
@@ -1010,13 +1117,18 @@ function getProductsView(needImages) {
         }
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return null;
-        const imageMap = loadProductImagesMap();
+        const metaMap = loadProductImageMetaMap();
+        const imageMap = needImages ? loadProductImagesMap() : null;
         const lite = parsed.map((product) => {
             if (!product || typeof product !== 'object') return product;
-            const entry = imageMap.get(String(product.code));
-            return entry
-                ? { ...product, image: '', images: [], imageVer: entry.ver, imageCount: entry.images.length + (entry.image ? 1 : 0) }
-                : product;
+            const entry = metaMap.get(String(product.code));
+            if (!entry) {
+                if (!('imageVer' in product) && !('imageCount' in product)) return product;
+                const stale = { ...product };
+                delete stale.imageVer; delete stale.imageCount;
+                return stale;
+            }
+            return { ...product, image: '', images: [], imageVer: entry.ver, imageCount: entry.imageCount };
         });
         productsViewCache = {
             rawLength: raw.length,
@@ -1030,6 +1142,11 @@ function getProductsView(needImages) {
         console.error('⚠️ Hindi nabuo ang lite products view:', err);
         return null;
     }
+}
+
+// Set ng product code na may MAIN photo — walang binabasang base64 (length() lang).
+function getProductCodesWithMainImage() {
+    return new Set(productImageSelectMainCodesStmt.all().map((row) => String(row.code)));
 }
 
 function getProductImagesByCodes(codes) {
@@ -1085,7 +1202,7 @@ function migrateLegacyProductImages() {
 }
 migrateLegacyProductImages();
 
-module.exports = { getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
+module.exports = { getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

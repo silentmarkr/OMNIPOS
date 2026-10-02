@@ -11640,7 +11640,7 @@ function showProductDetails(code, context ='pos', photoRetried = false) {
         ? (cachedInventoryProducts.find(prod => prod.code === code) || globalProducts.find(prod => prod.code === code))
         : (globalProducts.find(prod => prod.code === code) || cachedInventoryProducts.find(prod => prod.code === code));
     if (!p) return;
-    if (p._imgPending && !photoRetried && Date.now() - productImageHydrationLastFailAt >= PRODUCT_IMAGE_RETRY_BACKOFF_MS) {
+    if (p._imgPending && !photoRetried && (Date.now() - productImageHydrationLastFailAt >= PRODUCT_IMAGE_RETRY_BACKOFF_MS || productImageVersions.has(String(p.code)))) {
         // Hindi pa dumarating ang photo(s) ng product na ito (lite load) — kunin muna, saka buksan.
         // May limit na 4s at walang dobleng request kapag inulit ang tap, para hindi "hindi bumubukas" ang item.
         const waitKey = String(p.code);
@@ -17292,32 +17292,41 @@ let cachedInventoryProducts = [];
 const PRODUCT_IMAGE_CHUNK_SIZE = 5;
 const PRODUCT_IMAGE_PARALLEL_REQUESTS = 2;
 const PRODUCT_IMAGE_RETRY_BACKOFF_MS = 15000;
+// Session (RAM) cache of HD photos: code -> { ver, image, images }.
 const productImageStore = new Map();
+// What is already saved on this device (IndexedDB 'productImages' store, ONE record per
+// product): code -> ver. Only this small code+ver index is read at startup. The HD photo
+// itself is read from IndexedDB later, in small batches, only for products that need it.
+const productImageVersions = new Map();
+const productImageDirty = new Set();        // codes whose photo must be written to IndexedDB
+const productImageDeleteQueue = new Set();  // codes that no longer exist and must be removed
+const PRODUCT_IMAGE_LOCAL_READ_CHUNK = 20;
 
 let productImageStoreHydrated = false;
 let productImageStoreHydrationPromise = null;
 let productImagePersistTimer = null;
+let productImagePersistBusy = false;
+let productImagePersistRerun = false;
+let productImageLocalQueue = Promise.resolve();
 
 async function hydratePersistentProductImageStore() {
     if (productImageStoreHydrated) return;
     if (productImageStoreHydrationPromise) return productImageStoreHydrationPromise;
     productImageStoreHydrationPromise = (async () => {
         try {
-            const cached = window.OfflineStorage?.getLargeCache
-                ? await window.OfflineStorage.getLargeCache('cached_product_images')
+            const versions = window.OfflineStorage?.getProductImageVersions
+                ? await window.OfflineStorage.getProductImageVersions()
                 : null;
-            if (cached && typeof cached === 'object') {
-                Object.entries(cached).forEach(([code, value]) => {
-                    if (!value || typeof value !== 'object') return;
-                    productImageStore.set(String(code), {
-                        ver: value.ver || '',
-                        image: typeof value.image === 'string' ? value.image : '',
-                        images: Array.isArray(value.images) ? value.images : []
-                    });
+            if (versions && typeof versions.forEach === 'function') {
+                versions.forEach((ver, code) => {
+                    const key = String(code);
+                    if (!productImageVersions.has(key) && !productImageDeleteQueue.has(key)) {
+                        productImageVersions.set(key, String(ver));
+                    }
                 });
             }
         } catch (e) {
-            console.warn('Could not hydrate offline product photos:', e);
+            console.warn('Could not read the offline product photo index:', e);
         } finally {
             productImageStoreHydrated = true;
             productImageStoreHydrationPromise = null;
@@ -17326,22 +17335,153 @@ async function hydratePersistentProductImageStore() {
     return productImageStoreHydrationPromise;
 }
 
+function markProductImageDirty(code) {
+    const key = String(code);
+    productImageDeleteQueue.delete(key);
+    productImageDirty.add(key);
+}
+function queueProductImageRemoval(code) {
+    const key = String(code);
+    productImageDirty.delete(key);
+    productImageDeleteQueue.add(key);
+}
+
+// Debounced. Writes ONLY the new/changed photos (and removes deleted products) in a single
+// IndexedDB transaction, so the cost no longer grows with the size of the catalog.
 function schedulePersistentProductImageStoreSave() {
-    if (!window.OfflineStorage?.putLargeCache) return;
-    if (productImageStorePersistTimer) clearTimeout(productImageStorePersistTimer);
-    productImageStorePersistTimer = setTimeout(() => {
-        productImageStorePersistTimer = null;
-        const snapshot = {};
-        productImageStore.forEach((value, code) => {
-            snapshot[String(code)] = {
-                ver: value?.ver || '',
-                image: typeof value?.image === 'string' ? value.image : '',
-                images: Array.isArray(value?.images) ? value.images : []
-            };
-        });
-        window.OfflineStorage.putLargeCache('cached_product_images', snapshot).catch(() => {});
+    if (!window.OfflineStorage?.putProductImages) return;
+    if (productImagePersistTimer) clearTimeout(productImagePersistTimer);
+    productImagePersistTimer = setTimeout(() => {
+        productImagePersistTimer = null;
+        flushPersistentProductImageStore();
     }, 1000);
 }
+async function flushPersistentProductImageStore() {
+    if (!window.OfflineStorage?.putProductImages) return;
+    if (productImagePersistBusy) {
+        productImagePersistRerun = true;
+        return;
+    }
+    productImagePersistBusy = true;
+    try {
+        do {
+            productImagePersistRerun = false;
+            const records = [];
+            productImageDirty.forEach(code => {
+                const value = productImageStore.get(code);
+                if (!value) return;
+                records.push({
+                    code,
+                    ver: String(value.ver || ''),
+                    image: typeof value.image === 'string' ? value.image : '',
+                    images: Array.isArray(value.images) ? value.images : []
+                });
+            });
+            const removals = Array.from(productImageDeleteQueue);
+            productImageDirty.clear();
+            productImageDeleteQueue.clear();
+            if (!records.length && !removals.length) break;
+            try {
+                await window.OfflineStorage.putProductImages(records, removals);
+                records.forEach(r => productImageVersions.set(r.code, r.ver));
+                removals.forEach(code => {
+                    if (!productImageDirty.has(code)) productImageVersions.delete(code);
+                });
+            } catch (e) {
+                console.warn('Could not save product photos offline (will retry with the next batch):', e);
+                // Keep them queued, but never overwrite a newer decision made while writing.
+                records.forEach(r => {
+                    if (productImageStore.has(r.code) && !productImageDeleteQueue.has(r.code)) productImageDirty.add(r.code);
+                });
+                removals.forEach(code => {
+                    if (!productImageStore.has(code) && !productImageDirty.has(code)) productImageDeleteQueue.add(code);
+                });
+                break;
+            }
+        } while (productImagePersistRerun);
+    } finally {
+        productImagePersistBusy = false;
+    }
+}
+
+function findLoadedProductByCode(code) {
+    const key = String(code);
+    return (Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : []).find(p => p && String(p.code) === key)
+        || (Array.isArray(globalProducts) ? globalProducts : []).find(p => p && String(p.code) === key)
+        || null;
+}
+// One pass over the loaded lists: which codes still wait for a photo, and their current imageVer.
+function buildProductImageContext() {
+    const pending = new Set();
+    const vers = new Map();
+    [cachedInventoryProducts, globalProducts].forEach(list => {
+        if (!Array.isArray(list)) return;
+        list.forEach(p => {
+            if (!p || p.code == null) return;
+            const key = String(p.code);
+            if (p._imgPending) pending.add(key);
+            if (p.imageVer && !vers.has(key)) vers.set(key, String(p.imageVer));
+        });
+    });
+    return { pending, vers };
+}
+async function readPendingProductImagesFromDevice(codes) {
+    const loaded = new Set();
+    try {
+        if (!window.OfflineStorage?.getProductImages) return loaded;
+        // Only codes whose saved version equals the product's current version are worth reading;
+        // outdated ones are skipped here so their HD photos are never loaded for nothing.
+        const startCtx = buildProductImageContext();
+        const wanted = Array.from(new Set((codes || []).map(c => String(c))))
+            .filter(code => productImageVersions.has(code) && productImageVersions.get(code) === startCtx.vers.get(code));
+        for (let i = 0; i < wanted.length; i += PRODUCT_IMAGE_LOCAL_READ_CHUNK) {
+            const chunk = wanted.slice(i, i + PRODUCT_IMAGE_LOCAL_READ_CHUNK);
+            const records = await window.OfflineStorage.getProductImages(chunk);
+            // Rebuilt after every await: the product lists may have been refreshed meanwhile.
+            const ctx = buildProductImageContext();
+            chunk.forEach(code => {
+                // Already filled in by another call: nothing left to do for this code.
+                if (!ctx.pending.has(code)) { loaded.add(code); return; }
+                const rec = records.get(code);
+                if (!rec || typeof rec !== 'object') { productImageVersions.delete(code); return; }
+                const currentVer = ctx.vers.get(code);
+                // Outdated or unknown version: leave it pending so the server copy replaces it.
+                if (!currentVer || String(rec.ver) !== currentVer) return;
+                const image = typeof rec.image === 'string' ? rec.image : '';
+                const images = Array.isArray(rec.images) ? rec.images : [];
+                productImageStore.set(code, { ver: currentVer, image, images });
+                applyFetchedProductImage(code, image, images, currentVer);
+                clearPendingProductImageFlag(code);
+                updateInventoryRowImage(code);
+                if (typeof updateProductCardInPlace === 'function') updateProductCardInPlace(code);
+                loaded.add(code);
+            });
+            if (i + PRODUCT_IMAGE_LOCAL_READ_CHUNK < wanted.length) {
+                // Let the UI breathe between batches (low-end phones/tablets).
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+    } catch (e) {
+        console.warn('Could not read saved product photos from this device:', e);
+    }
+    return loaded;
+}
+// Serialized so overlapping refreshes never read the same photos twice. Never rejects.
+// Resolves with the Set of codes that were filled in from this device.
+function loadPendingProductImagesFromDevice(codes) {
+    const run = productImageLocalQueue.then(() => readPendingProductImagesFromDevice(codes));
+    productImageLocalQueue = run.then(() => {}, () => {});
+    return run;
+}
+// Closing or hiding the tab within the 1-second debounce must not lose the last batch.
+function flushProductImagesNow() {
+    if (!productImagePersistTimer) return;
+    clearTimeout(productImagePersistTimer);
+    productImagePersistTimer = null;
+    flushPersistentProductImageStore();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushProductImagesNow(); });
+window.addEventListener('pagehide', flushProductImagesNow);
 let inventoryLoadsInFlight = 0;
 let inventoryLoadFailed = false;
 let productImageHydrationBusy = false;
@@ -17349,22 +17489,38 @@ let productImageHydrationRerun = false;
 let productImageHydrationLastFailAt = 0;
 let inventoryPhotoProgress = { done: 0, total: 0 };
 
-function mergeLiteProductsWithImageStore(list) {
+// prune=false (offline fallback list): the cached catalog can be old or cut short, so it must
+// never be used to decide which saved photos to delete from this device.
+function mergeLiteProductsWithImageStore(list, prune = true) {
     const merged = list.map(p => {
         if (!p || typeof p !== 'object' || !p.imageVer) return p;
         // Walang photo (imageCount = 0): wala nang kukunin, kaya hindi na ito dadaan sa _imgPending/spinner.
         if (Number(p.imageCount) === 0 && !p.image) return p;
         const stored = productImageStore.get(String(p.code));
-        if (stored && stored.ver === p.imageVer) {
+        if (stored && stored.ver === String(p.imageVer)) {
             return { ...p, image: stored.image, images: stored.images };
         }
+        // Not in memory yet: it is read from this device (IndexedDB) or the server later.
         return { ...p, _imgPending: true };
     });
-    if (merged.length) {
+    if (prune && merged.length) {
         const liveCodes = new Set(merged.map(p => (p && p.code != null) ? String(p.code) : ''));
+        let removedAny = false;
         for (const key of Array.from(productImageStore.keys())) {
-            if (!liveCodes.has(key)) productImageStore.delete(key);
+            if (!liveCodes.has(key)) {
+                productImageStore.delete(key);
+                queueProductImageRemoval(key);
+                removedAny = true;
+            }
         }
+        for (const key of Array.from(productImageVersions.keys())) {
+            if (!liveCodes.has(key)) {
+                productImageVersions.delete(key);
+                queueProductImageRemoval(key);
+                removedAny = true;
+            }
+        }
+        if (removedAny) schedulePersistentProductImageStoreSave();
     }
     return merged;
 }
@@ -17378,7 +17534,7 @@ async function fetchProductsLiteMerged() {
         return { res, products: mergeLiteProductsWithImageStore(data), offline: false };
     } catch (networkError) {
         // Offline/reconnect-safe fallback: cached_products is already a lite catalog,
-        // while cached_product_images keeps the HD photos in IndexedDB.
+        // while the per-product 'productImages' IndexedDB store keeps the HD photos.
         let cached = null;
         try {
             cached = window.OfflineStorage?.getLargeCache
@@ -17391,7 +17547,7 @@ async function fetchProductsLiteMerged() {
         if (!Array.isArray(cached)) throw networkError;
         return {
             res: { headers: { get: () => null } },
-            products: mergeLiteProductsWithImageStore(cached),
+            products: mergeLiteProductsWithImageStore(cached, false),
             offline: true
         };
     }
@@ -17413,6 +17569,16 @@ let productCacheLastWriteAt = 0;
 async function fetchGlobalProductsLite() {
     const { res, products } = await fetchProductsLiteMerged();
     return { res, products: await applyPendingOfflineStockDeductions(products) };
+}
+// Ang ilang server response (import, bulk photo, image search apply) ay nagbabalik ng LITE na
+// listahan (walang HD photo, may imageVer/imageCount). Dumadaan ito sa parehong merge ng
+// terminal/inventory para ang mga photo ay galing sa device cache at ang nagbago lang ang kukunin.
+function applyServerProductsToGlobal(list) {
+    if (!Array.isArray(list)) return;
+    globalProducts = mergeLiteProductsWithImageStore(list);
+    if (typeof hydratePendingTerminalPhotos === 'function') {
+        Promise.resolve(hydratePendingTerminalPhotos()).catch(e => console.warn('Photo refresh failed:', e));
+    }
 }
 function cacheGlobalProductsThrottled(force) {
     const now = Date.now();
@@ -17441,6 +17607,11 @@ function getPendingTerminalPhotoCodes() {
         .map(p => String(p.code));
 }
 async function hydratePendingTerminalPhotos() {
+    // Photos already saved on this device load first (no network, no retry backoff).
+    const fromDevice = await loadPendingProductImagesFromDevice(getPendingTerminalPhotoCodes());
+    if (fromDevice.size > 0 && typeof broadcastIdleShowcase === 'function') {
+        try { broadcastIdleShowcase(); } catch (e) {}
+    }
     if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) return;
     if (terminalPhotoHydrationBusy) {
         terminalPhotoHydrationRerun = true;
@@ -17554,8 +17725,13 @@ function clearPendingProductImageFlag(code) {
 // Kinukuha ang photo ng mga naka-list na product code. Palaging nililinis ang
 // _imgPending flag ng mga code na ito (kahit nag-fail) para walang paulit-ulit na loop.
 async function fetchAndApplyProductImages(codes) {
-    const list = Array.from(new Set((codes || []).map(c => String(c))));
+    const requested = Array.from(new Set((codes || []).map(c => String(c))));
+    if (!requested.length) return;
+    // 1) Saved on this device? Read just those products from IndexedDB (fast, works offline).
+    const fromDevice = await loadPendingProductImagesFromDevice(requested);
+    const list = requested.filter(code => !fromDevice.has(code));
     if (!list.length) return;
+    // 2) The rest come from the server.
     let items = null;
     try {
         const res = await authFetch(`${API_URL}/products/images`, {
@@ -17579,22 +17755,26 @@ async function fetchAndApplyProductImages(codes) {
         if (item && typeof item === 'object') {
             const image = typeof item.image === 'string' ? item.image : '';
             const images = Array.isArray(item.images) ? item.images : [];
-            if (item.ver) productImageStore.set(code, { ver: item.ver, image, images });
+            if (item.ver) {
+                productImageStore.set(code, { ver: String(item.ver), image, images });
+                markProductImageDirty(code);
+            }
             applyFetchedProductImage(code, image, images, item.ver);
         } else if (items) {
             // Nag-succeed ang request pero walang photo para sa code na ito (hal. nabura na):
             // tandaan para hindi ito hilingin ulit sa bawat refresh.
-            const current = (cachedInventoryProducts || []).find(p => p && String(p.code) === code)
-                || (Array.isArray(globalProducts) ? globalProducts : []).find(p => p && String(p.code) === code);
-            if (current && current.imageVer) productImageStore.set(code, { ver: current.imageVer, image: '', images: [] });
+            const current = findLoadedProductByCode(code);
+            if (current && current.imageVer) {
+                productImageStore.set(code, { ver: String(current.imageVer), image: '', images: [] });
+                markProductImageDirty(code);
+            }
         }
         clearPendingProductImageFlag(code);
         updateInventoryRowImage(code);
         if (typeof updateProductCardInPlace === 'function') updateProductCardInPlace(code);
     });
-    // Persist once per completed batch rather than rewriting the entire HD-photo map
-    // once for every product in the batch. This keeps background photo hydration from
-    // becoming its own IndexedDB bottleneck.
+    // Save once per completed batch, and only the photos that are new or changed
+    // (one record per product), instead of rewriting the entire HD-photo map.
     if (items) schedulePersistentProductImageStoreSave();
 }
 function getPendingProductImageCodes() {
@@ -17603,6 +17783,8 @@ function getPendingProductImageCodes() {
         .map(p => String(p.code));
 }
 async function hydratePendingProductImages() {
+    // Photos already saved on this device load first (no network, no retry backoff).
+    await loadPendingProductImagesFromDevice(getPendingProductImageCodes());
     if (Date.now() - productImageHydrationLastFailAt < PRODUCT_IMAGE_RETRY_BACKOFF_MS) return;
     if (productImageHydrationBusy) {
         productImageHydrationRerun = true;
@@ -19811,7 +19993,7 @@ async function handleProductImportFile(event) {
             Swal.fire('Import Failed', reply.message ||'Could not import the file.','error');
             return;
         }
-        if (reply.products) globalProducts = reply.products;
+        if (reply.products) applyServerProductsToGlobal(reply.products);
         if (reply.categories) customCategories = reply.categories;
         updateDropdownCategoriesDynamic();
         updateCategoryChipsDynamic();
@@ -19884,12 +20066,12 @@ async function openBulkPhotoModal() {
     bulkPhotoProductsList = Array.isArray(globalProducts) && globalProducts.length ? globalProducts :[];
     document.getElementById('bulk-photo-modal').style.display ='flex';
     try {
-        const res = await authFetch(`${API_URL}/products`);
+        // Code at pangalan lang ang kailangan sa pag-match ng filename, kaya lite list (walang HD photo).
+        const res = await authFetch(`${API_URL}/products?lite=1`, { cache:'no-store' });
         if (res.ok) {
             const fresh = await res.json();
             if (Array.isArray(fresh)) {
                 bulkPhotoProductsList = fresh;
-                globalProducts = fresh;
             }
         }
     } catch (err) {
@@ -20039,7 +20221,7 @@ async function submitBulkPhotoUpload() {
             Swal.fire('Bulk Upload Failed', reply.message ||'Could not apply the photos.','error');
             return;
         }
-        if (reply.products) globalProducts = reply.products;
+        if (reply.products) applyServerProductsToGlobal(reply.products);
         if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
         let summaryHtml = `<p>✅ Applied: <b>${reply.appliedCount}</b> photo(s)</p>`;
@@ -20352,7 +20534,7 @@ async function applyBulkImageSearchSelections() {
             applyBtn.disabled = false;
             return;
         }
-        if (data.products) globalProducts = data.products;
+        if (data.products) applyServerProductsToGlobal(data.products);
         if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         let summaryHtml = `<p>✅ Applied: <b>${data.appliedCount}</b> photo(s)</p>`;
@@ -20602,7 +20784,7 @@ async function applyOmniImageSearchSelections() {
             applyBtn.disabled = false;
             return;
         }
-        if (data.products) globalProducts = data.products;
+        if (data.products) applyServerProductsToGlobal(data.products);
         if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         let summaryHtml = `<p>✅ Applied: <b>${data.appliedCount}</b> photo(s)</p>`;

@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
+const { db: sqliteDb, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const webauthn = require('./webauthn');
@@ -5429,7 +5429,7 @@ async function processBranchTransferRespond(req, res) {
             if (action === 'receive' && transfer.toInstallationId !== installationId) {
                 return res.status(403).json({ success: false, message: 'Only the destination branch can confirm receipt of this transfer.' });
             }
-            let products = readData(FILE_PRODUCTS);
+            let products = readProductsNoImages();
             matchedProduct = findLocalProductForTransfer(products, transfer.sku, transfer.itemName);
             if (action === 'send') {
                 if (!matchedProduct) {
@@ -5466,7 +5466,7 @@ async function processBranchTransferRespond(req, res) {
         if (!relayData.success) {
             if (stockMutation) {
                 try {
-                    const rollbackProducts = readData(FILE_PRODUCTS);
+                    const rollbackProducts = readProductsNoImages();
                     const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
                     if (rollbackProduct) { rollbackProduct.stock = stockMutation.originalStock; writeData(FILE_PRODUCTS, rollbackProducts); }
                 } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
@@ -5481,7 +5481,7 @@ async function processBranchTransferRespond(req, res) {
         // change a SECOND time. Roll it back here, same as the "relay said no" path above.
         if (stockMutation) {
             try {
-                const rollbackProducts = readData(FILE_PRODUCTS);
+                const rollbackProducts = readProductsNoImages();
                 const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
                 if (rollbackProduct) { rollbackProduct.stock = stockMutation.originalStock; writeData(FILE_PRODUCTS, rollbackProducts); }
             } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
@@ -6957,7 +6957,7 @@ function computeAiStoreInsights(isAdminRole) {
 }
 function computeAiStoreInsightsUncached(isAdminRole) {
     let products = [];
-    try { products = readData(FILE_PRODUCTS, []); } catch (err) { products = []; }
+    try { products = readProductsNoImages([]); } catch (err) { products = []; }
     const now = new Date();
     const outOfStockItems = [];
     const lowStockItems = [];
@@ -9504,7 +9504,7 @@ if (readData(FILE_USERS).length === 0) {
     }));
     writeData(FILE_USERS, secureDefaultUsers);
 }
-if (readData(FILE_PRODUCTS).length === 0) writeData(FILE_PRODUCTS, defaultProducts);
+if (readProductsNoImages().length === 0) writeData(FILE_PRODUCTS, defaultProducts);
 function verifyAdmin(req, res, next) {
     const { username, adminPassword } = req.body;
     if (!username) {
@@ -10082,13 +10082,18 @@ app.get('/api/product-full/:code', (req, res) => {
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
     const wanted = String(req.params.code || '').trim().toLowerCase();
-    const products = readData(FILE_PRODUCTS);
-    const product = Array.isArray(products)
+    // Isang product lang ang kailangan: catalog nang walang photo + photo row ng ISANG code lang.
+    const products = readProductsNoImages();
+    const found = Array.isArray(products)
         ? products.find(p => p && String(p.code || '').trim().toLowerCase() === wanted)
         : null;
-    if (!product) {
+    if (!found) {
         return res.status(404).json({ success: false, message: 'Product not found.' });
     }
+    const imageEntry = getProductImagesByCodes([found.code])[String(found.code)];
+    const product = imageEntry
+        ? { ...found, image: imageEntry.image, images: imageEntry.images, imageVer: imageEntry.ver }
+        : found;
     res.json({ success: true, product });
 });
 // Batch na pagkuha ng photo (image + images gallery) para sa mga product code
@@ -10106,26 +10111,12 @@ app.post('/api/products/images', (req, res) => {
     if (!codes.length) {
         return res.json({ success: true, items: {} });
     }
-    let items = getProductImagesByCodes(codes);
-    if (!items) {
-        // Fallback kung hindi magamit ang cached view: basahin nang diretso.
-        items = {};
-        const products = readData(FILE_PRODUCTS);
-        const wanted = new Set(codes);
-        (Array.isArray(products) ? products : []).forEach(p => {
-            if (!p || p.code == null || !wanted.has(String(p.code))) return;
-            items[String(p.code)] = {
-                ver: null,
-                image: typeof p.image === 'string' ? p.image : '',
-                images: Array.isArray(p.images) ? p.images : []
-            };
-        });
-    }
+    const items = getProductImagesByCodes(codes);
     res.json({ success: true, items });
 });
 app.get('/api/products/export', requirePermission('products'), requireFeature('advanced_reports'), (req, res) => {
     try {
-        const products = readData(FILE_PRODUCTS);
+        const products = readProductsNoImages();
         const escapeCsv = (val) => {
             const s = (val === undefined || val === null) ?'' : val.toString();
             return/[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
@@ -10361,7 +10352,7 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             });
         }
         const mode = (req.body.mode ||'skip').toLowerCase() ==='update' ?'update' :'skip';
-        let products = readData(FILE_PRODUCTS);
+        let products = readProductsNoImages();
         let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
         const codeIndex = new Map(products.map((p, i) => [p.code.trim().toLowerCase(), i]));
         const newCategoriesFound = new Set();
@@ -10468,7 +10459,7 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             errors,
             newCategories: [...newCategoriesFound],
             categories,
-            products
+            products: readDataLite(FILE_PRODUCTS)
         });
     } catch (err) {
         console.error('Import error:', err);
@@ -10561,7 +10552,7 @@ app.post('/api/products', requirePermission('products'), (req, res) => {
     const { product } = req.body;
     normalizeProductUomFields(product);
     const username = req.authUser.username;
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const codeExists = products.some(p => p.code.trim().toLowerCase() === product.code.trim().toLowerCase());
     if (codeExists) {
         return res.status(400).json({ success: false, message: `❌ Ang Product Code [${product.code}] ay ginagamit na!` });
@@ -10618,7 +10609,7 @@ function processProductUpdate(req, res) {
     const { updatedData } = req.body;
     normalizeProductUomFields(updatedData);
     const username = req.authUser.username;
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     if ('priceLevelBarcodes' in updatedData) {
         const barcodeConflict = findPriceLevelBarcodeConflict(products, { code, priceLevelBarcodes: updatedData.priceLevelBarcodes }, code);
         if (barcodeConflict) {
@@ -10646,7 +10637,7 @@ app.delete('/api/products/:code', requirePermission('products'), rateLimit('prod
 async function processProductDelete(req, res) {
     const { code } = req.params;
     const username = req.authUser.username;
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
     if (canApplyDirectly) {
@@ -10676,7 +10667,7 @@ async function processProductDelete(req, res) {
         logAction(username, `Deleted product code: ${code} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
         // Return the exact post-delete catalog so the Product page can update
         // from the same authoritative snapshot without a second GET race.
-        return res.json({ success: true, message:'Product deleted successfully', products });
+        return res.json({ success: true, message:'Product deleted successfully', products: readDataLite(FILE_PRODUCTS) });
     } else {
         let requests = readData(FILE_REQUESTS);
         requests.push({ id: Date.now(), type:'DELETE', targetCode: code, requester: username, timestamp: new Date().toLocaleString() });
@@ -10710,7 +10701,7 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
                 message: 'Access Denied: You need "Direct Apply" permission to use Bulk Upload Photos. Please contact an Admin.'
             });
         }
-        let products = readData(FILE_PRODUCTS);
+        let products = readProductsNoImages();
         const codeIndex = new Map();
         const nameIndex = new Map();
         products.forEach((p, i) => {
@@ -10765,7 +10756,7 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
             applied,
             unmatched,
             failed,
-            products
+            products: readDataLite(FILE_PRODUCTS)
         });
     } catch (err) {
         console.error('Bulk photo upload error:', err);
@@ -10882,8 +10873,10 @@ app.post('/api/products/bulk-image-search', rateLimit('product-bulk-image-search
     let limit = parseInt(req.body?.limit, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 50;
     limit = Math.min(limit, 100);
-    const allProducts = readData(FILE_PRODUCTS);
-    let targets = onlyMissing ? allProducts.filter(p => p && !p.image) : allProducts.slice();
+    const allProducts = readProductsNoImages();
+    // Walang binabasang HD photo: ang "missing" ay base sa product_images table (length lang).
+    const codesWithMainImage = onlyMissing ? getProductCodesWithMainImage() : null;
+    let targets = onlyMissing ? allProducts.filter(p => p && !codesWithMainImage.has(String(p.code))) : allProducts.slice();
     const totalEligible = targets.length;
     const truncated = targets.length > limit;
     targets = targets.slice(0, limit);
@@ -11008,7 +11001,7 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
         return res.status(400).json({ success: false, message: 'Walang piniling larawan na i-a-apply.' });
     }
     const username = req.authUser.username;
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const codeIndex = new Map();
     products.forEach((p, i) => { if (p && p.code) codeIndex.set(p.code, i); });
     const applied = [];
@@ -11032,15 +11025,17 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Bulk Search Images: naglapat ng ${applied.length} auto-search product photo(s) (${failed.length} nabigo).`);
     }
-    res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products });
+    res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products: readDataLite(FILE_PRODUCTS) });
 });
 app.post('/api/products/omni-image-search', rateLimit('product-omni-image-search', 5, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const onlyMissing = req.body?.onlyMissing !== false;
     let limit = parseInt(req.body?.limit, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 50;
     limit = Math.min(limit, 100);
-    const allProducts = readData(FILE_PRODUCTS);
-    let targets = onlyMissing ? allProducts.filter(p => p && !p.image) : allProducts.slice();
+    const allProducts = readProductsNoImages();
+    // Walang binabasang HD photo: ang "missing" ay base sa product_images table (length lang).
+    const codesWithMainImage = onlyMissing ? getProductCodesWithMainImage() : null;
+    let targets = onlyMissing ? allProducts.filter(p => p && !codesWithMainImage.has(String(p.code))) : allProducts.slice();
     const totalEligible = targets.length;
     const truncated = targets.length > limit;
     targets = targets.slice(0, limit);
@@ -11260,7 +11255,7 @@ function processRequestResolve(req, res) {
             writeData(FILE_RECEIPT_SETTINGS, settings);
             logAction(username, `APPROVED Transaction ID Format request (${settings.transactionIdSettings.format}) mula kay "${targetReq.requester}"`);
         } else {
-            let products = readData(FILE_PRODUCTS);
+            let products = readProductsNoImages();
             if (targetReq.type ==='ADD') {
                 products.push(targetReq.data);
                 logAction(username, `APPROVED ADD Request for product: ${targetReq.data?.name}`);
@@ -13269,21 +13264,16 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
     (async () => {
         try {
             updateResetJob(jobId, { status: 'preparing', percent: 5, message: 'Capturing the full database snapshot...' });
-            const fullSnapshot = getFullDatabaseSnapshot();
+            // Kapag hindi isasama ang photo, hindi na babasahin ang HD photo sa database (main + gallery).
+            const fullSnapshot = getFullDatabaseSnapshot({ excludeProductImages: !includeImages });
             // Taken in the same synchronous tick as the snapshot; re-checked right before the BIR wipe below.
             const birSignatureAtSnapshot = includeBirData ? birCompliance.getBirSignature() : null;
             let modulesForEmail = fullSnapshot.modules;
             let imagesExcludedCount = 0;
             if (!includeImages && Array.isArray(fullSnapshot.modules.products)) {
-                modulesForEmail = { ...fullSnapshot.modules };
-                modulesForEmail.products = fullSnapshot.modules.products.map((p) => {
-                    if (p && p.image) {
-                        imagesExcludedCount++;
-                        const { image, ...rest } = p;
-                        return rest;
-                    }
-                    return p;
-                });
+                // Ang products ay nabasa na nang walang image/images/imageVer/imageCount (main AT gallery),
+                // kaya ang bilang ng na-exclude ay galing sa snapshot mismo.
+                imagesExcludedCount = fullSnapshot.productsWithImagesExcluded || 0;
             }
             // Opt-in: move the BIR compliance modules out of the main backup into their OWN payload, which is
             // emailed as a separate attachment and then wiped below. modulesForEmail may still be the very same
@@ -13740,7 +13730,7 @@ async function processStockReturnInspection(req, res) {
     if (byLine.size !== record.items.length) {
         return res.status(400).json({ success: false, message: 'Inspection data is incomplete. All returned items must be reviewed.' });
     }
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     const normalized = [];
     for (const item of record.items) {
@@ -13832,7 +13822,7 @@ async function processStockReturnReview(req, res) {
             return res.status(400).json({ success: false, message: 'All items awaiting manager review must be included.' });
         }
     }
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     const updates = [];
     for (const item of record.items) {
@@ -13911,7 +13901,7 @@ app.post('/api/inventory-counts', requirePermission('inventory_count'), requireF
     const scope = String(req.body.scope || 'all').trim().toLowerCase();
     const category = String(req.body.category || '').trim();
     const codes = Array.isArray(req.body.codes) ? req.body.codes.map(c => String(c).trim()).filter(Boolean) : [];
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     let targetProducts;
     if (scope === 'category' && category) {
         targetProducts = products.filter(p => String(p.category || '').trim().toLowerCase() === category.toLowerCase());
@@ -13997,7 +13987,7 @@ function processFinalizeInventoryCount(req, res) {
     if (uncounted.length) {
         return res.status(400).json({ success: false, message: `May ${uncounted.length} item(s) na wala pang bilang. Kumpletuhin muna ang lahat bago i-finalize.` });
     }
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     let totalVarianceValue = 0;
     let changedCount = 0;
@@ -14079,7 +14069,7 @@ function processAddWasteEntry(req, res) {
     if (!WASTE_CATEGORIES.has(category)) {
         return res.status(400).json({ success: false, message: `Invalid category. Pumili sa: ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
     }
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const prod = products.find(p => String(p.code || '').trim().toLowerCase() === code.toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: `Product ${code} hindi nahanap.` });
     const currentStock = uomPricing.round(parseFloat(prod.stock) || 0, uomPricing.DECIMAL_PLACES);
@@ -14169,7 +14159,7 @@ function processCreateConsignment(req, res) {
     const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
     if (!supplierName) return res.status(400).json({ success: false, message: 'Kailangan ng pangalan ng supplier.' });
     if (!rawItems.length) return res.status(400).json({ success: false, message: 'Kailangan ng kahit isang item.' });
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     const items = [];
     for (const raw of rawItems) {
@@ -14266,7 +14256,7 @@ function processConsignmentReturnUnsold(req, res) {
     if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
     const transactions = readData(FILE_TRANSACTIONS, []);
     const computed = attachConsignmentComputedFields(record, transactions);
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     const byCode = new Map(rawItems.map(i => [String(i.code || '').trim().toLowerCase(), i]));
     let anyReturned = false;
@@ -14316,7 +14306,7 @@ function processConsignmentReturnUnsold(req, res) {
 app.get('/api/reports/dead-stock', requirePermission('dashboard'), requireFeature('inventory_tools'), (req, res) => {
     const days = Math.max(1, parseInt(req.query.days, 10) || 60);
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    const products = readData(FILE_PRODUCTS, []);
+    const products = readProductsNoImages([]);
     const transactions = readData(FILE_TRANSACTIONS, []);
     const lastSoldByCode = new Map();
     for (const t of transactions) {
@@ -14894,7 +14884,7 @@ app.post('/api/logs', (req, res) => {
     }
 });
 function computeLowStockItems() {
-    const products = readData(FILE_PRODUCTS);
+    const products = readProductsNoImages();
     const purchaseOrders = readData(FILE_PURCHASE_ORDERS, []);
     let tracking = readData(FILE_LOWSTOCK_TRACKING, {});
     const nowIso = new Date().toISOString();
@@ -15068,7 +15058,7 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
         // ends up identical to Top Selling. Unsold catalog products are the true slowest
         // movers (qty 0), so include them here.
         const fullRankingMap = Object.assign({}, rankingMap);
-        (readData(FILE_PRODUCTS) || []).forEach(p => {
+        (readProductsNoImages() || []).forEach(p => {
             if (p && p.name && !(p.name in fullRankingMap)) fullRankingMap[p.name] = 0;
         });
         const slowSortedByQty = Object.keys(fullRankingMap).sort((a, b) => {
@@ -15160,7 +15150,7 @@ function processQuickRestock(req, res) {
     if (!qty || qty <= 0) {
         return res.status(400).json({ success: false, message:'Mangyaring maglagay ng valid na quantity.' });
     }
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!target) return res.status(404).json({ success: false, message:'Product not found.' });
     if (canApplyDirectly) {
@@ -15188,7 +15178,7 @@ function processQuickRestock(req, res) {
 // Aggregated batch/lot list across ALL products, for the dedicated Batch/Lot
 // Tracking page (search + status filter live client-side over this list).
 app.get('/api/products/batches', requirePermission('products'), requireFeature('batch_lot_tracking'), (req, res) => {
-    const products = readData(FILE_PRODUCTS);
+    const products = readProductsNoImages();
     const now = Date.now();
     const rows = [];
     products.forEach(p => {
@@ -15228,7 +15218,7 @@ app.get('/api/products/batches', requirePermission('products'), requireFeature('
 });
 app.get('/api/products/:code/batches', requirePermission('products'), requireFeature('batch_lot_tracking'), (req, res) => {
     const { code } = req.params;
-    const products = readData(FILE_PRODUCTS);
+    const products = readProductsNoImages();
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     const batches = sortBatchesFEFO(prod.batches);
@@ -15247,7 +15237,7 @@ function processAddProductBatch(req, res) {
     if (expiryDate && isNaN(new Date(expiryDate).getTime())) {
         return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
     }
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     const username = req.authUser.username;
@@ -15277,7 +15267,7 @@ function processUpdateProductBatch(req, res) {
     if (expiryDate !== undefined && expiryDate !== null && String(expiryDate).trim() && isNaN(new Date(expiryDate).getTime())) {
         return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
     }
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     const batch = Array.isArray(prod.batches) ? prod.batches.find(b => b.id === batchId) : null;
@@ -15303,7 +15293,7 @@ app.delete('/api/products/:code/batches/:batchId', requirePermission('products')
 });
 function processDeleteProductBatch(req, res) {
     const { code, batchId } = req.params;
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     if (!Array.isArray(prod.batches)) prod.batches = [];
@@ -15360,7 +15350,7 @@ function processPurchaseOrderReceive(req, res) {
     const po = orders.find(o => o.id.toString() === id.toString());
     if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
     if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
-    let products = readData(FILE_PRODUCTS);
+    let products = readProductsNoImages();
     po.items.forEach(it => {
         const prod = products.find(p => p.code.trim().toLowerCase() === it.code.trim().toLowerCase());
         if (prod) addBaseStock(prod, toQty3(it.qty));
