@@ -1975,12 +1975,14 @@
       const limit = data.limit;
       pill.style.display = 'inline-flex';
       const ps = planStrings();
+      // Ang daily limit ay NEURONS na (hindi na bilang ng tanong).
       const daily = data.daily && typeof data.daily.cap === 'number' && !data.daily.unlimited ? data.daily : null;
       const dailyDone = !!(daily && daily.used >= daily.cap);
+      const fmtN = (n) => Number(n || 0).toLocaleString();
       pill.classList.toggle('low', limit > 0 && remaining / limit <= 0.15 && remaining > 0);
       pill.classList.toggle('exhausted', remaining <= 0 || dailyDone);
       pill.innerHTML = `<i class="fa-solid fa-bolt"></i> ${escapeHtml(s.creditsLabel)}: ${remaining}/${limit}` +
-        (daily ? ` · ${Math.min(daily.used, daily.cap)}/${daily.cap} ${escapeHtml(ps.today)}` : '') +
+        (daily ? ` · ${fmtN(Math.min(daily.used, daily.cap))}/${fmtN(daily.cap)} ${escapeHtml(ps.neurons)} ${escapeHtml(ps.today)}` : '') +
         (data.tier && data.tier.name ? ` · ${escapeHtml(data.tier.name)}` : '');
       pill.title = ps.pillTitle;
       pill.style.cursor = 'pointer';
@@ -2470,30 +2472,50 @@
   }
 
   // ---- support ticket modal ---------------------------------------------
-  // ---- AI upgrade plans (Basic/Plus/Pro) — RELAY-controlled ---------------
+  // ---- AI plans (Base/Plus/Pro, daily limit = NEURONS) — RELAY-controlled ---------------
   // Lahat ng presyo/limits ay galing sa RELAY (/api/ai-assistant/plans);
   // walang naka-hardcode na presyo dito.
   const PLAN_STRINGS = {
     en: {
       upgradeBtn: 'Upgrade AI plan', today: 'today', pillTitle: 'Tap to see Omni AI plans',
       title: 'Omni AI Plans', loading: 'Loading plans...', loadError: 'Could not load the plans right now. Please try again later.',
-      current: 'Current plan', none: 'Free allowance', perMonth: 'credits / month', perDay: 'questions / day', unlimited: 'Unlimited',
+      current: 'Current plan', none: 'Base (free)', perMonth: 'credits / month', perDay: 'neurons / day', neurons: 'neurons', unlimited: 'Unlimited',
       tokens: 'Omni Tokens', upgradeFor: 'Upgrade for', balance: 'Your balance', buy: 'Choose', owned: 'Active', validUntil: 'Valid until',
-      noPlans: 'No upgrade plans are available right now.', adminPwTitle: 'Admin approval', adminPwText: 'Enter an admin password to buy the {name} plan for {cost} Omni Tokens.',
+      free: 'Free', noPlans: 'No upgrade plans are available right now.', adminPwTitle: 'Admin approval', adminPwText: 'Enter an admin password to buy the {name} plan for {cost} Omni Tokens.',
       adminPwPlaceholder: 'Admin password', confirm: 'Buy', cancel: 'Cancel', buying: 'Activating...', close: 'Close',
-      successTitle: 'Plan activated', failTitle: 'Could not activate the plan', insufficient: 'Not enough Omni Tokens. Buy more tokens first.'
+      successTitle: 'Plan activated', failTitle: 'Could not activate the plan', insufficient: 'Not enough Omni Tokens. Buy more tokens first.',
+      modelTitle: 'AI model', modelHint: 'Choose which model answers your questions. Standard is the default.', modelDefault: 'Standard', modelDefaultDesc: 'Default model',
+      modelSelected: 'Selected', modelUse: 'Use', modelRequires: 'Requires the {tier} plan', modelUnavailable: 'Not available right now',
+      modelDescFlashLite: 'Fast and light', modelDescFlash: 'Smarter, for harder questions'
     },
     tl: {
       upgradeBtn: 'I-upgrade ang AI plan', today: 'ngayon', pillTitle: 'I-tap para makita ang Omni AI plans',
       title: 'Omni AI Plans', loading: 'Kinukuha ang plans...', loadError: 'Hindi makuha ang plans ngayon. Subukan muli mamaya.',
-      current: 'Kasalukuyang plan', none: 'Libreng allowance', perMonth: 'credits / buwan', perDay: 'tanong / araw', unlimited: 'Walang limit',
+      current: 'Kasalukuyang plan', none: 'Base (libre)', perMonth: 'credits / buwan', perDay: 'neurons / araw', neurons: 'neurons', unlimited: 'Walang limit',
       tokens: 'Omni Tokens', upgradeFor: 'I-upgrade sa halagang', balance: 'Balanse mo', buy: 'Piliin', owned: 'Aktibo', validUntil: 'Valid hanggang',
-      noPlans: 'Walang available na upgrade plan ngayon.', adminPwTitle: 'Pahintulot ng Admin', adminPwText: 'Ilagay ang admin password para bilhin ang {name} plan sa halagang {cost} Omni Tokens.',
+      free: 'Libre', noPlans: 'Walang available na upgrade plan ngayon.', adminPwTitle: 'Pahintulot ng Admin', adminPwText: 'Ilagay ang admin password para bilhin ang {name} plan sa halagang {cost} Omni Tokens.',
       adminPwPlaceholder: 'Admin password', confirm: 'Bilhin', cancel: 'Kanselahin', buying: 'Ina-activate...', close: 'Isara',
-      successTitle: 'Na-activate ang plan', failTitle: 'Hindi ma-activate ang plan', insufficient: 'Kulang ang Omni Tokens. Bumili muna ng tokens.'
+      successTitle: 'Na-activate ang plan', failTitle: 'Hindi ma-activate ang plan', insufficient: 'Kulang ang Omni Tokens. Bumili muna ng tokens.',
+      modelTitle: 'AI model', modelHint: 'Piliin kung anong model ang sasagot sa mga tanong mo. Standard ang default.', modelDefault: 'Standard', modelDefaultDesc: 'Default na model',
+      modelSelected: 'Napili', modelUse: 'Gamitin', modelRequires: 'Kailangan ang {tier} plan', modelUnavailable: 'Hindi available ngayon',
+      modelDescFlashLite: 'Mabilis at magaan', modelDescFlash: 'Mas matalino, para sa mas mahirap na tanong'
     }
   };
   function planStrings() { return PLAN_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
+  // Napiling AI model (Gemini Flash / Flash-Lite). '' = Standard (default ng RELAY). Ang RELAY ang nagpapatupad ng tier/availability.
+  const AI_MODEL_CHOICE_KEY = 'omnipos_ai_model_choice';
+  function getAiModelChoice() {
+    try {
+      const v = localStorage.getItem(AI_MODEL_CHOICE_KEY);
+      return (v === 'flash' || v === 'flashLite') ? v : '';
+    } catch (e) { return ''; }
+  }
+  function setAiModelChoice(v) {
+    try {
+      if (v === 'flash' || v === 'flashLite') localStorage.setItem(AI_MODEL_CHOICE_KEY, v);
+      else localStorage.removeItem(AI_MODEL_CHOICE_KEY);
+    } catch (e) {}
+  }
   const EXTRA_STRINGS = {
     en: { title: 'Extra credits', hint: 'Cheaper than upgrading: adds credits and daily limit, valid until the end of this month.', credits: 'credits', left: 'left this month', buy: 'Buy',
           adminPwText: 'Enter an admin password to buy {name} ({credits} credits) for {cost} Omni Tokens.', bought: 'Bought this month', perCredit: 'token/credit' },
@@ -2516,9 +2538,11 @@
       swal.fire({ title: ps.title, html: `<div style="padding:8px 0;">${escapeHtml(ps.loadError)}</div>`, confirmButtonText: ps.close, width: 560 });
       return;
     }
-    const cap = (n) => n === 0 ? ps.unlimited : String(n);
+    const cap = (n) => n === 0 ? ps.unlimited : Number(n).toLocaleString();
     const validUntil = data.validUntil ? new Date(data.validUntil).toLocaleDateString() : '';
-    const cards = (data.plans || []).map((p) => {
+    // Base = pinakamababang tier (libre, default) — ipinapakita lang, hindi mabibili.
+    const allPlans = (data.baseTier ? [data.baseTier] : []).concat(data.plans || []);
+    const cards = allPlans.map((p) => {
       const action = p.isCurrent
         ? `<span style="font-weight:700;color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.owned)}</span>`
         : (p.canPurchase
@@ -2527,7 +2551,7 @@
       return `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:12px 14px;margin:8px 0;text-align:left;${p.isCurrent ? 'outline:2px solid #16a34a;' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:1.05rem;">${escapeHtml(p.name)}</strong>
-          <span style="font-weight:700;">${p.priceTokens} ${escapeHtml(ps.tokens)}</span>
+          <span style="font-weight:700;">${p.isBase ? escapeHtml(ps.free) : `${p.priceTokens} ${escapeHtml(ps.tokens)}`}</span>
         </div>
         <div style="font-size:.85rem;opacity:.85;margin:4px 0 8px;">${p.monthlyCredits} ${escapeHtml(ps.perMonth)} · ${escapeHtml(cap(p.dailyCap))} ${escapeHtml(ps.perDay)}</div>
         <div>${action}</div>
@@ -2541,12 +2565,38 @@
         <strong style="font-size:1.02rem;">${escapeHtml(es.title)}</strong>
         <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(es.hint)}${ex.available !== null && ex.available !== undefined ? ` · ${ex.available} ${escapeHtml(es.left)}` : ''}${ex.purchasedCredits ? ` · ${escapeHtml(es.bought)}: ${ex.purchasedCredits}` : ''}</div>
         ${ex.packs.map((k) => `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-          <div><strong>${escapeHtml(k.name)}</strong><div style="font-size:.8rem;opacity:.8;">${k.credits} ${escapeHtml(es.credits)}${k.dailyBonus ? ` · +${k.dailyBonus} ${escapeHtml(ps.perDay)}` : ''} · ${k.pricePerCredit} ${escapeHtml(es.perCredit)}</div></div>
+          <div><strong>${escapeHtml(k.name)}</strong><div style="font-size:.8rem;opacity:.8;">${k.credits} ${escapeHtml(es.credits)}${k.dailyBonus ? ` · +${Number(k.dailyBonus).toLocaleString()} ${escapeHtml(ps.perDay)}` : ''} · ${k.pricePerCredit} ${escapeHtml(es.perCredit)}</div></div>
           <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;">${k.priceTokens} ${escapeHtml(ps.tokens)}</span>
           ${k.canPurchase ? `<button type="button" class="faq-extra-buy-btn" data-pack="${escapeHtml(k.id)}" data-name="${escapeHtml(k.name)}" data-cost="${k.priceTokens}" data-credits="${k.credits}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(es.buy)}</button>` : `<span style="font-size:.8rem;color:#dc2626;max-width:180px;">${escapeHtml(k.unavailableReason || '')}</span>`}</div>
         </div>`).join('')}
       </div>` : '';
-    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${extraHtml}`;
+    // AI model (Flash / Flash-Lite) — lalabas lang kung pinapayagan ng RELAY (Google AI naka-ON).
+    const am = data.aiModels;
+    let modelHtml = '';
+    if (am && am.enabled && Array.isArray(am.options) && am.options.length) {
+      let choice = getAiModelChoice();
+      const chosenOpt = am.options.find((o) => o.key === choice);
+      if (choice && (!chosenOpt || chosenOpt.locked || chosenOpt.unavailable)) { choice = ''; setAiModelChoice(''); }
+      const optDesc = (o) => (o.key === 'flash' ? ps.modelDescFlash : ps.modelDescFlashLite);
+      const optRow = (key, name, desc, locked, unavailable, lockedText) => {
+        const usable = !locked && !unavailable;
+        const isSel = (choice || '') === key;
+        const right = usable
+          ? `<span class="faq-model-state" style="font-weight:700;color:#16a34a;${isSel ? '' : 'display:none;'}"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.modelSelected)}</span><span class="faq-model-use" style="font-weight:700;color:#2563eb;${isSel ? 'display:none;' : ''}">${escapeHtml(ps.modelUse)}</span>`
+          : `<span style="font-size:.8rem;font-weight:700;color:#dc2626;"><i class="fa-solid fa-lock"></i> ${escapeHtml(lockedText)}</span>`;
+        return `<div class="faq-model-btn" data-model="${escapeHtml(key)}" data-usable="${usable ? '1' : '0'}" style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;${usable ? 'cursor:pointer;' : 'opacity:.75;'}${isSel ? 'outline:2px solid #16a34a;' : ''}">
+          <div><strong>${escapeHtml(name)}</strong><div style="font-size:.8rem;opacity:.8;">${escapeHtml(desc)}</div></div>
+          <div>${right}</div>
+        </div>`;
+      };
+      modelHtml = `<div style="margin-top:14px;text-align:left;">
+        <strong style="font-size:1.02rem;">${escapeHtml(ps.modelTitle)}</strong>
+        <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(ps.modelHint)}</div>
+        ${optRow('', ps.modelDefault, ps.modelDefaultDesc, false, false, '')}
+        ${am.options.map((o) => optRow(o.key, o.name, optDesc(o), !!o.locked, !!o.unavailable, o.locked ? ps.modelRequires.replace('{tier}', o.requiredTierName || '') : ps.modelUnavailable)).join('')}
+      </div>`;
+    }
+    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${modelHtml}${extraHtml}`;
     swal.fire({
       title: ps.title, html, showConfirmButton: false, showCloseButton: true, width: 560,
       didOpen: (popup) => {
@@ -2555,6 +2605,19 @@
         });
         popup.querySelectorAll('.faq-extra-buy-btn').forEach((btn) => {
           btn.addEventListener('click', () => buyExtraCredits(btn.dataset.pack, btn.dataset.name, btn.dataset.cost, btn.dataset.credits));
+        });
+        popup.querySelectorAll('.faq-model-btn').forEach((row) => {
+          row.addEventListener('click', () => {
+            if (row.dataset.usable !== '1') return;
+            setAiModelChoice(row.dataset.model || '');
+            popup.querySelectorAll('.faq-model-btn').forEach((r) => {
+              const on = r === row;
+              r.style.outline = on ? '2px solid #16a34a' : '';
+              const st = r.querySelector('.faq-model-state'); const us = r.querySelector('.faq-model-use');
+              if (st) st.style.display = on ? '' : 'none';
+              if (us) us.style.display = on ? 'none' : '';
+            });
+          });
         });
       }
     });
@@ -2763,6 +2826,7 @@
           image: imageToSend || undefined,
           file: fileToSend || undefined,
           fileName: fileToSend ? fileNameToSend : undefined,
+          model: getAiModelChoice() || undefined,
           diagnostics: wantsDiagnostics ? gatherDiagnostics() : undefined,
           clientErrors: wantsDiagnostics ? (CAPTURED_ERRORS.length ? CAPTURED_ERRORS : [s.noErrorsCaptured]) : undefined
         }),

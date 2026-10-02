@@ -7552,7 +7552,7 @@ async function buildAiDatabaseContextMessage(role, question = '') {
     };
     return billingMsg ? [mainMsg, billingMsg] : mainMsg;
 }
-async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null) {
+async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null, modelChoice = null) {
     if (!RELAY_API_KEY) {
         return { success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
     }
@@ -7561,7 +7561,7 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ messages, vision: !!vision, installationId, attachmentType: attachmentType || null, requestId: requestId || null })
+            body: JSON.stringify({ messages, vision: !!vision, installationId, attachmentType: attachmentType || null, requestId: requestId || null, modelChoice: modelChoice || null })
         }, 50000);
         const data = await relayRes.json().catch(() => null);
         if (!relayRes.ok || !data) {
@@ -7586,8 +7586,8 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         };
     }
 }
-async function callCloudflareWorkersAI(messages, attachmentType = null, requestId = null) {
-    return callRelayAiAssistant(messages, false, attachmentType, requestId);
+async function callCloudflareWorkersAI(messages, attachmentType = null, requestId = null, modelChoice = null) {
+    return callRelayAiAssistant(messages, false, attachmentType, requestId, modelChoice);
 }
 app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) => {
     res.json({ success: true, configured: isAiAssistantConfigured(), visionConfigured: isAiAssistantVisionConfigured() });
@@ -7724,8 +7724,8 @@ function computeSuggestedActions(question, answerText, isAdminRole) {
 function isAiAssistantVisionConfigured() {
     return isAiAssistantConfigured();
 }
-async function callCloudflareWorkersVisionAI(messages, requestId = null) {
-    return callRelayAiAssistant(messages, true, 'image', requestId);
+async function callCloudflareWorkersVisionAI(messages, requestId = null, modelChoice = null) {
+    return callRelayAiAssistant(messages, true, 'image', requestId, modelChoice);
 }
 const AI_ASSISTANT_MAX_FILE_BYTES = 8 * 1024 * 1024;
 const AI_ASSISTANT_MAX_EXTRACTED_CHARS = 20000;
@@ -7991,6 +7991,9 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     const startedAt = Date.now();
     const username = (req.authUser && req.authUser.username) || 'Unknown';
     const requestId = crypto.randomUUID();
+    // Pinili ng user na Gemini model (Flash / Flash-Lite) mula sa Omni AI Plans. Ang RELAY ang nagpapasya kung pinapayagan (tier/availability);
+    // kapag hindi, awtomatiko itong babalik sa default provider ng RELAY.
+    const aiModelChoice = (req.body?.model === 'flash' || req.body?.model === 'flashLite') ? req.body.model : null;
 
     let result;
     let visionFailureReason = null;
@@ -8005,14 +8008,14 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
                 ]
             }
         ];
-        result = await callCloudflareWorkersVisionAI(visionMessages, requestId);
+        result = await callCloudflareWorkersVisionAI(visionMessages, requestId, aiModelChoice);
         if (!result.success) {
             visionFailureReason = result.message || 'Unknown vision error.';
             console.error(`⚠️ Omni AI vision call failed (falling back to text-only): ${visionFailureReason}`);
-            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but the image analysis failed on this attempt (temporary error, not a permanent limitation — you DO normally support screenshots). Briefly tell them the image could not be processed this time, ask them to press Try again or re-attach a clearer/smaller screenshot, and meanwhile ask them to describe what they see so you can still help.)` }], 'image', requestId);
+            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but the image analysis failed on this attempt (temporary error, not a permanent limitation — you DO normally support screenshots). Briefly tell them the image could not be processed this time, ask them to press Try again or re-attach a clearer/smaller screenshot, and meanwhile ask them to describe what they see so you can still help.)` }], 'image', requestId, aiModelChoice);
         }
     } else {
-        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }], fileDataUrl ? 'file' : null, requestId);
+        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }], fileDataUrl ? 'file' : null, requestId, aiModelChoice);
     }
 
     const tookMs = Date.now() - startedAt;
