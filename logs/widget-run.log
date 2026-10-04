@@ -9935,3 +9935,222 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+[2026-10-03 03:25:57] ⚠️  May natirang lock file mula sa dating session (PID 21855, hindi na tumatakbo) — nililinis.
+[2026-10-03 03:25:57] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 03:26:00] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T10:04:43.153Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (HTTP 404) — gagamitin ang huling cache/fallback.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+🚫 DEVICE REVOKED: inalis ng developer/owner ang device na ito sa allowed list ng RELAY — na-force-logout ang 1 aktibong session.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+Unable to refresh Receipt Credit pricing from RELAY: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-03 03:26:27] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-03 03:26:29] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 03:26:32] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T10:04:43.153Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (HTTP 404) — gagamitin ang huling cache/fallback.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for auto-restore check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+⚠️  Could not reach Relay for the feature status check: the relay returned an unexpected non-JSON response (HTTP 404). This usually means the relay service isn't running, RELAY_URL is misconfigured, or the relay crashed and returned an error page instead of JSON.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-03 03:29:14] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-03 03:29:16] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 03:29:19] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T10:04:43.153Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/pricing?installationId=3d7647c1-c0af-48bc-aff7-bcfb038864a8
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+Forgot-password OTP send failure: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+Forgot-password OTP send failure: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+[2026-10-03 03:30:29] ⚠️  May natirang lock file mula sa dating session (PID 8185, hindi na tumatakbo) — nililinis.
+[2026-10-03 03:30:30] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 03:30:33] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T10:04:43.153Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/pricing?installationId=3d7647c1-c0af-48bc-aff7-bcfb038864a8
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+⚠️  Could not reach Relay for auto-restore check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/restore-tokens
+⚠️  Could not reach Relay for the feature status check: Failed to parse URL from :https://omnipos-unlock-relay-4kv9.onrender.com//relay/check-feature-status
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-03 03:33:56] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-03 03:33:58] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 03:34:01] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T10:04:43.153Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Mail Reset Failure Context: Error: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+    at sendMailSmart (/data/data/com.termux/files/home/OMNIPOS/mailer.js:323:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:13365:17 {
+  code: 'SMTP_BLOCKED_NO_FALLBACK'
+}
+Mail Reset Failure Context: Error: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+    at sendMailSmart (/data/data/com.termux/files/home/OMNIPOS/mailer.js:323:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /data/data/com.termux/files/home/OMNIPOS/server.js:13365:17 {
+  code: 'SMTP_BLOCKED_NO_FALLBACK'
+}
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-03 03:37:44] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-03 03:37:46] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 03:37:49] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T19:37:16.695Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-10-03 05:09:46] ❌ May tumatakbo na supervisor loop (PID 30375). Hindi na papatakbuhin ulit.
+[2026-10-03 05:50:08] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 05:50:11] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-02T21:09:43.861Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+[2026-10-03 07:19:43] ❌ May tumatakbo na supervisor loop (PID 29473). Hindi na papatakbuhin ulit.
+Forgot-password OTP send failure: Could not connect to Gmail SMTP from this server (Details: ESOCKET). Since this is not Render (local network / Termux), a hosting policy is unlikely to be the cause. More likely: (1) the device has no internet or an unstable connection right now, (2) your mobile carrier / ISP blocks outbound SMTP ports (25/465/587) on the network you are using, or (3) smtp.gmail.com could not be resolved (DNS). This is NOT a problem with your Gmail address or App Password (that would show up as an "Invalid login" / 535 error instead). Fix: (1) make sure you have a stable WiFi / mobile data connection, (2) try switching networks (WiFi <-> mobile data) and retry, or (3) set the GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN env vars as an HTTPS fallback that is not affected by SMTP port blocking.
+[2026-10-03 11:06:56] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 11:06:59] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-03T02:13:31.059Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-10-03 20:18:20] ⚠️  May natirang lock file mula sa dating session (PID 25974, hindi na tumatakbo) — nililinis.
+[2026-10-03 20:18:20] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-03 20:18:23] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-03T03:37:01.953Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images fetch error for PRDT20250003 (https://upload.wikimedia.org/wikipedia/commons/4/46/Almonds_macro_3.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for PRDT20250005 (https://upload.wikimedia.org/wikipedia/commons/f/f3/Hirtenmaccharoni.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-04 04:59:51] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-04 04:59:53] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-04 04:59:56] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-03T20:59:13.989Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-10-04 06:44:40] ⚠️  May natirang lock file mula sa dating session (PID 15693, hindi na tumatakbo) — nililinis.
+[2026-10-04 06:44:41] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-04 06:44:44] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-03T22:31:40.443Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-04 07:15:54] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-04 07:15:57] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-04 07:16:00] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-03T23:15:52.739Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-04 07:26:21] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-04 07:26:24] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-04 07:26:27] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-03T23:25:24.053Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-04 08:48:35] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-04 08:48:38] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-04 08:48:41] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-04T00:36:40.608Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

@@ -3,10 +3,14 @@
 (function () {
   const STORAGE_KEY = 'omnipos_faq_lang';
   const DEFAULT_LANG = 'en';
+  // Eng/Tag toggle is ON. Set to true to force English only (hides the toggle and ignores Tagalog).
+  // Default language stays English; users can switch to Tagalog with the toggle.
+  const ENGLISH_ONLY = false;
 
   function getStoredLang() {
     try {
       const v = localStorage.getItem(STORAGE_KEY);
+      if (ENGLISH_ONLY) return 'en';
       return (v === 'en' || v === 'tl') ? v : null;
     } catch (e) { return null; }
   }
@@ -106,6 +110,7 @@
 
   function setLang(lang) {
     if (lang !== 'en' && lang !== 'tl') return;
+    if (ENGLISH_ONLY) lang = 'en';
     currentLang = lang;
     storeLang(lang);
     window.OMNIPOS_FAQ_KB = dataFor(lang);
@@ -120,6 +125,10 @@
   };
 
   function init() {
+    if (ENGLISH_ONLY) {
+      const toggle = document.getElementById('faq-lang-toggle');
+      if (toggle) { toggle.hidden = true; toggle.style.setProperty('display', 'none', 'important'); }
+    }
     applyStaticText(currentLang);
     updateToggleUI(currentLang);
   }

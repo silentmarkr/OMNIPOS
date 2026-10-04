@@ -215,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261002-4">
+    <link rel="stylesheet" href="style.css?v=20261003-2">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -3313,6 +3313,9 @@
                                         <button type="button" class="faq-composer-icon-btn" id="faq-attach-btn" title="Attach a screenshot, PDF, Word doc, or text/CSV file" onclick="OmniFAQ.triggerAttach()">
                                             <i class="fa-solid fa-paperclip"></i>
                                         </button>
+                                        <button type="button" class="faq-composer-icon-btn faq-model-trigger" id="faq-model-btn" title="AI model" aria-label="AI model" aria-haspopup="dialog" aria-expanded="false" hidden>
+                                            <i class="fa-solid fa-arrow-up-right-dots faq-model-ico"></i><span class="faq-model-label" id="faq-model-label"></span><i class="fa-solid fa-chevron-down faq-model-chev"></i>
+                                        </button>
                                         <button type="button" class="faq-composer-icon-btn" id="faq-quick-toggle-btn" title="Quick actions" aria-label="Quick actions" aria-controls="faq-quick-actions-row" aria-expanded="false" hidden>
                                             <i class="fa-solid fa-toolbox"></i>
                                         </button>
@@ -4461,8 +4464,11 @@
                     <label style="font-size:0.8rem;">Omni Search Source <span style="font-weight:normal;color:#94a3b8;">(choose which free site Omni Search should use)</span></label>
                     <select id="p-image-search-omni-provider" class="omni-provider-pref-select" onchange="setOmniImageProviderPref(this.value)">
                         <option value="auto">Auto (try all free sources — recommended)</option>
+                        <option value="openfacts">Open Facts (Food/Beauty/Products)</option>
                         <option value="duckduckgo">DuckDuckGo</option>
                         <option value="bing_free">Bing (free)</option>
+                        <option value="qwant">Qwant</option>
+                        <option value="wikipedia">Wikipedia</option>
                         <option value="openverse">Openverse</option>
                         <option value="wikimedia">Wikimedia Commons</option>
                         <option value="yandex">Yandex</option>
@@ -4561,8 +4567,11 @@
             <label>Omni Search Source <span class="bulk-imgsearch-hint">(choose which free source to use for all products in this run)</span></label>
             <select id="omni-imgsearch-provider" class="omni-provider-pref-select" onchange="setOmniImageProviderPref(this.value)">
                 <option value="auto">Auto (try all free sources — recommended)</option>
+                <option value="openfacts">Open Facts (Food/Beauty/Products)</option>
                 <option value="duckduckgo">DuckDuckGo</option>
                 <option value="bing_free">Bing (free)</option>
+                <option value="qwant">Qwant</option>
+                <option value="wikipedia">Wikipedia</option>
                 <option value="openverse">Openverse</option>
                 <option value="wikimedia">Wikimedia Commons</option>
                 <option value="yandex">Yandex</option>
@@ -5246,8 +5255,8 @@
 <script src="printer-manager.js"></script>
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
-<script src="faq-lang.js"></script>
-<script src="faq-engine.js"></script>
+<script src="faq-lang.js?v=20261003-4"></script>
+<script src="faq-engine.js?v=20261003-3"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
 <script src="app.js?v=20261002-8"></script>
 <script src="app1.js?v=20261002-1"></script>

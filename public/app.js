@@ -944,6 +944,8 @@ function getUnlockModalButtonOptions() {
         }
     };
 }
+// Omni AI plan cards (Base / Plus / Pro / Business) synced from RELAY through /features/upgrade-catalog.
+let aiSubscriptionPlansLive = null;
 async function refreshFeatureCatalogLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
@@ -952,6 +954,9 @@ async function refreshFeatureCatalogLive() {
             const map = {};
             data.features.forEach((f) => { map[f.id] = f; });
             featureCatalogLiveCache = map;
+        }
+        if (data && data.success && data.aiPlans && typeof data.aiPlans === 'object') {
+            aiSubscriptionPlansLive = data.aiPlans;
         }
         if (data && data.success && data.activationFlags) {
             activationFlagsCache = {
@@ -1797,20 +1802,53 @@ async function promptModuleSubscription(featureId) {
     const tagline = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || staticInfo.tagline || '';
     const price = (live && live.subscriptionPrice) ? live.subscriptionPrice : staticInfo.price;
     let selectedCycle = 'monthly';
+    // Omni AI: show the plan cards that are enabled in RELAY (Base + Plus/Pro/Business). Base uses the module price
+    // (monthly/yearly); the paid plans cost exactly their card price and are monthly only.
+    const aiPlanList = [];
+    if (featureId === 'ai_assistant' && aiSubscriptionPlansLive) {
+        const ap = aiSubscriptionPlansLive;
+        const fmtN = (n) => { const v = Number(n) || 0; return v === 0 ? 'unlimited' : (v >= 1000 ? String(Number((v / 1000).toFixed(1))) + 'k' : String(v)); };
+        if (ap.baseEnabled !== false) {
+            aiPlanList.push({ id: 'base', name: 'Base', tagline: ap.base ? `${ap.base.monthlyCredits} credits / month · ${fmtN(ap.base.dailyCap)} neurons / day` : tagline, monthlyOnly: false });
+        }
+        (Array.isArray(ap.tiers) ? ap.tiers : []).forEach((t) => {
+            aiPlanList.push({ id: t.id, name: t.name, tagline: `${t.monthlyCredits} credits / month · ${fmtN(t.dailyCap)} neurons / day`, monthlyOnly: true, monthlyPrice: Number(t.priceTokens) });
+        });
+    }
+    let selectedPlanId = aiPlanList.length ? aiPlanList[0].id : null;
+    const getSelectedPlan = () => aiPlanList.find(p => p.id === selectedPlanId) || null;
+    const planPrice = (plan, cycle) => (plan && plan.monthlyOnly) ? plan.monthlyPrice : price[cycle];
     const buildHtml = () => {
+        const sel = getSelectedPlan();
+        if (sel && sel.monthlyOnly) selectedCycle = 'monthly';
         const cycleButtons = ['monthly', 'yearly'].map(cycle => {
             const active = cycle === selectedCycle;
-            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" style="flex:1;border-radius:8px;padding:6px;cursor:pointer;margin:0 4px;font-size:0.82rem;font-weight:600;">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
+            const disabled = cycle === 'yearly' && sel && sel.monthlyOnly;
+            return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" ${disabled ? 'disabled' : ''} style="flex:1;border-radius:8px;padding:6px;cursor:${disabled ? 'not-allowed' : 'pointer'};margin:0 4px;font-size:0.82rem;font-weight:600;${disabled ? 'opacity:.45;' : ''}">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
         }).join('');
-        const planCard = `<div class="cb-tier-btn active" style="flex:1;text-align:left;border-radius:10px;padding:10px 12px;margin:0 4px;">` +
-            `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${displayName}</div>` +
-            `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${tagline}</div>` +
-            `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${price[selectedCycle]}<span style="font-size:0.68rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
-            `</div>`;
+        let plansHtml;
+        if (aiPlanList.length) {
+            plansHtml = `<div style="display:flex;flex-direction:column;gap:8px;">` + aiPlanList.map(plan => {
+                const active = plan.id === selectedPlanId;
+                const p = planPrice(plan, selectedCycle);
+                return `<div class="cb-tier-btn ai-plan-pick${active ? ' active' : ''}" data-plan="${plan.id}" role="button" tabindex="0" style="cursor:pointer;text-align:left;border-radius:10px;padding:10px 12px;">` +
+                    `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${displayName} — ${plan.name}</div>` +
+                    `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${plan.tagline}</div>` +
+                    `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${p}<span style="font-size:0.68rem;font-weight:400;"> / ${(plan.monthlyOnly || selectedCycle === 'monthly') ? 'month' : 'year'}</span></div>` +
+                    `</div>`;
+            }).join('') + `</div>`;
+        } else {
+            plansHtml = `<div style="display:flex;"><div class="cb-tier-btn active" style="flex:1;text-align:left;border-radius:10px;padding:10px 12px;margin:0 4px;">` +
+                `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${displayName}</div>` +
+                `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${tagline}</div>` +
+                `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${price[selectedCycle]}<span style="font-size:0.68rem;font-weight:400;"> / ${selectedCycle === 'monthly' ? 'month' : 'year'}</span></div>` +
+                `</div></div>`;
+        }
         return `<div style="text-align:left;">
-            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">${displayName} is now a subscription. Pick a billing cycle:</p>
+            <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">${displayName} is now a subscription. ${aiPlanList.length ? 'Pick a plan and a billing cycle:' : 'Pick a billing cycle:'}</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
-            <div style="display:flex;">${planCard}</div>
+            <div style="max-height:46vh;overflow:auto;">${plansHtml}</div>
+            ${aiPlanList.length ? '<p style="font-size:0.72rem;margin:8px 0 0;opacity:.75;">Plus, Pro and Business are monthly plans. The price shown is the total you pay.</p>' : ''}
             ${buildActivationNoteHtml()}
         </div>`;
     };
@@ -1827,18 +1865,26 @@ async function promptModuleSubscription(featureId) {
             const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
             const attachHandlers = () => {
                 popup.querySelectorAll('.cb-cycle-btn').forEach(btn => {
-                    btn.addEventListener('click', () => { selectedCycle = btn.dataset.cycle; rerender(); });
+                    btn.addEventListener('click', () => { if (btn.disabled) return; selectedCycle = btn.dataset.cycle; rerender(); });
+                });
+                popup.querySelectorAll('.ai-plan-pick').forEach(card => {
+                    const pick = () => { selectedPlanId = card.dataset.plan; rerender(); };
+                    card.addEventListener('click', pick);
+                    card.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(); } });
                 });
             };
             attachHandlers();
         }
     });
-    const planName = `${displayName} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
+    const chosenPlan = getSelectedPlan();
+    if (chosenPlan && chosenPlan.monthlyOnly) selectedCycle = 'monthly';
+    const planName = `${displayName}${chosenPlan ? ' — ' + chosenPlan.name : ''} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
+    const aiTierId = chosenPlan ? chosenPlan.id : undefined;
     if (result.isDenied) {
-        return !!(await runFeatureTokenActivationFlow({ featureIds: [featureId], billingCycle: selectedCycle, displayName: planName }));
+        return !!(await runFeatureTokenActivationFlow({ featureIds: [featureId], billingCycle: selectedCycle, displayName: planName, aiTierId }));
     }
     if (!result.isConfirmed) return false;
-    return runUnlockFlow(featureId, planName, { billingCycle: selectedCycle });
+    return runUnlockFlow(featureId, planName, aiTierId ? { billingCycle: selectedCycle, aiTierId } : { billingCycle: selectedCycle });
 }
 function getCloudBackupUpgrade() {
     if (isFeatureUnlockedCached('cloud_backup')) return false;
@@ -2262,7 +2308,7 @@ async function pollUntilApproved(url, body) {
         });
     });
 }
-async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPrice, displayName }) {
+async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPrice, displayName, aiTierId }) {
     if (blockIfOffline('Feature activation')) return null;
     const requestingUsername = (currentUser && (currentUser.username || currentUser.name)) || 'Unknown';
     const adminPassword = await promptAdminPasswordConfirm(`Activate via Omni Tokens: ${displayName}`);
@@ -2272,7 +2318,7 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
         const confirmRes = await authFetch(`${API_URL}/features/token-activate/confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ featureIds, billingCycle: billingCycle || undefined, totalPrice: typeof totalPrice === 'number' ? totalPrice : undefined, adminPassword, username: requestingUsername })
+            body: JSON.stringify({ featureIds, billingCycle: billingCycle || undefined, aiTierId: aiTierId || undefined, totalPrice: typeof totalPrice === 'number' ? totalPrice : undefined, adminPassword, username: requestingUsername })
         });
         confirmData = await confirmRes.json();
     } catch (e) {
@@ -19112,8 +19158,11 @@ function syncImageQualityPrefSelects() {
 }
 const OMNI_IMAGE_PROVIDERS = [
     { value: 'auto', label: 'Auto (try all free sources — recommended)' },
+    { value: 'openfacts', label: 'Open Facts (Food/Beauty/Products)' },
     { value: 'bing_free', label: 'Bing (free)' },
     { value: 'duckduckgo', label: 'DuckDuckGo' },
+    { value: 'qwant', label: 'Qwant' },
+    { value: 'wikipedia', label: 'Wikipedia' },
     { value: 'openverse', label: 'Openverse' },
     { value: 'wikimedia', label: 'Wikimedia Commons' },
     { value: 'yandex', label: 'Yandex' }

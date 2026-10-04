@@ -1533,4 +1533,16 @@ window.OMNIPOS_FAQ_KB_TL = [
   <p>Makikita ang natitirang uses (<em>remaining uses</em>) sa listahan ng promo codes, at may <strong>"Reset Usage"</strong> button ang Admin para i-zero muli ang used count/per-customer redemptions kung kailangang gamitin ulit ng code mula sa umpisa.</p>`
 },
 
+{
+  id: 'omni-ai-free-plan',
+  category: 'Premium Features',
+  question: 'May libreng plan ba ang Omni AI? Ano ang Free, Base, Plus at Pro?',
+  keywords: ['omni ai free', 'free plan', 'libre', 'base plus pro', 'omni ai plans', 'ai tier', 'walang subscription', 'text lang'],
+  answer: `<p>Oo. May <strong>Free</strong> plan ang Omni AI para sa mga tindahang <strong>walang</strong> Omni AI subscription, at may bayad na plans para sa mga naka-subscribe.</p>
+  <ul>
+    <li><strong>Free</strong> — walang subscription na kailangan. Text na tanong lang: walang attach na larawan/file, walang pagpili ng model, at walang support-ticket button. May maliit na buwanang credits at maliit na daily limit.</li>
+    <li><strong>Base / Plus / Pro</strong> — kasama sa Omni AI subscription. May attach na larawan at file, pagpili ng model, at mas malaking credits/daily limit (mas mataas ang Plus at Pro).</li>
+  </ul>
+  <p>Kapag naubos ang Free, babalik ang FAQ sa karaniwang keyword search at ipinapakita ng credit pill kung kailan puwedeng subukan ulit. Mag-subscribe sa Omni AI para umakyat sa Base pataas.</p>`
+},
 ];

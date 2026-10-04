@@ -2540,12 +2540,133 @@ async function searchYandexImagesFree(query, timeoutMs = 10000) {
         return { id: `yx${i}`, provider: 'Yandex', title: '', thumbnailUrl: imageUrl, imageUrl, width: null, height: null };
     });
 }
+// =====================================================================================================
+// OMNI IMAGE SEARCH ENGINE v2
+//  - Auto mode = HEDGED PARALLEL RACE: lahat ng available na free site ay sabay-sabay na tinatawag (hindi na isa-isa),
+//    tapos ima-merge/dedupe ang results sa sandaling may sapat nang nakuha (maikling grace window), kaya ang search ay
+//    kasing-bilis ng PINAKAMABILIS na site — hindi na naghihintay ng 10s timeout ng bawat pumalyang site.
+//  - Circuit breaker bawat site: kapag paulit-ulit na 403/429/captcha/timeout, pansamantalang nilalaktawan (auto-recover).
+//  - Per-site rate gap (iwas ban), result cache (15 min), in-flight dedupe, at thumbnail cache + prefetch.
+//  - Idagdag ang bagong site: gumawa ng async function (query, timeoutMs, ctx) => [{id,title,thumbnailUrl,imageUrl,width,height}]
+//    at ilagay sa OMNI_FREE_IMAGE_PROVIDERS (id, name, run, timeoutMs, minGapMs, priority, accepts?, trusted?).
+// =====================================================================================================
+function omniStripSearchSuffix(q) {
+    return String(q || '').replace(/\s+product photo\s*$/i, '').trim();
+}
+function omniQueryTokens(q) {
+    return omniStripSearchSuffix(q).toLowerCase().split(/[^a-z0-9À-ɏ]+/).filter(t => t.length >= 3);
+}
+// ---- Open Facts (Food / Beauty / Products / Pet Food) — walang API key, may barcode lookup, tunay na product photos ----
+const OPEN_FACTS_UA = 'OmniPOS/1.0 (product image lookup)';
+const OPEN_FACTS_SITES = [
+    { host: 'world.openfoodfacts.org', label: 'Open Food Facts', key: 'off' },
+    { host: 'world.openbeautyfacts.org', label: 'Open Beauty Facts', key: 'obf' },
+    { host: 'world.openproductsfacts.org', label: 'Open Products Facts', key: 'opf' },
+    { host: 'world.openpetfoodfacts.org', label: 'Open Pet Food Facts', key: 'opff' }
+];
+function openFactsMapProduct(p, site, idx) {
+    if (!p) return null;
+    const imageUrl = p.image_front_url || p.image_url || p.image_front_small_url || null;
+    if (!imageUrl) return null;
+    const title = [p.brands, p.product_name].filter(Boolean).join(' ').trim() || p.code || site.label;
+    return {
+        id: `${site.key}${idx}`, provider: site.label,
+        title: title.slice(0, 140),
+        thumbnailUrl: p.image_front_small_url || p.image_front_thumb_url || imageUrl,
+        imageUrl, width: null, height: null, _code: p.code || ''
+    };
+}
+async function searchOpenFactsImagesFree(query, timeoutMs = 5000, ctx = {}) {
+    const raw = omniStripSearchSuffix(ctx.rawQuery || query);
+    const isBarcode = /^\d{8,14}$/.test(raw);
+    const fields = 'code,product_name,brands,image_front_url,image_front_small_url,image_front_thumb_url,image_url';
+    const tokens = omniQueryTokens(raw);
+    const perSite = await Promise.allSettled(OPEN_FACTS_SITES.map(async (site) => {
+        const headers = { 'User-Agent': OPEN_FACTS_UA, Accept: 'application/json' };
+        if (isBarcode) {
+            const { statusCode, body } = await omniFetchText(`https://${site.host}/api/v2/product/${raw}.json?fields=${fields}`, headers, timeoutMs);
+            if (statusCode === 404) return [];
+            if (statusCode < 200 || statusCode >= 300) throw new Error(`${site.label} returned HTTP ${statusCode}.`);
+            const data = JSON.parse(body);
+            const one = data && data.status === 1 ? openFactsMapProduct(data.product, site, 0) : null;
+            return one ? [one] : [];
+        }
+        const url = `https://${site.host}/cgi/search.pl?search_terms=${encodeURIComponent(raw)}&search_simple=1&action=process&json=1&page_size=8&fields=${fields}`;
+        const { statusCode, body } = await omniFetchText(url, headers, timeoutMs);
+        if (statusCode < 200 || statusCode >= 300) throw new Error(`${site.label} returned HTTP ${statusCode}.`);
+        const data = JSON.parse(body);
+        const products = Array.isArray(data.products) ? data.products : [];
+        const mapped = [];
+        products.forEach((p, i) => {
+            const m = openFactsMapProduct(p, site, i);
+            if (!m) return;
+            // Relevance guard: fuzzy ang search ng Open Facts — kailangang may kahit isang salita ng query sa pangalan/brand.
+            const hay = (m.title + ' ' + (p.brands || '')).toLowerCase();
+            if (tokens.length && !tokens.some(t => hay.includes(t))) return;
+            mapped.push(m);
+        });
+        return mapped;
+    }));
+    const out = [];
+    const errs = [];
+    perSite.forEach(r => { if (r.status === 'fulfilled') out.push(...r.value); else errs.push(r.reason && r.reason.message || 'failed'); });
+    if (!out.length) {
+        if (errs.length === perSite.length) throw new Error(`Open Facts failed: ${errs[0]}`);
+        throw new Error('Open Facts returned no matching products.');
+    }
+    return out.slice(0, 12);
+}
+async function searchWikipediaImagesFree(query, timeoutMs = 5000, ctx = {}) {
+    const q = omniStripSearchSuffix(ctx.rawQuery || query);
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=10&prop=pageimages&piprop=thumbnail%7Coriginal&pithumbsize=500&format=json&origin=*`;
+    const { statusCode, body } = await omniFetchText(url, { Accept: 'application/json' }, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Wikipedia returned HTTP ${statusCode}.`);
+    const data = JSON.parse(body);
+    const pages = data && data.query && data.query.pages ? Object.values(data.query.pages) : [];
+    pages.sort((a, b) => (a.index || 0) - (b.index || 0));
+    const out = [];
+    for (const p of pages) {
+        const orig = p.original && p.original.source;
+        const thumb = p.thumbnail && p.thumbnail.source;
+        const imageUrl = orig || thumb;
+        if (!imageUrl || /\.svg(\?|$)/i.test(imageUrl)) continue; 
+        out.push({
+            id: `wp${out.length}`, provider: 'Wikipedia',
+            title: (p.title || '').slice(0, 140),
+            thumbnailUrl: thumb || imageUrl, imageUrl,
+            width: (p.original && p.original.width) || null, height: (p.original && p.original.height) || null
+        });
+    }
+    if (!out.length) throw new Error('Wikipedia returned no image results.');
+    return out;
+}
+async function searchQwantImagesFree(query, timeoutMs = 5000) {
+    const url = `https://api.qwant.com/v3/search/images?count=10&q=${encodeURIComponent(query)}&t=images&safesearch=1&locale=en_US&offset=0&device=desktop`;
+    const { statusCode, body } = await omniFetchText(url, { Accept: 'application/json', Referer: 'https://www.qwant.com/' }, timeoutMs);
+    if (statusCode < 200 || statusCode >= 300) throw new Error(`Qwant returned HTTP ${statusCode} (may be blocking this network).`);
+    const data = JSON.parse(body);
+    if (data.status && data.status !== 'success') throw new Error('Qwant blocked the request (captcha) on this network.');
+    const items = data && data.data && data.data.result && Array.isArray(data.data.result.items) ? data.data.result.items : [];
+    const out = items.slice(0, 10).map((it, i) => ({
+        id: `qw${i}`, provider: 'Qwant',
+        title: (it.title || '').slice(0, 140),
+        thumbnailUrl: it.thumbnail || it.media,
+        imageUrl: it.media,
+        width: it.width || null, height: it.height || null
+    })).filter(r => r.imageUrl && r.thumbnailUrl);
+    if (!out.length) throw new Error('Qwant returned no image results.');
+    return out;
+}
+// priority: mas maliit = mas inuuna sa pag-merge. trusted = tunay na product DB (inuuna sa ranking kapag may match).
 const OMNI_FREE_IMAGE_PROVIDERS = [
-    { id: 'duckduckgo', name: 'DuckDuckGo', run: searchDuckDuckGoImagesFree },
-    { id: 'bing_free', name: 'Bing (free)', run: searchBingImagesFree },
-    { id: 'openverse', name: 'Openverse', run: searchOpenverseImagesFree },
-    { id: 'wikimedia', name: 'Wikimedia Commons', run: searchWikimediaCommonsImagesFree },
-    { id: 'yandex', name: 'Yandex', run: searchYandexImagesFree }
+    { id: 'openfacts', name: 'Open Facts (Food/Beauty/Products)', run: searchOpenFactsImagesFree, timeoutMs: 5000, minGapMs: 6500, priority: 0, trusted: true },
+    { id: 'bing_free', name: 'Bing (free)', run: searchBingImagesFree, timeoutMs: 4500, minGapMs: 700, priority: 1 },
+    { id: 'duckduckgo', name: 'DuckDuckGo', run: searchDuckDuckGoImagesFree, timeoutMs: 6000, minGapMs: 700, priority: 2 },
+    { id: 'qwant', name: 'Qwant', run: searchQwantImagesFree, timeoutMs: 4500, minGapMs: 1200, priority: 3 },
+    { id: 'wikipedia', name: 'Wikipedia', run: searchWikipediaImagesFree, timeoutMs: 4000, minGapMs: 200, priority: 4 },
+    { id: 'openverse', name: 'Openverse', run: searchOpenverseImagesFree, timeoutMs: 4500, minGapMs: 300, priority: 5 },
+    { id: 'wikimedia', name: 'Wikimedia Commons', run: searchWikimediaCommonsImagesFree, timeoutMs: 4500, minGapMs: 200, priority: 6 },
+    { id: 'yandex', name: 'Yandex', run: searchYandexImagesFree, timeoutMs: 4500, minGapMs: 1000, priority: 7 }
 ];
 function resolveOmniImageProvider(providerId) {
     if (!providerId) return null;
@@ -2553,7 +2674,155 @@ function resolveOmniImageProvider(providerId) {
     if (!id || id === 'auto') return null;
     return OMNI_FREE_IMAGE_PROVIDERS.find(p => p.id === id) || null;
 }
-async function omniFreeImageSearch(query, timeoutMs = 10000, providerId = null) {
+// ---- health / circuit breaker / rate gap ----
+const omniProviderHealth = new Map();
+function omniHealth(id) {
+    let h = omniProviderHealth.get(id);
+    if (!h) { h = { fails: 0, openUntil: 0, lastError: '', lastOkAt: 0, avgMs: 0, calls: 0, nextAt: 0 }; omniProviderHealth.set(id, h); }
+    return h;
+}
+function omniProviderIsOpen(id) { return omniHealth(id).openUntil > Date.now(); }
+function omniRecordProvider(id, kind, ms, errMsg) {
+    const h = omniHealth(id);
+    if (kind === 'ok') {
+        h.fails = 0; h.openUntil = 0; h.lastOkAt = Date.now(); h.calls++;
+        h.avgMs = h.avgMs ? Math.round(h.avgMs * 0.7 + ms * 0.3) : ms;
+    } else if (kind === 'fail') {
+        h.fails++; h.lastError = String(errMsg || '').slice(0, 200);
+        const hard = isLikelyBlockedSearchError(errMsg) || /abort|timed? ?out/i.test(String(errMsg || ''));
+        if (h.fails >= (hard ? 2 : 3)) h.openUntil = Date.now() + Math.min(10 * 60 * 1000, 45 * 1000 * Math.pow(2, h.fails - 2));
+    }
+}
+// Nagre-reserve ng slot; ibinabalik ang ms na dapat hintayin, o -1 kung mas matagal sa maxWaitMs (laktawan ang site).
+function omniProviderAcquire(provider, maxWaitMs) {
+    const h = omniHealth(provider.id);
+    const now = Date.now();
+    const startAt = Math.max(now, h.nextAt);
+    const wait = startAt - now;
+    if (wait > maxWaitMs) return -1;
+    h.nextAt = startAt + (provider.minGapMs || 0);
+    return wait;
+}
+async function omniRunProvider(provider, q, ctx, waitMs, hardTimeoutMs) {
+    if (waitMs > 0) await sleepMs(waitMs);
+    const t0 = Date.now();
+    const tmo = Math.max(1500, Math.min(hardTimeoutMs, provider.timeoutMs || 5000));
+    let timer;
+    try {
+        const results = await Promise.race([
+            provider.run(q, tmo, ctx),
+            new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`${provider.name} timed out.`)), tmo + 600); })
+        ]);
+        const list = Array.isArray(results) ? results.filter(r => r && r.imageUrl && r.thumbnailUrl) : [];
+        list.forEach(r => { if (!r.provider) r.provider = provider.name; r._pid = provider.id; });
+        if (list.length) omniRecordProvider(provider.id, 'ok', Date.now() - t0);
+        else omniRecordProvider(provider.id, 'neutral', Date.now() - t0);
+        return list;
+    } catch (err) {
+        omniRecordProvider(provider.id, 'fail', Date.now() - t0, err && err.message);
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+function omniUrlKey(u) {
+    try { const x = new URL(u); return (x.hostname.replace(/^www\./, '') + x.pathname).toLowerCase(); } catch { return String(u || '').toLowerCase(); }
+}
+function omniMergeBatches(batches) {
+    const ordered = batches.slice().sort((a, b) => a.provider.priority - b.provider.priority);
+    const seen = new Set();
+    const trusted = [];
+    const rest = [];
+    const maxLen = Math.max(0, ...ordered.map(b => b.results.length));
+    for (let i = 0; i < maxLen; i++) {
+        for (const b of ordered) {
+            const r = b.results[i];
+            if (!r) continue;
+            const k = omniUrlKey(r.imageUrl);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            (b.provider.trusted ? trusted : rest).push(r);
+        }
+    }
+    // Una ang tunay na product DB matches, tapos ang iba ayon sa resolution (kapareho ng dating behavior).
+    return [...trusted, ...sortImageResultsByResolution(rest)].slice(0, 24);
+}
+const OMNI_AUTO_DEADLINE_MS = 6500;
+function omniSearchAuto(q, timeoutMs, opts) {
+    const ctx = { rawQuery: opts.rawQuery || q };
+    const pool = OMNI_FREE_IMAGE_PROVIDERS;
+    let candidates = pool.filter(p => !omniProviderIsOpen(p.id));
+    if (!candidates.length) candidates = pool.slice(); 
+    const plan = [];
+    for (const p of candidates) {
+        const wait = omniProviderAcquire(p, 1200);
+        if (wait >= 0) plan.push({ p, wait });
+    }
+    if (!plan.length) plan.push(...candidates.map(p => ({ p, wait: 0 })));
+    const deadline = Math.min(timeoutMs, OMNI_AUTO_DEADLINE_MS);
+    const started = Date.now();
+    return new Promise((resolve, reject) => {
+        const batches = [];
+        const errors = [];
+        let pending = plan.length;
+        let done = false;
+        let graceTimer = null;
+        const total = () => new Set(batches.flatMap(b => b.results.map(r => omniUrlKey(r.imageUrl)))).size;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(graceTimer); clearTimeout(hardTimer);
+            if (!batches.length) {
+                const err = new Error(`All free image search providers failed or returned nothing for "${q}". (${errors.join(' | ') || 'no response'})`);
+                err.statusCode = 502;
+                return reject(err);
+            }
+            const results = omniMergeBatches(batches);
+            resolve({
+                provider: batches.slice().sort((a, b) => a.provider.priority - b.provider.priority).slice(0, 3).map(b => b.provider.name).join(' + '),
+                results, providers: batches.map(b => b.provider.id), tookMs: Date.now() - started
+            });
+        };
+        const hardTimer = setTimeout(finish, deadline);
+        plan.forEach(({ p, wait }) => {
+            omniRunProvider(p, q, ctx, wait, deadline).then((list) => {
+                if (done) return;
+                if (list.length) {
+                    batches.push({ provider: p, results: list });
+                    const n = total();
+                    if (n >= 18) return finish();
+                    if (!graceTimer) graceTimer = setTimeout(finish, n >= 10 ? 150 : 450);
+                }
+            }).catch((err) => {
+                if (!done) errors.push(`${p.name}: ${err && err.message}`);
+            }).finally(() => {
+                pending--;
+                if (pending <= 0) finish();
+            });
+        });
+    });
+}
+async function omniSearchOneProvider(chosen, q, timeoutMs, opts) {
+    const ctx = { rawQuery: opts.rawQuery || q };
+    const wait = omniProviderAcquire(chosen, 5000);
+    try {
+        const results = await omniRunProvider(chosen, q, ctx, Math.max(0, wait), timeoutMs);
+        if (results.length) return { provider: chosen.name, results: omniMergeBatches([{ provider: chosen, results }]), providers: [chosen.id] };
+        const err = new Error(`Walang nahanap na image sa ${chosen.name} para sa "${q}". Subukan ang ibang site o piliin ang "Auto".`);
+        err.statusCode = 502;
+        throw err;
+    } catch (err) {
+        if (err.statusCode) throw err;
+        const wrapped = new Error(`${chosen.name} failed: ${err.message} — subukan ang ibang site o piliin ang "Auto".`);
+        wrapped.statusCode = 502;
+        throw wrapped;
+    }
+}
+const OMNI_SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
+const OMNI_SEARCH_CACHE_MAX = 300;
+const omniSearchCache = new Map();
+const omniSearchInflight = new Map();
+async function omniFreeImageSearch(query, timeoutMs = 10000, providerId = null, opts = {}) {
     const q = (query || '').toString().trim().slice(0, 150);
     if (!q) {
         const err = new Error('Maglagay muna ng search term.');
@@ -2561,32 +2830,52 @@ async function omniFreeImageSearch(query, timeoutMs = 10000, providerId = null) 
         throw err;
     }
     const chosen = resolveOmniImageProvider(providerId);
-    if (chosen) {
-        try {
-            const results = await chosen.run(q, timeoutMs);
-            if (results && results.length) return { provider: chosen.name, results: sortImageResultsByResolution(results) };
-            const err = new Error(`Walang nahanap na image sa ${chosen.name} para sa "${q}". Subukan ang ibang site o piliin ang "Auto".`);
-            err.statusCode = 502;
-            throw err;
-        } catch (err) {
-            if (err.statusCode) throw err;
-            const wrapped = new Error(`${chosen.name} failed: ${err.message} — subukan ang ibang site o piliin ang "Auto".`);
-            wrapped.statusCode = 502;
-            throw wrapped;
-        }
+    const key = `${chosen ? chosen.id : 'auto'}|${q.toLowerCase()}`;
+    const hit = omniSearchCache.get(key);
+    if (hit && Date.now() - hit.at < OMNI_SEARCH_CACHE_TTL_MS) return hit.value;
+    if (omniSearchInflight.has(key)) return omniSearchInflight.get(key);
+    const job = (chosen ? omniSearchOneProvider(chosen, q, timeoutMs, opts) : omniSearchAuto(q, timeoutMs, opts)).then((value) => {
+        omniSearchCache.set(key, { at: Date.now(), value });
+        if (omniSearchCache.size > OMNI_SEARCH_CACHE_MAX) omniSearchCache.delete(omniSearchCache.keys().next().value);
+        return value;
+    }).finally(() => omniSearchInflight.delete(key));
+    omniSearchInflight.set(key, job);
+    return job;
+}
+// ---- thumbnail cache + prefetch (para instant lumabas ang mga preview) ----
+const OMNI_THUMB_CACHE_MAX_BYTES = 24 * 1024 * 1024;
+const OMNI_THUMB_CACHE_TTL_MS = 30 * 60 * 1000;
+const omniThumbCache = new Map();
+let omniThumbCacheBytes = 0;
+function omniThumbCacheGet(url) {
+    const e = omniThumbCache.get(url);
+    if (!e) return null;
+    if (Date.now() - e.at > OMNI_THUMB_CACHE_TTL_MS) { omniThumbCache.delete(url); omniThumbCacheBytes -= e.buffer.length; return null; }
+    omniThumbCache.delete(url); omniThumbCache.set(url, e);
+    return e;
+}
+function omniThumbCacheSet(url, buffer, mimetype) {
+    if (!buffer || buffer.length > 1.5 * 1024 * 1024 || omniThumbCache.has(url)) return;
+    omniThumbCache.set(url, { at: Date.now(), buffer, mimetype });
+    omniThumbCacheBytes += buffer.length;
+    while ((omniThumbCacheBytes > OMNI_THUMB_CACHE_MAX_BYTES || omniThumbCache.size > 240) && omniThumbCache.size) {
+        const oldestKey = omniThumbCache.keys().next().value;
+        omniThumbCacheBytes -= omniThumbCache.get(oldestKey).buffer.length;
+        omniThumbCache.delete(oldestKey);
     }
-    const errors = [];
-    for (const provider of OMNI_FREE_IMAGE_PROVIDERS) {
-        try {
-            const results = await provider.run(q, timeoutMs);
-            if (results && results.length) return { provider: provider.name, results: sortImageResultsByResolution(results) };
-        } catch (err) {
-            errors.push(`${provider.name}: ${err.message}`);
-        }
-    }
-    const err = new Error(`All free image search providers failed or returned nothing for "${q}". (${errors.join(' | ')})`);
-    err.statusCode = 502;
-    throw err;
+}
+async function omniFetchThumb(url) {
+    const cached = omniThumbCacheGet(url);
+    if (cached) return cached;
+    const { buffer, mimetype } = await fetchImageBuffer(url, { maxBytes: 2 * 1024 * 1024, timeoutMs: 8000 });
+    omniThumbCacheSet(url, buffer, mimetype);
+    return { buffer, mimetype };
+}
+function omniPrefetchThumbs(results, limit = 8) {
+    const urls = (results || []).slice(0, limit).map(r => r.thumbnailUrl || r.imageUrl).filter(Boolean);
+    let i = 0;
+    const worker = async () => { while (i < urls.length) { const u = urls[i++]; try { await omniFetchThumb(u); } catch (_) {} } };
+    for (let w = 0; w < 4; w++) worker();
 }
 const IMAGE_SEARCH_SESSION_TTL_MS = 10 * 60 * 1000;
 const imageSearchSessions = new Map();
@@ -2640,37 +2929,58 @@ async function runOmniImageSearchInProcess(nonce, targets, username, providerId)
     const isSpecificProvider = !!resolveOmniImageProvider(providerId);
     let consecutiveBlockedFailures = 0;
     try {
-        for (let i = 0; i < targets.length; i++) {
-            if (progress.finished) break; 
-            const p = targets[i];
-            try {
-                const { provider, results } = await omniFreeImageSearch(`${p.name} product photo`, 10000, providerId);
-                const best = results[0];
-                if (best) {
-                    items.set(p.code, { imageUrl: best.imageUrl, thumbnailUrl: best.thumbnailUrl, title: best.title, provider });
-                    progress.proposals.push({ code: p.code, name: p.name, found: true, thumbnailUrl: best.thumbnailUrl, title: best.title, provider });
+        // Concurrency pool (3 produkto sabay) — ang per-site rate gap at circuit breaker ng engine ang nagpoprotekta laban sa ban.
+        const slots = new Array(targets.length).fill(null);
+        let nextIdx = 0, flushed = 0, stopped = false;
+        const flush = () => {
+            while (!stopped && flushed < targets.length && slots[flushed]) {
+                const s0 = slots[flushed];
+                const p = targets[flushed];
+                if (s0.ok) {
+                    const best = s0.r.results[0];
+                    if (best) {
+                        const provName = best.provider || s0.r.provider;
+                        items.set(p.code, { imageUrl: best.imageUrl, thumbnailUrl: best.thumbnailUrl, title: best.title, provider: provName });
+                        progress.proposals.push({ code: p.code, name: p.name, found: true, thumbnailUrl: best.thumbnailUrl, title: best.title, provider: provName });
+                    } else {
+                        progress.proposals.push({ code: p.code, name: p.name, found: false, message: 'No image found.' });
+                    }
+                    consecutiveBlockedFailures = 0;
                 } else {
-                    progress.proposals.push({ code: p.code, name: p.name, found: false, message: 'No image found.' });
+                    progress.proposals.push({ code: p.code, name: p.name, found: false, message: s0.err.message || 'Search failed for this product.' });
+                    consecutiveBlockedFailures = (isSpecificProvider && isLikelyBlockedSearchError(s0.err.message)) ? consecutiveBlockedFailures + 1 : 0;
                 }
-                consecutiveBlockedFailures = 0;
-            } catch (err) {
-                console.error(`Omni Search Images error for ${p.code}:`, err);
-                progress.proposals.push({ code: p.code, name: p.name, found: false, message: err.message || 'Search failed for this product.' });
-                consecutiveBlockedFailures = (isSpecificProvider && isLikelyBlockedSearchError(err.message)) ? consecutiveBlockedFailures + 1 : 0;
-            }
-            progress.done = i + 1;
-            progress.updatedAt = Date.now();
-            if (consecutiveBlockedFailures >= OMNI_SEARCH_CONSECUTIVE_BLOCK_LIMIT && i < targets.length - 1) {
-                const providerName = resolveOmniImageProvider(providerId)?.name || providerId;
-                progress.earlyStopReason = `${providerName} seems to be blocking/rate-limiting search requests from this server right now (repeated HTTP 403/429). Stopped early after ${progress.done}/${targets.length} products to avoid making it worse — switch the provider to "Auto" (or a different free site) and run again for the rest.`;
-                for (let j = i + 1; j < targets.length; j++) {
-                    progress.proposals.push({ code: targets[j].code, name: targets[j].name, found: false, message: 'Skipped — search provider appears blocked right now (see notice above).' });
+                flushed++;
+                progress.done = flushed;
+                progress.updatedAt = Date.now();
+                if (consecutiveBlockedFailures >= OMNI_SEARCH_CONSECUTIVE_BLOCK_LIMIT && flushed < targets.length) {
+                    const providerName = resolveOmniImageProvider(providerId)?.name || providerId;
+                    progress.earlyStopReason = `${providerName} seems to be blocking/rate-limiting search requests from this server right now (repeated HTTP 403/429). Stopped early after ${progress.done}/${targets.length} products to avoid making it worse — switch the provider to "Auto" (or a different free site) and run again for the rest.`;
+                    for (let j = flushed; j < targets.length; j++) {
+                        progress.proposals.push({ code: targets[j].code, name: targets[j].name, found: false, message: 'Skipped — search provider appears blocked right now (see notice above).' });
+                    }
+                    progress.done = targets.length;
+                    flushed = targets.length;
+                    stopped = true;
                 }
-                progress.done = targets.length;
-                break;
             }
-            if (i < targets.length - 1) await sleepMs(450);
-        }
+        };
+        const worker = async () => {
+            while (!stopped && !progress.finished) {
+                const i = nextIdx++;
+                if (i >= targets.length) return;
+                const p = targets[i];
+                try {
+                    const r = await omniFreeImageSearch(`${p.name} product photo`, 10000, providerId, { rawQuery: p.name });
+                    slots[i] = { ok: true, r };
+                } catch (err) {
+                    console.error(`Omni Search Images error for ${p.code}:`, err);
+                    slots[i] = { ok: false, err };
+                }
+                flush();
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(3, targets.length) }, worker));
         if (!progress.finished) {
             omniImageSearchSessions.set(nonce, { username, createdAt: Date.now(), items });
             progress.finished = true;
@@ -3034,6 +3344,33 @@ function applyCloudBackupRetentionDaysOverlay(remoteDays) {
     CLOUD_BACKUP_DATA_RETENTION_DAYS = days;
 }
 let MODULE_SUBSCRIPTION_PLANS = JSON.parse(JSON.stringify(MODULE_SUBSCRIPTION_PLANS_FALLBACK));
+// Omni AI plan cards (Base / Plus / Pro / Business) synced live from RELAY /relay/pricing -> aiSubscriptionPlans.
+// Nothing is hardcoded here: until RELAY answers, the list is empty and the subscribe modal shows the single Omni AI plan.
+let AI_SUBSCRIPTION_PLANS = { baseEnabled: true, base: null, tiers: [] };
+function applyAiSubscriptionPlansOverlay(remote) {
+    if (!remote || typeof remote !== 'object') return;
+    const tiers = Array.isArray(remote.tiers) ? remote.tiers
+        .filter(t => t && typeof t.id === 'string' && typeof t.name === 'string' && Number.isFinite(Number(t.priceTokens)))
+        .map(t => ({ id: t.id, name: t.name, priceTokens: Number(t.priceTokens), monthlyCredits: Number(t.monthlyCredits) || 0, dailyCap: Number(t.dailyCap) || 0 })) : [];
+    AI_SUBSCRIPTION_PLANS = {
+        baseEnabled: remote.baseEnabled !== false,
+        base: remote.base && typeof remote.base === 'object' ? { monthlyCredits: Number(remote.base.monthlyCredits) || 0, dailyCap: Number(remote.base.dailyCap) || 0 } : null,
+        tiers
+    };
+}
+// Resolves the plan the customer picked for Omni AI. Returns { ok, aiTierId, tier, price } (tier null = Base) or { ok:false, message }.
+function resolveAiSubscriptionPlanChoice(aiTierIdRaw, billingCycle) {
+    const aiTierId = String(aiTierIdRaw || '').trim().toLowerCase();
+    if (!aiTierId) return { ok: true, aiTierId: null, tier: null, price: getModuleSubscriptionPrice('ai_assistant', billingCycle) };
+    if (aiTierId === 'base') {
+        if (AI_SUBSCRIPTION_PLANS.baseEnabled === false) return { ok: false, message: 'The Omni AI Base plan is not available right now. Please pick another plan.' };
+        return { ok: true, aiTierId: 'base', tier: null, price: getModuleSubscriptionPrice('ai_assistant', billingCycle) };
+    }
+    const tier = AI_SUBSCRIPTION_PLANS.tiers.find(t => t.id === aiTierId);
+    if (!tier) return { ok: false, message: 'The selected Omni AI plan is not available. Please close this window and open it again.' };
+    if (billingCycle !== 'monthly') return { ok: false, message: 'Plus, Pro and Business are monthly plans. Please choose Monthly.' };
+    return { ok: true, aiTierId: tier.id, tier, price: tier.priceTokens };
+}
 function getModuleSubscriptionPrice(featureId, billingCycle) {
     const plan = MODULE_SUBSCRIPTION_PLANS[featureId];
     if (!plan || !MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle]) return null;
@@ -3351,6 +3688,9 @@ async function fetchCloudBackupPricing() {
         }
         if (data && data.success && data.moduleSubscriptions) {
             applyModuleSubscriptionPricingOverlay(data.moduleSubscriptions);
+        }
+        if (data && data.success && data.aiSubscriptionPlans) {
+            applyAiSubscriptionPlansOverlay(data.aiSubscriptionPlans);
         }
         if (data && data.success && typeof data.moduleSubscriptionGracePeriodDays !== 'undefined') {
             applyModuleSubscriptionGracePeriodOverlay(data.moduleSubscriptionGracePeriodDays);
@@ -6980,10 +7320,10 @@ function computeAiStoreInsightsUncached(isAdminRole) {
     }
     const suggestedSettings = [];
     if (expiredItems.length > 0) {
-        suggestedSettings.push({ area: 'Products', suggestion: `Merong ${expiredItems.length} produktong lampas na sa expiry date pero naka-mark pa ring available stock — tanggalin sa shelf at i-update o i-zero ang stock nila.` });
+        suggestedSettings.push({ area: 'Products', suggestion: `There are ${expiredItems.length} product(s) past their expiry date that are still marked as available stock — remove them from the shelf and update or zero their stock.` });
     }
     if (lowStockItems.length > 0) {
-        suggestedSettings.push({ area: 'Products > Low Stock Threshold', suggestion: `Merong ${lowStockItems.length} produktong nasa o mababa na sa low-stock threshold — pag-isipang mag-reorder, o i-adjust ang threshold kung mataas masyado ang naka-set.` });
+        suggestedSettings.push({ area: 'Products > Low Stock Threshold', suggestion: `There are ${lowStockItems.length} product(s) at or below the low-stock threshold — consider reordering, or adjust the threshold if it is set too high.` });
     }
     const insights = {
         generatedAt: now.toISOString(),
@@ -7265,16 +7605,16 @@ function computeAiStoreInsightsUncached(isAdminRole) {
             twoFactorLoginEnabled: !!advSettings.twoFactorLoginEnabled
         };
         if (!advSettings.fraudDetectionEnabled) {
-            suggestedSettings.push({ area: 'Advanced Settings > AI Fraud & Anomaly Detection', suggestion: 'Naka-OFF ito ngayon — i-enable para awtomatikong ma-flag ang unusual discounts, rapid void/refund activity, oversized refunds, at off-hours sales para sa review.' });
+            suggestedSettings.push({ area: 'Advanced Settings > AI Fraud & Anomaly Detection', suggestion: 'This is currently OFF — enable it to automatically flag unusual discounts, rapid void/refund activity, oversized refunds, and off-hours sales for review.' });
         }
         if (unreviewedFraudAlerts.length > 0) {
-            suggestedSettings.push({ area: 'Users > Fraud Alerts', suggestion: `Merong ${unreviewedFraudAlerts.length} fraud/anomaly alert na hindi pa na-review — puntahan ang Users > Fraud Alerts tab para tingnan at markahan bilang reviewed.` });
+            suggestedSettings.push({ area: 'Users > Fraud Alerts', suggestion: `There are ${unreviewedFraudAlerts.length} fraud/anomaly alert(s) not yet reviewed — go to the Users > Fraud Alerts tab to check them and mark them as reviewed.` });
         }
         if (insights.shifts.mostShortCashier && insights.shifts.mostShortCashier.totalVariance <= -100) {
-            suggestedSettings.push({ area: 'Shift Report', suggestion: `Si ${insights.shifts.mostShortCashier.cashier} ang may pinakamalaking kabuuang cash shortage sa mga Z-Reading (₱${Math.abs(insights.shifts.mostShortCashier.totalVariance).toFixed(2)} short) — suriin ang shift history niya sa Shift Report.` });
+            suggestedSettings.push({ area: 'Shift Report', suggestion: `${insights.shifts.mostShortCashier.cashier} has the largest total cash shortage across the Z-Readings (₱${Math.abs(insights.shifts.mostShortCashier.totalVariance).toFixed(2)} short) — review their shift history in the Shift Report.` });
         }
         if (!advSettings.idleAutoLockEnabled) {
-            suggestedSettings.push({ area: 'Advanced Settings > Idle Auto-Lock', suggestion: 'Naka-OFF ito ngayon — i-enable para awtomatikong mag-lock ang terminal kapag matagal na walang ginagalaw, para hindi na-misuse ang unattended session.' });
+            suggestedSettings.push({ area: 'Advanced Settings > Idle Auto-Lock', suggestion: 'This is currently OFF — enable it so the terminal locks automatically when idle for a long time, to prevent misuse of an unattended session.' });
         }
     }
     insights.suggestedSettings = suggestedSettings;
@@ -7294,13 +7634,13 @@ function questionMentionsBilling(question) {
     return BILLING_QUESTION_HINTS.some((kw) => q.includes(kw));
 }
 const DATABASE_SAFETY_FEATURES = [
-    'SQLite WAL (Write-Ahead Logging) journal mode — pinapababa ang panganib ng corruption kahit bigla mapatay ang device habang may isinusulat.',
-    'Atomic multi-module transactions with automatic rollback kapag may nabigong operation sa gitna ng pagsulat.',
+    'SQLite WAL (Write-Ahead Logging) journal mode — lowers the risk of corruption even if the device is suddenly turned off while writing.',
+    'Atomic multi-module transactions with automatic rollback when an operation fails in the middle of writing.',
     'Automatic LOCAL database backup (.db snapshot + JSON snapshot), naka-rotate (default: pinakabagong 14 lang ang itinatago) — gumagana kahit walang internet.',
-    'SHA-256 file integrity monitor sa mga backup file — awtomatikong nade-detect kung may nabago/nasira na file.',
+    'SHA-256 file integrity monitor on backup files — automatically detects if a file was changed or damaged.',
     'Optional Cloud Backup (naka-subscribe): off-site, gzip-compressed upload papunta sa RELAY server via HTTPS + authenticated relay key, may per-tier na retention history at storage quota.',
     'Ed25519-signed subscription/license tokens (module subscriptions, Cloud Backup) — nave-verify lokal, hindi basta mape-forge o ma-edit.',
-    'Role-based access control (RBAC) — nire-restrict kung sinong user ang makakakita/makakagawa ng aling module.'
+    'Role-based access control (RBAC) — restricts which user can see or use which module.'
 ];
 async function computeAiBillingInsights(isAdminRole) {
     if (!isAdminRole) {
@@ -7552,9 +7892,45 @@ async function buildAiDatabaseContextMessage(role, question = '') {
     };
     return billingMsg ? [mainMsg, billingMsg] : mainMsg;
 }
+// ---- Omni AI FREE plan ------------------------------------------------------------------
+// Walang Omni AI subscription ('ai_assistant' feature) = FREE plan: text lang, naka-Cloudflare sa RELAY, sariling maliit na limit.
+// Ang RELAY ang nagsasabi kung naka-ON ang Free (admin > Omni AI > Tiers). Naka-subscribe = Base/Plus/Pro (Google).
+let relayAiFreeStatusCache = { at: 0, enabled: false, ok: false };
+async function getRelayAiFreeEnabled() {
+    // 60s cache kapag nakuha ang sagot ng RELAY; kapag pumalya ang RELAY, 10s lang at ginagamit ang huling kilalang sagot (hindi agad nagla-lock).
+    const age = Date.now() - relayAiFreeStatusCache.at;
+    if (age < (relayAiFreeStatusCache.ok ? 60 * 1000 : 10 * 1000)) return relayAiFreeStatusCache.enabled;
+    let enabled = relayAiFreeStatusCache.enabled;
+    let ok = false;
+    try {
+        if (RELAY_API_KEY) {
+            const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+            const r = await relayFetch(`${RELAY_URL}/relay/ai-assistant/free-status?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+            const data = await r.json().catch(() => null);
+            if (r.ok && data && data.success) { enabled = !!data.enabled; ok = true; }
+        } else { enabled = false; ok = true; }
+    } catch (_) { /* RELAY unreachable — panatilihin ang huling kilalang sagot */ }
+    relayAiFreeStatusCache = { at: Date.now(), enabled, ok };
+    return enabled;
+}
+// Pinapayagan ang Omni AI endpoint kung naka-subscribe O kung naka-ON ang Free. Sa Free (req.aiFreeTier = true) ang mga
+// endpoint na may {subscriberOnly:true} ay tinatanggihan gaya ng dating naka-lock na feature.
+function requireAiAssistantOrFree() {
+    const lockedHandler = requireFeature('ai_assistant');
+    return async (req, res, next) => {
+        if (getUnlockedFeatureIds().includes('ai_assistant')) return next();
+        if (await getRelayAiFreeEnabled()) { req.aiFreeTier = true; return next(); }
+        return lockedHandler(req, res, next);
+    };
+}
+app.get('/api/ai-assistant/free-status', async (req, res) => {
+    const subscribed = getUnlockedFeatureIds().includes('ai_assistant');
+    const enabled = subscribed ? false : await getRelayAiFreeEnabled();
+    res.json({ success: true, subscribed, enabled });
+});
 async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null, modelChoice = null) {
     if (!RELAY_API_KEY) {
-        return { success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' };
+        return { success: false, message: 'RELAY_API_KEY is not configured on this server.' };
     }
     try {
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
@@ -7589,7 +7965,7 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
 async function callCloudflareWorkersAI(messages, attachmentType = null, requestId = null, modelChoice = null) {
     return callRelayAiAssistant(messages, false, attachmentType, requestId, modelChoice);
 }
-app.get('/api/ai-assistant/status', requireFeature('ai_assistant'), (req, res) => {
+app.get('/api/ai-assistant/status', requireAiAssistantOrFree(), (req, res) => {
     res.json({ success: true, configured: isAiAssistantConfigured(), visionConfigured: isAiAssistantVisionConfigured() });
 });
 
@@ -7805,8 +8181,8 @@ function buildDiagnosticSystemMessage(diagnostics, clientErrors) {
         content: `${parts.join('\n\n')}\n\nIf this diagnostic data is relevant to the question, use it to explain the likely cause in plain language and suggest a safe next step (e.g. reload the page, check internet connection, contact the developer). Never claim you fixed anything yourself — you can only explain and guide.`
     };
 }
-app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), async (req, res) => {
-    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' });
+app.get('/api/ai-assistant/usage', requireAiAssistantOrFree(), async (req, res) => {
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'RELAY_API_KEY is not configured on this server.' });
     try {
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/usage?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 10000);
@@ -7814,14 +8190,14 @@ app.get('/api/ai-assistant/usage', requireFeature('ai_assistant'), async (req, r
         if (!relayRes.ok || !data) return res.status(relayRes.status || 502).json(data || { success: false, message: 'AI credit relay request failed.' });
         return res.json(data);
     } catch (err) {
-        return res.status(502).json({ success: false, message: err.message || 'Hindi makuha ang AI credit status mula sa RELAY.' });
+        return res.status(502).json({ success: false, message: err.message || 'Could not get the AI credit status from RELAY.' });
     }
 });
 // BAGO: Omni AI upgrade plans (Basic/Plus/Pro). Ang pangalan, presyo (Omni
 // Tokens), monthly credits at daily cap ay hawak ng RELAY (admin page) —
 // ang OMNIPOS ay nagpapakita lang at nagpapasa ng pagbili.
-app.get('/api/ai-assistant/plans', requireFeature('ai_assistant'), async (req, res) => {
-    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'Walang RELAY_API_KEY na naka-configure sa server na ito.' });
+app.get('/api/ai-assistant/plans', requireAiAssistantOrFree(), async (req, res) => {
+    if (!RELAY_API_KEY) return res.status(503).json({ success: false, message: 'RELAY_API_KEY is not configured on this server.' });
     try {
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/plans?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 10000);
@@ -7834,7 +8210,7 @@ app.get('/api/ai-assistant/plans', requireFeature('ai_assistant'), async (req, r
         } catch (_) {}
         return res.json({ ...data, balanceTokens });
     } catch (err) {
-        return res.status(502).json({ success: false, message: err.message || 'Hindi makuha ang AI plans mula sa RELAY.' });
+        return res.status(502).json({ success: false, message: err.message || 'Could not get the AI plans from RELAY.' });
     }
 });
 app.post('/api/ai-assistant/plans/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-plan-purchase', 10, 10 * 60 * 1000), async (req, res) => {
@@ -7915,19 +8291,63 @@ app.post('/api/ai-assistant/extra-credits/purchase', requireFeature('ai_assistan
         return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
 });
-app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming tanong sa Omni AI. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), async (req, res) => {
+// BAGO: One-day Boost — dagdag na neurons para sa ISANG ARAW lang kapag naubos ang daily limit.
+// Ang presyo/limits ay hawak ng RELAY; ang OMNIPOS ay nagpapasa lang ng pagbili (kailangan ng admin password, tulad ng extra credits).
+app.post('/api/ai-assistant/day-boost/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-day-boost', 10, 10 * 60 * 1000), async (req, res) => {
+    if (!activationFlagsCache.omniTokenActivationEnabled) {
+        return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try again later.' });
+    }
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    const boostId = typeof req.body?.boostId === 'string' ? req.body.boostId.trim().slice(0, 40) : '';
+    const adminPassword = typeof req.body?.adminPassword === 'string' ? req.body.adminPassword : '';
+    if (!boostId) return res.status(400).json({ success: false, message: 'Missing boost.' });
+    if (!adminPassword) return res.status(400).json({ success: false, message: 'An admin password is required to approve this purchase.' });
+    const users = readData(FILE_USERS);
+    const authResult = await findOmniTokenUnlockAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The purchase was not authorized.' });
+    }
+    const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/day-boost/purchase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, boostId, clientRequestId: crypto.randomUUID() })
+        }, 20000);
+        const data = await parseRelayResponse(relayRes);
+        if (!data.success) {
+            return res.status(relayRes.status && relayRes.status >= 400 ? relayRes.status : 400).json({
+                success: false,
+                insufficient: !!data.insufficient,
+                reserveProtected: !!data.reserveProtected,
+                balanceTokens: data.balanceTokens,
+                requiredTokens: data.requiredTokens,
+                message: data.message || 'Failed to add the Omni AI Boost.'
+            });
+        }
+        logAction((req.authUser && req.authUser.username) || authResult.user.username || 'Unknown', `Purchased Omni AI One-day Boost "${data.boost && data.boost.id}" using Omni Tokens (admin-approved by ${authResult.user.username})`);
+        return res.json(data);
+    } catch (err) {
+        console.error('Could not reach the Unlock Relay (ai day boost purchase):', err);
+        return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
+    }
+});
+app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Too many questions to Omni AI. Please try again after ${retryAfterSec} seconds.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
-        return res.status(503).json({ success: false, message: 'Hindi pa na-configure ang Omni AI sa server na ito (kailangan ng RELAY_API_KEY sa .env, at CF_ACCOUNT_ID/CF_AI_API_TOKEN sa RELAY/.env ng developer). Kontakin ang developer/admin.' });
+        return res.status(503).json({ success: false, message: 'Omni AI is not configured on this server yet (RELAY_API_KEY is required in .env; in the developer RELAY/.env: CF_ACCOUNT_ID/CF_AI_API_TOKEN for the Free plan and GOOGLE_AI_API_KEY for Base/Plus/Pro). Please contact the developer/admin.' });
     }
     const question = typeof req.body?.question === 'string' ? req.body.question.trim().slice(0, 800) : '';
-    const lang = req.body?.lang === 'tl' ? 'tl' : 'en';
+    const lang = req.body?.lang === 'tl' ? 'tl' : 'en'; // Eng/Tag toggle: default English, Tagalog when the user picks it
     const rawContext = Array.isArray(req.body?.context) ? req.body.context : [];
     if (!question) {
         return res.status(400).json({ success: false, message: 'Missing question.' });
     }
     const imageDataUrl = typeof req.body?.image === 'string' && req.body.image.startsWith('data:image/') ? req.body.image : null;
+    if (req.aiFreeTier && (imageDataUrl || (typeof req.body?.file === 'string' && req.body.file.startsWith('data:')))) {
+        return res.status(402).json({ success: false, freeTierLimit: true, message: 'The Omni AI Free plan is text-only. Subscribe to Omni AI (Base/Plus/Pro) to attach images or files.' });
+    }
     if (imageDataUrl && imageDataUrl.length > 6 * 1024 * 1024) {
-        return res.status(413).json({ success: false, message: 'Ang naka-attach na screenshot ay masyadong malaki. Subukan mag-attach ng mas maliit (max ~4MB).' });
+        return res.status(413).json({ success: false, message: 'The attached screenshot is too large. Please attach a smaller one (max ~4MB).' });
     }
     const fileDataUrl = typeof req.body?.file === 'string' && req.body.file.startsWith('data:') ? req.body.file : null;
     const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.slice(0, 200) : '';
@@ -7993,7 +8413,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
     const requestId = crypto.randomUUID();
     // Pinili ng user na Gemini model (Flash / Flash-Lite) mula sa Omni AI Plans. Ang RELAY ang nagpapasya kung pinapayagan (tier/availability);
     // kapag hindi, awtomatiko itong babalik sa default provider ng RELAY.
-    const aiModelChoice = (req.body?.model === 'flash' || req.body?.model === 'flashLite') ? req.body.model : null;
+    const aiModelChoice = (!req.aiFreeTier && (req.body?.model === 'flash' || req.body?.model === 'flashLite')) ? req.body.model : null;
 
     let result;
     let visionFailureReason = null;
@@ -8051,7 +8471,7 @@ app.post('/api/ai-assistant/ask', requireFeature('ai_assistant'), rateLimit('ai-
 // paraan ang admin/developer para malaman kung gaano kakapaki-pakinabang
 // ang mga sagot. Ang isang user ay puwede lang mag-vote sa sarili niyang
 // interaction, at isang beses lang kada sagot.
-app.post('/api/ai-assistant/feedback', requireFeature('ai_assistant'), rateLimit('ai-assistant-feedback', 60, 5 * 60 * 1000, (retryAfterSec) => `Masyadong maraming feedback. Subukan muli pagkatapos ng ${retryAfterSec} segundo.`), (req, res) => {
+app.post('/api/ai-assistant/feedback', requireAiAssistantOrFree(), rateLimit('ai-assistant-feedback', 60, 5 * 60 * 1000, (retryAfterSec) => `Too much feedback. Please try again after ${retryAfterSec} seconds.`), (req, res) => {
     const interactionId = typeof req.body?.interactionId === 'string' ? req.body.interactionId.slice(0, 60) : '';
     const vote = req.body?.vote === 'up' ? 'up' : (req.body?.vote === 'down' ? 'down' : null);
     if (!interactionId || !vote) {
@@ -8065,7 +8485,7 @@ app.post('/api/ai-assistant/feedback', requireFeature('ai_assistant'), rateLimit
             return res.status(404).json({ success: false, message: 'Interaction not found (maaaring luma na at natanggal na sa log).' });
         }
         if (entry.username !== username) {
-            return res.status(403).json({ success: false, message: 'Hindi mo puwedeng i-rate ang sagot ng ibang user.' });
+            return res.status(403).json({ success: false, message: 'You cannot rate answers from other users.' });
         }
         if (entry.feedback) {
             return res.json({ success: true, alreadyRecorded: true });
@@ -8447,6 +8867,11 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
     }
     const isCloudBackup = featureId === CLOUD_BACKUP_FEATURE_ID;
     const isModuleSubscription = isModuleSubscriptionFeature(featureId);
+    let aiPlanChoice = null;
+    if (featureId === 'ai_assistant' && req.body.aiTierId) {
+        aiPlanChoice = resolveAiSubscriptionPlanChoice(req.body.aiTierId, billingCycle);
+        if (!aiPlanChoice.ok) return res.status(400).json({ success: false, message: aiPlanChoice.message });
+    }
     let resolvedPrice = feature.price;
     if (isCloudBackup) {
         resolvedPrice = getCloudBackupPlanPrice(tier, billingCycle);
@@ -8454,7 +8879,7 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
             return res.status(400).json({ success: false, message: 'Please choose a valid Cloud Backup plan (Basic/Standard/Pro) and billing cycle (Monthly/Yearly).' });
         }
     } else if (isModuleSubscription) {
-        resolvedPrice = getModuleSubscriptionPrice(featureId, billingCycle);
+        resolvedPrice = aiPlanChoice ? aiPlanChoice.price : getModuleSubscriptionPrice(featureId, billingCycle);
         if (!MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle] || resolvedPrice === null) {
             return res.status(400).json({ success: false, message: `Please choose a valid billing cycle (Monthly/Yearly) for ${feature.name}.` });
         }
@@ -8477,6 +8902,7 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
                 price: resolvedPrice,
                 tier: isCloudBackup ? tier : undefined,
                 billingCycle: isAnySubscription ? billingCycle : undefined,
+                aiTierId: aiPlanChoice ? aiPlanChoice.aiTierId : undefined,
                 username: username ||'Unknown',
                 storeName: (receiptSettings && receiptSettings.storeName) || null,
                 photo: photo || null
@@ -8489,7 +8915,7 @@ app.post('/api/features/request-unlock', requirePermission('relay_unlock_request
         logAction(username ||'Unknown', isCloudBackup
             ? `Requested an OTP to subscribe to Cloud Backup (${CLOUD_BACKUP_PLANS[tier].name}, ${CLOUD_BACKUP_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
             : isModuleSubscription
-                ? `Requested an OTP to subscribe to ${feature.name} (${MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
+                ? `Requested an OTP to subscribe to ${feature.name}${aiPlanChoice && aiPlanChoice.tier ? ' — ' + aiPlanChoice.tier.name : ''} (${MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle].label}, ₱${resolvedPrice})`
                 : `Requested an OTP to unlock ${feature.name}`);
         res.json({ success: true, message:'The unlock request has been sent. Please wait for the confirmation code from the developer/owner.' });
     } catch (err) {
@@ -9017,7 +9443,7 @@ app.get('/api/features/upgrade-catalog', async (req, res) => {
             effectiveBundlePrice: effectivePrice
         };
     });
-    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount, activationFlags: activationFlagsCache });
+    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount, activationFlags: activationFlagsCache, aiPlans: AI_SUBSCRIPTION_PLANS });
 });
 app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-bulk-request', 3, 10 * 60 * 1000), async (req, res) => {
     if (!activationFlagsCache.otpRequestsEnabled) {
@@ -9282,6 +9708,11 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
     if (featureIds.includes(CLOUD_BACKUP_FEATURE_ID)) {
         return res.status(400).json({ success: false, message: 'Please use the Cloud Backup subscription flow for Cloud Backup.' });
     }
+    let aiPlanChoice = null;
+    if (featureIds.length === 1 && featureIds[0] === 'ai_assistant' && req.body.aiTierId) {
+        aiPlanChoice = resolveAiSubscriptionPlanChoice(req.body.aiTierId, billingCycle);
+        if (!aiPlanChoice.ok) return res.status(400).json({ success: false, message: aiPlanChoice.message });
+    }
     const unknownIds = featureIds.filter(id => !FEATURE_CATALOG[id]);
     if (unknownIds.length) {
         return res.status(400).json({ success: false, message: `Unknown feature(s): ${unknownIds.join(', ')}.` });
@@ -9296,7 +9727,7 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
         if (!MODULE_SUBSCRIPTION_BILLING_CYCLES[billingCycle]) {
             return res.status(400).json({ success: false, message: 'Please choose a valid billing cycle (Monthly/Yearly).' });
         }
-        requiredTokens = getModuleSubscriptionPrice(moduleSubIds[0], billingCycle);
+        requiredTokens = aiPlanChoice ? aiPlanChoice.price : getModuleSubscriptionPrice(moduleSubIds[0], billingCycle);
         if (requiredTokens === null) {
             return res.status(400).json({ success: false, message: 'Invalid subscription module.' });
         }
@@ -9343,6 +9774,7 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
                 installationId,
                 featureIds,
                 billingCycle: isModuleSubscriptionPurchase ? billingCycle : undefined,
+                aiTierId: aiPlanChoice ? aiPlanChoice.aiTierId : undefined,
                 totalPrice: requiredTokens,
                 clientRequestId: activationRequestId
             })
@@ -10830,12 +11262,23 @@ app.post('/api/products/image-search/omni', rateLimit('product-image-search-omni
             success: true,
             nonce,
             provider,
-            results: results.map(({ imageUrl, ...rest }) => rest)
+            results: results.map(({ imageUrl, _pid, _code, ...rest }) => rest)
         });
+        omniPrefetchThumbs(results, 8);
     } catch (err) {
         console.error('Omni product image search error:', err);
         res.status(err.statusCode === 400 ? 400 : 502).json({ success: false, message: err.message || 'Omni Search failed.' });
     }
+});
+app.get('/api/products/image-search/omni/providers', requirePermission('products'), (req, res) => {
+    const now = Date.now();
+    res.json({
+        success: true,
+        providers: OMNI_FREE_IMAGE_PROVIDERS.map(p => {
+            const h = omniHealth(p.id);
+            return { id: p.id, name: p.name, available: h.openUntil <= now, retryInSec: h.openUntil > now ? Math.ceil((h.openUntil - now) / 1000) : 0, avgMs: h.avgMs, lastError: h.lastError };
+        })
+    });
 });
 app.post('/api/products/image-search/omni/select', rateLimit('product-image-search-omni-select', 30, 10 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const { nonce, id } = req.body || {};
@@ -11145,7 +11588,7 @@ app.get('/api/products/image-search/thumb-proxy', rateLimit('image-search-thumb-
         return res.status(404).json({ success: false, message: 'Walang available na thumbnail.' });
     }
     try {
-        const { buffer, mimetype } = await fetchImageBuffer(candidateUrl, { maxBytes: 2 * 1024 * 1024, timeoutMs: 8000 });
+        const { buffer, mimetype } = await omniFetchThumb(candidateUrl);
         res.setHeader('Content-Type', mimetype || 'image/jpeg');
         res.setHeader('Cache-Control', 'private, max-age=1800');
         res.send(buffer);

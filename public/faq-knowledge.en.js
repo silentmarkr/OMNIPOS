@@ -1513,4 +1513,16 @@ window.OMNIPOS_FAQ_KB_EN = [
   <p>Remaining uses show in the promo code list, and Admins have a <strong>"Reset Usage"</strong> button to zero out the used count/per-customer redemptions if the code needs to start fresh again.</p>`
 },
 
+{
+  id: 'omni-ai-free-plan',
+  category: 'Premium Features',
+  question: 'Is there a free Omni AI plan? What are the Free, Base, Plus and Pro plans?',
+  keywords: ['omni ai free', 'free plan', 'libre', 'base plus pro', 'omni ai plans', 'ai tier', 'no subscription', 'text only'],
+  answer: `<p>Yes. Omni AI has a <strong>Free</strong> plan for stores <strong>without</strong> an Omni AI subscription, and paid plans for subscribers.</p>
+  <ul>
+    <li><strong>Free</strong> — no subscription needed. Text questions only: no image/file attachments, no model choice, no support-ticket button. It has a small monthly credit allowance and a small daily limit.</li>
+    <li><strong>Base / Plus / Pro</strong> — included with an Omni AI subscription. These support image and file attachments, a model choice, and larger credit/daily allowances (Plus and Pro are higher tiers).</li>
+  </ul>
+  <p>If the Free allowance runs out, the FAQ falls back to the regular keyword search and the credit pill shows when you can try again. Subscribe to Omni AI to move up to Base or higher.</p>`
+},
 ];

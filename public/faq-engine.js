@@ -852,6 +852,38 @@
     }
   }
 
+  // ---- FREE tier (Omni AI Free plan) ---------------------------------------
+  // Walang Omni AI subscription = FREE plan (text lang, naka-Cloudflare sa RELAY). Ang RELAY ang nagsasabi kung naka-ON ang Free
+  // (/ai-assistant/free-status). Ang naka-subscribe ay Base/Plus/Pro (Google) at mayroong attach/model picker/ticket.
+  let aiFreeEnabled = false;
+  let aiFreeLoadedAt = 0;
+  let aiFreeLoading = false;
+  function loadAiFreeStatus(force) {
+    if (aiAssistantUnlocked()) return;
+    if (aiFreeLoading || (!force && Date.now() - aiFreeLoadedAt < 60000)) return;
+    aiFreeLoading = true;
+    (async () => {
+      let enabled = false;
+      try {
+        const res = await authFetch(`${API_URL}/ai-assistant/free-status`, { timeoutMs: 10000 });
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        enabled = !!(data && data.success && data.enabled);
+      } catch (e) { enabled = false; }
+      aiFreeLoadedAt = Date.now();
+      aiFreeLoading = false;
+      if (enabled !== aiFreeEnabled) {
+        aiFreeEnabled = enabled;
+        try { renderAiModeToggle(); } catch (e) {}
+      }
+    })();
+  }
+  // May magagamit na AI chat? (naka-subscribe, o naka-ON ang Free sa RELAY)
+  function aiChatEnabled() {
+    if (aiAssistantUnlocked()) return true;
+    loadAiFreeStatus(false);
+    return aiFreeEnabled;
+  }
+
   const AI_MODE_KEY = 'omnipos_faq_ai_mode';
 
   function getStoredAiModePref() {
@@ -868,7 +900,7 @@
   // The mode actually used: forced to 'kb' when the subscription itself
   // isn't unlocked, otherwise whatever the user picked (defaults to 'ai').
   function effectiveAiMode() {
-    if (!aiAssistantUnlocked()) return 'kb';
+    if (!aiChatEnabled()) return 'kb';
     return getStoredAiModePref() === 'kb' ? 'kb' : 'ai';
   }
 
@@ -877,7 +909,7 @@
     if (!box) return;
     applySendButtonIcon();
     const s = STRINGS();
-    const unlocked = aiAssistantUnlocked();
+    const unlocked = aiChatEnabled();
     const mode = effectiveAiMode();
 
     if (!unlocked) {
@@ -1891,12 +1923,15 @@
   let pendingFileName = null;
   const DOC_EXT_RE = /\.(pdf|docx|txt|csv|md|log)$/i;
   function triggerAttach() {
+    // FREE plan = text lang: bawal ang larawan/file (pinapatupad din ng RELAY).
+    if (!aiAssistantUnlocked()) { alert(planStrings().freeNoAttach); return; }
     document.getElementById('faq-ai-image-input')?.click();
   }
   function onImageSelected(event) {
     const file = event.target.files && event.target.files[0];
     event.target.value = '';
     if (!file) return;
+    if (!aiAssistantUnlocked()) { alert(planStrings().freeNoAttach); return; }
     const s = STRINGS();
     const isImage = file.type.startsWith('image/');
     const maxBytes = isImage ? 4.5 * 1024 * 1024 : 8 * 1024 * 1024;
@@ -1947,13 +1982,14 @@
   // ---- AI credit/billing pill (top bar) ---------------------------------
   async function refreshAiCreditPill(preloaded) {
     const pill = document.getElementById('ai-assistant-credit-pill');
-    if (!pill) return;
+    if (!pill) { syncAiModelButton(false); return; }
     const syncWrap = () => { if (typeof window.syncAiCreditExpiryWrapper === 'function') window.syncAiCreditExpiryWrapper(); };
     // BAGO: hiling ng user — walang dapat makikitang AI credit/expiration
     // pill maliban sa AI Chatbot mode mismo (hindi sa Search/kb mode, at
     // hindi rin kapag naka-lock/hindi pa na-unlock ang Omni AI).
-    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { pill.style.display = 'none'; syncWrap(); return; }
+    if (!aiChatEnabled() || effectiveAiMode() !== 'ai') { pill.style.display = 'none'; syncWrap(); syncAiModelButton(false); return; }
     const s = STRINGS();
+    syncAiModelButton(false);
     try {
       const data = preloaded || await (async () => {
         const res = await authFetch(`${API_URL}/ai-assistant/usage`);
@@ -1979,12 +2015,23 @@
       const daily = data.daily && typeof data.daily.cap === 'number' && !data.daily.unlimited ? data.daily : null;
       const dailyDone = !!(daily && daily.used >= daily.cap);
       const fmtN = (n) => Number(n || 0).toLocaleString();
-      pill.classList.toggle('low', limit > 0 && remaining / limit <= 0.15 && remaining > 0);
+      // BAGO: babala kapag 80% o higit pa ng daily limit ang nagamit (o 15% na lang ang monthly credits).
+      const dailyPct = daily && daily.cap > 0 ? daily.used / daily.cap : 0;
+      const dailyWarn = !!(daily && !dailyDone && dailyPct >= 0.8);
+      pill.classList.toggle('low', (limit > 0 && remaining / limit <= 0.15 && remaining > 0) || dailyWarn);
       pill.classList.toggle('exhausted', remaining <= 0 || dailyDone);
+      const fmtReset = (ms) => {
+        const m = Math.max(1, Math.ceil((Number(ms) - Date.now()) / 60000));
+        return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+      };
+      // Neurons ang ipinapakita (hindi tanong): natitira / kabuuang daily limit, compact (hal. 14.1k / 19k).
+      const dailyLeft = daily ? (dailyDone ? 0 : Math.max(0, typeof daily.remaining === 'number' ? daily.remaining : daily.cap - daily.used)) : 0;
+      const dailyText = !daily ? '' : ` · ${escapeHtml(ps.neuronsLeft.replace('{n}', fmtNeurons(dailyLeft)).replace('{c}', fmtNeurons(daily.cap)))}`;
+      const resetText = (dailyDone && daily.resetsAt) ? ` · ${escapeHtml(ps.resetsIn.replace('{t}', fmtReset(daily.resetsAt)))}` : '';
       pill.innerHTML = `<i class="fa-solid fa-bolt"></i> ${escapeHtml(s.creditsLabel)}: ${remaining}/${limit}` +
-        (daily ? ` · ${fmtN(Math.min(daily.used, daily.cap))}/${fmtN(daily.cap)} ${escapeHtml(ps.neurons)} ${escapeHtml(ps.today)}` : '') +
-        (data.tier && data.tier.name ? ` · ${escapeHtml(data.tier.name)}` : '');
-      pill.title = ps.pillTitle;
+        dailyText + resetText +
+        (data.isFree ? ` · ${escapeHtml(ps.freeName)}` : (data.tier && data.tier.name ? ` · ${escapeHtml(data.tier.name)}` : ''));
+      pill.title = dailyWarn ? ps.warn80 : ps.pillTitle;
       pill.style.cursor = 'pointer';
       if (!pill.dataset.planBound) {
         pill.dataset.planBound = '1';
@@ -2002,7 +2049,7 @@
   function renderQuickActions() {
     const box = document.getElementById('faq-quick-actions');
     if (!box) return;
-    if (!aiAssistantUnlocked() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; hideAiCreditRowNow(); syncQuickActionsToggle(); return; }
+    if (!aiChatEnabled() || effectiveAiMode() !== 'ai') { box.innerHTML = ''; hideAiCreditRowNow(); syncQuickActionsToggle(); return; }
     const s = STRINGS();
     const creditRowOpen = !!document.getElementById('ai-assistant-credit-expiry')?.classList.contains('faq-credit-open');
     box.innerHTML = `
@@ -2479,26 +2526,46 @@
     en: {
       upgradeBtn: 'Upgrade AI plan', today: 'today', pillTitle: 'Tap to see Omni AI plans',
       title: 'Omni AI Plans', loading: 'Loading plans...', loadError: 'Could not load the plans right now. Please try again later.',
-      current: 'Current plan', none: 'Base (free)', perMonth: 'credits / month', perDay: 'neurons / day', neurons: 'neurons', unlimited: 'Unlimited',
+      current: 'Current plan', none: 'Base (included with your subscription)', inclSub: 'Included with subscription', perMonth: 'credits / month', perDay: 'neurons / day', neurons: 'neurons', unlimited: 'Unlimited',
       tokens: 'Omni Tokens', upgradeFor: 'Upgrade for', balance: 'Your balance', buy: 'Choose', owned: 'Active', validUntil: 'Valid until',
       free: 'Free', noPlans: 'No upgrade plans are available right now.', adminPwTitle: 'Admin approval', adminPwText: 'Enter an admin password to buy the {name} plan for {cost} Omni Tokens.',
       adminPwPlaceholder: 'Admin password', confirm: 'Buy', cancel: 'Cancel', buying: 'Activating...', close: 'Close',
       successTitle: 'Plan activated', failTitle: 'Could not activate the plan', insufficient: 'Not enough Omni Tokens. Buy more tokens first.',
       modelTitle: 'AI model', modelHint: 'Choose which model answers your questions. Standard is the default.', modelDefault: 'Standard', modelDefaultDesc: 'Default model',
       modelSelected: 'Selected', modelUse: 'Use', modelRequires: 'Requires the {tier} plan', modelUnavailable: 'Not available right now',
-      modelDescFlashLite: 'Fast and light', modelDescFlash: 'Smarter, for harder questions'
+      modelDescFlashLite: 'Fast and light', modelDescFlash: 'Smarter, for harder questions',
+      modelBtnTitle: 'AI model and plan', upgradeShort: 'Upgrade', modelLoading: 'Loading...',
+      freeName: 'Free', freeNone: 'Free', freeNote: 'Free plan: text questions only (no image/file attachments or model choice). Subscribe to Omni AI to get Base, Plus and Pro with smarter Gemini models.',
+      freeNoAttach: 'Image and file attachments are not available on the Free plan. Subscribe to Omni AI (Base/Plus/Pro) to use them.',
+      subscribeBtn: 'Subscribe to Omni AI', needsSub: 'Requires an Omni AI subscription', freeTextOnly: 'Text only',
+      subscribeToUpgrade: 'Subscribe to Omni AI to upgrade', baseDisabled: 'Not available right now', tapToUpgrade: 'Tap to upgrade',
+      xBase: '{n}× Base', neuronsLeft: '{n} / {c} neurons left today', resetsIn: 'resets in {t}',
+      warn80: 'You have used most of today\'s AI limit. A One-day Boost can keep you going.',
+      boostTitle: 'One-day Boost', boostHint: 'Out of daily neurons? Add more for today only — it disappears at midnight. Does not change your monthly credits.',
+      boostToday: 'Boosts bought today', boostBtn: 'Buy Boost', boostAdminText: 'Enter an admin password to buy a Boost (+{neurons} neurons, today only) for {cost} Omni Tokens.',
+      boostChip: 'Buy One-day Boost'
     },
     tl: {
       upgradeBtn: 'I-upgrade ang AI plan', today: 'ngayon', pillTitle: 'I-tap para makita ang Omni AI plans',
       title: 'Omni AI Plans', loading: 'Kinukuha ang plans...', loadError: 'Hindi makuha ang plans ngayon. Subukan muli mamaya.',
-      current: 'Kasalukuyang plan', none: 'Base (libre)', perMonth: 'credits / buwan', perDay: 'neurons / araw', neurons: 'neurons', unlimited: 'Walang limit',
+      current: 'Kasalukuyang plan', none: 'Base (kasama sa subscription mo)', inclSub: 'Kasama sa subscription', perMonth: 'credits / buwan', perDay: 'neurons / araw', neurons: 'neurons', unlimited: 'Walang limit',
       tokens: 'Omni Tokens', upgradeFor: 'I-upgrade sa halagang', balance: 'Balanse mo', buy: 'Piliin', owned: 'Aktibo', validUntil: 'Valid hanggang',
       free: 'Libre', noPlans: 'Walang available na upgrade plan ngayon.', adminPwTitle: 'Pahintulot ng Admin', adminPwText: 'Ilagay ang admin password para bilhin ang {name} plan sa halagang {cost} Omni Tokens.',
       adminPwPlaceholder: 'Admin password', confirm: 'Bilhin', cancel: 'Kanselahin', buying: 'Ina-activate...', close: 'Isara',
       successTitle: 'Na-activate ang plan', failTitle: 'Hindi ma-activate ang plan', insufficient: 'Kulang ang Omni Tokens. Bumili muna ng tokens.',
       modelTitle: 'AI model', modelHint: 'Piliin kung anong model ang sasagot sa mga tanong mo. Standard ang default.', modelDefault: 'Standard', modelDefaultDesc: 'Default na model',
       modelSelected: 'Napili', modelUse: 'Gamitin', modelRequires: 'Kailangan ang {tier} plan', modelUnavailable: 'Hindi available ngayon',
-      modelDescFlashLite: 'Mabilis at magaan', modelDescFlash: 'Mas matalino, para sa mas mahirap na tanong'
+      modelDescFlashLite: 'Mabilis at magaan', modelDescFlash: 'Mas matalino, para sa mas mahirap na tanong',
+      modelBtnTitle: 'AI model at plan', upgradeShort: 'I-upgrade', modelLoading: 'Kinukuha...',
+      freeName: 'Libre', freeNone: 'Libre', freeNote: 'Free plan: text na tanong lang (walang attach na larawan/file o pagpili ng model). Mag-subscribe sa Omni AI para sa Base, Plus at Pro na may mas matatalinong Gemini model.',
+      freeNoAttach: 'Hindi available ang pag-attach ng larawan/file sa Free plan. Mag-subscribe sa Omni AI (Base/Plus/Pro) para magamit ito.',
+      subscribeBtn: 'Mag-subscribe sa Omni AI', needsSub: 'Kailangan ng Omni AI subscription', freeTextOnly: 'Text lang',
+      subscribeToUpgrade: 'Mag-subscribe sa Omni AI para mag-upgrade', baseDisabled: 'Hindi available ngayon', tapToUpgrade: 'I-tap para mag-upgrade',
+      xBase: '{n}× ng Base', neuronsLeft: '{n} / {c} neurons na lang ngayon', resetsIn: 'magre-reset sa {t}',
+      warn80: 'Halos ubos na ang AI limit mo ngayong araw. Puwede kang bumili ng One-day Boost para makapagpatuloy.',
+      boostTitle: 'One-day Boost', boostHint: 'Ubos na ang daily neurons? Dagdagan para sa ngayong araw lang — mawawala ito sa hatinggabi. Hindi nito ginagalaw ang monthly credits.',
+      boostToday: 'Nabiling Boost ngayon', boostBtn: 'Bilhin ang Boost', boostAdminText: 'Maglagay ng admin password para bilhin ang Boost (+{neurons} neurons, ngayong araw lang) sa halagang {cost} Omni Tokens.',
+      boostChip: 'Bumili ng One-day Boost'
     }
   };
   function planStrings() { return PLAN_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
@@ -2515,6 +2582,189 @@
       if (v === 'flash' || v === 'flashLite') localStorage.setItem(AI_MODEL_CHOICE_KEY, v);
       else localStorage.removeItem(AI_MODEL_CHOICE_KEY);
     } catch (e) {}
+  }
+  // ---- Model / upgrade selector sa composer (Claude-style) -------------------------------
+  // Mobile: icon button lang (upgrade icon). Desktop: pill na may pangalan ng napiling model.
+  // Pindutin = sheet na may listahan ng model (check = napili) at "Upgrade" na bumubukas sa plans.
+  // Lahat ng datos (model, tier, lock) ay galing sa RELAY (/ai-assistant/plans); walang naka-hardcode.
+  const MODEL_OFFER_TTL_MS = 90000;
+  let aiModelOfferCache = { at: 0, data: null };
+  let aiModelOfferLoading = null;
+  function invalidateAiModelOffer() { aiModelOfferCache.at = 0; }
+  function loadAiModelOffer(force) {
+    if (!force && aiModelOfferCache.data && Date.now() - aiModelOfferCache.at < MODEL_OFFER_TTL_MS) return Promise.resolve(aiModelOfferCache.data);
+    if (aiModelOfferLoading) return aiModelOfferLoading;
+    aiModelOfferLoading = (async () => {
+      try {
+        const res = await authFetch(`${API_URL}/ai-assistant/plans`, { timeoutMs: 15000 });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data && data.success) { aiModelOfferCache = { at: Date.now(), data }; return data; }
+      } catch (e) {}
+      return null;
+    })().then((d) => { aiModelOfferLoading = null; return d; });
+    return aiModelOfferLoading;
+  }
+  function shortModelName(name) { return String(name || '').replace(/^gemini\s+/i, '').trim(); }
+  // Pangalan ng napiling model (o ng plan kung walang model na mapipili) para sa desktop pill.
+  function currentModelLabel(data) {
+    const ps = planStrings();
+    const am = data && data.aiModels;
+    if (am && am.enabled && Array.isArray(am.options) && am.options.length) {
+      const choice = getAiModelChoice();
+      const opt = am.options.find((o) => o.key === choice);
+      if (opt && !opt.locked && !opt.unavailable) return shortModelName(opt.name);
+      return ps.modelDefault;
+    }
+    return (data && data.currentTier && data.currentTier.name) || ps.upgradeShort;
+  }
+  // The composer button shows for every user who can chat with Omni AI: subscribers get the model/plan sheet,
+  // Free-plan users get an "Upgrade" button that opens the Omni AI Plans window.
+  function modelBtnAllowed() { return aiChatEnabled() && effectiveAiMode() === 'ai'; }
+  async function syncAiModelButton(force) {
+    const btn = document.getElementById('faq-model-btn');
+    if (!btn) return;
+    if (!modelBtnAllowed()) { btn.hidden = true; closeAiModelSheet(); return; }
+    const ps = planStrings();
+    btn.hidden = false;
+    if (!btn.dataset.modelReady) {
+      btn.dataset.modelReady = '1';
+      btn.addEventListener('click', (ev) => { ev.stopPropagation(); toggleAiModelSheet(); });
+    }
+    const label = document.getElementById('faq-model-label');
+    // Free plan (no Omni AI subscription): no model to choose, so the button is a plain "Upgrade" shortcut to the plans window.
+    if (!aiAssistantUnlocked()) {
+      btn.dataset.freePlan = '1';
+      btn.title = ps.upgradeBtn;
+      btn.setAttribute('aria-label', ps.upgradeBtn);
+      btn.removeAttribute('aria-haspopup');
+      closeAiModelSheet();
+      if (label) label.textContent = ps.upgradeShort;
+      return;
+    }
+    if (btn.dataset.freePlan === '1') {
+      delete btn.dataset.freePlan;
+      btn.setAttribute('aria-haspopup', 'dialog');
+      if (label) label.textContent = ps.modelDefault;
+    }
+    btn.title = ps.modelBtnTitle;
+    btn.setAttribute('aria-label', ps.modelBtnTitle);
+    if (label && !label.textContent) label.textContent = ps.modelDefault;
+    const data = await loadAiModelOffer(!!force);
+    if (!data) return;
+    // Kung naka-lock/hindi na available ang napiling model, bumalik sa Standard.
+    const am = data.aiModels;
+    const choice = getAiModelChoice();
+    if (choice) {
+      const opt = am && Array.isArray(am.options) ? am.options.find((o) => o.key === choice) : null;
+      if (!opt || opt.locked || opt.unavailable) setAiModelChoice('');
+    }
+    if (!modelBtnAllowed()) { btn.hidden = true; return; }
+    if (label) label.textContent = currentModelLabel(data);
+  }
+  function closeAiModelSheet() {
+    const sheet = document.getElementById('faq-model-sheet');
+    if (sheet) sheet.remove();
+    const btn = document.getElementById('faq-model-btn');
+    if (btn) { btn.classList.remove('is-active'); btn.setAttribute('aria-expanded', 'false'); }
+    document.removeEventListener('keydown', onModelSheetKey, true);
+    window.removeEventListener('resize', onModelSheetResize);
+  }
+  // Isara lang kapag nagbago ang LAPAD (rotate/resize). Ang pagbabago ng taas (keyboard, address bar sa mobile) ay hindi dapat magsara.
+  let modelSheetWidth = 0;
+  function onModelSheetResize() {
+    if (window.innerWidth !== modelSheetWidth) closeAiModelSheet();
+    else { const p = document.querySelector('#faq-model-sheet .faq-model-sheet-panel'); if (p) positionAiModelSheet(p); }
+  }
+  function onModelSheetKey(ev) { if (ev.key === 'Escape') closeAiModelSheet(); }
+  function toggleAiModelSheet() {
+    // Free plan: the button is "Upgrade" — go straight to the Omni AI Plans window.
+    if (!aiAssistantUnlocked()) { closeAiModelSheet(); openAiPlansModal(); return; }
+    if (document.getElementById('faq-model-sheet')) { closeAiModelSheet(); return; }
+    openAiModelSheet();
+  }
+  function positionAiModelSheet(panel) {
+    const btn = document.getElementById('faq-model-btn');
+    if (!btn || !panel) return;
+    if (window.innerWidth <= 768) { panel.style.left = ''; panel.style.top = ''; panel.style.bottom = ''; return; }
+    const r = btn.getBoundingClientRect();
+    const w = panel.offsetWidth || 280;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left));
+    panel.style.left = left + 'px';
+    panel.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+    panel.style.top = 'auto';
+  }
+  function renderAiModelSheetRows(panel, data) {
+    const ps = planStrings();
+    const rows = [];
+    const add = (cls, name, desc, side, attrs) => rows.push(`<button type="button" class="faq-model-row ${cls}" ${attrs}><span><span class="faq-model-name">${name}</span>${desc ? `<span class="faq-model-desc">${escapeHtml(desc)}</span>` : ''}</span><span class="faq-model-side">${side}</span></button>`);
+    const am = data && data.aiModels;
+    if (am && am.enabled && Array.isArray(am.options) && am.options.length) {
+      const choice = getAiModelChoice();
+      const check = '<i class="fa-solid fa-check faq-model-check"></i>';
+      add('', escapeHtml(ps.modelDefault), ps.modelDefaultDesc, choice === '' ? check : '', 'data-model="" data-usable="1"');
+      am.options.forEach((o) => {
+        const locked = !!o.locked, unavailable = !!o.unavailable;
+        const desc = o.key === 'flash' ? ps.modelDescFlash : ps.modelDescFlashLite;
+        const side = locked ? `<i class="fa-solid fa-lock"></i> ${escapeHtml(o.requiredTierName || '')}`
+          : (unavailable ? escapeHtml(ps.modelUnavailable) : (choice === o.key ? check : ''));
+        add(locked ? 'is-locked' : (unavailable ? 'is-unavailable' : ''), escapeHtml(shortModelName(o.name)), desc, side,
+          `data-model="${escapeHtml(o.key)}" data-usable="${locked || unavailable ? '0' : '1'}" data-locked="${locked ? '1' : '0'}"`);
+      });
+      rows.push('<div class="faq-model-sep"></div>');
+    }
+    const tierName = data && data.currentTier && data.currentTier.name ? data.currentTier.name : (data ? ps.none : '');
+    add('faq-model-upgrade', `<i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeShort)}`, '', escapeHtml(tierName), 'data-upgrade="1"');
+    panel.querySelector('.faq-model-list').innerHTML = rows.join('');
+    panel.querySelectorAll('.faq-model-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        if (row.dataset.upgrade === '1' || row.dataset.locked === '1') { closeAiModelSheet(); openAiPlansModal(); return; }
+        if (row.dataset.usable !== '1') return;
+        setAiModelChoice(row.dataset.model || '');
+        const label = document.getElementById('faq-model-label');
+        if (label) label.textContent = currentModelLabel(data);
+        closeAiModelSheet();
+      });
+    });
+    positionAiModelSheet(panel);
+  }
+  function openAiModelSheet() {
+    if (!modelBtnAllowed()) return;
+    const btn = document.getElementById('faq-model-btn');
+    const ps = planStrings();
+    const sheet = document.createElement('div');
+    sheet.id = 'faq-model-sheet';
+    sheet.className = 'faq-model-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-label', ps.modelBtnTitle);
+    sheet.innerHTML = `<div class="faq-model-sheet-backdrop"></div><div class="faq-model-sheet-panel"><div class="faq-model-sheet-handle"></div><div class="faq-model-list"></div></div>`;
+    document.body.appendChild(sheet);
+    const panel = sheet.querySelector('.faq-model-sheet-panel');
+    sheet.querySelector('.faq-model-sheet-backdrop').addEventListener('click', closeAiModelSheet);
+    document.addEventListener('keydown', onModelSheetKey, true);
+    modelSheetWidth = window.innerWidth;
+    window.addEventListener('resize', onModelSheetResize);
+    if (btn) { btn.classList.add('is-active'); btn.setAttribute('aria-expanded', 'true'); }
+    const cached = aiModelOfferCache.data;
+    if (cached) {
+      renderAiModelSheetRows(panel, cached);
+    } else {
+      panel.querySelector('.faq-model-list').innerHTML = `<div class="faq-model-row" style="cursor:default;"><span class="faq-model-name">${escapeHtml(ps.modelLoading)}</span></div>`;
+      positionAiModelSheet(panel);
+    }
+    // Laging subukang kumuha ng sariwang datos; i-update ang sheet kung nakabukas pa rin.
+    loadAiModelOffer(true).then((data) => {
+      if (!document.getElementById('faq-model-sheet')) return;
+      if (data) { renderAiModelSheetRows(panel, data); const label = document.getElementById('faq-model-label'); if (label) label.textContent = currentModelLabel(data); }
+      else if (!cached) renderAiModelSheetRows(panel, null);
+    });
+  }
+  // Compact na neurons: 4500 -> 4.5k, 19000 -> 19k, 1250000 -> 1.25M (iisang format sa pill, plans, boost at extra).
+  function fmtNeurons(n) {
+    const v = Math.max(0, Number(n) || 0);
+    const trim = (x, d) => String(Number(x.toFixed(d)));
+    if (v >= 999500) return trim(v / 1000000, 2) + 'M';
+    if (v >= 1000) return trim(v / 1000, 1) + 'k';
+    return String(Math.round(v));
   }
   const EXTRA_STRINGS = {
     en: { title: 'Extra credits', hint: 'Cheaper than upgrading: adds credits and daily limit, valid until the end of this month.', credits: 'credits', left: 'left this month', buy: 'Buy',
@@ -2538,26 +2788,52 @@
       swal.fire({ title: ps.title, html: `<div style="padding:8px 0;">${escapeHtml(ps.loadError)}</div>`, confirmButtonText: ps.close, width: 560 });
       return;
     }
-    const cap = (n) => n === 0 ? ps.unlimited : Number(n).toLocaleString();
-    const validUntil = data.validUntil ? new Date(data.validUntil).toLocaleDateString() : '';
+    const cap = (n) => n === 0 ? ps.unlimited : fmtNeurons(n);
+    const validUntil = data.validUntil ? new Date(data.validUntil).toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
     // Base = pinakamababang tier (libre, default) — ipinapakita lang, hindi mabibili.
-    const allPlans = (data.baseTier ? [data.baseTier] : []).concat(data.plans || []);
+    // Base switched OFF in RELAY: hide the card completely (only kept visible if the device is currently ON Base,
+    // so an existing Base subscriber still sees their own active plan).
+    const baseHidden = !!(data.baseTier && data.baseTier.disabled && !data.baseTier.isCurrent);
+    const allPlans = (data.freeTier ? [data.freeTier] : []).concat(data.baseTier && !baseHidden ? [data.baseTier] : [], data.plans || []);
     const cards = allPlans.map((p) => {
-      const action = p.isCurrent
-        ? `<span style="font-weight:700;color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.owned)}</span>`
-        : (p.canPurchase
-          ? `<button type="button" class="faq-plan-buy-btn" data-tier="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" data-cost="${p.costTokens}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(data.currentTier ? ps.upgradeFor : ps.buy)} ${p.costTokens} ${escapeHtml(ps.tokens)}</button>`
-          : (p.locked ? `<span style="font-size:.85rem;font-weight:700;color:#dc2626;"><i class="fa-solid fa-lock"></i> ${escapeHtml(p.lockedReason || '')}</span>` : ''));
-      return `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:12px 14px;margin:8px 0;text-align:left;${p.isCurrent ? 'outline:2px solid #16a34a;' : ''}">
+      // Whole card is clickable when it leads somewhere: subscribe (Free/no subscription) or buy/upgrade (subscribed).
+      // Base switched OFF in RELAY (p.disabled) is shown greyed out and is not clickable.
+      const baseOff = !!(p.isBase && p.disabled);
+      let act = '';
+      let action = '';
+      if (p.isCurrent) {
+        action = `<span style="font-weight:700;color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.owned)}</span>`;
+      } else if (baseOff) {
+        action = `<span style="font-size:.85rem;font-weight:700;opacity:.75;"><i class="fa-solid fa-ban"></i> ${escapeHtml(ps.baseDisabled)}</span>`;
+      } else if (p.needsSubscription && p.isBase) {
+        act = 'subscribe';
+        action = `<button type="button" class="faq-plan-sub-btn" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(ps.subscribeBtn)}</button>`;
+      } else if (p.needsSubscription) {
+        act = 'subscribe';
+        action = `<span style="font-size:.85rem;font-weight:700;color:#2563eb;"><i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.subscribeToUpgrade)}</span>`;
+      } else if (p.canPurchase) {
+        act = 'buy';
+        action = `<button type="button" class="faq-plan-buy-btn" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(data.currentTier ? ps.upgradeFor : ps.buy)} ${p.costTokens} ${escapeHtml(ps.tokens)}</button>`;
+      } else if (p.locked) {
+        action = `<span style="font-size:.85rem;font-weight:700;color:#dc2626;"><i class="fa-solid fa-lock"></i> ${escapeHtml(p.lockedReason || '')}</span>`;
+      }
+      const clickAttrs = act
+        ? ` class="faq-plan-card" data-act="${act}" data-tier="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" data-cost="${Number(p.costTokens) || 0}" role="button" tabindex="0"`
+        : '';
+      const cardStyle = `border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:12px 14px;margin:8px 0;text-align:left;${p.isCurrent ? 'outline:2px solid #16a34a;' : ''}${act ? 'cursor:pointer;' : ''}${baseOff ? 'opacity:.55;' : ''}`;
+      return `<div${clickAttrs} style="${cardStyle}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:1.05rem;">${escapeHtml(p.name)}</strong>
-          <span style="font-weight:700;">${p.isBase ? escapeHtml(ps.free) : `${p.priceTokens} ${escapeHtml(ps.tokens)}`}</span>
+          <span style="font-weight:700;">${p.isFree ? escapeHtml(ps.free) : (p.isBase ? escapeHtml(ps.inclSub) : `${p.priceTokens} ${escapeHtml(ps.tokens)}`)}</span>
         </div>
-        <div style="font-size:.85rem;opacity:.85;margin:4px 0 8px;">${p.monthlyCredits} ${escapeHtml(ps.perMonth)} · ${escapeHtml(cap(p.dailyCap))} ${escapeHtml(ps.perDay)}</div>
+        <div style="font-size:.85rem;opacity:.85;margin:4px 0 8px;">${p.monthlyCredits} ${escapeHtml(ps.perMonth)} · ${escapeHtml(cap(p.dailyCap))} ${escapeHtml(ps.perDay)}${p.textOnly ? ` · ${escapeHtml(ps.freeTextOnly)}` : ''}</div>
+        ${(p.creditsMultiplier && p.creditsMultiplier > 1 && !p.isBase && !p.isFree) ? `<div style="font-size:.85rem;font-weight:700;color:#2563eb;margin:-4px 0 8px;">${escapeHtml(ps.xBase.replace('{n}', p.creditsMultiplier))}</div>` : ''}
         <div>${action}</div>
       </div>`;
     }).join('') || `<div style="padding:8px 0;">${escapeHtml(ps.noPlans)}</div>`;
-    const cur = data.currentTier ? `${escapeHtml(ps.current)}: <strong>${escapeHtml(data.currentTier.name)}</strong>` : `${escapeHtml(ps.current)}: ${escapeHtml(ps.none)}`;
+    const cur = data.isFree
+      ? `${escapeHtml(ps.current)}: <strong>${escapeHtml(ps.freeName)}</strong><div style="margin-top:4px;opacity:.85;">${escapeHtml(ps.freeNote)}</div>`
+      : (data.currentTier ? `${escapeHtml(ps.current)}: <strong>${escapeHtml(data.currentTier.name)}</strong>` : `${escapeHtml(ps.current)}: ${escapeHtml(ps.none)}`);
     const bal = typeof data.balanceTokens === 'number' ? ` · ${escapeHtml(ps.balance)}: <strong>${data.balanceTokens}</strong> ${escapeHtml(ps.tokens)}` : '';
     const es = extraStrings();
     const ex = data.extraCredits;
@@ -2565,60 +2841,50 @@
         <strong style="font-size:1.02rem;">${escapeHtml(es.title)}</strong>
         <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(es.hint)}${ex.available !== null && ex.available !== undefined ? ` · ${ex.available} ${escapeHtml(es.left)}` : ''}${ex.purchasedCredits ? ` · ${escapeHtml(es.bought)}: ${ex.purchasedCredits}` : ''}</div>
         ${ex.packs.map((k) => `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-          <div><strong>${escapeHtml(k.name)}</strong><div style="font-size:.8rem;opacity:.8;">${k.credits} ${escapeHtml(es.credits)}${k.dailyBonus ? ` · +${Number(k.dailyBonus).toLocaleString()} ${escapeHtml(ps.perDay)}` : ''} · ${k.pricePerCredit} ${escapeHtml(es.perCredit)}</div></div>
+          <div><strong>${escapeHtml(k.name)}</strong><div style="font-size:.8rem;opacity:.8;">${k.credits} ${escapeHtml(es.credits)}${k.dailyBonus ? ` · +${fmtNeurons(k.dailyBonus)} ${escapeHtml(ps.perDay)}` : ''} · ${k.pricePerCredit} ${escapeHtml(es.perCredit)}</div></div>
           <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;">${k.priceTokens} ${escapeHtml(ps.tokens)}</span>
           ${k.canPurchase ? `<button type="button" class="faq-extra-buy-btn" data-pack="${escapeHtml(k.id)}" data-name="${escapeHtml(k.name)}" data-cost="${k.priceTokens}" data-credits="${k.credits}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(es.buy)}</button>` : `<span style="font-size:.8rem;color:#dc2626;max-width:180px;">${escapeHtml(k.unavailableReason || '')}</span>`}</div>
         </div>`).join('')}
       </div>` : '';
-    // AI model (Flash / Flash-Lite) — lalabas lang kung pinapayagan ng RELAY (Google AI naka-ON).
-    const am = data.aiModels;
-    let modelHtml = '';
-    if (am && am.enabled && Array.isArray(am.options) && am.options.length) {
-      let choice = getAiModelChoice();
-      const chosenOpt = am.options.find((o) => o.key === choice);
-      if (choice && (!chosenOpt || chosenOpt.locked || chosenOpt.unavailable)) { choice = ''; setAiModelChoice(''); }
-      const optDesc = (o) => (o.key === 'flash' ? ps.modelDescFlash : ps.modelDescFlashLite);
-      const optRow = (key, name, desc, locked, unavailable, lockedText) => {
-        const usable = !locked && !unavailable;
-        const isSel = (choice || '') === key;
-        const right = usable
-          ? `<span class="faq-model-state" style="font-weight:700;color:#16a34a;${isSel ? '' : 'display:none;'}"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.modelSelected)}</span><span class="faq-model-use" style="font-weight:700;color:#2563eb;${isSel ? 'display:none;' : ''}">${escapeHtml(ps.modelUse)}</span>`
-          : `<span style="font-size:.8rem;font-weight:700;color:#dc2626;"><i class="fa-solid fa-lock"></i> ${escapeHtml(lockedText)}</span>`;
-        return `<div class="faq-model-btn" data-model="${escapeHtml(key)}" data-usable="${usable ? '1' : '0'}" style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;${usable ? 'cursor:pointer;' : 'opacity:.75;'}${isSel ? 'outline:2px solid #16a34a;' : ''}">
-          <div><strong>${escapeHtml(name)}</strong><div style="font-size:.8rem;opacity:.8;">${escapeHtml(desc)}</div></div>
-          <div>${right}</div>
-        </div>`;
-      };
-      modelHtml = `<div style="margin-top:14px;text-align:left;">
-        <strong style="font-size:1.02rem;">${escapeHtml(ps.modelTitle)}</strong>
-        <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(ps.modelHint)}</div>
-        ${optRow('', ps.modelDefault, ps.modelDefaultDesc, false, false, '')}
-        ${am.options.map((o) => optRow(o.key, o.name, optDesc(o), !!o.locked, !!o.unavailable, o.locked ? ps.modelRequires.replace('{tier}', o.requiredTierName || '') : ps.modelUnavailable)).join('')}
-      </div>`;
-    }
-    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${modelHtml}${extraHtml}`;
+    const bo = data.dayBoost;
+    const boostHtml = (bo && bo.enabled && Array.isArray(bo.options) && bo.options.length) ? `<div id="faq-boost-section" style="margin-top:14px;text-align:left;">
+        <strong style="font-size:1.02rem;"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostTitle)}</strong>
+        <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(ps.boostHint)}${bo.boughtToday ? ` · ${escapeHtml(ps.boostToday)}: ${bo.boughtToday}/${bo.maxPerDay}` : ''}</div>
+        ${bo.options.map((o) => `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div><strong>+${fmtNeurons(o.neurons)} ${escapeHtml(ps.neurons)}</strong><div style="font-size:.8rem;opacity:.8;">${o.unavailableReason ? ` <span style="color:#dc2626;">${escapeHtml(o.unavailableReason)}</span>` : ''}</div></div>
+          <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;">${o.priceTokens} ${escapeHtml(ps.tokens)}</span>
+          ${o.canPurchase ? `<button type="button" class="faq-boost-buy-btn" data-boost="${escapeHtml(o.id)}" data-neurons="${o.neurons}" data-cost="${o.priceTokens}" style="cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-weight:700;background:#2563eb;color:#fff;">${escapeHtml(ps.boostBtn)}</button>` : ''}</div>
+        </div>`).join('')}
+      </div>` : '';
+    // Ang pagpili ng AI model ay nasa button sa composer (faq-model-btn), hindi na rito.
+    aiModelOfferCache = { at: Date.now(), data };
+    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${boostHtml}${extraHtml}`;
     swal.fire({
       title: ps.title, html, showConfirmButton: false, showCloseButton: true, width: 560,
       didOpen: (popup) => {
-        popup.querySelectorAll('.faq-plan-buy-btn').forEach((btn) => {
-          btn.addEventListener('click', () => buyAiPlan(btn.dataset.tier, btn.dataset.name, btn.dataset.cost));
+        popup.querySelectorAll('.faq-plan-card').forEach((card) => {
+          const run = () => {
+            if (card.dataset.act === 'subscribe') {
+              swal.close();
+              if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');
+            } else if (card.dataset.act === 'buy') {
+              buyAiPlan(card.dataset.tier, card.dataset.name, card.dataset.cost);
+            }
+          };
+          card.addEventListener('click', run);
+          card.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); run(); } });
         });
         popup.querySelectorAll('.faq-extra-buy-btn').forEach((btn) => {
           btn.addEventListener('click', () => buyExtraCredits(btn.dataset.pack, btn.dataset.name, btn.dataset.cost, btn.dataset.credits));
         });
-        popup.querySelectorAll('.faq-model-btn').forEach((row) => {
-          row.addEventListener('click', () => {
-            if (row.dataset.usable !== '1') return;
-            setAiModelChoice(row.dataset.model || '');
-            popup.querySelectorAll('.faq-model-btn').forEach((r) => {
-              const on = r === row;
-              r.style.outline = on ? '2px solid #16a34a' : '';
-              const st = r.querySelector('.faq-model-state'); const us = r.querySelector('.faq-model-use');
-              if (st) st.style.display = on ? '' : 'none';
-              if (us) us.style.display = on ? 'none' : '';
-            });
-          });
+        popup.querySelectorAll('.faq-boost-buy-btn').forEach((btn) => {
+          btn.addEventListener('click', () => buyDayBoost(btn.dataset.boost, btn.dataset.neurons, btn.dataset.cost));
         });
+        // Galing sa "daily limit reached" na button: dumiretso sa Boost section.
+        if (openAiPlansModal._scrollBoost) {
+          openAiPlansModal._scrollBoost = false;
+          setTimeout(() => popup.querySelector('#faq-boost-section')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+        }
       }
     });
   }
@@ -2644,6 +2910,39 @@
       data = await res.json().catch(() => null);
     } catch (e) { data = null; }
     if (data && data.success) {
+      invalidateAiModelOffer();
+      if (data.credits) refreshAiCreditPill(data.credits); else refreshAiCreditPill();
+      await swal.fire({ icon: 'success', title: ps.successTitle, text: data.message || '', confirmButtonText: ps.close });
+      return;
+    }
+    const msg = (data && data.message) || (status === 402 ? ps.insufficient : ps.loadError);
+    await swal.fire({ icon: 'error', title: ps.failTitle, text: msg, confirmButtonText: ps.close });
+    openAiPlansModal();
+  }
+
+  async function buyDayBoost(boostId, neurons, cost) {
+    const ps = planStrings();
+    const swal = window.Swal;
+    const pw = await swal.fire({
+      title: ps.adminPwTitle,
+      text: ps.boostAdminText.replace('{neurons}', fmtNeurons(neurons)).replace('{cost}', cost),
+      input: 'password', inputPlaceholder: ps.adminPwPlaceholder,
+      showCancelButton: true, confirmButtonText: ps.confirm, cancelButtonText: ps.cancel,
+      inputValidator: (v) => (!v ? ps.adminPwPlaceholder : undefined)
+    });
+    if (!pw.isConfirmed) { openAiPlansModal(); return; }
+    swal.fire({ title: ps.buying, allowOutsideClick: false, showConfirmButton: false, didOpen: () => swal.showLoading() });
+    let data = null; let status = 0;
+    try {
+      const res = await authFetch(`${API_URL}/ai-assistant/day-boost/purchase`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boostId, adminPassword: pw.value }), timeoutMs: 30000
+      });
+      status = res.status;
+      data = await res.json().catch(() => null);
+    } catch (e) { data = null; }
+    if (data && data.success) {
+      invalidateAiModelOffer();
       if (data.credits) refreshAiCreditPill(data.credits); else refreshAiCreditPill();
       await swal.fire({ icon: 'success', title: ps.successTitle, text: data.message || '', confirmButtonText: ps.close });
       return;
@@ -2676,6 +2975,7 @@
       data = await res.json().catch(() => null);
     } catch (e) { data = null; }
     if (data && data.success) {
+      invalidateAiModelOffer();
       if (data.credits) refreshAiCreditPill(data.credits); else refreshAiCreditPill();
       await swal.fire({ icon: 'success', title: ps.successTitle, text: data.message || '', confirmButtonText: ps.close });
       return;
@@ -2846,9 +3146,11 @@
           <div class="faq-ai-fallback-notice"><i class="fa-solid ${data.dailyLimitReached ? 'fa-hourglass-end' : 'fa-battery-empty'}"></i>
             <span>${escapeHtml(data.message || s.creditsExhausted)}</span>
           </div>
+          ${data.dailyLimitReached ? `<button type="button" class="faq-chip" id="faq-credit-boost-btn"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostChip)}</button>` : ''}
           <button type="button" class="faq-chip" id="faq-credit-upgrade-btn"><i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeBtn)}</button>
           <button type="button" class="faq-chip" id="faq-credit-exhausted-ticket-btn"><i class="fa-solid fa-life-ring"></i> ${escapeHtml(s.quickTicket)}</button>`;
         loadingBubble.querySelector('#faq-credit-upgrade-btn')?.addEventListener('click', () => openAiPlansModal());
+        loadingBubble.querySelector('#faq-credit-boost-btn')?.addEventListener('click', () => { openAiPlansModal._scrollBoost = true; openAiPlansModal(); });
         loadingBubble.querySelector('#faq-credit-exhausted-ticket-btn')?.addEventListener('click', openTicketModal);
         if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'user') chatHistory.pop();
         return true;
@@ -2886,6 +3188,7 @@
           status: res.status,
           providerUnavailable: !!(data && data.providerUnavailable),
           providerExhausted: !!(data && data.providerExhausted),
+          freeTierLimit: !!(data && (data.freeTierLimit || data.subscriptionRequired)),
           message: (data && data.message) || ''
         };
         // Ibinalik na ng RELAY ang credits ng palyang request — i-refresh
