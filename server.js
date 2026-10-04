@@ -3003,6 +3003,12 @@ async function relayFetch(url, options = {}, timeoutMs = 20000) {
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // Sumusunod sa panlabas na signal (hal. Stop button ng Omni AI) para maputol agad ang request papuntang RELAY.
+    const extSignal = options && options.signal;
+    if (extSignal) {
+        if (extSignal.aborted) controller.abort();
+        else extSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
     try {
         return await fetch(url, { ...options, signal: controller.signal });
     } finally {
@@ -7928,7 +7934,7 @@ app.get('/api/ai-assistant/free-status', async (req, res) => {
     const enabled = subscribed ? false : await getRelayAiFreeEnabled();
     res.json({ success: true, subscribed, enabled });
 });
-async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null, modelChoice = null) {
+async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null, modelChoice = null, signal = null) {
     if (!RELAY_API_KEY) {
         return { success: false, message: 'RELAY_API_KEY is not configured on this server.' };
     }
@@ -7937,9 +7943,11 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ messages, vision: !!vision, installationId, attachmentType: attachmentType || null, requestId: requestId || null, modelChoice: modelChoice || null })
+            body: JSON.stringify({ messages, vision: !!vision, installationId, attachmentType: attachmentType || null, requestId: requestId || null, modelChoice: modelChoice || null }),
+            signal: signal || undefined
         }, 50000);
         const data = await relayRes.json().catch(() => null);
+        if (signal && signal.aborted) return { success: false, cancelled: true, message: 'Cancelled.' };
         if (!relayRes.ok || !data) {
             return { success: false, statusCode: relayRes.status || 502, ...(data || {}), message: (data && data.message) || `AI relay request failed (HTTP ${relayRes.status}).` };
         }
@@ -7951,6 +7959,7 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         }
         return { success: true, answer: data.answer.trim(), credits: data.credits || null, creditCost: Number(data.creditCost) || 0 };
     } catch (err) {
+        if (signal && signal.aborted) return { success: false, cancelled: true, message: 'Cancelled.' };
         if (err && err.code === 'NO_INTERNET') {
             return { success: false, message: 'No internet connection has been detected on this device — this needed Omni AI.' };
         }
@@ -7962,8 +7971,8 @@ async function callRelayAiAssistant(messages, vision, attachmentType = null, req
         };
     }
 }
-async function callCloudflareWorkersAI(messages, attachmentType = null, requestId = null, modelChoice = null) {
-    return callRelayAiAssistant(messages, false, attachmentType, requestId, modelChoice);
+async function callCloudflareWorkersAI(messages, attachmentType = null, requestId = null, modelChoice = null, signal = null) {
+    return callRelayAiAssistant(messages, false, attachmentType, requestId, modelChoice, signal);
 }
 app.get('/api/ai-assistant/status', requireAiAssistantOrFree(), (req, res) => {
     res.json({ success: true, configured: isAiAssistantConfigured(), visionConfigured: isAiAssistantVisionConfigured() });
@@ -8100,8 +8109,8 @@ function computeSuggestedActions(question, answerText, isAdminRole) {
 function isAiAssistantVisionConfigured() {
     return isAiAssistantConfigured();
 }
-async function callCloudflareWorkersVisionAI(messages, requestId = null, modelChoice = null) {
-    return callRelayAiAssistant(messages, true, 'image', requestId, modelChoice);
+async function callCloudflareWorkersVisionAI(messages, requestId = null, modelChoice = null, signal = null) {
+    return callRelayAiAssistant(messages, true, 'image', requestId, modelChoice, signal);
 }
 const AI_ASSISTANT_MAX_FILE_BYTES = 8 * 1024 * 1024;
 const AI_ASSISTANT_MAX_EXTRACTED_CHARS = 20000;
@@ -8411,6 +8420,9 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
     const startedAt = Date.now();
     const username = (req.authUser && req.authUser.username) || 'Unknown';
     const requestId = crypto.randomUUID();
+    // STOP: kapag pinindot ng user ang Stop (nag-disconnect ang browser), itigil ang request papuntang RELAY/Google.
+    const aiAbort = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) aiAbort.abort(); });
     // Pinili ng user na Gemini model (Flash / Flash-Lite) mula sa Omni AI Plans. Ang RELAY ang nagpapasya kung pinapayagan (tier/availability);
     // kapag hindi, awtomatiko itong babalik sa default provider ng RELAY.
     const aiModelChoice = (!req.aiFreeTier && (req.body?.model === 'flash' || req.body?.model === 'flashLite')) ? req.body.model : null;
@@ -8428,15 +8440,18 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
                 ]
             }
         ];
-        result = await callCloudflareWorkersVisionAI(visionMessages, requestId, aiModelChoice);
+        result = await callCloudflareWorkersVisionAI(visionMessages, requestId, aiModelChoice, aiAbort.signal);
+        if (result.cancelled || aiAbort.signal.aborted) return;
         if (!result.success) {
             visionFailureReason = result.message || 'Unknown vision error.';
             console.error(`⚠️ Omni AI vision call failed (falling back to text-only): ${visionFailureReason}`);
-            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but the image analysis failed on this attempt (temporary error, not a permanent limitation — you DO normally support screenshots). Briefly tell them the image could not be processed this time, ask them to press Try again or re-attach a clearer/smaller screenshot, and meanwhile ask them to describe what they see so you can still help.)` }], 'image', requestId, aiModelChoice);
+            result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: `${question}\n\n(Note: the user attached a screenshot, but the image analysis failed on this attempt (temporary error, not a permanent limitation — you DO normally support screenshots). Briefly tell them the image could not be processed this time, ask them to press Try again or re-attach a clearer/smaller screenshot, and meanwhile ask them to describe what they see so you can still help.)` }], 'image', requestId, aiModelChoice, aiAbort.signal);
         }
     } else {
-        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }], fileDataUrl ? 'file' : null, requestId, aiModelChoice);
+        result = await callCloudflareWorkersAI([...baseMessages, { role: 'user', content: question }], fileDataUrl ? 'file' : null, requestId, aiModelChoice, aiAbort.signal);
     }
+    // Na-stop ng user: walang log, walang sagot na ipapadala (wala nang naghihintay) at hindi nasingil sa RELAY.
+    if (result.cancelled || aiAbort.signal.aborted) return;
 
     const tookMs = Date.now() - startedAt;
     if (!result.success) {
@@ -8497,6 +8512,24 @@ app.post('/api/ai-assistant/feedback', requireAiAssistantOrFree(), rateLimit('ai
     } catch (err) {
         console.error('⚠️ Hindi na-save ang Omni AI feedback:', err);
         return res.status(500).json({ success: false, message: 'Hindi na-save ang feedback.' });
+    }
+});
+// Reset Omni AI Insights (admin only): clears the question log and the 👍/👎 ratings.
+app.delete('/api/ai-assistant/analytics', (req, res) => {
+    if (!req.authUser || (req.authUser.role || '').toLowerCase() !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+    try {
+        // writeData() returns false (does not throw) when the DB write fails,
+        // so check it — otherwise we would report success on a failed reset.
+        if (writeData(FILE_AI_ASSISTANT_LOGS, []) === false) {
+            return res.status(500).json({ success: false, message: 'Could not reset the insights.' });
+        }
+        logAction(req.authUser.username, 'Reset the Omni AI Insights (cleared question history and ratings)');
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('⚠️ Could not reset Omni AI insights:', err);
+        return res.status(500).json({ success: false, message: 'Could not reset the insights.' });
     }
 });
 app.get('/api/ai-assistant/analytics', async (req, res) => {

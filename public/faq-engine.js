@@ -140,6 +140,8 @@
       aiModeAi: 'OmniAI',
       aiModeKb: 'FAQ',
       sendTitle: 'Send',
+      stopTitle: 'Stop',
+      aiStopped: 'Stopped. You were not charged for this question.',
       searchTitle: 'Search',
       chatPlaceholder: 'Reply to OmniAI...',
       searchPlaceholder: 'Search FAQ...',
@@ -184,6 +186,7 @@
       insTitle: 'Omni AI Insights', insTotal: 'Total questions', insAnswered: 'Answered', insHelpful: 'Helpful rate',
       insAvg: 'Avg. response', insTop: 'Most asked', insDown: 'Most downvoted (👎)', insFailed: 'Recent failed / unanswered',
       insNone: 'None yet', insError: 'Could not load Omni AI insights.', insClose: 'Close', insRated: 'rated', insLoading: 'Loading insights...',
+      insReset: 'Reset', insResetTitle: 'Reset Omni AI Insights?', insResetText: 'This permanently clears all question history and ratings.', insResetConfirm: 'Yes, reset', insResetDone: 'Insights were reset.', insResetError: 'Could not reset the insights.',
       diagnosticsQuestion: 'Please run a quick diagnostic check and tell me if anything looks unusual.',
       explainErrorQuestion: 'Can you explain the recent error(s) captured in my browser and what I should do about it?',
       noErrorsCaptured: 'No recent JavaScript errors have been captured in this browser session — that\'s a good sign!',
@@ -225,6 +228,8 @@
       aiModeAi: 'OmniAI',
       aiModeKb: 'FAQ',
       sendTitle: 'Ipadala',
+      stopTitle: 'Itigil',
+      aiStopped: 'Itinigil. Hindi ka nasingil sa tanong na ito.',
       searchTitle: 'Maghanap',
       chatPlaceholder: 'Reply to OmniAI...',
       searchPlaceholder: 'Maghanap sa FAQ...',
@@ -264,6 +269,7 @@
       insTitle: 'Omni AI Insights', insTotal: 'Kabuuang tanong', insAnswered: 'Nasagot', insHelpful: 'Helpful rate',
       insAvg: 'Avg. bilis ng sagot', insTop: 'Pinakamadalas itanong', insDown: 'Pinaka-nabigyan ng 👎', insFailed: 'Kamakailang nabigo / hindi nasagot',
       insNone: 'Wala pa', insError: 'Hindi ma-load ang Omni AI insights.', insClose: 'Isara', insRated: 'na-rate', insLoading: 'Nilo-load ang insights...',
+      insReset: 'I-reset', insResetTitle: 'I-reset ang Omni AI Insights?', insResetText: 'Permanenteng buburahin ang lahat ng tanong at rating.', insResetConfirm: 'Oo, i-reset', insResetDone: 'Na-reset na ang insights.', insResetError: 'Hindi ma-reset ang insights.',
       diagnosticsQuestion: 'Pakisuri ang quick diagnostic at sabihin kung may kakaiba.',
       explainErrorQuestion: 'Pwede mo bang ipaliwanag ang kamakailang error sa browser ko at ano ang dapat kong gawin?',
       noErrorsCaptured: 'Walang na-capture na JavaScript error sa browser session na ito — magandang tanda iyan!',
@@ -1717,10 +1723,18 @@
     // Tunay na ubos na ang daily quota (RELAY-confirmed) — walang saysay ang Retry. Kapag pansamantalang error lang
     // (rate limit/capacity/outage), iba ang mensahe at may Retry button pa rin.
     const providerQuotaOut = !!(providerDown && lastAiFailure.providerExhausted);
+    // Oras ng reset (PH time) mula sa retryAt ng RELAY — dati, "subukan ulit mamaya" lang ang sinasabi.
+    let providerResetNote = '';
+    if (providerQuotaOut && lastAiFailure.retryAt > Date.now()) {
+      try {
+        const t = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(lastAiFailure.retryAt));
+        providerResetNote = ` ${currentLang() === 'tl' ? `Magre-reset ito mga ${t} PH time.` : `It resets around ${t} PH time.`}`;
+      } catch (e) {}
+    }
     const html = `
       ${wasAiAttempted ? `
         <div class="faq-ai-fallback-notice">
-          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${providerQuotaOut ? s.aiProviderDown : (providerDown ? s.aiProviderBusy : s.aiFallbackNotice)}</div>
+          <div class="faq-ai-fallback-msg"><i class="fa-solid fa-triangle-exclamation"></i> ${providerQuotaOut ? s.aiProviderDown + escapeHtml(providerResetNote) : (providerDown ? s.aiProviderBusy : s.aiFallbackNotice)}</div>
           ${providerQuotaOut ? '' : `<button type="button" class="faq-chip faq-retry-ai-btn" data-action="retry-ai">
             <i class="fa-solid fa-arrow-rotate-right"></i> ${s.regenerate}
           </button>`}
@@ -1980,7 +1994,12 @@
   }
 
   // ---- AI credit/billing pill (top bar) ---------------------------------
+  // Timer para sa "resets in ..." countdown: ina-update ang oras bawat minuto at
+  // kumukuha ng bagong datos pagdating ng reset (dati, nakapako ang "resets in 3h 20m"
+  // at nanatiling "exhausted" ang pill kahit lumipas na ang reset hanggang may ibang trigger).
+  let aiPillResetTimer = null;
   async function refreshAiCreditPill(preloaded) {
+    if (aiPillResetTimer) { clearTimeout(aiPillResetTimer); aiPillResetTimer = null; }
     const pill = document.getElementById('ai-assistant-credit-pill');
     if (!pill) { syncAiModelButton(false); return; }
     const syncWrap = () => { if (typeof window.syncAiCreditExpiryWrapper === 'function') window.syncAiCreditExpiryWrapper(); };
@@ -2020,6 +2039,12 @@
       const dailyWarn = !!(daily && !dailyDone && dailyPct >= 0.8);
       pill.classList.toggle('low', (limit > 0 && remaining / limit <= 0.15 && remaining > 0) || dailyWarn);
       pill.classList.toggle('exhausted', remaining <= 0 || dailyDone);
+      // Oras ng reset sa orasan ng DEVICE: kung may resetsInMs galing RELAY, iyon ang gamit
+      // (hindi apektado kapag mali ang oras/date ng device); kung wala, balik sa resetsAt.
+      if (!data._rcvAt) data._rcvAt = Date.now();
+      const resetLocalMs = daily
+        ? (typeof daily.resetsInMs === 'number' ? data._rcvAt + daily.resetsInMs : Number(daily.resetsAt) || 0)
+        : 0;
       const fmtReset = (ms) => {
         const m = Math.max(1, Math.ceil((Number(ms) - Date.now()) / 60000));
         return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
@@ -2027,12 +2052,26 @@
       // Neurons ang ipinapakita (hindi tanong): natitira / kabuuang daily limit, compact (hal. 14.1k / 19k).
       const dailyLeft = daily ? (dailyDone ? 0 : Math.max(0, typeof daily.remaining === 'number' ? daily.remaining : daily.cap - daily.used)) : 0;
       const dailyText = !daily ? '' : ` · ${escapeHtml(ps.neuronsLeft.replace('{n}', fmtNeurons(dailyLeft)).replace('{c}', fmtNeurons(daily.cap)))}`;
-      const resetText = (dailyDone && daily.resetsAt) ? ` · ${escapeHtml(ps.resetsIn.replace('{t}', fmtReset(daily.resetsAt)))}` : '';
+      const resetText = (dailyDone && resetLocalMs) ? ` · ${escapeHtml(ps.resetsIn.replace('{t}', fmtReset(resetLocalMs)))}` : '';
       pill.innerHTML = `<i class="fa-solid fa-bolt"></i> ${escapeHtml(s.creditsLabel)}: ${remaining}/${limit}` +
         dailyText + resetText +
         (data.isFree ? ` · ${escapeHtml(ps.freeName)}` : (data.tier && data.tier.name ? ` · ${escapeHtml(data.tier.name)}` : ''));
       pill.title = dailyWarn ? ps.warn80 : ps.pillTitle;
       pill.style.cursor = 'pointer';
+      // Habang ubos ang daily neurons: i-tick ang countdown bawat minuto (walang fetch), at pagdating
+      // ng reset ay kumuha ng bagong status para mawala ang "exhausted".
+      if (dailyDone && resetLocalMs) {
+        const untilReset = resetLocalMs - Date.now();
+        if (untilReset <= 0) {
+          aiPillResetTimer = setTimeout(() => { aiPillResetTimer = null; refreshAiCreditPill().catch(() => {}); }, 15000);
+        } else {
+          aiPillResetTimer = setTimeout(() => {
+            aiPillResetTimer = null;
+            if (Date.now() >= resetLocalMs) refreshAiCreditPill().catch(() => {});
+            else refreshAiCreditPill(data).catch(() => {});
+          }, Math.min(60000, untilReset + 1500));
+        }
+      }
       if (!pill.dataset.planBound) {
         pill.dataset.planBound = '1';
         pill.addEventListener('click', () => openAiPlansModal());
@@ -2172,12 +2211,29 @@
 
   async function openInsightsModal() {
     const s = STRINGS();
-    const showHtml = (html) => {
+    // canReset = show the Reset button (only when the insights loaded fine).
+    const showHtml = async (html, canReset) => {
       if (window.Swal && typeof window.Swal.fire === 'function') {
-        window.Swal.fire({ title: s.insTitle, html, width: 560, confirmButtonText: s.insClose });
+        const r = await window.Swal.fire({
+          title: s.insTitle, html, width: 560, confirmButtonText: s.insClose,
+          showDenyButton: !!canReset, denyButtonText: s.insReset, denyButtonColor: '#dc2626'
+        });
+        if (r && r.isDenied) await resetInsights();
       } else {
         alert(html.replace(/<[^>]+>/g, ' '));
       }
+    };
+    const resetInsights = async () => {
+      const ask = await window.Swal.fire({ title: s.insResetTitle, text: s.insResetText, icon: 'warning', showCancelButton: true, confirmButtonText: s.insResetConfirm, cancelButtonText: s.insClose, confirmButtonColor: '#dc2626' });
+      if (!ask.isConfirmed) { openInsightsModal(); return; } // back to the insights
+      try {
+        const r = await authFetch(`${API_URL}/ai-assistant/analytics`, { method: 'DELETE', timeoutMs: 15000 });
+        const out = await r.json().catch(() => null);
+        if (!r.ok || !out || out.success === false) { await window.Swal.fire({ icon: 'error', text: (out && out.message) || s.insResetError, confirmButtonText: s.insClose }); }
+      } catch (e) {
+        await window.Swal.fire({ icon: 'error', text: s.insResetError, confirmButtonText: s.insClose });
+      }
+      openInsightsModal(); // reload (now empty)
     };
     try {
       const res = await authFetch(`${API_URL}/ai-assistant/analytics`, { timeoutMs: 15000 });
@@ -2201,7 +2257,7 @@
         ${section(s.insDown, list(d.topDownvoted, r => `${escapeHtml(r.question)} <span style="opacity:0.6;">×${r.count}</span>`))}
         ${section(s.insFailed, list(d.unansweredRecent, r => escapeHtml(r.question || '')))}
       </div>`;
-      showHtml(html);
+      showHtml(html, true);
     } catch (e) {
       showHtml(`<p>${escapeHtml(s.insError)}</p>`);
     }
@@ -2847,7 +2903,7 @@
         </div>`).join('')}
       </div>` : '';
     const bo = data.dayBoost;
-    const boostHtml = (bo && bo.enabled && Array.isArray(bo.options) && bo.options.length) ? `<div id="faq-boost-section" style="margin-top:14px;text-align:left;">
+    const boostHtml = (bo && bo.enabled && Array.isArray(bo.options) && bo.options.some((o) => o && o.canPurchase)) ? `<div id="faq-boost-section" style="margin-top:14px;text-align:left;">
         <strong style="font-size:1.02rem;"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostTitle)}</strong>
         <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(ps.boostHint)}${bo.boughtToday ? ` · ${escapeHtml(ps.boostToday)}: ${bo.boughtToday}/${bo.maxPerDay}` : ''}</div>
         ${bo.options.map((o) => `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -3114,9 +3170,13 @@
     pendingDiagnosticsRequested = false;
     clearImage();
 
+    const aiController = new AbortController();
+    aiAskController = aiController;
+
     try {
       const res = await authFetch(`${API_URL}/ai-assistant/ask`, {
         method: 'POST',
+        signal: aiController.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: query,
@@ -3146,7 +3206,7 @@
           <div class="faq-ai-fallback-notice"><i class="fa-solid ${data.dailyLimitReached ? 'fa-hourglass-end' : 'fa-battery-empty'}"></i>
             <span>${escapeHtml(data.message || s.creditsExhausted)}</span>
           </div>
-          ${data.dailyLimitReached ? `<button type="button" class="faq-chip" id="faq-credit-boost-btn"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostChip)}</button>` : ''}
+          ${(data.dailyLimitReached && !(aiModelOfferCache.data && aiModelOfferCache.data.dayBoost && !(Array.isArray(aiModelOfferCache.data.dayBoost.options) && aiModelOfferCache.data.dayBoost.options.some((o) => o && o.canPurchase)))) ? `<button type="button" class="faq-chip" id="faq-credit-boost-btn"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostChip)}</button>` : ''}
           <button type="button" class="faq-chip" id="faq-credit-upgrade-btn"><i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeBtn)}</button>
           <button type="button" class="faq-chip" id="faq-credit-exhausted-ticket-btn"><i class="fa-solid fa-life-ring"></i> ${escapeHtml(s.quickTicket)}</button>`;
         loadingBubble.querySelector('#faq-credit-upgrade-btn')?.addEventListener('click', () => openAiPlansModal());
@@ -3188,6 +3248,7 @@
           status: res.status,
           providerUnavailable: !!(data && data.providerUnavailable),
           providerExhausted: !!(data && data.providerExhausted),
+          retryAt: Number(data && data.retryAt) || 0,
           freeTierLimit: !!(data && (data.freeTierLimit || data.subscriptionRequired)),
           message: (data && data.message) || ''
         };
@@ -3241,9 +3302,20 @@
       });
       return true;
     } catch (err) {
+      // STOP: pinindot ng user ang Stop — itigil nang tahimik. Walang KB fallback, at hindi nasingil ang RELAY
+      // (naputol ang request kaya ibinabalik ang credits at hindi dinadagdag ang neurons).
+      if (aiController.signal.aborted) {
+        lastAiFailure = null;
+        const stoppedInner = loadingBubble.querySelector('.faq-chat-bubble');
+        if (stoppedInner) stoppedInner.innerHTML = `<div class="faq-ai-fallback-notice"><i class="fa-solid fa-circle-stop"></i> <span>${escapeHtml(s.aiStopped)}</span></div>`;
+        if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'user') chatHistory.pop();
+        return true;
+      }
       lastAiFailure = { status: 0, providerUnavailable: false, message: (err && err.message) || '' };
       loadingBubble.remove();
       return false;
+    } finally {
+      if (aiAskController === aiController) aiAskController = null;
     }
   }
 
@@ -3255,6 +3327,8 @@
   // BAGO: sa FAQ (Search) mode, magnifying-glass (Search) ang icon ng
   // send button sa halip na arrow-up; sa AI Chatbot mode, arrow-up pa rin.
   let sendButtonLoading = false;
+  // Controller ng kasalukuyang tanong sa Omni AI — gamit ng Stop (send button habang umiikot).
+  let aiAskController = null;
   function applySendButtonIcon() {
     const btn = document.getElementById('faq-send-btn');
     if (!btn || sendButtonLoading) return;
@@ -3302,16 +3376,33 @@
     if (!icon) return;
     sendButtonLoading = !!loading;
     if (loading) {
+      // Umiikot pa rin ang logo, may maliit na stop square sa gitna: pindutin para itigil ang tanong.
+      const stopLabel = (STRINGS().stopTitle || 'Stop');
       icon.className = '';
-      icon.innerHTML = omniLogoIcon('1.15em', true);
-      btn.disabled = true;
+      icon.innerHTML = '<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:1.15em;height:1.15em;vertical-align:-0.2em;">' +
+        omniLogoIcon('1.15em', true) +
+        '<span style="position:absolute;width:.34em;height:.34em;border-radius:2px;background:currentColor;"></span></span>';
+      btn.disabled = false;
+      btn.classList.add('faq-send-stop');
+      btn.title = stopLabel;
+      btn.setAttribute('aria-label', stopLabel);
     } else {
       btn.disabled = false;
+      btn.classList.remove('faq-send-stop');
       applySendButtonIcon();
     }
   }
 
   window.OmniFAQ = {
+    // Send button: habang may tinatakbong tanong, ang pindot ay STOP (itigil ang request); kung hindi, normal na send.
+    onSendClick: function () {
+      if (sendButtonLoading) {
+        if (aiAskController) { try { aiAskController.abort(); } catch (e) {} }
+        return;
+      }
+      const inputEl = document.getElementById('faq-ai-input');
+      return window.OmniFAQ.ask(inputEl ? inputEl.value : '');
+    },
     ask: async function (query) {
       const input = document.getElementById('faq-ai-input');
       const resultBox = document.getElementById('faq-ai-result');
