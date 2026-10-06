@@ -5737,6 +5737,28 @@ app.post('/api/branches/transfers/clear-history', requirePermission('branches'),
         res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}` });
     }
 });
+// Undoes a local stock change made for a branch transfer when RELAY did not accept the status change.
+// If nothing else touched the product since, the exact before-state (stock + batches) is restored; otherwise the
+// opposite operation is applied so any sale/restock that happened in between is NOT overwritten.
+function rollbackBranchTransferStock(stockMutation) {
+    if (!stockMutation) return;
+    try {
+        const rollbackProducts = readProductsNoImages();
+        const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
+        if (!rollbackProduct) return;
+        const untouched = Math.abs((parseFloat(rollbackProduct.stock) || 0) - (parseFloat(stockMutation.afterStock) || 0)) < 1e-6;
+        if (untouched && stockMutation.snapshot) {
+            rollbackProduct.stock = stockMutation.snapshot.stock;
+            if (stockMutation.snapshot.batches) rollbackProduct.batches = stockMutation.snapshot.batches;
+            else delete rollbackProduct.batches;
+        } else if (stockMutation.op === 'out') {
+            addBaseStock(rollbackProduct, stockMutation.qty);
+        } else {
+            deductProductStock(rollbackProduct, stockMutation.qty);
+        }
+        writeData(FILE_PRODUCTS, rollbackProducts);
+    } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
+}
 async function processBranchTransferRespond(req, res) {
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     const groupKeyHash = hashBranchGroupKey(storeSettings.branchGroupKey);
@@ -5775,6 +5797,13 @@ async function processBranchTransferRespond(req, res) {
             if (action === 'receive' && transfer.toInstallationId !== installationId) {
                 return res.status(403).json({ success: false, message: 'Only the destination branch can confirm receipt of this transfer.' });
             }
+            // BUGFIX: a missing/zero/negative/non-numeric qty from the relay made `stock - qty` NaN (or ADDED stock on a
+            // "send"), corrupting the product's stock. Reject it before touching anything.
+            const transferQty = uomPricing.round(parseFloat(transfer.qty), uomPricing.DECIMAL_PLACES);
+            if (!isFinite(transferQty) || transferQty <= 0) {
+                return res.status(400).json({ success: false, message: 'This transfer has an invalid quantity, so no stock was changed.' });
+            }
+            transfer.qty = transferQty;
             let products = readProductsNoImages();
             matchedProduct = findLocalProductForTransfer(products, transfer.sku, transfer.itemName);
             if (action === 'send') {
@@ -5785,20 +5814,22 @@ async function processBranchTransferRespond(req, res) {
                     if (currentStock < transfer.qty) {
                         return res.status(409).json({ success: false, message: `Not enough stock of "${matchedProduct.name}" here (only ${currentStock}, need ${transfer.qty}). Adjust the quantity or restock before marking as sent.` });
                     }
-                    const originalStock = currentStock;
-                    matchedProduct.stock = currentStock - transfer.qty;
+                    // BUGFIX: used `matchedProduct.stock = ...` directly, which desynced `batches` from `stock` on
+                    // batch-tracked products (the change was then undone by the next sale). Use the shared helper.
+                    const snapshot = { stock: matchedProduct.stock, batches: JSON.parse(JSON.stringify(matchedProduct.batches || null)) };
+                    deductProductStock(matchedProduct, transfer.qty);
                     writeData(FILE_PRODUCTS, products);
-                    stockMutation = { productCode: matchedProduct.code, originalStock };
+                    stockMutation = { productCode: matchedProduct.code, op: 'out', qty: transfer.qty, snapshot, afterStock: matchedProduct.stock };
                     logAction(username, `Branch transfer OUT: -${transfer.qty} "${matchedProduct.name}" (new stock: ${matchedProduct.stock}) to ${transfer.toBranchName || 'another branch'} [transfer ${transferId}]`);
                 }
             } else if (action === 'receive') {
                 if (!matchedProduct) {
                     stockNote = ` (no matching product found here for SKU/name "${transfer.sku || transfer.itemName}" — stock was not added; create a new Product entry or adjust manually)`;
                 } else {
-                    const originalStock = parseFloat(matchedProduct.stock) || 0;
-                    matchedProduct.stock = originalStock + transfer.qty;
+                    const snapshot = { stock: matchedProduct.stock, batches: JSON.parse(JSON.stringify(matchedProduct.batches || null)) };
+                    addBaseStock(matchedProduct, transfer.qty);
                     writeData(FILE_PRODUCTS, products);
-                    stockMutation = { productCode: matchedProduct.code, originalStock };
+                    stockMutation = { productCode: matchedProduct.code, op: 'in', qty: transfer.qty, snapshot, afterStock: matchedProduct.stock };
                     logAction(username, `Branch transfer IN: +${transfer.qty} "${matchedProduct.name}" (new stock: ${matchedProduct.stock}) from ${transfer.fromBranchName || 'another branch'} [transfer ${transferId}]`);
                 }
             }
@@ -5810,13 +5841,7 @@ async function processBranchTransferRespond(req, res) {
         });
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
-            if (stockMutation) {
-                try {
-                    const rollbackProducts = readProductsNoImages();
-                    const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
-                    if (rollbackProduct) { rollbackProduct.stock = stockMutation.originalStock; writeData(FILE_PRODUCTS, rollbackProducts); }
-                } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
-            }
+            rollbackBranchTransferStock(stockMutation);
             return res.status(relayRes.status || 502).json({ success: false, rolledBack: !!stockMutation, message: relayData.message || 'The transfer request could not be updated.' });
         }
         res.json({ success: true, transfer: relayData.transfer, stockNote: stockNote || undefined });
@@ -5825,13 +5850,7 @@ async function processBranchTransferRespond(req, res) {
         // local stock was already deducted/added, that change was never undone — the transfer's
         // status stayed unchanged on RELAY, so pressing the button again applied the stock
         // change a SECOND time. Roll it back here, same as the "relay said no" path above.
-        if (stockMutation) {
-            try {
-                const rollbackProducts = readProductsNoImages();
-                const rollbackProduct = rollbackProducts.find(p => String(p.code || '') === String(stockMutation.productCode || ''));
-                if (rollbackProduct) { rollbackProduct.stock = stockMutation.originalStock; writeData(FILE_PRODUCTS, rollbackProducts); }
-            } catch (rollbackErr) { console.error('[branch-transfer] stock rollback failed:', rollbackErr); }
-        }
+        rollbackBranchTransferStock(stockMutation);
         res.status(502).json({ success: false, rolledBack: !!stockMutation, message: `Could not reach the relay: ${err.message}` });
     }
 }
@@ -10779,9 +10798,11 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
         return res.status(400).json({ success: false, message:'Walang na-attach na file.' });
     }
     const cleanupTmpFile = () => fs.unlink(req.file.path, () => {});
-    const { username } = req.body;
+    // SECURITY FIX: this route runs multer AFTER the global auth middleware pinned req.body.username, so the multipart
+    // body was still empty then and the client could claim to be any admin. Use the authenticated session identity.
+    const username = (req.authUser && typeof req.authUser.username === 'string') ? req.authUser.username : '';
     const users = readData(FILE_USERS);
-    const activeUser = users.find(u => u.username.toLowerCase() === (username ||'').toLowerCase());
+    const activeUser = users.find(u => String(u.username || '').toLowerCase() === username.toLowerCase());
     if (!activeUser || activeUser.role.toLowerCase() !=='admin') {
         cleanupTmpFile();
         return res.status(403).json({ success: false, message:'Admin lang ang pwedeng mag-import ng products.' });
@@ -10861,7 +10882,7 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 if (stockRaw !=='' && isNaN(stock)) {
                     errors.push(`Row ${rowNum}: Hindi valid ang Stock para sa Code "${code}" — hindi na-update ang stock.`);
                 } else if (stockRaw !=='') {
-                    products[existingIdx].stock = stock;
+                    setProductStockExact(products[existingIdx], stock);
                 }
                 if (name) products[existingIdx].name = name;
                 if (categoryRaw) products[existingIdx].category = categoryRaw;
@@ -11017,7 +11038,14 @@ function findPriceLevelBarcodeConflict(products, product, excludeCode) {
     return null;
 }
 app.post('/api/products', requirePermission('products'), (req, res) => {
-    const { product } = req.body;
+    const { product } = req.body || {};
+    if (!product || typeof product !== 'object' || !String(product.code || '').trim()) {
+        return res.status(400).json({ success: false, message: 'A product with a valid Product Code is required.' });
+    }
+    const addStockError = validateIncomingStock(product);
+    if (addStockError) return res.status(400).json({ success: false, message: `❌ ${addStockError}` });
+    delete product.batches; // batches are only created through the Batch/Lot endpoints
+    delete product.stockBaseline;
     normalizeProductUomFields(product);
     const username = req.authUser.username;
     let products = readProductsNoImages();
@@ -11074,7 +11102,12 @@ app.put('/api/products/:code', requirePermission('products'), async (req, res) =
 });
 function processProductUpdate(req, res) {
     const { code } = req.params;
-    const { updatedData } = req.body;
+    const { updatedData } = req.body || {};
+    if (!updatedData || typeof updatedData !== 'object') {
+        return res.status(400).json({ success: false, message: 'No product data was provided.' });
+    }
+    const updStockError = validateIncomingStock(updatedData);
+    if (updStockError) return res.status(400).json({ success: false, message: `❌ ${updStockError}` });
     normalizeProductUomFields(updatedData);
     const username = req.authUser.username;
     let products = readProductsNoImages();
@@ -11087,7 +11120,10 @@ function processProductUpdate(req, res) {
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
     if (canApplyDirectly) {
-        products = products.map(p => p.code.trim().toLowerCase() === code.trim().toLowerCase() ? { ...p, ...updatedData } : p);
+        if (!products.some(p => p.code.trim().toLowerCase() === code.trim().toLowerCase())) {
+            return res.status(404).json({ success: false, message: 'Product not found.' });
+        }
+        products = products.map(p => p.code.trim().toLowerCase() === code.trim().toLowerCase() ? mergeProductUpdate(p, updatedData) : p);
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Updated product code: ${code}`);
         return res.json({ success: true, message:'Product updated successfully' });
@@ -11736,11 +11772,34 @@ function processRequestResolve(req, res) {
         } else {
             let products = readProductsNoImages();
             if (targetReq.type ==='ADD') {
-                products.push(targetReq.data);
+                // BUGFIX: the code could have been taken (direct add, import, or another approved request) while this
+                // request was pending -- approving it blindly created two products with the same code.
+                const addCode = String(targetReq.data && targetReq.data.code || '').trim().toLowerCase();
+                if (!addCode) {
+                    return res.status(400).json({ success: false, message: 'This ADD request has no product code and cannot be approved. Reject it instead.' });
+                }
+                if (products.some(p => String(p.code || '').trim().toLowerCase() === addCode)) {
+                    return res.status(409).json({ success: false, message: `Product Code [${targetReq.data.code}] is already in use, so this ADD request cannot be approved. Reject it instead.` });
+                }
+                const addReqStockError = validateIncomingStock(targetReq.data);
+                if (addReqStockError) {
+                    return res.status(400).json({ success: false, message: `${addReqStockError} Reject this request instead.` });
+                }
+                const addData = { ...targetReq.data };
+                delete addData.batches;
+                delete addData.stockBaseline;
+                products.push(addData);
                 logAction(username, `APPROVED ADD Request for product: ${targetReq.data?.name}`);
             }
             else if (targetReq.type ==='UPDATE') {
-                products = products.map(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase() ? { ...p, ...targetReq.data } : p);
+                const updReqStockError = validateIncomingStock(targetReq.data);
+                if (updReqStockError) {
+                    return res.status(400).json({ success: false, message: `${updReqStockError} Reject this request instead.` });
+                }
+                if (!products.some(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase())) {
+                    return res.status(404).json({ success: false, message: 'The product for this UPDATE request no longer exists. Reject the request instead.' });
+                }
+                products = products.map(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase() ? mergeProductUpdate(p, targetReq.data) : p);
                 logAction(username, `APPROVED UPDATE Request for code: ${targetReq.targetCode}`);
             }
             else if (targetReq.type ==='DELETE') {
@@ -11759,6 +11818,10 @@ function processRequestResolve(req, res) {
                 // at PO-receive, para laging magkatugma ang stock at batches sum.
                 const qtyToAdd = toQty3(targetReq.data?.qtyToAdd);
                 const prod = products.find(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase());
+                if (!prod) {
+                    // BUGFIX: used to log "APPROVED" and delete the request even though no stock was added.
+                    return res.status(404).json({ success: false, message: 'The product for this RESTOCK request no longer exists. Reject the request instead.' });
+                }
                 if (prod) {
                     // Same Batch/Lot Tracking gate as quick-restock: batch-info is
                     // only honored on approval when the feature is unlocked.
@@ -14022,6 +14085,12 @@ const STOCK_RETURN_DAMAGE_STATUSES = {
 // the selling-unit quantity (what the cashier/manager sees) plus a `factor` so restocking adds back the
 // correct number of BASE units (e.g. 2 Boxes x 24 = 48 pcs).
 function toQty3(v) { return Math.max(0, uomPricing.round(parseFloat(v) || 0, uomPricing.DECIMAL_PLACES)); }
+// Product cost per base unit. Products store cost in `cost` (never `costPrice`, which only exists on batches).
+// No fallback to the selling price: that invented a "cost" equal to the retail price and inflated write-off values.
+function productUnitCost(p) {
+    const c = parseFloat(p && p.cost);
+    return isFinite(c) && c > 0 ? c : 0;
+}
 function qtyEq(a, b) { return Math.abs((parseFloat(a) || 0) - (parseFloat(b) || 0)) < 1e-6; }
 
 // ---- BATCH / LOT TRACKING -------------------------------------------------
@@ -14071,6 +14140,31 @@ function getEffectiveExpiryMs(p) {
     }
     return null;
 }
+// BUGFIX (batch/stock drift): `product.stock` is the source of truth for sellable stock, but once a
+// product has batches, deductProductStock() re-computes `stock` as the SUM of the batches. If a product
+// already had plain (un-batched) stock when its first batch was added -- or `stock` was edited/transferred
+// without touching `batches` -- that extra stock was silently erased on the very next sale (e.g. stock 10 +
+// first lot of 5 = 15, then 1 sale -> stock 4 instead of 14). This moves any stock that is not covered by a
+// batch into the shared "UNSPECIFIED" bucket so stock and sum(batches) always agree. It never lowers stock.
+function foldLegacyStockIntoBatches(prod) {
+    if (!prod) return;
+    const stock = uomPricing.round(Math.max(0, parseFloat(prod.stock) || 0), uomPricing.DECIMAL_PLACES);
+    const batches = Array.isArray(prod.batches) ? prod.batches : [];
+    const batchSum = uomPricing.round(batches.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0), uomPricing.DECIMAL_PLACES);
+    const gap = uomPricing.round(stock - batchSum, uomPricing.DECIMAL_PLACES);
+    if (gap <= 1e-9) return;
+    if (!Array.isArray(prod.batches)) prod.batches = [];
+    let bucket = prod.batches.find(b => b.lotNumber === 'UNSPECIFIED' && !b.expiryDate);
+    if (!bucket) {
+        bucket = {
+            id: genBatchId(), lotNumber: 'UNSPECIFIED', quantity: 0, expiryDate: null,
+            costPrice: null, supplier: null, receivedDate: new Date().toISOString(),
+            notes: 'Auto-created: existing stock that was not assigned to a specific lot/batch.'
+        };
+        prod.batches.push(bucket);
+    }
+    bucket.quantity = uomPricing.round((parseFloat(bucket.quantity) || 0) + gap, uomPricing.DECIMAL_PLACES);
+}
 // Deducts `qty` base units from a product at sale time. When the product has
 // batches, deducts FEFO (oldest-expiring batch first) so the stock actually
 // leaving the shelf matches what the register reports; otherwise falls back to
@@ -14078,6 +14172,7 @@ function getEffectiveExpiryMs(p) {
 function deductProductStock(prod, qty) {
     const q = uomPricing.round(Math.max(0, parseFloat(qty) || 0), uomPricing.DECIMAL_PLACES);
     if (Array.isArray(prod.batches) && prod.batches.length > 0) {
+        foldLegacyStockIntoBatches(prod);
         let remaining = q;
         const ordered = sortBatchesFEFO(prod.batches);
         for (const batch of ordered) {
@@ -14104,6 +14199,8 @@ function addBaseStock(prod, baseQty, batchInfo) {
     const q = uomPricing.round((parseFloat(baseQty) || 0), uomPricing.DECIMAL_PLACES);
     const hasExplicitBatchInfo = !!(batchInfo && (String(batchInfo.lotNumber || '').trim() || String(batchInfo.expiryDate || '').trim()));
     if (q > 0 && ((Array.isArray(prod.batches) && prod.batches.length > 0) || hasExplicitBatchInfo)) {
+        // Cover any existing plain stock FIRST so creating the first batch can't make it vanish later.
+        foldLegacyStockIntoBatches(prod);
         if (!Array.isArray(prod.batches)) prod.batches = [];
         if (hasExplicitBatchInfo) {
             prod.batches.push({
@@ -14137,6 +14234,45 @@ function lineFactor(item) {
     if (q > 0 && isFinite(b) && b > 0) return uomPricing.round(b / q, 6);
     const f = parseFloat(item && item.factor);
     return f > 0 ? f : 1;
+}
+// Sets a product's stock to an exact value while keeping `batches` consistent (used by product edit,
+// request approval and bulk import, which used to assign `stock` directly and desync the batches).
+function setProductStockExact(prod, target) {
+    const t = uomPricing.round(Math.max(0, parseFloat(target) || 0), uomPricing.DECIMAL_PLACES);
+    const cur = uomPricing.round(Math.max(0, parseFloat(prod.stock) || 0), uomPricing.DECIMAL_PLACES);
+    const diff = uomPricing.round(t - cur, uomPricing.DECIMAL_PLACES);
+    if (diff > 1e-9) addBaseStock(prod, diff);
+    else if (diff < -1e-9) deductProductStock(prod, -diff);
+    else if (!Array.isArray(prod.batches) || prod.batches.length === 0) prod.stock = t;
+}
+// Validates a stock value coming from a client form/request. Returns null when OK, else an error message.
+function validateIncomingStock(data) {
+    if (!data || typeof data !== 'object' || !Object.prototype.hasOwnProperty.call(data, 'stock')) return null;
+    const n = (typeof data.stock === 'number') ? data.stock : parseFloat(data.stock);
+    if (data.stock === null || data.stock === '' || !isFinite(n) || n < 0) {
+        return 'Invalid stock value. Stock must be a number that is zero or higher.';
+    }
+    return null;
+}
+// Merges a product-form update into an existing product.
+//  * `batches` can never be overwritten from a form (use the batch endpoints).
+//  * `stock` goes through setProductStockExact() so batches stay in sync.
+//  * If the client also sends `stockBaseline` (the stock value the form was loaded with), only the CHANGE the
+//    user typed (stock - stockBaseline) is applied on top of the CURRENT server stock. Without this, merely
+//    saving a price/name edit re-wrote the stale stock shown in the form and wiped out sales made meanwhile.
+function mergeProductUpdate(existing, updates) {
+    const u = { ...(updates || {}) };
+    const hasStock = Object.prototype.hasOwnProperty.call(u, 'stock');
+    const newStock = hasStock ? parseFloat(u.stock) : NaN;
+    const baseline = parseFloat(u.stockBaseline);
+    delete u.stock; delete u.stockBaseline; delete u.batches;
+    const merged = { ...existing, ...u };
+    if (hasStock && isFinite(newStock) && newStock >= 0) {
+        const current = parseFloat(existing.stock) || 0;
+        const target = isFinite(baseline) ? Math.max(0, current + (newStock - baseline)) : newStock;
+        setProductStockExact(merged, target);
+    }
+    return merged;
 }
 function createStockReturnRecord({ sourceType, transactionId, requester, items, reason = '' }) {
     const now = new Date().toISOString();
@@ -14435,10 +14571,16 @@ app.put('/api/inventory-counts/:id', requirePermission('inventory_count'), requi
     const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
     const now = new Date().toISOString();
     let updated = 0;
+    // BUGFIX (double deduction): `variance` is applied as a DELTA on the live stock at finalize, so it must be measured
+    // against the stock at the moment of counting -- not the stock when the session was opened. Otherwise a sale made
+    // after the session started (stock 10 -> 9, shelf counted 9) was deducted twice (variance -1 on top of the sale).
+    const liveStockByCode = new Map(readProductsNoImages([]).map(p => [String(p.code || '').trim().toLowerCase(), p]));
     session.items.forEach(item => {
         const submitted = byCode.get(item.code.toLowerCase());
         if (!submitted || submitted.countedQty === undefined || submitted.countedQty === null || submitted.countedQty === '') return;
         const countedQty = toQty3(submitted.countedQty);
+        const liveProd = liveStockByCode.get(item.code.toLowerCase());
+        if (liveProd) item.systemQty = uomPricing.round(Math.max(0, parseFloat(liveProd.stock) || 0), uomPricing.DECIMAL_PLACES);
         item.countedQty = countedQty;
         item.variance = uomPricing.round(countedQty - item.systemQty, uomPricing.DECIMAL_PLACES);
         item.countedAt = now;
@@ -14480,7 +14622,7 @@ function processFinalizeInventoryCount(req, res) {
         } else {
             deductProductStock(prod, -diff);
         }
-        const cost = parseFloat(prod.costPrice) || parseFloat(prod.price) || 0;
+        const cost = productUnitCost(prod);
         totalVarianceValue += diff * cost;
         changedCount++;
     }
@@ -14556,7 +14698,7 @@ function processAddWasteEntry(req, res) {
         return res.status(400).json({ success: false, message: `Ang stock ng ${prod.name || code} ay ${currentStock} lang — hindi maaaring mag-log ng ${quantity}.` });
     }
     deductProductStock(prod, quantity);
-    const cost = parseFloat(prod.costPrice) || parseFloat(prod.price) || 0;
+    const cost = productUnitCost(prod);
     const entries = readData(FILE_WASTE_LOG, []);
     const entry = {
         id: genWasteId(),
@@ -14610,9 +14752,64 @@ function sumUnitsSoldSince(transactions, code, sinceIso) {
     return uomPricing.round(total, uomPricing.DECIMAL_PLACES);
 }
 
-function attachConsignmentComputedFields(record, transactions) {
+// BUGFIX (consignment over-payment): the "sold" figure used to be ALL sales of the product since the record's
+// date, with no upper limit. So (a) the store's own stock of the same product, and (b) a second consignment of the
+// same product, were both counted as this consignment's sales -- the supplier could be settled for more units than
+// were ever received. Now each sale is allocated oldest-record-first, and a record can never claim more than
+// (received - returned).
+function allocateConsignmentSales(records, transactions) {
+    const result = new Map(); // `${recordId}|${lowerCode}` -> base units sold
+    const sorted = [...(records || [])].sort((a, b) => (new Date(a.dateReceived).getTime() || 0) - (new Date(b.dateReceived).getTime() || 0));
+    const byCode = new Map();
+    for (const rec of sorted) {
+        for (const item of (rec.items || [])) {
+            const key = String(item.code || '').trim().toLowerCase();
+            if (!byCode.has(key)) byCode.set(key, []);
+            byCode.get(key).push({
+                id: rec.id, since: new Date(rec.dateReceived).getTime() || 0,
+                capacity: Math.max(0, (parseFloat(item.qtyReceived) || 0) - (parseFloat(item.qtyReturned) || 0)), used: 0
+            });
+        }
+    }
+    const sales = new Map(); // code -> [{at, qty}]
+    for (const t of (transactions || [])) {
+        const at = new Date(t.isoDate || t.timestamp || t.date || 0).getTime();
+        if (isNaN(at) || !Array.isArray(t.items)) continue;
+        for (const it of t.items) {
+            const key = String(it.code || '').trim().toLowerCase();
+            if (!byCode.has(key)) continue;
+            const q = (typeof it.baseQty === 'number') ? it.baseQty : (parseFloat(it.quantity) || 0);
+            if (!(q > 0)) continue;
+            if (!sales.has(key)) sales.set(key, []);
+            sales.get(key).push({ at, qty: q });
+        }
+    }
+    for (const [key, slots] of byCode.entries()) {
+        const list = (sales.get(key) || []).sort((a, b) => a.at - b.at);
+        for (const sale of list) {
+            let remaining = sale.qty;
+            for (const slot of slots) {
+                if (remaining <= 1e-9) break;
+                if (slot.since > sale.at) continue;
+                const room = slot.capacity - slot.used;
+                if (room <= 1e-9) continue;
+                const take = Math.min(room, remaining);
+                slot.used += take;
+                remaining -= take;
+            }
+        }
+        for (const slot of slots) result.set(`${slot.id}|${key}`, uomPricing.round(slot.used, uomPricing.DECIMAL_PLACES));
+    }
+    return result;
+}
+
+function attachConsignmentComputedFields(record, transactions, allRecords) {
+    const allocation = Array.isArray(allRecords) ? allocateConsignmentSales(allRecords, transactions) : null;
     const items = (record.items || []).map(item => {
-        const qtySoldTotal = sumUnitsSoldSince(transactions, item.code, record.dateReceived);
+        const allocKey = `${record.id}|${String(item.code || '').trim().toLowerCase()}`;
+        const qtySoldTotal = (allocation && allocation.has(allocKey))
+            ? allocation.get(allocKey)
+            : Math.min(sumUnitsSoldSince(transactions, item.code, record.dateReceived), Math.max(0, (parseFloat(item.qtyReceived) || 0) - (parseFloat(item.qtyReturned) || 0)));
         const qtySettled = uomPricing.round(parseFloat(item.qtySettled) || 0, uomPricing.DECIMAL_PLACES);
         const qtyReturned = uomPricing.round(parseFloat(item.qtyReturned) || 0, uomPricing.DECIMAL_PLACES);
         const qtyPendingSettlement = Math.max(0, uomPricing.round(qtySoldTotal - qtySettled, uomPricing.DECIMAL_PLACES));
@@ -14625,9 +14822,10 @@ function attachConsignmentComputedFields(record, transactions) {
 app.get('/api/consignments', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), (req, res) => {
     const status = String(req.query.status || '').trim().toLowerCase();
     let records = readData(FILE_CONSIGNMENTS, []);
+    const allConsignmentRecords = records;
     if (status) records = records.filter(r => String(r.status || '').toLowerCase() === status);
     const transactions = readData(FILE_TRANSACTIONS, []);
-    res.json({ success: true, consignments: records.map(r => attachConsignmentComputedFields(r, transactions)) });
+    res.json({ success: true, consignments: records.map(r => attachConsignmentComputedFields(r, transactions, allConsignmentRecords)) });
 });
 
 app.post('/api/consignments', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-create', 30, 10 * 60 * 1000), async (req, res) => {
@@ -14690,7 +14888,7 @@ app.post('/api/consignments/:id/settle', requirePermission('consignment_tracking
     const record = records[idx];
     if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
     const transactions = readData(FILE_TRANSACTIONS, []);
-    const computed = attachConsignmentComputedFields(record, transactions);
+    const computed = attachConsignmentComputedFields(record, transactions, records);
     const byCode = new Map(rawItems.map(i => [String(i.code || '').trim().toLowerCase(), i]));
     let settledAmount = 0, settledQtyTotal = 0;
     for (const item of record.items) {
@@ -14718,7 +14916,7 @@ app.post('/api/consignments/:id/settle', requirePermission('consignment_tracking
     records[idx] = record;
     writeData(FILE_CONSIGNMENTS, records);
     logAction(record.settlements[record.settlements.length - 1].by, `CONSIGNMENT SETTLED (${record.id}) with ${record.supplierName}: ₱${settledAmount.toFixed(2)} for ${settledQtyTotal} unit(s) sold.`);
-    res.json({ success: true, message: `Na-settle ang ₱${settledAmount.toFixed(2)} sa supplier.`, consignment: attachConsignmentComputedFields(record, transactions) });
+    res.json({ success: true, message: `Na-settle ang ₱${settledAmount.toFixed(2)} sa supplier.`, consignment: attachConsignmentComputedFields(record, transactions, records) });
 });
 
 app.post('/api/consignments/:id/return-unsold', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-return', 30, 10 * 60 * 1000), async (req, res) => {
@@ -14734,7 +14932,7 @@ function processConsignmentReturnUnsold(req, res) {
     const record = records[idx];
     if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
     const transactions = readData(FILE_TRANSACTIONS, []);
-    const computed = attachConsignmentComputedFields(record, transactions);
+    const computed = attachConsignmentComputedFields(record, transactions, records);
     const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     const byCode = new Map(rawItems.map(i => [String(i.code || '').trim().toLowerCase(), i]));
@@ -14760,7 +14958,7 @@ function processConsignmentReturnUnsold(req, res) {
     }
     if (!anyReturned) return res.status(400).json({ success: false, message: 'Walang na-proseso na return (baka lagpas sa unsold o zero lahat).' });
     const stillOpen = record.items.some(item => {
-        const c = attachConsignmentComputedFields(record, transactions).items.find(x => x.code === item.code);
+        const c = attachConsignmentComputedFields(record, transactions, records).items.find(x => x.code === item.code);
         return c && (c.qtyUnsold > 1e-6 || c.qtyPendingSettlement > 1e-6);
     });
     record.status = stillOpen ? 'active' : 'closed';
@@ -14775,7 +14973,7 @@ function processConsignmentReturnUnsold(req, res) {
         return res.status(500).json({ success: false, message: 'Hindi na-save ang return. Subukan muli.' });
     }
     logAction(req.authUser && req.authUser.username, `CONSIGNMENT RETURN TO SUPPLIER (${record.id}, ${record.supplierName})`);
-    res.json({ success: true, message: 'Naibalik sa supplier ang unsold na item(s).', consignment: attachConsignmentComputedFields(record, transactions) });
+    res.json({ success: true, message: 'Naibalik sa supplier ang unsold na item(s).', consignment: attachConsignmentComputedFields(record, transactions, records) });
 }
 
 // ============================================================================
@@ -14806,7 +15004,7 @@ app.get('/api/reports/dead-stock', requirePermission('dashboard'), requireFeatur
             const lastSoldAt = lastSoldByCode.has(code) ? lastSoldByCode.get(code) : null;
             const daysSinceLastSold = lastSoldAt ? Math.floor((now - lastSoldAt) / (24 * 60 * 60 * 1000)) : null;
             const stock = uomPricing.round(parseFloat(p.stock) || 0, uomPricing.DECIMAL_PLACES);
-            const cost = parseFloat(p.costPrice) || parseFloat(p.price) || 0;
+            const cost = productUnitCost(p);
             return {
                 code: p.code, name: p.name, category: p.category || '', stock,
                 lastSoldDate: lastSoldAt ? new Date(lastSoldAt).toISOString() : null,
@@ -15059,23 +15257,57 @@ async function processRefundTransaction(req, res) {
     const sumAllLinesGross = (targetTx.items || []).reduce((s, it) => s + lineGross(it), 0);
     const refundLines = [];
     const rejectedRefundItems = [];
-    for (const item of (targetTx.items || [])) {
-        const alreadyQty = toQty3(refundedQtyMap[item.code]);
-        const maxRefundableQty = Math.max(0, uomPricing.round(toQty3(item.quantity) - alreadyQty, uomPricing.DECIMAL_PLACES));
-        let qtyToRefund;
-        if (requestedItems) {
-            const requested = requestedItems.find(ri => ri.code === item.code);
-            if (!requested) continue;
-            qtyToRefund = toQty3(requested.quantity);
-            if (qtyToRefund <= 0) continue;
-            if (qtyToRefund > maxRefundableQty + 1e-6) {
-                rejectedRefundItems.push(`${item.name} (requested: ${qtyToRefund}, remaining refundable: ${maxRefundableQty})`);
+    let sumRefundGross = 0;
+    const DP = uomPricing.DECIMAL_PLACES;
+    const txLines = targetTx.items || [];
+    // BUGFIX: a sale can hold several lines with the same product code. The request and `refundedQty` are keyed by CODE,
+    // so the already-refunded qty and the requested qty must be shared out across those lines in order. Before, every
+    // line of that code received the FULL requested qty (lines X*2 + X*3, refund 2 => 4 units refunded).
+    const alreadyLeftByCode = new Map();
+    const lineRefundable = txLines.map(item => {
+        const key = String(item.code);
+        if (!alreadyLeftByCode.has(key)) alreadyLeftByCode.set(key, toQty3(refundedQtyMap[item.code]));
+        const lineQty = toQty3(item.quantity);
+        const alreadyLeft = alreadyLeftByCode.get(key);
+        const alreadyOnLine = Math.min(lineQty, alreadyLeft);
+        alreadyLeftByCode.set(key, uomPricing.round(alreadyLeft - alreadyOnLine, DP));
+        return Math.max(0, uomPricing.round(lineQty - alreadyOnLine, DP));
+    });
+    const requestLeftByCode = new Map();
+    if (requestedItems) {
+        const totalRefundableByCode = new Map();
+        const nameByCode = new Map();
+        txLines.forEach((item, i) => {
+            const key = String(item.code);
+            totalRefundableByCode.set(key, uomPricing.round((totalRefundableByCode.get(key) || 0) + lineRefundable[i], DP));
+            if (!nameByCode.has(key)) nameByCode.set(key, item.name);
+        });
+        for (const ri of requestedItems) {
+            if (!ri) continue;
+            const key = String(ri.code);
+            if (!totalRefundableByCode.has(key) || requestLeftByCode.has(key)) continue;
+            const requestedQty = toQty3(ri.quantity);
+            if (requestedQty <= 0) continue;
+            const maxForCode = totalRefundableByCode.get(key);
+            if (requestedQty > maxForCode + 1e-6) {
+                rejectedRefundItems.push(`${nameByCode.get(key)} (requested: ${requestedQty}, remaining refundable: ${maxForCode})`);
                 continue;
             }
-        } else {
-            qtyToRefund = maxRefundableQty;
-            if (qtyToRefund <= 0) continue;
+            requestLeftByCode.set(key, requestedQty);
         }
+    }
+    txLines.forEach((item, i) => {
+        const key = String(item.code);
+        let qtyToRefund;
+        if (requestedItems) {
+            const left = requestLeftByCode.get(key);
+            if (!(left > 1e-9)) return;
+            qtyToRefund = uomPricing.round(Math.min(left, lineRefundable[i]), DP);
+            requestLeftByCode.set(key, uomPricing.round(left - qtyToRefund, DP));
+        } else {
+            qtyToRefund = lineRefundable[i];
+        }
+        if (qtyToRefund <= 0) return;
         refundLines.push({
             code: item.code,
             name: item.name,
@@ -15084,7 +15316,9 @@ async function processRefundTransaction(req, res) {
             unit: item.unit || null,
             unitPrice: parseFloat(item.price) || 0
         });
-    }
+        const perUnitGross = item.quantity > 0 ? lineGross(item) / item.quantity : 0;
+        sumRefundGross += perUnitGross * qtyToRefund;
+    });
     if (rejectedRefundItems.length > 0) {
         return res.status(400).json({
             success: false,
@@ -15093,12 +15327,6 @@ async function processRefundTransaction(req, res) {
     }
     if (refundLines.length === 0) {
         return res.status(400).json({ success: false, message: 'No selected item has a remaining refundable quantity.' });
-    }
-    let sumRefundGross = 0;
-    for (const line of refundLines) {
-        const originalItem = targetTx.items.find(it => it.code === line.code);
-        const perUnitGross = originalItem.quantity > 0 ? lineGross(originalItem) / originalItem.quantity : 0;
-        sumRefundGross += perUnitGross * line.quantity;
     }
     const refundRatio = sumAllLinesGross > 0 ? Math.min(1, sumRefundGross / sumAllLinesGross) : 0;
     let refundAmount = Math.round(grandTotal * refundRatio * 100) / 100;
@@ -15372,7 +15600,7 @@ function computeLowStockItems() {
         if (po.status ==='ordered') {
             (po.items || []).forEach(it => {
                 const key = (it.code ||'').trim().toLowerCase();
-                openPoQtyByCode[key] = (openPoQtyByCode[key] || 0) + (parseInt(it.qty) || 0);
+                openPoQtyByCode[key] = uomPricing.round((openPoQtyByCode[key] || 0) + toQty3(it.qty), uomPricing.DECIMAL_PLACES);
             });
         }
     });
@@ -15720,6 +15948,8 @@ function processAddProductBatch(req, res) {
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     const username = req.authUser.username;
+    // BUGFIX: keep existing plain stock when the FIRST lot is created (otherwise it is erased on the next sale).
+    foldLegacyStockIntoBatches(prod);
     if (!Array.isArray(prod.batches)) prod.batches = [];
     const batch = {
         id: genBatchId(),
@@ -15749,6 +15979,7 @@ function processUpdateProductBatch(req, res) {
     let products = readProductsNoImages();
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    foldLegacyStockIntoBatches(prod);
     const batch = Array.isArray(prod.batches) ? prod.batches.find(b => b.id === batchId) : null;
     if (!batch) return res.status(404).json({ success: false, message: 'Batch/lot not found.' });
     if (quantity !== undefined && quantity !== null && String(quantity).trim() !== '') {
@@ -15776,6 +16007,7 @@ function processDeleteProductBatch(req, res) {
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     if (!Array.isArray(prod.batches)) prod.batches = [];
+    foldLegacyStockIntoBatches(prod);
     const batch = prod.batches.find(b => b.id === batchId);
     if (!batch) return res.status(404).json({ success: false, message: 'Batch/lot not found.' });
     prod.batches = prod.batches.filter(b => b.id !== batchId);
@@ -15795,7 +16027,7 @@ app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('p
         return res.status(400).json({ success: false, message:'Walang napiling item para sa Purchase Order.' });
     }
     const cleanItems = items
-        .map(it => ({ code: (it.code ||'').toString(), name: (it.name ||'').toString(), qty: parseInt(it.qty) || 0 }))
+        .map(it => ({ code: (it.code ||'').toString(), name: (it.name ||'').toString(), qty: toQty3(it.qty) }))
         .filter(it => it.code && it.qty > 0);
     if (cleanItems.length === 0) {
         return res.status(400).json({ success: false, message:'Walang valid na item/quantity sa Purchase Order.' });
@@ -15830,17 +16062,38 @@ function processPurchaseOrderReceive(req, res) {
     if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
     if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
     let products = readProductsNoImages();
+    const missingCodes = [];
+    let addedLines = 0;
     po.items.forEach(it => {
         const prod = products.find(p => p.code.trim().toLowerCase() === it.code.trim().toLowerCase());
-        if (prod) addBaseStock(prod, toQty3(it.qty));
+        if (prod) { addBaseStock(prod, toQty3(it.qty)); addedLines++; }
+        else missingCodes.push(it.code);
     });
-    writeData(FILE_PRODUCTS, products);
     po.status ='received';
     po.receivedBy = username;
     po.receivedAt = new Date().toISOString();
-    writeData(FILE_PURCHASE_ORDERS, orders);
-    logAction(username, `Na-receive ang Purchase Order #${po.id} (${po.supplier}) — idinagdag sa stock ang ${po.items.length} item/s`);
-    res.json({ success: true, message:'Na-receive ang Purchase Order at na-update ang stock.', po });
+    if (missingCodes.length) po.receivedMissingProducts = missingCodes;
+    // BUGFIX: products and the PO status used to be saved with two separate writes. If the second one failed,
+    // the stock was already added while the PO stayed "ordered", so receiving it again doubled the stock.
+    // Save both in ONE transaction like the other inventory flows.
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_PURCHASE_ORDERS, data: orders }
+        ]);
+    } catch (error) {
+        console.error('Purchase order receive commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Hindi na-save ang pag-receive ng Purchase Order. Walang permanenteng pagbabago na dapat naiwan; subukan muli.' });
+    }
+    logAction(username, `Na-receive ang Purchase Order #${po.id} (${po.supplier}) — idinagdag sa stock ang ${addedLines} item/s${missingCodes.length ? `; HINDI nahanap sa katalogo: ${missingCodes.join(', ')}` : ''}`);
+    res.json({
+        success: true,
+        message: missingCodes.length
+            ? `Na-receive ang Purchase Order. Pero hindi nahanap sa katalogo (walang naidagdag na stock): ${missingCodes.join(', ')}.`
+            : 'Na-receive ang Purchase Order at na-update ang stock.',
+        missingProducts: missingCodes,
+        po
+    });
 }
 app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const { id } = req.params;

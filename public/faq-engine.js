@@ -431,40 +431,90 @@
   function isFuzzyMatch(tokenA, tokenB) {
     if (!tokenA || !tokenB || tokenA === tokenB) return false;
     if (Math.max(tokenA.length, tokenB.length) < 4) return false;
+    // BAGO: magkatabing letra na nagkapalit (hal. "viod" vs "void") ay
+    // 1 pagkakamali lang sa pagtype, pero 2 edits sa Levenshtein.
+    if (tokenA.length === tokenB.length) {
+      for (let i = 0; i < tokenA.length - 1; i++) {
+        if (tokenA[i] !== tokenB[i]) {
+          if (tokenA[i] === tokenB[i + 1] && tokenA[i + 1] === tokenB[i] &&
+              tokenA.slice(i + 2) === tokenB.slice(i + 2)) return true;
+          break;
+        }
+      }
+    }
     const tolerance = Math.min(fuzzyTolerance(tokenA.length), fuzzyTolerance(tokenB.length));
     return levenshtein(tokenA, tokenB) <= tolerance;
   }
 
-  function scoreEntry(entry, queryTokens) {
+  // BAGO: word-aware matching. Dati, plain substring ang gamit
+  // (kaya ang "void" ay tumutugma rin sa "avoid" at hindi napapansin ang
+  // dami ng beses na lumabas ang salita). Ngayon, ang eksaktong salita o
+  // ang salitang nagsisimula sa query (hal. "void" -> "voided", "voiding",
+  // "void-able") ang pinakamataas ang score; ang pagkakatugma sa gitna ng
+  // salita (hal. Tagalog na may unlapi: "magvoid") ay tinatanggap lang sa
+  // keywords/tanong at mas mababa ang score.
+  function wordsOf(normText) {
+    return normText ? normText.split(' ') : [];
+  }
+  function hasWordMatch(words, tok) {
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (w === tok) return true;
+      if (tok.length >= 3 && w.startsWith(tok)) return true;
+      if (w.length >= 4 && tok.length > w.length && tok.startsWith(w)) return true;
+    }
+    return false;
+  }
+  function countWordMatches(words, tok) {
+    let n = 0;
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (w === tok || (tok.length >= 3 && w.startsWith(tok)) || (w.length >= 4 && tok.length > w.length && tok.startsWith(w))) n++;
+    }
+    return n;
+  }
+
+  // baseTokens = ang mismong tinype ng user (walang synonyms). Ang entry na
+  // may mismong salitang tinype ay laging nauuna sa mga synonym-only na tugma.
+  function scoreEntry(entry, queryTokens, baseTokens) {
     const kwText = normalize(entry.keywords.join(' '));
     const qText = normalize(entry.question);
     const aText = normalize(stripHtml(entry.answer));
+    const kwWords = wordsOf(kwText);
+    const qWords = wordsOf(qText);
+    const aWords = wordsOf(aText);
+    const literal = new Set(baseTokens || []);
 
-    // BAGO: mga token mula sa keywords/question ng entry na ito,
-    // gamit sa fuzzy fallback sa ibaba kapag walang eksaktong
-    // substring match ang isang query token (posibleng typo).
     const kwTokens = tokenize(entry.keywords.join(' '));
     const qTokens = tokenize(entry.question);
 
     let score = 0;
     queryTokens.forEach(tok => {
       let exactHit = false;
-      if (kwText.includes(tok)) { score += 3; exactHit = true; }
-      if (qText.includes(tok)) { score += 2; exactHit = true; }
-      if (aText.includes(tok)) { score += 0.5; exactHit = true; }
+      const isLiteral = literal.has(tok);
 
-      // BAGO: typo tolerance — kapag walang eksaktong tugma ang query
-      // token na ito, subukang tumugma nang malapit (fuzzy) sa mga
-      // salita ng entry. Mas mababa ang idinagdag na score kumpara sa
-      // eksaktong tugma, para huwag itong mangibabaw sa tunay na
-      // tumpak na resulta — pantulong lang ito kapag walang exact hit.
+      if (hasWordMatch(kwWords, tok)) { score += 3; exactHit = true; if (isLiteral) score += 2; }
+      else if (tok.length >= 4 && kwText.includes(tok)) { score += 1.5; exactHit = true; }
+
+      if (hasWordMatch(qWords, tok)) { score += 2; exactHit = true; if (isLiteral) score += 2; }
+      else if (tok.length >= 4 && qText.includes(tok)) { score += 1; exactHit = true; }
+
+      const aCount = countWordMatches(aWords, tok);
+      if (aCount > 0) {
+        // 0.5 sa unang paglabas + maliit na dagdag sa bawat karagdagang
+        // paglabas (hanggang 5) para ang mas "tungkol" sa salita ay mas mataas.
+        score += 0.5 + Math.min(aCount - 1, 4) * 0.25;
+        if (isLiteral) score += 1;
+        exactHit = true;
+      }
+
+      // typo tolerance (hindi nagbago): pantulong lang kapag walang exact hit.
       if (!exactHit && tok.length >= 4) {
         if (kwTokens.some(kt => isFuzzyMatch(tok, kt))) score += 1.5;
         else if (qTokens.some(qt => isFuzzyMatch(tok, qt))) score += 1;
       }
     });
 
-    
     const rawQuery = normalize(queryTokens.join(' '));
     entry.keywords.forEach(k => {
       const nk = normalize(k);
@@ -478,10 +528,20 @@
 
   function search(query, limit) {
     const kb = window.OMNIPOS_FAQ_KB || [];
-    const tokens = expandTokens(tokenize(query));
+    // BAGO: simpleng stemming — "voided"/"voiding"/"voids" -> "void",
+    // para lumabas pa rin ang lahat ng may salitang "void".
+    const baseTokens = [];
+    tokenize(query).forEach(t => {
+      baseTokens.push(t);
+      if (t.length >= 5) {
+        const m = t.match(/^(.{3,}?)(ing|ed|es|s)$/);
+        if (m && !baseTokens.includes(m[1])) baseTokens.push(m[1]);
+      }
+    });
+    const tokens = expandTokens(baseTokens);
     if (tokens.length === 0) return [];
 
-    const scored = kb.map(entry => ({ entry, score: scoreEntry(entry, tokens) }))
+    const scored = kb.map(entry => ({ entry, score: scoreEntry(entry, tokens, baseTokens) }))
       .filter(r => r.score > 0)
       .sort((a, b) => b.score - a.score);
 
@@ -494,7 +554,7 @@
     const q = (query || '').trim();
     if (q.length < 2) return [];
 
-    const results = search(q, 20);
+    const results = search(q, 60);
     const seen = new Set();
     const out = [];
     for (const r of results) {
@@ -512,8 +572,25 @@
   // both the classic single-card preview (renderAnswer, used by goTo()) and
   // the chat-bubble knowledge-base fallback (appendKbAnswerBubble, used by
   // OmniFAQ.ask()) — one implementation, two presentations.
+  function ensureKbRelatedStyles() {
+    if (document.getElementById('faq-kb-related-style')) return;
+    const st = document.createElement('style');
+    st.id = 'faq-kb-related-style';
+    st.textContent = `
+      .faq-related-list { list-style: none; margin: 8px 0 0; padding: 0; }
+      .faq-related-list li { padding: 7px 0; border-bottom: 1px solid rgba(148,163,184,0.25); line-height: 1.35; }
+      .faq-related-list li:last-child { border-bottom: 0; }
+      .faq-related-count { opacity: .7; font-weight: 500; }
+      .faq-related-cat { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: .72em; background: rgba(148,163,184,0.2); opacity: .85; white-space: nowrap; vertical-align: middle; }
+      .faq-related-list mark { background: rgba(250,204,21,0.45); color: inherit; border-radius: 3px; padding: 0 1px; }
+    `;
+    document.head.appendChild(st);
+  }
+
   function buildKbAnswerInnerHtml(query) {
-    const results = search(query, 5);
+    // BAGO: dati, 5 lang ang kinukuha (1 sagot + 3 related). Ngayon, lahat
+    // ng entry na may kaugnayan sa hinanap na salita ay ipinapakita.
+    const results = search(query, 100);
     const s = STRINGS();
 
     if (results.length === 0) {
@@ -534,8 +611,10 @@
     }
 
     const top = results[0].entry;
-    const related = results.slice(1, 4).map(r => r.entry);
+    const related = results.slice(1).map(r => r.entry);
+    const hlTokens = tokenize(query);
     const lang = currentLang();
+    ensureKbRelatedStyles();
     const verdict = (isPolarQuestion(query) && top.verdict && VERDICT_LABELS_FOR(lang)[top.verdict])
       ? VERDICT_LABELS_FOR(lang)[top.verdict] : null;
 
@@ -552,9 +631,9 @@
       </a>
       ${related.length ? `
         <div class="faq-ai-related">
-          <strong>${s.relatedQuestions}</strong>
-          <ul>
-            ${related.map(r => `<li><a href="#${slugId(r.id)}" class="faq-link" data-faq-id="${escapeHtml(r.id)}" data-faq-q="${escapeHtml(r.question)}">${escapeHtml(r.question)}</a></li>`).join('')}
+          <strong>${s.relatedQuestions} <span class="faq-related-count">(${related.length})</span></strong>
+          <ul class="faq-related-list">
+            ${related.map(r => `<li><a href="#${slugId(r.id)}" class="faq-link" data-faq-id="${escapeHtml(r.id)}" data-faq-q="${escapeHtml(r.question)}">${highlight(r.question, hlTokens)}</a> <span class="faq-related-cat">${escapeHtml(r.category)}</span></li>`).join('')}
           </ul>
         </div>` : ''}`;
   }
@@ -621,7 +700,7 @@
     }
 
     const tokens = expandTokens(tokenize(query));
-    const matches = suggest(query, 8);
+    const matches = suggest(query, 12);
     activeSuggestIndex = -1;
 
     if (!matches.length) {
@@ -892,6 +971,15 @@
 
   const AI_MODE_KEY = 'omnipos_faq_ai_mode';
 
+  // BUGFIX: dati, kapag nag-search ka sa FAQ (kb mode) tapos lumipat ka sa
+  // OmniAI, binubura ang resulta + search text, kaya blangko na pagbalik.
+  // Ngayon, itinatabi (stash) ang FAQ search (mismong DOM nodes, para
+  // buo pa rin ang mga event listener) at ang laman ng input habang nasa
+  // OmniAI, at ibinabalik pagbalik sa FAQ. Ganoon din ang draft na
+  // tina-type sa OmniAI composer — hindi na nahahalo sa FAQ search.
+  const kbModeStash = { nodes: null, input: '', lang: '' };
+  let aiModeDraftStash = '';
+
   function getStoredAiModePref() {
     try {
       const v = localStorage.getItem(AI_MODE_KEY);
@@ -959,10 +1047,32 @@
         const resultBox = document.getElementById('faq-ai-result');
         const input = document.getElementById('faq-ai-input');
         const suggestions = document.getElementById('faq-ai-suggestions');
-        if (resultBox) resultBox.innerHTML = '';
         if (suggestions) suggestions.style.display = 'none';
         activeSuggestIndex = -1;
-        if (nextMode === 'kb' && input) input.value = '';
+
+        if (currentMode === 'kb') {
+          // Aalis sa FAQ search papuntang OmniAI: itabi ang FAQ search.
+          const frag = document.createDocumentFragment();
+          if (resultBox) { while (resultBox.firstChild) frag.appendChild(resultBox.firstChild); }
+          kbModeStash.nodes = frag.childNodes.length ? frag : null;
+          kbModeStash.input = input ? input.value : '';
+          kbModeStash.lang = currentLang();
+          if (input) input.value = aiModeDraftStash;
+          aiModeDraftStash = '';
+        } else {
+          // Aalis sa OmniAI papuntang FAQ search: itabi ang AI draft,
+          // at ibalik ang dating FAQ search (kung meron).
+          aiModeDraftStash = input ? input.value : '';
+          if (resultBox) resultBox.innerHTML = '';
+          // Kapag napalitan ang wika habang nasa OmniAI, luma na ang naka-save
+          // na resulta (nasa dating wika) — huwag ibalik.
+          const sameLang = kbModeStash.lang === currentLang();
+          if (input) input.value = sameLang ? (kbModeStash.input || '') : '';
+          if (sameLang && kbModeStash.nodes && resultBox) resultBox.appendChild(kbModeStash.nodes);
+          kbModeStash.nodes = null;
+          kbModeStash.input = '';
+          kbModeStash.lang = '';
+        }
 
         renderAiModeToggle();
         if (nextMode === 'kb') keepFaqResultBelowToggles(document.getElementById('faq-ai-result'));
@@ -1939,7 +2049,119 @@
   function triggerAttach() {
     // FREE plan = text lang: bawal ang larawan/file (pinapatupad din ng RELAY).
     if (!aiAssistantUnlocked()) { alert(planStrings().freeNoAttach); return; }
-    document.getElementById('faq-ai-image-input')?.click();
+    openAttachSheet();
+  }
+
+  // ---- "Add to chat" sheet (Camera / Photos / Files) --------------------
+  // Parang sa Claude: bottom sheet na may 3 pagpipilian na diretso sa system
+  // picker ng device. Web/PWA ito, kaya ang browser mismo ang nagbubukas ng
+  // picker (hindi makakapag-listahan ang app ng mga larawan ng device):
+  //   Camera = <input capture="environment"> -> bubukas agad ang camera app
+  //   Photos = <input accept="image/*">       -> Photo Picker ng Android / Photos ng iOS
+  //   Files  = <input accept="docs">          -> system file picker (PDF, DOCX, TXT, CSV)
+  // Lahat ay dumadaan pa rin sa onImageSelected() kaya pareho ang validation/limits.
+  const ATTACH_DOC_ACCEPT = '.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv';
+  const ATTACH_STRINGS = {
+    en: { title: 'Add to chat', camera: 'Camera', photos: 'Photos', files: 'Files', close: 'Close' },
+    tl: { title: 'Idagdag sa chat', camera: 'Camera', photos: 'Photos', files: 'Files', close: 'Isara' }
+  };
+  function ensureAttachSheetStyles() {
+    if (document.getElementById('faq-attach-sheet-style')) return;
+    const st = document.createElement('style');
+    st.id = 'faq-attach-sheet-style';
+    st.textContent = `
+      .faq-attach-sheet { position: fixed; inset: 0; z-index: 100000; }
+      .faq-attach-sheet-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,0.45); opacity: 0; transition: opacity .18s ease; }
+      .faq-attach-sheet-panel { position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto; max-width: 520px; box-sizing: border-box;
+        background: var(--bg-card, #fff); color: var(--text-primary, #0f172a); border-radius: 22px 22px 0 0; padding: 8px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -8px 30px rgba(0,0,0,0.25); transform: translateY(100%); transition: transform .22s ease; }
+      .faq-attach-sheet.is-open .faq-attach-sheet-backdrop { opacity: 1; }
+      .faq-attach-sheet.is-open .faq-attach-sheet-panel { transform: translateY(0); }
+      .faq-attach-sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: rgba(100,116,139,0.4); margin: 0 auto 8px; }
+      .faq-attach-sheet-head { display: flex; align-items: center; justify-content: center; position: relative; min-height: 40px; margin-bottom: 10px; }
+      .faq-attach-sheet-head h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+      .faq-attach-sheet-close { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 50%;
+        background: transparent; color: inherit; font-size: 1.1rem; cursor: pointer; }
+      .faq-attach-sheet-grid { display: flex; gap: 10px; }
+      .faq-attach-tile { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 6px; border: 0; border-radius: 16px;
+        background: rgba(100,116,139,0.12); color: inherit; font-size: 0.95rem; font-weight: 500; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+      .faq-attach-tile:active { background: rgba(100,116,139,0.24); }
+      .faq-attach-tile-ico { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        background: rgba(100,116,139,0.18); font-size: 1.25rem; }
+      body.dark-mode .faq-attach-sheet-panel, .dark .faq-attach-sheet-panel { background: var(--dm-surface, #1f2937); color: var(--dm-text-primary, #f5f5f7); }
+      @media (min-width: 769px) {
+        .faq-attach-sheet-panel { bottom: 50%; border-radius: 22px; transform: translateY(50%) scale(.96); opacity: 0; transition: transform .18s ease, opacity .18s ease; }
+        .faq-attach-sheet.is-open .faq-attach-sheet-panel { transform: translateY(50%) scale(1); opacity: 1; }
+        .faq-attach-sheet-handle { display: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .faq-attach-sheet-backdrop, .faq-attach-sheet-panel { transition: none; }
+      }`;
+    document.head.appendChild(st);
+  }
+  function getAttachInput(kind) {
+    const id = 'faq-attach-input-' + kind;
+    let el = document.getElementById(id);
+    if (el) return el;
+    el = document.createElement('input');
+    el.type = 'file';
+    el.id = id;
+    el.style.display = 'none';
+    if (kind === 'camera') { el.accept = 'image/*'; el.setAttribute('capture', 'environment'); }
+    else if (kind === 'photos') { el.accept = 'image/*'; }
+    else { el.accept = ATTACH_DOC_ACCEPT; }
+    el.addEventListener('change', onImageSelected);
+    document.body.appendChild(el);
+    return el;
+  }
+  function closeAttachSheet() {
+    const sheet = document.getElementById('faq-attach-sheet');
+    if (!sheet) return;
+    document.removeEventListener('keydown', closeAttachSheet._onKey, true);
+    sheet.classList.remove('is-open');
+    setTimeout(() => { try { sheet.remove(); } catch (e) {} }, 220);
+  }
+  function openAttachSheet() {
+    if (document.getElementById('faq-attach-sheet')) return;
+    ensureAttachSheetStyles();
+    const a = ATTACH_STRINGS[currentLang() === 'tl' ? 'tl' : 'en'];
+    // Camera tile: touch devices lang (sa desktop, walang epekto ang capture at file picker lang ang lalabas).
+    const hasCamera = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    const tile = (kind, icon, label) => `<button type="button" class="faq-attach-tile" data-attach="${kind}"><span class="faq-attach-tile-ico"><i class="fa-solid ${icon}"></i></span><span>${escapeHtml(label)}</span></button>`;
+    const sheet = document.createElement('div');
+    sheet.id = 'faq-attach-sheet';
+    sheet.className = 'faq-attach-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-label', a.title);
+    sheet.innerHTML = `
+      <div class="faq-attach-sheet-backdrop"></div>
+      <div class="faq-attach-sheet-panel">
+        <div class="faq-attach-sheet-handle"></div>
+        <div class="faq-attach-sheet-head">
+          <button type="button" class="faq-attach-sheet-close" aria-label="${escapeHtml(a.close)}"><i class="fa-solid fa-xmark"></i></button>
+          <h3>${escapeHtml(a.title)}</h3>
+        </div>
+        <div class="faq-attach-sheet-grid">
+          ${hasCamera ? tile('camera', 'fa-camera', a.camera) : ''}
+          ${tile('photos', 'fa-image', a.photos)}
+          ${tile('files', 'fa-file-arrow-up', a.files)}
+        </div>
+      </div>`;
+    sheet.querySelector('.faq-attach-sheet-backdrop').addEventListener('click', closeAttachSheet);
+    sheet.querySelector('.faq-attach-sheet-close').addEventListener('click', closeAttachSheet);
+    sheet.querySelectorAll('[data-attach]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        // Dapat sabay sa tap ang input.click() (user gesture) — kaya una ito bago isara ang sheet.
+        const input = getAttachInput(btn.dataset.attach);
+        closeAttachSheet();
+        input.click();
+      });
+    });
+    closeAttachSheet._onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeAttachSheet(); } };
+    document.addEventListener('keydown', closeAttachSheet._onKey, true);
+    document.body.appendChild(sheet);
+    requestAnimationFrame(() => sheet.classList.add('is-open'));
   }
   function onImageSelected(event) {
     const file = event.target.files && event.target.files[0];

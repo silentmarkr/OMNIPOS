@@ -3803,6 +3803,12 @@ function switchView(viewKey, opts) {
         topHeaderEl.classList.toggle('terminal-header-mode', viewKey ==='terminal');
         topHeaderEl.classList.toggle('overview-header-mode', viewKey ==='overview');
     }
+    const headerLogoEl = document.getElementById('header-desktop-logo');
+    if (headerLogoEl) {
+        const isOv = viewKey === 'overview';
+        headerLogoEl.title = isOv ? 'Open menu' : 'Go to Overview';
+        headerLogoEl.setAttribute('aria-label', isOv ? 'OmniPOS - Open menu' : 'OmniPOS - Go to Overview');
+    }
     const headerHelpBtn = document.getElementById('header-help-btn');
     if (headerHelpBtn) {
         headerHelpBtn.classList.toggle('active', viewKey === 'faq');
@@ -18458,6 +18464,7 @@ function highlightInventoryRow(code) {
 }
 function openProductModal(mode, code ='') {
     document.getElementById('p-form-mode').value = mode;
+    { const _stockEl = document.getElementById('p-form-stock'); if (_stockEl) delete _stockEl.dataset.loadedStock; }
     const codeInput = document.getElementById('p-form-code');
     const scanBtn = document.getElementById('p-form-scan-btn');
     const scanPromptBtn = document.getElementById('p-form-scan-prompt-btn');
@@ -18504,6 +18511,9 @@ function openProductModal(mode, code ='') {
                 document.getElementById('p-form-price').value = match.price;
                 document.getElementById('p-form-cost').value = (match.cost !== undefined && match.cost !== null) ? match.cost :'';
                 document.getElementById('p-form-stock').value = match.stock;
+                // Remember the stock this form was loaded with so the server only applies the change the user typed,
+                // instead of overwriting stock that moved (sales/restocks on other terminals) while the form was open.
+                document.getElementById('p-form-stock').dataset.loadedStock = String(match.stock);
                 document.getElementById('p-form-supplier').value = match.supplier ||'';
                 document.getElementById('p-form-expiry').value = match.expiryDate ||'';
                 document.getElementById('p-form-threshold').value = (match.lowStockThreshold !== undefined && match.lowStockThreshold !== null) ? match.lowStockThreshold :'';
@@ -19741,6 +19751,10 @@ async function handleProductFormSubmit(e) {
     if (mode ==='UPDATE' || isScanRestock) {
         url = `${API_URL}/products/${code}`;
         reqMethod ='PUT';
+        if (mode ==='UPDATE' && !isScanRestock) {
+            const _loadedStock = document.getElementById('p-form-stock').dataset.loadedStock;
+            if (_loadedStock !== undefined && _loadedStock !== '' && isFinite(parseFloat(_loadedStock))) payload.stockBaseline = parseFloat(_loadedStock);
+        }
         bodyData = { updatedData: payload, userRole: currentUser.role, username: currentUser.username };
     }
     try {
@@ -24810,6 +24824,22 @@ function openSidebarMenu() {
     if (sidebar) {
         document.body.classList.add('sidebar-mobile-active');
         sidebar.classList.add('mobile-open');
+    }
+}
+// BAGO: ang OmniPOS logo sa header. Kapag NASA Overview na, ang pindot sa logo
+// ay nagbubukas ng sidebar menu (dating wala nang nangyayari dahil Overview rin
+// ang pupuntahan nito). Sa ibang page, hindi nagbago: pupunta pa rin sa Overview.
+function isOverviewViewActive() {
+    const hdr = document.getElementById('app-top-header');
+    if (hdr && hdr.classList.contains('overview-header-mode')) return true;
+    const v = document.getElementById('view-overview');
+    return !!(v && v.style.display !== 'none' && v.offsetParent !== null);
+}
+function handleHeaderLogoClick(ev) {
+    if (isOverviewViewActive()) {
+        openSidebarMenu();
+    } else {
+        switchView('overview');
     }
 }
 function closeSidebarMenu() {

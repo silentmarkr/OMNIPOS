@@ -414,7 +414,7 @@
             <header class="top-header" id="app-top-header" title="Double tap to fullscreen">
                 <div class="header-left">
                     <button class="hamburger-menu" id="btn-sidebar-toggle" onclick="openSidebarMenu()"><i class="fa-solid fa-bars"></i></button>
-                    <span class="header-desktop-logo" id="header-desktop-logo" onclick="switchView('overview')" title="Go to Overview" aria-label="OmniPOS - Go to Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}">
+                    <span class="header-desktop-logo" id="header-desktop-logo" onclick="handleHeaderLogoClick(event)" title="Go to Overview" aria-label="OmniPOS - Go to Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();handleHeaderLogoClick(event);}">
                         <i class="fa-solid fa-cash-register"></i> <span class="header-desktop-logo-text brand-word">Omn<span class="brand-i-wrap">i</span>POS</span>
                     </span>
                     <div class="terminal-brand-header" id="terminal-brand-header">
@@ -5256,7 +5256,7 @@
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js?v=20261003-4"></script>
-<script src="faq-engine.js?v=20261004-1"></script>
+<script src="faq-engine.js?v=20261004-3"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
 <script src="app.js?v=20261002-8"></script>
 <script src="app1.js?v=20261002-1"></script>

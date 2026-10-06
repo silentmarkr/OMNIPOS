@@ -15668,3 +15668,19 @@ body.dark-mode .faq-model-sheet-panel, .dark .faq-model-sheet-panel { background
 body.dark-mode .faq-model-row:hover, body.dark-mode .faq-model-row:focus-visible, .dark .faq-model-row:hover, .dark .faq-model-row:focus-visible { background: rgba(255,255,255,0.08); }
 body.dark-mode .faq-model-row .faq-model-check, body.dark-mode .faq-model-row.faq-model-upgrade .faq-model-name, .dark .faq-model-row .faq-model-check, .dark .faq-model-row.faq-model-upgrade .faq-model-name { color: #8ab4ff; }
 body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { background: rgba(124,92,255,0.28); color: var(--dm-text-primary, #f5f5f7); }
+
+/* ------------------------------------------------------------------
+   BUGFIX (desktop): ang buong Help/FAQ page ay nag-i-scroll dahil sa
+   .content-body { padding-bottom: 150px } (puwang para sa quick-access
+   dock) — nadadagdag ito sa taas ng #view-faq (100vh - 69px) kaya
+   lumalampas ng ~120px ang page. Sa Help page lang, ibinabalik sa 30px
+   ang bottom padding (katumbas ng -30px margin ng view) para eksaktong
+   kasya sa screen; ang tanging nag-i-scroll ay ang loob ng chat thread
+   (OmniAI) at ng result/shortcuts box (FAQ).
+   ------------------------------------------------------------------ */
+@media (min-width: 1025px) {
+  .content-body:has(#view-faq:not([style*="display: none"]):not([style*="display:none"])),
+  html[data-preload-view="faq"] .content-body {
+    padding-bottom: 30px;
+  }
+}
