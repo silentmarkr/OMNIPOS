@@ -15309,7 +15309,7 @@ async function processRefundTransaction(req, res) {
     let sumRefundGross = 0;
     const DP = uomPricing.DECIMAL_PLACES;
     const txLines = targetTx.items || [];
-    // BUGFIX: a  sale can hold several lines with the same product code. The request and `refundedQty` are keyed by CODE,
+    // BUGFIX: a sale can hold several lines with the same product code. The request and `refundedQty` are keyed by CODE,
     // so the already-refunded qty and the requested qty must be shared out across those lines in order. Before, every
     // line of that code received the FULL requested qty (lines X*2 + X*3, refund 2 => 4 units refunded).
     const alreadyLeftByCode = new Map();
