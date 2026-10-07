@@ -3069,10 +3069,16 @@ body.dark-mode .terminal-top-controls {
         flex-direction: row;
         align-items: center;
         flex-wrap: nowrap;
-        background: linear-gradient(180deg, #111827 0%, #0d1420 100%);
-        border: 1px solid #2d3748;
+        /* BUG FIX: dati ay hardcoded na madilim na gradient
+           (#111827 -> #0d1420) at #2d3748 na border ang card na ito,
+           kaya hindi sumusunod sa Day Mode at sa mga Pro Theme sa
+           desktop. Ngayon: light (Day) bilang default, at theme
+           variables (--dm-*) sa ilalim ng body.dark-mode (tingnan ang
+           mga rule sa ibaba ng block na ito). */
+        background: #ffffff;
+        border: 1px solid var(--border-color);
         border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         padding: 10px 16px;
         margin-bottom: 14px;
         gap: 0;
@@ -3127,6 +3133,70 @@ body.dark-mode .terminal-top-controls {
     .tx-search-card .btn-backup-search {
         padding: 9px 14px;
         white-space: nowrap;
+    }
+
+    /* ---- Day Mode: light na itsura ng mga control sa row ---- */
+    .tx-search-card .file-upload-btn {
+        background-color: #f8fafc;
+        border-color: #cbd5e1;
+        color: #475569;
+    }
+    .tx-search-card .file-upload-btn:hover {
+        background-color: #eff6ff;
+        border-color: #3b82f6;
+    }
+
+    /* ---- Dark / Pro Themes: sumusunod sa --dm-* variables ng
+       aktibong theme (Ocean, Emerald, Sunset, Rosegold, Cyber, Noir,
+       Mint Frost, Liquid Glass, Galaxy Ambient, atbp.) ---- */
+    body.dark-mode .tx-search-card {
+        background: var(--dm-surface);
+        border: var(--dm-border-width, 1px) solid var(--dm-border);
+        border-radius: var(--dm-radius, 12px);
+    }
+    body.dark-mode .tx-search-card .recovery-inner-card h3 {
+        color: var(--dm-text-primary);
+    }
+    body.dark-mode .tx-search-card .recovery-inner-card h3 i {
+        color: var(--dm-accent);
+    }
+    body.dark-mode .tx-search-card .file-upload-btn {
+        background-color: var(--dm-surface-alt);
+        border-color: var(--dm-border);
+        color: var(--dm-text-secondary);
+    }
+    body.dark-mode .tx-search-card .file-upload-btn:hover {
+        background-color: var(--dm-accent-soft);
+        border-color: var(--dm-accent);
+        color: var(--dm-text-primary);
+    }
+    body.dark-mode .tx-search-card .backup-id-input {
+        background-color: var(--dm-bg);
+        border: 1px solid var(--dm-border);
+        color: var(--dm-text-primary);
+    }
+    body.dark-mode .tx-search-card .backup-id-input::placeholder {
+        color: var(--dm-text-muted);
+    }
+    body.dark-mode .tx-search-card .backup-id-input:focus {
+        border-color: var(--dm-accent);
+    }
+    body.dark-mode .tx-search-card .btn-scan-backup {
+        background-color: var(--dm-surface-alt);
+        color: var(--dm-text-primary);
+        box-shadow: inset 0 0 0 1px var(--dm-border);
+    }
+    body.dark-mode .tx-search-card .btn-backup-search {
+        background: var(--dm-accent);
+        color: #ffffff;
+    }
+    body.dark-mode .tx-search-card .btn-backup-search:hover {
+        background: var(--dm-accent-hover);
+        filter: none;
+    }
+    body.dark-mode .tx-search-card .scan-icon-floating.btn-scan-qr {
+        background-color: var(--dm-accent);
+        color: #ffffff;
     }
 }
 .search-box-container {
@@ -8957,24 +9027,114 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 .faq-suggested-action-btn:hover { background: #16a34a; color: #fff; }
 
-.faq-image-preview-wrap { position: relative; display: inline-block; margin-bottom: 10px; }
-.faq-image-preview-wrap img {
-  max-height: 90px; max-width: 160px; border-radius: 10px;
-  border: 1px solid var(--border-color, #cbd5e1); object-fit: cover; display: block;
+/* ---- Attachments (Claude-style) ----
+   Composer tray: nasa loob ng textbox, sa itaas ng text; nag-i-slide (horizontal scroll) kapag marami.
+   Ipinadalang mensahe: nasa itaas ng bubble ang mga attachment, ang text ay nasa ilalim. ---- */
+.faq-att-tray {
+  display: none; align-items: stretch; gap: 8px;
+  overflow-x: auto; overflow-y: hidden;
+  padding: 2px 2px 8px 0; margin: 0 0 2px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  scrollbar-width: thin; cursor: default;
 }
-.faq-image-preview-wrap button {
-  position: absolute; top: -8px; right: -8px; width: 22px; height: 22px;
-  border-radius: 50%; border: none; background: #1e293b; color: #fff;
-  cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center;
+.faq-att-tray > .faq-att-item { scroll-snap-align: start; }
+.faq-att-item {
+  position: relative; flex: 0 0 auto; box-sizing: border-box;
+  height: 84px; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border-color, #cbd5e1);
+  background: var(--card-bg, #f1f5f9); color: var(--text-primary, #1e293b);
+  cursor: pointer; -webkit-tap-highlight-color: transparent; text-align: left;
 }
-.faq-chat-image-thumb { max-width: 220px; border-radius: 10px; margin-top: 8px; display: block; }
-.faq-file-preview-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  max-width: 160px; padding: 6px 10px; border-radius: 10px;
-  border: 1px solid var(--border-color, #cbd5e1); background: var(--card-bg, #f1f5f9);
-  font-size: 0.78rem; color: var(--text-color, #1e293b);
+.faq-att-item:focus-visible { outline: 2px solid var(--primary-blue, #2563eb); outline-offset: 2px; }
+.faq-att-item:active { opacity: 0.85; }
+.faq-att-image { width: 84px; }
+.faq-att-image img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.faq-att-file {
+  width: 116px; padding: 8px 10px;
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 4px;
 }
-.faq-file-preview-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.faq-att-file-type {
+  display: inline-block; max-width: 70%; padding: 1px 7px; border-radius: 7px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary, #64748b);
+}
+.faq-att-file-name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  width: 100%; font-size: 0.76rem; font-weight: 500; line-height: 1.25; word-break: break-all;
+}
+.faq-att-remove {
+  position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; padding: 0;
+  border-radius: 50%; border: 0; background: rgba(15, 23, 42, 0.72); color: #fff;
+  font-size: 0.68rem; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.faq-att-remove:active { background: rgba(15, 23, 42, 0.95); }
+body.dark-mode .faq-att-item, .dark .faq-att-item {
+  background: rgba(255, 255, 255, 0.06); border-color: var(--dm-border, rgba(255,255,255,0.14)); color: var(--dm-text-primary, #f5f5f7);
+}
+body.dark-mode .faq-att-file-type, .dark .faq-att-file-type { color: var(--dm-text-secondary, #9a9ba8); border-color: var(--dm-border, rgba(255,255,255,0.18)); }
+
+/* Mensahe ng user: attachment strip sa itaas, bubble (text) sa ilalim */
+.faq-chat-user { flex-direction: column; align-items: flex-end; justify-content: flex-start; gap: 6px; }
+.faq-chat-attachments {
+  display: flex; gap: 8px; align-self: stretch; width: 100%; box-sizing: border-box;
+  overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;
+  scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+.faq-chat-attachments::-webkit-scrollbar { display: none; }
+.faq-chat-attachments > .faq-att-item { scroll-snap-align: end; }
+.faq-chat-attachments > .faq-att-item:first-child { margin-left: auto; } /* nakahanay sa kanan, pero nag-i-scroll pa rin kapag umapaw */
+
+/* Fullscreen preview */
+.faq-att-preview { position: fixed; inset: 0; z-index: 100001; }
+.faq-att-preview-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.88); }
+.faq-att-preview-panel { position: absolute; inset: 0; display: flex; flex-direction: column; pointer-events: none; color: #fff; }
+.faq-att-preview-panel > * { pointer-events: auto; }
+.faq-att-preview-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0));
+}
+.faq-att-preview-close {
+  flex: 0 0 auto; width: 38px; height: 38px; border: 0; border-radius: 50%;
+  background: rgba(255,255,255,0.14); color: #fff; font-size: 1.05rem; cursor: pointer;
+}
+.faq-att-preview-title { min-width: 0; display: flex; flex-direction: column; }
+.faq-att-preview-name { font-size: 0.95rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.faq-att-preview-meta { font-size: 0.75rem; opacity: 0.7; }
+.faq-att-preview-body {
+  flex: 1 1 auto; min-height: 0; overflow: auto; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+}
+.faq-att-preview-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+.faq-att-preview-frame { width: 100%; height: 100%; border: 0; border-radius: 8px; background: #fff; }
+.faq-att-preview-text {
+  align-self: flex-start; margin: 0 auto; width: 100%; max-width: 820px; box-sizing: border-box;
+  padding: 14px 16px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #f1f5f9;
+  font: 0.82rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.faq-att-preview-card {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  max-width: 340px; padding: 26px 22px; border-radius: 18px; background: rgba(255,255,255,0.08);
+}
+.faq-att-preview-card-ico { font-size: 2.4rem; opacity: 0.9; }
+.faq-att-preview-card-name { font-size: 0.95rem; font-weight: 600; overflow-wrap: anywhere; }
+.faq-att-preview-card-msg { font-size: 0.82rem; opacity: 0.75; }
+.faq-att-preview-link {
+  display: inline-block; margin-top: 4px; padding: 9px 18px; border-radius: 999px;
+  background: var(--primary-blue, #2563eb); color: #fff; font-size: 0.85rem; font-weight: 600; text-decoration: none;
+}
+.faq-att-preview-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(255,255,255,0.16); color: #fff; font-size: 1rem; cursor: pointer;
+}
+.faq-att-prev { left: 8px; }
+.faq-att-next { right: 8px; }
 
 /* Composer (Claude-style): expanding textarea on top, buttons in a row below. */
 .faq-composer {
@@ -15654,6 +15814,10 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
 .faq-model-row .faq-model-desc { font-size: 0.78rem; opacity: 0.7; display: block; margin-top: 1px; }
 .faq-model-row .faq-model-side { flex-shrink: 0; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 5px; }
 .faq-model-row .faq-model-check { color: var(--primary-blue, #2563eb); font-size: 1rem; }
+.faq-model-scroll { position: relative; }
+.faq-model-scroll.is-scrollable { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: rgba(100,116,139,0.5) transparent; }
+.faq-model-scroll.is-scrollable::-webkit-scrollbar { width: 5px; }
+.faq-model-scroll.is-scrollable::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.5); border-radius: 3px; }
 .faq-model-sep { height: 1px; background: rgba(100,116,139,0.2); margin: 6px 4px; }
 .faq-model-row.faq-model-upgrade .faq-model-name { display: flex; align-items: center; gap: 8px; color: var(--primary-blue, #2563eb); }
 @media (min-width: 769px) {

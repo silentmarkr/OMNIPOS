@@ -53,6 +53,7 @@ body[data-theme="galaxyambient"] .top-header,
 body[data-theme="galaxyambient"] .metric-card,
 body[data-theme="galaxyambient"] .qa-card,
 body[data-theme="galaxyambient"] .overview-trend-card,
+body[data-theme="galaxyambient"] .tx-search-card,
 body[data-theme="galaxyambient"] .table-container,
 body[data-theme="galaxyambient"] .report-container,
 body[data-theme="galaxyambient"] .user-widget-dropdown,
@@ -68,6 +69,7 @@ body[data-theme="galaxyambient"] .swal2-popup {
 body[data-theme="galaxyambient"] .metric-card,
 body[data-theme="galaxyambient"] .qa-card,
 body[data-theme="galaxyambient"] .overview-trend-card,
+body[data-theme="galaxyambient"] .tx-search-card,
 body[data-theme="galaxyambient"] .table-container,
 body[data-theme="galaxyambient"] .report-container {
     border-radius: var(--dm-radius);

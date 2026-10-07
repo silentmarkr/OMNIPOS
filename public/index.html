@@ -215,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261003-2">
+    <link rel="stylesheet" href="style.css?v=20261008-1">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -3281,17 +3281,9 @@
                         <div id="faq-ai-result" class="faq-ai-result-box"></div>
 
                         <div class="faq-composer-dock" id="faq-composer-dock">
-                            <div id="faq-image-preview-wrap" class="faq-image-preview-wrap" style="display:none;">
-                                <img id="faq-image-preview" alt="Attached screenshot preview" style="display:none;">
-                                <span id="faq-file-preview-chip" class="faq-file-preview-chip" style="display:none;">
-                                    <i class="fa-solid fa-file-lines"></i>
-                                    <span id="faq-file-preview-name"></span>
-                                </span>
-                                <button type="button" id="faq-image-remove-btn" title="Remove attachment" onclick="OmniFAQ.clearImage()"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-
                             <div class="faq-composer" id="faq-composer">
-                                <input type="file" id="faq-ai-image-input" accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
+                                <div id="faq-attach-tray" class="faq-att-tray" aria-label="Attachments" style="display:none;"></div>
+                                <input type="file" id="faq-ai-image-input" multiple accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
                                 <div id="faq-quick-actions-row" class="faq-quick-actions-float" role="toolbar" aria-label="Quick actions">
                                     <div id="faq-quick-actions" class="faq-quick-actions"></div>
                                 </div>
@@ -5256,7 +5248,7 @@
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js?v=20261003-4"></script>
-<script src="faq-engine.js?v=20261004-3"></script>
+<script src="faq-engine.js?v=20261008-1"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
 <script src="app.js?v=20261002-8"></script>
 <script src="app1.js?v=20261002-1"></script>

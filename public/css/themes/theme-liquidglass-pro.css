@@ -70,6 +70,7 @@ body[data-theme="liquidglass"] .top-header,
 body[data-theme="liquidglass"] .metric-card,
 body[data-theme="liquidglass"] .qa-card,
 body[data-theme="liquidglass"] .overview-trend-card,
+body[data-theme="liquidglass"] .tx-search-card,
 body[data-theme="liquidglass"] .table-container,
 body[data-theme="liquidglass"] .report-container,
 body[data-theme="liquidglass"] .user-widget-dropdown,
@@ -86,7 +87,8 @@ body[data-theme="liquidglass"] .swal2-popup {
 
 body[data-theme="liquidglass"] .metric-card,
 body[data-theme="liquidglass"] .qa-card,
-body[data-theme="liquidglass"] .overview-trend-card {
+body[data-theme="liquidglass"] .overview-trend-card,
+body[data-theme="liquidglass"] .tx-search-card {
     border-radius: var(--dm-radius);
     transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
                 box-shadow 0.45s ease, background-color 0.3s ease;

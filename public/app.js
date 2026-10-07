@@ -1808,11 +1808,27 @@ async function promptModuleSubscription(featureId) {
     if (featureId === 'ai_assistant' && aiSubscriptionPlansLive) {
         const ap = aiSubscriptionPlansLive;
         const fmtN = (n) => { const v = Number(n) || 0; return v === 0 ? 'unlimited' : (v >= 1000 ? String(Number((v / 1000).toFixed(1))) + 'k' : String(v)); };
+        const modelNames = (models) => Array.isArray(models)
+            ? models.map(m => (m && (m.displayName || m.modelId)) ? String(m.displayName || m.modelId) : '').filter(Boolean)
+            : [];
         if (ap.baseEnabled !== false) {
-            aiPlanList.push({ id: 'base', name: 'Base', tagline: ap.base ? `${ap.base.monthlyCredits} credits / month · ${fmtN(ap.base.dailyCap)} neurons / day` : tagline, monthlyOnly: false });
+            aiPlanList.push({
+                id: 'base',
+                name: 'Base',
+                tagline: ap.base ? `${ap.base.monthlyCredits} credits / month · ${fmtN(ap.base.dailyCap)} neurons / day` : tagline,
+                monthlyOnly: false,
+                models: modelNames(ap.base && ap.base.models)
+            });
         }
         (Array.isArray(ap.tiers) ? ap.tiers : []).forEach((t) => {
-            aiPlanList.push({ id: t.id, name: t.name, tagline: `${t.monthlyCredits} credits / month · ${fmtN(t.dailyCap)} neurons / day`, monthlyOnly: true, monthlyPrice: Number(t.priceTokens) });
+            aiPlanList.push({
+                id: t.id,
+                name: t.name,
+                tagline: `${t.monthlyCredits} credits / month · ${fmtN(t.dailyCap)} neurons / day`,
+                monthlyOnly: true,
+                monthlyPrice: Number(t.priceTokens),
+                models: modelNames(t.models)
+            });
         });
     }
     let selectedPlanId = aiPlanList.length ? aiPlanList[0].id : null;
@@ -1834,6 +1850,7 @@ async function promptModuleSubscription(featureId) {
                 return `<div class="cb-tier-btn ai-plan-pick${active ? ' active' : ''}" data-plan="${plan.id}" role="button" tabindex="0" style="cursor:pointer;text-align:left;border-radius:10px;padding:10px 12px;">` +
                     `<div class="cb-tier-name" style="font-weight:700;font-size:0.9rem;">${displayName} — ${plan.name}</div>` +
                     `<div class="cb-tier-tagline" style="font-size:0.72rem;margin-top:2px;">${plan.tagline}</div>` +
+                    `${plan.models && plan.models.length ? `<div style="font-size:0.7rem;margin-top:5px;opacity:.8;"><strong>Google AI models:</strong> ${plan.models.map(x => escapeHtml(x)).join(', ')}</div>` : ''}` +
                     `<div class="cb-tier-price" style="font-size:0.95rem;font-weight:700;margin-top:6px;">₱${p}<span style="font-size:0.68rem;font-weight:400;"> / ${(plan.monthlyOnly || selectedCycle === 'monthly') ? 'month' : 'year'}</span></div>` +
                     `</div>`;
             }).join('') + `</div>`;
@@ -1848,7 +1865,7 @@ async function promptModuleSubscription(featureId) {
             <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">${displayName} is now a subscription. ${aiPlanList.length ? 'Pick a plan and a billing cycle:' : 'Pick a billing cycle:'}</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
             <div style="max-height:46vh;overflow:auto;">${plansHtml}</div>
-            ${aiPlanList.length ? '<p style="font-size:0.72rem;margin:8px 0 0;opacity:.75;">Plus, Pro and Business are monthly plans. The price shown is the total you pay.</p>' : ''}
+            ${aiPlanList.length ? '<p style="font-size:0.72rem;margin:8px 0 0;opacity:.75;">Plus, Pro and Business are monthly plans. The price shown is the total you pay. Google AI models shown on each plan are controlled by the developer in RELAY.</p>' : ''}
             ${buildActivationNoteHtml()}
         </div>`;
     };

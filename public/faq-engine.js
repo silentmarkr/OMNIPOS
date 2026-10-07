@@ -1796,10 +1796,33 @@
     else thread.style.removeProperty('--faq-tail-extra');
   }
 
-  function appendUserBubble(thread, text) {
+  // BAGO: ang mga attachment ay nasa ITAAS ng bubble (parang Claude) at ang text ay nasa ilalim.
+  // Pwedeng i-click ang bawat attachment para sa preview.
+  function appendUserBubble(thread, text, attachments) {
     const div = document.createElement('div');
     div.className = 'faq-chat-msg faq-chat-user';
-    div.innerHTML = `<div class="faq-chat-bubble">${escapeHtml(text)}</div>`;
+    const list = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+    const strip = list.length
+      ? `<div class="faq-chat-attachments">${list.map((x) => attachItemHtml(x, false)).join('')}</div>`
+      : '';
+    div.innerHTML = `${strip}<div class="faq-chat-bubble">${escapeHtml(text)}</div>`;
+    if (list.length) {
+      const stripEl = div.querySelector('.faq-chat-attachments');
+      if (stripEl) {
+        stripEl.addEventListener('click', (ev) => {
+          const item = ev.target.closest ? ev.target.closest('.faq-att-item') : null;
+          if (!item) return;
+          const i = list.findIndex((x) => x.id === item.getAttribute('data-id'));
+          if (i >= 0) openAttachPreview(list, i);
+        });
+        stripEl.addEventListener('keydown', (ev) => {
+          if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.classList && ev.target.classList.contains('faq-att-item')) {
+            ev.preventDefault();
+            ev.target.click();
+          }
+        });
+      }
+    }
     thread.appendChild(div);
     return div;
   }
@@ -2042,9 +2065,12 @@
   }
 
   // ---- attachment: screenshot (image) OR document (pdf/docx/txt/csv) ----
-  let pendingImageDataUrl = null;
-  let pendingFileDataUrl = null;
-  let pendingFileName = null;
+  // BAGO: maraming attachment kada tanong (hanggang MAX_ATTACH_IMAGES larawan + MAX_ATTACH_FILES dokumento).
+  // Bawat item: { id, kind: 'image' | 'file', name, size, mime, dataUrl }
+  const MAX_ATTACH_IMAGES = 4;
+  const MAX_ATTACH_FILES = 3;
+  let pendingAttachments = [];
+  let attachSeq = 0;
   const DOC_EXT_RE = /\.(pdf|docx|txt|csv|md|log)$/i;
   function triggerAttach() {
     // FREE plan = text lang: bawal ang larawan/file (pinapatupad din ng RELAY).
@@ -2062,9 +2088,18 @@
   // Lahat ay dumadaan pa rin sa onImageSelected() kaya pareho ang validation/limits.
   const ATTACH_DOC_ACCEPT = '.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv';
   const ATTACH_STRINGS = {
-    en: { title: 'Add to chat', camera: 'Camera', photos: 'Photos', files: 'Files', close: 'Close' },
-    tl: { title: 'Idagdag sa chat', camera: 'Camera', photos: 'Photos', files: 'Files', close: 'Isara' }
+    en: { title: 'Add to chat', camera: 'Camera', photos: 'Photos', files: 'Files', close: 'Close',
+          remove: 'Remove attachment', previewTitle: 'Attachment preview', prev: 'Previous', next: 'Next',
+          maxImages: 'You can attach up to 4 images per message.', maxFiles: 'You can attach up to 3 documents per message.',
+          noPreview: 'No preview available for this file type.', openFile: 'Open file', downloadFile: 'Download',
+          truncated: '… (preview truncated)', readFail: 'Could not read that file.' },
+    tl: { title: 'Idagdag sa chat', camera: 'Camera', photos: 'Photos', files: 'Files', close: 'Isara',
+          remove: 'Alisin ang attachment', previewTitle: 'Preview ng attachment', prev: 'Nakaraan', next: 'Susunod',
+          maxImages: 'Hanggang 4 na larawan lang kada mensahe.', maxFiles: 'Hanggang 3 dokumento lang kada mensahe.',
+          noPreview: 'Walang preview para sa ganitong uri ng file.', openFile: 'Buksan ang file', downloadFile: 'I-download',
+          truncated: '… (pinaikli ang preview)', readFail: 'Hindi mabasa ang file na iyon.' }
   };
+  function attachStr() { return ATTACH_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
   function ensureAttachSheetStyles() {
     if (document.getElementById('faq-attach-sheet-style')) return;
     const st = document.createElement('style');
@@ -2108,8 +2143,8 @@
     el.id = id;
     el.style.display = 'none';
     if (kind === 'camera') { el.accept = 'image/*'; el.setAttribute('capture', 'environment'); }
-    else if (kind === 'photos') { el.accept = 'image/*'; }
-    else { el.accept = ATTACH_DOC_ACCEPT; }
+    else if (kind === 'photos') { el.accept = 'image/*'; el.multiple = true; }
+    else { el.accept = ATTACH_DOC_ACCEPT; el.multiple = true; }
     el.addEventListener('change', onImageSelected);
     document.body.appendChild(el);
     return el;
@@ -2163,56 +2198,345 @@
     document.body.appendChild(sheet);
     requestAnimationFrame(() => sheet.classList.add('is-open'));
   }
-  function onImageSelected(event) {
-    const file = event.target.files && event.target.files[0];
-    event.target.value = '';
-    if (!file) return;
+  // ---- mga helper ng attachment ------------------------------------------
+  function formatBytes(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  function attachTypeLabel(att) {
+    if (att.kind === 'image') {
+      const m = /^image\/([a-z0-9.+-]+)/i.exec(att.mime || '');
+      return (m ? m[1] : 'img').replace(/^jpeg$/i, 'jpg').replace(/^svg\+xml$/i, 'svg').toUpperCase().slice(0, 5);
+    }
+    const e = /\.([a-z0-9]{1,5})$/i.exec(att.name || '');
+    return e ? e[1].toUpperCase() : 'FILE';
+  }
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('read'));
+      reader.readAsDataURL(file);
+    });
+  }
+  function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+      img.src = url;
+    });
+  }
+  // Pinapaliit ang malalaking larawan (camera/screenshot) para magkasya ang maraming attachment sa isang request.
+  // Kapag pumalya ang pagpapaliit, ang orihinal na file ang gagamitin.
+  async function prepareImageDataUrl(file) {
+    const original = await readFileAsDataUrl(file);
+    if (file.size <= 800 * 1024 || /^image\/(gif|svg)/i.test(file.type || '')) return { dataUrl: original, mime: file.type || 'image/jpeg' };
+    try {
+      const img = await loadImageFromFile(file);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) throw new Error('size');
+      const scale = Math.min(1, 2048 / Math.max(w, h));
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('ctx');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      const out = canvas.toDataURL('image/jpeg', 0.85);
+      if (out && out.indexOf('data:image/jpeg') === 0 && out.length < original.length) return { dataUrl: out, mime: 'image/jpeg' };
+    } catch (e) { /* gamitin ang orihinal */ }
+    return { dataUrl: original, mime: file.type || 'image/jpeg' };
+  }
+  function dataUrlToBytes(dataUrl) {
+    const i = String(dataUrl || '').indexOf(',');
+    const bin = atob(i === -1 ? '' : dataUrl.slice(i + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+    return bytes;
+  }
+  function guessMime(att) {
+    const m = /^data:([^;,]+)/i.exec(att.dataUrl || '');
+    const fromData = m ? m[1].toLowerCase() : '';
+    if (att.mime && att.mime !== 'application/octet-stream') return att.mime;
+    if (/\.pdf$/i.test(att.name || '')) return 'application/pdf';
+    if (/\.docx$/i.test(att.name || '')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (/\.(txt|log|md)$/i.test(att.name || '')) return 'text/plain';
+    if (/\.csv$/i.test(att.name || '')) return 'text/csv';
+    return fromData || 'application/octet-stream';
+  }
+
+  // ---- composer tray (nasa loob ng textbox, sa itaas ng text) ------------
+  function attachItemHtml(att, removable) {
+    const label = escapeHtml(att.name || '');
+    const rm = removable
+      ? `<button type="button" class="faq-att-remove" aria-label="${escapeHtml(attachStr().remove)}" title="${escapeHtml(attachStr().remove)}"><i class="fa-solid fa-xmark"></i></button>`
+      : '';
+    if (att.kind === 'image') {
+      return `<div class="faq-att-item faq-att-image" data-id="${att.id}" role="button" tabindex="0" aria-label="${label}"><img src="${att.dataUrl}" alt="${label}" draggable="false">${rm}</div>`;
+    }
+    return `<div class="faq-att-item faq-att-file" data-id="${att.id}" role="button" tabindex="0" aria-label="${label}" title="${label}"><span class="faq-att-file-type">${escapeHtml(attachTypeLabel(att))}</span><span class="faq-att-file-name">${label}</span>${rm}</div>`;
+  }
+  function getAttachTray() {
+    const tray = document.getElementById('faq-attach-tray');
+    if (tray && !tray._faqWired) {
+      tray._faqWired = true;
+      tray.addEventListener('click', (ev) => {
+        ev.stopPropagation(); // huwag mag-focus ang textarea / mag-trigger ng composer click
+        const item = ev.target.closest ? ev.target.closest('.faq-att-item') : null;
+        if (!item || !tray.contains(item)) return;
+        const id = item.getAttribute('data-id');
+        if (ev.target.closest('.faq-att-remove')) { ev.preventDefault(); removeAttachment(id); return; }
+        const idx = pendingAttachments.findIndex((x) => x.id === id);
+        if (idx >= 0) openAttachPreview(pendingAttachments.slice(), idx);
+      });
+      tray.addEventListener('keydown', (ev) => {
+        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.classList && ev.target.classList.contains('faq-att-item')) {
+          ev.preventDefault();
+          ev.target.click();
+        }
+      });
+    }
+    return tray;
+  }
+  function renderAttachTray(scrollToEnd) {
+    const tray = getAttachTray();
+    const has = pendingAttachments.length > 0;
+    if (tray) {
+      tray.innerHTML = has ? pendingAttachments.map((x) => attachItemHtml(x, true)).join('') : '';
+      tray.style.display = has ? 'flex' : 'none';
+      if (has && scrollToEnd) requestAnimationFrame(() => { tray.scrollLeft = tray.scrollWidth; });
+    }
+    const composer = document.getElementById('faq-composer');
+    if (composer) composer.classList.toggle('has-attachments', has);
+    document.getElementById('faq-attach-btn')?.classList.toggle('has-attachment', has);
+  }
+  function removeAttachment(id) {
+    pendingAttachments = pendingAttachments.filter((x) => x.id !== id);
+    renderAttachTray(false);
+  }
+
+  // ---- preview (fullscreen) ng attachment: composer at ipinadalang mensahe ----
+  function closeAttachPreview() {
+    const el = document.getElementById('faq-att-preview');
+    if (!el) return;
+    document.removeEventListener('keydown', closeAttachPreview._onKey, true);
+    if (el._blobUrl) { try { URL.revokeObjectURL(el._blobUrl); } catch (e) {} }
+    try { el.remove(); } catch (e) {}
+  }
+  function openAttachPreview(items, startIdx) {
+    if (!items || !items.length) return;
+    closeAttachPreview();
+    const a = attachStr();
+    const total = items.length;
+    let idx = Math.min(Math.max(0, startIdx | 0), total - 1);
+    const root = document.createElement('div');
+    root.id = 'faq-att-preview';
+    root.className = 'faq-att-preview';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', a.previewTitle);
+    root.innerHTML = `
+      <div class="faq-att-preview-backdrop"></div>
+      <div class="faq-att-preview-panel">
+        <div class="faq-att-preview-head">
+          <button type="button" class="faq-att-preview-close" aria-label="${escapeHtml(a.close)}"><i class="fa-solid fa-xmark"></i></button>
+          <div class="faq-att-preview-title"><span class="faq-att-preview-name"></span><span class="faq-att-preview-meta"></span></div>
+        </div>
+        <div class="faq-att-preview-body"></div>
+        <button type="button" class="faq-att-preview-nav faq-att-prev" aria-label="${escapeHtml(a.prev)}"><i class="fa-solid fa-chevron-left"></i></button>
+        <button type="button" class="faq-att-preview-nav faq-att-next" aria-label="${escapeHtml(a.next)}"><i class="fa-solid fa-chevron-right"></i></button>
+      </div>`;
+    const body = root.querySelector('.faq-att-preview-body');
+    const nameEl = root.querySelector('.faq-att-preview-name');
+    const metaEl = root.querySelector('.faq-att-preview-meta');
+    const prevBtn = root.querySelector('.faq-att-prev');
+    const nextBtn = root.querySelector('.faq-att-next');
+    prevBtn.style.display = nextBtn.style.display = total > 1 ? '' : 'none';
+
+    const showCard = (att, msg, blobUrl, allowDownload) => {
+      const card = document.createElement('div');
+      card.className = 'faq-att-preview-card';
+      const ico = document.createElement('div');
+      ico.className = 'faq-att-preview-card-ico';
+      ico.innerHTML = '<i class="fa-solid fa-file-lines"></i>';
+      const nm = document.createElement('div');
+      nm.className = 'faq-att-preview-card-name';
+      nm.textContent = att.name || 'attachment';
+      card.appendChild(ico);
+      card.appendChild(nm);
+      if (msg) {
+        const m = document.createElement('div');
+        m.className = 'faq-att-preview-card-msg';
+        m.textContent = msg;
+        card.appendChild(m);
+      }
+      if (blobUrl) {
+        const link = document.createElement('a');
+        link.className = 'faq-att-preview-link';
+        link.href = blobUrl;
+        if (allowDownload) { link.setAttribute('download', att.name || 'attachment'); link.textContent = a.downloadFile; }
+        else { link.target = '_blank'; link.rel = 'noopener'; link.textContent = a.openFile; }
+        card.appendChild(link);
+      }
+      body.appendChild(card);
+    };
+
+    const renderCurrent = () => {
+      if (root._blobUrl) { try { URL.revokeObjectURL(root._blobUrl); } catch (e) {} root._blobUrl = null; }
+      body.innerHTML = '';
+      body.scrollTop = 0;
+      const att = items[idx];
+      nameEl.textContent = att.name || (att.kind === 'image' ? 'image' : 'attachment');
+      metaEl.textContent = [attachTypeLabel(att), att.size ? formatBytes(att.size) : '', total > 1 ? `${idx + 1}/${total}` : ''].filter(Boolean).join(' · ');
+      if (att.kind === 'image') {
+        const img = document.createElement('img');
+        img.className = 'faq-att-preview-img';
+        img.alt = att.name || '';
+        img.src = att.dataUrl;
+        body.appendChild(img);
+        return;
+      }
+      const mime = guessMime(att);
+      const isText = /^text\//i.test(mime) || /\.(txt|csv|md|log)$/i.test(att.name || '');
+      try {
+        const bytes = dataUrlToBytes(att.dataUrl);
+        if (isText) {
+          const LIMIT = 200000;
+          let text = new TextDecoder('utf-8').decode(bytes.subarray(0, LIMIT));
+          if (bytes.length > LIMIT) text += '\n' + a.truncated;
+          const pre = document.createElement('pre');
+          pre.className = 'faq-att-preview-text';
+          pre.textContent = text;
+          body.appendChild(pre);
+          return;
+        }
+        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        root._blobUrl = blobUrl;
+        if (mime === 'application/pdf') {
+          const fine = !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+          if (fine) {
+            const frame = document.createElement('iframe');
+            frame.className = 'faq-att-preview-frame';
+            frame.src = blobUrl;
+            frame.setAttribute('title', att.name || 'PDF');
+            body.appendChild(frame);
+          } else {
+            // Karamihan ng mobile browser ay hindi nagre-render ng PDF sa loob ng iframe — buksan sa viewer ng device.
+            showCard(att, '', blobUrl, false);
+          }
+          return;
+        }
+        showCard(att, a.noPreview, blobUrl, true);
+      } catch (e) {
+        showCard(att, a.readFail, null, false);
+      }
+    };
+    const go = (delta) => {
+      if (total < 2) return;
+      idx = (idx + delta + total) % total;
+      renderCurrent();
+    };
+
+    root.querySelector('.faq-att-preview-backdrop').addEventListener('click', closeAttachPreview);
+    root.querySelector('.faq-att-preview-close').addEventListener('click', closeAttachPreview);
+    prevBtn.addEventListener('click', () => go(-1));
+    nextBtn.addEventListener('click', () => go(1));
+    // Pindutin ang blangkong bahagi sa paligid ng larawan = isara
+    body.addEventListener('click', (ev) => { if (ev.target === body) closeAttachPreview(); });
+    // Swipe pakaliwa/pakanan = nakaraan/susunod
+    let sx = null, sy = null;
+    body.addEventListener('touchstart', (ev) => {
+      if (ev.touches.length !== 1) { sx = null; return; }
+      sx = ev.touches[0].clientX; sy = ev.touches[0].clientY;
+    }, { passive: true });
+    body.addEventListener('touchend', (ev) => {
+      if (sx === null || !ev.changedTouches.length) return;
+      const dx = ev.changedTouches[0].clientX - sx;
+      const dy = ev.changedTouches[0].clientY - sy;
+      sx = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+    }, { passive: true });
+    closeAttachPreview._onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); closeAttachPreview(); }
+      else if (e.key === 'ArrowLeft') { e.stopPropagation(); go(-1); }
+      else if (e.key === 'ArrowRight') { e.stopPropagation(); go(1); }
+    };
+    document.addEventListener('keydown', closeAttachPreview._onKey, true);
+    document.body.appendChild(root);
+    renderCurrent();
+  }
+
+  async function onImageSelected(event) {
+    const input = event.target;
+    const files = Array.from((input && input.files) || []);
+    if (input) input.value = '';
+    if (!files.length) return;
     if (!aiAssistantUnlocked()) { alert(planStrings().freeNoAttach); return; }
     const s = STRINGS();
-    const isImage = file.type.startsWith('image/');
-    const maxBytes = isImage ? 4.5 * 1024 * 1024 : 8 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      alert(isImage ? s.imageTooLarge : (s.fileTooLarge || 'That file is too large (max ~8MB).'));
-      return;
-    }
-    if (!isImage && !DOC_EXT_RE.test(file.name || '') && file.type !== 'application/pdf' &&
-        file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' &&
-        !file.type.startsWith('text/')) {
-      alert(s.fileUnsupported || 'Unsupported file type. Supported: images, PDF, DOCX, TXT, CSV.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const wrap = document.getElementById('faq-image-preview-wrap');
-      const img = document.getElementById('faq-image-preview');
-      const fileChip = document.getElementById('faq-file-preview-chip');
-      const fileNameEl = document.getElementById('faq-file-preview-name');
-      if (isImage) {
-        pendingImageDataUrl = reader.result;
-        pendingFileDataUrl = null;
-        pendingFileName = null;
-        if (img) { img.src = pendingImageDataUrl; img.style.display = ''; }
-        if (fileChip) fileChip.style.display = 'none';
-      } else {
-        pendingFileDataUrl = reader.result;
-        pendingFileName = file.name || 'attachment';
-        pendingImageDataUrl = null;
-        if (fileNameEl) fileNameEl.textContent = pendingFileName;
-        if (fileChip) fileChip.style.display = '';
-        if (img) { img.style.display = 'none'; img.removeAttribute('src'); }
+    const a = attachStr();
+    const problems = [];
+    const addProblem = (msg) => { if (msg && problems.indexOf(msg) === -1) problems.push(msg); };
+    let added = 0;
+    for (const file of files) {
+      const isImage = (file.type || '').startsWith('image/');
+      const maxBytes = isImage ? 20 * 1024 * 1024 : 8 * 1024 * 1024;
+      if (file.size > maxBytes) {
+        addProblem(isImage ? s.imageTooLarge : (s.fileTooLarge || 'That file is too large (max ~8MB).'));
+        continue;
       }
-      if (wrap) wrap.style.display = 'inline-block';
-      document.getElementById('faq-attach-btn')?.classList.add('has-attachment');
-    };
-    reader.readAsDataURL(file);
+      if (!isImage && !DOC_EXT_RE.test(file.name || '') && file.type !== 'application/pdf' &&
+          file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' &&
+          !(file.type || '').startsWith('text/')) {
+        addProblem(s.fileUnsupported || 'Unsupported file type. Supported: images, PDF, DOCX, TXT, CSV.');
+        continue;
+      }
+      const imgCount = pendingAttachments.filter((x) => x.kind === 'image').length;
+      const fileCount = pendingAttachments.length - imgCount;
+      if (isImage && imgCount >= MAX_ATTACH_IMAGES) { addProblem(a.maxImages); continue; }
+      if (!isImage && fileCount >= MAX_ATTACH_FILES) { addProblem(a.maxFiles); continue; }
+      try {
+        let dataUrl, mime;
+        if (isImage) {
+          const prepared = await prepareImageDataUrl(file);
+          dataUrl = prepared.dataUrl;
+          mime = prepared.mime;
+          // Ang server ay tumatanggap ng hanggang ~6MB (data URL) kada larawan.
+          if (dataUrl.length > 5.8 * 1024 * 1024) { addProblem(s.imageTooLarge); continue; }
+        } else {
+          dataUrl = await readFileAsDataUrl(file);
+          mime = file.type || '';
+        }
+        // Maaaring may nadagdag habang naghihintay ang pagbasa — suriin muli ang limit.
+        const nowImg = pendingAttachments.filter((x) => x.kind === 'image').length;
+        const nowFile = pendingAttachments.length - nowImg;
+        if (isImage && nowImg >= MAX_ATTACH_IMAGES) { addProblem(a.maxImages); continue; }
+        if (!isImage && nowFile >= MAX_ATTACH_FILES) { addProblem(a.maxFiles); continue; }
+        pendingAttachments.push({
+          id: 'att' + (++attachSeq),
+          kind: isImage ? 'image' : 'file',
+          name: file.name || (isImage ? 'image' : 'attachment'),
+          size: file.size || 0,
+          mime: mime,
+          dataUrl: dataUrl
+        });
+        added++;
+      } catch (e) {
+        addProblem(a.readFail);
+      }
+    }
+    if (added) renderAttachTray(true);
+    if (problems.length) alert(problems.join('\n'));
   }
   function clearImage() {
-    pendingImageDataUrl = null;
-    pendingFileDataUrl = null;
-    pendingFileName = null;
-    const wrap = document.getElementById('faq-image-preview-wrap');
-    if (wrap) wrap.style.display = 'none';
-    document.getElementById('faq-attach-btn')?.classList.remove('has-attachment');
+    pendingAttachments = [];
+    renderAttachTray(false);
   }
 
   // ---- AI credit/billing pill (top bar) ---------------------------------
@@ -2811,7 +3135,7 @@
       successTitle: 'Plan activated', failTitle: 'Could not activate the plan', insufficient: 'Not enough Omni Tokens. Buy more tokens first.',
       modelTitle: 'AI model', modelHint: 'Choose which model answers your questions. Standard is the default.', modelDefault: 'Standard', modelDefaultDesc: 'Default model',
       modelSelected: 'Selected', modelUse: 'Use', modelRequires: 'Requires the {tier} plan', modelUnavailable: 'Not available right now',
-      modelDescFlashLite: 'Fast and light', modelDescFlash: 'Smarter, for harder questions',
+      modelDescFlashLite: 'Fast and light', modelDescFlash: 'Smarter, for harder questions', modelDescPro: 'Most capable, for the hardest questions',
       modelBtnTitle: 'AI model and plan', upgradeShort: 'Upgrade', modelLoading: 'Loading...',
       freeName: 'Free', freeNone: 'Free', freeNote: 'Free plan: text questions only (no image/file attachments or model choice). Subscribe to Omni AI to get Base, Plus and Pro with smarter Gemini models.',
       freeNoAttach: 'Image and file attachments are not available on the Free plan. Subscribe to Omni AI (Base/Plus/Pro) to use them.',
@@ -2821,7 +3145,10 @@
       warn80: 'You have used most of today\'s AI limit. A One-day Boost can keep you going.',
       boostTitle: 'One-day Boost', boostHint: 'Out of daily neurons? Add more for today only — it disappears at midnight. Does not change your monthly credits.',
       boostToday: 'Boosts bought today', boostBtn: 'Buy Boost', boostAdminText: 'Enter an admin password to buy a Boost (+{neurons} neurons, today only) for {cost} Omni Tokens.',
-      boostChip: 'Buy One-day Boost'
+      boostChip: 'Buy One-day Boost',
+      boostLate: 'Only about {t} is left today. A Boost expires at midnight, so you will get very little use out of it.',
+      boostLateConfirm: 'Buy anyway',
+      boostCutoffNote: 'Boosts cannot be bought this close to midnight. You can buy one after midnight.'
     },
     tl: {
       upgradeBtn: 'I-upgrade ang AI plan', today: 'ngayon', pillTitle: 'I-tap para makita ang Omni AI plans',
@@ -2833,7 +3160,7 @@
       successTitle: 'Na-activate ang plan', failTitle: 'Hindi ma-activate ang plan', insufficient: 'Kulang ang Omni Tokens. Bumili muna ng tokens.',
       modelTitle: 'AI model', modelHint: 'Piliin kung anong model ang sasagot sa mga tanong mo. Standard ang default.', modelDefault: 'Standard', modelDefaultDesc: 'Default na model',
       modelSelected: 'Napili', modelUse: 'Gamitin', modelRequires: 'Kailangan ang {tier} plan', modelUnavailable: 'Hindi available ngayon',
-      modelDescFlashLite: 'Mabilis at magaan', modelDescFlash: 'Mas matalino, para sa mas mahirap na tanong',
+      modelDescFlashLite: 'Mabilis at magaan', modelDescFlash: 'Mas matalino, para sa mas mahirap na tanong', modelDescPro: 'Pinakamalakas, para sa pinakamahirap na tanong',
       modelBtnTitle: 'AI model at plan', upgradeShort: 'I-upgrade', modelLoading: 'Kinukuha...',
       freeName: 'Libre', freeNone: 'Libre', freeNote: 'Free plan: text na tanong lang (walang attach na larawan/file o pagpili ng model). Mag-subscribe sa Omni AI para sa Base, Plus at Pro na may mas matatalinong Gemini model.',
       freeNoAttach: 'Hindi available ang pag-attach ng larawan/file sa Free plan. Mag-subscribe sa Omni AI (Base/Plus/Pro) para magamit ito.',
@@ -2843,7 +3170,10 @@
       warn80: 'Halos ubos na ang AI limit mo ngayong araw. Puwede kang bumili ng One-day Boost para makapagpatuloy.',
       boostTitle: 'One-day Boost', boostHint: 'Ubos na ang daily neurons? Dagdagan para sa ngayong araw lang — mawawala ito sa hatinggabi. Hindi nito ginagalaw ang monthly credits.',
       boostToday: 'Nabiling Boost ngayon', boostBtn: 'Bilhin ang Boost', boostAdminText: 'Maglagay ng admin password para bilhin ang Boost (+{neurons} neurons, ngayong araw lang) sa halagang {cost} Omni Tokens.',
-      boostChip: 'Bumili ng One-day Boost'
+      boostChip: 'Bumili ng One-day Boost',
+      boostLate: 'Mga {t} na lang ang natitira ngayong araw. Mawawala ang Boost sa hatinggabi, kaya kaunti na lang ang magagamit mo.',
+      boostLateConfirm: 'Bilhin pa rin',
+      boostCutoffNote: 'Hindi na puwedeng bumili ng Boost malapit na ang hatinggabi. Puwede kang bumili pagkatapos ng hatinggabi.'
     }
   };
   function planStrings() { return PLAN_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
@@ -2852,12 +3182,12 @@
   function getAiModelChoice() {
     try {
       const v = localStorage.getItem(AI_MODEL_CHOICE_KEY);
-      return (v === 'flash' || v === 'flashLite') ? v : '';
+      return (typeof v === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(v)) ? v : '';
     } catch (e) { return ''; }
   }
   function setAiModelChoice(v) {
     try {
-      if (v === 'flash' || v === 'flashLite') localStorage.setItem(AI_MODEL_CHOICE_KEY, v);
+      if (typeof v === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(v)) localStorage.setItem(AI_MODEL_CHOICE_KEY, v);
       else localStorage.removeItem(AI_MODEL_CHOICE_KEY);
     } catch (e) {}
   }
@@ -2951,7 +3281,7 @@
   let modelSheetWidth = 0;
   function onModelSheetResize() {
     if (window.innerWidth !== modelSheetWidth) closeAiModelSheet();
-    else { const p = document.querySelector('#faq-model-sheet .faq-model-sheet-panel'); if (p) positionAiModelSheet(p); }
+    else { const p = document.querySelector('#faq-model-sheet .faq-model-sheet-panel'); if (p) { positionAiModelSheet(p); fitAiModelScroller(p); } }
   }
   function onModelSheetKey(ev) { if (ev.key === 'Escape') closeAiModelSheet(); }
   function toggleAiModelSheet() {
@@ -2971,28 +3301,52 @@
     panel.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
     panel.style.top = 'auto';
   }
+  // Description under a model name, based on its family (lite / flash / pro). Older RELAY builds only send the key.
+  function modelDescFor(o, ps) {
+    const fam = o.family || (o.key === 'flash' ? 'flash' : (o.key === 'flashLite' ? 'lite' : ''));
+    if (fam === 'lite') return ps.modelDescFlashLite;
+    if (fam === 'flash') return ps.modelDescFlash;
+    if (fam === 'pro') return ps.modelDescPro;
+    return '';
+  }
+  // Show exactly 3 models (plus the Standard row) at once; when there are more, the list scrolls and a bit of the next row peeks out.
+  const MODEL_SHEET_VISIBLE_MODELS = 3;
+  function fitAiModelScroller(panel) {
+    const sc = panel && panel.querySelector('.faq-model-scroll');
+    if (!sc) return;
+    sc.style.maxHeight = '';
+    sc.classList.remove('is-scrollable');
+    const rows = sc.querySelectorAll('.faq-model-row');
+    const visibleRows = MODEL_SHEET_VISIBLE_MODELS + 1; // Standard + 3 models
+    if (rows.length <= visibleRows) return;
+    const first = rows[0], next = rows[visibleRows];
+    const h = next.offsetTop - first.offsetTop + Math.round(next.offsetHeight * 0.4);
+    if (h > 0) { sc.style.maxHeight = h + 'px'; sc.classList.add('is-scrollable'); }
+  }
   function renderAiModelSheetRows(panel, data) {
     const ps = planStrings();
-    const rows = [];
-    const add = (cls, name, desc, side, attrs) => rows.push(`<button type="button" class="faq-model-row ${cls}" ${attrs}><span><span class="faq-model-name">${name}</span>${desc ? `<span class="faq-model-desc">${escapeHtml(desc)}</span>` : ''}</span><span class="faq-model-side">${side}</span></button>`);
+    const modelRows = [];
+    const tailRows = [];
+    const mk = (cls, name, desc, side, attrs) => `<button type="button" class="faq-model-row ${cls}" ${attrs}><span><span class="faq-model-name">${name}</span>${desc ? `<span class="faq-model-desc">${escapeHtml(desc)}</span>` : ''}</span><span class="faq-model-side">${side}</span></button>`;
     const am = data && data.aiModels;
     if (am && am.enabled && Array.isArray(am.options) && am.options.length) {
       const choice = getAiModelChoice();
       const check = '<i class="fa-solid fa-check faq-model-check"></i>';
-      add('', escapeHtml(ps.modelDefault), ps.modelDefaultDesc, choice === '' ? check : '', 'data-model="" data-usable="1"');
+      // Standard first, then the models in the order RELAY sends them (lowest version -> highest version).
+      modelRows.push(mk('', escapeHtml(ps.modelDefault), ps.modelDefaultDesc, choice === '' ? check : '', 'data-model="" data-usable="1"'));
       am.options.forEach((o) => {
         const locked = !!o.locked, unavailable = !!o.unavailable;
-        const desc = o.key === 'flash' ? ps.modelDescFlash : ps.modelDescFlashLite;
         const side = locked ? `<i class="fa-solid fa-lock"></i> ${escapeHtml(o.requiredTierName || '')}`
           : (unavailable ? escapeHtml(ps.modelUnavailable) : (choice === o.key ? check : ''));
-        add(locked ? 'is-locked' : (unavailable ? 'is-unavailable' : ''), escapeHtml(shortModelName(o.name)), desc, side,
-          `data-model="${escapeHtml(o.key)}" data-usable="${locked || unavailable ? '0' : '1'}" data-locked="${locked ? '1' : '0'}"`);
+        modelRows.push(mk(locked ? 'is-locked' : (unavailable ? 'is-unavailable' : ''), escapeHtml(shortModelName(o.name)), modelDescFor(o, ps), side,
+          `data-model="${escapeHtml(o.key)}" data-usable="${locked || unavailable ? '0' : '1'}" data-locked="${locked ? '1' : '0'}"`));
       });
-      rows.push('<div class="faq-model-sep"></div>');
+      tailRows.push('<div class="faq-model-sep"></div>');
     }
     const tierName = data && data.currentTier && data.currentTier.name ? data.currentTier.name : (data ? ps.none : '');
-    add('faq-model-upgrade', `<i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeShort)}`, '', escapeHtml(tierName), 'data-upgrade="1"');
-    panel.querySelector('.faq-model-list').innerHTML = rows.join('');
+    tailRows.push(mk('faq-model-upgrade', `<i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeShort)}`, '', escapeHtml(tierName), 'data-upgrade="1"'));
+    const list = panel.querySelector('.faq-model-list');
+    list.innerHTML = (modelRows.length ? `<div class="faq-model-scroll">${modelRows.join('')}</div>` : '') + tailRows.join('');
     panel.querySelectorAll('.faq-model-row').forEach((row) => {
       row.addEventListener('click', () => {
         if (row.dataset.upgrade === '1' || row.dataset.locked === '1') { closeAiModelSheet(); openAiPlansModal(); return; }
@@ -3004,6 +3358,14 @@
       });
     });
     positionAiModelSheet(panel);
+    fitAiModelScroller(panel);
+    // Keep the currently selected model in view when it sits below the first visible rows.
+    const sc = list.querySelector('.faq-model-scroll.is-scrollable');
+    const sel = sc && sc.querySelector('.faq-model-check') ? sc.querySelector('.faq-model-check').closest('.faq-model-row') : null;
+    if (sc && sel) {
+      const bottom = sel.offsetTop - sc.querySelector('.faq-model-row').offsetTop + sel.offsetHeight;
+      if (bottom > sc.clientHeight) sc.scrollTop = Math.max(0, sel.offsetTop - sc.querySelector('.faq-model-row').offsetTop - 8);
+    }
   }
   function openAiModelSheet() {
     if (!modelBtnAllowed()) return;
@@ -3125,9 +3487,10 @@
         </div>`).join('')}
       </div>` : '';
     const bo = data.dayBoost;
-    const boostHtml = (bo && bo.enabled && Array.isArray(bo.options) && bo.options.some((o) => o && o.canPurchase)) ? `<div id="faq-boost-section" style="margin-top:14px;text-align:left;">
+    const boostHtml = (bo && bo.enabled && Array.isArray(bo.options) && (bo.options.some((o) => o && o.canPurchase) || bo.cutoffBlocked)) ? `<div id="faq-boost-section" style="margin-top:14px;text-align:left;">
         <strong style="font-size:1.02rem;"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostTitle)}</strong>
         <div style="font-size:.8rem;opacity:.8;margin:2px 0 6px;">${escapeHtml(ps.boostHint)}${bo.boughtToday ? ` · ${escapeHtml(ps.boostToday)}: ${bo.boughtToday}/${bo.maxPerDay}` : ''}</div>
+        ${bo.cutoffBlocked ? `<div style="font-size:.82rem;margin:4px 0 6px;color:#dc2626;font-weight:600;">${escapeHtml(ps.boostCutoffNote)}</div>` : (bo.lateWarning && typeof bo.minutesLeft === 'number' ? `<div style="font-size:.82rem;margin:4px 0 6px;color:#b45309;font-weight:600;">⚠️ ${escapeHtml(ps.boostLate.replace('{t}', fmtBoostMinutes(bo.minutesLeft)))}</div>` : '')}
         ${bo.options.map((o) => `<div style="border:1px solid rgba(128,128,128,.35);border-radius:12px;padding:10px 14px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
           <div><strong>+${fmtNeurons(o.neurons)} ${escapeHtml(ps.neurons)}</strong><div style="font-size:.8rem;opacity:.8;">${o.unavailableReason ? ` <span style="color:#dc2626;">${escapeHtml(o.unavailableReason)}</span>` : ''}</div></div>
           <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;">${o.priceTokens} ${escapeHtml(ps.tokens)}</span>
@@ -3198,14 +3561,29 @@
     openAiPlansModal();
   }
 
+  // Natitirang minuto bago ang hatinggabi (oras ng RELAY), ayon sa offer na natanggap. null kung walang impormasyon.
+  function boostMinutesLeftNow() {
+    const bo = aiModelOfferCache && aiModelOfferCache.data && aiModelOfferCache.data.dayBoost;
+    if (!bo || typeof bo.resetsInMs !== 'number' || !aiModelOfferCache.at) return null;
+    return Math.max(0, Math.ceil((bo.resetsInMs - (Date.now() - aiModelOfferCache.at)) / 60000));
+  }
+  function fmtBoostMinutes(mins) {
+    const m = Math.max(0, Math.round(Number(mins) || 0));
+    const h = Math.floor(m / 60), r = m % 60;
+    return h > 0 ? (r > 0 ? `${h}h ${r}m` : `${h}h`) : `${m}m`;
+  }
   async function buyDayBoost(boostId, neurons, cost) {
     const ps = planStrings();
     const swal = window.Swal;
+    // Babala lang (hindi hinaharang): malapit na ang hatinggabi kaya kaunti na lang ang magagamit. Ang RELAY ang nagpapasya kung may cutoff.
+    const bo0 = aiModelOfferCache && aiModelOfferCache.data && aiModelOfferCache.data.dayBoost;
+    const minsLeft = boostMinutesLeftNow();
+    const lateText = (bo0 && bo0.lateWarning && minsLeft !== null) ? ' ⚠️ ' + ps.boostLate.replace('{t}', fmtBoostMinutes(minsLeft)) : '';
     const pw = await swal.fire({
       title: ps.adminPwTitle,
-      text: ps.boostAdminText.replace('{neurons}', fmtNeurons(neurons)).replace('{cost}', cost),
+      text: ps.boostAdminText.replace('{neurons}', fmtNeurons(neurons)).replace('{cost}', cost) + lateText,
       input: 'password', inputPlaceholder: ps.adminPwPlaceholder,
-      showCancelButton: true, confirmButtonText: ps.confirm, cancelButtonText: ps.cancel,
+      showCancelButton: true, confirmButtonText: lateText ? ps.boostLateConfirm : ps.confirm, cancelButtonText: ps.cancel,
       inputValidator: (v) => (!v ? ps.adminPwPlaceholder : undefined)
     });
     if (!pw.isConfirmed) { openAiPlansModal(); return; }
@@ -3385,9 +3763,8 @@
       ...recentTurns
     ].map(h => ({ role: h.role, text: h.text }));
 
-    const imageToSend = pendingImageDataUrl;
-    const fileToSend = pendingFileDataUrl;
-    const fileNameToSend = pendingFileName;
+    const imagesToSend = pendingAttachments.filter((x) => x.kind === 'image').map((x) => x.dataUrl);
+    const filesToSend = pendingAttachments.filter((x) => x.kind === 'file').map((x) => ({ data: x.dataUrl, name: x.name }));
     const wantsDiagnostics = pendingDiagnosticsRequested;
     pendingDiagnosticsRequested = false;
     clearImage();
@@ -3405,9 +3782,8 @@
           lang,
           context: candidates,
           history: historyPayload,
-          image: imageToSend || undefined,
-          file: fileToSend || undefined,
-          fileName: fileToSend ? fileNameToSend : undefined,
+          images: imagesToSend.length ? imagesToSend : undefined,
+          files: filesToSend.length ? filesToSend : undefined,
           model: getAiModelChoice() || undefined,
           diagnostics: wantsDiagnostics ? gatherDiagnostics() : undefined,
           clientErrors: wantsDiagnostics ? (CAPTURED_ERRORS.length ? CAPTURED_ERRORS : [s.noErrorsCaptured]) : undefined
@@ -3663,17 +4039,7 @@
       }
 
       const thread = ensureThread(resultBox);
-      const userBubble = appendUserBubble(thread, q);
-      if (pendingImageDataUrl) {
-        const bubbleEl = userBubble.querySelector('.faq-chat-bubble');
-        if (bubbleEl) {
-          const thumb = document.createElement('img');
-          thumb.className = 'faq-chat-image-thumb';
-          thumb.src = pendingImageDataUrl;
-          thumb.alt = 'Attached screenshot';
-          bubbleEl.appendChild(thumb);
-        }
-      }
+      const userBubble = appendUserBubble(thread, q, pendingAttachments.slice());
       chatHistory.push({ role: 'user', text: q });
       saveChatHistory();
 

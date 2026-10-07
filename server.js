@@ -3352,15 +3352,38 @@ function applyCloudBackupRetentionDaysOverlay(remoteDays) {
 let MODULE_SUBSCRIPTION_PLANS = JSON.parse(JSON.stringify(MODULE_SUBSCRIPTION_PLANS_FALLBACK));
 // Omni AI plan cards (Base / Plus / Pro / Business) synced live from RELAY /relay/pricing -> aiSubscriptionPlans.
 // Nothing is hardcoded here: until RELAY answers, the list is empty and the subscribe modal shows the single Omni AI plan.
-let AI_SUBSCRIPTION_PLANS = { baseEnabled: true, base: null, tiers: [] };
+let AI_SUBSCRIPTION_PLANS = { baseEnabled: true, base: null, models: [], tiers: [] };
+function sanitizeAiPlanModels(models) {
+    if (!Array.isArray(models)) return [];
+    return models
+        .filter(m => m && typeof m === 'object' && typeof m.modelId === 'string' && m.modelId.trim())
+        .map(m => ({
+            key: typeof m.key === 'string' ? m.key.slice(0, 60) : '',
+            modelId: m.modelId.trim().slice(0, 120),
+            displayName: (typeof m.displayName === 'string' && m.displayName.trim() ? m.displayName : m.modelId).trim().slice(0, 80),
+            requiredTierId: typeof m.requiredTierId === 'string' ? m.requiredTierId.slice(0, 40) : null,
+            requiredTierName: typeof m.requiredTierName === 'string' ? m.requiredTierName.slice(0, 80) : null
+        }));
+}
 function applyAiSubscriptionPlansOverlay(remote) {
     if (!remote || typeof remote !== 'object') return;
+    const globalModels = sanitizeAiPlanModels(remote.models);
     const tiers = Array.isArray(remote.tiers) ? remote.tiers
         .filter(t => t && typeof t.id === 'string' && typeof t.name === 'string' && Number.isFinite(Number(t.priceTokens)))
-        .map(t => ({ id: t.id, name: t.name, priceTokens: Number(t.priceTokens), monthlyCredits: Number(t.monthlyCredits) || 0, dailyCap: Number(t.dailyCap) || 0 })) : [];
+        .map(t => ({
+            id: t.id,
+            name: t.name,
+            priceTokens: Number(t.priceTokens),
+            monthlyCredits: Number(t.monthlyCredits) || 0,
+            dailyCap: Number(t.dailyCap) || 0,
+            models: sanitizeAiPlanModels(t.models)
+        })) : [];
     AI_SUBSCRIPTION_PLANS = {
         baseEnabled: remote.baseEnabled !== false,
-        base: remote.base && typeof remote.base === 'object' ? { monthlyCredits: Number(remote.base.monthlyCredits) || 0, dailyCap: Number(remote.base.dailyCap) || 0 } : null,
+        base: remote.base && typeof remote.base === 'object'
+            ? { monthlyCredits: Number(remote.base.monthlyCredits) || 0, dailyCap: Number(remote.base.dailyCap) || 0, models: sanitizeAiPlanModels(remote.base.models) }
+            : null,
+        models: globalModels,
         tiers
     };
 }
@@ -8370,26 +8393,52 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
     if (!question) {
         return res.status(400).json({ success: false, message: 'Missing question.' });
     }
-    const imageDataUrl = typeof req.body?.image === 'string' && req.body.image.startsWith('data:image/') ? req.body.image : null;
-    if (req.aiFreeTier && (imageDataUrl || (typeof req.body?.file === 'string' && req.body.file.startsWith('data:')))) {
+    // BAGO: maraming attachment kada tanong. Tumatanggap ng `images` (array ng data URL, max 4) at
+    // `files` (array ng {data, name}, max 3). Tinatanggap pa rin ang dating single `image` / `file` + `fileName`.
+    const AI_MAX_IMAGES = 4;
+    const AI_MAX_FILES = 3;
+    const imageDataUrls = [];
+    if (Array.isArray(req.body?.images)) {
+        for (const x of req.body.images) {
+            if (imageDataUrls.length >= AI_MAX_IMAGES) break;
+            if (typeof x === 'string' && x.startsWith('data:image/')) imageDataUrls.push(x);
+        }
+    }
+    if (!imageDataUrls.length && typeof req.body?.image === 'string' && req.body.image.startsWith('data:image/')) {
+        imageDataUrls.push(req.body.image);
+    }
+    const attachedFiles = [];
+    if (Array.isArray(req.body?.files)) {
+        for (const f of req.body.files) {
+            if (attachedFiles.length >= AI_MAX_FILES) break;
+            if (f && typeof f.data === 'string' && f.data.startsWith('data:')) {
+                attachedFiles.push({ data: f.data, name: typeof f.name === 'string' ? f.name.slice(0, 200) : '' });
+            }
+        }
+    }
+    if (!attachedFiles.length && typeof req.body?.file === 'string' && req.body.file.startsWith('data:')) {
+        attachedFiles.push({ data: req.body.file, name: typeof req.body?.fileName === 'string' ? req.body.fileName.slice(0, 200) : '' });
+    }
+    const imageDataUrl = imageDataUrls[0] || null;
+    const fileDataUrl = attachedFiles.length ? attachedFiles[0].data : null;
+    if (req.aiFreeTier && (imageDataUrls.length || attachedFiles.length)) {
         return res.status(402).json({ success: false, freeTierLimit: true, message: 'The Omni AI Free plan is text-only. Subscribe to Omni AI (Base/Plus/Pro) to attach images or files.' });
     }
-    if (imageDataUrl && imageDataUrl.length > 6 * 1024 * 1024) {
+    if (imageDataUrls.some((u) => u.length > 6 * 1024 * 1024)) {
         return res.status(413).json({ success: false, message: 'The attached screenshot is too large. Please attach a smaller one (max ~4MB).' });
     }
-    const fileDataUrl = typeof req.body?.file === 'string' && req.body.file.startsWith('data:') ? req.body.file : null;
-    const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.slice(0, 200) : '';
-    let fileContextMsg = null;
-    if (fileDataUrl) {
-        const extraction = await extractTextFromAttachedDocument(fileDataUrl, fileName);
+    const fileContextMsgs = [];
+    for (const att of attachedFiles) {
+        const extraction = await extractTextFromAttachedDocument(att.data, att.name);
         if (!extraction.success) {
             return res.status(422).json({ success: false, message: extraction.message });
         }
-        fileContextMsg = {
+        fileContextMsgs.push({
             role: 'system',
-            content: `The user attached a document named "${fileName || 'attachment'}". Extracted text content (may be partial/truncated):\n\n${extraction.text || '(No readable text found in the document.)'}\n\nUse this only if relevant to the question; do not assume anything about the document beyond this extracted text.`
-        };
+            content: `The user attached a document named "${att.name || 'attachment'}". Extracted text content (may be partial/truncated):\n\n${extraction.text || '(No readable text found in the document.)'}\n\nUse this only if relevant to the question; do not assume anything about the document beyond this extracted text.`
+        });
     }
+
     const context = rawContext.slice(0, 8).map((c) => ({
         question: typeof c?.question === 'string' ? c.question.slice(0, 300) : '',
         answer: typeof c?.answer === 'string' ? c.answer.slice(0, 1200) : ''
@@ -8432,7 +8481,7 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
         { role: 'system', content: `OmniPOS FAQ Knowledge Base entries relevant to this question:\n\n${contextText}` },
         ...lockedFeatureMsgs,
         ...dbContextMsgs,
-        ...(fileContextMsg ? [fileContextMsg] : []),
+        ...fileContextMsgs,
         ...(diagnosticMsg ? [diagnosticMsg] : []),
         ...history
     ];
@@ -8442,9 +8491,9 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
     // STOP: kapag pinindot ng user ang Stop (nag-disconnect ang browser), itigil ang request papuntang RELAY/Google.
     const aiAbort = new AbortController();
     res.on('close', () => { if (!res.writableFinished) aiAbort.abort(); });
-    // Pinili ng user na Gemini model (Flash / Flash-Lite) mula sa Omni AI Plans. Ang RELAY ang nagpapasya kung pinapayagan (tier/availability);
+    // Pinili ng user na Gemini model (kahit anong model na naka-enable sa RELAY) mula sa Omni AI Plans. Ang RELAY ang nagpapasya kung pinapayagan (tier/availability);
     // kapag hindi, awtomatiko itong babalik sa default provider ng RELAY.
-    const aiModelChoice = (!req.aiFreeTier && (req.body?.model === 'flash' || req.body?.model === 'flashLite')) ? req.body.model : null;
+    const aiModelChoice = (!req.aiFreeTier && typeof req.body?.model === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(req.body.model)) ? req.body.model : null;
 
     let result;
     let visionFailureReason = null;
@@ -8455,7 +8504,7 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
                 role: 'user',
                 content: [
                     { type: 'text', text: question || (lang === 'tl' ? 'Ano ang nasa larawang ito at paano ito related sa OmniPOS?' : 'What is shown in this screenshot and how does it relate to OmniPOS?') },
-                    { type: 'image_url', image_url: { url: imageDataUrl } }
+                    ...imageDataUrls.map((u) => ({ type: 'image_url', image_url: { url: u } }))
                 ]
             }
         ];
