@@ -3564,13 +3564,13 @@ async function fetchCloudTokenWallet(installationId) {
 function buildCloudDebtPausedMessage(wallet, actionLabel) {
     return `Cloud Backup ${actionLabel} is paused: this account has an unpaid Omni Tokens balance. Buy at least ${wallet.tokensToResume} more Omni Tokens to resume. Nothing was charged and nothing was written to the cloud.`;
 }
-async function fetchCloudTokenPackages() {
+async function fetchCloudTokenPackages(forceRefresh) {
     if (!RELAY_API_KEY) return { ok: false, reason: 'NO_RELAY_API_KEY' };
     try {
-        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/packages`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/packages${forceRefresh ? '?refresh=1' : ''}`, { headers: { 'x-relay-key': RELAY_API_KEY } }, forceRefresh ? 15000 : 8000);
         const data = await parseRelayResponse(relayRes);
         if (!relayRes.ok || !data.success) return { ok: false, reason: data.message || `HTTP ${relayRes.status}` };
-        return { ok: true, packages: data.packages, tokenCostPerSync: data.tokenCostPerSync, paymentMethods: data.paymentMethods || [] };
+        return { ok: true, packages: data.packages, tokenCostPerSync: data.tokenCostPerSync, paymentMethods: data.paymentMethods || [], defaultPaymentMethod: data.defaultPaymentMethod || null };
     } catch (err) {
         return { ok: false, reason: err.message };
     }
@@ -4309,11 +4309,13 @@ async function checkDeviceBeforeLogin({ username } = {}) {
     }
     const result = await verifyDeviceWithRelay(installationId, liveFingerprint, { username });
     if (!result.ok) {
+        console.warn(`⚠️ [verify-device] FAILED reason=${result.reason} | url=${RELAY_URL} | hasKey=${!!RELAY_API_KEY} | ${result.message}`);
         return {
             allowed: false,
-            message: result.reason === 'clone_suspected'
+            message: (result.reason === 'clone_suspected'
                 ? 'This device is not recognized. Please contact your administrator.'
-                : 'Unable to verify this device right now. Please check your internet connection and try again.'
+                : 'Unable to verify this device right now. Please check your internet connection and try again.')
+                + ` [Reason: ${result.reason}${result.message ? ' — ' + String(result.message).slice(0, 200) : ''}]`
         };
     }
     const updated = readFeatureUnlocks();
@@ -6404,7 +6406,19 @@ async function performCloudBackupUpload(trigger, actorUsername) {
 }
 app.get('/api/admin/cloud-tokens/overview', requirePermission('cloud_tokens_view'), async (req, res) => {
     try {
-    await refreshCloudBackupPricingIfStale();
+    // ?refresh=1 = galing sa Refresh button: sapilitang tawagan ang RELAY (pricing/flags, wallet, packages + PayMongo methods).
+    const forceRefresh = !!(req.query && (req.query.refresh === '1' || req.query.refresh === 'true'));
+    if (forceRefresh) {
+        let forceTimer;
+        try {
+            await Promise.race([
+                fetchCloudBackupPricing(),
+                new Promise(resolve => { forceTimer = setTimeout(resolve, 8000); })
+            ]);
+        } catch (_) { /* patuloy pa rin gamit ang huling kilalang pricing */ } finally { clearTimeout(forceTimer); }
+    } else {
+        await refreshCloudBackupPricingIfStale();
+    }
     const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const receiptPublic = getReceiptSettingsPublic(receiptSettings);
     const subscription = getCloudBackupSubscriptionInfo();
@@ -6414,7 +6428,7 @@ app.get('/api/admin/cloud-tokens/overview', requirePermission('cloud_tokens_view
     const installationId = getOrCreateInstallationId(featureData);
     const [walletResult, packagesResult] = await Promise.all([
         fetchCloudTokenWallet(installationId),
-        fetchCloudTokenPackages()
+        fetchCloudTokenPackages(forceRefresh)
     ]);
     const tokenCostPerSync = (walletResult.ok && typeof walletResult.realSyncCostTokens === 'number')
         ? walletResult.realSyncCostTokens
@@ -6504,6 +6518,7 @@ app.get('/api/admin/cloud-tokens/overview', requirePermission('cloud_tokens_view
             available: packagesResult.ok,
             items: packagesResult.ok ? packagesResult.packages : null,
             paymentMethods: packagesResult.ok ? (packagesResult.paymentMethods || []) : [],
+            defaultPaymentMethod: packagesResult.ok ? (packagesResult.defaultPaymentMethod || null) : null,
             unavailableReason: packagesResult.ok ? null : packagesResult.reason
         }
     });

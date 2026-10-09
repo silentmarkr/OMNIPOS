@@ -7872,24 +7872,75 @@ function applyRoleBasedAccessControls(role) {
     console.log(`[OmniPOS] Applied dynamic Permission Matrix for role: ${role ||'unknown'}`);
 }
 let cloudTokensPollTimer = null;
-async function loadCloudTokensView() {
-    const walletCard = document.getElementById('ct-wallet-card');
-    const googleCard = document.getElementById('ct-google-app-card');
+const CT_METHOD_PREF_KEY = 'omnipos_ct_payment_method';
+function ctGetStoredMethod() {
+    try { return localStorage.getItem(CT_METHOD_PREF_KEY) || ''; } catch (e) { return ''; }
+}
+function ctStoreMethod(value) {
+    try { if (value) localStorage.setItem(CT_METHOD_PREF_KEY, value); } catch (e) {}
+}
+function ctShowLoadError(message) {
+    const banner = document.getElementById('ct-load-error-banner');
+    const text = document.getElementById('ct-load-error-text');
+    if (text) text.textContent = message;
+    if (banner) banner.style.display = 'flex';
+}
+function ctHideLoadError() {
+    const banner = document.getElementById('ct-load-error-banner');
+    if (banner) banner.style.display = 'none';
+}
+function ctMarkRefreshed() {
+    const el = document.getElementById('ct-last-refreshed');
+    if (el) el.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+}
+// Ibinabalik ang 'ok' (buo ang data), 'relay_down' (nakausap ang server pero hindi maabot ang RELAY), o 'error' (hindi nakuha ang page data).
+// BUGFIX: dati, kapag pumalya ang pag-load, binubura ang BUONG laman ng wallet card at pinapalitan ng isang babala — kaya kahit
+// bumalik ang koneksyon ay hindi na maibalik ang balance/packages hangga't hindi nare-reload ang buong app. Ngayon, hiwalay na
+// banner lang ang lumalabas (ct-load-error-banner) at buo pa rin ang card, kaya gumagana ang Refresh at ang auto-poll.
+async function loadCloudTokensView(opts) {
+    const force = !!(opts && opts.force);
     try {
-        const res = await authFetch(`${API_URL}/admin/cloud-tokens/overview`);
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/overview${force ? '?refresh=1' : ''}`, force ? { timeoutMs: 40000 } : {});
         const data = await res.json();
         if (!res.ok || !data.success) {
-            if (walletCard) walletCard.querySelector('.ct-card-body').innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data && data.message) || 'Could not load the Omni Tokens page.'}</span></div>`;
-            return;
+            ctShowLoadError((data && data.message) || 'Could not load the Omni Tokens page.');
+            return 'error';
         }
+        ctHideLoadError();
         renderCloudTokensOverview(data);
+        ctMarkRefreshed();
+        const relayUp = !!(data.wallet && data.wallet.available) && !!(data.packages && data.packages.available);
+        return relayUp ? 'ok' : 'relay_down';
     } catch (e) {
         console.warn('[OmniPOS] Failed to load Omni Tokens overview:', e);
-        if (walletCard) {
-            const body = walletCard.querySelector('.ct-card-body');
-            if (body) body.innerHTML = `<div class="ct-banner ct-banner-warn"><i class="fa-solid fa-triangle-exclamation"></i> <span>Could not reach the server. Please try again.</span></div>`;
-        }
+        ctShowLoadError('Could not reach the server. Please try again.');
+        return 'error';
     }
+}
+let ctRefreshInFlight = false;
+// Refresh button (header ng Cloud Backup Token Wallet): sapilitang tinatawagan ang RELAY para sa balance, ledger, packages
+// at kung anong PayMongo payment methods ang talagang available ngayon, saka ni-re-render ang buong Omni Tokens page.
+async function refreshCloudTokensView(btn) {
+    if (ctRefreshInFlight) return;
+    ctRefreshInFlight = true;
+    const icon = btn ? btn.querySelector('i') : null;
+    if (btn) { btn.disabled = true; btn.classList.remove('is-error'); }
+    if (icon) icon.classList.add('fa-spin');
+    let outcome = 'error';
+    try {
+        outcome = await loadCloudTokensView({ force: true });
+        const historyModal = document.getElementById('ct-history-modal');
+        if (historyModal && historyModal.style.display === 'flex' && typeof reloadTransactionHistory === 'function') reloadTransactionHistory();
+    } catch (e) {
+        outcome = 'error';
+    }
+    if (outcome === 'relay_down') ctShowLoadError('Could not reach RELAY right now — showing the last information available. Please try again in a moment.');
+    if (icon) icon.classList.remove('fa-spin');
+    if (btn) {
+        btn.disabled = false;
+        if (outcome !== 'ok') btn.classList.add('is-error');
+    }
+    ctRefreshInFlight = false;
 }
 const CT_CATEGORY_META = {
     TOKEN_PURCHASE: { icon: 'fa-circle-plus', color: '#22c55e' },
@@ -8228,8 +8279,30 @@ function renderCloudTokensOverview(data) {
     updateCtClearViewButtonState();
     const availableMethods = (data.packages && data.packages.paymentMethods) || [];
     const paymentOptionsHtml = availableMethods.length
-        ? availableMethods.map(m => `<option value="${m.id}">${m.label}</option>`).join('')
-        : `<option value="" disabled selected>No payment method configured yet</option>`;
+        ? availableMethods.map(m => `<option value="${escapeHtml(String(m.id))}">${escapeHtml(String(m.label))}</option>`).join('')
+        : `<option value="" disabled selected>No payment method available right now</option>`;
+    // Kung ano lang ang TALAGANG available (galing sa RELAY/PayMongo) ang mapipili, at laging may naka-default na napili:
+    // ang kasalukuyang napili (kung available pa) > huling ginamit sa device na ito > default ng RELAY > una sa listahan.
+    const methodIds = availableMethods.map(m => String(m.id));
+    const pickMethod = (current) => {
+        const serverDefault = data.packages && data.packages.defaultPaymentMethod;
+        const candidates = [current, ctGetStoredMethod(), serverDefault, methodIds[0]];
+        for (const c of candidates) { if (c && methodIds.includes(c)) return c; }
+        return '';
+    };
+    const applyMethodSelection = (selectEl, current) => {
+        if (!selectEl) return;
+        selectEl.value = pickMethod(current);
+        if (selectEl.dataset.ctMethodWired !== '1') {
+            selectEl.dataset.ctMethodWired = '1';
+            selectEl.addEventListener('change', () => {
+                ctStoreMethod(selectEl.value);
+                document.querySelectorAll('select.ct-payment-select').forEach(other => { if (other !== selectEl && Array.from(other.options).some(o => o.value === selectEl.value)) other.value = selectEl.value; });
+            });
+        }
+    };
+    const previousMethodValues = {};
+    document.querySelectorAll('#ct-packages-grid select.ct-payment-select, #ct-custom-method').forEach(sel => { previousMethodValues[sel.id] = sel.value; });
     const packagesGrid = document.getElementById('ct-packages-grid');
     if (packagesGrid) {
         const packagesSignature = JSON.stringify(data.packages || null);
@@ -8272,6 +8345,7 @@ function renderCloudTokensOverview(data) {
                     </button>
                 </div>`;
             }).join('');
+            packagesGrid.querySelectorAll('select.ct-payment-select').forEach(sel => applyMethodSelection(sel, previousMethodValues[sel.id]));
         } else {
             packagesGrid.innerHTML = `<div class="ct-banner ct-banner-warn" style="display:flex;"><i class="fa-solid fa-triangle-exclamation"></i> <span>${(data.packages && data.packages.unavailableReason) || 'Could not load token packages.'}</span></div>`;
         }
@@ -8281,6 +8355,7 @@ function renderCloudTokensOverview(data) {
     if (customMethodEl) {
         customMethodEl.innerHTML = paymentOptionsHtml;
         customMethodEl.disabled = !availableMethods.length;
+        applyMethodSelection(customMethodEl, previousMethodValues['ct-custom-method']);
     }
 }
 async function toggleCloudAutoSync(enabled) {
@@ -8447,7 +8522,11 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
 }
 function buyCloudTokensPackage(tier) {
     const methodEl = document.getElementById(`ct-method-${tier}`);
-    const method = methodEl ? methodEl.value : 'gcash';
+    const method = methodEl ? methodEl.value : '';
+    if (!method) {
+        Swal.fire('No payment method', 'No payment method is available right now. Tap Refresh to check again.', 'info');
+        return;
+    }
     startCloudTokenPurchase(tier, null, method);
 }
 function buyCloudTokensCustom() {
@@ -8458,7 +8537,12 @@ function buyCloudTokensCustom() {
         Swal.fire('Invalid Amount', 'Please enter at least 50 Omni Tokens (₱50).', 'error');
         return;
     }
-    startCloudTokenPurchase(null, amount, methodEl ? methodEl.value : 'gcash');
+    const customMethod = methodEl ? methodEl.value : '';
+    if (!customMethod) {
+        Swal.fire('No payment method', 'No payment method is available right now. Tap Refresh to check again.', 'info');
+        return;
+    }
+    startCloudTokenPurchase(null, amount, customMethod);
 }
 async function refreshLowStockBadge() {
     const badge = document.getElementById('lowstock-bell-badge');
