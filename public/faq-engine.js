@@ -146,6 +146,12 @@
       chatPlaceholder: 'Reply to OmniAI...',
       searchPlaceholder: 'Search FAQ...',
       aiModeLockedHint: 'Unlock Omni AI for smarter, more natural answers based on this FAQ',
+      aiModeChecking: 'Connecting to Omni AI… it will turn on automatically',
+      aiModeOffline: 'Can\'t reach the relay right now — Omni AI will turn on automatically once it\'s reachable. Tap to retry.',
+      aiModeOfflineNoNet: 'You seem to be offline — Omni AI will turn on automatically once you\'re back online. Tap to retry.',
+      aiRetryToast: 'Checking the connection to Omni AI…',
+      aiUpsellLocked: 'Unlock Omni AI for smarter, more natural answers based on this Help Center',
+      aiUpsellFree: 'Upgrade your Omni AI plan for image & file attachments, model choice and smarter answers',
       newConversation: 'New conversation',
       feedbackPrompt: 'Was this helpful?',
       feedbackThanksYes: 'Thanks for the feedback!',
@@ -234,6 +240,12 @@
       chatPlaceholder: 'Reply to OmniAI...',
       searchPlaceholder: 'Maghanap sa FAQ...',
       aiModeLockedHint: 'I-unlock ang Omni AI para sa mas matalino at natural na sagot batay sa FAQ na ito',
+      aiModeChecking: 'Kumokonekta sa Omni AI… kusa itong mag-o-on',
+      aiModeOffline: 'Hindi maabot ang relay ngayon — kusang mag-o-on ang Omni AI pagka-abot nito. I-tap para subukan ulit.',
+      aiModeOfflineNoNet: 'Mukhang offline ka — kusang mag-o-on ang Omni AI pagbalik ng internet. I-tap para subukan ulit.',
+      aiRetryToast: 'Chine-check ang koneksyon sa Omni AI…',
+      aiUpsellLocked: 'I-unlock ang Omni AI para sa mas matalino at natural na sagot batay sa Help Center na ito',
+      aiUpsellFree: 'I-upgrade ang Omni AI plan para sa pag-attach ng larawan/file, pagpili ng model at mas matatalinong sagot',
       newConversation: 'Bagong usapan',
       feedbackPrompt: 'Nakatulong ba ito?',
       feedbackThanksYes: 'Salamat sa feedback!',
@@ -940,33 +952,187 @@
   // ---- FREE tier (Omni AI Free plan) ---------------------------------------
   // Walang Omni AI subscription = FREE plan (text lang, naka-Cloudflare sa RELAY). Ang RELAY ang nagsasabi kung naka-ON ang Free
   // (/ai-assistant/free-status). Ang naka-subscribe ay Base/Plus/Pro (Google) at mayroong attach/model picker/ticket.
-  let aiFreeEnabled = false;
+  //
+  // BAGONG AYOS: dati 'false' ang simula at 'false' din kapag pumalya ang RELAY, kaya laging LOCK icon ang lumalabas hangga't wala pang
+  // sagot — kahit offline o hindi lang maabot ang RELAY. Ngayon may 4 na estado ang OmniAI toggle (aiFreeToggleState):
+  //   'ready'    — may magagamit na Omni AI (naka-subscribe, o naka-ON ang Free ayon sa RELAY / huling kilalang sagot)
+  //   'locked'   — LANG kapag ang RELAY mismo ang nagsabi (sa session na ito) na naka-OFF ang Free at walang subscription
+  //   'checking' — kasalukuyang tinatanong ang RELAY (walang lock)
+  //   'offline'  — hindi maabot ang RELAY / walang internet: walang lock, kusang nagre-retry hanggang sumagot
+  // Pagbukas ng Help, agad na tinatanong ang RELAY (refresh=1) at kusang nag-a-activate ang Free kapag naka-ON.
+  const AI_FREE_LAST_KEY = 'omnipos_faq_ai_free_last';
+  const AI_FREE_RETRY_DELAYS_MS = [3000, 6000, 12000, 20000, 30000, 60000];
+  let aiFreeEnabled = false;      // huling kilalang sagot ng RELAY (galing sa server o sa localStorage)
+  let aiFreeKnown = false;        // may nakuha nang totoong sagot ang RELAY kahit minsan
+  let aiFreeConfirmed = false;    // true = sumagot ang RELAY nang FRESH sa session na ito
+  let aiFreeReason = null;        // 'offline' | 'relay_unreachable' | 'relay_error' | 'no_key' | null
   let aiFreeLoadedAt = 0;
   let aiFreeLoading = false;
+  let aiFreeRetryTimer = null;
+  let aiFreeRetryCount = 0;
+  let aiFreeWantsAi = false;      // pinindot ng user ang OmniAI habang hindi pa ready: ilipat siya sa AI pagka-ready
+  let aiFreeRenderedSig = '';     // estado na huling iginuhit ng toggle (para malamang kung kailangan ulit i-render)
+
+  (function restoreAiFreeLastKnown() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(AI_FREE_LAST_KEY) || 'null');
+      if (raw && typeof raw.enabled === 'boolean') { aiFreeEnabled = raw.enabled; aiFreeKnown = true; }
+    } catch (e) { /* walang magagamit na huling sagot */ }
+  })();
+
+  function persistAiFreeLastKnown() {
+    try { localStorage.setItem(AI_FREE_LAST_KEY, JSON.stringify({ enabled: aiFreeEnabled, at: Date.now() })); } catch (e) {}
+  }
+
+  function aiFreeSignature() {
+    return aiFreeToggleState() + '|' + aiFreeReason;
+  }
+
+  function aiFreeToggleState() {
+    if (aiAssistantUnlocked()) return 'ready';
+    if (aiFreeKnown && aiFreeEnabled) return 'ready';
+    if (aiFreeKnown && aiFreeConfirmed) return 'locked'; // sumagot ang RELAY ngayon: naka-OFF ang Free
+    if (aiFreeLoading || !aiFreeReason) return 'checking';
+    return 'offline';
+  }
+
+  function isFaqViewVisible() {
+    const view = document.getElementById('view-faq');
+    return !!view && view.getClientRects().length > 0;
+  }
+
+  function clearAiFreeRetry() {
+    if (aiFreeRetryTimer) { clearTimeout(aiFreeRetryTimer); aiFreeRetryTimer = null; }
+  }
+
+  function scheduleAiFreeRetry() {
+    clearAiFreeRetry();
+    if (aiAssistantUnlocked() || aiFreeConfirmed) return;
+    const delay = AI_FREE_RETRY_DELAYS_MS[Math.min(aiFreeRetryCount, AI_FREE_RETRY_DELAYS_MS.length - 1)];
+    aiFreeRetryCount++;
+    aiFreeRetryTimer = setTimeout(() => {
+      aiFreeRetryTimer = null;
+      if (!isFaqViewVisible()) return; // titigil habang wala sa Help; ipagpapatuloy pagbukas ulit
+      loadAiFreeStatus(true);
+    }, delay);
+  }
+
+  function applyAiFreeResult(data) {
+    if (data && data.success) {
+      const fresh = !!data.known && (!data.reason || data.reason === 'no_key');
+      if (data.known) { aiFreeKnown = true; aiFreeEnabled = !!data.enabled; }
+      aiFreeConfirmed = fresh;
+      aiFreeReason = fresh ? null : (data.reason || 'relay_unreachable');
+      if (fresh) persistAiFreeLastKnown();
+    } else {
+      aiFreeConfirmed = false;
+      aiFreeReason = 'relay_unreachable';
+    }
+    if (aiFreeConfirmed) { aiFreeRetryCount = 0; clearAiFreeRetry(); } else { scheduleAiFreeRetry(); }
+    let intentApplied = false;
+    if (aiFreeWantsAi) {
+      const st = aiFreeToggleState();
+      if (st === 'ready') { storeAiModePref('ai'); aiFreeWantsAi = false; intentApplied = true; }
+      else if (st === 'locked') { aiFreeWantsAi = false; }
+    }
+    // Ihambing sa HULING IGINUHIT (hindi sa estado bago ang sagot) — dahil ang spinner ay iginuguhit habang naghihintay, kailangan itong palitan pagdating ng sagot.
+    if (aiFreeRenderedSig !== aiFreeSignature() || intentApplied) { try { renderAiModeToggle(); } catch (e) {} }
+  }
+
+  // force = laktawan ang cache at tanungin agad ang RELAY (refresh=1; hanggang ~30s ang hintay para sa cold start ng hosting).
   function loadAiFreeStatus(force) {
     if (aiAssistantUnlocked()) return;
-    if (aiFreeLoading || (!force && Date.now() - aiFreeLoadedAt < 60000)) return;
+    if (aiFreeLoading) return;
+    const fresh = aiFreeConfirmed && (Date.now() - aiFreeLoadedAt < 60000);
+    if (!force && (fresh || Date.now() - aiFreeLoadedAt < 5000)) return;
     aiFreeLoading = true;
+    // Kapag nasa 'offline' at nagre-retry, ipakita agad ang "checking" (spinner) — at dapat nakatakda na ang aiFreeLoading bago mag-render.
+    if (aiFreeRenderedSig !== aiFreeSignature()) { try { renderAiModeToggle(); } catch (e) {} }
     (async () => {
-      let enabled = false;
+      let result = null;
       try {
-        const res = await authFetch(`${API_URL}/ai-assistant/free-status`, { timeoutMs: 10000 });
-        const data = res.ok ? await res.json().catch(() => null) : null;
-        enabled = !!(data && data.success && data.enabled);
-      } catch (e) { enabled = false; }
+        const res = await authFetch(`${API_URL}/ai-assistant/free-status${force ? '?refresh=1' : ''}`, { timeoutMs: force ? 30000 : 12000 });
+        const data = res && res.ok ? await res.json().catch(() => null) : null;
+        if (data && data.success) result = data;
+      } catch (e) { result = null; }
       aiFreeLoadedAt = Date.now();
       aiFreeLoading = false;
-      if (enabled !== aiFreeEnabled) {
-        aiFreeEnabled = enabled;
-        try { renderAiModeToggle(); } catch (e) {}
-      }
+      applyAiFreeResult(result);
     })();
   }
+
+  function onFaqViewShown() {
+    if (aiAssistantUnlocked()) return;
+    aiFreeRetryCount = 0;
+    clearAiFreeRetry();
+    loadAiFreeStatus(true);
+  }
+
+  // Pagbukas ng Help (kahit saang paraan binuksan), pagbalik ng internet, o pagbalik sa app: agad na i-check ang RELAY.
+  function setupAiFreeAutoCheck() {
+    const view = document.getElementById('view-faq');
+    if (!view || view.dataset.aiFreeWatch === '1') return;
+    view.dataset.aiFreeWatch = '1';
+    let wasVisible = isFaqViewVisible();
+    const onChange = () => {
+      const nowVisible = isFaqViewVisible();
+      if (nowVisible && !wasVisible) onFaqViewShown();
+      wasVisible = nowVisible;
+    };
+    if (typeof MutationObserver === 'function') {
+      const mo = new MutationObserver(onChange);
+      mo.observe(view, { attributes: true, attributeFilter: ['style', 'class'] });
+      const mainView = document.getElementById('main-view');
+      if (mainView) mo.observe(mainView, { attributes: true, attributeFilter: ['style', 'class'] });
+    }
+    window.addEventListener('online', () => {
+      if (aiAssistantUnlocked() || !isFaqViewVisible()) return;
+      aiFreeRetryCount = 0;
+      loadAiFreeStatus(true);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden || aiAssistantUnlocked() || aiFreeConfirmed || !isFaqViewVisible()) return;
+      loadAiFreeStatus(true);
+    });
+    if (wasVisible) onFaqViewShown();
+  }
+
+  function showAiFreeHint(msg) {
+    try {
+      if (window.Swal && typeof window.Swal.fire === 'function') {
+        window.Swal.fire({ toast: true, position: 'top', icon: 'info', title: msg, showConfirmButton: false, timer: 3200, timerProgressBar: true });
+      }
+    } catch (e) { /* walang toast, walang problema */ }
+  }
+
   // May magagamit na AI chat? (naka-subscribe, o naka-ON ang Free sa RELAY)
   function aiChatEnabled() {
     if (aiAssistantUnlocked()) return true;
     loadAiFreeStatus(false);
-    return aiFreeEnabled;
+    return aiFreeToggleState() === 'ready';
+  }
+
+  // Ang upsell sa ilalim ng composer: 'locked' = "I-unlock ang Omni AI", 'ready' sa Free = "Mag-upgrade" (bubuksan ang plans),
+  // at nakatago habang 'checking'/'offline' (para hindi magmukhang naka-lock) o kapag naka-subscribe na.
+  function syncAiUpsell() {
+    const box = document.getElementById('faq-ai-upsell');
+    if (!box) return;
+    if (aiAssistantUnlocked()) { box.style.display = 'none'; return; }
+    const st = aiFreeToggleState();
+    const textEl = document.getElementById('faq-ai-upsell-text');
+    const link = box.querySelector('a');
+    const s = STRINGS();
+    if (st === 'locked') {
+      if (textEl) textEl.textContent = s.aiUpsellLocked;
+      if (link) link.onclick = (ev) => { ev.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant'); };
+      box.style.display = 'block';
+    } else if (st === 'ready') {
+      if (textEl) textEl.textContent = s.aiUpsellFree;
+      if (link) link.onclick = (ev) => { ev.preventDefault(); openAiPlansModal(); };
+      box.style.display = 'block';
+    } else {
+      box.style.display = 'none';
+    }
   }
 
   const AI_MODE_KEY = 'omnipos_faq_ai_mode';
@@ -1005,20 +1171,40 @@
     const s = STRINGS();
     const unlocked = aiChatEnabled();
     const mode = effectiveAiMode();
+    aiFreeRenderedSig = aiFreeSignature();
 
     if (!unlocked) {
+      // Parehong ayos ng ready na toggle (OmniAI sa kaliwa, FAQ sa kanan; FAQ ang aktibo) para laging nakikita ang aktibong label.
+      // Lock icon LANG kapag ang RELAY mismo ang nagsabing naka-OFF ang Free; habang naghihintay/offline ay spinner/retry icon.
+      const tState = aiFreeToggleState();
+      const noNet = aiFreeReason === 'offline';
+      const hint = tState === 'locked' ? s.aiModeLockedHint : (tState === 'offline' ? (noNet ? s.aiModeOfflineNoNet : s.aiModeOffline) : s.aiModeChecking);
+      const icon = tState === 'locked' ? 'fa-lock' : (tState === 'offline' ? 'fa-arrows-rotate' : 'fa-circle-notch fa-spin');
       box.innerHTML = `
-        <div class="faq-mode-toggle faq-mode-toggle-locked" data-active="kb">
+        <div class="faq-mode-toggle faq-mode-toggle-locked faq-mode-toggle-${tState}" data-active="kb" data-ai-state="${tState}">
           <div class="faq-mode-slider"></div>
+          <button type="button" class="faq-mode-option faq-mode-locked-option faq-mode-pending-option" data-ai-pending="${tState}"
+                  title="${escapeHtml(hint)}" aria-label="${escapeHtml(s.aiModeAi + ' — ' + hint)}">
+            <i class="fa-solid ${icon}"></i> ${s.aiModeAi}
+          </button>
           <span class="faq-mode-option active"><i class="fa-solid fa-circle-question"></i> ${s.aiModeKb}</span>
-          <span class="faq-mode-option faq-mode-locked-option" title="${escapeHtml(s.aiModeLockedHint)}"
-                onclick="if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
-            <i class="fa-solid fa-lock"></i> ${s.aiModeAi}
-          </span>
         </div>`;
+      box.querySelectorAll('[data-ai-pending]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (tState === 'locked') {
+            if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');
+            return;
+          }
+          aiFreeWantsAi = true;
+          aiFreeRetryCount = 0;
+          showAiFreeHint(s.aiRetryToast);
+          loadAiFreeStatus(true);
+        });
+      });
       const lockedPill = document.getElementById('ai-assistant-credit-pill');
       if (lockedPill) lockedPill.style.display = 'none';
       if (typeof window.syncAiCreditExpiryWrapper === 'function') window.syncAiCreditExpiryWrapper();
+      syncAiUpsell();
       return;
     }
 
@@ -1083,6 +1269,7 @@
     renderQuickActions();
     refreshTicketButtonVisibility();
     refreshAiCreditPill();
+    syncAiUpsell();
   }
 
   // ---- "modern AI chatbot" full-screen mode ---------------------------
@@ -4071,6 +4258,8 @@
     goTo: goTo,
     renderFullList: renderFullList,
     renderAiModeToggle: renderAiModeToggle,
+    syncAiUpsell: syncAiUpsell,
+    refreshAiFree: function () { aiFreeRetryCount = 0; loadAiFreeStatus(true); },
     openAiPlans: openAiPlansModal,
     search: search,
     suggest: suggest,
@@ -4520,6 +4709,7 @@
     renderFullList();
     wireFaqPageLock();
     renderAiModeToggle();
+    setupAiFreeAutoCheck();
     setupSlashShortcut();
     setupFaqComposerKeyboardHandling();
     setupFaqInputAutosize();

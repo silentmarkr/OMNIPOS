@@ -7943,38 +7943,108 @@ async function buildAiDatabaseContextMessage(role, question = '') {
 // ---- Omni AI FREE plan ------------------------------------------------------------------
 // Walang Omni AI subscription ('ai_assistant' feature) = FREE plan: text lang, naka-Cloudflare sa RELAY, sariling maliit na limit.
 // Ang RELAY ang nagsasabi kung naka-ON ang Free (admin > Omni AI > Tiers). Naka-subscribe = Base/Plus/Pro (Google).
-let relayAiFreeStatusCache = { at: 0, enabled: false, ok: false };
-async function getRelayAiFreeEnabled() {
-    // 60s cache kapag nakuha ang sagot ng RELAY; kapag pumalya ang RELAY, 10s lang at ginagamit ang huling kilalang sagot (hindi agad nagla-lock).
-    const age = Date.now() - relayAiFreeStatusCache.at;
-    if (age < (relayAiFreeStatusCache.ok ? 60 * 1000 : 10 * 1000)) return relayAiFreeStatusCache.enabled;
-    let enabled = relayAiFreeStatusCache.enabled;
-    let ok = false;
+// Last known na sagot ng RELAY ay itinatabi sa maliit na file (katabi ng database) para kahit mag-restart ang server habang
+// offline/di maabot ang RELAY, alam pa rin kung naka-ON ang Free — hindi ito basta nagla-lock. 'known' = may totoong sagot na ang RELAY
+// kahit minsan; kapag hindi pa 'known' (bagong install o hindi pa naaabot ang RELAY), HINDI ito ituturing na "naka-OFF".
+const AI_FREE_STATUS_SIDECAR_PATH = path.join(DB_DIR, 'ai-free-status.json');
+function readAiFreeStatusSidecar() {
     try {
-        if (RELAY_API_KEY) {
-            const installationId = getOrCreateInstallationId(readFeatureUnlocks());
-            const r = await relayFetch(`${RELAY_URL}/relay/ai-assistant/free-status?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
-            const data = await r.json().catch(() => null);
-            if (r.ok && data && data.success) { enabled = !!data.enabled; ok = true; }
-        } else { enabled = false; ok = true; }
-    } catch (_) { /* RELAY unreachable — panatilihin ang huling kilalang sagot */ }
-    relayAiFreeStatusCache = { at: Date.now(), enabled, ok };
-    return enabled;
+        if (!fs.existsSync(AI_FREE_STATUS_SIDECAR_PATH)) return null;
+        const raw = JSON.parse(fs.readFileSync(AI_FREE_STATUS_SIDECAR_PATH, 'utf8'));
+        if (!raw || typeof raw !== 'object' || typeof raw.enabled !== 'boolean') return null;
+        return { enabled: raw.enabled, at: Number(raw.at) || 0 };
+    } catch (_) { return null; }
+}
+function writeAiFreeStatusSidecar(enabled, at) {
+    try {
+        const tmpPath = AI_FREE_STATUS_SIDECAR_PATH + '.tmp';
+        fs.writeFileSync(tmpPath, JSON.stringify({ enabled: !!enabled, at }), { mode: 0o600 });
+        fs.renameSync(tmpPath, AI_FREE_STATUS_SIDECAR_PATH);
+    } catch (_) { /* best-effort lang */ }
+}
+const _aiFreeSaved = readAiFreeStatusSidecar();
+// reason: null (ok) | 'offline' (walang internet) | 'relay_unreachable' (hindi maabot / timeout ang RELAY) | 'relay_error' (sumagot pero may error) | 'no_key'
+let relayAiFreeStatusCache = {
+    at: 0,
+    enabled: _aiFreeSaved ? _aiFreeSaved.enabled : false,
+    ok: false,
+    known: !!_aiFreeSaved,
+    reachable: false,
+    reason: null,
+    lastGoodAt: _aiFreeSaved ? _aiFreeSaved.at : 0
+};
+let relayAiFreeInflight = null;
+// Pinakamaliit na pagitan ng sapilitang (refresh=1) na tanong sa RELAY: 10s kung nakasagot na ito nang maayos (rate limit ng RELAY ay 60/10min),
+// at 3s lang kung pumalya ang huli para mabilis ang "retry".
+const RELAY_AI_FREE_FORCE_MIN_GAP_OK_MS = 10000;
+const RELAY_AI_FREE_FORCE_MIN_GAP_FAIL_MS = 3000;
+function relayAiFreeSnapshot() {
+    const c = relayAiFreeStatusCache;
+    return { enabled: !!c.enabled, known: !!c.known, reachable: !!c.reachable, ok: !!c.ok, reason: c.reason || null, checkedAt: c.at || 0, lastGoodAt: c.lastGoodAt || 0 };
+}
+// Isang sabay-sabay na tanong lang sa RELAY kahit maraming tumawag (Help open + chat + retry) — pare-pareho silang naghihintay sa iisang request.
+function refreshRelayAiFreeStatus(timeoutMs) {
+    if (relayAiFreeInflight) return relayAiFreeInflight;
+    relayAiFreeInflight = (async () => {
+        const prev = relayAiFreeStatusCache;
+        const now = Date.now();
+        let next;
+        try {
+            if (!RELAY_API_KEY) {
+                next = { ...prev, at: now, enabled: false, ok: true, known: true, reachable: true, reason: 'no_key', lastGoodAt: now };
+            } else {
+                const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+                const r = await relayFetch(`${RELAY_URL}/relay/ai-assistant/free-status?installationId=${encodeURIComponent(installationId)}`, { method: 'GET', headers: { 'x-relay-key': RELAY_API_KEY } }, timeoutMs || 8000);
+                const data = await r.json().catch(() => null);
+                if (r.ok && data && data.success) {
+                    next = { ...prev, at: now, enabled: !!data.enabled, ok: true, known: true, reachable: true, reason: null, lastGoodAt: now };
+                } else {
+                    // Sumagot ang RELAY pero walang magamit na sagot — panatilihin ang huling kilalang sagot (hindi nagla-lock).
+                    next = { ...prev, at: now, ok: false, reachable: true, reason: 'relay_error' };
+                }
+            }
+        } catch (err) {
+            next = { ...prev, at: now, ok: false, reachable: false, reason: (err && err.code === 'NO_INTERNET') ? 'offline' : 'relay_unreachable' };
+        }
+        if (next.ok && next.reason !== 'no_key' && (!prev.known || prev.enabled !== next.enabled)) writeAiFreeStatusSidecar(next.enabled, next.lastGoodAt);
+        relayAiFreeStatusCache = next;
+        return relayAiFreeSnapshot();
+    })().finally(() => { relayAiFreeInflight = null; });
+    return relayAiFreeInflight;
+}
+// opts.force = laktawan ang 60s cache (hal. pagbukas ng Help) pero may 3s na pagitan para hindi ma-spam ang RELAY.
+async function getRelayAiFreeState(opts = {}) {
+    const age = Date.now() - relayAiFreeStatusCache.at;
+    const ttl = opts.force
+        ? (relayAiFreeStatusCache.ok ? RELAY_AI_FREE_FORCE_MIN_GAP_OK_MS : RELAY_AI_FREE_FORCE_MIN_GAP_FAIL_MS)
+        : (relayAiFreeStatusCache.ok ? 60 * 1000 : 10 * 1000);
+    if (age < ttl && !relayAiFreeInflight) return relayAiFreeSnapshot();
+    return refreshRelayAiFreeStatus(opts.timeoutMs);
+}
+async function getRelayAiFreeEnabled() {
+    return (await getRelayAiFreeState()).enabled;
 }
 // Pinapayagan ang Omni AI endpoint kung naka-subscribe O kung naka-ON ang Free. Sa Free (req.aiFreeTier = true) ang mga
 // endpoint na may {subscriberOnly:true} ay tinatanggihan gaya ng dating naka-lock na feature.
+// Kapag HINDI PA NAKAKASAGOT ang RELAY kahit minsan (hindi pa 'known'), hindi ito ituturing na "naka-OFF" — pinapadaan ang request
+// bilang Free at ang RELAY mismo ang magpapasya/magsasabi ng error (walang AI na tumatakbo nang hindi dumadaan sa RELAY).
 function requireAiAssistantOrFree() {
     const lockedHandler = requireFeature('ai_assistant');
     return async (req, res, next) => {
         if (getUnlockedFeatureIds().includes('ai_assistant')) return next();
-        if (await getRelayAiFreeEnabled()) { req.aiFreeTier = true; return next(); }
+        const st = await getRelayAiFreeState();
+        if (st.enabled || !st.known) { req.aiFreeTier = true; return next(); }
         return lockedHandler(req, res, next);
     };
 }
+// ?refresh=1 (ipinapadala ng Help page pagbukas) = agad na tanungin ang RELAY at hintayin hanggang ~25s (kasama ang cold start ng hosting).
+// Palaging 200 ang sagot kahit hindi maabot ang RELAY — ang 'known/reachable/reason' ang nagsasabi sa client kung lock, offline, o naghihintay lang.
 app.get('/api/ai-assistant/free-status', async (req, res) => {
     const subscribed = getUnlockedFeatureIds().includes('ai_assistant');
-    const enabled = subscribed ? false : await getRelayAiFreeEnabled();
-    res.json({ success: true, subscribed, enabled });
+    if (subscribed) return res.json({ success: true, subscribed: true, enabled: false, known: true, reachable: true, reason: null });
+    const wantsRefresh = req.query && (req.query.refresh === '1' || req.query.refresh === 'true');
+    const st = await getRelayAiFreeState(wantsRefresh ? { force: true, timeoutMs: 25000 } : {});
+    res.json({ success: true, subscribed: false, enabled: st.enabled, known: st.known, reachable: st.reachable, reason: st.reason, checkedAt: st.checkedAt });
 });
 async function callRelayAiAssistant(messages, vision, attachmentType = null, requestId = null, modelChoice = null, signal = null) {
     if (!RELAY_API_KEY) {
@@ -17821,6 +17891,9 @@ app.get('/ca-cert.pem', (req, res) => {
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
 async function startOmniposServer() {
     await restoreFromCloudIfNeeded();
+    // Pagka-start pa lang ng server, tanungin na agad ang RELAY kung naka-ON ang Free Omni AI (nagigising din nito ang RELAY kung cold start)
+    // para handa na ang sagot pagbukas ng Help. Hindi hinihintay at hindi nagpapabagsak ng startup kapag pumalya.
+    try { getRelayAiFreeState({ force: true, timeoutMs: 25000 }).catch(() => {}); } catch (_) { /* best-effort */ }
     if (httpsOptions) {
         const https = require('https');
         https.createServer(httpsOptions, app).listen(PORT, HOST, () => {

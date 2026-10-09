@@ -77,6 +77,8 @@
 
     const aiUpsellText = document.getElementById('faq-ai-upsell-text');
     if (aiUpsellText) aiUpsellText.textContent = t.aiUpsell;
+    // Ang tamang teksto/visibility ng upsell (Unlock vs Upgrade vs nakatago) ay nakadepende sa estado ng Omni AI — si faq-engine ang magpapasya.
+    if (window.OmniFAQ && typeof window.OmniFAQ.syncAiUpsell === 'function') window.OmniFAQ.syncAiUpsell();
   }
 
   function updateToggleUI(lang) {

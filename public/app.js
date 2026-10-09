@@ -1704,7 +1704,13 @@ async function updateModuleSubscriptionBadges() {
     if (multiBranchBox && !multiBranchUnlocked) multiBranchBox.style.display = 'none';
     if (aiAssistantBox && !aiAssistantUnlocked) { aiAssistantBox.style.display = 'none'; syncAiCreditExpiryWrapper(); }
     const faqAiUpsell = document.getElementById('faq-ai-upsell');
-    if (faqAiUpsell) faqAiUpsell.style.display = aiAssistantUnlocked ? 'none' : 'block';
+    if (faqAiUpsell) {
+        if (window.OmniFAQ && typeof window.OmniFAQ.syncAiUpsell === 'function') {
+            window.OmniFAQ.syncAiUpsell();
+        } else {
+            faqAiUpsell.style.display = aiAssistantUnlocked ? 'none' : 'block';
+        }
+    }
     if (!rbacUnlocked && !multiBranchUnlocked && !aiAssistantUnlocked) return;
     try {
         const res = await authFetch(`${API_URL}/module-subscriptions/status`);
@@ -8297,6 +8303,76 @@ async function toggleCloudAutoSync(enabled) {
     }
 }
 let ctPurchaseInFlight = false;
+let ctQrDownloadSrc = '';
+let ctQrDownloadName = 'OmniTokens-QRPh.png';
+function ctLoadQrImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('The QR image could not be loaded.'));
+        img.src = src;
+    });
+}
+async function ctBuildQrPngBlob(src) {
+    const img = await ctLoadQrImage(src);
+    const nw = img.naturalWidth || 0;
+    const nh = img.naturalHeight || 0;
+    if (!nw || !nh) throw new Error('The QR image has no size.');
+    const scale = Math.max(nw, nh) >= 1024 ? 1 : Math.ceil(1024 / Math.max(nw, nh));
+    const w = nw * scale;
+    const h = nh * scale;
+    const pad = Math.round(Math.max(w, h) * 0.06);
+    const canvas = document.createElement('canvas');
+    canvas.width = w + pad * 2;
+    canvas.height = h + pad * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, pad, pad, w, h);
+    return await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not create the image file.'))), 'image/png');
+    });
+}
+async function downloadTokenQrImage(btn) {
+    if (!ctQrDownloadSrc || (btn && btn.disabled)) return;
+    const originalHtml = btn ? btn.innerHTML : '';
+    const setBtn = (html, disabled) => {
+        if (btn && btn.isConnected) { btn.innerHTML = html; btn.disabled = !!disabled; }
+    };
+    setBtn('<i class="fa-solid fa-spinner fa-spin"></i> Preparing…', true);
+    let resultHtml;
+    try {
+        let blob;
+        let fileName = ctQrDownloadName;
+        try {
+            blob = await ctBuildQrPngBlob(ctQrDownloadSrc);
+        } catch (buildErr) {
+            const r = await fetch(ctQrDownloadSrc);
+            if (!r.ok) throw buildErr;
+            blob = await r.blob();
+            if (blob.type && blob.type !== 'image/png') {
+                const ext = blob.type === 'image/jpeg' ? 'jpg' : (blob.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '');
+                fileName = fileName.replace(/\.png$/i, '.' + ext);
+            }
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        resultHtml = '<i class="fa-solid fa-circle-check"></i> Saved';
+    } catch (e) {
+        console.warn('Could not download the Omni Tokens QR image:', e);
+        resultHtml = '<i class="fa-solid fa-triangle-exclamation"></i> Could not save — press and hold the QR to save it';
+    }
+    setBtn(resultHtml, true);
+    setTimeout(() => setBtn(originalHtml, false), 2600);
+}
 async function startCloudTokenPurchase(packageId, customTokens, method) {
     if (ctPurchaseInFlight) return;
     ctPurchaseInFlight = true;
@@ -8333,11 +8409,16 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
             const expiresNote = data.expiresAt
                 ? ` Valid until <b>${new Date(data.expiresAt).toLocaleTimeString()}</b>.`
                 : '';
+            const qrStamp = new Date();
+            const qrPad2 = (n) => String(n).padStart(2, '0');
+            ctQrDownloadSrc = String(data.qrCodeImageUrl);
+            ctQrDownloadName = `OmniTokens-QRPh-PHP${String(data.amountPHP).replace(/[^0-9.]/g, '')}-${qrStamp.getFullYear()}${qrPad2(qrStamp.getMonth() + 1)}${qrPad2(qrStamp.getDate())}-${qrPad2(qrStamp.getHours())}${qrPad2(qrStamp.getMinutes())}.png`;
             Swal.fire({
                 title: 'Scan the QR Ph code',
                 html: `<div class="paymongo-qr-content">
                        <p class="paymongo-qr-description">Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to pay <b>₱${ctFmtNum(data.amountPHP)}</b> for ${ctFmtNum(data.tokens)} tokens.${expiresNote}</p>
                        <img class="paymongo-qr-image paymongo-qr-image-token" src="${data.qrCodeImageUrl}" alt="QR Ph code" />
+                       <button type="button" class="paymongo-qr-download-btn" onclick="downloadTokenQrImage(this)"><i class="fa-solid fa-download"></i> Download QR as image</button>
                        <p class="paymongo-qr-note">This will update automatically once the payment is confirmed — no need to keep this window open.</p>
                        </div>`,
                 customClass: { popup: 'paymongo-qr-modal' },
