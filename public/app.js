@@ -1802,6 +1802,8 @@ async function promptModuleSubscription(featureId) {
     const tagline = (live && live.description) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].description) || staticInfo.tagline || '';
     const price = (live && live.subscriptionPrice) ? live.subscriptionPrice : staticInfo.price;
     let selectedCycle = 'monthly';
+    // Omni AI is sold monthly only (no yearly billing cycle is offered or can be selected).
+    const aiMonthlyOnlyUi = (featureId === 'ai_assistant');
     // Omni AI: show the plan cards that are enabled in RELAY (Base + Plus/Pro/Business). Base uses the module price
     // (monthly/yearly); the paid plans cost exactly their card price and are monthly only.
     const aiPlanList = [];
@@ -1836,8 +1838,11 @@ async function promptModuleSubscription(featureId) {
     const planPrice = (plan, cycle) => (plan && plan.monthlyOnly) ? plan.monthlyPrice : price[cycle];
     const buildHtml = () => {
         const sel = getSelectedPlan();
-        if (sel && sel.monthlyOnly) selectedCycle = 'monthly';
-        const cycleButtons = ['monthly', 'yearly'].map(cycle => {
+        if ((sel && sel.monthlyOnly) || aiMonthlyOnlyUi) selectedCycle = 'monthly';
+        // Omni AI plans are monthly-only: the "Yearly (2 months free)" option is hidden for every Omni AI plan.
+        // Other module subscriptions (RBAC, Multi-Branch, Remote Operations) keep both Monthly and Yearly.
+        const cycleList = aiMonthlyOnlyUi ? ['monthly'] : ['monthly', 'yearly'];
+        const cycleButtons = cycleList.map(cycle => {
             const active = cycle === selectedCycle;
             const disabled = cycle === 'yearly' && sel && sel.monthlyOnly;
             return `<button type="button" class="cb-cycle-btn${active ? ' active' : ''}" data-cycle="${cycle}" ${disabled ? 'disabled' : ''} style="flex:1;border-radius:8px;padding:6px;cursor:${disabled ? 'not-allowed' : 'pointer'};margin:0 4px;font-size:0.82rem;font-weight:600;${disabled ? 'opacity:.45;' : ''}">${cycle === 'monthly' ? 'Monthly' : 'Yearly (2 months free)'}</button>`;
@@ -1865,7 +1870,7 @@ async function promptModuleSubscription(featureId) {
             <p class="uw-modal-intro" style="font-size:0.8rem;margin:0 0 10px;">${displayName} is now a subscription. ${aiPlanList.length ? 'Pick a plan and a billing cycle:' : 'Pick a billing cycle:'}</p>
             <div style="display:flex;margin-bottom:10px;">${cycleButtons}</div>
             <div style="max-height:46vh;overflow:auto;">${plansHtml}</div>
-            ${aiPlanList.length ? '<p style="font-size:0.72rem;margin:8px 0 0;opacity:.75;">Plus, Pro and Business are monthly plans. The price shown is the total you pay. Google AI models shown on each plan are controlled by the developer in RELAY.</p>' : ''}
+            ${aiPlanList.length ? '<p style="font-size:0.72rem;margin:8px 0 0;opacity:.75;">All Omni AI plans are billed monthly. The price shown is the total you pay. Google AI models shown on each plan are controlled by the developer in RELAY.</p>' : ''}
             ${buildActivationNoteHtml()}
         </div>`;
     };
@@ -1882,7 +1887,7 @@ async function promptModuleSubscription(featureId) {
             const rerender = () => { popup.querySelector('.swal2-html-container').innerHTML = buildHtml(); attachHandlers(); };
             const attachHandlers = () => {
                 popup.querySelectorAll('.cb-cycle-btn').forEach(btn => {
-                    btn.addEventListener('click', () => { if (btn.disabled) return; selectedCycle = btn.dataset.cycle; rerender(); });
+                    btn.addEventListener('click', () => { if (btn.disabled) return; if (aiMonthlyOnlyUi && btn.dataset.cycle !== 'monthly') return; selectedCycle = btn.dataset.cycle; rerender(); });
                 });
                 popup.querySelectorAll('.ai-plan-pick').forEach(card => {
                     const pick = () => { selectedPlanId = card.dataset.plan; rerender(); };
@@ -1894,7 +1899,7 @@ async function promptModuleSubscription(featureId) {
         }
     });
     const chosenPlan = getSelectedPlan();
-    if (chosenPlan && chosenPlan.monthlyOnly) selectedCycle = 'monthly';
+    if ((chosenPlan && chosenPlan.monthlyOnly) || aiMonthlyOnlyUi) selectedCycle = 'monthly';
     const planName = `${displayName}${chosenPlan ? ' — ' + chosenPlan.name : ''} (${selectedCycle === 'monthly' ? 'Monthly' : 'Yearly'})`;
     const aiTierId = chosenPlan ? chosenPlan.id : undefined;
     if (result.isDenied) {

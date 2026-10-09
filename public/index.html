@@ -215,7 +215,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261008-1">
+    <link rel="stylesheet" href="style.css?v=20261009-4">
 
     <link rel="stylesheet" href="css/themes/theme-dark.css" data-retry>
     <link rel="stylesheet" href="css/themes/theme-ocean-pro.css" data-retry>
@@ -258,7 +258,7 @@
 
     <div id="auth-view" class="auth-container">
         <div class="auth-sidebar sync-sidebar">
-            <div class="brand-title"><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i</span>POS</span></div>
+            <div class="brand-title" aria-label="OmniPOS" role="img"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span></div>
             <div class="device-rig">
                 <div class="pc-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M8 20h8M12 17v3"/></svg>
@@ -312,7 +312,7 @@
 
         <aside class="sidebar" id="app-sidebar">
             <div class="sidebar-brand">
-                <span><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i</span>POS</span></span>
+                <span aria-label="OmniPOS"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span></span>
             </div>
 
             <div class="sidebar-user-widget" id="sidebar-user-widget">
@@ -415,10 +415,10 @@
                 <div class="header-left">
                     <button class="hamburger-menu" id="btn-sidebar-toggle" onclick="openSidebarMenu()"><i class="fa-solid fa-bars"></i></button>
                     <span class="header-desktop-logo" id="header-desktop-logo" onclick="handleHeaderLogoClick(event)" title="Go to Overview" aria-label="OmniPOS - Go to Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();handleHeaderLogoClick(event);}">
-                        <i class="fa-solid fa-cash-register"></i> <span class="header-desktop-logo-text brand-word">Omn<span class="brand-i-wrap">i</span>POS</span>
+                        <span class="header-desktop-logo-text brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span>
                     </span>
                     <div class="terminal-brand-header" id="terminal-brand-header">
-                        <span class="terminal-brand-label" onclick="switchView('overview')" title="Bumalik sa Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}"><i class="fa-solid fa-cash-register"></i> <span class="brand-word">Omn<span class="brand-i-wrap">i</span>POS</span></span>
+                        <span class="terminal-brand-label" onclick="switchView('overview')" title="Bumalik sa Overview" aria-label="OmniPOS - Bumalik sa Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span></span>
                         <button class="btn-terminal-back" onclick="switchView('overview')" title="Bumalik sa Overview">
     <i class="fa-solid fa-chevron-left"></i>
 </button>     </div>
@@ -5248,9 +5248,9 @@
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js?v=20261003-4"></script>
-<script src="faq-engine.js?v=20261008-1"></script>
+<script src="faq-engine.js?v=20261009-1"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
-<script src="app.js?v=20261002-8"></script>
+<script src="app.js?v=20261009-1"></script>
 <script src="app1.js?v=20261002-1"></script>
 
 
@@ -5382,6 +5382,93 @@
         }
         pushConnectivityMode('offline').catch(() => {});
     };
+})();
+</script>
+<script>
+/* Header logo: the "O" of "OmniPOS" is an inline SVG (ring + dot, same mark as the Omni AI icon). This fits it
+   to the REAL "O" glyph of whichever font is actually rendering the logo (Sora when online, a fallback when
+   offline): same box (position, width, height) and the same stroke thickness as the letter it replaces. Sizes
+   are in em, so it scales with the logo font-size. If anything fails, the static markup + CSS defaults in
+   style.css (.brand-o) are used unchanged. */
+(function () {
+    var GROW = 0.0625;                                 /* extra O size in em (= +1.5px at 24px); keep in sync with --o-grow in style.css */
+    var CX = 255.5, CY = 255.5, R = 143.5;            /* ring geometry inside viewBox "112 112 287 287" */
+    function ringPath(s) {                              /* s = stroke width in viewBox units */
+        /* The gap is centred on the 45-degree dot; it widens with the stroke so the dot never touches the ring ends. */
+        var r = R - s / 2, half = Math.max(38, Math.min(48, (1.46 * s / r) * 180 / Math.PI));
+        var a1 = (45 + half) * Math.PI / 180, a2 = (45 - half) * Math.PI / 180;
+        function f(n) { return n.toFixed(2); }
+        return 'M' + f(CX + r * Math.cos(a1)) + ' ' + f(CY + r * Math.sin(a1)) +
+            'A' + f(r) + ' ' + f(r) + ' 0 1 1 ' + f(CX + r * Math.cos(a2)) + ' ' + f(CY + r * Math.sin(a2));
+    }
+    function stemPx(ctx, cs, size, asc, desc) {          /* thickness of the glyph's left stem at mid-height */
+        try {
+            var cv = document.createElement('canvas');
+            cv.width = Math.ceil(size * 1.6); cv.height = Math.ceil(size * 1.6);
+            var c = cv.getContext('2d');
+            c.font = ctx.font; c.fillStyle = '#000'; c.textBaseline = 'alphabetic';
+            var base = Math.ceil(size * 1.2), x0 = Math.ceil(size * 0.3);
+            c.fillText('O', x0, base);
+            var y = Math.round(base - (asc - desc) / 2);
+            var row = c.getImageData(0, y, cv.width, 1).data, start = -1, end = -1;
+            for (var x = 0; x < cv.width; x++) {
+                var on = row[x * 4 + 3] > 127;
+                if (on && start < 0) start = x;
+                if (!on && start >= 0) { end = x; break; }
+            }
+            return (start >= 0 && end > start) ? (end - start) : 0;
+        } catch (e) { return 0; }
+    }
+    function fitBrandO() {
+        try {
+            var svgs = document.querySelectorAll('svg.brand-o');
+            if (!svgs.length) return;
+            var ctx = document.createElement('canvas').getContext('2d');
+            if (!ctx) return;
+            var SIZE = 200;
+            for (var i = 0; i < svgs.length; i++) {
+                var host = svgs[i].parentNode;
+                var cs = window.getComputedStyle(host);
+                if (!cs || !cs.fontFamily) continue;
+                ctx.font = (cs.fontStyle || 'normal') + ' ' + (cs.fontWeight || '800') + ' ' + SIZE + 'px ' + cs.fontFamily;
+                var m = ctx.measureText('O');
+                if (!m || !(m.width > 0) || typeof m.actualBoundingBoxAscent !== 'number') continue;
+                var left = -m.actualBoundingBoxLeft;
+                var w = m.actualBoundingBoxRight + m.actualBoundingBoxLeft;
+                var h = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+                if (!(w > 0) || !(h > 0)) continue;
+                /* O->m kerning pair (the DOM kerns the real text, an inline SVG would not) */
+                var kern = ctx.measureText('Om').width - m.width - ctx.measureText('m').width;
+                if (!isFinite(kern)) kern = 0;
+                var st = svgs[i].style;
+                st.setProperty('--o-grow', String(GROW));
+                st.setProperty('--o-l', (left / SIZE).toFixed(4));
+                st.setProperty('--o-w', (w / SIZE).toFixed(4));
+                st.setProperty('--o-h', (h / SIZE).toFixed(4));
+                st.setProperty('--o-d', (m.actualBoundingBoxDescent / SIZE).toFixed(4));
+                st.setProperty('--o-r', ((m.width + kern - left - w) / SIZE).toFixed(4));
+                /* match the letter's own stroke thickness (stem px -> viewBox units, clamped to a safe range) */
+                var stem = stemPx(ctx, cs, SIZE, m.actualBoundingBoxAscent, m.actualBoundingBoxDescent);
+                if (stem > 0) {
+                    var s = Math.max(30, Math.min(66, stem / (w + GROW * SIZE) * 287));
+                    var path = svgs[i].querySelector('path'), dot = svgs[i].querySelector('circle');
+                    if (path && dot) {
+                        var r = R - s / 2, a = 45 * Math.PI / 180;
+                        path.setAttribute('d', ringPath(s));
+                        path.setAttribute('stroke-width', s.toFixed(2));
+                        dot.setAttribute('cx', (CX + r * Math.cos(a)).toFixed(2));
+                        dot.setAttribute('cy', (CY + r * Math.sin(a)).toFixed(2));
+                        dot.setAttribute('r', (s * 0.62).toFixed(2));   /* slightly larger than the app icon's dot so it stays visible at header size */
+                    }
+                }
+            }
+        } catch (e) { /* keep static markup + CSS defaults */ }
+    }
+    fitBrandO();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fitBrandO);
+    window.addEventListener('load', fitBrandO);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitBrandO);
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', fitBrandO);
 })();
 </script>
 </body>

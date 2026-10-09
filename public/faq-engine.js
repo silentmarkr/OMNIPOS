@@ -3141,7 +3141,7 @@
       freeNoAttach: 'Image and file attachments are not available on the Free plan. Subscribe to Omni AI (Base/Plus/Pro) to use them.',
       subscribeBtn: 'Subscribe to Omni AI', needsSub: 'Requires an Omni AI subscription', freeTextOnly: 'Text only',
       subscribeToUpgrade: 'Subscribe to Omni AI to upgrade', baseDisabled: 'Not available right now', tapToUpgrade: 'Tap to upgrade',
-      xBase: '{n}× Base', neuronsLeft: '{n} / {c} neurons left today', resetsIn: 'resets in {t}',
+      neuronsLeft: '{n} / {c} neurons left today', resetsIn: 'resets in {t}',
       warn80: 'You have used most of today\'s AI limit. A One-day Boost can keep you going.',
       boostTitle: 'One-day Boost', boostHint: 'Out of daily neurons? Add more for today only — it disappears at midnight. Does not change your monthly credits.',
       boostToday: 'Boosts bought today', boostBtn: 'Buy Boost', boostAdminText: 'Enter an admin password to buy a Boost (+{neurons} neurons, today only) for {cost} Omni Tokens.',
@@ -3166,7 +3166,7 @@
       freeNoAttach: 'Hindi available ang pag-attach ng larawan/file sa Free plan. Mag-subscribe sa Omni AI (Base/Plus/Pro) para magamit ito.',
       subscribeBtn: 'Mag-subscribe sa Omni AI', needsSub: 'Kailangan ng Omni AI subscription', freeTextOnly: 'Text lang',
       subscribeToUpgrade: 'Mag-subscribe sa Omni AI para mag-upgrade', baseDisabled: 'Hindi available ngayon', tapToUpgrade: 'I-tap para mag-upgrade',
-      xBase: '{n}× ng Base', neuronsLeft: '{n} / {c} neurons na lang ngayon', resetsIn: 'magre-reset sa {t}',
+      neuronsLeft: '{n} / {c} neurons na lang ngayon', resetsIn: 'magre-reset sa {t}',
       warn80: 'Halos ubos na ang AI limit mo ngayong araw. Puwede kang bumili ng One-day Boost para makapagpatuloy.',
       boostTitle: 'One-day Boost', boostHint: 'Ubos na ang daily neurons? Dagdagan para sa ngayong araw lang — mawawala ito sa hatinggabi. Hindi nito ginagalaw ang monthly credits.',
       boostToday: 'Nabiling Boost ngayon', boostBtn: 'Bilhin ang Boost', boostAdminText: 'Maglagay ng admin password para bilhin ang Boost (+{neurons} neurons, ngayong araw lang) sa halagang {cost} Omni Tokens.',
@@ -3467,7 +3467,6 @@
           <span style="font-weight:700;">${p.isFree ? escapeHtml(ps.free) : (p.isBase ? escapeHtml(ps.inclSub) : `${p.priceTokens} ${escapeHtml(ps.tokens)}`)}</span>
         </div>
         <div style="font-size:.85rem;opacity:.85;margin:4px 0 8px;">${p.monthlyCredits} ${escapeHtml(ps.perMonth)} · ${escapeHtml(cap(p.dailyCap))} ${escapeHtml(ps.perDay)}${p.textOnly ? ` · ${escapeHtml(ps.freeTextOnly)}` : ''}</div>
-        ${(p.creditsMultiplier && p.creditsMultiplier > 1 && !p.isBase && !p.isFree) ? `<div style="font-size:.85rem;font-weight:700;color:#2563eb;margin:-4px 0 8px;">${escapeHtml(ps.xBase.replace('{n}', p.creditsMultiplier))}</div>` : ''}
         <div>${action}</div>
       </div>`;
     }).join('') || `<div style="padding:8px 0;">${escapeHtml(ps.noPlans)}</div>`;

@@ -557,6 +557,24 @@ body:not(.dark-mode) .sidebar {
     position: relative;
     display: inline-block;
 }
+/* Header logo "O" with dot (same ring+dot mark as the Omni AI icon). It replaces the letter "O" of "Omni" only
+   (the "O" in "POS" stays a normal letter). Sized in em from the real glyph metrics measured by the small
+   script at the end of index.html (--o-l left bearing, --o-w width, --o-h height, --o-d descent below the
+   baseline, --o-r right bearing); the fallbacks below approximate a bold geometric "O". The -0.03em margin
+   mirrors .brand-word's letter-spacing, which does not apply to an inline SVG. */
+svg.brand-o {
+    /* --o-grow = extra size (in em) added on top of the measured letter box: 0.0625em = +1.5px at the 24px header
+       logo size. It grows evenly around the letter's centre (the margins below give the space back), so the
+       neighbouring letters do not move. */
+    display: inline-block;
+    overflow: visible;
+    flex: none;
+    width: calc((var(--o-w, 0.74) + var(--o-grow, 0.0625)) * 1em);
+    height: calc((var(--o-h, 0.73) + var(--o-grow, 0.0625)) * 1em);
+    margin-left: calc((var(--o-l, 0.04) - var(--o-grow, 0.0625) / 2) * 1em);
+    margin-right: calc((var(--o-r, 0.04) - 0.03 - var(--o-grow, 0.0625) / 2) * 1em);
+    vertical-align: calc((var(--o-d, 0.01) + var(--o-grow, 0.0625) / 2) * -1em);
+}
 .brand-word {
     font-family: 'Sora', 'Space Grotesk', 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
     font-weight: 800;
@@ -15847,4 +15865,171 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
   html[data-preload-view="faq"] .content-body {
     padding-bottom: 30px;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Login screen on phones/tablets in portrait: the layout scales with the screen HEIGHT so the whole sign-in
+   form (including the optional fingerprint button) fits without scrolling, while tall phones keep a larger,
+   more comfortable layout. Desktop (wide) layout is untouched. This block is intentionally last so it
+   overrides the earlier (max-width: 768px) auth rules.
+   Tier 1 (default, tall screens >= 800px): gentle compression only.
+   Tier 2 (700-799px): medium.  Tier 3 (<= 699px): compact.  Tier 4 (<= 600px): also hides the description.
+   --------------------------------------------------------------------------- */
+@media screen and (max-width: 768px) {
+    .auth-container {
+        min-height: 100vh;
+        min-height: 100dvh;
+    }
+    .auth-sidebar.sync-sidebar {
+        flex: 0 0 auto;
+        padding: 30px 24px 18px;
+    }
+    .auth-sidebar.sync-sidebar .brand-title {
+        font-size: 1.7rem;
+        margin-bottom: 8px;
+    }
+    /* The device illustration is scaled with a transform; the negative margins give back the layout space the
+       transform leaves behind so it does not push the form down. (150px tall rig.) */
+    .device-rig {
+        transform: scale(0.9);
+        transform-origin: center center;
+        margin: -8px 0 -2px;
+    }
+    .auth-sidebar.sync-sidebar h2 {
+        font-size: 1.35rem;
+        margin: 0 0 6px;
+    }
+    .auth-sidebar.sync-sidebar p {
+        font-size: 0.84rem;
+        line-height: 1.45;
+        max-width: 320px;
+        margin: 0;
+    }
+    .sync-caption {
+        margin-top: 12px;
+        font-size: 0.7rem;
+    }
+    .auth-form-side {
+        flex: 1 0 auto;
+        align-items: flex-start;
+        padding: 30px 20px 26px;
+    }
+    .form-wrapper h1 {
+        font-size: 2rem;
+        margin-bottom: 20px;
+    }
+    .auth-subtitle {
+        margin-bottom: 4px;
+    }
+    .auth-container .input-group {
+        margin-bottom: 16px;
+    }
+    .auth-container .input-group input {
+        padding: 14px 16px;
+    }
+    .auth-container .terms-agree-group {
+        margin: 4px 0 12px !important;
+    }
+    .btn-primary-auth {
+        padding: 13px;
+        margin-top: 4px;
+    }
+    .auth-container .error-msg {
+        margin-bottom: 14px;
+        padding: 10px 12px;
+    }
+}
+@media screen and (max-width: 768px) and (max-height: 799px) {
+    .auth-sidebar.sync-sidebar {
+        padding: 20px 22px 12px;
+    }
+    .auth-sidebar.sync-sidebar .brand-title {
+        font-size: 1.6rem;
+        margin-bottom: 4px;
+    }
+    .device-rig {
+        transform: scale(0.68);
+        margin: -24px 0 -16px;
+    }
+    .auth-sidebar.sync-sidebar h2 {
+        font-size: 1.2rem;
+        margin-bottom: 3px;
+    }
+    .auth-sidebar.sync-sidebar p {
+        font-size: 0.78rem;
+        line-height: 1.38;
+    }
+    .sync-caption {
+        margin-top: 8px;
+        font-size: 0.66rem;
+    }
+    .auth-form-side {
+        padding: 20px 20px 18px;
+    }
+    .form-wrapper h1 {
+        font-size: 1.65rem;
+        margin-bottom: 12px;
+    }
+    .auth-container .input-group {
+        margin-bottom: 10px;
+    }
+    .auth-container .input-group input {
+        padding: 11px 14px;
+    }
+    .auth-container .terms-agree-group {
+        margin: 2px 0 10px !important;
+    }
+    .auth-container .terms-agree-group label {
+        font-size: 0.8rem !important;
+        line-height: 1.3 !important;
+    }
+    .btn-primary-auth {
+        padding: 12px;
+        margin-top: 2px;
+    }
+}
+@media screen and (max-width: 768px) and (max-height: 699px) {
+    .auth-sidebar.sync-sidebar {
+        padding: 16px 20px 10px;
+    }
+    .auth-sidebar.sync-sidebar .brand-title {
+        font-size: 1.5rem;
+    }
+    .device-rig {
+        transform: scale(0.55);
+        margin: -34px 0 -26px;
+    }
+    .auth-sidebar.sync-sidebar h2 {
+        font-size: 1.1rem;
+        margin-bottom: 2px;
+    }
+    .auth-sidebar.sync-sidebar p {
+        font-size: 0.72rem;
+        line-height: 1.3;
+    }
+    .sync-caption {
+        margin-top: 6px;
+    }
+    .auth-form-side {
+        padding: 14px 20px 14px;
+    }
+    .form-wrapper h1 {
+        font-size: 1.45rem;
+        margin-bottom: 8px;
+    }
+}
+@media screen and (max-width: 768px) and (max-height: 600px) {
+    .auth-sidebar.sync-sidebar p {
+        display: none;
+    }
+    .device-rig {
+        transform: scale(0.45);
+        margin: -41px 0 -36px;
+    }
+    .auth-sidebar.sync-sidebar {
+        padding: 12px 20px 8px;
+    }
+    .auth-form-side {
+        padding-top: 10px;
+    }
 }
