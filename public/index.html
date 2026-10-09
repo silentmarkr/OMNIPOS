@@ -254,11 +254,13 @@
 </head>
 
 <body>
+    <!-- Shared gradient for the OmniPOS logo dot (referenced by every svg.brand-o). Kept rendered (0x0, not display:none) so browsers still resolve the gradient. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="omni-brand-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#1d8bf0"/></linearGradient></defs></svg>
     <div id="sidebar-overlay" onclick="closeSidebarMenu()"></div>
 
     <div id="auth-view" class="auth-container">
         <div class="auth-sidebar sync-sidebar">
-            <div class="brand-title" aria-label="OmniPOS" role="img"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span></div>
+            <div class="brand-title" aria-label="OmniPOS" role="img"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>mn<span class="brand-i-wrap">i</span><span class="brand-pos">POS</span></span></div>
             <div class="device-rig">
                 <div class="pc-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M8 20h8M12 17v3"/></svg>
@@ -312,7 +314,7 @@
 
         <aside class="sidebar" id="app-sidebar">
             <div class="sidebar-brand">
-                <span aria-label="OmniPOS"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span></span>
+                <span aria-label="OmniPOS"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>mn<span class="brand-i-wrap">i</span><span class="brand-pos">POS</span></span></span>
             </div>
 
             <div class="sidebar-user-widget" id="sidebar-user-widget">
@@ -421,10 +423,10 @@
                 <div class="header-left">
                     <button class="hamburger-menu" id="btn-sidebar-toggle" onclick="openSidebarMenu()"><i class="fa-solid fa-bars"></i></button>
                     <span class="header-desktop-logo" id="header-desktop-logo" onclick="handleHeaderLogoClick(event)" title="Go to Overview" aria-label="OmniPOS - Go to Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();handleHeaderLogoClick(event);}">
-                        <span class="header-desktop-logo-text brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span>
+                        <span class="header-desktop-logo-text brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>mn<span class="brand-i-wrap">i</span><span class="brand-pos">POS</span></span>
                     </span>
                     <div class="terminal-brand-header" id="terminal-brand-header">
-                        <span class="terminal-brand-label" onclick="switchView('overview')" title="Bumalik sa Overview" aria-label="OmniPOS - Bumalik sa Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg>mn<span class="brand-i-wrap">i</span>POS</span></span>
+                        <span class="terminal-brand-label" onclick="switchView('overview')" title="Bumalik sa Overview" aria-label="OmniPOS - Bumalik sa Overview" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('overview');}"><span class="brand-word"><svg class="brand-o" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>mn<span class="brand-i-wrap">i</span><span class="brand-pos">POS</span></span></span>
                         <button class="btn-terminal-back" onclick="switchView('overview')" title="Bumalik sa Overview">
     <i class="fa-solid fa-chevron-left"></i>
 </button>     </div>
@@ -5483,6 +5485,32 @@
     window.addEventListener('load', fitBrandO);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitBrandO);
     if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', fitBrandO);
+})();
+</script>
+<script>
+/* Login logo: keep the SAME physical size on every phone. The logo is sized in px (not rem), so the app's own
+   font-size setting no longer changes it. Some devices/browsers also multiply ALL text by a system "font size"
+   scale; this measures that multiplier with a 100px probe and publishes its inverse as --logo-fix, which the login
+   logo rules in style.css multiply into their font-size. When no scaling is active (factor 1) nothing changes. */
+(function () {
+    function applyLogoFix() {
+        var probe = null;
+        try {
+            probe = document.createElement('span');
+            probe.setAttribute('aria-hidden', 'true');
+            probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;left:-9999px;top:0;' +
+                'display:inline-block;font-size:100px;width:1em;height:1px;padding:0;margin:0;border:0;';
+            (document.body || document.documentElement).appendChild(probe);
+            var k = probe.getBoundingClientRect().width / 100;           /* real px per declared px */
+            var root = document.documentElement;
+            if (isFinite(k) && k > 0.5 && k < 3 && Math.abs(k - 1) > 0.02) root.style.setProperty('--logo-fix', (1 / k).toFixed(4));
+            else root.style.removeProperty('--logo-fix');
+        } catch (e) { /* keep CSS default (no correction) */ }
+        finally { if (probe && probe.parentNode) probe.parentNode.removeChild(probe); }
+    }
+    applyLogoFix();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyLogoFix);
+    window.addEventListener('load', applyLogoFix);
 })();
 </script>
 </body>
