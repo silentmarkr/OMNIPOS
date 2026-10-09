@@ -1574,6 +1574,89 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'menu-remoteops-lock':'remote_operations',
 'menu-inventory-tools-lock':'inventory_tools'
 };
+const SIDEBAR_PRO_CATEGORIES = {
+    inventory: {
+        buttonId: 'menu-pro-toggle-inventory',
+        groupId: 'menu-inventory-group',
+        itemIds: ['menu-inventory-tools', 'menu-batchlots', 'menu-reorder']
+    },
+    management: {
+        buttonId: 'menu-pro-toggle-management',
+        groupId: null,
+        itemIds: ['menu-reports', 'menu-customers', 'menu-debts', 'menu-shiftreport', 'menu-branches', 'menu-attendance', 'menu-remoteops']
+    }
+};
+const sidebarProRevealed = { inventory: false, management: false };
+function openSidebarMenuGroup(groupId) {
+    const group = document.getElementById(groupId);
+    if (!group) return;
+    const container = group.querySelector('.dropdown-container');
+    const icon = group.querySelector('.drop-icon');
+    if (container && container.style.display === 'none') {
+        container.style.display = 'flex';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    }
+}
+// Locked (not purchased) features are hidden in the sidebar. Each category that has locked
+// features gets a PRO button; tapping it reveals/hides them. Purchased (unlocked) features are
+// always visible. While the unlock status is still unknown (not loaded yet / server unreachable)
+// nothing is hidden, so a purchased feature can never disappear because of a failed request.
+function updateSidebarProCategories() {
+    const cacheKnown = Array.isArray(unlockedFeatureIdsCache);
+    Object.keys(SIDEBAR_PRO_CATEGORIES).forEach((key) => {
+        const cat = SIDEBAR_PRO_CATEGORIES[key];
+        const group = cat.groupId ? document.getElementById(cat.groupId) : null;
+        const groupHidden = !!group && group.style.display === 'none';
+        const lockedEls = [];
+        let lockedCount = 0;
+        cat.itemIds.forEach((itemId) => {
+            const el = document.getElementById(itemId);
+            if (!el) return;
+            const featureId = SIDEBAR_FEATURE_LOCK_MAP[itemId + '-lock'];
+            const isLocked = cacheKnown && !!featureId && !isFeatureUnlockedCached(featureId);
+            el.classList.toggle('is-pro-locked', isLocked);
+            if (isLocked) {
+                lockedEls.push(el);
+                if (el.style.display !== 'none') lockedCount++;
+            }
+        });
+        if (!cacheKnown || lockedCount === 0 || groupHidden) sidebarProRevealed[key] = false;
+        const revealed = !!sidebarProRevealed[key];
+        cat.itemIds.forEach((itemId) => {
+            const el = document.getElementById(itemId);
+            if (el) el.classList.toggle('menu-pro-hidden', lockedEls.includes(el) && !revealed);
+        });
+        const btn = document.getElementById(cat.buttonId);
+        if (!btn) return;
+        btn.style.display = (cacheKnown && lockedCount > 0 && !groupHidden) ? 'inline-flex' : 'none';
+        btn.classList.toggle('is-open', revealed);
+        btn.setAttribute('aria-expanded', revealed ? 'true' : 'false');
+        const label = revealed ? 'Hide locked PRO features' : ('Show locked PRO features (' + lockedCount + ')');
+        btn.title = label;
+        btn.setAttribute('aria-label', label);
+        const icon = btn.querySelector('.menu-section-pro-icon');
+        if (icon) icon.className = 'fa-solid menu-section-pro-icon ' + (revealed ? 'fa-lock-open' : 'fa-lock');
+    });
+}
+function toggleSidebarProCategory(key, ev) {
+    if (ev) {
+        if (typeof ev.preventDefault === 'function') ev.preventDefault();
+        if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+    }
+    const cat = SIDEBAR_PRO_CATEGORIES[key];
+    if (!cat) return;
+    sidebarProRevealed[key] = !sidebarProRevealed[key];
+    if (sidebarProRevealed[key] && cat.groupId) openSidebarMenuGroup(cat.groupId);
+    updateSidebarProCategories();
+    if (sidebarProRevealed[key]) {
+        const first = cat.itemIds
+            .map((id) => document.getElementById(id))
+            .find((el) => el && el.classList.contains('is-pro-locked') && el.style.display !== 'none');
+        if (first && typeof first.scrollIntoView === 'function') {
+            try { first.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { first.scrollIntoView(); }
+        }
+    }
+}
 function updateRolesPermissionsLockState() {
     const wrap = document.getElementById('roles-permissions-matrix-wrap');
     const overlay = document.getElementById('roles-permissions-lock-overlay');
@@ -1594,6 +1677,7 @@ function updateSidebarFeatureLocks() {
             proBadge.style.display = unlocked ?'inline-flex' :'none';
         }
     });
+    updateSidebarProCategories();
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
     updateModuleSubscriptionBadges();
@@ -7778,6 +7862,7 @@ function applyRoleBasedAccessControls(role) {
         const anyInventoryVisible = isAdmin || currentPermissions.dashboard || currentPermissions.products || currentPermissions.barcode || currentPermissions.stock_return_inspection;
         inventoryGroup.style.display = anyInventoryVisible ?'' :'none';
     }
+    if (typeof updateSidebarProCategories === 'function') updateSidebarProCategories();
     console.log(`[OmniPOS] Applied dynamic Permission Matrix for role: ${role ||'unknown'}`);
 }
 let cloudTokensPollTimer = null;
@@ -25523,6 +25608,7 @@ async function handleLogout(type ='manual') {
         unlockedFeatureIdsCache = null;
         purchasedFeatureIdsCache = null;
         fullyPurchasedCache = false;
+        if (typeof updateSidebarProCategories === 'function') updateSidebarProCategories();
         if (typeof renderSidebarProBadge ==='function') {
             renderSidebarProBadge(false, false);
         }
