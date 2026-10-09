@@ -17859,7 +17859,14 @@ async function startOmniposServer() {
         });
     }, 5 * 60 * 1000);
 }
+let shutdownInProgress = false;
 async function handleShutdownSignal(signal) {
+    // Stability fix: a second signal (or the Stop/Restart widget sending TERM twice) used to start
+    // a second snapshot push, and a slow/offline network made the push hang forever, so the old
+    // server stayed alive holding PORT 3000 until it was killed with -9 (mid-upload). Now the
+    // shutdown happens once and the snapshot push is limited to 4 seconds.
+    if (shutdownInProgress) return;
+    shutdownInProgress = true;
     console.log(`ℹ️  Natanggap ang ${signal} — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...`);
     if (CLOUDFLARE_TUNNEL_STATE.process) {
         try { CLOUDFLARE_TUNNEL_STATE.process.kill(); } catch {}
@@ -17869,7 +17876,10 @@ async function handleShutdownSignal(signal) {
         CLOUDFLARE_TUNNEL_STATE.mode = null;
     }
     try {
-        await pushSnapshotToCloud();
+        await Promise.race([
+            pushSnapshotToCloud(),
+            new Promise((resolve) => setTimeout(resolve, 4000))
+        ]);
     } catch (err) {
         console.error('⚠️  [cloud-snapshot] Nabigo ang shutdown push:', err.message);
     } finally {

@@ -25097,7 +25097,10 @@ function initInstallAppBanner() {
     const isStandaloneAlready = window.matchMedia('(display-mode: standalone)').matches
         || window.navigator.standalone === true;
     if (isStandaloneAlready) return;
-    if (localStorage.getItem('installBannerDismissedAt')) {
+    // OmniPOS.apk opens Chrome at /?install=1 to help the user install the PWA:
+    // skip the "dismissed for 7 days" rule and show the Install banner as soon as Chrome allows it.
+    const forceInstall = /[?&]install=1(&|$)/.test(location.search);
+    if (!forceInstall && localStorage.getItem('installBannerDismissedAt')) {
         const dismissedAgoMs = Date.now() - parseInt(localStorage.getItem('installBannerDismissedAt'), 10);
         if (dismissedAgoMs < 7 * 24 * 60 * 60 * 1000) return;
     }
@@ -25107,6 +25110,20 @@ function initInstallAppBanner() {
         deferredInstallPromptEvent = e;
         showInstallAppBanner({ mode: 'android' });
     });
+    if (forceInstall) {
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPromptEvent = null;
+            const b = document.getElementById('install-app-banner');
+            if (b) {
+                const t = b.querySelector('.install-app-banner-title');
+                const d = b.querySelector('.install-app-banner-desc');
+                const a = b.querySelector('.install-app-banner-actions');
+                if (t) t.textContent = 'OmniPOS installed \u2713';
+                if (d) d.textContent = 'Bumalik sa OmniPOS app (Recents) \u2014 tapos na ang install.';
+                if (a) a.style.display = 'none';
+            }
+        });
+    }
     if (isIOS) {
         showInstallAppBanner({ mode: 'ios' });
     }
