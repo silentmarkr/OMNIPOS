@@ -66,7 +66,7 @@ trap cleanup INT TERM
 # SELF_UPDATE_BACKUP_DIR comment above and the larger comment in
 # server.js (SELF_UPDATE_BACKUP_DIR) for the full context.
 restore_self_update_backup() {
-    if [ -d "$SELF_UPDATE_BACKUP_DIR" ]; then
+    if [ -d "$SELF_UPDATE_BACKUP_DIR" ] && [ -z "$(find "$SELF_UPDATE_BACKUP_DIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
         log "🔙 Crash loop pagkatapos ng self-update — nakita ang backup ng dating bersyon. Ibinabalik ito bago subukan ulit..."
         cp -a "$SELF_UPDATE_BACKUP_DIR/." ./ 2>>"$LOG_FILE"
         rm -rf "$SELF_UPDATE_BACKUP_DIR"

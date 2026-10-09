@@ -13658,7 +13658,7 @@ app.post('/api/system/lan-connection/stop', (req, res) => {
     res.json({ success: true, restarting: true });
     scheduleSelfRestart();
 });
-app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60 * 1000), async (req, res) => {
+app.get('/api/system/update-check', rateLimit('system-update-check', 200, 10 * 60 * 1000), async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({ success: false, message:'Admin privileges lamang ang makakagamit ng Check for Updates.' });
     }
@@ -13672,7 +13672,7 @@ app.get('/api/system/update-check', rateLimit('system-update-check', 10, 10 * 60
         const installationId = getOrCreateInstallationId(readFeatureUnlocks());
         const relayRes = await relayFetch(`${RELAY_URL}/relay/latest-version?installationId=${encodeURIComponent(installationId)}`, {
             headers: {'x-relay-key': RELAY_API_KEY }
-        });
+        }, 25000);
         const relayData = await parseRelayResponse(relayRes);
         if (!relayData.success) {
             return res.status(502).json({ success: false, message: relayData.message ||'Tinanggihan ng RELAY ang version check.' });
@@ -13760,6 +13760,36 @@ const SELF_UPDATE_PRESERVE = new Set([
    'cf.log','server.log','.start.sh.lock'
 ]);
 const SELF_UPDATE_BACKUP_DIR = '.self-update-backup';
+// Non-blocking replacement for execSync: the event loop (HTTP, status polling
+// ng UI) stays responsive habang tumatakbo ang unzip/npm install, may timeout,
+// at malaki ang maxBuffer para hindi mag-fail ang update dahil lang sa mahabang output.
+function execAsync(cmd, opts = {}) {
+    return new Promise((resolve, reject) => {
+        require('child_process').exec(cmd, {
+            cwd: opts.cwd,
+            timeout: opts.timeout || 0,
+            killSignal: 'SIGKILL',
+            maxBuffer: 64 * 1024 * 1024
+        }, (err, stdout, stderr) => {
+            if (err) {
+                err.stderr = stderr;
+                return reject(err);
+            }
+            resolve({ stdout, stderr });
+        });
+    });
+}
+let selfUpdateInProgress = false;
+let selfUpdateStartedAt = 0;
+const SELF_UPDATE_STALE_MS = 20 * 60 * 1000;
+// Kapag matagumpay at stable ang takbo ng bagong bersyon, burahin ang backup
+// para hindi ito maibalik ng start.sh sa isang hindi kaugnay na crash sa hinaharap.
+setTimeout(() => {
+    if (selfUpdateInProgress) return;
+    try {
+        fs.rmSync(path.join(__dirname, SELF_UPDATE_BACKUP_DIR), { recursive: true, force: true });
+    } catch (_e) {}
+}, 3 * 60 * 1000).unref();
 function copyRecursivePreserving(srcDir, destDir, preserveNames) {
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
         if (preserveNames.has(entry.name)) continue;
@@ -13799,6 +13829,11 @@ async function runSelfUpdateFromRelay(req, res) {
     if (getConnectivityMode() === 'offline') {
         return res.status(400).json({ success: false, message:'Naka-OFFLINE mode ka ngayon. I-switch muna sa Online para makapag-self-update.' });
     }
+    if (selfUpdateInProgress && (Date.now() - selfUpdateStartedAt) < SELF_UPDATE_STALE_MS) {
+        return res.status(409).json({ success: false, message: 'May tumatakbo nang self-update. Hintayin munang matapos.' });
+    }
+    selfUpdateInProgress = true;
+    selfUpdateStartedAt = Date.now();
     const jobId = createSelfUpdateJob();
     const stats = readDeployStats();
     res.json({ success: true, mode: 'self', jobId, estimatedMs: stats.selfUpdateAvgMs, samples: stats.samples.self });
@@ -13811,7 +13846,7 @@ async function runSelfUpdateFromRelay(req, res) {
         jobAdvanceStep(jobId,'download','Connecting to Relay for the release package...', 2);
         const relayRes = await relayFetch(`${RELAY_URL}/relay/release-package`, {
             headers: {'x-relay-key': RELAY_API_KEY }
-        });
+        }, 60000);
         if (!relayRes.ok) {
             let detail ='';
             try { detail = (await relayRes.json()).message ||''; } catch (_e) {}
@@ -13825,7 +13860,16 @@ async function runSelfUpdateFromRelay(req, res) {
         if (relayRes.body && typeof relayRes.body.getReader === 'function') {
             const reader = relayRes.body.getReader();
             while (true) {
-                const { done, value } = await reader.read();
+                let idleTimer;
+                const { done, value } = await Promise.race([
+                    reader.read(),
+                    new Promise((_, reject) => {
+                        idleTimer = setTimeout(() => {
+                            reader.cancel().catch(() => {});
+                            reject(new Error('Natigil ang download ng update (walang dumating na data sa loob ng 60 segundo). Subukan ulit.'));
+                        }, 60000);
+                    })
+                ]).finally(() => clearTimeout(idleTimer));
                 if (done) break;
                 if (value && value.length) {
                     chunks.push(value);
@@ -13852,7 +13896,7 @@ async function runSelfUpdateFromRelay(req, res) {
         jobAdvanceStep(jobId,'extract','Extracting the update package...', 40);
         fs.mkdirSync(extractDir, { recursive: true });
         try {
-            execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio:'pipe' });
+            await execAsync(`unzip -o "${zipPath}" -d "${extractDir}"`, { timeout: 3 * 60 * 1000 });
         } catch (unzipErr) {
             throw new Error(`Hindi ma-extract ang release package. Siguraduhing naka-install ang "unzip" sa Termux ("pkg install unzip -y"). Detalye: ${unzipErr.message}`);
         }
@@ -13866,9 +13910,19 @@ async function runSelfUpdateFromRelay(req, res) {
         const copyStats = { copied: 0, total: countFilesRecursive(extractDir, SELF_UPDATE_PRESERVE) };
         copyRecursivePreservingWithProgress(extractDir, installRoot, SELF_UPDATE_PRESERVE, copyStats, jobId);
         jobAdvanceStep(jobId,'apply','Installing updated dependencies (npm install)...', 80);
+        let npmTick = null;
         try {
-            execSync('npm install --omit=dev', { cwd: installRoot, stdio: 'pipe' });
+            // Gumagalaw ang progress bar habang naghihintay para hindi magmukhang frozen.
+            let npmPct = 80;
+            npmTick = setInterval(() => {
+                npmPct = Math.min(93, npmPct + 1);
+                jobSetPercent(jobId, npmPct, 'Installing updated dependencies (npm install)...');
+            }, 4000);
+            await execAsync('npm install --omit=dev --no-audit --no-fund', { cwd: installRoot, timeout: 10 * 60 * 1000 });
+            clearInterval(npmTick);
+            npmTick = null;
         } catch (npmErr) {
+            if (npmTick) { clearInterval(npmTick); npmTick = null; }
             try {
                 restoreInstallFiles(installRoot);
             } catch (restoreErr) {
@@ -13884,7 +13938,8 @@ async function runSelfUpdateFromRelay(req, res) {
         console.error('❌ Self-update error:', err.message);
         jobFail(jobId, err.message || 'Hindi na-apply ang self-update.');
     } finally {
-        fs.rmSync(tmpRoot, { recursive: true, force: true });
+        selfUpdateInProgress = false;
+        try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch (_e) {}
     }
 }
 const resetJobs = new Map();

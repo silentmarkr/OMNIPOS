@@ -23376,7 +23376,7 @@ async function checkForSystemUpdate() {
     if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving status from RELAY&hellip;';
     if (deployBtn) deployBtn.style.display = 'none';
     try {
-        const response = await authFetch(`${API_URL}/system/update-check`);
+        const response = await authFetch(`${API_URL}/system/update-check`, { timeoutMs: 30000 });
         const result = await response.json();
         if (!result.success) {
             if (statusEl) statusEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:var(--danger-red);"></i> ${result.message || 'Unable to check the update status.'}`;
@@ -23624,7 +23624,7 @@ async function pollDeployVerification() {
     if (!deployProgressState) return;
     const state = deployProgressState;
     try {
-        const response = await authFetch(`${API_URL}/system/update-check`);
+        const response = await authFetch(`${API_URL}/system/update-check`, { timeoutMs: 30000 });
         const result = await response.json();
         if (result.success && !result.updateAvailable && (!state.targetVersion || result.currentVersion === state.targetVersion)) {
             finishDeploySuccess(result);
