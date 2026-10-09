@@ -3274,7 +3274,8 @@ function copyRecursivePreservingWithProgress(srcDir, destDir, preserveNames, sta
 }
 const UNPUBLISHED_VERSION_SENTINEL = '0.0.0';
 function parseVersionParts(v) {
-    return String(v || '0.0.0').trim().split('.').map((n) => parseInt(n, 10) || 0);
+    // Tanggalin ang leading "v" (hal. "v1.1.46") — kung hindi, magiging 0 ang unang bahagi at hindi made-detect ang update.
+    return String(v || '0.0.0').trim().replace(/^[vV]/, '').split('.').map((n) => parseInt(n, 10) || 0);
 }
 function isVersionNewer(candidate, current) {
     const a = parseVersionParts(candidate);
