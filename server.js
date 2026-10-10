@@ -4391,18 +4391,21 @@ async function runRelayBackupSync() {
     }
     relayBackupStatus.lastAttemptAt = Date.now();
     const mirrorResult = mirrorBackupToDownloads();
-    if (!mirrorResult.success) {
-        relayBackupStatus.state = 'orange';
-        relayBackupStatus.lastError = mirrorResult.message;
-        console.error('⚠️ RELAY_BACKUP: hindi na-mirror sa Download folder:', mirrorResult.message);
-        return;
+    // FIX: a failed file copy used to `return` here, so the device never checked in
+    // to RELAY (no lastBackupAt / auto-allow / device-seen). The check-in only needs
+    // the installationId, so it now continues even if the mirror failed; the mirror
+    // problem is still reported through relayBackupStatus below.
+    if (mirrorResult.success) {
+        relayBackupStatus.path = mirrorResult.path;
+        console.log(
+            mirrorResult.existedBefore
+                ? `🔁 RELAY_BACKUP: na-update ang existing na file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
+                : `🆕 RELAY_BACKUP: unang beses na nagawa ang file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
+        );
     }
-    relayBackupStatus.path = mirrorResult.path;
-    console.log(
-        mirrorResult.existedBefore
-            ? `🔁 RELAY_BACKUP: na-update ang existing na file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
-            : `🆕 RELAY_BACKUP: unang beses na nagawa ang file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
-    );
+    const mirrorWarning = !mirrorResult.success
+        ? `Hindi na-copy ang backup file: ${mirrorResult.message}`
+        : (mirrorResult.usedFallback ? `Hindi masulatan ang Download folder (${mirrorResult.primaryError}) — sa loob ng app naka-save ang kopya.` : null);
     if (!RELAY_API_KEY) {
         relayBackupStatus.state = 'orange';
         relayBackupStatus.lastError = 'No RELAY_API_KEY configured — cannot check in to relay.';
@@ -4418,7 +4421,7 @@ async function runRelayBackupSync() {
             body: JSON.stringify({
                 installationId,
                 storeName: (receiptSettings && receiptSettings.storeName) || null,
-                fileSizeBytes: mirrorResult.sizeBytes,
+                fileSizeBytes: mirrorResult.success ? mirrorResult.sizeBytes : null,
                 backupAt: Date.now()
             })
         });
@@ -4428,9 +4431,10 @@ async function runRelayBackupSync() {
             relayBackupStatus.lastError = relayData.message || 'Tinanggihan ng relay ang backup check-in.';
             return;
         }
-        relayBackupStatus.state = 'green';
         relayBackupStatus.lastSuccessAt = Date.now();
-        relayBackupStatus.lastError = null;
+        // Green only when both the file copy (Download folder) and the relay check-in worked.
+        relayBackupStatus.state = mirrorResult.success && !mirrorResult.usedFallback ? 'green' : 'orange';
+        relayBackupStatus.lastError = mirrorWarning;
         console.log(`✅ RELAY_BACKUP: na-checkin sa relay (installationId: ${installationId}).`);
     } catch (err) {
         relayBackupStatus.state = 'orange';

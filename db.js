@@ -675,25 +675,51 @@ function resolveDownloadBackupDir() {
 
 const RELAY_BACKUP_FILENAME = 'omnipos_database_backup.db';
 
+// Last-resort location inside the app's own (always writable) data folder.
+// Same path resolveDownloadBackupDir() falls back to when no Download folder exists.
+const RELAY_BACKUP_FALLBACK_DIR = path.join(DB_DIR, 'relay-backup-fallback', 'RELAY_BACKUP');
+let relayBackupMirrorWarned = false;
+
+function copyDatabaseTo(destDir) {
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const destPath = path.join(destDir, RELAY_BACKUP_FILENAME);
+    const existedBefore = fs.existsSync(destPath);
+    db.exec('PRAGMA wal_checkpoint(FULL);');
+    fs.copyFileSync(DB_PATH, destPath);
+    const stat = fs.statSync(destPath);
+    return { success: true, path: destPath, sizeBytes: stat.size, existedBefore };
+}
+
 function mirrorBackupToDownloads() {
-    try {
-        const destDir = resolveDownloadBackupDir();
-        if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-
-        const destPath = path.join(destDir, RELAY_BACKUP_FILENAME);
-
-        const existedBefore = fs.existsSync(destPath);
-
-        
-        db.exec('PRAGMA wal_checkpoint(FULL);');
-        fs.copyFileSync(DB_PATH, destPath); 
-
-        const stat = fs.statSync(destPath);
-        return { success: true, path: destPath, sizeBytes: stat.size, existedBefore };
-    } catch (err) {
-        console.error('⚠️ Nabigo ang RELAY_BACKUP mirror papunta sa Download folder:', err);
-        return { success: false, message: err.message };
+    // FIX: in OmniPOS.apk mode Termux has no storage permission, so
+    // /storage/emulated/0/Download "exists" but copying into it fails with
+    // EACCES. That failure used to abort the whole RELAY_BACKUP sync (so the
+    // device never checked in to RELAY). Now we fall back to the app's own
+    // data folder, and only report failure if that fails too.
+    const primaryDir = resolveDownloadBackupDir();
+    const dirs = primaryDir === RELAY_BACKUP_FALLBACK_DIR ? [primaryDir] : [primaryDir, RELAY_BACKUP_FALLBACK_DIR];
+    let primaryError = null;
+    for (const destDir of dirs) {
+        try {
+            const result = copyDatabaseTo(destDir);
+            if (primaryError) {
+                result.usedFallback = true;
+                result.primaryError = primaryError;
+                if (!relayBackupMirrorWarned) {
+                    relayBackupMirrorWarned = true;
+                    console.warn(`ℹ️ RELAY_BACKUP: hindi masulatan ang Download folder (${primaryError}) — sa loob ng app na lang naka-save ang kopya: ${result.path}`);
+                }
+            }
+            return result;
+        } catch (err) {
+            if (!primaryError) primaryError = err.message;
+        }
     }
+    if (!relayBackupMirrorWarned) {
+        relayBackupMirrorWarned = true;
+        console.error('⚠️ Nabigo ang RELAY_BACKUP mirror (pati ang fallback):', primaryError);
+    }
+    return { success: false, message: primaryError };
 }
 
 // BUG FIX / COST FIX: dating 'sessions' lang ang naka-exclude dito.
