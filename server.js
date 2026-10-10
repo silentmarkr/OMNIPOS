@@ -110,7 +110,7 @@ if (helmet) {
 } else {
     app.use((req, res, next) => {
         res.setHeader('X-Content-Type-Options','nosniff');
-        res.setHeader('X-Frame-Options','DENY');
+        res.setHeader('X-Frame-Options','SAMEORIGIN');
         res.setHeader('Referrer-Policy','same-origin');
         res.removeHeader('X-Powered-By');
         next();
@@ -10932,6 +10932,21 @@ function setImportedPriceLevel(product, levelName, rawPrice) {
     return { ok: true, present: true };
 }
 
+// ExcelJS ay nagbabalik ng object (hindi text) para sa formula, hyperlink, rich text at date cells. Dating
+// nagiging "[object Object]" o mahabang date string ang mga iyon sa import; dito ginagawang malinis na text.
+function importCellToText(v) {
+    if (v === undefined || v === null) return '';
+    if (v instanceof Date) return isNaN(v.getTime()) ? '' : v.toISOString().slice(0, 10);
+    if (typeof v === 'object') {
+        if (Array.isArray(v.richText)) return v.richText.map(part => (part && part.text) || '').join('').trim();
+        if (v.error) return '';
+        if (Object.prototype.hasOwnProperty.call(v, 'result')) return importCellToText(v.result);
+        if (v.text !== undefined) return importCellToText(v.text);
+        if (v.hyperlink) return String(v.hyperlink).trim();
+        return '';
+    }
+    return String(v).trim();
+}
 app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000), productImportUpload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message:'Walang na-attach na file.' });
@@ -10966,7 +10981,8 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             const workbook = new ExcelJS.Workbook();
             await workbook.xlsx.readFile(req.file.path);
             const sheet = workbook.getWorksheet('New Products') || workbook.worksheets[0];
-            const headerValues = (sheet.getRow(1).values || []).map(v => (v ||'').toString().trim().toLowerCase());
+            if (!sheet) throw new Error('Walang worksheet sa file.');
+            const headerValues = (sheet.getRow(1).values || []).map(v => importCellToText(v).toLowerCase());
             sheet.eachRow((row, rowNumber) => {
                 if (rowNumber === 1) return;
                 const rowValues = row.values;
@@ -10974,7 +10990,7 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 headerValues.forEach((h, idx) => {
                     if (!h) return;
                     const cellVal = rowValues[idx];
-                    obj[h] = (cellVal !== undefined && cellVal !== null) ? cellVal.toString().trim() :'';
+                    obj[h] = importCellToText(cellVal);
                 });
                 if (Object.values(obj).some(v => v !=='')) rows.push(obj);
             });

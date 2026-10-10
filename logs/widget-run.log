@@ -11864,3 +11864,46 @@ Omni Search Images error for SS-0229: Error: All free image search providers fai
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+[2026-10-11 04:50:55] ⚠️  May natirang lock file mula sa dating session (PID 28464, hindi na tumatakbo) — nililinis.
+[2026-10-11 04:50:56] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 04:50:59] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T20:40:47.677Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+Omni Search Images error for SS-0229: Error: All free image search providers failed or returned nothing for "Argentina Corned Beef - Chili 175g product photo". (Openverse: Openverse returned no image results. | Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images fetch error for SS-0234 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=1191637443010734): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0262 (https://imartgrocersph.com/wp-content/uploads/2020/09/Datu-Puti-Vinegar-200mL.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
