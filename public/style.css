@@ -1347,7 +1347,7 @@ body.dark-mode .header-desktop-logo-text {
     color: var(--dm-text-primary);
 }
 .btn-terminal-back {
-    background: rgba(124, 92, 255, 0.1);
+    background: color-mix(in srgb, var(--dm-accent, #7c5cff) 10%, transparent);
     border: 1px solid var(--terminal-border, #374151);
     font-size: 1rem;
     cursor: pointer;
@@ -1361,7 +1361,7 @@ body.dark-mode .header-desktop-logo-text {
     transition: background-color 0.2s, transform 0.15s, border-color 0.2s;
 }
 .btn-terminal-back:hover {
-    background-color: rgba(124, 92, 255, 0.2);
+    background-color: color-mix(in srgb, var(--dm-accent, #7c5cff) 20%, transparent);
     border-color: var(--dm-accent, #7c5cff);
     transform: translateX(-2px);
 }
@@ -5660,12 +5660,12 @@ body.dark-mode .btn-fullscreen-toggle:hover {
     }
     .btn-fullscreen-toggle:hover {
         transform: scale(1.08);
-        background-color: rgba(124, 92, 255, 0.85);
+        background-color: color-mix(in srgb, var(--dm-accent, #7c5cff) 85%, transparent);
         color: #ffffff;
-        box-shadow: 0 14px 34px -6px rgba(124, 92, 255, 0.5), 0 2px 8px rgba(2, 6, 23, 0.3);
+        box-shadow: 0 14px 34px -6px color-mix(in srgb, var(--dm-accent, #7c5cff) 50%, transparent), 0 2px 8px rgba(2, 6, 23, 0.3);
     }
     .btn-fullscreen-toggle.is-fullscreen-active {
-        background-color: rgba(124, 92, 255, 0.9);
+        background-color: color-mix(in srgb, var(--dm-accent, #7c5cff) 90%, transparent);
         color: #ffffff;
     }
     body.dark-mode .btn-fullscreen-toggle,
@@ -8299,7 +8299,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 #view-terminal .terminal-top-controls .search-box-container,
 .t-product-card,
 #terminal-grid-output .t-product-card {
-    box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.12), 0 0 3px rgba(78,35,255,0.492);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dm-accent, #7c5cff) 12%, transparent), 0 0 3px color-mix(in srgb, var(--dm-accent, #7c5cff) 49%, transparent);
 }
 .terminal-top-controls {
     display: flex !important;
@@ -9624,7 +9624,7 @@ body.dark-mode .faq-ticket-modal-body textarea, .dark .faq-ticket-modal-body tex
     margin-bottom: 16px;
 }
 .reorder-data-table tr.reorder-group-header {
-    background: rgba(124, 92, 255, 0.06);
+    background: color-mix(in srgb, var(--dm-accent, #7c5cff) 6%, transparent);
 }
 .reorder-group-header-inner {
     display: flex;
@@ -9644,7 +9644,7 @@ body.dark-mode .faq-ticket-modal-body textarea, .dark .faq-ticket-modal-body tex
     border-radius: 6px;
 }
 .reorder-group-header-info:hover {
-    background: rgba(124, 92, 255, 0.10);
+    background: color-mix(in srgb, var(--dm-accent, #7c5cff) 10%, transparent);
 }
 .reorder-group-chevron {
     color: var(--text-muted);
@@ -9673,7 +9673,7 @@ body.dark-mode .reorder-group-chevron {
     cursor: pointer;
 }
 .reorder-group-collapse-btn:hover {
-    background: rgba(124, 92, 255, 0.10);
+    background: color-mix(in srgb, var(--dm-accent, #7c5cff) 10%, transparent);
     color: var(--text-primary);
 }
 body.dark-mode .reorder-group-collapse-btn {
@@ -9750,7 +9750,7 @@ body.dark-mode .reorder-stat-card {
 .reorder-stat-total .reorder-stat-icon { background: var(--accent-blue-light); color: var(--primary-blue); }
 .reorder-stat-danger .reorder-stat-icon { background: var(--pos-danger-soft); color: var(--pos-danger); }
 .reorder-stat-warning .reorder-stat-icon { background: var(--pos-warning-soft); color: var(--pos-warning); }
-.reorder-stat-accent .reorder-stat-icon { background: rgba(124, 92, 255, 0.14); color: var(--dm-accent); }
+.reorder-stat-accent .reorder-stat-icon { background: color-mix(in srgb, var(--dm-accent, #7c5cff) 14%, transparent); color: var(--dm-accent); }
 .reorder-stat-value {
     font-family: var(--font-mono);
     font-weight: 700;
@@ -9819,7 +9819,7 @@ body.dark-mode .reorder-view-btn.active {
     padding: 8px 10px;
     margin-top: 6px;
     border-radius: 8px;
-    background: rgba(124, 92, 255, 0.06);
+    background: color-mix(in srgb, var(--dm-accent, #7c5cff) 6%, transparent);
     cursor: pointer;
 }
 .reorder-card {
@@ -10583,7 +10583,7 @@ body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):no
 }
 body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) .t-product-card.tap-active {
     background-color: #22232d !important;
-    border-color: #7c5cff !important;
+    border-color: var(--dm-accent, #7c5cff) !important;
 }
 body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) .t-prod-icon,
 body:not(.dark-mode):not([data-theme]) .terminal-theme:not(.terminal-daymode):not([data-terminal-theme]) #terminal-grid-output .t-prod-icon,
@@ -11339,12 +11339,12 @@ body.dark-mode .hu-theme-option.active::after {
     color: var(--dm-accent, #7c5cff);
 }
 .top-header.terminal-header-mode .header-user-dropdown {
-    background-color: #1c1c24;
+    background-color: var(--dm-surface, #1c1c24);
     border-color: rgba(255, 255, 255, 0.08);
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
 }
 .top-header.terminal-header-mode .header-user-dropdown::before {
-    background-color: #1c1c24;
+    background-color: var(--dm-surface, #1c1c24);
     border-color: rgba(255, 255, 255, 0.08);
 }
 .top-header.terminal-header-mode .hu-user-info {
@@ -11366,15 +11366,15 @@ body.dark-mode .hu-theme-option.active::after {
 }
 .top-header.terminal-header-mode .hu-item:hover,
 .top-header.terminal-header-mode .hu-theme-option:hover {
-    background-color: #22232d;
+    background-color: var(--dm-surface-alt, #22232d);
 }
 .top-header.terminal-header-mode .hu-theme-option.active {
-    background-color: rgba(124, 92, 255, 0.16);
-    color: #7c5cff;
+    background-color: color-mix(in srgb, var(--dm-accent, #7c5cff) 16%, transparent);
+    color: var(--dm-accent, #7c5cff);
 }
 .top-header.terminal-header-mode .hu-theme-option.active .fa-solid:first-child,
 .top-header.terminal-header-mode .hu-theme-option.active::after {
-    color: #7c5cff;
+    color: var(--dm-accent, #7c5cff);
 }
 .top-header.terminal-header-mode .hu-divider {
     background-color: rgba(255, 255, 255, 0.08);
@@ -15598,7 +15598,7 @@ body.dark-mode #view-faq .faq-composer .faq-quick-actions-float .faq-quick-actio
   #view-faq .faq-composer .faq-quick-actions-float.faq-quick-open { transition: none; transform: none; }
 }
 body.dark-mode .faq-composer-icon-btn.is-active, .dark .faq-composer-icon-btn.is-active {
-  background: rgba(124,92,255,0.28);
+  background: color-mix(in srgb, var(--dm-accent, #7c5cff) 28%, transparent);
   color: var(--dm-text-primary, #f5f5f7);
 }
 
@@ -15628,7 +15628,7 @@ body.dark-mode #view-faq.faq-fullchat-mode .faq-composer,
 }
 body.dark-mode #view-faq.faq-fullchat-mode .faq-composer:focus-within,
 .dark #view-faq.faq-fullchat-mode .faq-composer:focus-within {
-  box-shadow: 0 0 0 3px rgba(124,92,255,0.25), 0 3px 12px rgba(0,0,0,0.5);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dm-accent, #7c5cff) 25%, transparent), 0 3px 12px rgba(0,0,0,0.5);
 }
 
 /* ===== FAQ (Search) mode: lumulutang ang search box, at walang sobrang border =====
@@ -15675,7 +15675,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer,
 }
 body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within,
 .dark #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within {
-  box-shadow: 0 0 0 3px rgba(124,92,255,0.25), 0 3px 12px rgba(0,0,0,0.5);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dm-accent, #7c5cff) 25%, transparent), 0 3px 12px rgba(0,0,0,0.5);
 }
 
 /* ===== FAQ (Search) mode: gap sa nav = gap ng AI Chatbot; 0px gap sa result box =====
@@ -15953,7 +15953,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
 body.dark-mode .faq-model-sheet-panel, .dark .faq-model-sheet-panel { background: var(--dm-surface, #1f2937); color: var(--dm-text-primary, #f5f5f7); border-color: var(--dm-border, rgba(255,255,255,0.12)); }
 body.dark-mode .faq-model-row:hover, body.dark-mode .faq-model-row:focus-visible, .dark .faq-model-row:hover, .dark .faq-model-row:focus-visible { background: rgba(255,255,255,0.08); }
 body.dark-mode .faq-model-row .faq-model-check, body.dark-mode .faq-model-row.faq-model-upgrade .faq-model-name, .dark .faq-model-row .faq-model-check, .dark .faq-model-row.faq-model-upgrade .faq-model-name { color: #8ab4ff; }
-body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { background: rgba(124,92,255,0.28); color: var(--dm-text-primary, #f5f5f7); }
+body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { background: color-mix(in srgb, var(--dm-accent, #7c5cff) 28%, transparent); color: var(--dm-text-primary, #f5f5f7); }
 
 /* ------------------------------------------------------------------
    BUGFIX (desktop): ang buong Help/FAQ page ay nag-i-scroll dahil sa

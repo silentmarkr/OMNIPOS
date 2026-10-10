@@ -9214,7 +9214,7 @@ async function exportReorderCSV() {
         showCancelButton: true,
         confirmButtonText:'Yes, Download',
         cancelButtonText:'Cancel',
-        confirmButtonColor:'#7c5cff',
+        confirmButtonColor:(getComputedStyle(document.body).getPropertyValue('--dm-accent').trim() || '#7c5cff'),
     });
     if (!confirmResult.isConfirmed) return;
     downloadAuthFetch(`${API_URL}/products/low-stock/export`, `reorder_alerts_${Date.now()}.csv`);
@@ -20265,7 +20265,7 @@ async function exportProductsCsv() {
         showCancelButton: true,
         confirmButtonText:'Yes, Export',
         cancelButtonText:'Cancel',
-        confirmButtonColor:'#7c5cff',
+        confirmButtonColor:(getComputedStyle(document.body).getPropertyValue('--dm-accent').trim() || '#7c5cff'),
     });
     if (!confirmResult.isConfirmed) return;
     Swal.fire({

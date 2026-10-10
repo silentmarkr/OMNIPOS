@@ -10765,3 +10765,1102 @@ Unable to refresh Receipt Credit pricing from RELAY: No internet connection has 
 Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
 Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
 Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-10 15:39:20] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-10 15:39:23] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T07:38:19.683Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-10 15:40:16] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-10 15:44:43] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-10 15:44:46] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T07:38:19.683Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-10 15:55:49] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-10 15:56:04] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-10 15:56:07] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 4 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T07:44:48.849Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Omni Search Images error for PRDT20250001: Error: All free image search providers failed or returned nothing for "Bottled Water 500ml product photo". (Open Facts (Food/Beauty/Products): Open Facts failed: fetch failed | Bing (free): fetch failed | DuckDuckGo: fetch failed | Qwant: fetch failed | Wikipedia: fetch failed | Openverse: fetch failed | Wikimedia Commons: fetch failed | Yandex: fetch failed)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for PRDT20250003: Error: All free image search providers failed or returned nothing for "Fresh Milk 1L product photo". (Wikipedia: fetch failed | Wikimedia Commons: fetch failed | Openverse: fetch failed)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for PRDT20250004: Error: All free image search providers failed or returned nothing for "Nova Multigrain product photo". (Wikipedia: fetch failed | Wikimedia Commons: fetch failed | Openverse: fetch failed)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for PRDT20250002: Error: All free image search providers failed or returned nothing for "Coca-Cola 1L product photo". (Wikimedia Commons: fetch failed | Wikipedia: fetch failed | Openverse: fetch failed | Bing (free): fetch failed | DuckDuckGo: fetch failed | Yandex: fetch failed | Qwant: fetch failed)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for PRDT20250005: Error: All free image search providers failed or returned nothing for "Piattos Cheese product photo". (Bing (free): fetch failed | DuckDuckGo: fetch failed)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Bulk image search error for PRDT20250001: [TypeError: fetch failed] {
+  [cause]: Error: getaddrinfo ENOTFOUND serpapi.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:121:26) {
+    errno: -3007,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'serpapi.com'
+  }
+}
+Bulk image search error for PRDT20250002: [TypeError: fetch failed] {
+  [cause]: Error: getaddrinfo ENOTFOUND serpapi.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:121:26) {
+    errno: -3007,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'serpapi.com'
+  }
+}
+Bulk image search error for PRDT20250003: [TypeError: fetch failed] {
+  [cause]: Error: getaddrinfo ENOTFOUND serpapi.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:121:26) {
+    errno: -3007,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'serpapi.com'
+  }
+}
+Bulk image search error for PRDT20250004: [TypeError: fetch failed] {
+  [cause]: Error: getaddrinfo ENOTFOUND serpapi.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:121:26) {
+    errno: -3007,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'serpapi.com'
+  }
+}
+Bulk image search error for PRDT20250005: [TypeError: fetch failed] {
+  [cause]: Error: getaddrinfo ENOTFOUND serpapi.com
+      at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:121:26) {
+    errno: -3007,
+    code: 'ENOTFOUND',
+    syscall: 'getaddrinfo',
+    hostname: 'serpapi.com'
+  }
+}
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-10-10 22:52:14] ⚠️  May natirang lock file mula sa dating session (PID 5320, hindi na tumatakbo) — nililinis.
+[2026-10-10 22:52:15] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-10 22:52:18] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T13:29:21.124Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-10-10 23:35:43] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T15:33:55.814Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-10-10 23:35:46] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T15:35:46.365Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-11 01:15:49] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 01:15:52] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T16:25:01.324Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+🚫 DEVICE REVOKED: inalis ng developer/owner ang device na ito sa allowed list ng RELAY — na-force-logout ang 1 aktibong session.
+Omni Search Images error for CELL007: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniSearchOneProvider (/data/data/com.termux/files/home/OMNIPOS/server.js:2816:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async worker (/data/data/com.termux/files/home/OMNIPOS/server.js:2974:31)
+    at async Promise.all (index 0)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2983:9) {
+  statusCode: 502
+}
+Omni Search Images error for CELL008: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniSearchOneProvider (/data/data/com.termux/files/home/OMNIPOS/server.js:2816:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async worker (/data/data/com.termux/files/home/OMNIPOS/server.js:2974:31)
+    at async Promise.all (index 1)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2983:9) {
+  statusCode: 502
+}
+Omni Search Images error for CELL009: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniSearchOneProvider (/data/data/com.termux/files/home/OMNIPOS/server.js:2816:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async worker (/data/data/com.termux/files/home/OMNIPOS/server.js:2974:31)
+    at async Promise.all (index 2)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2983:9) {
+  statusCode: 502
+}
+Omni Search Images error for CELL010: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniSearchOneProvider (/data/data/com.termux/files/home/OMNIPOS/server.js:2816:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async worker (/data/data/com.termux/files/home/OMNIPOS/server.js:2974:31)
+    at async Promise.all (index 0)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2983:9) {
+  statusCode: 502
+}
+Omni Search Images error for CELL011: Error: DuckDuckGo failed: DuckDuckGo image search returned HTTP 403. — subukan ang ibang site o piliin ang "Auto".
+    at omniSearchOneProvider (/data/data/com.termux/files/home/OMNIPOS/server.js:2816:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async worker (/data/data/com.termux/files/home/OMNIPOS/server.js:2974:31)
+    at async Promise.all (index 1)
+    at async runOmniImageSearchInProcess (/data/data/com.termux/files/home/OMNIPOS/server.js:2983:9) {
+  statusCode: 502
+}
+Omni Search Images fetch error for CELL006 (https://media.krefel.be/sys-master/products/9484075401246/3840x3840.51007103_01.webp): Error: Nagbalik ng HTTP 500 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images error for CELL015: Error: All free image search providers failed or returned nothing for "OPPO Reno15 Pro 256GB product photo". (Wikipedia: Wikipedia returned HTTP 429. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images fetch error for CELL007 (https://upload.wikimedia.org/wikipedia/commons/a/a2/Samsung_Galaxy_A26_5G_2025.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Sobra sa allowed size ang image (max 6MB).
+    at IncomingMessage.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2356:32)
+    at IncomingMessage.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at HTTPParser.parserOnBody (node:_http_common:137:24)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL007 (https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a2/Samsung_Galaxy_A26_5G_2025.jpg/500px-Samsung_Galaxy_A26_5G_2025.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail): AggregateError [ETIMEDOUT]: 
+    at internalConnectMultiple (node:net:1339:18)
+    at internalConnectMultiple (node:net:1415:5)
+    at Timeout.internalConnectMultipleTimeout (node:net:1969:5)
+    at listOnTimeout (node:internal/timers:607:11)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEDOUT',
+  [errors]: [
+    Error: connect ETIMEDOUT 103.102.166.224:443
+        at createConnectionError (node:net:1905:14)
+        at Timeout.internalConnectMultipleTimeout (node:net:1964:38)
+        at listOnTimeout (node:internal/timers:607:11)
+        at process.processTimers (node:internal/timers:541:7) {
+      errno: -110,
+      code: 'ETIMEDOUT',
+      syscall: 'connect',
+      address: '103.102.166.224',
+      port: 443
+    },
+    Error: connect EHOSTUNREACH 2001:df2:e500:ed1a::1:443 - Local (:::0)
+        at internalConnectMultiple (node:net:1411:16)
+        at Timeout.internalConnectMultipleTimeout (node:net:1969:5)
+        at listOnTimeout (node:internal/timers:607:11)
+        at process.processTimers (node:internal/timers:541:7) {
+      errno: -113,
+      code: 'EHOSTUNREACH',
+      syscall: 'connect',
+      address: '2001:df2:e500:ed1a::1',
+      port: 443
+    }
+  ]
+}
+Omni Search Images fetch error for CELL009 (https://upload.wikimedia.org/wikipedia/commons/c/c8/Samsung_Galaxy_A57_5G.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL010 (https://upload.wikimedia.org/wikipedia/commons/5/5f/NIO_Phone_at_Auto_Guangzhou_2023_20231126.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL011 (https://upload.wikimedia.org/wikipedia/commons/9/93/Redmi_Note_9_4G.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL012 (https://upload.wikimedia.org/wikipedia/commons/9/93/Redmi_Note_9_4G.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL013 (https://upload.wikimedia.org/wikipedia/commons/9/93/Redmi_Note_9_4G.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL014 (https://med.csmobiles.com/1873568-product_main_2x/oppo-find-x9-ultra-5g-12-gb-512-gb-naranja-canyon-682-pollici-amoled-144-hz-200-mp-7050-mah-100-w-nfc.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL018 (https://img.advice.co.th/images_nas/pic_product4/A0163886/A0163886OK_BIG_1.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL024 (https://www.ispotaba.com/wp-content/uploads/2025/08/Tecno-Camon-40-Pro-5G-Galaxy-Black.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL026 (https://cdn.mafrservices.com/pim-content/EGY/media/product/640833/1730106603/640833_main.jpg): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL031 (https://media-cdn.bnn.in.th/426794/iPhone_16_Pro_Max_Desert_Titanium_1-square_medium.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL034 (https://technoperry.com/upload/iblock/faa/i60z5g7rslwukck0eo7sioleuzmysgbp/1.png): Error: read ETIMEDOUT
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:216:20) {
+  errno: -110,
+  code: 'ETIMEDOUT',
+  syscall: 'read'
+}
+Omni Search Images fetch error for CELL036 (https://media.secure-mobiles.com/cpw/Samsung-Galaxy-Z-Flip7/keyvisual-b7-mobile.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL047 (https://dakauf.eu/wp-content/uploads/2025/05/Poco-F7-Ultra-5G-512GB-16GB-RAM-Black.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL049 (https://bludiode.com/img/p/6/4/2/9/8/64298.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL057 (https://resources.sanborns.com.mx/imagenes-sanborns-ii/1200/2005610345549.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL066 (https://cdn.findprix.com/images/products/ApSnlzNhF.webp): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL067 (https://shoppingmall.homecredit.ph/dam/jcr:a28ac58c-19d9-4317-af8a-d86c5c74418c/product_942550e0-bff2-47b1-860e-4a8db827fc13_001.2026-06-25-14-29-27.webp): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL069 (https://businessmirror.com.ph/wp-content/uploads/2024/02/421225635_7065465720206968_7203688381908381167_n.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL072 (https://cdn.x-kom.pl/i/setup/images/prod/big/product-new-big,,2023/9/pr_2023_9_11_7_43_34_903_00.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL081 (https://cdn.mafrservices.com/pim-content/UAE/media/product/2262945/1764861004/2262945_main.jpg): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CELL087 (https://cell-mundo.com/shop/wp-content/uploads/2025/05/poco-m7-pro-5g-verde-transparente.png): Error: socket hang up
+    at TLSSocket.socketOnEnd (node:_http_client:631:25)
+    at TLSSocket.emit (node:events:521:24)
+    at endReadableNT (node:internal/streams/readable:1746:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'ECONNRESET'
+}
+Omni Search Images fetch error for CELL092 (https://shoppingmall.homecredit.ph/dam/jcr:9dd46f97-79c7-4544-aaff-f2c43946345b/item-1-638953189834083928-l7y8lv.webp): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB008 (https://f00.esfr.pl/foto/2/171147442321/fee8cb7010f33b41b2a22dc22f0b3bd7/samsung-tablet-galaxy-s11-12-256gb-wifi-gray,171147442321_5.webp): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images error for TAB019: Error: All free image search providers failed or returned nothing for "Lenovo Tab M11 128GB WiFi product photo". (Wikipedia: Wikipedia returned HTTP 429.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-11 02:03:06] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 02:03:09] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T17:47:43.846Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for TAB018: Error: All free image search providers failed or returned nothing for "Lenovo Tab P12 256GB WiFi product photo". (Wikipedia: Wikipedia returned HTTP 429. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images fetch error for CELL007 (https://upload.wikimedia.org/wikipedia/commons/a/a2/Samsung_Galaxy_A26_5G_2025.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Sobra sa allowed size ang image (max 6MB).
+    at IncomingMessage.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2356:32)
+    at IncomingMessage.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at HTTPParser.parserOnBody (node:_http_common:137:24)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB013 (https://upload.wikimedia.org/wikipedia/commons/a/a0/Redmi_3_front.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB014 (https://upload.wikimedia.org/wikipedia/commons/9/93/Redmi_Note_9_4G.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB015 (https://upload.wikimedia.org/wikipedia/commons/2/24/Oppo_A5_%282025%29_front_panel.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB016 (https://upload.wikimedia.org/wikipedia/commons/6/66/Wikipedia_homepage_on_a_large_Android_phone%2C_2015-04-16.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Nagbalik ng HTTP 429 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB017 (https://pimcdn.sharafdg.com/cdn-cgi/image/width=1000,height=1000,fit=pad,format=webp,quality=70/images/S500938954_1?1755151568?g=0): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TAB021 (https://media-cdn.bnn.in.th/585874/realme-tablet-pad-3-wi-fi-8256-space-grey-f-6941764478206-1.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for BRK-003 (https://www.carid.com/images/acdelco/products/images/17599r.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SPK-002 (https://www.scooterstreet.com.au/wp-content/uploads/2020/10/CR7HSA.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for FIL-001 (https://image.made-in-china.com/2f0j00qhuzSdpKMMbs/Universal-Billet-Re-Usable-Oil-Filter.jpg): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for TIR-004 (https://image.made-in-china.com/202f0j00utSkNVhggOrE/Chinese-Good-Quality-Natural-Rubber-Motorcycle-Inner-Tube-70-90-17.webp): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for CDI-002 (https://5.imimg.com/data5/SELLER/Default/2022/11/SJ/GY/WY/1103564/cdi-unit-for-scooter-1000x1000.jpg): Error: Nagbalik ng HTTP 444 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0004 (https://www.carrefour.it/on/demandware.static/-/Sites-carrefour-master-catalog-IT/default/dwa9c033bb/large/COCACOLAPETLT1-5449000054227-1.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0011 (https://assets.kmart.com.au/transform/409cb453-c3de-41ac-9bc1-36bf3bd074cc/43527069-1?io=transform:fit,width:3840,height:3840&quality=90): Error: Nagbalik ng HTTP 404 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0015 (https://cdn.mafrservices.com/pim-content/UAE/media/product/1095535/1759817408/1095535_main.jpg): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0018 (https://shopmetro.ph/lapulapu-supermarket/wp-content/uploads/2023/10/SM9497545-6.jpg): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0027 (https://www.canmuseum.com/Staging/Images/Cans/61518L.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images error for SS-0034: Error: All free image search providers failed or returned nothing for "Fanta Orange - 1L PET product photo". (Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-11 02:09:10] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-11 02:09:16] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 02:09:19] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T18:03:12.124Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for SS-0034: Error: All free image search providers failed or returned nothing for "Fanta Orange - 1L PET product photo". (Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for SS-0043: Error: All free image search providers failed or returned nothing for "Nature’s Spring Water - 1L Bottle product photo". (Open Facts (Food/Beauty/Products): Open Facts returned no matching products.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous> {
+  statusCode: 502
+}
+Omni Search Images fetch error for SS-0059 (https://5.imimg.com/data5/SELLER/Default/2021/2/NX/DV/ZO/6090502/nestle-iced-lemon-tea-1kg-1000x1000.jpg): Error: Nagbalik ng HTTP 444 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0068 (https://imartgrocersph.com/wp-content/uploads/2020/09/Tang-Four-Seasons-Litro-Pack-25g.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0076 (https://imartgrocersph.com/wp-content/uploads/2020/09/Bear-Brand-Fortified-Milk-Swak-Pack-33g.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0089 (https://imartgrocersph.com/wp-content/uploads/2020/09/Dutch-Mill-Yoghurt-Drink-Strawberry-180mL.jpeg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0098 (https://cdn.mafrservices.com/pim-content/KEN/media/product/219543/219543_main.jpg): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0107 (https://media.starrymart.co.uk/media/catalog/product/cache/432f1eba02e7fca436a90d18b9c36225/4/8/4800016663505.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0111 (https://imartgrocersph.com/wp-content/uploads/2020/09/Clover-Chips-Cheese-24g-500x500.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0114 (https://imartgrocersph.com/wp-content/uploads/2020/09/Clover-Chips-Barbecue-24g.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0125 (https://imartgrocersph.com/wp-content/uploads/2020/09/Oishi-Prawn-Crackers-24g.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0127 (https://imartgrocersph.com/wp-content/uploads/2020/09/Boy-Bawang-Cornick-Garlic-100g-1536x1536.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-11 02:34:54] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-11 02:34:58] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 02:35:01] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T18:34:41.190Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for SS-0132: Error: All free image search providers failed or returned nothing for "Cracklings - Original 90g product photo". (Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for SS-0136: Error: All free image search providers failed or returned nothing for "Nagaraya Cracker Nuts - Original 50g product photo". (Wikipedia: Wikipedia returned HTTP 429. | Wikimedia Commons: Wikimedia Commons returned HTTP 429. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni product image select/fetch error (https://sinaha.ae/image/wkseller/366/box 500.jpg): Error: Nagbalik ng HTTP 404 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0043 (https://upload.wikimedia.org/wikipedia/commons/0/04/Porto_Covo_Outubro_2014-3.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=original): Error: Sobra sa allowed size ang image (max 6MB).
+    at IncomingMessage.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2356:32)
+    at IncomingMessage.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at HTTPParser.parserOnBody (node:_http_common:137:24)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0157 (https://markitt.com/cdn/shop/files/12af1d6d-7b02-4e5d-b4bd-94b80d57cbe4.jpg?v=1765985536): Error: write EPROTO 18912C1872000000:error:0A000438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error:ssl/record/rec_layer_s3.c:918:SSL alert number 80
+
+    at WriteWrap.onWriteComplete [as oncomplete] (node:internal/stream_base_commons:87:19) {
+  errno: -71,
+  code: 'EPROTO',
+  syscall: 'write'
+}
+Omni Search Images fetch error for SS-0160 (https://somago.ph/wp-content/uploads/2026/02/245.jpg): Error: Nagbalik ng HTTP 404 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0161 (https://images.freshop.ncrcloud.com/8195182/96d4ac387091ee86e8a0e1a6304ab067_large.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0179 (https://elomshop.com/wp-content/uploads/2023/01/2216Z.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+[2026-10-11 02:41:33] ⚠️  May natirang lock file mula sa dating session (PID 16143, hindi na tumatakbo) — nililinis.
+[2026-10-11 02:41:34] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 02:41:37] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T18:35:03.747Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-11 04:13:34] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 04:13:37] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T20:11:39.820Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Omni Search Images error for SS-0180: Error: All free image search providers failed or returned nothing for "Fita Crackers - Box 10s Original product photo". (Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images fetch error for SS-0194 (https://images.freshop.ncrcloud.com/1564405684714866927/bbee6889d02b06e5bb11a914a898a8f4_large.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0195 (https://ever.ph/cdn/shop/files/9000005998-Rebisco-Cracker-10s-201011_68c5b57c-ce4a-42b0-8421-237b8c964ae5.jpg?v=1772073861&width=1445): Error: Nagbalik ng HTTP 404 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0217 (https://clt-enterprise.com/wp-content/uploads/2021/11/Nissin-cup-noodles-beef.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2343:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-0223 (https://images.freshop.ncrcloud.com/1564405684711221251/c6282bc4a81f5023e608b1b851daff72_large.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2348:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images error for SS-0229: Error: All free image search providers failed or returned nothing for "Argentina Corned Beef - Chili 175g product photo". (Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results. | Openverse: Openverse returned no image results.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:2776:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:2800:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-11 04:40:42] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-11 04:40:45] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 3 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-10T20:40:35.731Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)

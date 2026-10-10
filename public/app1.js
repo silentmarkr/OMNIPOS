@@ -84,7 +84,7 @@ body.dark-mode .di-panel-sub,
 body.dark-mode .di-empty,
 body.dark-mode .di-pay-amt{color:var(--dm-text-muted)}
 body.dark-mode .di-watch-row{border-bottom-color:var(--dm-border,var(--border-color))}
-body.dark-mode .di-watch-row:hover{background:rgba(124,92,255,.12)}
+body.dark-mode .di-watch-row:hover{background:color-mix(in srgb, var(--dm-accent, #7c5cff) 12%, transparent)}
 body.dark-mode .di-watch-name,
 body.dark-mode .di-pay-name{color:var(--dm-text-primary)}
 body.dark-mode .di-view-all{

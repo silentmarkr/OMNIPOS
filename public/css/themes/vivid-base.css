@@ -1,0 +1,44 @@
+/* ============================================================
+   VIVID BASE (lahat ng dark-mode themes)
+   Ang "buhay" na look (glow, gradient, mas matingkad na hero at cards)
+   ay nakabase LAMANG sa --dm-accent at --dm-accent-hover ng napiling
+   theme, kaya awtomatikong sumusunod ang Dark, Ocean, Emerald, Sunset,
+   Rose Gold, Cyber, Noir, Mint Frost at Custom theme sa sarili nilang
+   kulay. Kulay at glow lang ang laman nito; walang sukat o layout.
+
+   Load order: pagkatapos ng style.css pero BAGO ang mga theme file, kaya
+   ang mga theme na may sariling rule (hal. Cyber) ay nananaig pa rin.
+   Ang Liquid Glass at Galaxy Ambient ay hindi ginagalaw dito (may sarili
+   silang glass look) maliban sa background glow na sila mismo ang nag-o-override.
+   ============================================================ */
+body.dark-mode {
+    background:
+        radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--dm-accent) 16%, transparent), transparent 42%),
+        radial-gradient(circle at 92% 22%, color-mix(in srgb, var(--dm-accent) 10%, transparent), transparent 40%),
+        radial-gradient(circle at 80% 92%, color-mix(in srgb, var(--dm-accent-hover) 14%, transparent), transparent 44%),
+        var(--dm-bg);
+    background-attachment: fixed;
+}
+
+body.dark-mode:where(:not([data-theme="liquidglass"], [data-theme="galaxyambient"])) :is(.metric-card, .qa-card, .overview-trend-card, .table-container, .report-container) {
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--dm-accent) 10%, transparent),
+        0 12px 28px -14px color-mix(in srgb, var(--dm-accent) 30%, transparent);
+}
+
+body.dark-mode:where(:not([data-theme="liquidglass"], [data-theme="galaxyambient"])) .btn-action-global {
+    box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--dm-accent) 55%, transparent);
+}
+
+body.dark-mode:where(:not([data-theme="liquidglass"], [data-theme="galaxyambient"])) .operations-view .operations-hero {
+    border-color: color-mix(in srgb, var(--dm-accent) 40%, transparent);
+    background:
+        radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--dm-accent-hover) 28%, transparent), transparent 38%),
+        radial-gradient(circle at 6% 0%, color-mix(in srgb, var(--dm-accent) 22%, transparent), transparent 42%),
+        linear-gradient(135deg, var(--dm-surface-alt), var(--dm-surface));
+}
+body.dark-mode:where(:not([data-theme="liquidglass"], [data-theme="galaxyambient"])) .operations-view .operations-hero::after {
+    box-shadow:
+        0 0 0 18px color-mix(in srgb, var(--dm-accent) 7%, transparent),
+        0 0 0 36px color-mix(in srgb, var(--dm-accent) 4%, transparent);
+}

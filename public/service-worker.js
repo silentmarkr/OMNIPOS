@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'omnipos-shell-v79';
+const CACHE_VERSION = 'omnipos-shell-v81';
 
 // Everything required to boot the POS shell and operate the cached UI without a network.
 const SHELL_FILES = [
@@ -21,6 +21,7 @@ const SHELL_FILES = [
   '/manifest.json',
   '/css/all.min.css',
   '/fontawesome.min.css',
+  '/css/themes/vivid-base.css',
   '/css/themes/theme-dark.css',
   '/css/themes/theme-ocean-pro.css',
   '/css/themes/theme-emerald-pro.css',

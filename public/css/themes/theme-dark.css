@@ -1,18 +1,45 @@
 /* ============================================================
    THEME: Dark Mode (Free)
-   Ito ang orihinal na "Dark Mode" palette ng OmniPOS. Hiwalay na
-   file para consistent ang pattern ng lahat ng themes (dark man
-   o pro), kaya madaling dagdagan sa hinaharap.
+   Bagong "Vivid Navy" palette ng OmniPOS Dark Mode, kinuha sa brand
+   poster: malalim na navy na base, electric-blue na accent, at violet
+   na hover/gradient (gaya ng Sign In button). Ang glow, hero at card
+   effects ay nasa vivid-base.css at sumusunod sa accent ng bawat theme.
+
+   Ang lumang palette (kulay-abo + purple #7c5cff) ay pinalitan.
+   Kulay lang ang binago dito: walang laman ng layout/sukat/function.
    ============================================================ */
 body[data-theme="dark"] {
-    --dm-bg: #121218;
-    --dm-surface: #1c1c24;
-    --dm-surface-alt: #22232d;
-    --dm-border: #262733;
-    --dm-text-primary: #f5f5f7;
-    --dm-text-secondary: #9a9ba8;
-    --dm-text-muted: #6f7080;
-    --dm-accent: #7c5cff;
-    --dm-accent-hover: #6a48ff;
-    --dm-accent-soft: rgba(124, 92, 255, 0.16);
+    --dm-bg: #050b1f;
+    --dm-surface: #0a1432;
+    --dm-surface-alt: #101d45;
+    --dm-border: #1c3068;
+    --dm-text-primary: #f3f7ff;
+    --dm-text-secondary: #9fb6e6;
+    --dm-text-muted: #6a84b8;
+    --dm-accent: #3d7bff;
+    --dm-accent-hover: #b45cff;
+    --dm-accent-soft: rgba(61, 123, 255, 0.18);
+
+    /* Brand gradient (blue -> violet) para sa primary buttons ng Dark Mode. */
+    --dm-brand-gradient: linear-gradient(135deg, #2e8bff 0%, #5a6cff 55%, #b45cff 100%);
+}
+
+body.dark-mode[data-theme="dark"] .btn-action-global {
+    background: var(--dm-brand-gradient);
+    color: #ffffff;
+}
+
+/* Terminal (POS screen) na naka-default na palette sa Dark Mode: sumusunod din sa bagong kulay.
+   Hindi ginagalaw kapag may napiling ibang terminal theme (ocean, cyber, atbp.). */
+body[data-theme="dark"]:not([data-terminal-theme]) .terminal-theme:not([data-terminal-theme]) {
+    --dm-bg: #050b1f;
+    --dm-surface: #0a1432;
+    --dm-surface-alt: #101d45;
+    --dm-border: #1c3068;
+    --dm-text-primary: #f3f7ff;
+    --dm-text-secondary: #9fb6e6;
+    --dm-text-muted: #6a84b8;
+    --dm-accent: #3d7bff;
+    --dm-accent-hover: #b45cff;
+    --dm-accent-soft: rgba(61, 123, 255, 0.18);
 }
