@@ -3297,6 +3297,12 @@
                         <div id="faq-ai-result" class="faq-ai-result-box"></div>
 
                         <div class="faq-composer-dock" id="faq-composer-dock">
+                            <div id="faq-ai-upsell" style="display:none;">
+                                <a href="#" id="faq-ai-upsell-link" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
+                                    <svg viewBox="108 108 296 296" width="1.1em" height="1.1em" fill="none" aria-hidden="true" style="vertical-align:-0.2em;flex:none;"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg><span id="faq-ai-upsell-text">Unlock Omni AI for smarter, more natural answers based on this Help Center</span>
+                                </a>
+                                <button type="button" id="faq-ai-upsell-close" class="faq-ai-upsell-close" aria-label="Dismiss" title="Dismiss"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
                             <div class="faq-composer" id="faq-composer">
                                 <div id="faq-attach-tray" class="faq-att-tray" aria-label="Attachments" style="display:none;"></div>
                                 <input type="file" id="faq-ai-image-input" multiple accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.csv,.md,.log,text/plain,text/csv" style="display:none;" onchange="OmniFAQ.onImageSelected(event)">
@@ -3340,11 +3346,6 @@
                                         </button>
                                     </div>
                                 </div>
-                            </div>
-                            <div id="faq-ai-upsell" style="display:none;">
-                                <a href="#" onclick="event.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant');">
-                                    <svg viewBox="108 108 296 296" width="1.1em" height="1.1em" fill="none" aria-hidden="true" style="vertical-align:-0.2em;"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round"/><circle cx="340.3" cy="340.3" r="26" fill="currentColor"/></svg> <span id="faq-ai-upsell-text">Unlock Omni AI for smarter, more natural answers based on this Help Center</span>
-                                </a>
                             </div>
                         </div>
                     </div>

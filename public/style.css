@@ -9050,7 +9050,12 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 
 .faq-ai-box { max-width: 800px; }
-#faq-ai-upsell { margin-top: 10px; font-size: 0.78rem; line-height: 1.35; opacity: 1; }
+/* Nasa ITAAS na ng composer (hindi na sa ilalim) para ang input box ang laging pinakababa. Compact: max 2 linya + dismiss. */
+#faq-ai-upsell { display: flex; align-items: center; gap: 6px; margin: 0 0 5px; padding: 0 4px; font-size: 0.72rem; line-height: 1.3; opacity: 1; }
+#faq-ai-upsell a { flex: 1 1 auto; min-width: 0; }
+#faq-ai-upsell #faq-ai-upsell-text { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.faq-ai-upsell-close { flex: none; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; }
+.faq-ai-upsell-close:hover, .faq-ai-upsell-close:active { opacity: 1; background: rgba(100,116,139,0.18); }
 /* Day mode: madilim na asul para malinaw sa puti/cream na background (dating --primary-blue lang, na lumalabo). */
 #faq-ai-upsell a { display: inline-flex; align-items: center; gap: 6px; color: #1d4ed8; text-decoration: none; font-weight: 600; }
 #faq-ai-upsell a:hover { text-decoration: underline; }

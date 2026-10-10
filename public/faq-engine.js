@@ -1114,10 +1114,28 @@
 
   // Ang upsell sa ilalim ng composer: 'locked' = "I-unlock ang Omni AI", 'ready' sa Free = "Mag-upgrade" (bubuksan ang plans),
   // at nakatago habang 'checking'/'offline' (para hindi magmukhang naka-lock) o kapag naka-subscribe na.
+  // Dismiss ng upsell: sa session lang (sessionStorage) — babalik pagbukas ulit ng app. Laging may ibang daan pa rin
+  // papunta sa upgrade (ang paperclip na naka-lock, tingnan ang openUpgradeFromLockedAction).
+  const UPSELL_DISMISS_KEY = 'omnipos_faq_upsell_dismissed';
+  function upsellDismissed() {
+    try { return sessionStorage.getItem(UPSELL_DISMISS_KEY) === '1'; } catch (_) { return false; }
+  }
+  function bindUpsellDismiss(box) {
+    const btn = document.getElementById('faq-ai-upsell-close');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { sessionStorage.setItem(UPSELL_DISMISS_KEY, '1'); } catch (_) { /* private mode: hindi lang maaalala */ }
+      box.style.display = 'none';
+    });
+  }
   function syncAiUpsell() {
     const box = document.getElementById('faq-ai-upsell');
     if (!box) return;
-    if (aiAssistantUnlocked()) { box.style.display = 'none'; return; }
+    bindUpsellDismiss(box);
+    if (aiAssistantUnlocked() || upsellDismissed()) { box.style.display = 'none'; return; }
     const st = aiFreeToggleState();
     const textEl = document.getElementById('faq-ai-upsell-text');
     const link = box.querySelector('a');
@@ -1125,13 +1143,26 @@
     if (st === 'locked') {
       if (textEl) textEl.textContent = s.aiUpsellLocked;
       if (link) link.onclick = (ev) => { ev.preventDefault(); if (typeof guardPremiumFeature === 'function') guardPremiumFeature('ai_assistant'); };
-      box.style.display = 'block';
+      box.style.display = 'flex';
     } else if (st === 'ready') {
       if (textEl) textEl.textContent = s.aiUpsellFree;
       if (link) link.onclick = (ev) => { ev.preventDefault(); openAiPlansModal(); };
-      box.style.display = 'block';
+      box.style.display = 'flex';
     } else {
       box.style.display = 'none';
+    }
+  }
+
+  // Kapag pinindot ang naka-lock na feature (hal. paperclip sa Free plan): imbes na plain alert lang, buksan ang
+  // upgrade mismo — plans modal kapag Free ang naka-ON, o ang subscribe flow kapag naka-OFF/locked ang Free.
+  function openUpgradeFromLockedAction(message) {
+    const st = aiFreeToggleState();
+    if (st === 'ready' && typeof openAiPlansModal === 'function') {
+      openAiPlansModal();
+    } else if (typeof guardPremiumFeature === 'function') {
+      guardPremiumFeature('ai_assistant');
+    } else {
+      alert(message);
     }
   }
 
@@ -2261,7 +2292,7 @@
   const DOC_EXT_RE = /\.(pdf|docx|txt|csv|md|log)$/i;
   function triggerAttach() {
     // FREE plan = text lang: bawal ang larawan/file (pinapatupad din ng RELAY).
-    if (!aiAssistantUnlocked()) { alert(planStrings().freeNoAttach); return; }
+    if (!aiAssistantUnlocked()) { openUpgradeFromLockedAction(planStrings().freeNoAttach); return; }
     openAttachSheet();
   }
 
