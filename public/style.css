@@ -4730,6 +4730,104 @@ body.dark-mode .reorder-sticky-header {
         padding-top: 11px;
     }
 }
+/* Mobile/tablet: ang page title ay nasa top header na (itinatago ng
+   updateResponsivePageTitle() ang h2), kaya ang naiwang walang laman na
+   header row + padding ng content-body ay nag-iiwan ng patay na espasyo
+   sa ibabaw ng 3 action button. Alisin ang walang-lamang row at hilahin
+   pataas ang sticky header para dumikit ang mga button sa ilalim ng top
+   header. (Pareho ang breakpoint sa isMobileOrTabletScreen() sa app.js.) */
+@media screen and (max-width: 1024px) {
+    #view-reorder .reorder-header-row {
+        display: none;
+    }
+    #view-reorder .reorder-sticky-header {
+        margin-top: -30px;
+    }
+}
+/* Mobile/tablet: parehong ayos sa Reorder, para sa iba pang page na
+   itinatago rin ang sarili nilang title (nasa top header na) at may
+   30px na patay na espasyo (content-body padding-top) sa ibabaw ng
+   unang laman. Hinihila pataas ang unang nakikitang bahagi (button
+   toolbar / search card) para dumikit ito sa ilalim ng top header
+   (may 8px na hangin na lang), at ang table-container na flex:1 ay
+   kusang lumalaki sa nabakanteng espasyo. Ang ilalim ng page ay hindi
+   gumagalaw. Pareho ang breakpoint sa isMobileOrTabletScreen() sa
+   app.js; walang pagbabago sa desktop (>1024px). */
+@media screen and (max-width: 1024px) {
+    /* Transactions: ang title row ay may laman lang na title (nakatago na)
+       at ang Void/Refund shortcut (nakatago rin sa mobile/tablet), kaya
+       alisin ang row at hilahin ang search card. */
+    #view-transactions .transactions-page-title-row {
+        display: none;
+    }
+    #view-transactions.app-view:not(.terminal-theme) > .tx-search-card {
+        margin-top: -22px;
+    }
+    /* Products, Batch/Lot, Barcode, Customers, Debtors, Void/Refund:
+       ang header row ay hawak ang action buttons (nakatago ang title). */
+    #view-products.app-view:not(.terminal-theme) > .view-header-row,
+    #view-batchlots.app-view:not(.terminal-theme) > .view-header-row,
+    #view-barcode.app-view:not(.terminal-theme) > .view-header-row,
+    #view-customers.app-view:not(.terminal-theme) > .view-header-row,
+    #view-debts.app-view:not(.terminal-theme) > .view-header-row,
+    #view-stock_return_inspection.app-view:not(.terminal-theme) > .view-header-row {
+        margin-top: -22px;
+    }
+    /* System Audit Logs: nakatago ang title, ang toolbar na ang una. */
+    #view-logs.app-view:not(.terminal-theme) > .terminal-top-controls {
+        margin-top: -22px;
+    }
+}
+/* Mobile/tablet: parehong 8px na hangin sa ilalim ng top header para sa
+   mga page na nag-i-scroll (hindi naka-lock ang taas). Dahil iba-iba ang
+   unang nakikitang bahagi nila (cards, hero, tabs, teksto) at puwedeng
+   magbago depende sa estado (hal. Shift report), ang buong page ang
+   hinihila pataas at hindi ang isang child, para walang mag-overlap.
+   30px ang dating puwang (content-body padding-top); ang hero cards ay
+   may -4px na margin na kaya 26px lang ang dating puwang nila.
+   Walang pagbabago sa desktop (>1024px). */
+@media screen and (max-width: 1024px) {
+    #view-dashboard.app-view:not(.terminal-theme),
+    #view-shiftreport.app-view:not(.terminal-theme),
+    #view-bir_compliance.app-view:not(.terminal-theme),
+    #view-users.app-view:not(.terminal-theme) {
+        margin-top: -22px;
+    }
+    /* Omni Tokens: ang unang nakikita ay ang teksto sa ilalim ng nakatagong
+       title row (18px bottom margin, -10px sa susunod na teksto). */
+    #view-cloudtokens.app-view:not(.terminal-theme) {
+        margin-top: -30px;
+    }
+    /* Overview, Reports, Branches, Attendance, Remote Ops: hero card ang una. */
+    #view-overview.app-view:not(.terminal-theme),
+    #view-reports.app-view:not(.terminal-theme),
+    #view-branches.app-view:not(.terminal-theme),
+    #view-attendance.app-view:not(.terminal-theme),
+    #view-remoteops.app-view:not(.terminal-theme) {
+        margin-top: -18px;
+    }
+}
+/* Void / Refund sa maliit na phone: may maikling teksto (4px margin) sa
+   ilalim ng nakatagong title, kaya dagdagan ng 4px ang paghila para
+   8px din ang hangin ng teksto. */
+@media screen and (max-width: 600px) {
+    #view-stock_return_inspection.app-view:not(.terminal-theme) > .view-header-row {
+        margin-top: -26px;
+    }
+}
+/* Barcode Generator: ang "Settings" button katabi ng Print ay icon-only
+   sa maliit na phone para manatili sa isang row ang Print, Settings at
+   ang price-level dropdown (hindi bumabalot sa ikalawang row). Sa mas
+   malapad na screen, kita ang salitang "Settings". */
+@media screen and (max-width: 600px) {
+    .barcode-page-settings-btn {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+    .barcode-page-settings-btn .barcode-page-settings-label {
+        display: none;
+    }
+}
 .header-action-group {
     display: flex;
     align-items: center;
@@ -16238,4 +16336,128 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     .auth-sidebar.sync-sidebar .brand-title {
         font-size: min(calc(49px * var(--logo-fix, 1)), 15.5vw);
     }
+}
+
+/* ==========================================================================
+   Add / Edit Product modal — compact mobile layout
+   - Mobile (<= 768px): full-bleed modal, 5px na gilid, 2-column grid para sa maiikling field,
+     icon-only na photo buttons (Take Photo / Gallery / Search / Remove), maliit na label/hint.
+   - Desktop: walang pagbabago (ang mga bagong class ay walang epekto sa labas ng media query,
+     maliban sa pagtago ng ⓘ button at ng trash icon na pang-mobile lang).
+   ========================================================================== */
+#product-modal .pf-info-btn { display: none; }
+#product-modal .pf-remove-ico { display: none; }
+@media screen and (max-width: 768px) {
+    #product-modal.modal-overlay { padding: 0; }
+    #product-modal .modal-card {
+        max-width: none;
+        width: 100%;
+        max-height: 100vh;
+        max-height: 100dvh;
+        border-radius: 0;
+    }
+    #product-modal .modal-header { padding: 6px 5px; }
+    #product-modal .modal-header h3 { font-size: 1rem; margin: 0; }
+    #product-modal .close-modal-btn { font-size: 1.6rem; padding: 0 6px; }
+    #product-modal .modal-body {
+        padding: 6px 5px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px 5px;
+        align-content: start;
+        align-items: end;
+    }
+    #product-modal .input-field-group { margin-bottom: 0; min-width: 0; }
+    #product-modal .input-field-group.pf-span2 { grid-column: 1 / -1; }
+    #product-modal .input-field-group label {
+        font-size: 0.72rem;
+        line-height: 1.25;
+        margin-bottom: 3px;
+    }
+    #product-modal .pf-req::after { content: ' *'; color: #dc2626; }
+    #product-modal .input-field-group input,
+    #product-modal .input-field-group select {
+        padding: 7px 9px;
+        font-size: 0.88rem;
+        border-radius: 6px;
+    }
+    #product-modal .input-field-group input:not([type="checkbox"]),
+    #product-modal .input-field-group select { height: 34px; }
+    #product-modal .input-field-group input[type="checkbox"] { padding: 0; margin: 0; }
+    #product-modal .pf-hint { font-size: 0.64rem; line-height: 1.25; }
+    #product-modal .pf-hint-collapsible { font-size: 0; }
+    #product-modal .pf-hint-collapsible::before { content: '(optional)'; font-size: 0.64rem; }
+    #product-modal .pf-hint-open .pf-hint-collapsible { display: block; font-size: 0.64rem; margin-top: 2px; }
+    #product-modal .pf-hint-open .pf-hint-collapsible::before { content: none; }
+    #product-modal .pf-info-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 14px;
+        margin: 0 0 0 3px;
+        padding: 0;
+        border: none;
+        background: none;
+        color: var(--primary-blue);
+        font-size: 0.8rem;
+        vertical-align: middle;
+        cursor: pointer;
+    }
+    #product-modal .pf-info-btn::after {
+        content: '';
+        position: absolute;
+        top: -8px;
+        bottom: -3px;
+        left: -8px;
+        right: -8px;
+    }
+    body.dark-mode #product-modal .pf-info-btn { color: var(--dm-accent); }
+    #product-modal .pf-desktop-only { display: none; }
+    #product-modal .pf-checkrow { align-self: end; min-height: 34px; }
+    #product-modal .pf-checkrow label { font-size: 0.72rem; line-height: 1.2; }
+    #product-modal .theme-callout-box { padding: 6px 8px; }
+    #product-modal .theme-callout-box-subtext,
+    #product-modal .theme-callout-box-result { font-size: 0.68rem; }
+
+    /* Photo row: preview + icon-only buttons */
+    #product-modal .prod-photo-upload-row { gap: 5px; align-items: center; }
+    #product-modal .prod-photo-preview { width: 48px; height: 48px; font-size: 18px; }
+    #product-modal .prod-photo-upload-actions { gap: 5px; flex-wrap: nowrap; flex: 1 1 auto; min-width: 0; }
+    #product-modal .prod-photo-upload-actions .btn-action-outline,
+    #product-modal .pf-gallery-row > .btn-action-outline {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+        padding: 0;
+        gap: 0;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        border-radius: 8px;
+    }
+    #product-modal .pf-btn-text { display: none; }
+    #product-modal .pf-remove-ico { display: inline; }
+
+    /* Additional photos: thumbnails + "add" tile on the same row */
+    #product-modal .pf-gallery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+    #product-modal .pf-gallery-row .prod-gallery-preview { margin-bottom: 0; gap: 5px; }
+    #product-modal .pf-gallery-row .prod-gallery-preview:empty { display: none; }
+    #product-modal .pf-gallery-row .prod-gallery-preview .prod-gallery-thumb-wrap,
+    #product-modal .pf-gallery-row .prod-gallery-preview img { width: 44px; height: 44px; }
+    #product-modal .pf-gallery-row > .btn-action-outline { border-style: dashed; }
+
+    /* Full-width action buttons (Add Unit / Manage Batches / Specs) */
+    #product-modal .input-field-group > .btn-action-outline {
+        width: 100%;
+        justify-content: center;
+        padding: 7px 10px;
+        font-size: 0.8rem;
+    }
+    #product-modal .p-form-uom-row { padding: 5px !important; margin-bottom: 5px !important; }
+    #product-modal #p-form-price-levels-rows > div { margin-bottom: 4px !important; }
+
+    #product-modal .modal-footer { padding: 6px 5px calc(6px + env(safe-area-inset-bottom, 0px)); }
+    #product-modal .modal-footer .btn-action-global { width: 100%; justify-content: center; padding: 10px; }
 }

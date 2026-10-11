@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'omnipos-shell-v81';
+const CACHE_VERSION = 'omnipos-shell-v82';
 
 // Everything required to boot the POS shell and operate the cached UI without a network.
 const SHELL_FILES = [

@@ -430,7 +430,7 @@ const FILE_TRANSACTIONS ='transactions';
 const FILE_REFUNDS ='refunds';
 const FILE_USERLOGS ='userlogs';
 const FILE_REQUESTS ='requests';
-const DEFAULT_CATEGORIES = ['Beverages','Dairy','Snacks','Bakery','Grains'];
+const DEFAULT_CATEGORIES = []; // Walang starter categories: ang user mismo ang gagawa ng sarili niyang categories.
 const FILE_CATEGORIES ='categories';
 const FILE_CARTS ='carts';
 const FILE_CUSTOMERS ='customers';
@@ -1064,7 +1064,8 @@ app.get('/api/categories', (req, res) => {
 });
 app.post('/api/categories', requirePermission('products'), (req, res) => {
     const { category } = req.body;
-    let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
+    // Kopya muna bago i-push: ibinabalik ng readData() ang MISMONG DEFAULT_CATEGORIES array kapag first-time pa lang, kaya mababago ang constant.
+    let categories = [...readData(FILE_CATEGORIES, DEFAULT_CATEGORIES)];
     if (!categories.includes(category)) {
         categories.push(category);
         writeData(FILE_CATEGORIES, categories);
@@ -10111,18 +10112,6 @@ const defaultUsers = [
     { username:'cashier1', password:'cashier123', role:'Cashier', created:'2026-07-07 18:30:20' },
     { username:'staff', password:'staff123', role:'Staff', created:'2026-07-07 16:34:41' }
 ];
-function daysFromNow(days) {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
-}
-const defaultProducts = [
-    { code:'PRDT20250001', name:'Bottled Water 500ml', category:'Beverages', price: 25.00, stock: 8, cost: 15.00, supplier:'Absolute Distribution', expiryDate: daysFromNow(180), lowStockThreshold: 5 },
-    { code:'PRDT20250002', name:'Coca-Cola 1L', category:'Beverages', price: 55.00, stock: 9, cost: 42.00, supplier:'Coca-Cola Beverages Philippines, Inc.', expiryDate: daysFromNow(150), lowStockThreshold: 5 },
-    { code:'PRDT20250003', name:'Fresh Milk 1L', category:'Dairy', price: 85.00, stock: 10, cost: 65.00, supplier:'Local Dairy Supplier', expiryDate: daysFromNow(5), lowStockThreshold: 4 },
-    { code:'PRDT20250004', name:'Nova Multigrain', category:'Snacks', price: 30.00, stock: 10, cost: 22.00, supplier:'Universal Robina Corporation', expiryDate: daysFromNow(90), lowStockThreshold: 5 },
-    { code:'PRDT20250005', name:'Piattos Cheese', category:'Snacks', price: 35.00, stock: 10, cost: 26.00, supplier:'Universal Robina Corporation', expiryDate: daysFromNow(90), lowStockThreshold: 5 }
-];
 if (readData(FILE_USERS).length === 0) {
     const secureDefaultUsers = defaultUsers.map(u => ({
         ...u,
@@ -10130,7 +10119,7 @@ if (readData(FILE_USERS).length === 0) {
     }));
     writeData(FILE_USERS, secureDefaultUsers);
 }
-if (readProductsNoImages().length === 0) writeData(FILE_PRODUCTS, defaultProducts);
+// Walang auto-seed na default products: pagkatapos ng Hard Reset (o sa bagong install) ay walang laman ang products hanggang ang user mismo ang magdagdag.
 function verifyAdmin(req, res, next) {
     const { username, adminPassword } = req.body;
     if (!username) {
@@ -10997,7 +10986,7 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
         }
         const mode = (req.body.mode ||'skip').toLowerCase() ==='update' ?'update' :'skip';
         let products = readProductsNoImages();
-        let categories = readData(FILE_CATEGORIES, DEFAULT_CATEGORIES);
+        let categories = [...readData(FILE_CATEGORIES, DEFAULT_CATEGORIES)]; // kopya para hindi mabago ang DEFAULT_CATEGORIES constant
         const codeIndex = new Map(products.map((p, i) => [p.code.trim().toLowerCase(), i]));
         const newCategoriesFound = new Set();
         let added = 0, updated = 0, skipped = 0;
@@ -14172,8 +14161,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             writeData(FILE_WASTE_LOG, []);
             writeData(FILE_SUPPLIERS, []);
             writeData(FILE_DEMO_DATA_SNAPSHOT, null);
-            const initialCategories = ['Beverages','Dairy','Snacks','Bakery','Grains'];
-            writeData(FILE_CATEGORIES, initialCategories);
+            writeData(FILE_CATEGORIES, []);
             const preResetIdentity = readFeatureUnlocks();
             writeData(FILE_FEATURE_UNLOCKS, {
                 ...DEFAULT_FEATURE_UNLOCKS,

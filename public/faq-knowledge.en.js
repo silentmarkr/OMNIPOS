@@ -259,7 +259,7 @@ window.OMNIPOS_FAQ_KB_EN = [
   question: 'How do I import or export products (Excel/CSV)?',
   keywords: ['import products', 'export products', 'excel template', 'csv', 'bulk upload', 'maramihang produkto'],
   answer: `<p><strong>Import:</strong> go to the Products page, first download the <strong>Excel template</strong> to make sure the column format is correct, fill it in, then upload it. There's a file size limit (10MB) for uploads.</p>
-  <p><strong>Export:</strong> there's a button to download the current inventory as a CSV file (Code, Name, Category, Price, Stock, Supplier, Expiry Date, Low Stock Threshold, Cost Price).</p>`
+  <p><strong>Export:</strong> the <strong>Export</strong> button on the Products page asks what you want to export. <em>Product list (.csv)</em> downloads the current inventory (Code, Name, Category, Price, Stock, Supplier, Expiry Date, Low Stock Threshold, Cost Price). <em>Product images only</em> saves every product photo (main photo plus gallery) as separate image files named after the product code, such as <code>RICE-01.jpg</code> and <code>RICE-01_2.jpg</code>. If your browser can save to a folder you pick the location and the photos go into a new folder there; otherwise they download as one ZIP file that you extract to get the folder. The main photos can be put back later with <strong>Bulk Upload Photos</strong>, since it matches files by product code.</p>`
 },
 {
   id: 'inv-barcode',

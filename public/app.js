@@ -19742,11 +19742,17 @@ function updateProductPhotoPreview(dataUrl) {
     if (!preview) return;
     if (dataUrl) {
         preview.innerHTML = `<img src="${dataUrl}" alt="Product photo preview">`;
-        if (removeBtn) removeBtn.style.display ='inline-block';
+        if (removeBtn) removeBtn.style.display ='inline-flex';
     } else {
         preview.innerHTML = `<i class="fa-solid fa-image"></i>`;
         if (removeBtn) removeBtn.style.display ='none';
     }
+}
+// Mobile compact product form: ang mahabang "(optional — ...)" na paliwanag ng ilang field ay nakatiklop;
+// pinapalitan ng ⓘ button ang pagbukas/pagsara nito (desktop: palaging nakikita, nakatago ang ⓘ).
+function toggleProductFormHint(btn) {
+    const group = btn && btn.closest ? btn.closest('.input-field-group') : null;
+    if (group) group.classList.toggle('pf-hint-open');
 }
 function removeProductPhoto() {
     document.getElementById('p-form-image').value ='';
@@ -20258,16 +20264,39 @@ async function handleBulkSpecsImportFile(event) {
 }
 async function exportProductsCsv() {
     if (guardPremiumFeature('advanced_reports')) return;
-    const confirmResult = await Swal.fire({
-        title:'Export Products?',
-        html:'This will download your <strong>current product inventory</strong> as a CSV file. Do you want to continue?',
-        icon:'question',
+    const canPickFolder = typeof window.showDirectoryPicker === 'function'
+        || !!(window.OmniAndroid && typeof window.OmniAndroid.pickExportFolder === 'function');
+    const imagesHint = canPickFolder
+        ? 'You will pick a folder; all photos are saved inside a new folder there.'
+        : 'All photos are downloaded in one ZIP file — extract it to get the folder.';
+    const choice = await Swal.fire({
+        title:'Export Products',
+        html: `
+            <div style="text-align:left;font-size:14px;line-height:1.5;">
+                <label style="display:block;margin-bottom:12px;cursor:pointer;">
+                    <input type="radio" name="export-products-choice" value="csv" checked>
+                    Product list (.csv) <span style="color:#64748b;">— your current inventory</span>
+                </label>
+                <label style="display:block;cursor:pointer;">
+                    <input type="radio" name="export-products-choice" value="images">
+                    Product images only <span style="color:#64748b;">— every product photo (main + gallery), named by product code. ${imagesHint}</span>
+                </label>
+            </div>
+        `,
         showCancelButton: true,
-        confirmButtonText:'Yes, Export',
+        confirmButtonText:'Export',
         cancelButtonText:'Cancel',
         confirmButtonColor:(getComputedStyle(document.body).getPropertyValue('--dm-accent').trim() || '#7c5cff'),
+        preConfirm: () => {
+            const el = document.querySelector('input[name="export-products-choice"]:checked');
+            return el ? el.value : 'csv';
+        }
     });
-    if (!confirmResult.isConfirmed) return;
+    if (!choice.isConfirmed) return;
+    if (choice.value === 'images') {
+        await exportProductImagesOnly();
+        return;
+    }
     Swal.fire({
         title:'Preparing your file…',
         allowOutsideClick: false,
@@ -20280,6 +20309,349 @@ async function exportProductsCsv() {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title:'Product export downloaded', showConfirmButton:false, timer:1800, timerProgressBar: true });
     }
 }
+// ===== Export Products → "Product images only" =====================================
+// Saves every product photo (main photo + gallery) as separate image files inside ONE
+// folder. If the browser can write to a real folder (File System Access API: Chrome /
+// Edge on a secure context) the user picks where; otherwise all photos are bundled in a
+// ZIP (the photos sit inside a single folder in the ZIP) and downloaded.
+// Files are named <ProductCode>.<ext> (main) and <ProductCode>_2.<ext>, _3 ... (gallery),
+// so the main photos can be re-imported with "Bulk Upload Photos" (matches by code).
+const PRODUCT_IMAGE_EXPORT_BATCH = 25;
+const PRODUCT_IMAGE_EXPORT_ZIP_MAX_BYTES = 1200 * 1024 * 1024;
+const PRODUCT_IMAGE_EXPORT_ZIP_MAX_FILES = 20000;
+let productImageExportRunning = false;
+
+const PRODUCT_IMAGE_EXPORT_CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        table[n] = c >>> 0;
+    }
+    return table;
+})();
+function productImageExportCrc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+        crc = PRODUCT_IMAGE_EXPORT_CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+// Minimal "store" (no compression) ZIP writer. Photos are already compressed
+// (JPEG/PNG/WebP), so storing them keeps the file valid and fast. File data is kept as
+// Blob parts so the browser can keep large exports out of JS memory.
+function createProductImageZipWriter() {
+    const encoder = new TextEncoder();
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    let count = 0;
+    const now = new Date();
+    const dosTime = ((now.getHours() & 0x1F) << 11) | ((now.getMinutes() & 0x3F) << 5) | ((now.getSeconds() >> 1) & 0x1F);
+    const dosDate = (((Math.max(now.getFullYear(), 1980) - 1980) & 0x7F) << 9) | (((now.getMonth() + 1) & 0x0F) << 5) | (now.getDate() & 0x1F);
+    return {
+        get size() { return offset; },
+        get count() { return count; },
+        add(name, bytes) {
+            const nameBytes = encoder.encode(name);
+            const crc = productImageExportCrc32(bytes);
+            const header = new DataView(new ArrayBuffer(30));
+            header.setUint32(0, 0x04034B50, true);
+            header.setUint16(4, 20, true);
+            header.setUint16(6, 0x0800, true);          // UTF-8 file names
+            header.setUint16(8, 0, true);               // method 0 = stored
+            header.setUint16(10, dosTime, true);
+            header.setUint16(12, dosDate, true);
+            header.setUint32(14, crc, true);
+            header.setUint32(18, bytes.length, true);
+            header.setUint32(22, bytes.length, true);
+            header.setUint16(26, nameBytes.length, true);
+            header.setUint16(28, 0, true);
+            parts.push(new Uint8Array(header.buffer), nameBytes, new Blob([bytes]));
+            central.push({ nameBytes, crc, size: bytes.length, offset });
+            offset += 30 + nameBytes.length + bytes.length;
+            count++;
+        },
+        finish() {
+            let centralSize = 0;
+            for (const entry of central) {
+                const rec = new DataView(new ArrayBuffer(46));
+                rec.setUint32(0, 0x02014B50, true);
+                rec.setUint16(4, 20, true);
+                rec.setUint16(6, 20, true);
+                rec.setUint16(8, 0x0800, true);
+                rec.setUint16(10, 0, true);
+                rec.setUint16(12, dosTime, true);
+                rec.setUint16(14, dosDate, true);
+                rec.setUint32(16, entry.crc, true);
+                rec.setUint32(20, entry.size, true);
+                rec.setUint32(24, entry.size, true);
+                rec.setUint16(28, entry.nameBytes.length, true);
+                rec.setUint16(30, 0, true);
+                rec.setUint16(32, 0, true);
+                rec.setUint16(34, 0, true);
+                rec.setUint16(36, 0, true);
+                rec.setUint32(38, 0, true);
+                rec.setUint32(42, entry.offset, true);
+                parts.push(new Uint8Array(rec.buffer), entry.nameBytes);
+                centralSize += 46 + entry.nameBytes.length;
+            }
+            const end = new DataView(new ArrayBuffer(22));
+            end.setUint32(0, 0x06054B50, true);
+            end.setUint16(4, 0, true);
+            end.setUint16(6, 0, true);
+            end.setUint16(8, central.length, true);
+            end.setUint16(10, central.length, true);
+            end.setUint32(12, centralSize, true);
+            end.setUint32(16, offset, true);
+            end.setUint16(20, 0, true);
+            parts.push(new Uint8Array(end.buffer));
+            return new Blob(parts, { type: 'application/zip' });
+        }
+    };
+}
+function productImageExportSafeName(value) {
+    let name = String(value == null ? '' : value)
+        .replace(/[\u0000-\u001F\u007F\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^[.\s_]+|[.\s]+$/g, '');
+    if (name.length > 100) name = name.slice(0, 100).replace(/[.\s]+$/g, '');
+    if (!name) name = 'product';
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) name = `_${name}`;
+    return name;
+}
+function productImageExportExtFromMime(mime) {
+    const type = String(mime || '').toLowerCase().split(';')[0].trim();
+    const map = {
+        'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/pjpeg': 'jpg', 'image/png': 'png',
+        'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/avif': 'avif',
+        'image/heic': 'heic', 'image/heif': 'heif', 'image/svg+xml': 'svg', 'image/tiff': 'tif'
+    };
+    if (map[type]) return map[type];
+    const sub = type.startsWith('image/') ? type.slice(6).replace(/[^a-z0-9]/g, '') : '';
+    return sub ? sub.slice(0, 5) : 'jpg';
+}
+// data: URL -> { bytes, mime }. Returns null if it is not a decodable data URL.
+function productImageExportDecodeDataUrl(src) {
+    const match = /^data:([^,;]*)((?:;[^,]*)?),([\s\S]*)$/i.exec(src);
+    if (!match) return null;
+    const mime = match[1] || 'image/jpeg';
+    const isBase64 = /;base64/i.test(match[2] || '');
+    const payload = match[3];
+    try {
+        if (isBase64) {
+            const binary = atob(payload.replace(/\s+/g, ''));
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return { bytes, mime };
+        }
+        return { bytes: new TextEncoder().encode(decodeURIComponent(payload)), mime };
+    } catch (e) {
+        return null;
+    }
+}
+async function productImageExportResolveSource(src) {
+    if (typeof src !== 'string' || !src) return null;
+    if (/^data:/i.test(src)) return productImageExportDecodeDataUrl(src);
+    // Photo saved as a link/path instead of embedded data: try to fetch it.
+    try {
+        const res = await fetchWithTimeout(src, {}, 20000);
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        if (!blob.size) return null;
+        return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: blob.type || 'image/jpeg' };
+    } catch (e) {
+        return null;
+    }
+}
+function productImageExportBytesToB64(bytes) {
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    return btoa(bin);
+}
+function productImageExportDownloadBlob(blob, filename) {
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+}
+function productImageExportHasPhoto(p) {
+    if (!p || p.code == null) return false;
+    if (Number(p.imageCount) > 0) return true;
+    if (typeof p.image === 'string' && p.image) return true;
+    return Array.isArray(p.images) && p.images.some(Boolean);
+}
+async function exportProductImagesOnly() {
+    if (productImageExportRunning) return;
+    productImageExportRunning = true;
+    try {
+        // Must run first: the folder picker needs the click that confirmed the dialog.
+        // OmniPOS APK: Android WebView may define showDirectoryPicker but it does not work there (it just aborts),
+        // so the app's own folder picker is used first. The photos are written one by one straight into the folder.
+        const hasNativeExport = !!(window.OmniAndroid && typeof window.OmniAndroid.pickExportFolder === 'function'
+            && typeof window.OmniAndroid.writeExportFile === 'function');
+        let nativeExport = false;
+        let dirHandle = null;
+        if (hasNativeExport) {
+            const picked = await new Promise(resolve => {
+                window.__omniExportFolderPicked = resolve;
+                try { window.OmniAndroid.pickExportFolder(); } catch (e) { resolve({ ok: false, error: String(e && e.message || e) }); }
+            });
+            window.__omniExportFolderPicked = null;
+            if (!picked || !picked.ok) {
+                if (picked && picked.error) Swal.fire('Export Failed', picked.error, 'error');
+                return;   // cancelled
+            }
+            nativeExport = true;
+        } else if (typeof window.showDirectoryPicker === 'function') {
+            try {
+                dirHandle = await window.showDirectoryPicker({ id: 'omnipos-product-images', mode: 'readwrite' });
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+                console.warn('Folder picker unavailable, using ZIP download instead:', err);
+                dirHandle = null;
+            }
+        }
+        const stamp = new Date().toISOString().slice(0, 10);
+        const folderName = `OmniPOS-Product-Images-${stamp}`;
+        Swal.fire({
+            title: 'Exporting product photos…',
+            html: '<div id="product-image-export-progress" style="font-size:14px;color:#64748b;">Reading your product list…</div>',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => Swal.showLoading()
+        });
+        const setProgress = (text) => {
+            const el = document.getElementById('product-image-export-progress');
+            if (el) el.textContent = text;
+        };
+
+        const listRes = await authFetch(`${API_URL}/products?lite=1`, { cache: 'no-store', timeoutMs: 60000 });
+        if (!listRes.ok) throw new Error(`Could not read the product list (${listRes.status}).`);
+        const allProducts = await listRes.json();
+        if (!Array.isArray(allProducts)) throw new Error('Invalid product list response.');
+        const withPhotos = allProducts.filter(productImageExportHasPhoto);
+        if (!withPhotos.length) {
+            Swal.fire('No Photos Found', 'None of your products have a photo yet, so there is nothing to export.', 'info');
+            return;
+        }
+
+        let targetFolder = null;
+        if (dirHandle) {
+            targetFolder = await dirHandle.getDirectoryHandle(folderName, { create: true });
+        }
+        let zip = (targetFolder || nativeExport) ? null : createProductImageZipWriter();
+        let zipPart = 1;
+        const zipFiles = [];
+        const usedNames = new Set();
+        let savedFiles = 0;
+        let savedProducts = 0;
+        let skippedPhotos = 0;
+        const flushZip = (isLast) => {
+            if (!zip || !zip.count) return;
+            const suffix = (zipPart === 1 && isLast) ? '' : `-part${zipPart}`;
+            zipFiles.push(`${folderName}${suffix}.zip`);
+            productImageExportDownloadBlob(zip.finish(), `${folderName}${suffix}.zip`);
+            zipPart++;
+            zip = createProductImageZipWriter();
+        };
+
+        for (let start = 0; start < withPhotos.length; start += PRODUCT_IMAGE_EXPORT_BATCH) {
+            const batch = withPhotos.slice(start, start + PRODUCT_IMAGE_EXPORT_BATCH);
+            setProgress(`Saving photos… ${Math.min(start, withPhotos.length)} of ${withPhotos.length} products done`);
+            const res = await authFetch(`${API_URL}/products/images`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ codes: batch.map(p => String(p.code)) }),
+                timeoutMs: 120000
+            });
+            if (!res.ok) throw new Error(`Could not load product photos (${res.status}).`);
+            const data = await res.json();
+            if (!data || !data.success || !data.items || typeof data.items !== 'object') {
+                throw new Error('Invalid product photos response.');
+            }
+            for (const product of batch) {
+                const entry = data.items[String(product.code)];
+                if (!entry) continue;
+                const sources = [];
+                const seen = new Set();
+                [entry.image].concat(Array.isArray(entry.images) ? entry.images : []).forEach(src => {
+                    if (typeof src !== 'string' || !src || seen.has(src)) return;
+                    seen.add(src);
+                    sources.push(src);
+                });
+                let savedForProduct = 0;
+                const baseName = productImageExportSafeName(product.code);
+                for (let i = 0; i < sources.length; i++) {
+                    const decoded = await productImageExportResolveSource(sources[i]);
+                    if (!decoded || !decoded.bytes.length) { skippedPhotos++; continue; }
+                    const ext = productImageExportExtFromMime(decoded.mime);
+                    const stem = i === 0 ? baseName : `${baseName}_${i + 1}`;
+                    let fileName = `${stem}.${ext}`;
+                    let dup = 2;
+                    while (usedNames.has(fileName.toLowerCase())) {
+                        fileName = `${stem}_dup${dup++}.${ext}`;
+                    }
+                    usedNames.add(fileName.toLowerCase());
+                    if (nativeExport) {
+                        let ok = false;
+                        try {
+                            ok = window.OmniAndroid.writeExportFile(folderName, fileName, decoded.mime || 'image/jpeg', productImageExportBytesToB64(decoded.bytes));
+                        } catch (e) { ok = false; }
+                        if (!ok) { skippedPhotos++; usedNames.delete(fileName.toLowerCase()); continue; }
+                    } else if (targetFolder) {
+                        const fileHandle = await targetFolder.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(decoded.bytes);
+                        await writable.close();
+                    } else {
+                        zip.add(`${folderName}/${fileName}`, decoded.bytes);
+                        if (zip.size > PRODUCT_IMAGE_EXPORT_ZIP_MAX_BYTES || zip.count >= PRODUCT_IMAGE_EXPORT_ZIP_MAX_FILES) {
+                            flushZip(false);
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
+                    savedFiles++;
+                    savedForProduct++;
+                }
+                if (savedForProduct) savedProducts++;
+            }
+        }
+        if (!savedFiles) {
+            let why = '';
+            try { if (nativeExport && window.OmniAndroid.getExportError) why = window.OmniAndroid.getExportError() || ''; } catch (e) { }
+            Swal.fire('Nothing Exported', 'The photos could not be saved.' + (why ? `<br><small>${escapeHtml(why)}</small>` : ''), 'warning');
+            return;
+        }
+        let where;
+        if (targetFolder || nativeExport) {
+            where = `Saved in the folder <b>${escapeHtml(folderName)}</b> inside the location you picked.`;
+        } else {
+            flushZip(true);
+            where = zipFiles.length > 1
+                ? `Downloaded as <b>${zipFiles.length}</b> ZIP files (too many photos for one). Extract them to get the photos.`
+                : `Downloaded as <b>${escapeHtml(zipFiles[0])}</b>. Extract it to get the folder with all the photos.`;
+        }
+        let html = `<p>✅ <b>${savedFiles}</b> photo(s) from <b>${savedProducts}</b> product(s).</p><p style="font-size:14px;color:#64748b;">${where}</p>`;
+        if (skippedPhotos) html += `<p style="font-size:13px;color:#b45309;">⚠️ ${skippedPhotos} photo(s) could not be read and were skipped.</p>`;
+        Swal.fire({ title: 'Photos Exported', html, icon: skippedPhotos ? 'warning' : 'success' });
+    } catch (err) {
+        console.error('Export product images error:', err);
+        Swal.fire('Export Failed', (err && err.message) || 'Could not export the product photos. Please try again.', 'error');
+    } finally {
+        productImageExportRunning = false;
+    }
+}
+
 let selectedImportMode ='skip';
 function triggerProductImport() {
     Swal.fire({
@@ -20417,18 +20789,106 @@ function closeBulkPhotoModal() {
     closeModal('bulk-photo-modal');
 }
 function findMatchingProductForFilename(filename) {
-    const key = normalizeMatchKeyClient(filename);
-    if (!key) return null;
-    let match = bulkPhotoProductsList.find(p => p && p.code && normalizeMatchKeyClient(p.code) === key);
-    if (match) return { product: match, matchedBy:'code' };
-    match = bulkPhotoProductsList.find(p => p && p.name && normalizeMatchKeyClient(p.name) === key);
-    if (match) return { product: match, matchedBy:'name' };
+    const find = (key) => {
+        if (!key) return null;
+        let m = bulkPhotoProductsList.find(p => p && p.code && normalizeMatchKeyClient(p.code) === key);
+        if (m) return { product: m, matchedBy:'code' };
+        m = bulkPhotoProductsList.find(p => p && p.name && normalizeMatchKeyClient(p.name) === key);
+        if (m) return { product: m, matchedBy:'name' };
+        return null;
+    };
+    const exact = find(normalizeMatchKeyClient(filename));
+    if (exact) return exact;
+    // Fallback: "PRDT001 (1).jpg", "PRDT001 - Copy.jpg", "PRDT001 copy 2.jpg" (kapag nag-duplicate ang file sa phone)
+    const cleaned = (filename || '').toString().trim()
+        .replace(/\.[a-z0-9]+$/i, '')
+        .replace(/\s*\(\d+\)\s*$/, '')
+        .replace(/[\s_-]*copy(\s*\(?\d+\)?)?\s*$/i, '');
+    const fuzzy = find(normalizeMatchKeyClient(cleaned));
+    if (fuzzy) { fuzzy.fuzzy = true; return fuzzy; }
     return null;
 }
 function handleBulkPhotoFilesSelected(event) {
-    const pickedFiles = Array.from(event.target.files ||[]).filter(f => f.type && f.type.startsWith('image/'));
+    const isImg = f => (f.type && f.type.startsWith('image/')) || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name || '');
+    const pickedFiles = Array.from(event.target.files ||[]).filter(isImg).map(f => (f.type && f.type.startsWith('image/'))
+        ? f : new File([f], f.name, { type: 'image/jpeg' }));
     event.target.value ='';
-    if (!pickedFiles.length) return;
+    if (!pickedFiles.length) {
+        Swal.fire('No photos', 'Walang nabasang larawan sa pinili. Subukan ulit.', 'info');
+        return;
+    }
+    addBulkPhotoFiles(pickedFiles);
+}
+// ---- Select Folder ----
+// Sa OmniPOS APK (Android WebView) hindi gumagana ang <input webkitdirectory>, kaya native folder picker
+// ng app ang ginagamit (OmniAndroid.pickImageFolder). Sa browser/PC, ang karaniwang folder input pa rin.
+function pickBulkPhotoFolder() { bulkPhotoNativePick('pickImageFolder', 'bulk-photo-folder-input'); }
+function pickBulkPhotoFiles() { bulkPhotoNativePick('pickImages', 'bulk-photo-files-input'); }
+function bulkPhotoNativePick(method, fallbackInputId) {
+    const hasNative = window.OmniAndroid && typeof window.OmniAndroid[method] === 'function'
+        && typeof window.OmniAndroid.readPickedImage === 'function';
+    if (!hasNative) {
+        document.getElementById(fallbackInputId).click();
+        return;
+    }
+    window.__omniFolderPicked = async function (info) {
+        window.__omniFolderPicked = null;
+        if (!info || !info.ok) {
+            if (info && info.error) Swal.fire('Select Folder', info.error, 'error');
+            return;
+        }
+        const total = info.count || 0;
+        if (!total) {
+            Swal.fire('No photos found', 'Walang larawan (JPG/PNG/WEBP) sa pinili.', 'info');
+            return;
+        }
+        Swal.fire({
+            title: `Reading ${total} photo(s)...`,
+            html: '<div id="bulk-folder-progress" style="font-size:14px;">0 / ' + total + '</div>',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+        const files = [];
+        let failed = 0;
+        try {
+            for (let i = 0; i < total; i++) {
+                // hayaan munang mag-update ang UI bago basahin ang susunod na larawan
+                await new Promise(r => setTimeout(r, 0));
+                const name = window.OmniAndroid.getPickedImageName(i) || ('photo-' + i + '.jpg');
+                const b64 = window.OmniAndroid.readPickedImage(i);
+                if (!b64) { failed++; continue; }
+                const bin = atob(b64);
+                const bytes = new Uint8Array(bin.length);
+                for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+                files.push(new File([bytes], name, { type: 'image/jpeg' }));
+                const el = document.getElementById('bulk-folder-progress');
+                if (el) el.textContent = (i + 1) + ' / ' + total;
+            }
+        } catch (err) {
+            console.error(err);
+        }
+        try { window.OmniAndroid.clearPickedImages && window.OmniAndroid.clearPickedImages(); } catch (e) { }
+        addBulkPhotoFiles(files);
+        const matched = bulkPhotoSelection.filter(i => i.matchedProduct).length;
+        Swal.fire({
+            title: 'Photos loaded',
+            html: `${info.folder ? `<p>📁 ${escapeHtml(info.folder)}</p>` : ''}<p>Photos read: <b>${files.length}</b>` +
+                  (failed ? ` &nbsp; Unreadable: <b>${failed}</b>` : '') +
+                  `</p><p>Matched to products: <b>${matched}</b></p><p style="font-size:12px;color:#64748b;">Review below, then tap <b>Apply Matched Photos</b>.</p>` +
+                  (matched < files.length ? `<p style="font-size:12px;color:#b45309;">May hindi tumugma. Kung Photo Picker ang ginamit, binabago nito ang filename — gamitin ang <b>Select Folder</b>, o i-tap ang <b>Assign product</b> sa bawat unmatched na larawan.</p>` : ''),
+            icon: files.length ? 'success' : 'warning'
+        });
+    };
+    try {
+        window.OmniAndroid[method]();
+    } catch (err) {
+        console.warn('Native picker failed, using browser input.', err);
+        window.__omniFolderPicked = null;
+        document.getElementById(fallbackInputId).click();
+    }
+}
+function addBulkPhotoFiles(pickedFiles) {
+    if (!pickedFiles || !pickedFiles.length) return;
     const existingKeys = new Set(bulkPhotoSelection.map(item => `${item.file.name}__${item.file.size}`));
     pickedFiles.forEach(file => {
         const dedupeKey = `${file.name}__${file.size}`;
@@ -20439,7 +20899,8 @@ function handleBulkPhotoFilesSelected(event) {
             file,
             previewUrl: URL.createObjectURL(file),
             matchedProduct: found ? found.product : null,
-            matchedBy: found ? found.matchedBy : null
+            matchedBy: found ? found.matchedBy : null,
+            sendAsCode: !!(found && found.fuzzy)
         });
     });
     renderBulkPhotoPreview();
@@ -20474,7 +20935,8 @@ function renderBulkPhotoPreview() {
                 <img src="${item.previewUrl}" alt="preview">
                 <div class="bulk-photo-item-info">
                     <div class="bulk-photo-item-match">${matchLabel}</div>
-                    <div class="bulk-photo-item-filename">${escapeHtml(item.file.name)}</div>
+                    <div class="bulk-photo-item-filename">${escapeHtml(item.file.name)}${item.matchedBy === 'manual' ? ' · assigned manually' : ''}</div>
+                    ${isMatched ? '' : `<button type="button" class="btn-action-outline" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="assignBulkPhotoProduct(${idx})"><i class="fa-solid fa-link"></i> Assign product</button>`}
                 </div>
                 <button type="button" class="bulk-photo-item-remove" onclick="removeBulkPhotoItem(${idx})" title="Remove">
                     <i class="fa-solid fa-xmark"></i>
@@ -20482,6 +20944,47 @@ function renderBulkPhotoPreview() {
             </div>
         `;
     }).join('');
+}
+function assignBulkPhotoProduct(idx) {
+    const item = bulkPhotoSelection[idx];
+    if (!item) return;
+    const products = (Array.isArray(bulkPhotoProductsList) ? bulkPhotoProductsList : []).filter(p => p && p.code);
+    Swal.fire({
+        title: 'Assign to product',
+        html: `<div style="text-align:center;"><img src="${item.previewUrl}" alt="" style="max-height:90px;max-width:100%;border-radius:8px;">
+               <div style="font-size:12px;color:#64748b;margin:4px 0 8px;word-break:break-all;">${escapeHtml(item.file.name)}</div></div>
+               <input id="bulk-assign-q" class="swal2-input" style="margin:0 0 8px;width:100%;box-sizing:border-box;" placeholder="Search product code or name" autocomplete="off">
+               <div id="bulk-assign-results" style="max-height:240px;overflow:auto;text-align:left;"></div>`,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: 'Cancel',
+        didOpen: () => {
+            const q = document.getElementById('bulk-assign-q');
+            const box = document.getElementById('bulk-assign-results');
+            const draw = () => {
+                const term = (q.value || '').trim().toLowerCase();
+                const hits = products.filter(p => !term || String(p.code).toLowerCase().includes(term) || String(p.name || '').toLowerCase().includes(term)).slice(0, 30);
+                box.innerHTML = '';
+                if (!hits.length) { box.textContent = 'No products found.'; return; }
+                hits.forEach(p => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.style.cssText = 'display:block;width:100%;text-align:left;padding:8px 10px;margin-bottom:4px;border:1px solid #e2e8f0;border-radius:8px;background:transparent;color:inherit;font-size:13px;cursor:pointer;';
+                    b.innerHTML = `<b>${escapeHtml(p.code)}</b> — ${escapeHtml(p.name || '')}`;
+                    b.addEventListener('click', () => {
+                        item.matchedProduct = p;
+                        item.matchedBy = 'manual';
+                        item.sendAsCode = true;
+                        Swal.close();
+                        renderBulkPhotoPreview();
+                    });
+                    box.appendChild(b);
+                });
+            };
+            q.addEventListener('input', draw);
+            draw();
+        }
+    });
 }
 function removeBulkPhotoItem(idx) {
     const item = bulkPhotoSelection[idx];
@@ -20534,43 +21037,99 @@ function compressImageFileToBlob(file) {
 async function submitBulkPhotoUpload() {
     const matchedItems = bulkPhotoSelection.filter(i => i.matchedProduct);
     if (!matchedItems.length) return;
+    const total = matchedItems.length;
+    // Hinahati sa batch para hindi lumampas sa limit ng server (300 files kada request, 10 requests kada 10 minuto).
+    const BATCH_SIZE = Math.min(150, Math.max(25, Math.ceil(total / 9)));
+    const totalBatches = Math.ceil(total / BATCH_SIZE);
+    let compressedCount = 0;
+    let uploadedCount = 0;
+    const totals = { applied: 0, unmatched: 0, failed: 0 };
+    // ---- live progress ----
+    const updateProgress = (phaseText) => {
+        const pct = Math.min(100, Math.round(((compressedCount + uploadedCount) / (total * 2)) * 100));
+        const bar = document.getElementById('bulk-apply-bar');
+        const pctEl = document.getElementById('bulk-apply-pct');
+        const phaseEl = document.getElementById('bulk-apply-phase');
+        const countEl = document.getElementById('bulk-apply-count');
+        const statEl = document.getElementById('bulk-apply-stats');
+        if (bar) bar.style.width = pct + '%';
+        if (pctEl) pctEl.textContent = pct + '%';
+        if (phaseEl && phaseText) phaseEl.textContent = phaseText;
+        if (countEl) countEl.textContent = `${uploadedCount} of ${total} photo(s) applied to server`;
+        if (statEl) statEl.innerHTML = `✅ Applied: <b>${totals.applied}</b> &nbsp; ⚠️ No match: <b>${totals.unmatched}</b> &nbsp; ❌ Failed: <b>${totals.failed}</b>`;
+    };
     Swal.fire({
-        title: `Applying ${matchedItems.length} photo(s)...`,
-        text:'Please wait a moment.',
+        title: `Applying ${total} photo(s)...`,
+        html: `
+            <div style="text-align:left;font-size:14px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                    <span id="bulk-apply-phase" style="color:#64748b;">Starting…</span>
+                    <b id="bulk-apply-pct">0%</b>
+                </div>
+                <div style="background:#e2e8f0;border-radius:8px;height:12px;overflow:hidden;">
+                    <div id="bulk-apply-bar" style="background:#3b82f6;height:100%;width:0%;transition:width 0.25s ease;"></div>
+                </div>
+                <div id="bulk-apply-count" style="margin-top:10px;color:#475569;">0 of ${total} photo(s) applied to server</div>
+                <div id="bulk-apply-stats" style="margin-top:6px;font-size:13px;"></div>
+                <div style="margin-top:10px;font-size:12px;color:#94a3b8;">Please keep this screen open until it finishes.</div>
+            </div>`,
         allowOutsideClick: false,
-        didOpen: () => Swal.showLoading()
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => { updateProgress('Starting…'); }
     });
+    let lastProducts = null;
     try {
-        const formData = new FormData();
-        for (const item of matchedItems) {
-            const compressedBlob = await compressImageFileToBlob(item.file);
-            formData.append('images', compressedBlob, item.file.name);
+        for (let b = 0; b < totalBatches; b++) {
+            const chunk = matchedItems.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+            const batchLabel = totalBatches > 1 ? ` (batch ${b + 1} of ${totalBatches})` : '';
+            const formData = new FormData();
+            for (const item of chunk) {
+                const compressedBlob = await compressImageFileToBlob(item.file);
+                // Manual / "(1)" copy matches: ipadala gamit ang Product Code bilang filename para tumugma sa server.
+                const sendName = item.sendAsCode
+                    ? (String(item.matchedProduct.code).replace(/[\\/]/g, '') + '.jpg')
+                    : item.file.name;
+                formData.append('images', compressedBlob, sendName);
+                compressedCount++;
+                updateProgress(`Preparing photos…${batchLabel}`);
+            }
+            updateProgress(`Uploading ${chunk.length} photo(s)…${batchLabel}`);
+            const res = await authFetch(`${API_URL}/products/bulk-photos`, {
+                method:'POST',
+                body: formData,
+                timeoutMs: 120000
+            });
+            const reply = await res.json();
+            if (!reply.success) {
+                if (lastProducts) applyServerProductsToGlobal(lastProducts);
+                Swal.fire('Bulk Upload Failed', (reply.message ||'Could not apply the photos.') +
+                    (totals.applied ? ` (${totals.applied} photo(s) were already applied before this error.)` : ''),'error');
+                return;
+            }
+            totals.applied += reply.appliedCount || 0;
+            totals.unmatched += reply.unmatchedCount || 0;
+            totals.failed += reply.failedCount || 0;
+            uploadedCount += chunk.length;
+            if (reply.products) lastProducts = reply.products;
+            updateProgress(b + 1 < totalBatches ? `Batch ${b + 1} done…` : 'Finishing…');
         }
-        const res = await authFetch(`${API_URL}/products/bulk-photos`, {
-            method:'POST',
-            body: formData,
-            timeoutMs: 120000
-        });
-        const reply = await res.json();
-        if (!reply.success) {
-            Swal.fire('Bulk Upload Failed', reply.message ||'Could not apply the photos.','error');
-            return;
-        }
-        if (reply.products) applyServerProductsToGlobal(reply.products);
+        if (lastProducts) applyServerProductsToGlobal(lastProducts);
         if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
         if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-        let summaryHtml = `<p>✅ Applied: <b>${reply.appliedCount}</b> photo(s)</p>`;
-        if (reply.unmatchedCount) summaryHtml += `<p>⚠️ No match found: <b>${reply.unmatchedCount}</b> file(s)</p>`;
-        if (reply.failedCount) summaryHtml += `<p>❌ Failed: <b>${reply.failedCount}</b> file(s)</p>`;
+        let summaryHtml = `<p>✅ Applied: <b>${totals.applied}</b> photo(s)</p>`;
+        if (totals.unmatched) summaryHtml += `<p>⚠️ No match found: <b>${totals.unmatched}</b> file(s)</p>`;
+        if (totals.failed) summaryHtml += `<p>❌ Failed: <b>${totals.failed}</b> file(s)</p>`;
         Swal.fire({
             title:'Bulk Upload Complete',
             html: summaryHtml,
-            icon: (reply.failedCount) ?'warning' :'success'
+            icon: (totals.failed) ?'warning' :'success'
         });
         closeBulkPhotoModal();
     } catch (error) {
         console.error(error);
-        Swal.fire('Connection Lost','❌ Could not connect to the server. Try again.','error');
+        if (lastProducts) applyServerProductsToGlobal(lastProducts);
+        Swal.fire('Connection Lost',`❌ Could not connect to the server. ${totals.applied ? totals.applied + ' photo(s) were already applied. ' : ''}Try again.`,'error');
     }
 }
 let bulkImageSearchState = { nonce: null, proposals: [], pollTimer: null, minimized: false, finished: false, lastBadgeText: '' };
@@ -21461,12 +22020,20 @@ function openBarcodePrintSettingsModal() {
     populateBarcodeSettingsForm(getBarcodeSettings());
     document.getElementById('barcode-print-settings-modal').style.display ='flex';
 }
+// The settings modal can now be opened from the Barcode Generator page itself
+// (not only from inside the Print Preview), so the preview must only be
+// re-rendered when it is actually open. Otherwise applying/resetting settings
+// from the page would pop the old preview open unexpectedly.
+function isBarcodePreviewModalOpen() {
+    const m = document.getElementById('barcode-preview-modal');
+    return !!m && m.style.display !== 'none' && m.style.display !== '';
+}
 function applyBarcodeSettingsFromForm() {
     const settings = readBarcodeSettingsFromForm();
     saveBarcodeSettingsToStorage(settings);
     applyBarcodeSettingsToDom(settings);
     closeModal('barcode-print-settings-modal');
-    if (Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
+    if (isBarcodePreviewModalOpen() && Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
         renderBarcodeSheetPreview(window.__lastBarcodePrintBatch);
     }
     if (typeof Swal !=='undefined') {
@@ -21478,7 +22045,7 @@ function resetBarcodeSettingsToDefault() {
     saveBarcodeSettingsToStorage(defaults);
     applyBarcodeSettingsToDom(defaults);
     populateBarcodeSettingsForm(defaults);
-    if (Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
+    if (isBarcodePreviewModalOpen() && Array.isArray(window.__lastBarcodePrintBatch) && window.__lastBarcodePrintBatch.length > 0) {
         renderBarcodeSheetPreview(window.__lastBarcodePrintBatch);
     }
     if (typeof Swal !=='undefined') {
@@ -25470,6 +26037,15 @@ function updateDropdownCategoriesDynamic() {
     const uniqueCategories = [...new Set([...dbCategories, ...customCategories])];
     const previousSelectedValue = categorySelect.value;
     categorySelect.innerHTML ='';
+    if (uniqueCategories.length === 0) {
+        // Walang kahit isang category (hal. pagkatapos ng Hard Reset): kailangan ng placeholder para mapili ang "+ Add New Category..." (may 'change' event) at para hindi ma-submit ang form nang walang category.
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value ='';
+        placeholderOption.text ='Select a category...';
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        categorySelect.appendChild(placeholderOption);
+    }
     uniqueCategories.forEach(cat => {
         const option = document.createElement('option');
         option.value = cat;
