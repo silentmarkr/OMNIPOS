@@ -37,36 +37,6 @@ const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
 
-// PERFORMANCE: SQLite tuning para sa POS workload (maraming maliliit na write + malalaking JSON blob read).
-// - busy_timeout: maghintay muna (hanggang 5s) imbes na agad mag-"database is locked" kapag may kasabay
-//   na write (hal. backup/VACUUM/checkpoint habang may checkout).
-// - synchronous=NORMAL: ligtas sa WAL mode (hindi masisira ang database kahit biglang mamatay ang app/Termux);
-//   mas mabilis ang bawat commit dahil hindi na nag-fsync sa bawat transaction, kundi sa checkpoint lang.
-//   Kung gusto mo ang pinakamahigpit na durability (kahit biglang mawalan ng kuryente), itakda sa .env:
-//   OMNIPOS_SQLITE_SYNCHRONOUS=FULL
-// - temp_store=MEMORY, cache_size=-16000 (~16 MB), mmap_size=64 MB: mas mabilis ang sort/index/read.
-// - wal_autocheckpoint=1000 pages: hindi lumalaki nang walang hanggan ang -wal file.
-// Lahat ay nasa try/catch: kung may hindi suportado, tahimik na lilipas at gagamitin ang default ng SQLite.
-(function applySqliteTuning() {
-    const syncRaw = String(process.env.OMNIPOS_SQLITE_SYNCHRONOUS || 'NORMAL').trim().toUpperCase();
-    const syncMode = ['NORMAL', 'FULL', 'EXTRA'].includes(syncRaw) ? syncRaw : 'NORMAL';
-    const pragmas = [
-        'PRAGMA busy_timeout = 5000;',
-        `PRAGMA synchronous = ${syncMode};`,
-        'PRAGMA temp_store = MEMORY;',
-        'PRAGMA cache_size = -16000;',
-        'PRAGMA mmap_size = 67108864;',
-        'PRAGMA wal_autocheckpoint = 1000;',
-        // Limitahan ang laki ng -wal file sa disk pagkatapos ng checkpoint (64 MB) — mahalaga sa phone storage.
-        'PRAGMA journal_size_limit = 67108864;'
-    ];
-    for (const sql of pragmas) {
-        try { db.exec(sql); } catch (_) { /* hindi suportado — gamitin ang default */ }
-    }
-    // Hayaan ang SQLite na i-update ang query statistics kung kailangan (mabilis; walang ginagawa kung hindi kailangan).
-    try { db.exec('PRAGMA optimize;'); } catch (_) { /* opsyonal */ }
-})();
-
 db.exec(`
     CREATE TABLE IF NOT EXISTS store (
         module     TEXT PRIMARY KEY,

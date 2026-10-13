@@ -1,14 +1,5 @@
-/* ============================================================
-   THEME: Cyber Neon Pro (Premium / Paid Add-on)
-   Malalim na itim/navy base na may cyan-magenta neon accent, matulis
-   na sulok (sharp corners), at futuristic na font pairing (Orbitron
-   para sa headings, Rajdhani para sa body text) — para sa mga gustong
-   mas "techy"/cyberpunk ang dating ng POS nila. I-unlock via Themes
-   menu.
-   ============================================================ */
-/* Orbitron/Rajdhani: nilo-load na ngayon via non-blocking <link> sa
-   index.html (see google-fonts-cdn) sa halip na @import dito, para
-   hindi maantala ang pag-render kapag offline. */
+
+
 
 body[data-theme="cyber"] {
     --dm-bg: #05070d;
@@ -22,20 +13,18 @@ body[data-theme="cyber"] {
     --dm-accent-hover: #ff2ee6;
     --dm-accent-soft: rgba(34, 229, 255, 0.16);
 
-    /* Typography: matulis/techy heading font + malinaw na body font */
+    
     --dm-font-heading: 'Orbitron', 'Space Grotesk', sans-serif;
     --dm-font-body: 'Rajdhani', 'Inter', 'Segoe UI', sans-serif;
 
-    /* Border language: matulis na sulok, mas makapal na border para
-       sa "circuit board" na dating */
+    
     --dm-radius: 4px;
     --dm-radius-sm: 3px;
     --dm-radius-lg: 6px;
     --dm-border-width: 1.5px;
 }
 
-/* Bahagyang "glow" sa mga cards/buttons para tumugma sa neon accent —
-   effect-only, hindi ito nakakaapekto sa laki/istruktura ng UI. */
+
 body[data-theme="cyber"] .metric-card,
 body[data-theme="cyber"] .qa-card,
 body[data-theme="cyber"] .overview-trend-card,
@@ -52,19 +41,7 @@ body[data-theme="cyber"] .btn-action-global {
     box-shadow: 0 0 14px rgba(34, 229, 255, 0.35);
 }
 
-/* ============================================================
-   NEON CARD SYSTEM (Cyber Neon Pro)
-   Neon-bordered "HUD" cards na sumusunod sa Relay Analytics design:
-   may kulay na border + glow, tinted na background, at kulay na
-   icon/label. Naka-scope LAMANG sa body[data-theme="cyber"] (at sa
-   Cyber terminal theme para sa POS grid), kaya lumalabas lang ito
-   kapag nabili AT ginamit na ang theme — walang epekto sa ibang theme
-   o sa Day/Dark mode. Kulay, border at glow lang ito: walang binabago
-   sa laki, layout, o gawi ng UI. Ang kulay ng bawat card ay galing
-   sa --nc / --nc-rgb (nag-iikot sa purple, blue, pink, green, orange,
-   yellow, cyan, red); ang mga card na may "warning" o "danger" na icon
-   ay awtomatikong amber/red.
-   ============================================================ */
+
 
 body[data-theme="cyber"] {
     --cy-purple: 167, 123, 255;
@@ -77,7 +54,7 @@ body[data-theme="cyber"] {
     --cy-red: 255, 92, 114;
 }
 
-/* ---- 1) Stat / metric tiles --------------------------------- */
+
 body[data-theme="cyber"] :is(.metric-card, .reorder-stat-card, .adv-summary-stat, .branch-detail-stat, .attendance-status-card, .qa-card) {
     --nc-rgb: var(--cy-cyan);
     --nc: rgb(var(--nc-rgb));
@@ -90,7 +67,7 @@ body[data-theme="cyber"] :is(.metrics-grid, .overview-stats-grid, .reports-metri
 body[data-theme="cyber"] :is(.metrics-grid, .overview-stats-grid, .reports-metrics-grid, .dashboard-metrics-grid, .reorder-stats-bar, .branch-detail-stats, .branches-trend-stats) > :nth-child(8n+6) { --nc-rgb: var(--cy-yellow); }
 body[data-theme="cyber"] :is(.metrics-grid, .overview-stats-grid, .reports-metrics-grid, .dashboard-metrics-grid, .reorder-stats-bar, .branch-detail-stats, .branches-trend-stats) > :nth-child(8n+7) { --nc-rgb: var(--cy-cyan); }
 body[data-theme="cyber"] :is(.metrics-grid, .overview-stats-grid, .reports-metrics-grid, .dashboard-metrics-grid, .reorder-stats-bar, .branch-detail-stats, .branches-trend-stats) > :nth-child(8n+8) { --nc-rgb: var(--cy-red); }
-/* Semantic na kulay: warning = amber, danger = red (mas nananaig kaysa sa pag-iikot) */
+
 body[data-theme="cyber"] .metric-card:has(> .metric-icon.warning, > .metric-icon.orange) { --nc-rgb: var(--cy-yellow); }
 body[data-theme="cyber"] .metric-card:has(> .metric-icon.danger, > .metric-icon.red) { --nc-rgb: var(--cy-red); }
 body[data-theme="cyber"] .reorder-stat-card:is(.reorder-stat-warning) { --nc-rgb: var(--cy-yellow); }
@@ -133,7 +110,7 @@ body[data-theme="cyber"] #view-overview .metric-card:hover {
         0 12px 24px -14px rgba(0, 0, 0, 0.75);
 }
 
-/* ---- 2) Quick-access cards ---------------------------------- */
+
 body[data-theme="cyber"] .qa-card:nth-child(8n+1) { --nc-rgb: var(--cy-purple); }
 body[data-theme="cyber"] .qa-card:nth-child(8n+2) { --nc-rgb: var(--cy-blue); }
 body[data-theme="cyber"] .qa-card:nth-child(8n+3) { --nc-rgb: var(--cy-pink); }
@@ -156,7 +133,7 @@ body[data-theme="cyber"] .qa-card.active {
     box-shadow: 0 0 20px rgba(var(--nc-rgb), 0.5), inset 0 0 14px rgba(var(--nc-rgb), 0.16);
 }
 
-/* ---- 3) Panel cards (charts, tables, reports, search, ops) -- */
+
 body[data-theme="cyber"] :is(.overview-trend-card, .overview-chart-panel, .table-container, .report-container, .tx-search-card, .analytics-panel, .adv-chart-card, .remoteops-panel, .promo-card, .recovery-inner-card, .attendance-checklist-card, .attendance-review-card, .attendance-control-card, .attendance-info-card, .branches-alerts-panel, .branches-transfers-panel, .uw-tier-card, .ct-card, .rr-card),
 html body[data-theme="cyber"] .di-panel {
     border: var(--dm-border-width) solid rgba(34, 229, 255, 0.38);
@@ -173,7 +150,7 @@ html body[data-theme="cyber"] .di-panel:hover {
         inset 0 0 18px rgba(34, 229, 255, 0.07),
         0 12px 26px -16px rgba(0, 0, 0, 0.8);
 }
-/* Mga status-card ng Attendance: panatilihin ang sarili nilang kulay ng estado, neon lang ang glow */
+
 body[data-theme="cyber"] .attendance-status-card {
     border-color: rgba(34, 229, 255, 0.45);
     background: linear-gradient(135deg, rgba(34, 229, 255, 0.10), var(--dm-surface) 70%);
@@ -192,7 +169,7 @@ body[data-theme="cyber"] .attendance-status-card.attendance-status-error {
     box-shadow: 0 0 16px rgba(var(--nc-rgb), 0.3), inset 0 0 14px rgba(var(--nc-rgb), 0.10);
 }
 
-/* ---- 4) Modals & dialogs ------------------------------------ */
+
 body[data-theme="cyber"] .modal-card,
 body[data-theme="cyber"] .swal2-popup {
     border: var(--dm-border-width) solid rgba(34, 229, 255, 0.55);
@@ -202,10 +179,8 @@ body[data-theme="cyber"] .swal2-popup {
         0 24px 48px -18px rgba(0, 0, 0, 0.85);
 }
 
-/* ---- 5) POS terminal product grid (Cyber) ------------------- */
-/* Magaan lang (border + maliit na glow, walang blur) dahil maraming
-   card ang sabay na nakikita sa grid. Gumagana kapag Cyber ang app theme
-   O ang Cyber terminal theme. */
+
+
 body[data-theme="cyber"] .terminal-theme:not(.terminal-daymode) .t-product-card,
 .terminal-theme[data-terminal-theme="cyber"]:not(.terminal-daymode) .t-product-card {
     --nc-rgb: var(--cy-cyan, 34, 229, 255);
@@ -231,7 +206,7 @@ body[data-theme="cyber"] .terminal-theme:not(.terminal-daymode) .t-product-card:
     border-color: rgb(var(--nc-rgb));
     box-shadow: 0 0 16px rgba(var(--nc-rgb), 0.45), inset 0 0 12px rgba(var(--nc-rgb), 0.12);
 }
-/* Panatilihin ang "napili/tap" na estado ng card — nananaig ito sa neon cycle */
+
 body[data-theme="cyber"] .terminal-theme .t-product-card.tap-active,
 .terminal-theme[data-terminal-theme="cyber"] .t-product-card.tap-active {
     border-color: var(--dm-accent);

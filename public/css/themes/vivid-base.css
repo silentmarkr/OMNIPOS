@@ -1,16 +1,4 @@
-/* ============================================================
-   VIVID BASE (lahat ng dark-mode themes)
-   Ang "buhay" na look (glow, gradient, mas matingkad na hero at cards)
-   ay nakabase LAMANG sa --dm-accent at --dm-accent-hover ng napiling
-   theme, kaya awtomatikong sumusunod ang Dark, Ocean, Emerald, Sunset,
-   Rose Gold, Cyber, Noir, Mint Frost at Custom theme sa sarili nilang
-   kulay. Kulay at glow lang ang laman nito; walang sukat o layout.
 
-   Load order: pagkatapos ng style.css pero BAGO ang mga theme file, kaya
-   ang mga theme na may sariling rule (hal. Cyber) ay nananaig pa rin.
-   Ang Liquid Glass at Galaxy Ambient ay hindi ginagalaw dito (may sarili
-   silang glass look) maliban sa background glow na sila mismo ang nag-o-override.
-   ============================================================ */
 body.dark-mode {
     background:
         radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--dm-accent) 16%, transparent), transparent 42%),

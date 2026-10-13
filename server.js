@@ -26,15 +26,6 @@ try {
     require('./env-loader')();
 } catch (err) {
 }
-// PERFORMANCE: db.js ay naglo-load bago mabasa ang .env, kaya dito ina-apply ulit ang opsyonal na
-// OMNIPOS_SQLITE_SYNCHRONOUS (NORMAL | FULL | EXTRA) kapag naka-set sa .env. Walang epekto kung wala.
-try {
-    const requestedSyncMode = String(process.env.OMNIPOS_SQLITE_SYNCHRONOUS || '').trim().toUpperCase();
-    if (['NORMAL', 'FULL', 'EXTRA'].includes(requestedSyncMode)) {
-        sqliteDb.exec(`PRAGMA synchronous = ${requestedSyncMode};`);
-    }
-} catch (err) {
-}
 process.on('uncaughtException', (err) => {
     console.error('🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server):', err);
 });
@@ -284,115 +275,11 @@ app.use((err, req, res, next) => {
     }
     next(err);
 });
-// PERFORMANCE: dati walang compression ang static files (app.js ~1.5 MB, style.css ~570 KB, index.html ~440 KB
-// ay ipinapadala nang buo sa bawat device/refresh). Ang middleware na ito ay nagse-serve ng gzip/brotli na kopya
-// ng mga text asset (.js .css .html .json .svg), kino-compress nang ASYNC nang isang beses lang at kino-cache sa
-// memory hangga't hindi nagbabago ang file (mtime/size). Pareho pa rin ang Cache-Control (no-cache + ETag/304),
-// kaya nag-a-update pa rin agad ang app kapag may bagong release. Kapag may anumang problema (hindi suportado ang
-// encoding, Range request, file na wala, atbp.) ay tahimik na ipinapasa sa express.static gaya ng dati.
-const STATIC_PUBLIC_ROOT = path.resolve(__dirname, 'public');
-const STATIC_COMPRESSIBLE_TYPES = {
-    '.js': 'application/javascript; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.html': 'text/html; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.mjs': 'application/javascript; charset=utf-8',
-    '.txt': 'text/plain; charset=utf-8',
-    '.xml': 'application/xml; charset=utf-8',
-    '.webmanifest': 'application/manifest+json; charset=utf-8'
-};
-const STATIC_COMPRESS_MIN_BYTES = 1024;
-const STATIC_COMPRESS_CACHE_MAX_BYTES = 48 * 1024 * 1024;
-const staticCompressionCache = new Map();
-let staticCompressionCacheBytes = 0;
-const gzipStaticAsync = promisify(zlib.gzip);
-const brotliStaticAsync = promisify(zlib.brotliCompress);
-function getCompressedStaticBuffer(fullPath, stat, encoding) {
-    const signature = `${stat.size}-${Math.floor(stat.mtimeMs)}`;
-    const cacheKey = `${fullPath}|${encoding}`;
-    const cached = staticCompressionCache.get(cacheKey);
-    if (cached && cached.signature === signature) return cached.promise;
-    const promise = (async () => {
-        const raw = await fs.promises.readFile(fullPath);
-        if (encoding === 'br') {
-            return brotliStaticAsync(raw, {
-                params: {
-                    [zlib.constants.BROTLI_PARAM_QUALITY]: 5,
-                    [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length
-                }
-            });
-        }
-        return gzipStaticAsync(raw, { level: 6 });
-    })();
-    const entry = { signature, promise, bytes: 0 };
-    if (cached) staticCompressionCacheBytes -= cached.bytes;
-    staticCompressionCache.set(cacheKey, entry);
-    promise.then((buf) => {
-        // Kung napalitan/nabura na ang entry habang nagko-compress, huwag nang idagdag sa bilang (iwas drift).
-        if (staticCompressionCache.get(cacheKey) !== entry) return;
-        entry.bytes = buf.length;
-        staticCompressionCacheBytes += buf.length;
-        if (staticCompressionCacheBytes > STATIC_COMPRESS_CACHE_MAX_BYTES) {
-            // Pananggalang sa memory: linisin lahat (mabilis lang ulit mag-compress, isang beses kada file).
-            staticCompressionCache.clear();
-            staticCompressionCacheBytes = 0;
-            staticCompressionCache.set(cacheKey, entry);
-            staticCompressionCacheBytes = entry.bytes;
-        }
-    }).catch(() => {
-        if (staticCompressionCache.get(cacheKey) === entry) staticCompressionCache.delete(cacheKey);
-    });
-    return promise;
-}
-app.use(async (req, res, next) => {
-    try {
-        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-        if (req.headers.range) return next();
-        const acceptEncoding = String(req.headers['accept-encoding'] || '');
-        const encoding = /\bbr\b/i.test(acceptEncoding) ? 'br' : (/\bgzip\b/i.test(acceptEncoding) ? 'gzip' : null);
-        if (!encoding) return next();
-        let relPath;
-        try { relPath = decodeURIComponent(req.path); } catch (_) { return next(); }
-        if (relPath.includes('\0') || relPath.includes('\\')) return next();
-        if (relPath.endsWith('/')) relPath += 'index.html';
-        const contentType = STATIC_COMPRESSIBLE_TYPES[path.extname(relPath).toLowerCase()];
-        if (!contentType) return next();
-        if (relPath.split('/').some((segment) => segment.startsWith('.'))) return next();
-        const fullPath = path.resolve(STATIC_PUBLIC_ROOT, '.' + relPath);
-        if (!fullPath.startsWith(STATIC_PUBLIC_ROOT + path.sep)) return next();
-        let stat;
-        try { stat = await fs.promises.stat(fullPath); } catch (_) { return next(); }
-        if (!stat.isFile() || stat.size < STATIC_COMPRESS_MIN_BYTES) return next();
-        const body = await getCompressedStaticBuffer(fullPath, stat, encoding);
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Encoding', encoding);
-        res.setHeader('Vary', 'Accept-Encoding');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Last-Modified', stat.mtime.toUTCString());
-        res.setHeader('ETag', `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}-${encoding}"`);
-        if (req.fresh) return res.status(304).end();
-        res.setHeader('Content-Length', body.length);
-        if (req.method === 'HEAD') return res.end();
-        return res.end(body);
-    } catch (err) {
-        if (res.headersSent) return;
-        res.removeHeader('Content-Encoding');
-        res.removeHeader('Content-Length');
-        return next();
-    }
-});
 app.use(express.static(path.join(__dirname,'public'), {
     etag: true,
     lastModified: true,
-    setHeaders: (res, filePath) => {
-        // PERFORMANCE: ang Font Awesome webfonts ay hindi nagbabago kada release — i-cache nang 30 araw
-        // (hindi na nire-revalidate sa bawat load). Lahat ng iba (app.js, css, html) ay no-cache pa rin.
-        if (/[\\/]webfonts[\\/][^\\/]+\.(woff2?|ttf)$/i.test(filePath || '')) {
-            res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
-        } else {
-            res.setHeader('Cache-Control','no-cache');
-        }
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control','no-cache');
     }
 }));
 const SESSIONS = new Map();
@@ -4685,15 +4572,12 @@ const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
     'cloud-backup-pricing-cache.json'
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
-// PERFORMANCE: dati synchronous (readdirSync/readFileSync) ang pag-hash ng buong install folder — habang tumatakbo
-// ito (ilang MB ng app.js/css/html, mas mabagal pa sa phone) NAKA-FREEZE ang buong server, pati checkout/API.
-// Ngayon ay async at nagbibigay ng pagkakataon sa event loop sa bawat file. Pareho pa rin ang resulta (rel path -> sha256).
-async function computeInstallDirManifest() {
+function computeInstallDirManifest() {
     const manifest = {};
-    async function walk(dir, relBase) {
+    function walk(dir, relBase) {
         let entries;
         try {
-            entries = await fs.promises.readdir(dir, { withFileTypes: true });
+            entries = fs.readdirSync(dir, { withFileTypes: true });
         } catch (err) {
             return;
         }
@@ -4702,19 +4586,19 @@ async function computeInstallDirManifest() {
             const full = path.join(dir, entry.name);
             const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
             if (entry.isDirectory()) {
-                await walk(full, rel);
+                walk(full, rel);
                 continue;
             }
             if (INTEGRITY_SCAN_EXCLUDE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
             try {
                 const hash = crypto.createHash('sha256');
-                hash.update(await fs.promises.readFile(full));
+                hash.update(fs.readFileSync(full));
                 manifest[rel] = hash.digest('hex');
             } catch (err) {
             }
         }
     }
-    await walk(__dirname, '');
+    walk(__dirname, '');
     return manifest;
 }
 const relayIntegrityStatus = {
@@ -4747,7 +4631,7 @@ async function runRelayIntegrityCheckin() {
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-        const files = await computeInstallDirManifest();
+        const files = computeInstallDirManifest();
         const relayRes = await relayFetch(`${RELAY_URL}/relay/integrity-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -7739,7 +7623,6 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
         'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
         'That system message may also include a "Pre-computed store insights" block — already-calculated numbers for sales totals (today/yesterday/week/month revenue, transaction counts, day-over-day % change, top products), a cashier sales ranking for this month (topCashierThisMonth/lowestCashierThisMonth/cashierRankingThisMonth), per-cashier shift/Z-Reading cash variance (shifts.byCashier, mostShortCashier, mostOverCashier), inventory status (low stock, out of stock, expiring soon, expired items), a customer loyalty points ranking (topByPoints/lowestByPoints), and unreviewed Fraud Alert counts — plus an optional "suggestedSettings" list. ALWAYS use these pre-computed numbers as-is for that kind of question instead of counting/summing/averaging/ranking the raw records yourself — you are not reliable at exact arithmetic or ranking over long record lists, and this app already computes them correctly elsewhere (the Overview dashboard). Every revenue figure in this block (todayRevenue, yesterdayRevenue, weekRevenue, monthRevenue, cashierRankingThisMonth revenue, topCashierThisMonth/lowestCashierThisMonth revenue) is already NET of refunds — it already matches the "Total Sales"/"Net Sales" headline on the Sales Report page, so never add, subtract, or re-explain a refund adjustment on top of it. The separate todayRefunded/monthRefunded fields are the total amount refunded in that period (a different number from revenue, not something already subtracted a second time), and todayPaymentBreakdown/monthPaymentBreakdown break the net revenue down by payment method (CASH, GCASH, CARD, etc.) when the question is about a specific payment method\'s total. A null "todayVsYesterdayPct" means there were no sales yesterday to compare against — say so plainly rather than inventing a percentage. IMPORTANT distinction: "*Revenue" (todayRevenue/monthRevenue/etc.) is total SALES/BENTA — it is NOT the same thing as "kita"/"profit". When the user asks about "kita", "tubo", "profit", "netong kita", or "how much did we (actually) make/earn", answer using todayProfit/monthProfit (and todayProfitMarginPct/monthProfitMarginPct for the margin %) instead — these already subtract each sold product\'s recorded cost (Cost of Goods Sold) from revenue, matching the Sales Analytics report\'s "Estimated Profit". If todayProfitHasCostData/monthProfitHasCostData is false, that period\'s profit figure is unreliable (little or no product "cost" was ever set in Products) — say so plainly and suggest the user fill in the Cost field per product (Products page) for an accurate profit figure, rather than presenting a 0 or near-0 profit as if it were real. Never call plain revenue "kita"/"profit", and never call profit "benta"/"revenue" — they answer different questions. When asked for the TOTAL COST/VALUE of all products/stock/inventory currently on hand (e.g. "magkano lahat ng product namin", "total cost ng lahat ng produkto", "how much is our inventory worth"), use inventory.totalInventoryCostValue directly (Admin/authorized sessions only) — it is the sum of stock × cost across EVERY product in the store, already computed server-side, NOT just the products included in the snapshot below (that list can be a partial sample for large catalogs, so never add up the "cost"/"price" fields of the individual product records yourself for this kind of question). If inventory.totalInventoryCostValueHasCostData is false, say the figure is unreliable/near-zero because little or no product has a "Cost" set (Products page) rather than presenting it as a real total. If totalInventoryCostValue is missing entirely (non-admin/limited session), say this requires Admin access rather than estimating from the partial product list you can see. IMPORTANT distinction: topProductsThisWeek and topProductsThisMonth are TWO SEPARATE best-selling-by-quantity rankings over DIFFERENT periods — topProductsThisWeek covers only the last 7 days, topProductsThisMonth covers the current calendar month so far — never use one to answer a question about the other\'s period, and never describe topProductsThisWeek\'s numbers as being "this month\'s" top products or vice versa. A negative shift "totalVariance"/"avgVariance" means cash SHORT for that cashier; positive means cash OVER — state this plainly and neutrally (it can have innocent explanations like miscounting) rather than accusing the cashier of wrongdoing. When "suggestedSettings" has entries relevant to the question (or to a problem the user describes), you may mention them as a suggestion — explain what setting to change and why it would help, but always make clear you cannot change it yourself; the user has to do it in Settings.',
         'For questions about billing, subscriptions, backup cost/consumption, or database safety, you may receive a separate "Pre-computed billing/subscription/backup-safety insights" system message (Admin/authorized sessions only). Use it as-is: expiredOrGraceFeatures lists any module or Cloud Backup subscription that is expired or in its grace period; cloudBackup.actualCostShare.yourShare is the REAL, usage-based cost for this store\'s Cloud Backup (not just the flat plan price) — prefer it over planPrice when asked "how much does it actually cost/consume", but always present it as usage cost so far, NEVER as the amount due or the renewal price; each billingSchedule entry\'s amount is the plan price actually due, and for Cloud Backup its usageCostSoFarPHP is the separate usage cost so far; billingSchedule lists upcoming charges with name/amount/dueDate for roughly the next 30 days; estimatedNextMonthTotalPHP is the rough sum of those (all amounts are PHP); databaseSafetyFeatures is a factual list of this app\'s real built-in safeguards — never add safety/security claims beyond what is listed there. If this block is missing entirely for a billing-type question, or actualCostShare/cbCostShare is null, say plainly that the live figure isn\'t available right now rather than estimating one. For a non-admin session, this data is intentionally withheld — tell the user this needs Admin access.',
-        'For questions about the PRODUCT CATALOG (how many products do or do not have a photo/picture, products per category, products missing a barcode/category/supplier/price, duplicate product names or barcodes, most expensive/cheapest/highest-stock products, margin or profit per product (Admin sessions only), expiry/batch tracking, or the full details of one specific product), you may receive a separate \"Pre-computed product catalog analysis\" system message. The server computes it live from the COMPLETE product list, so use its counts as-is: catalog.photos.withPhoto and catalog.photos.withoutPhoto are exact; any \"Sample\" list is only a partial example (say so and point to the Products page for the full list); matchedProducts holds the full details of products whose name/code/barcode appears in the question. When this block is present NEVER say that photo/picture information is unavailable, and never invent a number that is not literally in it.',
         isAdminRole
             ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
             : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
@@ -8223,352 +8106,6 @@ async function computeAiBillingInsights(isAdminRole) {
     aiBillingInsightsCache = { ts: now, data };
     return data;
 }
-// ---- Omni AI: DEEP PRODUCT CATALOG ANALYSIS ------------------------------------------------
-// PROBLEMA: ang "Pre-computed store insights" ay may bilang lang ng produkto (totalProducts) at ilang stock/expiry
-// list — walang impormasyon tungkol sa picture/larawan, category, barcode, supplier, presyo, duplicate, atbp.
-// Kaya kapag tinanong ang Omni AI ng "ilang produkto ang may picture / wala pang picture?" ay napipilitan itong
-// sabihing "hindi naka-indicate". Ang raw products snapshot naman ay pinuputol sa ilang record lang, at ang AI model
-// ay hindi maaasahan sa pagbibilang sa mahabang listahan.
-// AYOS: ang server mismo ang nagku-kuwenta (gamit ang KUMPLETONG listahan ng produkto + metadata ng photo, walang
-// binabasang base64) at ipinapasa ang compact na resulta bilang hiwalay na system message — tuwing may kaugnay na
-// tanong lang, kaya hindi nadadagdagan ang laki ng ibang request. Ang cost/margin na datos ay Admin-only
-// (kapareho ng patakaran ng totalInventoryCostValue).
-// OPTIMIZATION: ang "strong" na hints ay para lang sa tunay na katalogo/produkto na tanong. Ang mga pangkalahatang salita
-// (item, stock, price, cost, inventory, expiry, batch, uom...) ay inilipat sa WEAK — kasama lang ang buong catalog
-// summary kapag may pangalan/code/barcode ng produkto na tugma sa tanong. Dati halos LAHAT ng tanong ay nagdadagdag
-// ng hanggang ~14 KB na system message (dagdag token, dagdag bagal, dagdag gastos sa AI).
-const AI_PRODUCT_QUESTION_HINTS = [
-    'product', 'produkto', 'sku', 'barcode', 'bar code', 'picture', 'photo', 'larawan', 'litrato', 'imahe',
-    'image', 'thumbnail', 'category', 'categories', 'kategorya', 'supplier', 'margin', 'tubo', 'markup',
-    'duplicate', 'doble', 'catalog', 'katalogo', 'pinakamahal', 'pinakamura', 'pinaka-mahal',
-    'pinaka-mura', 'most expensive', 'cheapest'
-];
-const AI_PRODUCT_WEAK_HINTS = ['magkano', 'how much', 'how many', 'ilan', 'meron', 'mayroon', 'available', 'may stock',
-    'item', 'stock', 'inventory', 'imbentaryo', 'price', 'presyo', 'cost', 'puhunan', 'capital', 'expiry', 'expire',
-    'expired', 'paso', 'batch', 'uom'];
-const AI_PRODUCT_NAME_STOPWORDS = new Set([
-    'ang', 'ng', 'sa', 'mga', 'ba', 'po', 'pa', 'na', 'at', 'ay', 'ito', 'yan', 'iyan', 'yung', 'yong', 'kung', 'may', 'meron',
-    'mayroon', 'wala', 'ilan', 'ilang', 'ano', 'alin', 'saan', 'paano', 'magkano', 'lahat', 'pang', 'lang', 'din', 'rin',
-    'the', 'and', 'for', 'how', 'many', 'much', 'what', 'which', 'are', 'there', 'have', 'has', 'with', 'without', 'does',
-    'show', 'list', 'give', 'tell', 'all', 'any', 'our', 'my', 'your',
-    'produkto', 'product', 'products', 'item', 'items', 'picture', 'pictures', 'photo', 'photos', 'larawan', 'litrato',
-    'imahe', 'image', 'images', 'stock', 'stocks', 'price', 'presyo', 'cost', 'category', 'barcode', 'supplier', 'inventory',
-    'total', 'bilang', 'dami', 'gaano', 'karami'
-]);
-function aiCatalogClip(value, max) {
-    const s = String(value === null || value === undefined ? '' : value).trim();
-    return s.length > max ? s.slice(0, Math.max(1, max - 1)) + '…' : s;
-}
-function aiCatalogRound(value, places) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return 0;
-    const f = Math.pow(10, places === undefined ? 2 : places);
-    return Math.round(n * f) / f;
-}
-function aiCatalogTokens(text) {
-    return String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3 && !AI_PRODUCT_NAME_STOPWORDS.has(t));
-}
-// Hanapin ang phrase bilang buong salita/parirala (hindi bahagi lang ng ibang salita): "ice" ay hindi tutugma sa "price".
-function aiCatalogContainsWord(haystack, needle) {
-    let from = 0;
-    for (;;) {
-        const i = haystack.indexOf(needle, from);
-        if (i === -1) return false;
-        const before = i === 0 ? '' : haystack[i - 1];
-        const after = i + needle.length >= haystack.length ? '' : haystack[i + needle.length];
-        const edge = /[\p{L}\p{N}]/u;
-        if ((!before || !edge.test(before)) && (!after || !edge.test(after))) return true;
-        from = i + 1;
-    }
-}
-function questionMentionsProductCatalog(question) {
-    const q = String(question || '').toLowerCase();
-    return AI_PRODUCT_QUESTION_HINTS.some((kw) => q.includes(kw));
-}
-function questionMightNameAProduct(question) {
-    const q = String(question || '').toLowerCase();
-    return AI_PRODUCT_WEAK_HINTS.some((kw) => q.includes(kw));
-}
-// Kumpletong listahan ng produkto + bilang ng photo (walang binabasang base64).
-function loadAiCatalogRecords() {
-    let list = null;
-    let mainPhotoCodes = null;
-    try { list = readDataLite('products', []); } catch (_) { list = null; }
-    if (!Array.isArray(list)) {
-        try {
-            list = readProductsNoImages([]);
-            mainPhotoCodes = getProductCodesWithMainImage();
-        } catch (_) { list = []; }
-    }
-    const records = [];
-    for (const p of list) {
-        if (!p || typeof p !== 'object') continue;
-        const photoCount = mainPhotoCodes
-            ? (mainPhotoCodes.has(String(p.code)) ? 1 : 0)
-            : Math.max(0, Number(p.imageCount) || 0);
-        records.push({ p, photoCount });
-    }
-    return records;
-}
-function summarizeAiCatalogProduct(rec, isAdminRole) {
-    const p = rec.p;
-    const out = {
-        code: aiCatalogClip(p.code, 40),
-        name: aiCatalogClip(p.name, 70),
-        barcode: aiCatalogClip(p.barcode, 40),
-        category: aiCatalogClip(p.category, 40),
-        supplier: aiCatalogClip(p.supplier, 40),
-        uom: aiCatalogClip(p.uom, 20),
-        price: aiCatalogRound(parseFloat(p.price) || 0, 2),
-        stock: aiCatalogRound(parseFloat(p.stock) || 0, 3),
-        hasPhoto: rec.photoCount > 0,
-        photoCount: rec.photoCount
-    };
-    if (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') {
-        out.lowStockThreshold = Number(p.lowStockThreshold) || 0;
-    }
-    try {
-        const expMs = getEffectiveExpiryMs(p);
-        if (expMs !== null && Number.isFinite(expMs)) out.nearestExpiry = new Date(expMs).toISOString().slice(0, 10);
-    } catch (_) { /* walang expiry */ }
-    if (Array.isArray(p.batches) && p.batches.length > 0) out.batchCount = p.batches.length;
-    if (p.priceLevels && typeof p.priceLevels === 'object') {
-        try {
-            const levelsJson = JSON.stringify(p.priceLevels);
-            if (levelsJson.length <= 240) out.priceLevels = p.priceLevels;
-        } catch (_) { /* laktawan */ }
-    }
-    if (isAdminRole) {
-        const cost = parseFloat(p.cost) || 0;
-        const price = parseFloat(p.price) || 0;
-        out.cost = aiCatalogRound(cost, 2);
-        if (price > 0 && cost > 0) out.marginPercent = aiCatalogRound(((price - cost) / price) * 100, 1);
-    }
-    for (const key of Object.keys(out)) {
-        if (out[key] === '' || out[key] === undefined) delete out[key];
-    }
-    return out;
-}
-// Mga produktong nabanggit sa tanong (pangalan / code / barcode) — para masagot ang "magkano ang X?", "ilan ang stock ng Y?".
-function findAiMatchedCatalogProducts(records, question, limit) {
-    const q = String(question || '').toLowerCase();
-    if (q.trim().length < 3) return [];
-    const qTokens = new Set(aiCatalogTokens(q));
-    const scored = [];
-    for (const rec of records) {
-        const p = rec.p;
-        const nameLower = String(p.name || '').trim().toLowerCase();
-        const codeLower = String(p.code || '').trim().toLowerCase();
-        const barcodeLower = String(p.barcode || '').trim().toLowerCase();
-        let score = 0;
-        if (nameLower.length >= 3 && aiCatalogContainsWord(q, nameLower)) {
-            score = 1000 + nameLower.length;
-        } else if (codeLower.length >= 3 && aiCatalogContainsWord(q, codeLower)) {
-            score = 900;
-        } else if (barcodeLower.length >= 4 && q.includes(barcodeLower)) {
-            score = 900;
-        } else if (qTokens.size > 0 && nameLower) {
-            const nameTokens = Array.from(new Set(aiCatalogTokens(nameLower)));
-            if (nameTokens.length > 0) {
-                let overlap = 0;
-                for (const t of nameTokens) if (qTokens.has(t)) overlap++;
-                const ratio = overlap / nameTokens.length;
-                if (nameTokens.length <= 2 ? overlap === nameTokens.length : (overlap >= 2 && ratio >= 0.6)) {
-                    score = overlap * 10 + ratio;
-                }
-            }
-        }
-        if (score > 0) scored.push({ rec, score });
-    }
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit || 8).map((s) => s.rec);
-}
-function computeAiProductCatalogSummary(records, isAdminRole, mentionsPhoto) {
-    const total = records.length;
-    let withPhoto = 0;
-    const withoutPhotoNames = [];
-    const withPhotoNames = [];
-    const categoryMap = new Map();
-    let missingBarcode = 0, missingCategory = 0, missingSupplier = 0, zeroOrMissingPrice = 0, negativeStock = 0;
-    let missingCost = 0, priceBelowCost = 0;
-    const priceBelowCostSample = [];
-    let totalUnits = 0, productsWithStock = 0, trackingExpiry = 0, withBatches = 0;
-    let priceMin = Infinity, priceMax = 0, priceSum = 0, priceCount = 0;
-    let retailValue = 0, costValue = 0, marginSum = 0, marginCount = 0;
-    const nameCounts = new Map();
-    const barcodeCounts = new Map();
-    const priced = [];
-    const stocked = [];
-    const margined = [];
-    for (const rec of records) {
-        const p = rec.p;
-        const name = aiCatalogClip(p.name || p.code || '(walang pangalan)', 60);
-        const price = parseFloat(p.price) || 0;
-        const cost = parseFloat(p.cost) || 0;
-        const stock = parseFloat(p.stock) || 0;
-        const category = String(p.category || '').trim();
-        const barcode = String(p.barcode || '').trim();
-
-        if (rec.photoCount > 0) {
-            withPhoto++;
-            if (withPhotoNames.length < 15) withPhotoNames.push(name);
-        } else if (withoutPhotoNames.length < 40) {
-            withoutPhotoNames.push(name);
-        }
-
-        const catKey = category || '(walang category)';
-        let cat = categoryMap.get(catKey);
-        if (!cat) { cat = { name: aiCatalogClip(catKey, 40), products: 0, unitsInStock: 0, withoutPhoto: 0 }; categoryMap.set(catKey, cat); }
-        cat.products++;
-        if (stock > 0) cat.unitsInStock += stock;
-        if (rec.photoCount <= 0) cat.withoutPhoto++;
-
-        if (!barcode) missingBarcode++;
-        if (!category) missingCategory++;
-        if (!String(p.supplier || '').trim()) missingSupplier++;
-        if (price <= 0) zeroOrMissingPrice++;
-        if (stock < 0) negativeStock++;
-
-        if (price > 0) {
-            priced.push({ name, price: aiCatalogRound(price, 2) });
-            if (price < priceMin) priceMin = price;
-            if (price > priceMax) priceMax = price;
-            priceSum += price;
-            priceCount++;
-        }
-        if (stock > 0) {
-            totalUnits += stock;
-            productsWithStock++;
-            stocked.push({ name, stock: aiCatalogRound(stock, 3) });
-            if (price > 0) retailValue += stock * price;
-            if (cost > 0) costValue += stock * cost;
-        }
-        if (getEffectiveExpiryMs(p) !== null) trackingExpiry++;
-        if (Array.isArray(p.batches) && p.batches.length > 0) withBatches++;
-
-        const nameKey = String(p.name || '').trim().toLowerCase();
-        if (nameKey) {
-            const entry = nameCounts.get(nameKey);
-            if (entry) entry.count++; else nameCounts.set(nameKey, { name, count: 1 });
-        }
-        if (barcode) {
-            const bKey = barcode.toLowerCase();
-            barcodeCounts.set(bKey, (barcodeCounts.get(bKey) || 0) + 1);
-        }
-
-        if (isAdminRole) {
-            if (cost <= 0) missingCost++;
-            if (price > 0 && cost > 0) {
-                const marginPct = ((price - cost) / price) * 100;
-                marginSum += marginPct;
-                marginCount++;
-                margined.push({ name, marginPercent: aiCatalogRound(marginPct, 1), price: aiCatalogRound(price, 2), cost: aiCatalogRound(cost, 2) });
-                if (cost > price) {
-                    priceBelowCost++;
-                    if (priceBelowCostSample.length < 10) priceBelowCostSample.push({ name, price: aiCatalogRound(price, 2), cost: aiCatalogRound(cost, 2) });
-                }
-            }
-        }
-    }
-
-    const categories = Array.from(categoryMap.values())
-        .sort((a, b) => b.products - a.products)
-        .map((c) => ({ name: c.name, products: c.products, unitsInStock: aiCatalogRound(c.unitsInStock, 2), withoutPhoto: c.withoutPhoto }));
-    const duplicateNames = Array.from(nameCounts.values()).filter((e) => e.count > 1).sort((a, b) => b.count - a.count);
-    let duplicateBarcodeCount = 0;
-    for (const count of barcodeCounts.values()) if (count > 1) duplicateBarcodeCount++;
-
-    const withoutPhoto = total - withPhoto;
-    const summary = {
-        generatedAt: new Date().toISOString(),
-        totalProducts: total,
-        photos: {
-            withPhoto,
-            withoutPhoto,
-            withPhotoPercent: total > 0 ? aiCatalogRound((withPhoto / total) * 100, 1) : 0,
-            withoutPhotoSample: withoutPhotoNames.slice(0, mentionsPhoto ? 40 : 15),
-            withoutPhotoSampleIsPartial: withoutPhoto > (mentionsPhoto ? 40 : 15)
-        },
-        categories: {
-            distinctCategoryCount: categories.length,
-            top: categories.slice(0, 20),
-            hiddenCategoryCount: Math.max(0, categories.length - 20)
-        },
-        dataQuality: {
-            missingBarcode,
-            missingCategory,
-            missingSupplier,
-            zeroOrMissingPrice,
-            negativeStock,
-            duplicateProductNames: duplicateNames.slice(0, 10).map((e) => ({ name: e.name, count: e.count })),
-            duplicateProductNameCount: duplicateNames.length,
-            duplicateBarcodeCount
-        },
-        pricing: {
-            productsWithPrice: priceCount,
-            minPrice: priceCount ? aiCatalogRound(priceMin, 2) : 0,
-            maxPrice: aiCatalogRound(priceMax, 2),
-            averagePrice: priceCount ? aiCatalogRound(priceSum / priceCount, 2) : 0,
-            mostExpensive: priced.slice().sort((a, b) => b.price - a.price).slice(0, 5),
-            cheapest: priced.slice().sort((a, b) => a.price - b.price).slice(0, 5)
-        },
-        stock: {
-            totalUnitsInStock: aiCatalogRound(totalUnits, 2),
-            productsWithStock,
-            highestStock: stocked.slice().sort((a, b) => b.stock - a.stock).slice(0, 5),
-            productsTrackingExpiry: trackingExpiry,
-            productsWithBatches: withBatches
-        }
-    };
-    if (mentionsPhoto) summary.photos.withPhotoSample = withPhotoNames;
-    if (isAdminRole) {
-        summary.adminOnly = {
-            productsMissingCost: missingCost,
-            productsPricedBelowCost: priceBelowCost,
-            priceBelowCostSample,
-            averageMarginPercent: marginCount ? aiCatalogRound(marginSum / marginCount, 1) : 0,
-            highestMargin: margined.slice().sort((a, b) => b.marginPercent - a.marginPercent).slice(0, 5),
-            lowestMargin: margined.slice().sort((a, b) => a.marginPercent - b.marginPercent).slice(0, 5),
-            inventoryRetailValue: aiCatalogRound(retailValue, 2),
-            inventoryCostValue: aiCatalogRound(costValue, 2)
-        };
-    }
-    return summary;
-}
-function buildAiProductCatalogMessage(isAdminRole, question) {
-    const strong = questionMentionsProductCatalog(question);
-    const weak = !strong && questionMightNameAProduct(question);
-    if (!strong && !weak) return null;
-    const records = loadAiCatalogRecords();
-    if (!records.length) return null;
-    const matched = findAiMatchedCatalogProducts(records, question, 8);
-    if (!strong && matched.length === 0) return null;
-    const q = String(question || '').toLowerCase();
-    const mentionsPhoto = ['picture', 'photo', 'larawan', 'litrato', 'imahe', 'image', 'thumbnail'].some((kw) => q.includes(kw));
-    const payload = {};
-    if (strong) payload.catalog = computeAiProductCatalogSummary(records, isAdminRole, mentionsPhoto);
-    payload.matchedProducts = matched.map((rec) => summarizeAiCatalogProduct(rec, isAdminRole));
-    payload.matchedProductsNote = matched.length
-        ? 'These are the products whose name/code/barcode appear in the question (full details).'
-        : 'No product name/code/barcode in the question matched an item in the catalog.';
-    let json = JSON.stringify(payload);
-    // Proteksyon sa laki ng context ng AI model: paliitin kapag sobra.
-    if (json.length > 12000 && payload.catalog) {
-        payload.catalog.categories.top = payload.catalog.categories.top.slice(0, 10);
-        payload.matchedProducts = payload.matchedProducts.slice(0, 4);
-        json = JSON.stringify(payload);
-    }
-    if (json.length > 14000 && payload.catalog) {
-        delete payload.catalog.photos.withPhotoSample;
-        payload.catalog.photos.withoutPhotoSample = payload.catalog.photos.withoutPhotoSample.slice(0, 10);
-        payload.catalog.photos.withoutPhotoSampleIsPartial = payload.catalog.photos.withoutPhoto > 10;
-        json = JSON.stringify(payload);
-    }
-    return {
-        role: 'system',
-        content: `Pre-computed product catalog analysis (JSON — computed live by the server from the COMPLETE product list, not the truncated snapshot; generated ${new Date().toISOString()}):\n${json}\n\nUse these figures directly. catalog.photos.withPhoto / withoutPhoto are EXACT counts of products that do / do not have a picture — never say photo information is unavailable. Any "Sample" list is only a partial example: say it is partial and point the user to the Products page for the full list. For one specific product, use matchedProducts. Only state numbers that literally appear here or in the other context; if something is not covered, say what is missing instead of guessing.${isAdminRole ? '' : ' This is a regular staff session, so cost/margin/profit figures are intentionally not included — if asked, say it requires Admin access.'}`
-    };
-}
 async function buildAiDatabaseContextMessage(role, question = '') {
     const isAdminRole = (role || '').toLowerCase() === 'admin';
     let snapshot;
@@ -8609,17 +8146,8 @@ async function buildAiDatabaseContextMessage(role, question = '') {
         }
     }
 
-    // Deep product catalog analysis (picture/category/barcode/presyo/duplicate/atbp.) — tuwing may kaugnay na tanong lang.
-    let catalogMsg = null;
-    try {
-        catalogMsg = buildAiProductCatalogMessage(isAdminRole, question);
-    } catch (err) {
-        console.error('⚠️ Hindi na-compute ang Omni AI product catalog analysis:', err);
-        catalogMsg = null;
-    }
-
     if (!snapshot || !snapshot.moduleNames || !snapshot.moduleNames.length) {
-        if (!insightsJson && !billingMsg && !catalogMsg) return null;
+        if (!insightsJson && !billingMsg) return null;
         const msgs = [];
         if (insightsJson) {
             msgs.push({
@@ -8628,7 +8156,6 @@ async function buildAiDatabaseContextMessage(role, question = '') {
             });
         }
         if (billingMsg) msgs.push(billingMsg);
-        if (catalogMsg) msgs.push(catalogMsg);
         return msgs.length > 1 ? msgs : msgs[0];
     }
 
@@ -8722,8 +8249,7 @@ async function buildAiDatabaseContextMessage(role, question = '') {
         role: 'system',
         content: `${scopeNote}${truncationNote}${omittedNote}\n\n${insightsBlock}Live OmniPOS store data snapshot (JSON, module name -> array of records; generated ${snapshot.generatedAt}):\n${safeJson}\n\nUse this ONLY to answer questions about the store's actual current data. Do not fabricate figures beyond what is shown.`
     };
-    const extraMsgs = [billingMsg, catalogMsg].filter(Boolean);
-    return extraMsgs.length ? [mainMsg, ...extraMsgs] : mainMsg;
+    return billingMsg ? [mainMsg, billingMsg] : mainMsg;
 }
 // ---- Omni AI FREE plan ------------------------------------------------------------------
 // Walang Omni AI subscription ('ai_assistant' feature) = FREE plan: text lang, naka-Cloudflare sa RELAY, sariling maliit na limit.
@@ -10604,9 +10130,6 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
-            if (relayData.featureUnavailable) {
-                return res.status(409).json({ success: false, featureUnavailable: true, featureId: relayData.featureId, message: relayData.message || 'This feature is not available yet. Please try again later.' });
-            }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate Cloud Backup.' });
         }
         if (!verifyUnlockToken(relayData.token, installationId, CLOUD_BACKUP_FEATURE_ID)) {
@@ -10755,9 +10278,6 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
                     requiredTokens: relayData.requiredTokens,
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
-            }
-            if (relayData.featureUnavailable) {
-                return res.status(409).json({ success: false, featureUnavailable: true, featureId: relayData.featureId, message: relayData.message || 'This feature is not available yet. Please try again later.' });
             }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate.' });
         }

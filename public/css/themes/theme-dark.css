@@ -1,13 +1,4 @@
-/* ============================================================
-   THEME: Dark Mode (Free)
-   Bagong "Vivid Navy" palette ng OmniPOS Dark Mode, kinuha sa brand
-   poster: malalim na navy na base, electric-blue na accent, at violet
-   na hover/gradient (gaya ng Sign In button). Ang glow, hero at card
-   effects ay nasa vivid-base.css at sumusunod sa accent ng bawat theme.
 
-   Ang lumang palette (kulay-abo + purple #7c5cff) ay pinalitan.
-   Kulay lang ang binago dito: walang laman ng layout/sukat/function.
-   ============================================================ */
 body[data-theme="dark"] {
     --dm-bg: #050b1f;
     --dm-surface: #0a1432;
@@ -20,7 +11,7 @@ body[data-theme="dark"] {
     --dm-accent-hover: #b45cff;
     --dm-accent-soft: rgba(61, 123, 255, 0.18);
 
-    /* Brand gradient (blue -> violet) para sa primary buttons ng Dark Mode. */
+    
     --dm-brand-gradient: linear-gradient(135deg, #2e8bff 0%, #5a6cff 55%, #b45cff 100%);
 }
 
@@ -29,8 +20,7 @@ body.dark-mode[data-theme="dark"] .btn-action-global {
     color: #ffffff;
 }
 
-/* Terminal (POS screen) na naka-default na palette sa Dark Mode: sumusunod din sa bagong kulay.
-   Hindi ginagalaw kapag may napiling ibang terminal theme (ocean, cyber, atbp.). */
+
 body[data-theme="dark"]:not([data-terminal-theme]) .terminal-theme:not([data-terminal-theme]) {
     --dm-bg: #050b1f;
     --dm-surface: #0a1432;

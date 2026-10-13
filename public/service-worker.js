@@ -1,8 +1,7 @@
-const CACHE_VERSION = 'omnipos-shell-v90';
+const CACHE_VERSION = 'omnipos-shell-v87';
 
-// OMNIPOS's own code: changes with every release, so this stays network-first
-// (fetched fresh on every load when online; cache is only the offline fallback).
-const APP_SHELL_FILES = [
+// Everything required to boot the POS shell and operate the cached UI without a network.
+const SHELL_FILES = [
   '/',
   '/index.html',
   '/style.css',
@@ -16,7 +15,13 @@ const APP_SHELL_FILES = [
   '/faq-knowledge.en.js',
   '/faq-lang.js',
   '/faq-engine.js',
+  '/qrcode.min.js',
+  '/JsBarcode.all.min.js',
+  '/sweetalert2.all.min.js',
+  '/html5-qrcode.min.js',
   '/manifest.json',
+  '/css/all.min.css',
+  '/fontawesome.min.css',
   '/css/themes/vivid-base.css',
   '/css/themes/theme-dark.css',
   '/css/themes/theme-ocean-pro.css',
@@ -28,25 +33,7 @@ const APP_SHELL_FILES = [
   '/css/themes/theme-mintfrost-pro.css',
   '/css/themes/theme-liquidglass-pro.css',
   '/css/themes/theme-galaxyambient-pro.css',
-  '/css/themes/custom-theme.css'
-];
-
-// PERF FIX: third-party libraries, fonts and icons never change between releases
-// (they're not even version-tagged in index.html, unlike app.js?v=...). Serving
-// them network-first like the app code above meant every single page load paid
-// a full network round-trip for ~700KB of unchanging vendor assets (html5-qrcode
-// 366KB, sweetalert2 77KB, JsBarcode 59KB, qrcode 19KB, plus fonts/icons/vendor
-// CSS) before the browser was even allowed to use what it already had cached.
-// These are precached on install just like before, but served cache-first with
-// a background refresh (see the fetch handler below) so a repeat page load uses
-// the cached copy instantly instead of waiting on the network for it.
-const VENDOR_SHELL_FILES = [
-  '/qrcode.min.js',
-  '/JsBarcode.all.min.js',
-  '/sweetalert2.all.min.js',
-  '/html5-qrcode.min.js',
-  '/css/all.min.css',
-  '/fontawesome.min.css',
+  '/css/themes/custom-theme.css',
   '/webfonts/fa-solid-900.woff2',
   '/webfonts/fa-regular-400.woff2',
   '/webfonts/fa-brands-400.woff2',
@@ -56,12 +43,10 @@ const VENDOR_SHELL_FILES = [
   '/icons/apple-touch-icon.png'
 ];
 
-const PRECACHE_FILES = APP_SHELL_FILES.concat(VENDOR_SHELL_FILES);
-
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_VERSION);
-    await Promise.allSettled(PRECACHE_FILES.map(async path => {
+    await Promise.allSettled(SHELL_FILES.map(async path => {
       try { await cache.add(path); }
       catch (err) { console.warn('[SW] Could not pre-cache', path, err); }
     }));
@@ -102,7 +87,7 @@ self.addEventListener('fetch', event => {
   }
 
   // App shell: network-first so releases update promptly, cache fallback keeps offline use working.
-  if (APP_SHELL_FILES.includes(url.pathname)) {
+  if (SHELL_FILES.includes(url.pathname)) {
     event.respondWith((async () => {
       try {
         const network = await fetch(req);

@@ -557,15 +557,9 @@ body:not(.dark-mode) .sidebar {
     position: relative;
     display: inline-block;
 }
-/* Header logo "O" with dot (same ring+dot mark as the Omni AI icon). It replaces the letter "O" of "Omni" only
-   (the "O" in "POS" stays a normal letter). Sized in em from the real glyph metrics measured by the small
-   script at the end of index.html (--o-l left bearing, --o-w width, --o-h height, --o-d descent below the
-   baseline, --o-r right bearing); the fallbacks below approximate a bold geometric "O". The -0.03em margin
-   mirrors .brand-word's letter-spacing, which does not apply to an inline SVG. */
+
 svg.brand-o {
-    /* --o-grow = extra size (in em) added on top of the measured letter box: 0.0625em = +1.5px at the 24px header
-       logo size. It grows evenly around the letter's centre (the margins below give the space back), so the
-       neighbouring letters do not move. */
+    
     display: inline-block;
     overflow: visible;
     flex: none;
@@ -575,8 +569,7 @@ svg.brand-o {
     margin-right: calc((var(--o-r, 0.04) - 0.03 - var(--o-grow, 0.0625) / 2) * 1em);
     vertical-align: calc((var(--o-d, 0.01) + var(--o-grow, 0.0625) / 2) * -1em);
 }
-/* OmniPOS logo colours: "O" ring + "mni" follow the surrounding text colour (white on the dark login/sidebar,
-   dark on a light header); the dot of the "O" and the word "POS" use the cyan-to-blue brand gradient. */
+
 .brand-pos {
     color: #1da1f2;
 }
@@ -587,8 +580,7 @@ svg.brand-o {
         background-clip: text;
         color: transparent;
         -webkit-text-fill-color: transparent;
-        /* Gradient-clipped text can render visibly thinner than the solid "mni" next to it on some mobile WebViews.
-           Force the same weight and add a hairline stroke in the gradient's mid colour so "POS" keeps full thickness. */
+        
         font-weight: 800 !important;
         -webkit-text-stroke: 0.022em #28b0f0;
     }
@@ -1586,11 +1578,8 @@ body.dark-mode .header-page-title {
 }
 .analytics-panel {
     padding: 20px;
-    min-width: 0; /* grid items default to min-width:auto (content size), which
-                     stopped this card from shrinking to the 1-column track on
-                     mobile and pushed it past the viewport edge */
-    overflow: hidden; /* safety net so nothing inside can force this card wider
-                          than its grid track, regardless of content */
+    min-width: 0; 
+    overflow: hidden; 
 }
 .analytics-panel h3 {
     font-size: 1rem;
@@ -1619,8 +1608,7 @@ body.dark-mode .rank-row .rank-name {
     gap: 12px;
     padding: 10px 0;
     border-bottom: 1px dashed var(--border-color);
-    min-width: 0; /* let this flex row shrink inside .analytics-panel instead
-                     of stretching it to fit the row's content */
+    min-width: 0; 
 }
 .rank-row:last-child { border-bottom: none; }
 .rank-row .rank-index {
@@ -1633,9 +1621,7 @@ body.dark-mode .rank-row .rank-name {
 }
 .rank-row .rank-name {
     flex: 1;
-    min-width: 0; /* flex items default to min-width:auto, which was overriding
-                     the ellipsis truncation below and letting long product
-                     names expand the row past the screen */
+    min-width: 0; 
     font-size: 0.92rem;
     color: #1e293b;
     overflow: hidden;
@@ -2087,11 +2073,7 @@ body.dark-mode .rank-row .rank-name {
     background-color: #eff6ff;
     border-color: #bfdbfe;
 }
-/* Quick Access dock: persistent on every page (lives outside the per-view
-   sections in the markup), shown as a floating, collapsible pill. Default
-   state is collapsed (thin strip); hover (desktop) or tap (touch) reveals
-   it, and it auto-closes again after being idle — see
-   initQuickAccessAutoHide() in app.js. */
+
 #quick-access-dock {
     position: fixed;
     left: 50%;
@@ -2127,10 +2109,7 @@ body.dark-mode .rank-row .rank-name {
         padding-bottom: 30px;
     }
 }
-/* Auto-hide (shrink-to-line) state: collapses the dock down to a thin
-   hover/tap strip anchored at the dock's bottom edge (bottom offset is
-   unchanged, so only the top recedes). Toggled by
-   initQuickAccessAutoHide() in app.js. */
+
 #quick-access-dock.qa-dock-collapsed {
     max-height: 10px;
     min-height: 0;
@@ -2163,8 +2142,7 @@ body.dark-mode .rank-row .rank-name {
     opacity: 0;
     pointer-events: none;
 }
-/* Touch/coarse-pointer devices (no real hover): give the collapsed
-   strip a taller, easier-to-tap hit area than the thin mouse-hover line. */
+
 @media (hover: none) {
     #quick-access-dock.qa-dock-collapsed {
         max-height: 26px;
@@ -2186,16 +2164,7 @@ body.dark-mode #quick-access-dock.qa-dock-collapsed:hover::after {
     width: var(--qa-dock-width, max-content);
     max-width: var(--qa-dock-width, 680px);
 }
-/* Kapag naka-collapse (thin strip lang ang makikita), dapat ang lapad ng
-   invisible hover/tap hit-area ay tumugma lang sa mismong display line na
-   nakikita (yung munting pill sa ::after), hindi yung buong lapad ng
-   naka-sync na dock (na maaaring sumaklaw halos buong ibaba ng screen).
-   Kung hindi ito nilimitahan, ang pag-hover sa ibang button na nakapatong
-   sa parehong linya (pero wala talaga sa loob ng nakikitang strip) ay
-   nagbubukas pa rin ng dock at humaharang sa target na dapat i-click.
-   Kailangan ng dalawang class sa selector (hindi lang isa) para hindi
-   ma-override ito ng .qa-dock-synced sa itaas, dahil pareho lang sila ng
-   specificity at ang huling nadedeklara ang mananalo kung magkapareho. */
+
 #quick-access-dock.qa-dock-collapsed,
 #quick-access-dock.qa-dock-collapsed.qa-dock-synced {
     left: 50%;
@@ -2247,10 +2216,7 @@ body.dark-mode #quick-access-dock {
         transition: none !important;
         transform: none !important;
     }
-    /* Motion-sensitive users: never auto-shrink the dock, even if the
-       collapsed class ends up applied; keep it fully visible and static.
-       The container itself stays transparent — only its size/visibility
-       behavior is being forced here, not its background. */
+    
     #quick-access-dock,
     #quick-access-dock.qa-dock-collapsed {
         transition: none !important;
@@ -2261,14 +2227,7 @@ body.dark-mode #quick-access-dock {
         background: transparent !important;
         border-color: transparent !important;
         box-shadow: none !important;
-        /* Bug fix: dating naka-hardcode ang collapsed width sa 96px (yung
-           bagong "display line lang" na hit-area para sa hover), pero hindi
-           kasama dati ang reset na ito dito — kaya kahit "laging bukas at
-           buo" na dapat ang dock para sa prefers-reduced-motion users
-           (walang shrink), na-clip pa rin ito pababa sa 96px lapad
-           (overflow hidden pa rin ang natitira mula sa .qa-dock-collapsed),
-           kaya karamihan sa mga icon ay hindi makikita/maii-click. I-reset
-           dito pabalik sa buong synced width. */
+        
         width: var(--qa-dock-width, max-content) !important;
         max-width: var(--qa-dock-width, 680px) !important;
     }
@@ -2587,7 +2546,7 @@ body.cart-pane-resizing-cursor {
 .btn-held-sales.has-held-sales {
     background-color: rgba(6, 182, 212, 0.28);
 }
-/* Held count badge: inline pill on desktop (dimmed at 0), corner badge on icon-only mobile buttons */
+
 .held-sales-count {
     background-color: #06b6d4;
     color: #ffffff;
@@ -3105,12 +3064,7 @@ body.dark-mode .terminal-top-controls {
         flex-direction: row;
         align-items: center;
         flex-wrap: nowrap;
-        /* BUG FIX: dati ay hardcoded na madilim na gradient
-           (#111827 -> #0d1420) at #2d3748 na border ang card na ito,
-           kaya hindi sumusunod sa Day Mode at sa mga Pro Theme sa
-           desktop. Ngayon: light (Day) bilang default, at theme
-           variables (--dm-*) sa ilalim ng body.dark-mode (tingnan ang
-           mga rule sa ibaba ng block na ito). */
+        
         background: #ffffff;
         border: 1px solid var(--border-color);
         border-radius: 12px;
@@ -3171,7 +3125,7 @@ body.dark-mode .terminal-top-controls {
         white-space: nowrap;
     }
 
-    /* ---- Day Mode: light na itsura ng mga control sa row ---- */
+    
     .tx-search-card .file-upload-btn {
         background-color: #f8fafc;
         border-color: #cbd5e1;
@@ -3182,9 +3136,7 @@ body.dark-mode .terminal-top-controls {
         border-color: #3b82f6;
     }
 
-    /* ---- Dark / Pro Themes: sumusunod sa --dm-* variables ng
-       aktibong theme (Ocean, Emerald, Sunset, Rosegold, Cyber, Noir,
-       Mint Frost, Liquid Glass, Galaxy Ambient, atbp.) ---- */
+    
     body.dark-mode .tx-search-card {
         background: var(--dm-surface);
         border: var(--dm-border-width, 1px) solid var(--dm-border);
@@ -3421,7 +3373,7 @@ body.dark-mode .search-box-container input::placeholder {
 .t-prod-preview-btn:active {
     background: rgba(15, 23, 42, 0.85);
 }
-/* Habang pinipindot ang eye icon / larawan (list view), hindi gumagalaw o lumiliit ang card — para tama ang tinatamaan ng click. */
+
 .t-product-card.preview-pressing,
 .t-product-card.preview-pressing:active {
     transform: none !important;
@@ -4730,12 +4682,7 @@ body.dark-mode .reorder-sticky-header {
         padding-top: 11px;
     }
 }
-/* Mobile/tablet: ang page title ay nasa top header na (itinatago ng
-   updateResponsivePageTitle() ang h2), kaya ang naiwang walang laman na
-   header row + padding ng content-body ay nag-iiwan ng patay na espasyo
-   sa ibabaw ng 3 action button. Alisin ang walang-lamang row at hilahin
-   pataas ang sticky header para dumikit ang mga button sa ilalim ng top
-   header. (Pareho ang breakpoint sa isMobileOrTabletScreen() sa app.js.) */
+
 @media screen and (max-width: 1024px) {
     #view-reorder .reorder-header-row {
         display: none;
@@ -4744,27 +4691,16 @@ body.dark-mode .reorder-sticky-header {
         margin-top: -30px;
     }
 }
-/* Mobile/tablet: parehong ayos sa Reorder, para sa iba pang page na
-   itinatago rin ang sarili nilang title (nasa top header na) at may
-   30px na patay na espasyo (content-body padding-top) sa ibabaw ng
-   unang laman. Hinihila pataas ang unang nakikitang bahagi (button
-   toolbar / search card) para dumikit ito sa ilalim ng top header
-   (may 8px na hangin na lang), at ang table-container na flex:1 ay
-   kusang lumalaki sa nabakanteng espasyo. Ang ilalim ng page ay hindi
-   gumagalaw. Pareho ang breakpoint sa isMobileOrTabletScreen() sa
-   app.js; walang pagbabago sa desktop (>1024px). */
+
 @media screen and (max-width: 1024px) {
-    /* Transactions: ang title row ay may laman lang na title (nakatago na)
-       at ang Void/Refund shortcut (nakatago rin sa mobile/tablet), kaya
-       alisin ang row at hilahin ang search card. */
+    
     #view-transactions .transactions-page-title-row {
         display: none;
     }
     #view-transactions.app-view:not(.terminal-theme) > .tx-search-card {
         margin-top: -22px;
     }
-    /* Products, Batch/Lot, Barcode, Customers, Debtors, Void/Refund:
-       ang header row ay hawak ang action buttons (nakatago ang title). */
+    
     #view-products.app-view:not(.terminal-theme) > .view-header-row,
     #view-batchlots.app-view:not(.terminal-theme) > .view-header-row,
     #view-barcode.app-view:not(.terminal-theme) > .view-header-row,
@@ -4773,19 +4709,12 @@ body.dark-mode .reorder-sticky-header {
     #view-stock_return_inspection.app-view:not(.terminal-theme) > .view-header-row {
         margin-top: -22px;
     }
-    /* System Audit Logs: nakatago ang title, ang toolbar na ang una. */
+    
     #view-logs.app-view:not(.terminal-theme) > .terminal-top-controls {
         margin-top: -22px;
     }
 }
-/* Mobile/tablet: parehong 8px na hangin sa ilalim ng top header para sa
-   mga page na nag-i-scroll (hindi naka-lock ang taas). Dahil iba-iba ang
-   unang nakikitang bahagi nila (cards, hero, tabs, teksto) at puwedeng
-   magbago depende sa estado (hal. Shift report), ang buong page ang
-   hinihila pataas at hindi ang isang child, para walang mag-overlap.
-   30px ang dating puwang (content-body padding-top); ang hero cards ay
-   may -4px na margin na kaya 26px lang ang dating puwang nila.
-   Walang pagbabago sa desktop (>1024px). */
+
 @media screen and (max-width: 1024px) {
     #view-dashboard.app-view:not(.terminal-theme),
     #view-shiftreport.app-view:not(.terminal-theme),
@@ -4793,12 +4722,11 @@ body.dark-mode .reorder-sticky-header {
     #view-users.app-view:not(.terminal-theme) {
         margin-top: -22px;
     }
-    /* Omni Tokens: ang unang nakikita ay ang teksto sa ilalim ng nakatagong
-       title row (18px bottom margin, -10px sa susunod na teksto). */
+    
     #view-cloudtokens.app-view:not(.terminal-theme) {
         margin-top: -30px;
     }
-    /* Overview, Reports, Branches, Attendance, Remote Ops: hero card ang una. */
+    
     #view-overview.app-view:not(.terminal-theme),
     #view-reports.app-view:not(.terminal-theme),
     #view-branches.app-view:not(.terminal-theme),
@@ -4807,18 +4735,13 @@ body.dark-mode .reorder-sticky-header {
         margin-top: -18px;
     }
 }
-/* Void / Refund sa maliit na phone: may maikling teksto (4px margin) sa
-   ilalim ng nakatagong title, kaya dagdagan ng 4px ang paghila para
-   8px din ang hangin ng teksto. */
+
 @media screen and (max-width: 600px) {
     #view-stock_return_inspection.app-view:not(.terminal-theme) > .view-header-row {
         margin-top: -26px;
     }
 }
-/* Barcode Generator: ang "Settings" button katabi ng Print ay icon-only
-   sa maliit na phone para manatili sa isang row ang Print, Settings at
-   ang price-level dropdown (hindi bumabalot sa ikalawang row). Sa mas
-   malapad na screen, kita ang salitang "Settings". */
+
 @media screen and (max-width: 600px) {
     .barcode-page-settings-btn {
         padding-left: 14px;
@@ -4876,18 +4799,7 @@ body.dark-mode .btn-action-outline:hover {
     }
 }
 @media screen and (max-width: 1024px) {
-    /* Icon-only compact toolbar for the whole mobile/tablet range (was
-       max-width:640px only). Below 1024px the bottom-nav dock is shown
-       and #view-products locks its height to
-       calc(100vh - 69px - 70px). Between 641px-1024px this toolbar used
-       to render full text labels, which wrapped onto 2-4 rows depending
-       on the exact width — that extra, unpredictable height didn't fit
-       inside the fixed-height flex column, so it pushed the table out
-       past the viewport and behind/over the fixed bottom-nav whenever
-       the width was resized within that range. Forcing icon-only +
-       nowrap across the full mobile range keeps this toolbar a single
-       fixed-height row at any width, so the fixed height calc always
-       holds and the dock/table never gets cut off again. */
+    
     #view-products .header-action-group {
         flex-wrap: nowrap;
         justify-content: space-between;
@@ -5077,7 +4989,7 @@ body.dark-mode .table-container::-webkit-scrollbar-track {
     #view-products .inv-thumb,
     #view-products .inv-thumb-fallback { width: 32px; height: 32px; }
 }
-/* Products table: Edit + Delete buttons always sit side by side (horizontal) on every row. */
+
 #view-products .data-table td .action-icon-btns-row {
     display: flex;
     flex-direction: row;
@@ -5187,12 +5099,7 @@ body.dark-mode .matrix-perm-badge.full-access { background: rgba(148, 163, 184, 
     line-height: 1.35;
     font-size: 0.88rem;
 }
-/* Ang pag-clamp (2 lines + "Read more") ay dapat lang mag-apply sa mga row na
-   talagang may readmore button (.matrix-label-clamped, idinadagdag ng JS kapag
-   mahaba ang label). Kung wala nitong class, laging buo ang text — para walang
-   ma-puputol na label na walang paraan i-expand (hal. sa makitid na mobile view).
-   Ang buong clamp/read-more behavior ay MOBILE-ONLY (max-width:480px) — sa
-   desktop/tablet laging buo agad ang label, walang clamp at walang button. */
+
 .matrix-label-readmore {
     display: none;
     margin-top: 2px;
@@ -5244,9 +5151,7 @@ body.dark-mode .matrix-perm-badge.full-access { background: rgba(148, 163, 184, 
 }
 .matrix-col-reorder-btn:hover:not(:disabled) { color: var(--primary-blue); }
 .matrix-col-reorder-btn:disabled { cursor: default; opacity: 0.25; }
-/* Ang "Show/Hide Description" toggle ay para lang sa mobile — sa desktop/tablet
-   laging bukas ang helper paragraph (walang toggle button, hindi namin ito
-   itinatago), dahil sapat naman ang vertical space doon. */
+
 .rbac-mobile-only-btn { display: none; }
 @media screen and (max-width: 480px) {
     .rbac-mobile-only-btn { display: flex; }
@@ -5609,7 +5514,7 @@ body.dark-mode .avatar-photo-box {
     from { transform: translateY(15px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
-/* Product details: walang entrance animation at walang transform/opacity — iwas kisap (blink) ng buong modal. */
+
 #product-details-modal .modal-card {
     animation: none;
 }
@@ -5673,13 +5578,7 @@ body.dark-mode .avatar-photo-box {
 .input-field-group textarea {
     resize: vertical;
 }
-/* Theme-aware highlighted callout for optional "calculate for me" style fields
-   (e.g. the Net Profit/VAT-Exclusive helper on the product form). Uses the same
-   --dm-accent/--dm-accent-soft variables the rest of the theme system already
-   reads from — this box is meant to visibly "pop" out from the rest of the form,
-   and since it's driven entirely by these variables (never hardcoded hex), it
-   will automatically match Day Mode, Dark Mode, and any Pro/custom accent theme,
-   including themes added later, without needing another code change here. */
+
 .theme-callout-box {
     background-color: var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
     border: 1px dashed var(--dm-accent, #7c5cff);
@@ -5687,9 +5586,7 @@ body.dark-mode .avatar-photo-box {
     padding: 10px 12px;
     box-shadow: 0 0 0 1px var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
 }
-/* Note: the label/input inside inherit their color from the normal
-   .input-field-group / body.dark-mode rules above/below — those already flip
-   correctly between light and dark text, so we don't re-declare color here. */
+
 .theme-callout-box-subtext {
     font-weight: normal;
     color: var(--text-muted, #64748b);
@@ -6395,9 +6292,7 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
 .r-item-line { display: flex; justify-content: space-between; }
 .r-item-block { display: flex; flex-direction: column; gap: var(--receipt-item-detail-gap, 0px); }
 .r-item-detail-line { display: flex; gap: 6px; font-size: 0.8rem; color: #64748b; padding-left: 2px; }
-/* Base-unit breakdown (e.g. "= 25 kilo × ₱25.00") shown under a bulk/UOM sale line
-   (Wholesale/Reseller/any price level using a bigger selling unit than the base unit),
-   so the buyer can verify the math on the receipt. */
+
 .r-item-baseunit-line { font-size: 0.72rem; font-style: italic; color: #94a3b8; padding-left: 6px; }
 .receipt-item-counter-block {
     font-size: 0.85rem;
@@ -6682,11 +6577,7 @@ body.dark-mode .modern-toggle-slider { background-color: #475569; }
         max-height: none !important;
         margin-bottom: 18px !important;
     }
-    /* Product page: pull the header row, icon toolbar and search box
-       tight together so the wasted vertical space goes to the table
-       instead. The table is already flex:1 (auto-height, fills whatever
-       is left), so shrinking the stuff above it is what actually grows
-       it. Bottom gap above the bottom-nav dock is trimmed to 5px. */
+    
     #view-products.app-view:not(.terminal-theme) {
         gap: 6px;
     }
@@ -6943,7 +6834,7 @@ body.dark-mode .bottom-nav-item:active {
         justify-content: center;
         gap: 0;
     }
-    /* Order title: icon-only 40x40 tile with the item count as a corner badge (same size as its sibling buttons) */
+    
     .cart-header .cart-title {
         position: relative;
         display: inline-flex;
@@ -9010,7 +8901,7 @@ body.dark-mode .faq-category summary, .dark .faq-category summary { color: var(-
 .faq-mode-option.active { color: #fff; }
 .faq-mode-locked-option { opacity: 1; color: #334155; font-weight: 700; cursor: pointer; }
 .faq-mode-locked-option:hover { color: var(--primary-blue-hover, #1d4ed8); }
-/* Estado ng OmniAI toggle habang hindi pa ready (day mode): spinner = kumokonekta, amber = offline/hindi maabot ang relay, lock = naka-OFF ayon sa relay. */
+
 .faq-mode-toggle-checking .faq-mode-pending-option i { color: var(--primary-blue, #2563eb); }
 .faq-mode-toggle-offline .faq-mode-pending-option i { color: #b45309; }
 .faq-mode-toggle-locked .faq-mode-pending-option:focus-visible { outline: 2px solid var(--primary-blue, #2563eb); outline-offset: 1px; }
@@ -9020,8 +8911,7 @@ body.dark-mode .faq-mode-toggle, .dark .faq-mode-toggle {
 }
 body.dark-mode .faq-mode-option, .dark .faq-mode-option { color: var(--dm-text-secondary, #9a9ba8); }
 body.dark-mode .faq-mode-option.active, .dark .faq-mode-option.active { color: #fff; }
-/* Dark mode at LAHAT ng pro themes (ocean, emerald, sunset, rosegold, cyber, noir, mintfrost, liquidglass, galaxyambient + custom accent):
-   gumagamit ng --dm-* variables ng bawat theme para laging nababasa ang pending/locked na OmniAI option sa madilim na track. */
+
 body.dark-mode .faq-mode-locked-option, .dark .faq-mode-locked-option { color: var(--dm-text-primary, #f5f5f7); opacity: 1; }
 body.dark-mode .faq-mode-locked-option:hover, .dark .faq-mode-locked-option:hover { color: var(--dm-accent, #7c5cff); }
 body.dark-mode .faq-mode-toggle-locked .faq-mode-slider, .dark .faq-mode-toggle-locked .faq-mode-slider { background: linear-gradient(135deg, #64748b, #475569); box-shadow: none; }
@@ -9163,16 +9053,16 @@ body.dark-mode .faq-subscription-compact, .dark .faq-subscription-compact {
 }
 
 .faq-ai-box { max-width: 800px; }
-/* Nasa ITAAS na ng composer (hindi na sa ilalim) para ang input box ang laging pinakababa. Compact: max 2 linya + dismiss. */
+
 #faq-ai-upsell { display: flex; align-items: center; gap: 6px; margin: 0 0 5px; padding: 0 4px; font-size: 0.72rem; line-height: 1.3; opacity: 1; }
 #faq-ai-upsell a { flex: 1 1 auto; min-width: 0; }
 #faq-ai-upsell #faq-ai-upsell-text { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .faq-ai-upsell-close { flex: none; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; }
 .faq-ai-upsell-close:hover, .faq-ai-upsell-close:active { opacity: 1; background: rgba(100,116,139,0.18); }
-/* Day mode: madilim na asul para malinaw sa puti/cream na background (dating --primary-blue lang, na lumalabo). */
+
 #faq-ai-upsell a { display: inline-flex; align-items: center; gap: 6px; color: #1d4ed8; text-decoration: none; font-weight: 600; }
 #faq-ai-upsell a:hover { text-decoration: underline; }
-/* Dark mode at lahat ng pro themes: sumusunod sa accent ng theme, hinahaluan ng puti para siguradong mababasa sa madilim na surface. */
+
 body.dark-mode #faq-ai-upsell a, .dark #faq-ai-upsell a { color: var(--dm-accent, #a78bfa); color: color-mix(in srgb, var(--dm-accent, #a78bfa) 65%, #ffffff); }
 
 .faq-quick-actions {
@@ -9197,9 +9087,7 @@ body.dark-mode #faq-ai-upsell a, .dark #faq-ai-upsell a { color: var(--dm-accent
 }
 .faq-suggested-action-btn:hover { background: #16a34a; color: #fff; }
 
-/* ---- Attachments (Claude-style) ----
-   Composer tray: nasa loob ng textbox, sa itaas ng text; nag-i-slide (horizontal scroll) kapag marami.
-   Ipinadalang mensahe: nasa itaas ng bubble ang mga attachment, ang text ay nasa ilalim. ---- */
+
 .faq-att-tray {
   display: none; align-items: stretch; gap: 8px;
   overflow-x: auto; overflow-y: hidden;
@@ -9246,7 +9134,7 @@ body.dark-mode .faq-att-item, .dark .faq-att-item {
 }
 body.dark-mode .faq-att-file-type, .dark .faq-att-file-type { color: var(--dm-text-secondary, #9a9ba8); border-color: var(--dm-border, rgba(255,255,255,0.18)); }
 
-/* Mensahe ng user: attachment strip sa itaas, bubble (text) sa ilalim */
+
 .faq-chat-user { flex-direction: column; align-items: flex-end; justify-content: flex-start; gap: 6px; }
 .faq-chat-attachments {
   display: flex; gap: 8px; align-self: stretch; width: 100%; box-sizing: border-box;
@@ -9255,9 +9143,9 @@ body.dark-mode .faq-att-file-type, .dark .faq-att-file-type { color: var(--dm-te
 }
 .faq-chat-attachments::-webkit-scrollbar { display: none; }
 .faq-chat-attachments > .faq-att-item { scroll-snap-align: end; }
-.faq-chat-attachments > .faq-att-item:first-child { margin-left: auto; } /* nakahanay sa kanan, pero nag-i-scroll pa rin kapag umapaw */
+.faq-chat-attachments > .faq-att-item:first-child { margin-left: auto; } 
 
-/* Fullscreen preview */
+
 .faq-att-preview { position: fixed; inset: 0; z-index: 100001; }
 .faq-att-preview-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.88); }
 .faq-att-preview-panel { position: absolute; inset: 0; display: flex; flex-direction: column; pointer-events: none; color: #fff; }
@@ -9306,7 +9194,7 @@ body.dark-mode .faq-att-file-type, .dark .faq-att-file-type { color: var(--dm-te
 .faq-att-prev { left: 8px; }
 .faq-att-next { right: 8px; }
 
-/* Composer (Claude-style): expanding textarea on top, buttons in a row below. */
+
 .faq-composer {
   position: relative;
   display: flex; flex-direction: column; align-items: stretch; gap: 4px;
@@ -9322,7 +9210,7 @@ body.dark-mode .faq-att-file-type, .dark .faq-att-file-type { color: var(--dm-te
   border-color: var(--primary-blue, #2563eb);
   box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
 }
-/* static para ang suggestion dropdown ay sumunod sa buong composer (hindi lang sa textarea) */
+
 .faq-composer-input-wrap { position: static; min-width: 0; width: 100%; }
 .faq-composer-input-wrap #faq-ai-input {
   display: block; width: 100%; box-sizing: border-box; margin: 0;
@@ -9339,9 +9227,7 @@ body.dark-mode .faq-att-file-type, .dark .faq-att-file-type { color: var(--dm-te
 .faq-composer-actions-left, .faq-composer-actions-right { display: flex; align-items: center; gap: 6px; }
 .faq-composer-actions-right { margin-left: auto; }
 
-/* ---- Voice dictation (Claude-style): habang nakikinig, ISANG hilera lang:
-   [X cancel] [horizontal waveform] [stop] [send]. Pagtigil, bumabalik ang input
-   at lumilitaw ang na-record na text. ---- */
+
 @property --amp { syntax: '<number>'; inherits: true; initial-value: 0.25; }
 .faq-composer .faq-voice-cancel { display: none; }
 .faq-voice-wave {
@@ -9364,7 +9250,7 @@ body.dark-mode .faq-voice-wave, .dark .faq-voice-wave { color: var(--dm-text-pri
 .faq-composer.is-dictating #faq-attach-btn { display: none !important; }
 .faq-composer.is-dictating .faq-voice-cancel { display: flex; }
 .faq-composer.is-dictating .faq-voice-wave { display: flex; animation: faqVoiceWaveIn 0.22s ease-out; }
-/* mic button = STOP (parisukat) habang nakikinig */
+
 .faq-composer.is-dictating .faq-voice-btn.is-listening {
   background: rgba(100,116,139,0.16); color: var(--text-primary, #1e293b); border-color: transparent;
 }
@@ -9465,14 +9351,7 @@ body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar,
   overflow-y: auto;
 }
 
-/* BAGO: floating "scroll to bottom" arrow — lumalabas kapag na-scroll
-   pataas ang user papalayo sa pinaka-ilalim ng usapan (hal. binabalikan
-   ang lumang/pinakaunang bahagi ng conversation), para malinaw na may
-   paraan siyang bumalik agad sa pinaka-bagong mensahe/sagot ng AI.
-   Naka-position ito nang absolute sa loob ng .faq-ai-result-box (hindi
-   bahagi ng .faq-chat-thread mismo) kaya hindi ito naaanod palabas ng
-   view kasabay ng pag-scroll ng mga bubble, at lumulutang ito sa
-   ibabaw ng thread, katabi lang ng itaas ng composer. */
+
 .faq-scroll-bottom-btn {
   position: absolute;
   left: 50%;
@@ -9627,11 +9506,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer-dock,
   }
 }
 
-/* ------------------------------------------------------------------
-   Omni AI > Support tickets list (Admin). Colors come from the active
-   theme: light mode uses the base variables, dark mode and every Pro
-   theme use the --dm-* variables that each theme file redefines.
-   ------------------------------------------------------------------ */
+
 .faq-tk-wrap { text-align: left; font-size: 0.85rem; max-height: 60vh; overflow-y: auto; }
 .faq-tk-banner {
   padding: 8px 10px; border-radius: 8px; margin-bottom: 4px;
@@ -11844,7 +11719,7 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
 .ct-card-body {
     padding: 18px;
 }
-/* Refresh button sa header ng Cloud Backup Token Wallet (tumatawag sa RELAY) */
+
 .ct-last-refreshed {
     margin-left: auto;
     font-size: 0.72rem;
@@ -11952,10 +11827,7 @@ body.dark-mode .ct-last-refreshed { color: var(--dm-text-secondary, #9a9ba8); }
     margin-bottom: 16px;
     font-size: 0.82rem;
 }
-/* Monthly/Yearly tabs para sa "Current Plan" breakdown boxes. Default:
-   hidden — sa desktop walang tabs at walang filter (parehong nasa loob ng
-   max-width:768px media query sa ibaba), kaya pareho pa rin lalabas ang
-   dalawang box (Monthly at Yearly) tulad ng dati kapag may active plan. */
+
 .ct-estimate-tabs {
     display: none;
 }
@@ -11969,10 +11841,7 @@ body.dark-mode .ct-last-refreshed { color: var(--dm-text-secondary, #9a9ba8); }
         flex: 1;
         text-align: center;
     }
-    /* !important dahil ang aktwal na pagpapakita/pagtatago ng bawat box ay
-       kontrolado ng JS sa pamamagitan ng inline style.display (depende kung
-       may data), kaya kailangang i-override nito ang inline style tuwing
-       hindi tugma ang box sa kasalukuyang piniling tab. */
+    
     #ct-estimate-group[data-active-cycle="monthly"] [data-cycle="yearly"],
     #ct-estimate-group[data-active-cycle="yearly"] [data-cycle="monthly"] {
         display: none !important;
@@ -12051,11 +11920,7 @@ body.dark-mode .ct-last-refreshed { color: var(--dm-text-secondary, #9a9ba8); }
     gap: 14px;
     margin-bottom: 20px;
 }
-/* Basic/Standard/Pro tabs para sa Omni Token "Starter Bundle" cards.
-   Default: hidden — sa desktop, hindi ito lumalabas at hindi rin gumagana
-   ang [data-active-tier] filter sa ibaba dahil laman ito ng parehong
-   max-width:768px media query, kaya eksaktong pareho pa rin ang
-   makikita sa desktop gaya ng dati (lahat ng 3 bundle card, magkatabi). */
+
 .ct-package-tabs {
     display: none;
 }
@@ -12069,12 +11934,7 @@ body.dark-mode .ct-last-refreshed { color: var(--dm-text-secondary, #9a9ba8); }
         flex: 1;
         text-align: center;
     }
-    /* Itago ang bundle card na hindi tugma sa kasalukuyang napiling tab
-       (data-tier ng card vs. data-active-tier ng grid container). Ito lang
-       ang gumagawa ng aktwal na pag-iisang-card-lang sa mobile, kaya
-       maiksi na ang pag-scroll — hindi na kailangang mag-JS ng show/hide,
-       ang setOmniTokenPackageTab() sa app.js ay nagse-set lang ng
-       data-active-tier attribute at ang CSS na ito ang bahalang mag-toggle. */
+    
     #ct-packages-grid[data-active-tier="basic"] .ct-package-option:not([data-tier="basic"]),
     #ct-packages-grid[data-active-tier="standard"] .ct-package-option:not([data-tier="standard"]),
     #ct-packages-grid[data-active-tier="pro"] .ct-package-option:not([data-tier="pro"]) {
@@ -12915,7 +12775,7 @@ body.dark-mode .ct-package-breakdown {
     }
 }
 
-/* Receipt Credit quantity input: explicitly interactive across desktop/mobile themes. */
+
 .receipt-credit-unlock-modal .rc-credit-qty-input,
 .receipt-credit-unlock-modal .rc-credit-qty-input:focus {
     pointer-events: auto !important;
@@ -12931,9 +12791,7 @@ body.dark-mode .ct-package-breakdown {
     pointer-events: auto !important;
 }
 
-/* Receipt Credit unlock buttons: keep the requested semantic order in every theme.
-   Some dark/pro theme rules style .swal2-confirm/.swal2-deny with !important,
-   so scope these overrides to this modal only. */
+
 .receipt-credit-unlock-modal .swal2-confirm {
     background-color: #ef4444 !important;
     color: #ffffff !important;
@@ -12949,9 +12807,7 @@ body.dark-mode .ct-package-breakdown {
     background-color: #1d4ed8 !important;
 }
 
-/* PayMongo/QR Ph dialogs and the live QR section must remain readable in every
-   OmniPOS theme.  The existing payment markup contains light inline colors,
-   therefore these scoped !important rules intentionally override those values. */
+
 body:not(.terminal-modal-daymode) #payment-modal #pay-ewallet-qr-block {
     background-color: var(--dm-surface-alt) !important;
     border-color: var(--dm-border) !important;
@@ -13079,7 +12935,7 @@ body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-status {
     color: #64748b !important;
 }
 
-/* ===== Promo Codes Manager (advanced UI) ===== */
+
 .promo-manager-list {
     max-height: 380px;
     overflow-y: auto;
@@ -13208,14 +13064,8 @@ body.terminal-modal-daymode .paymongo-qr-modal .paymongo-qr-status {
     margin-top: 2px;
 }
 
-/* ===== Promo Codes Manager — dark mode support ===== */
-/* AYOS/BUGFIX: gumamit dati ng hardcoded light colors (#fff background,
-   light-only text colors) ang .promo-card at kasamang elements, kaya
-   nananatiling puti ito kahit naka-Dark Mode/ibang theme ang buong app.
-   Sinusunod dito ang parehong pattern gaya ng .swal2-popup sa itaas —
-   gamit ang --dm-* variables (na iba-iba per active theme) sa ilalim ng
-   body.dark-mode, para automatic na sumusunod ito sa kung anong theme
-   (default dark, ocean, emerald, sunset, atbp.) ang pinili ng user. */
+
+
 body.dark-mode .promo-card {
     background: var(--dm-surface) !important;
     border-color: var(--dm-border) !important;
@@ -13259,11 +13109,7 @@ body.dark-mode .promo-manager-list p {
     color: var(--dm-text-muted) !important;
 }
 
-/* =========================================================
-   Shift / Z-Reading Report — compact "advanced" card layout
-   Scoped to #view-shiftreport only; does not affect other
-   pages that reuse .metric-card / .report-container.
-   ========================================================= */
+
 #view-shiftreport .shift-metrics-grid {
     grid-template-columns: repeat(4, 1fr);
     gap: 14px;
@@ -13425,7 +13271,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
 }
 
-/* ---- Shift Report: Payment Breakdown + Close Shift side-by-side ---- */
+
 #view-shiftreport .shift-columns-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -13459,8 +13305,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
 }
 
-/* ---- Shift History: auto-fit height instead of stretching to fill
-   the viewport (was creating a large empty area on mobile) ---- */
+
 @media screen and (max-width: 1024px) {
     #view-shiftreport.app-view:not(.terminal-theme) {
         min-height: 0 !important;
@@ -13479,11 +13324,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
 }
 
-/* =========================================================
-   Dashboard / Sales Analytics / Overview — compact "advanced"
-   metric-card grids (same treatment as Shift Report).
-   Scoped so other pages using .metric-card are unaffected.
-   ========================================================= */
+
 .dashboard-metrics-grid,
 .reports-metrics-grid {
     grid-template-columns: repeat(4, 1fr);
@@ -13565,8 +13406,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     .overview-stats-grid .metric-card h3 {
         font-size: 1.02rem;
     }
-    /* Overview has 3 cards — let the first one (Top Seller) span the
-       full row; the other two then pair up on the row below. */
+    
     .overview-stats-grid .metric-card:first-child {
         grid-column: 1 / -1;
     }
@@ -13593,12 +13433,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
 }
 
-/* =========================================================
-   Overview page — compress vertical rhythm on mobile.
-   Scoped to #view-overview / #ov-* ids only, so the shared
-   .overview-trend-card / .adv-chart-* classes used elsewhere
-   (e.g. Sales Analytics) are not affected.
-   ========================================================= */
+
 @media screen and (max-width: 768px) {
     #view-overview .overview-greeting-row {
         padding: 14px 16px;
@@ -13620,9 +13455,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
     #view-overview .overview-trend-card {
         padding: 14px 16px;
-        margin-bottom: 16px !important; /* overrides the inline
-                                            margin-top:15px on the
-                                            second trend card */
+        margin-bottom: 16px !important; 
     }
     #view-overview .overview-trend-header h3 {
         font-size: 0.92rem;
@@ -13646,8 +13479,7 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
         gap: 8px;
     }
     #view-overview #overview-top-products-list {
-        line-height: 1.6 !important; /* overrides the inline
-                                         line-height:2 in the HTML */
+        line-height: 1.6 !important; 
         margin-top: 8px !important;
     }
 }
@@ -13667,15 +13499,10 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
 }
 
-/* =========================================================
-   Sales Analytics page — compress vertical rhythm on mobile,
-   same treatment as Overview. Scoped to #view-reports / #sa-*
-   ids so the shared .overview-trend-card / .adv-chart-* /
-   .analytics-panel classes used elsewhere are not affected.
-   ========================================================= */
+
 @media screen and (max-width: 768px) {
     #view-reports .view-header-row {
-        margin-bottom: 14px !important; /* overrides inline margin-bottom:18px */
+        margin-bottom: 14px !important; 
     }
     #view-reports .reports-metrics-grid {
         margin-bottom: 14px;
@@ -13733,20 +13560,14 @@ body.dark-mode #view-shiftreport #shift-payment-breakdown-list .pmb-method i {
     }
 }
 
-/* =========================================================
-   Bulk Search Images modal — proper visual hierarchy.
-   These classes previously had no CSS at all and fell back
-   to raw browser defaults (oversized, unstructured text).
-   ========================================================= */
+
 .bulk-imgsearch-modal-card {
     color-scheme: light;
 }
 body.dark-mode .bulk-imgsearch-modal-card {
     color-scheme: dark;
 }
-/* Make the whole card scroll as one region instead of the two
-   .modal-body blocks each fighting for their own flex:1 share
-   (that split is what produced the cramped, disorganized layout). */
+
 .bulk-imgsearch-modal-card {
     max-height: 85vh;
     overflow-y: auto;
@@ -13927,8 +13748,7 @@ body.dark-mode .bulk-imgsearch-section-title {
     margin: 0 0 14px;
 }
 
-/* Collapse the "Apply Selected Photos" footer to nothing while its
-   button is hidden, instead of showing an empty gray divider bar. */
+
 .bulk-imgsearch-modal-card .modal-footer {
     padding: 0;
     border-top: none;
@@ -13957,11 +13777,7 @@ body.dark-mode .bulk-imgsearch-modal-card .modal-footer:has(button:not([style*="
     }
 }
 
-/* =========================================================
-   Workforce operations center
-   Scoped to Staff Attendance and Remote Operations so the
-   responsive treatment does not alter the rest of the POS.
-   ========================================================= */
+
 .operations-view {
     --ops-ink: #10213d;
     --ops-muted: #64748b;
@@ -14353,11 +14169,9 @@ body.dark-mode .bulk-imgsearch-modal-card .modal-footer:has(button:not([style*="
     box-shadow: 0 5px 16px rgba(30, 64, 175, 0.12);
 }
 .attendance-preview-frame img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 11px; }
-/* Mirrored so it feels like a normal selfie/mirror view while framing the shot; the captured photo
-   itself is saved unmirrored (see captureAttendanceSelfieFromCamera in app.js). */
+
 .attendance-preview-frame video { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 11px; transform: scaleX(-1); background: #0f172a; }
-/* The 112px box below is a fine size for reviewing a already-taken thumbnail, but too small to
-   frame a live shot in — enlarge it only while the camera is actively streaming. */
+
 #attendance-selfie-preview-wrap.attendance-camera-live .attendance-preview-frame { width: 220px; height: 220px; }
 @media (max-width: 480px) {
     #attendance-selfie-preview-wrap.attendance-camera-live .attendance-preview-frame { width: 180px; height: 180px; }
@@ -14738,7 +14552,7 @@ body.dark-mode .remoteops-error-card,
     .attendance-action { transition: none; }
 }
 
-/* === Remote Operations / Staff Attendance polish (2026-09-21) === */
+
 .sidebar-pro-badge { margin-left: auto; }
 .remoteops-report-filter {
     display: flex;
@@ -14799,11 +14613,7 @@ body.dark-mode .remoteops-tag-warn { color: #fcd34d; background: rgba(245, 158, 
     .attendance-evidence-btn { width: 34px; height: 34px; }
 }
 
-/* === Remote Operations / Staff Attendance — follow ALL themes (2026-09-21) ===
-   The two pages are built on the --ops-* variables. Day mode keeps its own palette (but honours a custom
-   accent colour); every dark theme (Dark, Ocean, Emerald, Sunset, Rose Gold, Cyber, Coffee Noir, Mint Frost,
-   Liquid Glass, Galaxy Ambient) feeds them from that theme's --dm-* palette instead of a fixed slate/blue.
-   (Day mode is untouched: --ops-blue stays the original blue there.) */
+
 .operations-view .operations-panel-icon,
 .operations-view .remoteops-row-icon,
 .operations-view .attendance-status-idle .attendance-status-icon { background: color-mix(in srgb, var(--ops-blue) 12%, transparent); }
@@ -14890,13 +14700,10 @@ body.dark-mode .operations-view .attendance-evidence-btn { color: var(--ops-mute
 body.dark-mode .operations-view .remoteops-metric-card .metric-icon { color: var(--ops-blue); background: color-mix(in srgb, var(--ops-blue) 18%, transparent); }
 body.dark-mode .operations-view .remoteops-metric-card .metric-icon.neutral { color: var(--ops-muted); background: var(--ops-surface-soft); }
 body.dark-mode .operations-view .remoteops-report-filter input[type="date"] { color-scheme: dark; }
-/* Liquid Glass gives .btn-action-global a see-through background; keep the page's main buttons solid. */
+
 body[data-theme="liquidglass"] .operations-view .btn-action-global { background-color: var(--dm-accent); color: #fff; }
 
-/* === Branches page — Remote Operations design language (2026-09-21) ===
-   The page uses .operations-view, so every colour comes from the --ops-* variables
-   (which already follow Day mode, Dark mode and every Pro theme). Nothing here
-   hardcodes a theme colour except the amber/red/green status hues. */
+
 .branches-hero-actions { flex-wrap: wrap; justify-content: flex-end; }
 .branches-hero .operations-hero-copy { flex: 1 1 320px; }
 .branches-hero .operations-hero p { max-width: 520px; }
@@ -14909,7 +14716,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
 .branches-section-grid { align-items: start; }
 .branches-panel-trend .branches-trend-svg { display: block; width: 100%; height: 150px; }
 
-/* Toolbar */
+
 .branches-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; margin-bottom: 14px; }
 .branches-search { position: relative; display: block; min-width: 0; margin: 0; }
 .branches-search i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ops-muted); font-size: 0.76rem; pointer-events: none; }
@@ -14935,7 +14742,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
 .branches-toolbar select option { background: #ffffff; color: #10213d; }
 .branches-export-btn { min-height: 38px; padding: 6px 13px; font-size: 0.78rem; white-space: nowrap; justify-content: center; }
 
-/* Branch rows */
+
 .branches-list { display: flex; flex-direction: column; gap: 10px; }
 .branch-row {
     overflow: hidden;
@@ -14995,7 +14802,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
 .branch-detail-trend .operations-section-kicker { margin-bottom: 6px; }
 .branch-detail-trend .branches-trend-svg { display: block; width: 100%; height: 120px; }
 
-/* Trend */
+
 .branches-trend-axis { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ops-muted); font-size: 0.65rem; }
 .branches-trend-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
 .branches-trend-stats > div { min-width: 0; padding: 9px 11px; border: 1px solid var(--ops-border); border-radius: 12px; background: var(--ops-surface-soft); }
@@ -15016,7 +14823,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
     text-align: center;
 }
 
-/* Alerts */
+
 .operations-view .card.branches-alerts-panel { margin-bottom: 18px; border-left: 3px solid #f59e0b; }
 .branches-alert-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .branches-alert { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 12px; color: var(--ops-ink); background: color-mix(in srgb, #f59e0b 11%, transparent); font-size: 0.78rem; line-height: 1.5; }
@@ -15025,7 +14832,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
 .branches-alert.is-danger i { color: #ef4444; }
 .operations-view .operations-panel-icon.is-warn { color: #b45309; background: #fef3c7; }
 
-/* Transfers */
+
 .branches-transfers-panel { margin-top: 18px; }
 .branches-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .branches-mini-btn { min-height: 30px; padding: 5px 11px; font-size: 0.72rem; white-space: nowrap; }
@@ -15061,7 +14868,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
 .branches-status.is-muted { color: var(--ops-muted); background: color-mix(in srgb, var(--ops-muted) 16%, transparent); }
 .branches-overflow-note { margin: 10px 0 0; color: var(--ops-muted); font-size: 0.72rem; text-align: center; }
 
-/* Notices + locked state */
+
 .branches-notice { flex-wrap: wrap; }
 .branches-notice > div { flex: 1 1 220px; }
 .branches-notice-btn { margin-left: auto; white-space: nowrap; }
@@ -15074,7 +14881,7 @@ body[data-theme="liquidglass"] .operations-view .btn-action-global { background-
 .branches-locked h3 { margin: 0 0 6px; color: var(--ops-ink); }
 .branches-locked p { max-width: 460px; margin: 0 auto 18px; color: var(--ops-muted); font-size: 0.85rem; line-height: 1.6; }
 
-/* Dark mode / Pro themes: --ops-* already come from the active theme's --dm-* palette. */
+
 body.dark-mode .branches-toolbar { color-scheme: dark; }
 body.dark-mode .branches-toolbar select option { background: var(--dm-surface-alt, #0f172a); color: var(--dm-text-primary, #f1f5f9); }
 body.dark-mode .operations-view .branches-metrics .metric-icon.warning { color: #fbbf24; background: rgba(245, 158, 11, 0.18); }
@@ -15139,9 +14946,7 @@ body.dark-mode .branches-notice.is-info span { color: var(--ops-muted); }
     .branches-tab { min-height: 36px; }
 }
 
-/* === Overview page — Remote Operations / Branches design language (2026-09-21) ===
-   #view-overview now uses .operations-view, so every colour comes from the --ops-* variables
-   (Day mode, Dark mode and every Pro theme). Only status hues (amber / red / green) are fixed. */
+
 .overview-hero .operations-hero-copy { flex: 1 1 320px; }
 .overview-hero-actions { flex-wrap: wrap; justify-content: flex-end; }
 @media screen and (min-width: 1101px) { .overview-hero-actions { flex-wrap: nowrap; } }
@@ -15175,7 +14980,7 @@ body.dark-mode .branches-notice.is-info span { color: var(--ops-muted); }
 .overview-heading-actions { display: flex; align-items: center; gap: 10px; }
 .overview-section-grid { align-items: start; margin-bottom: 18px; }
 
-/* Sales-trend controls, restyled with the --ops-* palette */
+
 #ov-adv-chart-card .adv-chart-refresh-btn {
     min-height: 32px;
     padding: 5px 11px;
@@ -15234,7 +15039,7 @@ body.dark-mode .branches-notice.is-info span { color: var(--ops-muted); }
 #ov-adv-chart-card .adv-summary-stat .stat-value.up { color: var(--ops-green); }
 #ov-adv-chart-card .adv-summary-stat .stat-value.down { color: #dc2626; }
 
-/* Top selling products */
+
 .overview-rank-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0; padding: 0; list-style: none; }
 .overview-rank-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--ops-border); border-radius: 14px; background: var(--ops-surface-soft); }
 .overview-rank-pos { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 auto; border-radius: 9px; color: var(--ops-blue); background: color-mix(in srgb, var(--ops-blue) 12%, transparent); font-size: 0.75rem; font-weight: 800; }
@@ -15247,7 +15052,7 @@ body.dark-mode .branches-notice.is-info span { color: var(--ops-muted); }
 .overview-rank-bar span { display: block; height: 100%; border-radius: inherit; background: var(--ops-blue); }
 .overview-empty { display: flex; align-items: center; justify-content: center; gap: 9px; margin: 0; padding: 18px 14px; border: 1px dashed var(--ops-border); border-radius: 12px; color: var(--ops-muted); font-size: 0.78rem; line-height: 1.5; text-align: center; list-style: none; }
 
-/* Stock watchlist */
+
 .overview-attention-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
 .overview-attention-chips:empty { display: none; }
 .overview-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; }
@@ -15267,7 +15072,7 @@ body.dark-mode .branches-notice.is-info span { color: var(--ops-muted); }
 .overview-panel-link-inline { width: auto; min-height: 32px; margin-top: 0; padding: 5px 12px; }
 .overview-recent-panel .remoteops-table-container { max-height: none; }
 
-/* Dark mode / Pro themes */
+
 body.dark-mode .remoteops-sync-meta > span:nth-of-type(2).is-warn { color: #fcd34d; }
 body.dark-mode .operations-view .overview-metrics .metric-icon.warning { color: #fbbf24; background: rgba(245, 158, 11, 0.18); }
 body.dark-mode .operations-view .overview-metrics .remoteops-metric-caption.is-warn,
@@ -15309,27 +15114,7 @@ body.dark-mode .overview-attention-tag.is-nostock { color: #fca5a5; background: 
 }
 
 
-/* =====================================================================
-   Product page — table colors matched to the Overview page's palette
-   (same background, border and font-color family used app-wide via
-   var(--border-color) / var(--text-muted) / #f8fafc / #eff6ff).
-   Colors/background/font-color ONLY — column widths, sticky behavior,
-   spacing and responsive breakpoints for #view-products are untouched.
 
-   IMPORTANT: only LIGHT ("Day") mode is styled here, on purpose — same
-   as Overview. Dark Mode and every Pro theme (Ocean, Emerald, Sunset,
-   Rose Gold, Cyber, Noir, Mint Frost, Liquid Glass, Galaxy Ambient)
-   already recolor .table-container/.data-table correctly through the
-   shared --dm-* theme variables (see body.dark-mode .data-table
-   th/td/tr:hover above, and the per-theme files in css/themes/).
-   A previous version of this block added a #view-products-scoped
-   dark-mode override with fixed hex colors — that had *higher*
-   specificity than those theme rules, so it silently overrode them and
-   made the Products table ignore every theme (always the same flat
-   navy-grey instead of each theme's real palette). Do not re-add a
-   dark-mode override here; extend the shared rules above instead if
-   dark styling ever needs to change.
-   ===================================================================== */
 body:not(.dark-mode) #view-products .table-container {
     background-color: #ffffff;
     border-color: var(--border-color);
@@ -15357,26 +15142,7 @@ body:not(.dark-mode) #view-products .data-table tbody tr:hover {
     }
 }
 
-/* =====================================================================
-   Sales Analytics page — hero header styled like the Overview page's
-   greeting banner (same gradient family, border and font colors),
-   WITHOUT the live-connection markup used on Remote Operations /
-   Branches (no live dot, no "Connecting…"/sync status, no
-   last-updated ticker). ids used by app.js (page-title-reports,
-   analytics-range-chips, sa-adv-chart-card, report-*, top/slow/
-   profit/payment lists) and all onclick handlers are untouched.
 
-   IMPORTANT: the metric cards, chart card and the 4 analytics panels
-   are deliberately left un-overridden here, so they fall back to the
-   shared .metric-card / .overview-trend-card / .report-container
-   rules that Overview itself uses — that shared styling is exactly
-   what already adapts correctly to Dark Mode and every Pro theme.
-   A previous version of this block added fixed border/shadow colors
-   for those cards, which (being more specific than the theme files in
-   css/themes/) silently broke theming for this page the same way the
-   Products table override did above. Don't reintroduce fixed colors
-   on .metric-card/.overview-trend-card/.report-container here.
-   ===================================================================== */
 #view-reports .view-header-row.analytics-hero {
     align-items: center;
     gap: 24px;
@@ -15433,19 +15199,7 @@ body.dark-mode #view-reports .analytics-hero-sub {
     #view-reports .analytics-range-chips { width: 100%; }
 }
 
-/* =====================================================================
-   Search box — remove the redundant inner border/box-shadow on
-   Products, Customers, Transactions, Debts and Reorder (both tabs).
-   .terminal-top-controls already draws a bordered/shadowed "pill" box
-   around the whole search row; the <input> inside it also had its own
-   separate border, so two concentric rounded-rectangle outlines were
-   rendering with a visible gap between them ("sobrang border"/stray
-   line). The Terminal page's own search box already avoids this via
-   its .terminal-theme override (border: none) — this just extends the
-   same fix to the other pages, which don't carry the .terminal-theme
-   class. Only border/shadow is touched; the QR-scan button position,
-   padding, and the focus glow (box-shadow ring) are untouched.
-   ===================================================================== */
+
 #view-products .search-box-container input,
 #view-customers .search-box-container input,
 #view-transactions .search-box-container input,
@@ -15461,17 +15215,7 @@ body.dark-mode #view-reorder .search-box-container input {
     border-color: transparent;
 }
 
-/* =====================================================================
-   Terminal search box — isang border lang (same as Products/Transactions)
-   Dati may 3 na layer sa Terminal: (1) .terminal-top-controls glow,
-   (2) .search-box-container glow (galing sa
-   "#view-terminal .terminal-top-controls .search-box-container" rule,
-   na mas mataas ang specificity kaya hindi tumatalab ang
-   "box-shadow: none" sa mga naunang media query), at (3) sariling
-   pill border/shadow ng <input>. Ngayon: ang .terminal-top-controls
-   na lang ang may box, at flat na ang input sa loob nito — kagaya ng
-   Products/Transactions. Focus ring lang ang natitira sa input.
-   ===================================================================== */
+
 #view-terminal .terminal-top-controls .search-box-container {
     box-shadow: none;
     border: none;
@@ -15499,7 +15243,7 @@ body.dark-mode #view-reorder .search-box-container input {
     }
 }
 
-/* ===== Mobile Help / AI Chatbot: credit chip + tighter bottom gap ===== */
+
 .faq-quick-actions .faq-credit-chip { display: none; }
 @media screen and (max-width: 768px) {
   .faq-quick-actions .faq-credit-chip { display: inline-flex; }
@@ -15507,16 +15251,8 @@ body.dark-mode #view-reorder .search-box-container input {
     background: var(--primary-blue, #2563eb); color: #fff;
   }
 
-  /* AI credits/expiry row: hidden by default, slides down under the
-     toggle buttons for a few seconds when the credit chip is tapped.
-     Absolutely positioned so it never shifts the chat layout. */
-  /* BUGFIX (Help > Search toggle): dating `position: relative` lang ito, pero
-     may natirang `top: 72px` mula sa lumang sticky rule ng
-     `#view-faq:not(.faq-fullchat-mode) .faq-top-bar` — kapag relative, ang
-     `top` ay nagiging AKTWAL na offset, kaya itinutulak pababa ng 72px ang
-     toggle bar (malaking blangkong puwang sa itaas) at tumatakip ito sa
-     unang mga row ng listahan (hal. "Staff Requests"). Nire-reset ang
-     `top`/`bottom` para manatili ito sa natural na puwesto nito. */
+  
+  
   #view-faq .faq-top-bar#faq-top-bar { position: relative !important; top: auto !important; bottom: auto !important; }
   #view-faq .faq-top-bar#faq-top-bar::after { display: none !important; }
   #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry {
@@ -15529,9 +15265,7 @@ body.dark-mode #view-reorder .search-box-container input {
     z-index: 70;
     max-width: calc(100% - 8px) !important;
     box-sizing: border-box !important;
-    /* BUGFIX (lampas ang AI credit sa taas): dating white-space:nowrap + width:max-content, kaya ang mahabang
-       "Credits: 1464/1500 · 4,000/4,000 neurons today · Plus   Expires: 02/11/2026" ay lumalampas sa screen.
-       Ngayon ay pwedeng mag-wrap (pill sa itaas, expiry sa ilalim) at laging nasa loob ng screen. */
+    
     flex-wrap: wrap !important;
     white-space: normal !important;
     border-radius: 16px !important;
@@ -15572,7 +15306,7 @@ body.dark-mode #view-reorder .search-box-container input {
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   }
 
-  /* Chat fills the screen down to the bottom nav; composer sits 3px above it. */
+  
   #view-faq.faq-fullchat-mode {
     padding-bottom: 0;
     height: calc(100vh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px))));
@@ -15592,7 +15326,7 @@ body.dark-mode #view-reorder .search-box-container input {
   #view-faq .faq-top-bar#faq-top-bar #ai-assistant-credit-expiry { transition: none !important; }
 }
 
-/* ===== Help page: fixed page on mobile (only the chatbox scrolls) ===== */
+
 @media screen and (max-width: 768px) {
   html.faq-page-lock,
   body.faq-page-lock {
@@ -15608,7 +15342,7 @@ body.dark-mode #view-reorder .search-box-container input {
   }
 }
 
-/* ===== Header Help button: same look/behaviour as its neighbours ===== */
+
 .header-icon-btn.btn-help-header.active { color: var(--primary-blue, #2563eb); }
 body.dark-mode .top-header button.header-icon-btn.btn-help-header.active {
   color: var(--dm-accent, #7c5cff) !important;
@@ -15627,14 +15361,7 @@ body.dark-mode .top-header.terminal-header-mode.terminal-daymode .btn-help-heade
 .faq-tk-delete { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 6px; border: 1px solid #dc2626; background: transparent; color: #dc2626; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
 .faq-tk-delete:hover { background: #dc2626; color: #fff; }
 
-/* ===== Omni AI composer: floating quick actions + toggle button =====
-   - Ang mga quick action button (diagnostics, error, ticket, atbp.) ay laging
-     nakatago; lumalabas lang kapag pinindot ang toggle button katabi ng
-     attach button, at kusang nagtatago pagkalipas ng 3 segundo (JS: faq-engine.js).
-   - Walang background ang row mismo, pero may solid background ang bawat button
-     para kita ang icon; lumulutang sa ibabaw ng composer kaya hindi nagbabago ang layout ng chat.
-   - Ang "New conversation / New search" button ay nasa composer na (icon-only),
-     kasunod ng toggle button. */
+
 #view-faq .faq-composer .faq-quick-actions-float {
   position: absolute;
   left: 4px;
@@ -15671,7 +15398,7 @@ body.dark-mode .top-header.terminal-header-mode.terminal-daymode .btn-help-heade
   background: none;
 }
 #view-faq .faq-composer .faq-quick-actions-float .faq-quick-actions:empty { display: none; }
-/* May sariling background ang bawat button (ang row mismo ay wala) para laging kita ang icon. */
+
 #view-faq .faq-composer .faq-quick-actions-float .faq-quick-action-chip {
   background: #fff;
   box-shadow: 0 2px 8px rgba(15,23,42,0.18);
@@ -15715,12 +15442,7 @@ body.dark-mode .faq-composer-icon-btn.is-active, .dark .faq-composer-icon-btn.is
   color: var(--dm-text-primary, #f5f5f7);
 }
 
-/* ===== AI Chatbot: lumulutang ang input box (composer) =====
-   Walang background/kulay sa labas ng border line ng composer (ang dock
-   na pumapalibot dito ay transparent na, light man o dark mode); ang
-   composer mismo lang (may sariling puti/dark na loob) ang nakikita,
-   na may anino para magmukhang lumulutang. Para sa AI Chatbot mode lang;
-   hindi ginagalaw ang FAQ (Search) mode. */
+
 #view-faq.faq-fullchat-mode .faq-composer-dock,
 body.dark-mode #view-faq.faq-fullchat-mode .faq-composer-dock,
 .dark #view-faq.faq-fullchat-mode .faq-composer-dock {
@@ -15744,14 +15466,7 @@ body.dark-mode #view-faq.faq-fullchat-mode .faq-composer:focus-within,
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dm-accent, #7c5cff) 25%, transparent), 0 3px 12px rgba(0,0,0,0.5);
 }
 
-/* ===== FAQ (Search) mode: lumulutang ang search box, at walang sobrang border =====
-   - Inalis ang border/background/padding ng malaking card (.faq-ai-box) na
-     pumapalibot sa Common Questions + search box, pati ang putol-putol na
-     linya (dashed) sa ibabaw ng resulta.
-   - Transparent na ang dock sa labas ng border ng search box; ang search box
-     mismo lang (may sariling puti/dark na loob) ang nakikita, may anino.
-   - May kaunting padding sa box para hindi maputol ng overflow ang anino.
-   Para sa FAQ mode lang; hindi ginagalaw ang AI Chatbot mode. */
+
 #view-faq:not(.faq-fullchat-mode) .faq-ai-box,
 body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-box,
 .dark #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
@@ -15791,14 +15506,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within,
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dm-accent, #7c5cff) 25%, transparent), 0 3px 12px rgba(0,0,0,0.5);
 }
 
-/* ===== FAQ (Search) mode: gap sa nav = gap ng AI Chatbot; 0px gap sa result box =====
-   - Ang taas ng view ay sinusukat na gaya ng AI Chatbot (hanggang sa taas ng
-     bottom nav lang), at ang dock ay 3px lang ang pagitan sa nav.
-   - Inalis ang padding sa ilalim ng box at sa ibabaw ng dock, at ang margin/
-     padding sa ilalim ng listahan/resulta, kaya direktang dumidikit ang
-     result box sa search box (walang nasasayang na space).
-   - overflow: visible sa box para hindi maputol ang anino ng search box;
-     ang listahan/resulta mismo ang may sariling scroll. */
+
 #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
   padding: 4px 10px 0 !important;
   overflow: visible !important;
@@ -15825,20 +15533,13 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-composer:focus-within,
       max-height: calc(100dvh - 69px - var(--faq-bottom-nav-h, calc(57px + env(safe-area-inset-bottom, 0px)))) !important;
     }
   }
-  /* ang JS (syncFaqBoxMinHeight) ay nag-se-set ng min-height na batay sa ibang
-     reserve; flex:1 na ang pumupuno kaya huwag nang pilitin */
+  
   #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
     min-height: 0 !important;
   }
 }
 
-/* ===== FAQ (Search) mode: top bar (Eng/Tag + AI Chatbot/FAQ toggles) =====
-   - Walang kulay (transparent) na ang lalagyan ng dalawang toggle, light at
-     dark mode, kaya ang buong background ng system ang nakikita at
-     nakalitaw ang mga toggle mismo (may kaunting anino).
-   - Binawasan ang mga sobrang spacing: padding sa loob ng bar, margin sa
-     ilalim, row-gap, margin ng lumang header, at padding sa itaas ng view.
-   Para sa FAQ mode lang; hindi ginagalaw ang AI Chatbot mode. */
+
 #view-faq:not(.faq-fullchat-mode),
 #view-faq:not(.faq-fullchat-mode):not(.x) {
   padding-top: 4px !important;
@@ -15872,11 +15573,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-mode-toggle,
   box-shadow: 0 2px 8px rgba(0,0,0,0.45);
 }
 
-/* ===== AI Chatbot mode, dark mode: top bar = kapareho ng light mode at ng FAQ =====
-   Dati, sa dark mode lang may tint na background (accent 16%) + padding 6px 0
-   ang lalagyan ng dalawang toggle kaya nagkaroon ng bahagyang gap at may
-   kulay sa labas ng toggle. Ngayon transparent na, walang dagdag na padding,
-   at pare-pareho ang hitsura ng light/dark sa Chatbot at FAQ mode. */
+
 body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar,
 .dark #view-faq.faq-fullchat-mode .faq-top-bar,
 body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar#faq-top-bar,
@@ -15888,16 +15585,7 @@ body.dark-mode #view-faq.faq-fullchat-mode .faq-top-bar#faq-top-bar,
   padding: 0 !important;
 }
 
-/* ===== FAQ (Search) mode: gap at position ng search box = AI Chatbot text box =====
-   Kinopya ang mismong sukat ng AI Chatbot (.faq-fullchat-mode):
-   - Gilid: padding ng view 12px (<=1024px) / 30px (desktop), at wala nang
-     dagdag na padding sa gilid ng .faq-ai-box, kaya pareho ang lapad at
-     kaliwa/kanang posisyon ng search box at ng chatbot text box.
-   - Dock: 1px sa itaas, 4px sa ibaba (3px sa phone), kasama ang keyboard
-     offset — kapareho ng chatbot.
-   - Taas ng view sa tablet (769-1024px) = chatbot din.
-   - Ang top bar ay walang dagdag na gilid (gaya ng chatbot) para pantay ang
-     pagkakahanay ng mga toggle. */
+
 #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
   padding: 4px 0 0 !important;
 }
@@ -15935,12 +15623,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-top-bar,
   }
 }
 
-/* ===== FAQ (Search) mode: 0px gap sa ibabaw ng search box (kapareho ng AI Chatbot) =====
-   Ang natitirang puwang ay galing sa:
-   - .faq-ai-result-box (base rule: margin-top 16px) na nananatili kahit
-     walang laman, kaya may 16px sa pagitan ng listahan at ng search box;
-   - margin-bottom ng huling category/item sa loob ng listahan at resulta.
-   Ngayon 0 na lahat ng iyon, kaya dumidikit ang listahan/resulta sa search box. */
+
 #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box,
 #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
 body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box,
@@ -15962,8 +15645,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-result-box:not(:empty),
   padding-bottom: 0 !important;
 }
 
-/* Dark mode: siguraduhing tumatama rin ang gilid/gap/dock ng FAQ gaya ng
-   light mode (pinataas ang specificity gamit ang body.dark-mode/.dark). */
+
 body.dark-mode #view-faq:not(.faq-fullchat-mode) .faq-ai-box,
 .dark #view-faq:not(.faq-fullchat-mode) .faq-ai-box {
   padding: 4px 0 0 !important;
@@ -16015,9 +15697,7 @@ body.dark-mode #view-faq:not(.faq-fullchat-mode) #faq-kb-shortcuts,
   }
 }
 
-/* ===== Omni AI: model / upgrade selector (Claude-style) =====
-   Mobile: icon button na kapareho ng laki at design ng ibang composer button.
-   Desktop: pill na nagpapakita ng napiling model; pindutin para buksan ang sheet. */
+
 #faq-model-btn[hidden] { display: none !important; }
 #faq-model-btn .faq-model-label, #faq-model-btn .faq-model-chev { display: none; }
 #faq-model-btn.is-active { background: rgba(37,99,235,0.15); color: var(--primary-blue, #2563eb); }
@@ -16068,15 +15748,7 @@ body.dark-mode .faq-model-row:hover, body.dark-mode .faq-model-row:focus-visible
 body.dark-mode .faq-model-row .faq-model-check, body.dark-mode .faq-model-row.faq-model-upgrade .faq-model-name, .dark .faq-model-row .faq-model-check, .dark .faq-model-row.faq-model-upgrade .faq-model-name { color: #8ab4ff; }
 body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { background: color-mix(in srgb, var(--dm-accent, #7c5cff) 28%, transparent); color: var(--dm-text-primary, #f5f5f7); }
 
-/* ------------------------------------------------------------------
-   BUGFIX (desktop): ang buong Help/FAQ page ay nag-i-scroll dahil sa
-   .content-body { padding-bottom: 150px } (puwang para sa quick-access
-   dock) — nadadagdag ito sa taas ng #view-faq (100vh - 69px) kaya
-   lumalampas ng ~120px ang page. Sa Help page lang, ibinabalik sa 30px
-   ang bottom padding (katumbas ng -30px margin ng view) para eksaktong
-   kasya sa screen; ang tanging nag-i-scroll ay ang loob ng chat thread
-   (OmniAI) at ng result/shortcuts box (FAQ).
-   ------------------------------------------------------------------ */
+
 @media (min-width: 1025px) {
   .content-body:has(#view-faq:not([style*="display: none"]):not([style*="display:none"])),
   html[data-preload-view="faq"] .content-body {
@@ -16084,14 +15756,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Login screen on phones/tablets in portrait: the layout scales with the screen HEIGHT so the whole sign-in
-   form (including the optional fingerprint button) fits without scrolling, while tall phones keep a larger,
-   more comfortable layout. Desktop (wide) layout is untouched. This block is intentionally last so it
-   overrides the earlier (max-width: 768px) auth rules.
-   Tier 1 (default, tall screens >= 800px): gentle compression only.
-   Tier 2 (700-799px): medium.  Tier 3 (<= 699px): compact.  Tier 4 (<= 600px): also hides the description.
-   --------------------------------------------------------------------------- */
+
 @media screen and (max-width: 768px) {
     .auth-container {
         min-height: 100vh;
@@ -16105,8 +15770,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
         font-size: calc(24.48px * var(--logo-fix, 1));
         margin-bottom: 8px;
     }
-    /* The device illustration is scaled with a transform; the negative margins give back the layout space the
-       transform leaves behind so it does not push the form down. (150px tall rig.) */
+    
     .device-rig {
         transform: scale(0.9);
         transform-origin: center center;
@@ -16251,7 +15915,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     }
 }
 
-/* === Sidebar: PRO button per category (shows/hides the locked features) === */
+
 .menu-section-row {
     display: flex;
     align-items: center;
@@ -16259,7 +15923,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     gap: 8px;
     padding-right: 8px;
 }
-/* .menu-section-label:first-child (padding-top: 2px) must not apply to the labels inside these rows */
+
 .menu-section-row > .menu-section-label:first-child {
     padding-top: 14px;
 }
@@ -16302,17 +15966,12 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
 .menu-section-pro-btn.is-open .menu-section-pro-icon {
     color: #ffffff;
 }
-/* Locked (not purchased) sidebar features stay hidden until the category's PRO button is tapped. */
+
 .menu-pro-hidden {
     display: none !important;
 }
 
-/* ---------------------------------------------------------------------------
-   Login screen (phones/tablets): the whole screen is used. The dark brand panel stretches to fill the free
-   height and spreads its items with even (auto) gaps; the form keeps a bottom gap exactly one "Sign In" button
-   tall. The OmniPOS logo is doubled in size. Last block on purpose (overrides the tiers above). The keyboard
-   mode (.kb-open) keeps its own fixed layout.
-   --------------------------------------------------------------------------- */
+
 @media screen and (max-width: 768px) {
     .auth-container {
         --auth-btn-h: 43px;
@@ -16353,13 +16012,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     }
 }
 
-/* ==========================================================================
-   Add / Edit Product modal — compact mobile layout
-   - Mobile (<= 768px): full-bleed modal, 5px na gilid, 2-column grid para sa maiikling field,
-     icon-only na photo buttons (Take Photo / Gallery / Search / Remove), maliit na label/hint.
-   - Desktop: walang pagbabago (ang mga bagong class ay walang epekto sa labas ng media query,
-     maliban sa pagtago ng ⓘ button at ng trash icon na pang-mobile lang).
-   ========================================================================== */
+
 #product-modal .pf-info-btn { display: none; }
 #product-modal .pf-remove-ico { display: none; }
 @media screen and (max-width: 768px) {
@@ -16436,7 +16089,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     #product-modal .theme-callout-box-subtext,
     #product-modal .theme-callout-box-result { font-size: 0.68rem; }
 
-    /* Photo row: preview + icon-only buttons */
+    
     #product-modal .prod-photo-upload-row { gap: 5px; align-items: center; }
     #product-modal .prod-photo-preview { width: 48px; height: 48px; font-size: 18px; }
     #product-modal .prod-photo-upload-actions { gap: 5px; flex-wrap: nowrap; flex: 1 1 auto; min-width: 0; }
@@ -16455,7 +16108,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     #product-modal .pf-btn-text { display: none; }
     #product-modal .pf-remove-ico { display: inline; }
 
-    /* Additional photos: thumbnails + "add" tile on the same row */
+    
     #product-modal .pf-gallery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
     #product-modal .pf-gallery-row .prod-gallery-preview { margin-bottom: 0; gap: 5px; }
     #product-modal .pf-gallery-row .prod-gallery-preview:empty { display: none; }
@@ -16463,7 +16116,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     #product-modal .pf-gallery-row .prod-gallery-preview img { width: 44px; height: 44px; }
     #product-modal .pf-gallery-row > .btn-action-outline { border-style: dashed; }
 
-    /* Full-width action buttons (Add Unit / Manage Batches / Specs) */
+    
     #product-modal .input-field-group > .btn-action-outline {
         width: 100%;
         justify-content: center;
@@ -16477,12 +16130,7 @@ body.dark-mode #faq-model-btn.is-active, .dark #faq-model-btn.is-active { backgr
     #product-modal .modal-footer .btn-action-global { width: 100%; justify-content: center; padding: 10px; }
 }
 
-/* ============================================================
-   UNIFIED IMPORTER (Products + Specs / Description)
-   Sumusunod sa lahat ng theme: Day (light) gamit ang sariling light tokens,
-   at lahat ng dark/pro themes gamit ang --dm-* variables ng napiling theme.
-   Walang hardcoded na kulay ng text/background sa labas ng token block.
-   ============================================================ */
+
 .imp-overlay,
 .imp-tpl {
     --imp-bg: #ffffff;
@@ -16863,7 +16511,7 @@ body.dark-mode .imp-overlay { color-scheme: dark; }
 .imp-done h4 { margin: 6px 0 2px; font-size: 1.1rem; color: var(--imp-text); }
 .imp-done p { margin: 0; font-size: 0.82rem; color: var(--imp-muted); word-break: break-all; }
 
-/* Template picker (Swal) */
+
 .imp-tpl { display: grid; gap: 8px; text-align: left; background: transparent; }
 .imp-tpl-opt { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1.5px solid var(--imp-border); border-radius: var(--imp-radius-sm); background: var(--imp-bg); color: var(--imp-text); cursor: pointer; margin: 0; }
 .imp-tpl-opt:hover { border-color: var(--imp-accent); }
@@ -16888,9 +16536,7 @@ body.dark-mode .imp-overlay { color-scheme: dark; }
     .imp-overlay, .imp-modal, .imp-spinner, .imp-bar i { animation: none; }
 }
 
-/* =========================================================
-   Support the Developer (Sponsor / Donate) modal
-   ========================================================= */
+
 .swal2-popup.sponsor-modal { width: min(94vw, 460px); }
 .sponsor-modal .sp-wrap { text-align: left; font-size: 0.9rem; }
 .sponsor-modal .sp-intro { margin: 0 0 8px; line-height: 1.45; }
@@ -16925,7 +16571,7 @@ body.dark-mode .imp-overlay { color-scheme: dark; }
 .sponsor-modal .sp-method-row { margin: 8px 0 2px; }
 .sponsor-modal .sp-hint { min-height: 1.2em; margin-top: 8px; font-size: 0.8rem; line-height: 1.4; opacity: .85; }
 
-/* === Products page: Delete button + "Delete Products" (bulk delete) modal === */
+
 .btn-product-delete-cta {
     color: #dc2626;
     border-color: #dc2626;
@@ -17058,10 +16704,7 @@ body.dark-mode .bd-footer { background: transparent; }
     .bd-footer .bd-delete-btn { width: 100%; justify-content: center; }
 }
 
-/* === Terminal (mobile): keep the shrunk Customer pane docked right above the search / checkout bar ===
-   On tall screens the cart list used to stop growing (max 480px) and the Customer pane stayed up in the
-   middle, leaving an empty gap above the search box. Now the cart list fills the free space and the
-   Customer pane is always pushed to the bottom of the cart pane, whatever the screen height. */
+
 @media screen and (max-width: 768px) {
     .terminal-theme.cart-drawer-expanded .cart-items-wrapper {
         flex: 1 1 auto;
@@ -17074,10 +16717,7 @@ body.dark-mode .bd-footer { background: transparent; }
     }
 }
 
-/* === Terminal product cards (grid view): floating stock counter + tighter, larger image container ===
-   - The stock counter now floats on the upper-right corner of the image (it used to be a pill at the bottom).
-   - Its old bottom row is gone, so the image container is taller and the product name sits right under the image
-     (no empty gap between the image and the name). Names keep a 2-line height so prices stay aligned across a row. */
+
 .terminal-theme #terminal-grid-output:not(.terminal-list-view) .t-product-card {
     grid-template-areas:
         "image"
