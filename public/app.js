@@ -917,6 +917,7 @@ let featureAvailabilityCache = {};
 function applyFeatureAvailabilityFromCatalog(data) {
     if (!data || !data.success) return;
     featureAvailabilityCache = (data.featureAvailability && typeof data.featureAvailability === 'object') ? data.featureAvailability : {};
+    if (typeof updateSidebarComingSoonBadges === 'function') updateSidebarComingSoonBadges();
 }
 function getFeatureUnavailableInfo(featureId) {
     if (!featureAvailabilityCache || !Object.prototype.hasOwnProperty.call(featureAvailabilityCache, featureId)) return null;
@@ -1750,6 +1751,34 @@ function updateRolesPermissionsLockState() {
     wrap.classList.toggle('is-locked', locked);
     overlay.style.display = locked ?'flex' :'none';
 }
+// Naglalagay ng "Coming soon" badge sa sidebar menu item ng feature na naka-OFF sa RELAY
+// (featureAvailability.available === false), para alam na ng client bago pa mag-click.
+function updateSidebarComingSoonBadges() {
+    Object.keys(SIDEBAR_FEATURE_LOCK_MAP).forEach((lockId) => {
+        if (!/^menu-.+-lock$/.test(lockId)) return;
+        const lockEl = document.getElementById(lockId);
+        const menuItem = lockEl ? lockEl.closest('.menu-item') : null;
+        if (!menuItem) return;
+        const badgeId = lockId.replace(/-lock$/, '-comingsoon');
+        let badge = document.getElementById(badgeId);
+        const unavailable = !!getFeatureUnavailableInfo(SIDEBAR_FEATURE_LOCK_MAP[lockId]);
+        if (!unavailable) {
+            if (badge) badge.remove();
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.id = badgeId;
+            badge.className = 'menu-coming-soon-badge';
+            badge.textContent = 'Coming soon';
+            badge.style.cssText = 'margin-left:auto;padding:1px 7px;border-radius:999px;font-size:0.65rem;font-weight:700;letter-spacing:0.02em;white-space:nowrap;background:rgba(245,158,11,0.18);color:#d97706;border:1px solid rgba(245,158,11,0.45);';
+            lockEl.insertAdjacentElement('beforebegin', badge);
+        }
+        lockEl.style.display = 'none';
+        const proEl = document.getElementById(lockId.replace(/-lock$/, '-pro'));
+        if (proEl) proEl.style.display = 'none';
+    });
+}
 function updateSidebarFeatureLocks() {
     Object.keys(SIDEBAR_FEATURE_LOCK_MAP).forEach((elementId) => {
         const el = document.getElementById(elementId);
@@ -1762,6 +1791,7 @@ function updateSidebarFeatureLocks() {
             proBadge.style.display = unlocked ?'inline-flex' :'none';
         }
     });
+    updateSidebarComingSoonBadges();
     updateSidebarProCategories();
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
@@ -2526,6 +2556,10 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
         Swal.fire('Error', 'Could not reach the server to activate via Omni Tokens.', 'error');
         return null;
     }
+    if (confirmData && confirmData.featureUnavailable) {
+        await Swal.fire({ icon:'info', title:'Not Available Yet', text: confirmData.message || 'This feature is not available yet. Please try again later.', confirmButtonText:'OK' });
+        return null;
+    }
     if (!confirmData.success) {
         if (confirmData.insufficient) {
             if (confirmData.reserveProtected) {
@@ -3050,6 +3084,10 @@ async function promptCloudBackupTokenActivation(initialTier, initialCycle) {
         confirmData = await confirmRes.json();
     } catch (e) {
         Swal.fire('Error', 'Could not reach the server to activate Cloud Backup via Omni Tokens.', 'error');
+        return false;
+    }
+    if (confirmData && confirmData.featureUnavailable) {
+        await Swal.fire({ icon:'info', title:'Not Available Yet', text: confirmData.message || 'This feature is not available yet. Please try again later.', confirmButtonText:'OK' });
         return false;
     }
     if (!confirmData.success) {

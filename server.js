@@ -10604,6 +10604,9 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
+            if (relayData.featureUnavailable) {
+                return res.status(409).json({ success: false, featureUnavailable: true, featureId: relayData.featureId, message: relayData.message || 'This feature is not available yet. Please try again later.' });
+            }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate Cloud Backup.' });
         }
         if (!verifyUnlockToken(relayData.token, installationId, CLOUD_BACKUP_FEATURE_ID)) {
@@ -10752,6 +10755,9 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
                     requiredTokens: relayData.requiredTokens,
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
+            }
+            if (relayData.featureUnavailable) {
+                return res.status(409).json({ success: false, featureUnavailable: true, featureId: relayData.featureId, message: relayData.message || 'This feature is not available yet. Please try again later.' });
             }
             return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate.' });
         }
