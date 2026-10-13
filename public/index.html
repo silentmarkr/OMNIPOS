@@ -163,7 +163,7 @@
 
             var KNOWN_VIEWS = ['overview','dashboard','terminal','products','barcode',
                 'reorder','stock_return_inspection','reports','customers','transactions','users','faq','logs',
-                'debts','shiftreport','cloudtokens','branches','attendance','remoteops'];
+                'debts','shiftreport','cloudtokens','branches','attendance','remoteops','marketplace'];
             if (savedView && KNOWN_VIEWS.indexOf(savedView) !== -1) {
                 document.documentElement.setAttribute('data-preload-view', savedView);
             }
@@ -195,6 +195,7 @@
         html.has-session[data-preload-view="branches"] #view-branches { display: block !important; }
         html.has-session[data-preload-view="attendance"] #view-attendance { display: block !important; }
         html.has-session[data-preload-view="remoteops"] #view-remoteops { display: block !important; }
+        html.has-session[data-preload-view="marketplace"] #view-marketplace { display: block !important; }
     </style>
 
     <meta charset="UTF-8">
@@ -215,7 +216,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261011-1">
+    <link rel="stylesheet" href="style.css?v=20261013-2">
 
     <link rel="stylesheet" href="css/themes/vivid-base.css?v=1" data-retry>
     <link rel="stylesheet" href="css/themes/theme-dark.css?v=2" data-retry>
@@ -406,6 +407,7 @@
                 <a href="#" class="menu-item" id="menu-branches" onclick="switchView('branches')"><i class="fa-solid fa-code-branch"></i> Branches <span id="menu-branches-alert-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span> <span id="menu-branches-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-branches-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-attendance" onclick="switchView('attendance')"><i class="fa-solid fa-camera"></i> Staff Attendance <span id="menu-attendance-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-attendance-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-remoteops" onclick="switchView('remoteops')"><i class="fa-solid fa-mobile-screen-button"></i> Remote Operations <span id="menu-remoteops-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-remoteops-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" class="menu-item" id="menu-marketplace" onclick="switchView('marketplace')"><i class="fa-solid fa-store"></i> Marketplace Hub <span id="menu-marketplace-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-marketplace-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
                 <a href="#" class="menu-item" id="menu-logs" onclick="switchView('logs')"><i class="fa-solid fa-clock-rotate-left"></i> User Logs</a>
 
                 <span class="menu-section-label">System</span>
@@ -415,6 +417,7 @@
                 <a href="#" class="menu-item admin-only-nav" id="menu-cloudtokens" onclick="switchView('cloudtokens')" style="display:none;" title="Admin only — not part of Roles &amp; Permissions"><i class="fa-solid fa-gem"></i> Omni Tokens</a>
 
                 <span class="menu-section-label">Support</span>
+                <a href="#" class="menu-item admin-only-nav" id="menu-sponsor" onclick="openSponsorModal(); return false;" style="display:none;" title="Admin only — donate or sponsor to help improve OmniPOS"><i class="fa-solid fa-heart"></i> Support Developer</a>
                 <a href="#" class="menu-item" id="menu-faq" onclick="switchView('faq')"><i class="fa-solid fa-circle-question"></i> Help</a>
             </nav>
         </aside>
@@ -803,28 +806,26 @@
                     <div class="view-header-row">
                         <h2 id="page-title-products">Product Inventory Management</h2>
                         <div class="header-action-group">
-                            <button class="btn-action-outline" onclick="downloadProductTemplate()" title="Pumili at mag-download ng template (Excel o CSV) para sa bulk product entry o bulk specs import">
-                                <i class="fa-solid fa-file-arrow-down"></i><span class="btn-action-label"> Download Template</span>
+                            <button class="btn-action-outline" onclick="downloadProductTemplate()" title="Download a template (Excel or CSV) for products or for specs / description">
+                                <i class="fa-solid fa-file-arrow-down"></i><span class="btn-action-label"> Template</span>
                             </button>
-                            <button class="btn-action-outline" onclick="triggerProductImport()" title="Mag-import ng pinunuang Excel o CSV file">
-                                <i class="fa-solid fa-file-import"></i><span class="btn-action-label"> Import Excel/CSV</span>
+                            <button class="btn-action-outline" onclick="triggerProductImport()" title="Import products, specs or descriptions from an Excel or CSV file">
+                                <i class="fa-solid fa-file-import"></i><span class="btn-action-label"> Import</span>
                             </button>
                             <button class="btn-action-outline" onclick="exportProductsCsv()" title="I-export ang inventory (CSV) o ang lahat ng product photo (images only)">
                                 <i class="fa-solid fa-file-export"></i><span class="btn-action-label"> Export</span> <span id="export-csv-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="export-csv-pro" class="menu-pro-badge" style="display:none;">PRO</span>
                             </button>
-                            <input type="file" id="import-file-input" accept=".xlsx,.csv" style="display:none;" onchange="handleProductImportFile(event)" autocomplete="off">
                             <button class="btn-action-outline" onclick="openBulkPhotoModal()" title="Upload multiple product photos at once — auto-matched by filename">
-                                <i class="fa-solid fa-images"></i><span class="btn-action-label"> Bulk Upload Photos</span>
+                                <i class="fa-solid fa-images"></i><span class="btn-action-label"> Upload Photos</span>
                             </button>
                             <button class="btn-action-outline" onclick="openBulkImageSearchModal()" title="Automatically search and propose a photo for products that don't have one yet">
-                                <i class="fa-solid fa-magnifying-glass-plus"></i><span class="btn-action-label"> Bulk Search Images</span>
-                            </button>
-                            <input type="file" id="bulk-specs-file-input" accept=".csv" style="display:none;" onchange="handleBulkSpecsImportFile(event)" autocomplete="off">
-                            <button class="btn-action-outline" onclick="openBulkSpecsImportModal()" title="Mag-import ng Description para sa maraming produkto gamit ang isang CSV file (Code, Description)">
-                                <i class="fa-solid fa-file-csv"></i><span class="btn-action-label"> Bulk Import Specs</span>
+                                <i class="fa-solid fa-magnifying-glass-plus"></i><span class="btn-action-label"> Search Images</span>
                             </button>
                             <button class="btn-action-outline" onclick="openPromoCodesManager()" title="Mamahala ng discount promo codes">
                                 <i class="fa-solid fa-tags"></i><span class="btn-action-label"> Promo Codes</span> <span id="promo-codes-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="promo-codes-pro" class="menu-pro-badge" style="display:none;">PRO</span>
+                            </button>
+                            <button class="btn-action-outline btn-product-delete-cta" id="btn-product-bulk-delete" onclick="openBulkDeleteModal()" title="Delete many products at once — filter, select, then confirm with your password">
+                                <i class="fa-solid fa-trash-can"></i><span class="btn-action-label"> Delete</span>
                             </button>
                             <button class="btn-action-outline btn-product-add-cta" onclick="openProductModal('ADD')"><i class="fa-solid fa-plus"></i><span class="btn-action-label"> Add Product</span></button>
                         </div>
@@ -1483,7 +1484,7 @@
                         <div class="terminal-top-controls">
                             <div class="search-box-container">
                                 <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
-                                <input type="text" id="tx-history-search" placeholder="Search Transaction ID or Cashier Name..." oninput="filterTransactionsTable()" autocomplete="off">
+                                <input type="text" id="tx-history-search" placeholder="Search Transaction ID or Cashier Name..." oninput="onTxHistorySearchInput()" autocomplete="off">
                                 <button class="btn-scan-qr scan-icon-floating" onclick="openTxQRScanner()" title="Scan Receipt ID">
                                     <i class="fa-solid fa-qrcode"></i>
                                 </button>
@@ -3797,6 +3798,7 @@
                     </div>
                 </section>
 
+                <section id="view-marketplace" class="app-view" style="display:none;"><div id="mp-root"></div></section>
                 <section id="view-remoteops" class="app-view operations-view remoteops-view" style="display:none;">
                     <div class="operations-hero remoteops-hero">
                         <div class="operations-hero-copy">
@@ -4494,6 +4496,83 @@
                 <div id="p-image-search-gallery-limit-note" style="display:none;font-size:0.78rem;color:#dc2626;margin:-4px 0 10px;">Additional Photos is full (max <span id="p-image-search-gallery-limit-count"></span>) — remove a photo from the gallery before selecting more.</div>
                 <div id="p-image-search-status" style="font-size:0.85rem;color:#64748b;margin-bottom:10px;"></div>
                 <div id="p-image-search-results" class="p-image-search-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="bulk-delete-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card bulk-delete-card" style="max-width:860px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-trash-can" style="color:#ef4444;"></i> Delete Products</h3>
+                <button class="close-modal-btn" onclick="closeBulkDeleteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="bd-intro">Find the products you want to remove, tick them, then confirm. Deleting is permanent and needs your password (or an Admin's).</p>
+                <div class="bd-search-row">
+                    <input type="text" id="bd-search" placeholder="Search product name or code..." oninput="bulkDeleteRefresh()" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
+                    <button type="button" class="btn-action-outline bd-adv-toggle" id="bd-adv-toggle" onclick="toggleBulkDeleteAdvanced()" aria-expanded="false"><i class="fa-solid fa-sliders"></i> Advanced filters</button>
+                </div>
+                <div class="bd-advanced" id="bd-advanced" style="display:none;">
+                    <div class="bd-grid">
+                        <label>Category<select id="bd-category" onchange="bulkDeleteRefresh()"></select></label>
+                        <label>Supplier<select id="bd-supplier" onchange="bulkDeleteRefresh()"></select></label>
+                        <label>Stock level
+                            <select id="bd-stock-level" onchange="bulkDeleteRefresh()">
+                                <option value="">Any</option>
+                                <option value="out">Out of stock (0)</option>
+                                <option value="low">Low stock</option>
+                                <option value="in">In stock</option>
+                            </select>
+                        </label>
+                        <label>Stock from – to
+                            <span class="bd-range"><input type="number" id="bd-stock-min" placeholder="min" min="0" step="any" oninput="bulkDeleteRefresh()" autocomplete="off"><input type="number" id="bd-stock-max" placeholder="max" min="0" step="any" oninput="bulkDeleteRefresh()" autocomplete="off"></span>
+                        </label>
+                        <label>Price from – to (₱)
+                            <span class="bd-range"><input type="number" id="bd-price-min" placeholder="min" min="0" step="any" oninput="bulkDeleteRefresh()" autocomplete="off"><input type="number" id="bd-price-max" placeholder="max" min="0" step="any" oninput="bulkDeleteRefresh()" autocomplete="off"></span>
+                        </label>
+                        <label>Expiry
+                            <select id="bd-expiry" onchange="bulkDeleteRefresh()">
+                                <option value="">Any</option>
+                                <option value="expired">Already expired</option>
+                                <option value="soon">Expiring within N days</option>
+                                <option value="none">No expiry date</option>
+                            </select>
+                        </label>
+                        <label>Days (for "Expiring within")
+                            <input type="number" id="bd-expiry-days" value="30" min="1" step="1" oninput="bulkDeleteRefresh()" autocomplete="off">
+                        </label>
+                        <label>Photo
+                            <select id="bd-photo" onchange="bulkDeleteRefresh()">
+                                <option value="">Any</option>
+                                <option value="with">With photo</option>
+                                <option value="without">No photo</option>
+                            </select>
+                        </label>
+                        <label>Specs / Description
+                            <select id="bd-specs" onchange="bulkDeleteRefresh()">
+                                <option value="">Any</option>
+                                <option value="with">With specs/description</option>
+                                <option value="without">Without specs/description</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="bd-adv-actions">
+                        <button type="button" class="btn-action-outline" onclick="bulkDeleteApplyTableFilters()"><i class="fa-solid fa-filter"></i> Use the table's current filters</button>
+                        <button type="button" class="btn-action-outline" onclick="bulkDeleteResetFilters()"><i class="fa-solid fa-rotate-left"></i> Reset filters</button>
+                    </div>
+                </div>
+                <div class="bd-summary-row">
+                    <label class="bd-select-all"><input type="checkbox" id="bd-select-all" onchange="bulkDeleteToggleAll(this.checked)" autocomplete="off"> Select all matching</label>
+                    <span id="bd-count" class="bd-count"></span>
+                </div>
+                <div id="bd-list" class="bd-list"></div>
+                <p id="bd-note" class="bd-note" style="display:none;"></p>
+            </div>
+            <div class="modal-footer bd-footer">
+                <label class="bd-backup"><input type="checkbox" id="bd-backup" checked autocomplete="off"> Download a backup CSV of the deleted products (all details, photos not included)</label>
+                <button type="button" class="btn-action-global bd-delete-btn" id="bd-delete-btn" onclick="submitBulkDelete()" disabled>
+                    <i class="fa-solid fa-trash-can"></i> Delete selected (0)
+                </button>
             </div>
         </div>
     </div>
@@ -5268,8 +5347,9 @@
 <script src="faq-lang.js?v=20261009-1"></script>
 <script src="faq-engine.js?v=20261009-2"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
-<script src="app.js?v=20261009-5"></script>
-<script src="app1.js?v=20261002-1"></script>
+<script src="app.js?v=20261013-3"></script>
+<script src="app1.js?v=20261013-1"></script>
+<script src="marketplace-ui.js?v=20261013-1"></script>
 
 
 <script>

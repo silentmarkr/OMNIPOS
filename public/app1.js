@@ -246,7 +246,8 @@ body.dark-mode .di-pay-bar-track{background:rgba(255,255,255,.1)}
         try {
             const [resProd, resTx] = await Promise.all([
                 authFetch(`${API_URL}/products?lite=1`),
-                authFetch(`${API_URL}/transactions`)
+                // SCALE FIX: ang benta ng ngayon lang ang ginagamit dito, kaya ang huling 2 araw lang ang hinihingi (hindi ang buong history).
+                authFetch(`${API_URL}/transactions?from=${Date.now() - 2 * 24 * 60 * 60 * 1000}`)
             ]);
             const products = resProd.ok ? await resProd.json() : JSON.parse(localStorage.getItem('cached_products') || '[]');
             const serverTxs = resTx.ok ? await resTx.json() : JSON.parse(localStorage.getItem('cached_transactions') || '[]');

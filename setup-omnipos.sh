@@ -141,6 +141,13 @@ fi
 
 echo "   Node version: $(node -v 2>/dev/null || echo 'NOT FOUND — there was a problem installing nodejs')"
 echo ""
+# OmniPOS keeps its data in Node's built-in SQLite (node:sqlite, Node 22.13+). Without it the server crashes on every
+# start (crash loop), so stop here with a clear message instead of finishing a broken install.
+if ! node -e "require('node:sqlite')" >/dev/null 2>&1; then
+    echo "❌ The installed Node.js ($(node -v 2>/dev/null || echo 'none')) has no built-in SQLite. OmniPOS needs Node 22.13 or newer."
+    echo "   Termux: run  pkg upgrade nodejs  — PC: install the latest Node.js LTS from https://nodejs.org — then run this setup again."
+    exit 1
+fi
 
 # Auto-install "cloudflared" (Cloudflare Tunnel binary) — this is what
 # creates the public link (https://xxxx.trycloudflare.com) for the

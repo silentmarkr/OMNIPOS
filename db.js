@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { DatabaseSync } = require('node:sqlite');
+const sqliteModule = require('node:sqlite');
+const { DatabaseSync } = sqliteModule;
 
 // BUG FIX: dating laging path.join(__dirname, 'database') ang DB_DIR —
 // ibig sabihin nasa LOOB ng app code folder mismo ang buong database
@@ -35,6 +36,36 @@ const db = new DatabaseSync(DB_PATH);
 
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
+
+// PERFORMANCE: SQLite tuning para sa POS workload (maraming maliliit na write + malalaking JSON blob read).
+// - busy_timeout: maghintay muna (hanggang 5s) imbes na agad mag-"database is locked" kapag may kasabay
+//   na write (hal. backup/VACUUM/checkpoint habang may checkout).
+// - synchronous=NORMAL: ligtas sa WAL mode (hindi masisira ang database kahit biglang mamatay ang app/Termux);
+//   mas mabilis ang bawat commit dahil hindi na nag-fsync sa bawat transaction, kundi sa checkpoint lang.
+//   Kung gusto mo ang pinakamahigpit na durability (kahit biglang mawalan ng kuryente), itakda sa .env:
+//   OMNIPOS_SQLITE_SYNCHRONOUS=FULL
+// - temp_store=MEMORY, cache_size=-16000 (~16 MB), mmap_size=64 MB: mas mabilis ang sort/index/read.
+// - wal_autocheckpoint=1000 pages: hindi lumalaki nang walang hanggan ang -wal file.
+// Lahat ay nasa try/catch: kung may hindi suportado, tahimik na lilipas at gagamitin ang default ng SQLite.
+(function applySqliteTuning() {
+    const syncRaw = String(process.env.OMNIPOS_SQLITE_SYNCHRONOUS || 'NORMAL').trim().toUpperCase();
+    const syncMode = ['NORMAL', 'FULL', 'EXTRA'].includes(syncRaw) ? syncRaw : 'NORMAL';
+    const pragmas = [
+        'PRAGMA busy_timeout = 5000;',
+        `PRAGMA synchronous = ${syncMode};`,
+        'PRAGMA temp_store = MEMORY;',
+        'PRAGMA cache_size = -16000;',
+        'PRAGMA mmap_size = 67108864;',
+        'PRAGMA wal_autocheckpoint = 1000;',
+        // Limitahan ang laki ng -wal file sa disk pagkatapos ng checkpoint (64 MB) — mahalaga sa phone storage.
+        'PRAGMA journal_size_limit = 67108864;'
+    ];
+    for (const sql of pragmas) {
+        try { db.exec(sql); } catch (_) { /* hindi suportado — gamitin ang default */ }
+    }
+    // Hayaan ang SQLite na i-update ang query statistics kung kailangan (mabilis; walang ginagawa kung hindi kailangan).
+    try { db.exec('PRAGMA optimize;'); } catch (_) { /* opsyonal */ }
+})();
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS store (
@@ -208,6 +239,32 @@ const rowUpsertStmt = db.prepare(`
 `);
 const rowDeleteStmt = db.prepare('DELETE FROM row_store WHERE module = ? AND record_id = ?');
 const rowCountStmt = db.prepare('SELECT COUNT(*) as cnt FROM row_store WHERE module = ?');
+
+// SCALE FIX (malaking database): mga statement para sa "isang row lang" na operasyon, para hindi na
+// kailangang basahin/i-parse/isulat muli ang BUONG module sa bawat benta o log entry.
+const rowSelectOneStmt = db.prepare('SELECT data FROM row_store WHERE module = ? AND record_id = ? LIMIT 1');
+const rowExistsStmt = db.prepare('SELECT 1 AS found FROM row_store WHERE module = ? AND record_id = ? LIMIT 1');
+// Bagong row = pinakamataas na seq ng module + 1 (newest-first ang basa: ORDER BY seq DESC).
+const rowInsertNewestStmt = db.prepare(`
+    INSERT INTO row_store (module, record_id, seq, data, updated_at)
+    VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM row_store WHERE module = ?), ?, ?)
+    ON CONFLICT(module, record_id) DO UPDATE SET
+        data = excluded.data,
+        updated_at = excluded.updated_at
+`);
+// Pinakalumang rows lang ang binubura, at may limit kada tawag para hindi mag-block ang server nang matagal.
+const rowTrimOldestStmt = db.prepare(`
+    DELETE FROM row_store WHERE rowid IN (
+        SELECT rowid FROM row_store WHERE module = ? ORDER BY seq ASC LIMIT ?
+    )
+`);
+// Index para sa mabilis na syncId lookup ng offline sales (dati: binabasa lahat ng transactions).
+// Kung mabigo ang pagawa nito, tama pa rin ang resulta ng query — mas mabagal lang.
+try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_row_store_tx_syncid ON row_store(json_extract(data, '$.syncId')) WHERE module = 'transactions';");
+} catch (err) {
+    console.warn('⚠️ Hindi nagawa ang syncId index ng transactions (mas mabagal ang offline-sale lookup, pero gumagana pa rin):', err.message);
+}
 
 function readRowNormalizedData(moduleName) {
     const rows = rowSelectAllStmt.all(moduleName);
@@ -487,6 +544,40 @@ function writeDataDirectInTransaction(moduleName, data, now) {
 }
 
 /**
+ * Magdagdag ng bagong row(s) sa harap (newest) ng isang row-normalized module — nasa loob ng
+ * umiiral nang SQLite transaction (hindi ito nagbubukas ng sarili). items[0] ang pinakabago
+ * (kapareho ng dating array.unshift), kaya ito ang may pinakamataas na seq.
+ */
+function prependRowsInTransaction(moduleName, items, now) {
+    if (!ROW_NORMALIZED_MODULES.has(moduleName)) {
+        throw new Error(`prependRows: ang module "${moduleName}" ay hindi row-normalized.`);
+    }
+    const list = Array.isArray(items) ? items : [];
+    let seq = (rowMaxSeqStmt.get(moduleName) || { maxSeq: 0 }).maxSeq;
+    for (let index = list.length - 1; index >= 0; index--) {
+        const item = list[index];
+        const recordId = item && item.id != null
+            ? String(item.id)
+            : `__noid_${Date.now()}_${index}`;
+        seq += 1;
+        rowUpsertStmt.run(moduleName, recordId, seq, JSON.stringify(item), now);
+    }
+}
+
+// I-update ang umiiral na row (nananatili ang pwesto/seq niya) o magdagdag ng bago sa harap kung wala pa.
+function upsertRowsInTransaction(moduleName, items, now) {
+    const list = Array.isArray(items) ? items : [];
+    let seq = (rowMaxSeqStmt.get(moduleName) || { maxSeq: 0 }).maxSeq;
+    for (const item of list) {
+        if (!item || item.id == null) throw new Error('upsertRows: kailangan ng id ang bawat record.');
+        const recordId = String(item.id);
+        const isNew = !rowExistsStmt.get(moduleName, recordId);
+        if (isNew) seq += 1;
+        rowUpsertStmt.run(moduleName, recordId, isNew ? seq : 0, JSON.stringify(item), now);
+    }
+}
+
+/**
  * Atomically replace multiple logical data modules in the same SQLite
  * transaction. The callback receives a small transaction writer so callers
  * can prepare all new module states first and then commit them together.
@@ -500,6 +591,25 @@ function runDatabaseTransaction(changes) {
     db.exec('BEGIN IMMEDIATE');
     try {
         for (const change of list) {
+            // SCALE FIX: { module, prependRows: [item, ...] } = magdagdag lang ng bagong row(s) sa
+            // row-normalized module (hal. isang bagong sale) — hindi na kailangang isulat muli ang buong module.
+            if (Array.isArray(change.prependRows)) {
+                prependRowsInTransaction(change.module, change.prependRows, now);
+                continue;
+            }
+            // SCALE FIX: { module, upsertRows: [item] } = i-update ang umiiral na row (hal. refund: nadagdagan ang
+            // totalRefunded) o magdagdag kung wala pa; { module, deleteRowIds: [id] } = burahin ang mga row na iyon (hal. void).
+            // Hindi na kailangang basahin at isulat muli ang BUONG module.
+            if (Array.isArray(change.upsertRows) || Array.isArray(change.deleteRowIds)) {
+                if (!ROW_NORMALIZED_MODULES.has(change.module)) {
+                    throw new Error(`upsertRows/deleteRowIds: ang module "${change.module}" ay hindi row-normalized.`);
+                }
+                if (Array.isArray(change.upsertRows)) upsertRowsInTransaction(change.module, change.upsertRows, now);
+                if (Array.isArray(change.deleteRowIds)) {
+                    for (const id of change.deleteRowIds) rowDeleteStmt.run(change.module, String(id));
+                }
+                continue;
+            }
             const json = writeDataDirectInTransaction(change.module, change.data, now);
             cacheUpdates.set(change.module, json);
         }
@@ -581,70 +691,162 @@ function getBackupStatus() {
     }
 }
 
-function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
-    try {
+// ---------------------------------------------------------------------------
+// BACKUP SA MALAKING DATABASE (SCALE FIX)
+// Dati: (1) fs.copyFileSync ng BUONG .db (blocking ang buong server habang kinokopya, at 14 kopya = 14x ang laki
+// ng DB sa disk), (2) kasama ang isang JSON snapshot na naglo-load ng LAHAT ng module sa RAM (OOM / "Invalid
+// string length" kapag ilang daang MB na), (3) kapag naubusan ng disk sa gitna ng kopya, naiiwan ang putol na
+// file at nasasagasaan pati ang mga benta, (4) ang RELAY_BACKUP mirror ay sinusulat nang direkta sa umiiral na
+// file (kapag naputol, sira na rin ang nag-iisang kopya).
+// Ngayon: gumagamit ng SQLite online backup (node:sqlite backup(), hindi blocking, consistent kahit may sale na
+// pumapasok), isinusulat muna sa .tmp saka ire-rename, may free-disk check, at kapag malaki ang DB ay
+// 2 kopya na lang ang itinatabi at nilalaktawan ang JSON snapshot (ang .db ang totoong backup).
+// Pwedeng baguhin sa .env: BACKUP_LARGE_DB_MB (default 256), BACKUP_LARGE_KEEP (default 2),
+// BACKUP_JSON_MAX_DB_MB (default 256), BACKUP_DISK_MARGIN_MB (default 64).
+// ---------------------------------------------------------------------------
+const sqliteBackupFn = (typeof sqliteModule.backup === 'function') ? sqliteModule.backup : null;
 
-        
-        
-        db.exec('PRAGMA wal_checkpoint(FULL);');
+function envMegabytes(name, fallbackMb) {
+    const raw = process.env[name];
+    if (raw === undefined || String(raw).trim() === '') return fallbackMb * 1024 * 1024;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n * 1024 * 1024 : fallbackMb * 1024 * 1024;
+}
+function envCount(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || String(raw).trim() === '') return fallback;
+    const n = Math.floor(Number(raw));
+    return Number.isFinite(n) && n >= 1 ? n : fallback;
+}
+
+// Laki ng database sa disk (main file + WAL) — ito ang pinakamataas na posibleng laki ng isang kopya.
+function getDatabaseFileBytes() {
+    let total = 0;
+    for (const file of [DB_PATH, DB_PATH + '-wal']) {
+        try { total += fs.statSync(file).size; } catch (_) {}
+    }
+    return total;
+}
+// Libreng espasyo (bytes) ng disk na kinalalagyan ng `dir`; null kung hindi matukoy (hindi dapat harangan ang backup).
+function getFreeDiskBytes(dir) {
+    try {
+        if (typeof fs.statfsSync !== 'function') return null;
+        const st = fs.statfsSync(dir);
+        return Number(st.bavail) * Number(st.bsize);
+    } catch (_) { return null; }
+}
+function listBackupFiles(dir, prefix, ext) {
+    try {
+        return fs.readdirSync(dir).filter(f => f.startsWith(prefix) && f.endsWith(ext)).sort();
+    } catch (_) { return []; }
+}
+function pruneBackupFiles(dir, prefix, ext, keep) {
+    const files = listBackupFiles(dir, prefix, ext);
+    while (files.length > keep) {
+        const oldest = files.shift();
+        try { fs.unlinkSync(path.join(dir, oldest)); } catch (_) {}
+    }
+    return files.length;
+}
+function removeStaleTmpFiles(dir) {
+    try {
+        for (const f of fs.readdirSync(dir)) {
+            if (f.endsWith('.tmp')) { try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} }
+        }
+    } catch (_) {}
+}
+
+// Isang backup/mirror lang ang sabay na tumatakbo (hindi nagsasapawan ang daily backup at RELAY mirror).
+let backupJobChain = Promise.resolve();
+function runBackupJobExclusive(job) {
+    const next = backupJobChain.then(job, job);
+    backupJobChain = next.catch(() => {});
+    return next;
+}
+
+// Kopyahin ang BUONG database sa `destPath` nang atomic: .tmp muna, saka rename. Consistent na snapshot.
+async function snapshotDatabaseTo(destPath) {
+    const tmpPath = destPath + '.tmp';
+    try { fs.rmSync(tmpPath, { force: true }); } catch (_) {}
+    try {
+        if (sqliteBackupFn) {
+            // 1024 pages/step (~4 MB) — bumabalik sa event loop pagkatapos ng bawat step kaya hindi naka-freeze ang server.
+            await sqliteBackupFn(db, tmpPath, { rate: 1024 });
+        } else {
+            // Lumang Node na walang backup(): checkpoint + file copy (blocking, pero consistent dahil sync ang lahat ng write).
+            db.exec('PRAGMA wal_checkpoint(FULL);');
+            fs.copyFileSync(DB_PATH, tmpPath);
+        }
+        const size = fs.statSync(tmpPath).size;
+        if (!(size > 0)) throw new Error('Walang laman ang nagawang backup file.');
+        fs.renameSync(tmpPath, destPath);
+        return size;
+    } catch (err) {
+        try { fs.rmSync(tmpPath, { force: true }); } catch (_) {}
+        throw err;
+    }
+}
+
+function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
+    return runBackupJobExclusive(() => runLocalDatabaseBackupNow(maxBackupsToKeep));
+}
+
+async function runLocalDatabaseBackupNow(maxBackupsToKeep) {
+    try {
+        removeStaleTmpFiles(BACKUP_DIR);
+
+        const dbBytes = getDatabaseFileBytes();
+        const isLargeDb = dbBytes > envMegabytes('BACKUP_LARGE_DB_MB', 256);
+        const keep = isLargeDb ? Math.min(maxBackupsToKeep, envCount('BACKUP_LARGE_KEEP', 2)) : maxBackupsToKeep;
+
+        // Free-disk check: kailangan ng kasing-laki ng DB (+ margin). Kung kulang, burahin muna ang pinakalumang
+        // kopya (laging may natitira kahit isa) bago sumuko — mas mabuting walang bagong backup kaysa mapuno ang disk.
+        const needed = dbBytes + envMegabytes('BACKUP_DISK_MARGIN_MB', 64);
+        let freeDisk = getFreeDiskBytes(BACKUP_DIR);
+        if (freeDisk !== null && freeDisk < needed) {
+            const existing = listBackupFiles(BACKUP_DIR, 'omnipos-', '.db');
+            while (existing.length > 1 && freeDisk < needed) {
+                try { fs.unlinkSync(path.join(BACKUP_DIR, existing.shift())); } catch (_) { break; }
+                freeDisk = getFreeDiskBytes(BACKUP_DIR);
+            }
+            if (freeDisk !== null && freeDisk < needed) {
+                throw new Error(`Kulang ang libreng espasyo sa disk para sa backup (kailangan ~${Math.ceil(needed / 1048576)} MB, libre ~${Math.floor(freeDisk / 1048576)} MB). Walang nasirang kopya.`);
+            }
+        }
 
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         const destPath = path.join(BACKUP_DIR, `omnipos-${stamp}.db`);
-        fs.copyFileSync(DB_PATH, destPath);
+        await snapshotDatabaseTo(destPath);
+        const keptDb = pruneBackupFiles(BACKUP_DIR, 'omnipos-', '.db', keep);
+        console.log(`✅ Local database backup created: ${destPath} (${keptDb}/${keep} kept${isLargeDb ? ', malaking DB' : ''})`);
 
-        
-        const files = fs.readdirSync(BACKUP_DIR)
-            .filter(f => f.startsWith('omnipos-') && f.endsWith('.db'))
-            .sort();
-        while (files.length > maxBackupsToKeep) {
-            const oldest = files.shift();
-            fs.unlinkSync(path.join(BACKUP_DIR, oldest));
-        }
-
-        console.log(`✅ Local database backup created: ${destPath} (${files.length}/${maxBackupsToKeep} kept)`);
-
-        // BUG FIX: dati, RAW SQLite (.db) file copy lang ang ginagawa ng
-        // auto local backup na ito — kaya WALANG paraan para gamitin ito
-        // sa loob mismo ng app kapag walang internet. Ang "System
-        // Recovery & Database Restore" card (triggerSystemRestore() sa
-        // app.js, #recoveryFileInput accept=".json") ay JSON.parse() lang
-        // ang ginagawa sa napiling file bago ipadala sa POST
-        // /api/restore-backup — kaya kung ito rin lang ang piliin, palya
-        // ito agad (hindi valid JSON ang raw SQLite binary). Ibig sabihin,
-        // hindi talaga magagamit ang lokal na backup na ito sa "System
-        // Recovery" flow, kahit ito mismo ang layunin nito (offline na
-        // restore). Idinagdag ngayon, sabay sa .db copy sa itaas, ang
-        // isa ring JSON snapshot (parehong shape ng
-        // omnipos_full_backup_<timestamp>.json na ipinapadala sa email
-        // tuwing Hard Reset — {timestamp, ...modules}) — kaya pareho na
-        // silang tugma sa /api/restore-backup at maaaring piliin sa
-        // parehong "System Recovery" file picker, online man o offline.
-        // Hindi ito nagpapalit/nag-aalis sa .db copy sa itaas — hiwalay
-        // pa rin itong ginagawa bilang huling paraan (manual file-level
-        // swap) kung sakaling masira/hindi na makabukas ang app mismo,
-        // dahil hindi kailangang tumakbo ang app para gamitin iyon.
+        // JSON snapshot (parehong shape ng omnipos_full_backup_<timestamp>.json, tugma sa /api/restore-backup at sa
+        // "System Recovery" file picker kahit offline). Naglo-load ito ng LAHAT ng module sa RAM kaya nilalaktawan
+        // kapag malaki na ang DB — ang .db copy sa itaas ang backup na gagamitin (manual file swap).
         let jsonSnapshotPath = null;
-        try {
-            const snapshot = getFullDatabaseSnapshot();
-            const backupPayload = { timestamp: snapshot.generatedAt, ...snapshot.modules };
-            jsonSnapshotPath = path.join(BACKUP_DIR, `omnipos-${stamp}.json`);
-            fs.writeFileSync(jsonSnapshotPath, JSON.stringify(backupPayload));
-
-            const jsonFiles = fs.readdirSync(BACKUP_DIR)
-                .filter(f => f.startsWith('omnipos-') && f.endsWith('.json'))
-                .sort();
-            while (jsonFiles.length > maxBackupsToKeep) {
-                const oldestJson = jsonFiles.shift();
-                fs.unlinkSync(path.join(BACKUP_DIR, oldestJson));
+        let jsonSkippedReason = null;
+        if (dbBytes > envMegabytes('BACKUP_JSON_MAX_DB_MB', 256)) {
+            jsonSkippedReason = `Nilaktawan ang JSON snapshot: ${(dbBytes / 1048576).toFixed(0)} MB ang database (masyadong malaki para sa RAM). Gamitin ang .db backup.`;
+            console.log(`ℹ️ ${jsonSkippedReason}`);
+        } else {
+            try {
+                const snapshot = getFullDatabaseSnapshot();
+                const backupPayload = { timestamp: snapshot.generatedAt, ...snapshot.modules };
+                const jsonTmp = path.join(BACKUP_DIR, `omnipos-${stamp}.json.tmp`);
+                jsonSnapshotPath = path.join(BACKUP_DIR, `omnipos-${stamp}.json`);
+                fs.writeFileSync(jsonTmp, JSON.stringify(backupPayload));
+                fs.renameSync(jsonTmp, jsonSnapshotPath);
+                console.log(`✅ Local JSON snapshot backup created: ${jsonSnapshotPath} — usable with System Recovery even offline.`);
+            } catch (jsonErr) {
+                jsonSnapshotPath = null;
+                try { fs.rmSync(path.join(BACKUP_DIR, `omnipos-${stamp}.json.tmp`), { force: true }); } catch (_) {}
+                // Hindi dapat mag-fail ang buong local backup kung nagawa naman ang .db copy.
+                console.error('⚠️ Nagawa ang .db copy pero nabigo ang JSON snapshot na bahagi ng local backup:', jsonErr.message);
             }
-            console.log(`✅ Local JSON snapshot backup created: ${jsonSnapshotPath} (${jsonFiles.length}/${maxBackupsToKeep} kept) — usable with System Recovery even offline.`);
-        } catch (jsonErr) {
-            // Hindi dapat mag-fail ang buong local backup kung nagawa
-            // naman ang .db copy sa itaas — i-log lang, huwag i-throw.
-            console.error('⚠️ Nagawa ang .db copy pero nabigo ang JSON snapshot na bahagi ng local backup:', jsonErr.message);
         }
+        pruneBackupFiles(BACKUP_DIR, 'omnipos-', '.json', keep);
 
-        const result = { success: true, path: destPath, jsonSnapshotPath };
+        const result = { success: true, path: destPath, jsonSnapshotPath, jsonSkippedReason };
         recordBackupStatus(result);
         return result;
     } catch (err) {
@@ -679,18 +881,43 @@ const RELAY_BACKUP_FILENAME = 'omnipos_database_backup.db';
 // Same path resolveDownloadBackupDir() falls back to when no Download folder exists.
 const RELAY_BACKUP_FALLBACK_DIR = path.join(DB_DIR, 'relay-backup-fallback', 'RELAY_BACKUP');
 let relayBackupMirrorWarned = false;
+// Tanda ng huling matagumpay na mirror (laki + oras ng DB/WAL file) — kapag walang nagbago mula noon at nandoon pa
+// ang kopya, hindi na ulit kokopyahin ang buong DB (dati: buong kopya kada RELAY check-in).
+let lastMirrorSignature = null;
 
-function copyDatabaseTo(destDir) {
+function getDatabaseChangeSignature() {
+    const parts = [];
+    for (const file of [DB_PATH, DB_PATH + '-wal']) {
+        try { const st = fs.statSync(file); parts.push(`${st.size}:${st.mtimeMs}`); } catch (_) { parts.push('none'); }
+    }
+    return parts.join('|');
+}
+
+async function copyDatabaseTo(destDir) {
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
     const destPath = path.join(destDir, RELAY_BACKUP_FILENAME);
     const existedBefore = fs.existsSync(destPath);
-    db.exec('PRAGMA wal_checkpoint(FULL);');
-    fs.copyFileSync(DB_PATH, destPath);
-    const stat = fs.statSync(destPath);
-    return { success: true, path: destPath, sizeBytes: stat.size, existedBefore };
+    const signature = `${destDir}|${getDatabaseChangeSignature()}`;
+    if (existedBefore && lastMirrorSignature === signature) {
+        const st = fs.statSync(destPath);
+        return { success: true, path: destPath, sizeBytes: st.size, existedBefore, unchanged: true };
+    }
+    removeStaleTmpFiles(destDir);
+    const needed = getDatabaseFileBytes() + envMegabytes('BACKUP_DISK_MARGIN_MB', 64);
+    const freeDisk = getFreeDiskBytes(destDir);
+    if (freeDisk !== null && freeDisk < needed) {
+        throw new Error(`Kulang ang libreng espasyo sa ${destDir} (kailangan ~${Math.ceil(needed / 1048576)} MB, libre ~${Math.floor(freeDisk / 1048576)} MB).`);
+    }
+    const sizeBytes = await snapshotDatabaseTo(destPath);
+    lastMirrorSignature = signature;
+    return { success: true, path: destPath, sizeBytes, existedBefore };
 }
 
 function mirrorBackupToDownloads() {
+    return runBackupJobExclusive(mirrorBackupToDownloadsNow);
+}
+
+async function mirrorBackupToDownloadsNow() {
     // FIX: in OmniPOS.apk mode Termux has no storage permission, so
     // /storage/emulated/0/Download "exists" but copying into it fails with
     // EACCES. That failure used to abort the whole RELAY_BACKUP sync (so the
@@ -701,7 +928,7 @@ function mirrorBackupToDownloads() {
     let primaryError = null;
     for (const destDir of dirs) {
         try {
-            const result = copyDatabaseTo(destDir);
+            const result = await copyDatabaseTo(destDir);
             if (primaryError) {
                 result.usedFallback = true;
                 result.primaryError = primaryError;
@@ -1228,7 +1455,302 @@ function migrateLegacyProductImages() {
 }
 migrateLegacyProductImages();
 
-module.exports = { getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
+// ---------------------------------------------------------------------------
+// SINGLE-ROW HELPERS para sa row-normalized modules (transactions, userlogs)
+// Para hindi na kailangang i-load ang buong module (milyon-milyong row sa malaking database).
+// ---------------------------------------------------------------------------
+const JSON_FIELD_NAME_RE = /^[A-Za-z0-9_]+$/;
+const jsonFieldStmtCache = new Map();
+
+function normalizeJsonFieldValue(value) {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    return undefined;
+}
+
+function rowStoreHas(moduleName, recordId) {
+    if (recordId === undefined || recordId === null) return false;
+    return !!rowExistsStmt.get(String(moduleName), String(recordId));
+}
+
+function getJsonFieldStmt(kind, fieldName) {
+    const key = `${kind}:${fieldName}`;
+    let stmt = jsonFieldStmtCache.get(key);
+    if (!stmt) {
+        // "seq + 0": para hindi piliin ng SQLite ang (module, seq) index para sa ORDER BY — kapag walang match
+        // (karaniwang kaso), mapipilitan itong mag-scan ng BUONG module. Ang field index ang dapat gamitin.
+        stmt = kind === 'one'
+            ? db.prepare(`SELECT data FROM row_store WHERE module = ? AND json_extract(data, '$.${fieldName}') = ? ORDER BY seq + 0 DESC LIMIT 1`)
+            : db.prepare(`SELECT data FROM row_store WHERE module = ? AND json_extract(data, '$.${fieldName}') = ? AND record_id != ? ORDER BY seq DESC LIMIT ?`);
+        jsonFieldStmtCache.set(key, stmt);
+    }
+    return stmt;
+}
+
+// Pinakabagong record ng module na ang top-level field ay eksaktong katumbas ng value (string/number lang).
+function findRowByJsonField(moduleName, fieldName, value) {
+    const bound = normalizeJsonFieldValue(value);
+    if (bound === undefined || !JSON_FIELD_NAME_RE.test(String(fieldName))) return null;
+    const row = getJsonFieldStmt('one', String(fieldName)).get(String(moduleName), bound);
+    if (!row) return null;
+    try { return JSON.parse(row.data); } catch (_) { return null; }
+}
+
+// Hanggang `limit` na pinakabagong records (newest-first) na tugma ang field, maliban sa excludeRecordId.
+function readRecentRowsByJsonField(moduleName, fieldName, value, limit, excludeRecordId) {
+    const bound = normalizeJsonFieldValue(value);
+    const max = Math.floor(Number(limit));
+    if (bound === undefined || !Number.isFinite(max) || max < 1 || !JSON_FIELD_NAME_RE.test(String(fieldName))) return [];
+    const rows = getJsonFieldStmt('many', String(fieldName)).all(
+        String(moduleName), bound, excludeRecordId == null ? '' : String(excludeRecordId), max
+    );
+    const out = [];
+    for (const row of rows) {
+        try { out.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return out;
+}
+
+// Isang "pahina" ng row-normalized module (newest-first) — SQL ang nag-LIMIT/OFFSET, hindi na kailangang i-parse ang
+// buong module. Opsyonal na filter: eksaktong field = value (string/number) na hindi sensitibo sa laki ng titik (ASCII).
+// Kumukuha ng limit+1 row para malaman kung may susunod pang pahina (hasMore).
+function readRowsPage(moduleName, options) {
+    const opts = options || {};
+    const limit = Math.max(1, Math.min(Math.floor(Number(opts.limit)) || 100, 20000));
+    const offset = Math.max(0, Math.floor(Number(opts.offset)) || 0);
+    let rows;
+    if (opts.field !== undefined) {
+        const bound = normalizeJsonFieldValue(opts.value);
+        if (bound === undefined || !JSON_FIELD_NAME_RE.test(String(opts.field))) return { rows: [], hasMore: false };
+        const key = `page:${opts.field}`;
+        let stmt = jsonFieldStmtCache.get(key);
+        if (!stmt) {
+            stmt = db.prepare(`SELECT data FROM row_store WHERE module = ? AND json_extract(data, '$.${opts.field}') = ? COLLATE NOCASE ORDER BY seq DESC LIMIT ? OFFSET ?`);
+            jsonFieldStmtCache.set(key, stmt);
+        }
+        rows = stmt.all(String(moduleName), bound, limit + 1, offset);
+    } else {
+        let stmt = jsonFieldStmtCache.get('page:all');
+        if (!stmt) {
+            stmt = db.prepare('SELECT data FROM row_store WHERE module = ? ORDER BY seq DESC LIMIT ? OFFSET ?');
+            jsonFieldStmtCache.set('page:all', stmt);
+        }
+        rows = stmt.all(String(moduleName), limit + 1, offset);
+    }
+    const hasMore = rows.length > limit;
+    const out = [];
+    for (const row of rows.slice(0, limit)) {
+        try { out.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return { rows: out, hasMore };
+}
+
+// Lahat ng record ng module na ang field ay katumbas ng value (hindi sensitibo sa laki ng titik, ASCII), newest-first.
+// Para sa mga user na hindi "view all": SQL ang nagsasala, hindi na kailangang i-load ang buong module sa memory.
+function readRowsByJsonFieldNoCase(moduleName, fieldName, value) {
+    const bound = normalizeJsonFieldValue(value);
+    if (bound === undefined || !JSON_FIELD_NAME_RE.test(String(fieldName))) return [];
+    const key = `nocase:${fieldName}`;
+    let stmt = jsonFieldStmtCache.get(key);
+    if (!stmt) {
+        stmt = db.prepare(`SELECT data FROM row_store WHERE module = ? AND json_extract(data, '$.${fieldName}') = ? COLLATE NOCASE ORDER BY seq DESC`);
+        jsonFieldStmtCache.set(key, stmt);
+    }
+    const out = [];
+    for (const row of stmt.all(String(moduleName), bound)) {
+        try { out.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return out;
+}
+
+// PAGINATION + SEARCH: isang pahina ng mga record na ang `id` o `cashier` ay may laman na q (hindi sensitibo sa laki ng
+// titik para sa ASCII, kapareho ng dating includes() sa app.js). SQL ang nagsasala at nag-LIMIT/OFFSET kaya hindi na
+// kailangang hilahin ang buong history sa phone para lang makapaghanap. Opsyonal na `field`/`value` para sa user na
+// hindi "view all" (sariling benta lang).
+function readRowsSearchPage(moduleName, options) {
+    const opts = options || {};
+    const limit = Math.max(1, Math.min(Math.floor(Number(opts.limit)) || 100, 20000));
+    const offset = Math.max(0, Math.floor(Number(opts.offset)) || 0);
+    const q = String(opts.q === undefined || opts.q === null ? '' : opts.q).trim();
+    const like = '%' + q.replace(/[\\%_]/g, m => '\\' + m) + '%';
+    const scoped = opts.field !== undefined;
+    if (scoped) {
+        const bound = normalizeJsonFieldValue(opts.value);
+        if (bound === undefined || !JSON_FIELD_NAME_RE.test(String(opts.field))) return { rows: [], hasMore: false };
+        const key = `searchpage:${opts.field}`;
+        let stmt = jsonFieldStmtCache.get(key);
+        if (!stmt) {
+            stmt = db.prepare(`SELECT data FROM row_store WHERE module = ? AND json_extract(data, '$.${opts.field}') = ? COLLATE NOCASE AND (json_extract(data, '$.id') LIKE ? ESCAPE '\\' OR json_extract(data, '$.cashier') LIKE ? ESCAPE '\\') ORDER BY seq DESC LIMIT ? OFFSET ?`);
+            jsonFieldStmtCache.set(key, stmt);
+        }
+        return finishSearchPage(stmt.all(String(moduleName), bound, like, like, limit + 1, offset), limit);
+    }
+    let stmt = jsonFieldStmtCache.get('searchpage:all');
+    if (!stmt) {
+        stmt = db.prepare(`SELECT data FROM row_store WHERE module = ? AND (json_extract(data, '$.id') LIKE ? ESCAPE '\\' OR json_extract(data, '$.cashier') LIKE ? ESCAPE '\\') ORDER BY seq DESC LIMIT ? OFFSET ?`);
+        jsonFieldStmtCache.set('searchpage:all', stmt);
+    }
+    return finishSearchPage(stmt.all(String(moduleName), like, like, limit + 1, offset), limit);
+}
+function finishSearchPage(rows, limit) {
+    const hasMore = rows.length > limit;
+    const out = [];
+    for (const row of rows.slice(0, limit)) {
+        try { out.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return { rows: out, hasMore };
+}
+
+// DEAD-STOCK: ang "huling benta ng bawat item code" ay kinakalkula na ng SQLite (json_each + GROUP BY) sa halip na
+// i-parse ng JavaScript ang bawat transaksyon. Ang mga row na may malinis na UTC ISO isoDate lang ang dumadaan sa SQL
+// (kaya eksaktong pareho ang oras na lalabas); ang LAHAT ng iba pa (walang/kakaibang isoDate) ay ibinabalik bilang
+// `otherRows` para ang caller ang magproseso gamit ang dating lohika. Kaya pareho pa rin ang resulta.
+function readLastSoldAggregates(moduleName) {
+    let aggStmt = jsonFieldStmtCache.get('lastsold:agg');
+    if (!aggStmt) {
+        aggStmt = db.prepare(`SELECT trim(json_extract(i.value, '$.code')) AS code, json_extract(r.data, '$.isoDate') AS iso, MAX(julianday(json_extract(r.data, '$.isoDate'))) AS jd
+            FROM row_store r, json_each(r.data, '$.items') i
+            WHERE r.module = ? AND json_type(r.data, '$.items') = 'array'
+              AND typeof(json_extract(r.data, '$.isoDate')) = 'text'
+              AND json_extract(r.data, '$.isoDate') GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*Z'
+              AND julianday(json_extract(r.data, '$.isoDate')) IS NOT NULL
+              AND json_extract(i.value, '$.code') IS NOT NULL
+            GROUP BY trim(json_extract(i.value, '$.code'))`);
+        jsonFieldStmtCache.set('lastsold:agg', aggStmt);
+    }
+    let otherStmt = jsonFieldStmtCache.get('lastsold:other');
+    if (!otherStmt) {
+        otherStmt = db.prepare(`SELECT data FROM row_store r WHERE r.module = ? AND NOT (
+            typeof(json_extract(r.data, '$.isoDate')) = 'text'
+            AND json_extract(r.data, '$.isoDate') GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*Z'
+            AND julianday(json_extract(r.data, '$.isoDate')) IS NOT NULL)`);
+        jsonFieldStmtCache.set('lastsold:other', otherStmt);
+    }
+    const byCode = aggStmt.all(String(moduleName)).map(r => ({ code: r.code, iso: r.iso }));
+    const otherRows = [];
+    for (const row of otherStmt.all(String(moduleName))) {
+        try { otherRows.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return { byCode, otherRows };
+}
+
+// ISANG record ng row-normalized module ayon sa id (primary key lookup) — hindi na kailangang i-load ang buong module.
+function getRowById(moduleName, recordId) {
+    if (recordId === undefined || recordId === null) return null;
+    const row = rowSelectOneStmt.get(String(moduleName), String(recordId));
+    if (!row) return null;
+    try { return JSON.parse(row.data); } catch (_) { return null; }
+}
+
+// Average ng numeric na top-level field ng lahat ng record (kinakalkula sa SQL; ang walang/di-numeric na value ay 0,
+// kapareho ng dating parseFloat(x) || 0). Walang record = 0.
+function averageRowNumberField(moduleName, fieldName) {
+    if (!JSON_FIELD_NAME_RE.test(String(fieldName))) return 0;
+    const key = `avg:${fieldName}`;
+    let stmt = jsonFieldStmtCache.get(key);
+    if (!stmt) {
+        stmt = db.prepare(`SELECT AVG(COALESCE(CAST(json_extract(data, '$.${fieldName}') AS REAL), 0)) AS avg FROM row_store WHERE module = ?`);
+        jsonFieldStmtCache.set(key, stmt);
+    }
+    const row = stmt.get(String(moduleName));
+    return row && Number.isFinite(Number(row.avg)) ? Number(row.avg) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// MGA "WINDOW" READER para sa reports (shift summary, atbp.): SQL ang nagtatapon ng mga row na tiyak na LABAS sa
+// panahong hinahanap, para hindi na ipa-parse sa JavaScript ang buong history. Ang resulta ay SUPERSET lang —
+// ang caller ay dapat pa ring maglapat ng eksaktong dating filter nito (kaya pareho pa rin ang kinalalabasan).
+// Ang mga row na hindi matiyak (walang/kakaibang field) ay IBINABALIK, hindi itinatapon. Newest-first ang ayos.
+// ---------------------------------------------------------------------------
+const WINDOW_MARGIN_MS = 2 * 24 * 60 * 60 * 1000; // sapat para sa kahit anong timezone offset (hanggang ±14h)
+function readRowsInIsoWindow(moduleName, fieldName, startMs, endMs) {
+    if (!JSON_FIELD_NAME_RE.test(String(fieldName))) return null;
+    const lo = new Date(Number(startMs) - WINDOW_MARGIN_MS);
+    const hi = new Date(Number(endMs) + WINDOW_MARGIN_MS);
+    // Hindi mahulaan ang window (invalid/sobrang layo na petsa): ibalik ang null para ang caller ang bahala (buong basa).
+    if (isNaN(lo.getTime()) || isNaN(hi.getTime()) || lo.getUTCFullYear() < 1000 || hi.getUTCFullYear() > 9998) return null;
+    const key = `isowin:${fieldName}`;
+    let stmt = jsonFieldStmtCache.get(key);
+    if (!stmt) {
+        const f = `json_extract(data, '$.${fieldName}')`;
+        // Itinatapon LAMANG ang text na hugis-ISO (YYYY-MM-DDT...) na malinaw na wala sa pagitan ng lo at hi.
+        stmt = db.prepare(`SELECT data FROM row_store WHERE module = ? AND NOT (typeof(${f}) = 'text' AND ${f} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*' AND (${f} < ? OR ${f} > ?)) ORDER BY seq DESC`);
+        jsonFieldStmtCache.set(key, stmt);
+    }
+    const out = [];
+    for (const row of stmt.all(String(moduleName), lo.toISOString(), hi.toISOString())) {
+        try { out.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return out;
+}
+// Para sa numeric na field (hal. userlogs.id = Date.now()): itinatapon LAMANG ang numeric na value na malinaw na labas sa (lo, hi].
+function readRowsInNumberWindow(moduleName, fieldName, lo, hi) {
+    if (!JSON_FIELD_NAME_RE.test(String(fieldName)) || !Number.isFinite(Number(lo)) || !Number.isFinite(Number(hi))) return null;
+    const key = `numwin:${fieldName}`;
+    let stmt = jsonFieldStmtCache.get(key);
+    if (!stmt) {
+        const f = `json_extract(data, '$.${fieldName}')`;
+        stmt = db.prepare(`SELECT data FROM row_store WHERE module = ? AND NOT (typeof(${f}) IN ('integer', 'real') AND (${f} <= ? OR ${f} > ?)) ORDER BY seq DESC`);
+        jsonFieldStmtCache.set(key, stmt);
+    }
+    const out = [];
+    for (const row of stmt.all(String(moduleName), Number(lo), Number(hi))) {
+        try { out.push(JSON.parse(row.data)); } catch (_) {}
+    }
+    return out;
+}
+
+const approxRowCounts = new Map();
+const ROW_TRIM_MAX_PER_CALL = 20000;
+
+function trimRowsIfNeeded(moduleName, maxRows) {
+    let count = approxRowCounts.get(moduleName);
+    count = (count === undefined) ? rowCountStmt.get(moduleName).cnt : count + 1;
+    const slack = Math.max(500, Math.floor(maxRows * 0.01));
+    if (count > maxRows + slack) {
+        count = rowCountStmt.get(moduleName).cnt;
+        if (count > maxRows) {
+            rowTrimOldestStmt.run(moduleName, Math.min(ROW_TRIM_MAX_PER_CALL, count - maxRows));
+            count = rowCountStmt.get(moduleName).cnt;
+        }
+    }
+    approxRowCounts.set(moduleName, count);
+}
+
+/**
+ * Magdagdag ng ISANG bagong record sa harap ng row-normalized module (hal. user log) nang hindi
+ * binabasa/isinusulat ang buong module. options.uniqueId: kung numeric ang id at may kapareho na,
+ * dagdagan ng 1 hanggang maging unique (dati, nao-overwrite ang log na pareho ang millisecond).
+ * options.maxRows: kung naka-set at lumagpas, buburahin ang pinakalumang records (paunti-unti).
+ */
+function addNewestRow(moduleName, item, options) {
+    if (!ROW_NORMALIZED_MODULES.has(moduleName)) {
+        throw new Error(`addNewestRow: ang module "${moduleName}" ay hindi row-normalized.`);
+    }
+    if (!item || typeof item !== 'object') {
+        throw new Error('addNewestRow: object ang kailangang record.');
+    }
+    const opts = options || {};
+    let recordId;
+    if (item.id != null) {
+        if (opts.uniqueId && typeof item.id === 'number') {
+            let guard = 0;
+            while (rowExistsStmt.get(moduleName, String(item.id)) && guard < 10000) {
+                item.id += 1;
+                guard += 1;
+            }
+        }
+        recordId = String(item.id);
+    } else {
+        recordId = `__noid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+    rowInsertNewestStmt.run(moduleName, recordId, moduleName, JSON.stringify(item), new Date().toISOString());
+    const maxRows = Math.floor(Number(opts.maxRows));
+    if (Number.isFinite(maxRows) && maxRows > 0) trimRowsIfNeeded(moduleName, maxRows);
+    return true;
+}
+
+module.exports = { readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

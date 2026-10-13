@@ -236,6 +236,10 @@ function showUnlockRequestError(reqData, fallbackMessage) {
         showDeveloperUnavailableModal();
         return;
     }
+    if (reqData && reqData.featureUnavailable) {
+        Swal.fire({ icon:'info', title:'Not Available Yet', text: reqData.message || 'This feature is not available yet. Please try again later.', confirmButtonText:'OK' });
+        return;
+    }
     if (reqData && reqData.pendingAuthorization) {
         Swal.fire({
             icon:'info',
@@ -908,6 +912,25 @@ const THEME_CATALOG = [
 ];
 let featureCatalogLiveCache = null;
 let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
+// "Not available yet" na mga feature (galing RELAY via /features/upgrade-catalog): { [featureId]: { available:false, message } }
+let featureAvailabilityCache = {};
+function applyFeatureAvailabilityFromCatalog(data) {
+    if (!data || !data.success) return;
+    featureAvailabilityCache = (data.featureAvailability && typeof data.featureAvailability === 'object') ? data.featureAvailability : {};
+}
+function getFeatureUnavailableInfo(featureId) {
+    if (!featureAvailabilityCache || !Object.prototype.hasOwnProperty.call(featureAvailabilityCache, featureId)) return null;
+    const entry = featureAvailabilityCache[featureId];
+    if (!entry || entry.available !== false) return null;
+    return { message: (typeof entry.message === 'string' && entry.message) ? entry.message : 'This feature is not available yet. Please try again later.' };
+}
+// Returns true (after showing the message) kapag hindi pa available ang feature — tumigil agad ang tumatawag.
+async function showFeatureUnavailableModal(featureId) {
+    const info = getFeatureUnavailableInfo(featureId);
+    if (!info) return false;
+    await Swal.fire({ icon:'info', title:'Not Available Yet', text: info.message, confirmButtonText:'OK' });
+    return true;
+}
 function getActivationFlags() {
     return activationFlagsCache || { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
 }
@@ -950,6 +973,7 @@ async function refreshFeatureCatalogLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
         const data = await res.json();
+        applyFeatureAvailabilityFromCatalog(data);
         if (data && data.success && Array.isArray(data.features)) {
             const map = {};
             data.features.forEach((f) => { map[f.id] = f; });
@@ -1572,6 +1596,7 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'menu-branches-lock':'multi_branch',
 'menu-attendance-lock':'remote_operations',
 'menu-remoteops-lock':'remote_operations',
+'menu-marketplace-lock':'marketplace_hub',
 'menu-inventory-tools-lock':'inventory_tools'
 };
 const SIDEBAR_PRO_CATEGORIES = {
@@ -1583,7 +1608,7 @@ const SIDEBAR_PRO_CATEGORIES = {
     management: {
         buttonId: 'menu-pro-toggle-management',
         groupId: null,
-        itemIds: ['menu-reports', 'menu-customers', 'menu-debts', 'menu-shiftreport', 'menu-branches', 'menu-attendance', 'menu-remoteops']
+        itemIds: ['menu-reports', 'menu-customers', 'menu-debts', 'menu-shiftreport', 'menu-branches', 'menu-attendance', 'menu-remoteops', 'menu-marketplace']
     }
 };
 const sidebarProRevealed = { inventory: false, management: false };
@@ -1631,21 +1656,81 @@ function updateSidebarProCategories() {
         btn.style.display = (cacheKnown && lockedCount > 0 && !groupHidden) ? 'inline-flex' : 'none';
         btn.classList.toggle('is-open', revealed);
         btn.setAttribute('aria-expanded', revealed ? 'true' : 'false');
-        const label = revealed ? 'Hide locked PRO features' : ('Show locked PRO features (' + lockedCount + ')');
+        const label = revealed ? 'Hide locked PRO features' : ('Show locked PRO features (' + lockedCount + ')' + ((currentUser && (currentUser.role || '').toString().toLowerCase() === 'admin') ? '' : ' — Admin password required'));
         btn.title = label;
         btn.setAttribute('aria-label', label);
         const icon = btn.querySelector('.menu-section-pro-icon');
         if (icon) icon.className = 'fa-solid menu-section-pro-icon ' + (revealed ? 'fa-lock-open' : 'fa-lock');
     });
 }
-function toggleSidebarProCategory(key, ev) {
+// Asks for an ADMIN password before the locked (PRO) sidebar features are revealed.
+// Resolves true only when the server confirmed the password belongs to an Admin account.
+// A wrong password stays inside the dialog (shown as a validation message) so it can be retried.
+async function promptAdminPasswordToRevealPro() {
+    if (typeof Swal === 'undefined') return false;
+    const result = await Swal.fire({
+        title: 'Admin Password Required',
+        html: 'Only an Admin can unhide the locked PRO features. Enter the Admin password to continue.',
+        icon: 'warning',
+        input: 'password',
+        inputPlaceholder: 'Admin password',
+        inputAttributes: { autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' },
+        showCancelButton: true,
+        confirmButtonText: 'Unhide',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#ef4444',
+        showLoaderOnConfirm: true,
+        allowOutsideClick: () => !Swal.isLoading(),
+        preConfirm: async (value) => {
+            const password = (value || '').toString();
+            if (!password.trim()) {
+                Swal.showValidationMessage('Enter the Admin password.');
+                return false;
+            }
+            try {
+                const res = await authFetch(`${API_URL}/sidebar-pro/unlock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data || !data.success) {
+                    Swal.showValidationMessage((data && data.message) || 'Incorrect admin password.');
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                Swal.showValidationMessage('Could not reach the server. Please try again.');
+                return false;
+            }
+        }
+    });
+    return !!(result && result.isConfirmed && result.value === true);
+}
+let sidebarProPromptOpen = false;
+async function toggleSidebarProCategory(key, ev) {
     if (ev) {
         if (typeof ev.preventDefault === 'function') ev.preventDefault();
         if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
     }
     const cat = SIDEBAR_PRO_CATEGORIES[key];
     if (!cat) return;
-    sidebarProRevealed[key] = !sidebarProRevealed[key];
+    if (sidebarProPromptOpen) return;
+    if (!sidebarProRevealed[key]) {
+        // Unhiding needs the Admin password unless an Admin is already logged in;
+        // hiding again never needs one.
+        const loggedInAsAdmin = !!(currentUser && (currentUser.role || '').toString().toLowerCase() === 'admin');
+        if (!loggedInAsAdmin) {
+            sidebarProPromptOpen = true;
+            let allowed = false;
+            try { allowed = await promptAdminPasswordToRevealPro(); }
+            finally { sidebarProPromptOpen = false; }
+            if (!allowed) return;
+        }
+        sidebarProRevealed[key] = true;
+    } else {
+        sidebarProRevealed[key] = false;
+    }
     if (sidebarProRevealed[key] && cat.groupId) openSidebarMenuGroup(cat.groupId);
     updateSidebarProCategories();
     if (sidebarProRevealed[key]) {
@@ -1787,6 +1872,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
     ai_assistant: { name:'Omni AI', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
     remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
+    marketplace_hub: { name:'Marketplace Hub (Shopee, Lazada & TikTok Shop)', description:'Import Shopee, Lazada and TikTok Shop orders with automatic stock deduction, sync stock and prices to your listings, and print shipping labels.' },
     inventory_tools: { name:'Inventory Tools', description:'Physical inventory counts, consignment stock receiving/settlement, a damage/waste log with automatic stock deduction, a dead-stock/slow-moving report, and a Supplier Directory.' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
@@ -1814,6 +1900,7 @@ async function refreshCloudBackupPlansLive() {
     try {
         const res = await authFetch(`${API_URL}/features/upgrade-catalog`);
         const data = await res.json();
+        applyFeatureAvailabilityFromCatalog(data);
         const cbFeature = data && data.success && Array.isArray(data.features)
             ? data.features.find(f => f.id === 'cloud_backup')
             : null;
@@ -1875,17 +1962,19 @@ function openInventoryToolsLink(event) {
     }
     return true;
 }
-const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations', 'marketplace_hub'];
 const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } },
     ai_assistant: { tagline: 'AI-powered help assistant on the Help page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } },
-    remote_operations: { tagline: 'Remote sales monitoring, staff time in/out with selfie evidence, and staff activity reports.', price: { monthly: 249, yearly: 2490 } }
+    remote_operations: { tagline: 'Remote sales monitoring, staff time in/out with selfie evidence, and staff activity reports.', price: { monthly: 249, yearly: 2490 } },
+    marketplace_hub: { tagline: 'Shopee, Lazada & TikTok Shop: order import, automatic stock/price sync, and shipping labels.', price: { monthly: 399, yearly: 3990 } }
 };
 const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
 async function promptModuleSubscription(featureId) {
     if (blockIfOffline('Feature subscription')) return false;
     await refreshFeatureCatalogLive();
+    if (await showFeatureUnavailableModal(featureId)) return false;
     const live = getFeatureLiveInfo(featureId);
     const staticInfo = MODULE_SUBSCRIPTION_PLANS_UI[featureId] || {};
     const displayName = (live && live.name) || (PREMIUM_FEATURE_FALLBACK[featureId] && PREMIUM_FEATURE_FALLBACK[featureId].name) || featureId;
@@ -2485,6 +2574,7 @@ async function runFeatureTokenActivationFlow({ featureIds, billingCycle, totalPr
 async function promptUnlockFeature(featureId, featureName, price, description) {
     if (blockIfOffline('Feature unlock requests')) return false;
     await refreshFeatureCatalogLive();
+    if (await showFeatureUnavailableModal(featureId)) return false;
     if (typeof price !== 'number') {
         const live = getFeatureLiveInfo(featureId);
         if (live) {
@@ -2815,6 +2905,7 @@ async function runUnlockFlow(featureId, displayName, extraRequestBody) {
 async function promptCloudBackupSubscription() {
     if (blockIfOffline('Cloud Backup subscription')) return false;
     await refreshCloudBackupPlansLive();
+    if (await showFeatureUnavailableModal('cloud_backup')) return false;
     const cloudBackupPlans = getCloudBackupPlansMerged();
     let selectedTier = 'standard';
     let selectedCycle = 'monthly';
@@ -3017,6 +3108,7 @@ async function showUpgradeTiersModal() {
         Swal.fire('Error','Could not load the upgrade options.','error');
         return false;
     }
+    applyFeatureAvailabilityFromCatalog(catalog);
     if (catalog.activationFlags) {
         activationFlagsCache = {
             otpRequestsEnabled: catalog.activationFlags.otpRequestsEnabled !== false,
@@ -3880,7 +3972,7 @@ function switchView(viewKey, opts) {
         console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
     }
-    const VIEW_FEATURE_MAP = { customers:'customer_crm', debts:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations', batchlots:'batch_lot_tracking' };
+    const VIEW_FEATURE_MAP = { customers:'customer_crm', debts:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations', marketplace:'marketplace_hub', batchlots:'batch_lot_tracking' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
             guardShiftReportAccess(isAdmin);
@@ -3988,6 +4080,8 @@ function switchView(viewKey, opts) {
     if (viewKey === 'cloudtokens') loadCloudTokensView();
     if (viewKey === 'branches') { loadBranchesPage(); startBranchesPagePolling(); } else { stopBranchesPagePolling(); }
     if (viewKey === 'attendance') loadAttendanceView();
+    if (viewKey === 'marketplace' && window.OmniMarketplace) window.OmniMarketplace.open();
+    else if (window.OmniMarketplace && window.OmniMarketplace.close) window.OmniMarketplace.close();
     if (viewKey === 'remoteops') {
         loadRemoteOperationsView();
         if (!remoteOperationsRefreshTimer) remoteOperationsRefreshTimer = setInterval(() => { if (!document.hidden) loadRemoteOperationsView(); }, 60 * 1000);
@@ -4020,6 +4114,7 @@ const MOBILE_HEADER_TITLE_MAP = {
     branches:     { text:'Branches',            icon:'fa-code-branch',       hideIds: [] },
     attendance:   { text:'Staff Attendance',     icon:'fa-camera',            hideIds: [] },
     remoteops:    { text:'Remote Operations',    icon:'fa-mobile-screen-button', hideIds: [] },
+    marketplace:  { text:'Marketplace Hub',      icon:'fa-store',              hideIds: [] },
     cloudtokens:  { text:'Omni Tokens',         icon:'fa-gem',                hideIds: ['page-title-cloudtokens'] },
     users:        { text:'Settings',            icon:'fa-gear',              hideIds: [] }
 };
@@ -7950,7 +8045,8 @@ const CT_CATEGORY_META = {
     SYNC_FRACTION: { icon: 'fa-clock', color: '#9ca3af' },
     RESTORE_CHARGE: { icon: 'fa-cloud-arrow-down', color: '#ef4444' },
     STORAGE_HOLDING_FEE: { icon: 'fa-server', color: '#ef4444' },
-    REFUND: { icon: 'fa-rotate-left', color: '#22c55e' }
+    REFUND: { icon: 'fa-rotate-left', color: '#22c55e' },
+    DONATION: { icon: 'fa-heart', color: '#ec4899' }
 };
 
 let ctLedgerHiddenBefore = localStorage.getItem('ct_ledger_hidden_before') || null;
@@ -8544,6 +8640,240 @@ function buyCloudTokensCustom() {
     }
     startCloudTokenPurchase(null, amount, customMethod);
 }
+// ===================================================================
+// BAGO: Support the Developer (Sponsor / Donate)
+// Donasyon lang — HINDI nagdadagdag sa token balance ng customer; log lang.
+// Omni Tokens muna kung sapat; kung kulang/walang token, online payment.
+// ===================================================================
+let sponsorPollTimer = null;
+let sponsorModalBusy = false;
+async function openSponsorModal() {
+    if (sponsorModalBusy) return;
+    sponsorModalBusy = true;
+    try {
+        Swal.fire({ title: 'Support the Developer', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading() });
+        let info = null;
+        try {
+            const res = await authFetch(`${API_URL}/admin/sponsor/info`);
+            const body = await res.json();
+            info = res.ok ? body : { success: false, message: body && body.message };
+        } catch (e) { info = null; }
+        if (!info || !info.success) {
+            await Swal.fire({ icon: 'error', title: 'Support the Developer', text: (info && info.message) || 'Could not load the support options. Please try again.' });
+            return;
+        }
+        if (!info.configured) {
+            await Swal.fire({ icon: 'info', title: 'Support the Developer', text: 'This device is not connected to the developer service yet, so donations are not available right now.' });
+            return;
+        }
+        if (info.offline) {
+            await Swal.fire({ icon: 'info', title: 'You are offline', text: 'Tap the Online toggle first, then open Support Developer again.' });
+            return;
+        }
+        const methods = Array.isArray(info.paymentMethods) ? info.paymentMethods : [];
+        const balance = typeof info.balanceTokens === 'number' ? info.balanceTokens : null;
+        const tokensEnabled = !!info.tokenDonationEnabled && balance !== null;
+        const min = info.min || 50;
+        const max = info.max || 100000;
+        const presetsHtml = (info.presets || []).map(v => `<button type="button" class="sp-preset" data-amt="${v}">₱${ctFmtNum(v)}</button>`).join('');
+        const methodOptions = methods.map(m => `<option value="${escapeHtml(String(m.id))}">${escapeHtml(String(m.label))}</option>`).join('');
+        const html = `<div class="sp-wrap">
+            <p class="sp-intro">Maraming salamat sa pag-iisip tumulong! Ang donasyon mo ay makakatulong para mapaganda pa ang OmniPOS.</p>
+            <div class="sp-note"><i class="fa-solid fa-circle-info"></i> Donasyon lang ito — <b>hindi madadagdag sa token balance mo</b> at walang kapalit na benepisyo. Makikita lang ito sa log.</div>
+            <div class="sp-label">Choose an amount</div>
+            <div class="sp-presets">${presetsHtml}</div>
+            <input type="number" id="sp-amount" class="sp-input" inputmode="numeric" min="${min}" max="${max}" step="1" placeholder="Or type your own amount (min ₱${ctFmtNum(min)})" />
+            <div class="sp-label">Pay with</div>
+            <label class="sp-src"><input type="radio" name="sp-src" id="sp-src-tokens" value="tokens"> <i class="fa-solid fa-gem"></i> <span>Omni Tokens <small>${balance !== null ? `(balance: ${ctFmtNum(balance)})` : '(balance unavailable)'}</small></span></label>
+            <label class="sp-src"><input type="radio" name="sp-src" id="sp-src-online" value="online"> <i class="fa-solid fa-credit-card"></i> <span>Online payment <small>(GCash, Maya, card, etc.)</small></span></label>
+            <div id="sp-method-row" class="sp-method-row" style="display:none;">
+                <select id="sp-method" class="sp-input">${methodOptions}</select>
+            </div>
+            <div id="sp-hint" class="sp-hint"></div>
+        </div>`;
+        const result = await Swal.fire({
+            title: '💝 Support the Developer',
+            html,
+            showCancelButton: true,
+            confirmButtonText: 'Donate',
+            cancelButtonText: 'Cancel',
+            focusConfirm: false,
+            customClass: { popup: 'sponsor-modal' },
+            didOpen: (popup) => {
+                const amountEl = popup.querySelector('#sp-amount');
+                const tokenRadio = popup.querySelector('#sp-src-tokens');
+                const onlineRadio = popup.querySelector('#sp-src-online');
+                const methodRow = popup.querySelector('#sp-method-row');
+                const hintEl = popup.querySelector('#sp-hint');
+                const confirmBtn = Swal.getConfirmButton();
+                let userPickedSource = false;
+                const update = () => {
+                    const amt = Number(amountEl.value);
+                    const valid = Number.isInteger(amt) && amt >= min && amt <= max;
+                    const canTokens = tokensEnabled && valid && balance >= amt;
+                    const canOnline = methods.length > 0;
+                    tokenRadio.disabled = !canTokens;
+                    onlineRadio.disabled = !canOnline;
+                    if (!canTokens && tokenRadio.checked) { tokenRadio.checked = false; }
+                    if (canTokens && !userPickedSource) { tokenRadio.checked = true; }
+                    if (!tokenRadio.checked && !onlineRadio.checked && canOnline) { onlineRadio.checked = true; }
+                    const useOnline = onlineRadio.checked && !tokenRadio.checked;
+                    methodRow.style.display = useOnline ? '' : 'none';
+                    popup.querySelectorAll('.sp-preset').forEach(b => b.classList.toggle('active', Number(b.dataset.amt) === amt));
+                    let hint = '';
+                    if (!valid) {
+                        hint = `Minimum is ₱${ctFmtNum(min)}.`;
+                    } else if (tokenRadio.checked) {
+                        hint = `${ctFmtNum(amt)} Omni Tokens ang ibabawas (matitira: ${ctFmtNum(balance - amt)}). Kailangan ang admin password.`;
+                    } else if (useOnline) {
+                        hint = (tokensEnabled && balance < amt)
+                            ? `Kulang ang Omni Tokens mo (${ctFmtNum(balance)}) — online payment ang gagamitin.`
+                            : (!tokensEnabled ? 'Online payment ang gagamitin.' : '');
+                    } else if (!canOnline) {
+                        hint = 'No payment method is available right now. Please try again later.';
+                    }
+                    hintEl.textContent = hint;
+                    if (confirmBtn) confirmBtn.textContent = tokenRadio.checked ? `Donate ${valid ? ctFmtNum(amt) : ''} tokens`.replace('  ', ' ') : 'Continue to payment';
+                };
+                popup.querySelectorAll('.sp-preset').forEach(b => b.addEventListener('click', () => { amountEl.value = b.dataset.amt; update(); }));
+                amountEl.addEventListener('input', update);
+                tokenRadio.addEventListener('change', () => { userPickedSource = true; update(); });
+                onlineRadio.addEventListener('change', () => { userPickedSource = true; update(); });
+                update();
+            },
+            preConfirm: () => {
+                const popup = Swal.getPopup();
+                const amt = Number(popup.querySelector('#sp-amount').value);
+                if (!Number.isInteger(amt) || amt < min || amt > max) {
+                    Swal.showValidationMessage(`Enter a whole-number amount from ₱${ctFmtNum(min)} to ₱${ctFmtNum(max)}.`);
+                    return false;
+                }
+                const tokenRadio = popup.querySelector('#sp-src-tokens');
+                const onlineRadio = popup.querySelector('#sp-src-online');
+                if (tokenRadio.checked && !tokenRadio.disabled) return { amount: amt, source: 'tokens' };
+                if (onlineRadio.checked && !onlineRadio.disabled) {
+                    const method = popup.querySelector('#sp-method').value;
+                    if (!method) { Swal.showValidationMessage('Choose a payment method.'); return false; }
+                    return { amount: amt, source: 'online', method };
+                }
+                Swal.showValidationMessage('Choose how you want to pay.');
+                return false;
+            }
+        });
+        if (!result.isConfirmed || !result.value) return;
+        await sponsorProceed(result.value);
+    } finally {
+        sponsorModalBusy = false;
+    }
+}
+async function sponsorProceed(sel) {
+    if (sel.source === 'tokens') {
+        const pw = await Swal.fire({
+            title: 'Admin password',
+            text: `Confirm donating ${ctFmtNum(sel.amount)} Omni Tokens. This is a donation only — it will not add anything to your balance.`,
+            input: 'password',
+            inputPlaceholder: 'Admin password',
+            showCancelButton: true,
+            confirmButtonText: 'Confirm',
+            inputValidator: (v) => (!v ? 'Enter the admin password.' : undefined)
+        });
+        if (!pw.isConfirmed) return;
+        Swal.fire({ title: 'Sending your donation…', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading() });
+        let data = null;
+        try {
+            const res = await authFetch(`${API_URL}/admin/sponsor/donate-tokens`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: sel.amount, adminPassword: pw.value }),
+                timeoutMs: 30000
+            });
+            data = await res.json().catch(() => null);
+        } catch (e) { data = null; }
+        if (data && data.success) {
+            if (typeof loadCloudTokensView === 'function' && document.getElementById('ct-ledger-list')) { try { loadCloudTokensView(); } catch (_) {} }
+            await Swal.fire({ icon: 'success', title: 'Maraming salamat po! 💝', text: data.message || 'Natanggap na ang donasyon mo.', confirmButtonText: 'Close' });
+            return;
+        }
+        // BUGFIX: kapag null ang data (timeout/network cut), hindi natin alam kung nabawasan na — huwag sabihing "not charged".
+        await Swal.fire({ icon: 'error', title: 'Donation not completed', text: (data && data.message) || 'We could not confirm the result of this donation. Please check your Omni Tokens balance and history before trying again.', confirmButtonText: 'Close' });
+        return;
+    }
+    Swal.fire({ title: 'Preparing payment…', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading() });
+    let data = null;
+    try {
+        const res = await authFetch(`${API_URL}/admin/sponsor/donate-online`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: sel.amount, method: sel.method })
+        });
+        data = await res.json().catch(() => null);
+    } catch (e) { data = null; }
+    if (!data || !data.success) {
+        await Swal.fire({ icon: 'error', title: 'Could not start the donation', text: (data && data.message) || 'Could not reach the server. Nothing was charged.', confirmButtonText: 'Close' });
+        return;
+    }
+    if (data.checkoutUrl) {
+        const go = await Swal.fire({
+            icon: 'info',
+            title: 'Complete your donation',
+            text: `Tap the button to open the payment page and finish your ₱${ctFmtNum(data.amountPHP)} donation. We will let you know once it is confirmed.`,
+            showCancelButton: true,
+            confirmButtonText: 'Open payment page',
+            cancelButtonText: 'Later'
+        });
+        if (go.isConfirmed) window.open(data.checkoutUrl, '_blank');
+        startSponsorPoll(data.purchaseId);
+    } else if (data.qrCodeImageUrl) {
+        const expiresNote = data.expiresAt ? ` Valid until <b>${new Date(data.expiresAt).toLocaleTimeString()}</b>.` : '';
+        Swal.fire({
+            title: 'Scan the QR Ph code',
+            html: `<div class="paymongo-qr-content">
+                <p class="paymongo-qr-description">Scan this QR code using GCash, Maya, or any QR Ph-supported banking app to donate <b>₱${ctFmtNum(data.amountPHP)}</b>.${expiresNote}</p>
+                <img class="paymongo-qr-image paymongo-qr-image-token" src="${escapeHtml(String(data.qrCodeImageUrl))}" alt="QR Ph code" />
+                <p class="paymongo-qr-note">We will let you know once the donation is confirmed — no need to keep this window open.</p>
+            </div>`,
+            customClass: { popup: 'paymongo-qr-modal' },
+            showConfirmButton: true,
+            confirmButtonText: 'Close'
+        });
+        startSponsorPoll(data.purchaseId);
+    } else {
+        await Swal.fire({ icon: 'error', title: 'Could not start the donation', text: 'No checkout URL or QR code was returned by the server.', confirmButtonText: 'Close' });
+    }
+}
+function startSponsorPoll(purchaseId) {
+    if (!purchaseId) return;
+    clearInterval(sponsorPollTimer);
+    let polls = 0;
+    sponsorPollTimer = setInterval(async () => {
+        polls += 1;
+        try {
+            const res = await authFetch(`${API_URL}/admin/sponsor/status?purchaseId=${encodeURIComponent(purchaseId)}`);
+            const d = await res.json().catch(() => null);
+            if (d && d.success) {
+                // BUGFIX: ang Swal ay iisang popup lang sa isang pagkakataon — kapag nag-fire ito habang may ibang
+                // modal na bukas (hal. nasa gitna ng bayad/checkout sa POS), mapapalitan at mawawala ang modal na iyon.
+                // Kung may ibang popup (hindi ang sarili nating QR/donation modal), laktawan muna at subukan sa susunod na tick.
+                if (d.status === 'paid' || d.status === 'failed') {
+                    const openPopup = Swal.isVisible() ? Swal.getPopup() : null;
+                    const isOwnPopup = !!openPopup && (openPopup.classList.contains('paymongo-qr-modal') || openPopup.classList.contains('sponsor-modal'));
+                    if (openPopup && !isOwnPopup && polls < 90) return;
+                }
+                if (d.status === 'paid') {
+                    clearInterval(sponsorPollTimer);
+                    Swal.fire({ icon: 'success', title: 'Maraming salamat po! 💝', text: `Natanggap na ang donasyon mo na ₱${ctFmtNum(d.amountPHP)}. Hindi ito nagdagdag sa token balance mo — makikita lang ito sa log.`, confirmButtonText: 'Close' });
+                    return;
+                }
+                if (d.status === 'failed') {
+                    clearInterval(sponsorPollTimer);
+                    Swal.fire({ icon: 'info', title: 'Donation not completed', text: 'The payment was not completed or was cancelled. You were not charged.', confirmButtonText: 'Close' });
+                    return;
+                }
+            }
+        } catch (e) { /* try again on the next tick */ }
+        if (polls >= 90) clearInterval(sponsorPollTimer);
+    }, 8000);
+}
 async function refreshLowStockBadge() {
     const badge = document.getElementById('lowstock-bell-badge');
     if (!badge) return;
@@ -9097,7 +9427,10 @@ function getFilteredSortedPOList() {
     return list;
 }
 function poDisplayFields(po) {
-    const itemsSummary = po.items.map(it => `${escapeHtml(it.name)} (×${it.qty})`).join(', ');
+    const itemsSummary = po.items.map(it => {
+        const got = Number(it.receivedQty) || 0;
+        return `${escapeHtml(it.name)} (×${it.qty}${got > 0 ? `, natanggap ${Math.round(got * 1000) / 1000}` : ''})`;
+    }).join(', ');
     const when = po.status ==='received' ? po.receivedAt : (po.status ==='cancelled' ? po.cancelledAt : po.createdAt);
     const whenText = when ? new Date(when).toLocaleString() :'';
     const actions = po.status ==='ordered'
@@ -9164,18 +9497,103 @@ function renderPurchaseOrdersTable() {
     }
 }
 async function receivePO(id) {
-    const confirm = await Swal.fire({
-        title:'Mark as Received?',
-        text:'All items in this Purchase Order will automatically be added to stock.',
-        icon:'question', showCancelButton: true,
-        confirmButtonText:'Yes, Received', cancelButtonText:'Cancel'
-    });
-    if (!confirm.isConfirmed) return;
+    const po = (Array.isArray(reorderPOCache) ? reorderPOCache : []).find(p => String(p.id) === String(id));
+    const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+    const openLines = (po && Array.isArray(po.items))
+        ? po.items.map((it, idx) => ({ it, idx, left: round3((Number(it.qty) || 0) - (Number(it.receivedQty) || 0)) })).filter(l => l.left > 0)
+        : [];
+    let payload = null; // null = receive everything that is still outstanding (no form)
+    if (openLines.length) {
+        const showLots = typeof isFeatureUnlockedCached === 'function' && isFeatureUnlockedCached('batch_lot_tracking');
+        const inputStyle = 'width:100%;padding:6px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;';
+        const rowsHtml = openLines.map(l => `
+            <div style="text-align:left;border-bottom:1px solid #e2e8f0;padding:10px 0;">
+                <div style="font-weight:700;">${escapeHtml(l.it.name || l.it.code)} <span style="font-weight:500;color:#64748b;">(${escapeHtml(l.it.code)})</span></div>
+                <div style="font-size:.78rem;color:#64748b;margin:2px 0 6px;">Ordered: <b>${round3(l.it.qty)}</b> · Already received: <b>${round3(l.it.receivedQty)}</b> · Remaining: <b>${l.left}</b></div>
+                <label style="font-size:.78rem;display:block;">Received now
+                    <input type="number" class="po-recv-qty" data-idx="${l.idx}" data-max="${l.left}" step="any" min="0" max="${l.left}" value="${l.left}" style="${inputStyle}">
+                </label>
+                ${showLots ? `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;">
+                    <label style="font-size:.72rem;">Lot #<input type="text" class="po-recv-lot" data-idx="${l.idx}" style="${inputStyle}"></label>
+                    <label style="font-size:.72rem;">Expiry<input type="date" class="po-recv-expiry" data-idx="${l.idx}" style="${inputStyle}"></label>
+                    <label style="font-size:.72rem;">Cost (₱ / unit)<input type="number" step="0.01" min="0" class="po-recv-cost" data-idx="${l.idx}" placeholder="${Number(l.it.unitCost) > 0 ? escapeHtml(String(l.it.unitCost)) : ''}" style="${inputStyle}"></label>
+                </div>` : `<div style="margin-top:6px;">
+                    <label style="font-size:.72rem;display:block;">Cost (₱ / unit) — for supplier price history
+                        <input type="number" step="0.01" min="0" class="po-recv-cost" data-idx="${l.idx}" placeholder="${Number(l.it.unitCost) > 0 ? escapeHtml(String(l.it.unitCost)) : ''}" style="${inputStyle}">
+                    </label>
+                </div>`}
+            </div>`).join('');
+        const { value } = await Swal.fire({
+            title: 'Receive Purchase Order',
+            html: `<div style="text-align:left;font-size:.82rem;color:#475569;margin-bottom:6px;">Enter the <b>actual quantity received</b>. If less than ordered arrived, reduce the quantity — the PO stays open for the remainder.</div>
+                   <div style="max-height:340px;overflow-y:auto;">${rowsHtml}</div>
+                   <label style="display:flex;gap:8px;align-items:center;text-align:left;font-size:.8rem;margin-top:10px;color:#475569;">
+                       <input type="checkbox" id="po-recv-close-short"> Close the PO even though some items are short (the remainder will not arrive)
+                   </label>`,
+            width: 560,
+            showCancelButton: true,
+            confirmButtonText: 'Receive',
+            cancelButtonText: 'Cancel',
+            preConfirm: () => {
+                const items = [];
+                let invalid = '';
+                document.querySelectorAll('.po-recv-qty').forEach(inp => {
+                    const idx = parseInt(inp.dataset.idx, 10);
+                    const max = parseFloat(inp.dataset.max) || 0;
+                    const raw = String(inp.value).trim();
+                    const qty = raw === '' ? 0 : parseFloat(raw);
+                    if (!isFinite(qty) || qty < 0 || qty > max + 1e-6) { invalid = 'The received quantity must be between 0 and the remaining order quantity.'; return; }
+                    if (qty <= 0) return;
+                    const line = { lineIndex: idx, code: po.items[idx].code, receivedQty: round3(qty) };
+                    const lot = document.querySelector(`.po-recv-lot[data-idx="${idx}"]`);
+                    const exp = document.querySelector(`.po-recv-expiry[data-idx="${idx}"]`);
+                    const cost = document.querySelector(`.po-recv-cost[data-idx="${idx}"]`);
+                    if (lot && lot.value.trim()) line.lotNumber = lot.value.trim();
+                    if (exp && exp.value) line.expiryDate = exp.value;
+                    if (cost && cost.value !== '') line.costPrice = cost.value;
+                    items.push(line);
+                });
+                if (invalid) { Swal.showValidationMessage(invalid); return false; }
+                if (!items.length) { Swal.showValidationMessage('Enter a received quantity for at least one item.'); return false; }
+                return { items, closeShort: !!document.getElementById('po-recv-close-short').checked };
+            }
+        });
+        if (!value) return;
+        payload = value;
+    } else {
+        const confirm = await Swal.fire({
+            title:'Mark as Received?',
+            text:'All items in this Purchase Order will automatically be added to stock.',
+            icon:'question', showCancelButton: true,
+            confirmButtonText:'Yes, Received', cancelButtonText:'Cancel'
+        });
+        if (!confirm.isConfirmed) return;
+    }
     try {
-        const res = await authFetch(`${API_URL}/purchase-orders/${id}/receive`, { method:'POST' });
+        const fetchOptions = payload
+            ? { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) }
+            : { method:'POST' };
+        const res = await authFetch(`${API_URL}/purchase-orders/${id}/receive`, fetchOptions);
         const data = await res.json();
         if (data.success) {
-            Swal.fire({ icon:'success', title:'Received!', text:'Stock has been updated.', timer: 2000, showConfirmButton: false });
+            const complete = data.fullyReceived !== false && !(data.missingProducts && data.missingProducts.length);
+            const hasPriceAlerts = Array.isArray(data.costAlerts) && data.costAlerts.length > 0;
+            if (hasPriceAlerts) {
+                // Price-change alert (supplier cost went up, or a cheaper supplier exists): stays on screen until dismissed.
+                Swal.fire({
+                    icon: 'warning',
+                    title: complete ? 'Received — price alert' : 'Partially received — price alert',
+                    text: data.message || 'Stock has been updated.',
+                    confirmButtonText: 'OK'
+                });
+            } else {
+                Swal.fire({
+                    icon: complete ? 'success' : 'info',
+                    title: complete ? 'Received!' : 'Partially received',
+                    text: complete ? 'Stock has been updated.' : (data.message || 'Stock has been updated.'),
+                    timer: complete ? 2000 : 4500, showConfirmButton: false
+                });
+            }
             loadReorderView();
             refreshLowStockBadge();
         } else {
@@ -9186,8 +9604,11 @@ async function receivePO(id) {
     }
 }
 async function cancelPO(id) {
+    const poToCancel = (Array.isArray(reorderPOCache) ? reorderPOCache : []).find(p => String(p.id) === String(id));
+    const alreadyGotSome = !!(poToCancel && Array.isArray(poToCancel.items) && poToCancel.items.some(it => (Number(it.receivedQty) || 0) > 0));
     const confirm = await Swal.fire({
         title:'Cancel this Purchase Order?',
+        text: alreadyGotSome ? 'Some items have already been received. Received items stay in stock; only the remaining undelivered items will be cancelled.' : undefined,
         icon:'warning', showCancelButton: true,
         confirmButtonText:'Yes, Cancel', cancelButtonText:'Not Now'
     });
@@ -9196,7 +9617,9 @@ async function cancelPO(id) {
         const res = await authFetch(`${API_URL}/purchase-orders/${id}/cancel`, { method:'POST' });
         const data = await res.json();
         if (data.success) {
-            Swal.fire({ icon:'success', title:'Cancelled.', timer: 1600, showConfirmButton: false });
+            Swal.fire(data.partiallyReceived
+                ? { icon:'info', title:'PO closed', text: data.message, timer: 4500, showConfirmButton: false }
+                : { icon:'success', title:'Cancelled.', timer: 1600, showConfirmButton: false });
             loadReorderView();
         } else {
             Swal.fire('Error', data.message,'error');
@@ -9295,6 +9718,38 @@ async function ovFetchJsonOrNull(url) {
         return null;
     }
 }
+// SCALE FIX: ang Dashboard ay hindi na humihila ng BUONG history — ang panahon lang na kailangan ng mga widget nito
+// (kahapon+ngayon, 7-araw na trend, at ang napiling range ng chart kasama ang comparison). Kapag pinalawak ng user
+// ang range (90d/year/all/custom), kusang kinukuha ang dagdag na panahon (ovEnsureChartCoverage).
+const OV_ALL_TIME_FLOOR_MS = Date.UTC(2000, 0, 2);
+function ovTxWindowQuery(fromMs) {
+    return (Number.isFinite(fromMs) && fromMs > OV_ALL_TIME_FLOOR_MS) ? `?from=${Math.floor(fromMs)}` : '';
+}
+function ovRequiredCoverageStartMs() {
+    const base = new Date(); base.setDate(base.getDate() - 14); base.setHours(0, 0, 0, 0);
+    let need = base.getTime();
+    const { from, to } = ovResolveDateRange();
+    need = Math.min(need, from.getTime());
+    if (overviewChartState.compare) need = Math.min(need, ovGetComparisonRange(from, to).from.getTime());
+    return need;
+}
+function ovEnsureChartCoverage() {
+    const covered = overviewChartState.coveredFromMs;
+    if (covered === undefined || overviewChartState.coverageLoading) return;
+    const need = ovRequiredCoverageStartMs();
+    if (need >= covered) return;
+    overviewChartState.coverageLoading = true;
+    ovFetchJsonOrNull(`${API_URL}/transactions${ovTxWindowQuery(need)}`).then(rows => {
+        overviewChartState.coverageLoading = false;
+        if (!Array.isArray(rows)) return;
+        const merged = new Map();
+        rows.forEach(tx => { if (tx && tx.id) merged.set(tx.id, tx); });
+        (overviewChartState.lastTxs || []).forEach(tx => { if (tx && tx.id) merged.set(tx.id, tx); });
+        overviewChartState.coveredFromMs = need;
+        overviewChartState.lastTxs = Array.from(merged.values());
+        renderAdvancedOverviewChart();
+    });
+}
 async function ovRunDashboardMetricsCycle() {
     ovSetSyncState('loading');
     let usedCache = false;
@@ -9303,8 +9758,9 @@ async function ovRunDashboardMetricsCycle() {
         const currentUsername = currentUser?.username || 'admin';
         const canViewUsers = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin') || !!(currentPermissions && currentPermissions.users);
 
+        const dashCoverageMs = ovRequiredCoverageStartMs();
         const [txData, prodData, usersData] = await Promise.all([
-            ovFetchJsonOrNull(`${API_URL}/transactions`),
+            ovFetchJsonOrNull(`${API_URL}/transactions${ovTxWindowQuery(dashCoverageMs)}`),
             ovFetchJsonOrNull(`${API_URL}/products?lite=1`),
             canViewUsers ? ovFetchJsonOrNull(`${API_URL}/users?requester=${encodeURIComponent(currentUsername)}`) : Promise.resolve(null)
         ]);
@@ -9312,6 +9768,7 @@ async function ovRunDashboardMetricsCycle() {
         if (Array.isArray(txData)) {
             serverTxs = txData;
             liveOk = true;
+            overviewChartState.coveredFromMs = dashCoverageMs;
             ovWriteJsonCache('cached_transactions', serverTxs);
         } else {
             serverTxs = ovReadJsonCache('cached_transactions', []);
@@ -9998,6 +10455,7 @@ function renderAdvancedOverviewChart(txList) {
     if (Array.isArray(txList)) overviewChartState.lastTxs = txList;
 
     if (!wrap.clientWidth) return;
+    ovEnsureChartCoverage();
     const txs = overviewChartState.lastTxs;
     let { from, to } = ovResolveDateRange();
     if (overviewChartState.rangePreset === 'all' && !(overviewChartState.fromDate && overviewChartState.toDate)) {
@@ -17541,30 +17999,132 @@ function resetSaleTerminalCycle() {
     currentReceiptLoyaltyQr = null;
     currentReceiptLoyaltyQrPrintData = null;
 }
-async function loadTransactionsHistory() {
+// PAGINATION + SERVER SEARCH: 100 transaksyon bawat hatak (newest-first). Ang server ang nag-LIMIT/OFFSET at ang header na
+// X-Has-More ang nagsasabi kung may susunod pa. Ang paghahanap (ID/Cashier) ay SQL na rin ang gumagawa (?q=) kaya
+// hindi lang ang na-load na rows ang nahahanap. Ang scan ng Receipt ID ay eksaktong lookup (?id=).
+const TX_HISTORY_PAGE_SIZE = 100;
+let txHistoryServerOffset = 0;   // ilan na ang nakuha MULA SA SERVER (hindi apektado ng local unshift ng bagong benta)
+let txHistoryHasMore = false;
+let txHistoryLoadingPage = null;
+let txHistoryQuery = '';         // kasalukuyang server-side na hinahanap
+let txHistorySearchTimer = null;
+let txHistoryRequestSeq = 0;     // pantapon ng lumang sagot kapag may mas bagong request na
+function updateTxHistoryBadge() {
+    const badge = document.getElementById('tx-total-count-badge');
+    if (badge) badge.innerText = `${localTransactionsList.length}${txHistoryHasMore ? '+' : ''} Records`;
+}
+async function fetchTransactionsPage(offset, limit) {
+    const qs = `limit=${limit || TX_HISTORY_PAGE_SIZE}&offset=${offset}` + (txHistoryQuery ? `&q=${encodeURIComponent(txHistoryQuery)}` : '');
+    const response = await authFetch(`${API_URL}/transactions?${qs}`);
+    if (!response.ok) throw new Error("Failed to fetch data");
+    const rows = await response.json();
+    const hasMore = response.headers.get('X-Has-More') === 'true';
+    return { rows: Array.isArray(rows) ? rows : [], hasMore };
+}
+// opts.reset = true -> bumalik sa unang pahina (hal. nagbago ang hinahanap). Kung hindi, TINATABI ang lalim na na-load na
+// (hal. pagkatapos ng void/refund) para hindi bumalik sa unang 100.
+async function loadTransactionsHistory(opts) {
+    const reset = !!(opts && opts.reset);
+    const depth = reset ? TX_HISTORY_PAGE_SIZE : Math.min(Math.max(localTransactionsList.length, TX_HISTORY_PAGE_SIZE), 5000);
+    const seq = ++txHistoryRequestSeq;
     try {
-        const requesterUsername = currentUser ? currentUser.username :'';
-        const response = await authFetch(`${API_URL}/transactions?requester=${encodeURIComponent(requesterUsername)}`);
-        if (!response.ok) throw new Error("Failed to fetch data");
-        localTransactionsList = await response.json();
-        ovWriteJsonCache('cached_transactions', localTransactionsList);
-        const badge = document.getElementById('tx-total-count-badge');
-        if(badge) badge.innerText = `${localTransactionsList.length} Records`;
-        renderTransactionsRows(localTransactionsList);
+        const page = await fetchTransactionsPage(0, depth);
+        if (seq !== txHistoryRequestSeq) return;
+        localTransactionsList = page.rows;
+        txHistoryServerOffset = page.rows.length;
+        txHistoryHasMore = page.hasMore;
+        if (!txHistoryQuery) ovWriteJsonCache('cached_transactions', localTransactionsList);
     } catch (err) {
+        if (seq !== txHistoryRequestSeq) return;
         console.warn("Transaction History: Offline mode active.", err);
         localTransactionsList = JSON.parse(localStorage.getItem('cached_transactions') ||'[]');
-        const badge = document.getElementById('tx-total-count-badge');
-        if(badge) badge.innerText = `${localTransactionsList.length} Records`;
-        renderTransactionsRows(localTransactionsList);
+        txHistoryServerOffset = 0;
+        txHistoryHasMore = false;
     }
+    updateTxHistoryBadge();
+    filterTransactionsTable();
+}
+async function loadMoreTransactionsHistory(pageSize) {
+    if (txHistoryLoadingPage) return txHistoryLoadingPage;
+    if (!txHistoryHasMore) return false;
+    const size = Number(pageSize) > 0 ? Number(pageSize) : TX_HISTORY_PAGE_SIZE;
+    const seq = txHistoryRequestSeq;
+    txHistoryLoadingPage = (async () => {
+        const btn = document.getElementById('tx-load-more-btn');
+        if (btn) { btn.disabled = true; btn.innerText = 'Loading...'; }
+        try {
+            const page = await fetchTransactionsPage(txHistoryServerOffset, size);
+            if (seq !== txHistoryRequestSeq) return false;
+            const known = new Set(localTransactionsList.map(t => t.id));
+            page.rows.forEach(t => { if (!known.has(t.id)) localTransactionsList.push(t); });
+            txHistoryServerOffset += page.rows.length;
+            txHistoryHasMore = page.hasMore;
+            if (!txHistoryQuery) ovWriteJsonCache('cached_transactions', localTransactionsList);
+            return true;
+        } catch (err) {
+            console.warn('Transaction History: could not load more.', err);
+            return false;
+        } finally {
+            txHistoryLoadingPage = null;
+            updateTxHistoryBadge();
+            if (document.getElementById('tx-history-search')) filterTransactionsTable();
+        }
+    })();
+    return txHistoryLoadingPage;
+}
+// Para sa column filter: kailangang kumpleto ang rows para tumpak ang pagsasala, kaya kinukuha ang natitira (malalaking hatak, on-demand lang).
+async function loadAllTransactionsHistory() {
+    let guard = 0;
+    while (txHistoryHasMore && guard++ < 100) {
+        const ok = await loadMoreTransactionsHistory(2000);
+        if (!ok) break;
+    }
+}
+function onTxHistorySearchInput() {
+    filterTransactionsTable(); // agad na pagsala sa na-load na rows
+    clearTimeout(txHistorySearchTimer);
+    txHistorySearchTimer = setTimeout(async () => {
+        const input = document.getElementById('tx-history-search');
+        const q = input ? input.value.trim() : '';
+        if (q === txHistoryQuery) return;
+        txHistoryQuery = q;
+        await loadTransactionsHistory({ reset: true }); // SQL na ang maghahanap sa BUONG history
+    }, 300);
+}
+// Scan/search ng eksaktong Receipt ID: una sa na-load na, kung wala ay isang primary-key lookup sa server (hindi paging).
+async function findTransactionAcrossPages(id) {
+    const needle = String(id || '').trim().toLowerCase();
+    if (!needle) return undefined;
+    const look = () => localTransactionsList.find(tx => (tx.id || '').toLowerCase() === needle);
+    let match = look();
+    if (match) return match;
+    try {
+        const res = await authFetch(`${API_URL}/transactions?id=${encodeURIComponent(String(id).trim())}`);
+        if (res.ok) {
+            const arr = await res.json();
+            if (Array.isArray(arr) && arr[0] && arr[0].id) {
+                match = look();
+                if (!match) { localTransactionsList.unshift(arr[0]); match = arr[0]; }
+                updateTxHistoryBadge();
+                if (document.getElementById('tx-history-search')) filterTransactionsTable();
+            }
+        }
+    } catch (e) { /* offline: na-load na rows lang ang mahahanap */ }
+    return match;
 }
 function renderTransactionsRows(transactions) {
     const tbody = document.getElementById('transactions-table-body');
     if (!tbody) return;
     tbody.innerHTML ='';
+    const appendLoadMoreRow = () => {
+        if (!txHistoryHasMore) return;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="8" style="text-align:center; padding:14px;"><button type="button" id="tx-load-more-btn" class="btn-clear" onclick="loadMoreTransactionsHistory()" style="color: var(--primary-blue); font-weight:600;"><i class="fa-solid fa-angles-down"></i> Load more (${localTransactionsList.length} loaded)</button></td>`;
+        tbody.appendChild(tr);
+    };
     if (transactions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No transactions found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No transactions found${txHistoryHasMore ? ' in the loaded records.' : '.'}</td></tr>`;
+        appendLoadMoreRow();
         return;
     }
     transactions.forEach(tx => {
@@ -17603,6 +18163,7 @@ function renderTransactionsRows(transactions) {
         `;
         tbody.appendChild(row);
     });
+    appendLoadMoreRow();
 }
 let cachedInventoryProducts = [];
 
@@ -18649,6 +19210,23 @@ function filterInventoryTable() {
 function renderInventoryProductsTable() {
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
+    // Double-click (or double-tap) anywhere on a product row opens that product's details.
+    // Bound once on the table body, so it keeps working after every re-render.
+    if (!tbody.dataset.rowDblBound) {
+        tbody.dataset.rowDblBound = '1';
+        tbody.addEventListener('dblclick', (e) => {
+            const target = e.target;
+            if (!target || !target.closest) return;
+            // Buttons, links and form controls keep their own behavior; the photo cell already opens details on a single click.
+            if (target.closest('button, a, input, select, textarea, label, td:first-child')) return;
+            const tr = target.closest('tr[data-code]');
+            if (!tr || !tbody.contains(tr)) return;
+            const code = tr.getAttribute('data-code');
+            if (!code) return;
+            try { const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges(); } catch (err) {}
+            showProductDetails(code, 'inventory');
+        });
+    }
     tbody.innerHTML ='';
     if ((!Array.isArray(cachedInventoryProducts) || cachedInventoryProducts.length === 0)) {
         if (inventoryLoadsInFlight > 0) {
@@ -18676,6 +19254,7 @@ function renderInventoryProductsTable() {
             try {
                 const row = document.createElement('tr');
                 row.setAttribute('data-code', p.code);
+                row.title = 'Double-click to view product';
                 const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !=='') ? parseInt(p.lowStockThreshold) : 5;
                 const stockNum = parseFloat(p.stock) || 0;
                 const isLowStock = stockNum > 0 && stockNum <= threshold;
@@ -18943,7 +19522,17 @@ async function editProductBatch(code, batchId) {
                     <input id="swal-cost" type="number" step="0.01" class="swal2-input" placeholder="0.00" value="${batch.costPrice ?? ''}" style="width:100%;margin:0 0 14px;box-sizing:border-box;">
 
                     <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Supplier</label>
-                    <input id="swal-supplier" class="swal2-input" placeholder="e.g. ABC Trading" value="${(batch.supplier || '').replace(/"/g, '&quot;')}" style="width:100%;margin:0;box-sizing:border-box;">
+                    <input id="swal-supplier" class="swal2-input" placeholder="e.g. ABC Trading" value="${(batch.supplier || '').replace(/"/g, '&quot;')}" style="width:100%;margin:0 0 14px;box-sizing:border-box;">
+
+                    <label style="display:block;font-size:0.82em;font-weight:600;color:#64748b;margin:0 0 4px;">Kung bawasan ang Quantity, i-record bilang</label>
+                    <select id="swal-loss-category" class="swal2-select" style="width:100%;margin:0;box-sizing:border-box;">
+                        <option value="correction">Correction — mali lang ang bilang (walang loss)</option>
+                        <option value="expired">Expired (loss)</option>
+                        <option value="damage">Damage (loss)</option>
+                        <option value="spoilage">Spoilage (loss)</option>
+                        <option value="breakage">Breakage (loss)</option>
+                        <option value="other">Other (loss)</option>
+                    </select>
                 </div>
             `,
             focusConfirm: false,
@@ -18954,7 +19543,8 @@ async function editProductBatch(code, batchId) {
                 quantity: document.getElementById('swal-qty').value,
                 expiryDate: document.getElementById('swal-expiry').value,
                 costPrice: document.getElementById('swal-cost').value,
-                supplier: document.getElementById('swal-supplier').value
+                supplier: document.getElementById('swal-supplier').value,
+                category: document.getElementById('swal-loss-category').value
             })
         });
         if (!formValues) return;
@@ -18981,15 +19571,34 @@ async function editProductBatch(code, batchId) {
 async function deleteProductBatch(code, batchId) {
     const confirmResult = await Swal.fire({
         title: 'Delete this batch?',
-        text: 'The product stock will be reduced by this batch\'s quantity.',
+        html: `<div style="text-align:left;font-size:.85rem;color:#475569;margin-bottom:8px;">The product stock will be reduced by this batch's quantity. Piliin kung bakit — ang nawalang stock ay mari-record sa <b>Waste Log</b> maliban kung <b>Correction</b>.</div>
+               <select id="swal-del-category" class="swal2-select" style="width:100%;margin:0 0 8px;box-sizing:border-box;">
+                   <option value="">— Piliin ang dahilan —</option>
+                   <option value="expired">Expired</option>
+                   <option value="damage">Damage</option>
+                   <option value="spoilage">Spoilage</option>
+                   <option value="breakage">Breakage</option>
+                   <option value="other">Other (loss)</option>
+                   <option value="correction">Correction — nagkamali lang ng entry (walang loss)</option>
+               </select>
+               <input id="swal-del-reason" class="swal2-input" placeholder="Optional note" style="width:100%;margin:0;box-sizing:border-box;">`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Yes, delete',
-        confirmButtonColor: '#dc2626'
+        confirmButtonColor: '#dc2626',
+        preConfirm: () => {
+            const category = document.getElementById('swal-del-category').value;
+            if (!category) { Swal.showValidationMessage('Piliin muna ang dahilan ng pag-delete.'); return false; }
+            return { category, reason: document.getElementById('swal-del-reason').value.trim() };
+        }
     });
-    if (!confirmResult.isConfirmed) return;
+    if (!confirmResult.isConfirmed || !confirmResult.value) return;
     try {
-        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches/${encodeURIComponent(batchId)}`, { method: 'DELETE' });
+        const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}/batches/${encodeURIComponent(batchId)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(confirmResult.value)
+        });
         const data = await res.json();
         if (!data.success) {
             Swal.fire('Error', data.message || 'Could not delete the batch.', 'error');
@@ -20109,22 +20718,22 @@ async function downloadAuthFetch(url, fallbackFilename) {
     }
 }
 function downloadProductTemplate() {
+    const opts = [
+        ['product-xlsx', 'fa-file-excel', 'Products (.xlsx)', 'Full product list with Wholesale / Reseller price, Description & Specs', true],
+        ['product-csv', 'fa-file-csv', 'Products (.csv)', 'Same columns as the Excel template', false],
+        ['specs-xlsx', 'fa-file-excel', 'Specs / Description only (.xlsx)', 'Code + Description + Specs for products you already have', false],
+        ['specs-csv', 'fa-file-csv', 'Specs / Description only (.csv)', 'Code, Description, Specs', false]
+    ];
     Swal.fire({
         title: 'Choose a Template',
         html: `
-            <div style="text-align:left;font-size:14px;line-height:1.5;">
-                <label style="display:block;margin-bottom:10px;cursor:pointer;">
-                    <input type="radio" name="tmpl-choice" value="product-xlsx" checked>
-                    Product Import Template (.xlsx) <span style="color:#64748b;">— with Wholesale &amp; Reseller Price</span>
-                </label>
-                <label style="display:block;margin-bottom:10px;cursor:pointer;">
-                    <input type="radio" name="tmpl-choice" value="product-csv">
-                    Product Import Template (.csv) <span style="color:#64748b;">— with Wholesale &amp; Reseller Price</span>
-                </label>
-                <label style="display:block;cursor:pointer;">
-                    <input type="radio" name="tmpl-choice" value="bulk-specs-csv">
-                    Bulk Import Specs Template (.csv) <span style="color:#64748b;">— Code &amp; Description</span>
-                </label>
+            <div class="imp-tpl">
+                ${opts.map(o => `
+                <label class="imp-tpl-opt">
+                    <input type="radio" name="tmpl-choice" value="${o[0]}" ${o[4] ? 'checked' : ''}>
+                    <span class="imp-tpl-ico"><i class="fa-solid ${o[1]}"></i></span>
+                    <span class="imp-tpl-txt"><b>${o[2]}</b><small>${o[3]}</small></span>
+                </label>`).join('')}
             </div>
         `,
         showCancelButton: true,
@@ -20137,130 +20746,20 @@ function downloadProductTemplate() {
         }
     }).then(result => {
         if (!result.isConfirmed) return;
-        const choice = result.value;
-        if (choice === 'product-csv') {
-            downloadAuthFetch(`${API_URL}/products/template?format=csv`, `product_import_template_${Date.now()}.csv`);
-        } else if (choice === 'bulk-specs-csv') {
-            downloadAuthFetch(`${API_URL}/products/bulk-specs-template`, `bulk_specs_template_${Date.now()}.csv`);
-        } else {
-            downloadAuthFetch(`${API_URL}/products/template?format=xlsx`, `product_template_${Date.now()}.xlsx`);
-        }
+        downloadImportTemplate(result.value);
     });
 }
-function openBulkSpecsImportModal() {
-    Swal.fire({
-        title:'Bulk Import Specs',
-        html: `
-            <p style="font-size:0.85rem;color:#64748b;text-align:left;">
-                Upload a CSV file with 2 columns: <b>Code</b> and <b>Description</b>.<br>
-                The first row must be the header. Product Codes not found in the system will be skipped.<br>
-                Tip: use the <b>Download Template</b> button above and pick "Bulk Import Specs Template" to get the correct CSV format.
-            </p>
-        `,
-        confirmButtonText:'Choose CSV File',
-        showCancelButton: true,
-        cancelButtonText:'Cancel'
-    }).then(result => {
-        if (result.isConfirmed) {
-            const input = document.getElementById('bulk-specs-file-input');
-            if (input) input.click();
-        }
-    });
-}
-function parseSimpleCsv(text) {
-    const rows = [];
-    const lines = text.split(/\r?\n/).filter(l => l.trim() !=='');
-    for (const line of lines) {
-        const cells = [];
-        let cur ='';
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-            const ch = line[i];
-            if (inQuotes) {
-                if (ch ==='"') {
-                    if (line[i + 1] ==='"') { cur +='"'; i++; } else { inQuotes = false; }
-                } else {
-                    cur += ch;
-                }
-            } else {
-                if (ch ==='"') inQuotes = true;
-                else if (ch ===',') { cells.push(cur); cur =''; }
-                else cur += ch;
-            }
-        }
-        cells.push(cur);
-        rows.push(cells);
+function downloadImportTemplate(choice) {
+    const stamp = Date.now();
+    if (choice === 'product-csv') {
+        downloadAuthFetch(`${API_URL}/products/template?format=csv`, `product_import_template_${stamp}.csv`);
+    } else if (choice === 'specs-csv') {
+        downloadAuthFetch(`${API_URL}/products/bulk-specs-template?format=csv`, `bulk_specs_template_${stamp}.csv`);
+    } else if (choice === 'specs-xlsx') {
+        downloadAuthFetch(`${API_URL}/products/bulk-specs-template?format=xlsx`, `bulk_specs_template_${stamp}.xlsx`);
+    } else {
+        downloadAuthFetch(`${API_URL}/products/template?format=xlsx`, `product_template_${stamp}.xlsx`);
     }
-    return rows;
-}
-async function handleBulkSpecsImportFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    event.target.value ='';
-    let text ='';
-    try {
-        text = await file.text();
-    } catch (e) {
-        Swal.fire('Error','Could not read the file.','error');
-        return;
-    }
-    const rows = parseSimpleCsv(text);
-    if (rows.length < 2) {
-        Swal.fire('Empty File','No content was found in the CSV file.','warning');
-        return;
-    }
-    const header = rows[0].map(h => h.trim().toLowerCase());
-    const codeIdx = header.indexOf('code');
-    const descIdx = header.indexOf('description');
-    if (codeIdx === -1 || descIdx === -1) {
-        Swal.fire('Invalid Format','The CSV file must have "Code" and "Description" columns.','error');
-        return;
-    }
-    const dataRows = rows.slice(1).filter(r => (r[codeIdx] ||'').trim());
-    if (!dataRows.length) {
-        Swal.fire('Empty File','No valid Code was found in the file.','warning');
-        return;
-    }
-    const confirmResult = await Swal.fire({
-        title: `Import ${dataRows.length} specs/description?`,
-        text:'This will replace the Description of matching Product Codes.',
-        icon:'question',
-        showCancelButton: true,
-        confirmButtonText:'Yes, import',
-        cancelButtonText:'Cancel'
-    });
-    if (!confirmResult.isConfirmed) return;
-    Swal.fire({
-        title:'Importing...',
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        showConfirmButton: false,
-        didOpen: () => Swal.showLoading()
-    });
-    let updated = 0, skipped = 0, failed = 0;
-    for (const row of dataRows) {
-        const code = (row[codeIdx] ||'').trim();
-        const description = (row[descIdx] ||'').trim();
-        const exists = cachedInventoryProducts.some(p => p.code === code) || globalProducts.some(p => p.code === code);
-        if (!exists) { skipped++; continue; }
-        try {
-            const res = await authFetch(`${API_URL}/products/${encodeURIComponent(code)}`, {
-                method:'PUT',
-                headers: {'Content-Type':'application/json' },
-                body: JSON.stringify({ updatedData: { description }, userRole: currentUser.role, username: currentUser.username })
-            });
-            const reply = await res.json();
-            if (reply.success) updated++; else failed++;
-        } catch (e) {
-            failed++;
-        }
-    }
-    if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
-    Swal.fire({
-        title:'Import Complete',
-        html: `<p>✅ Updated: <b>${updated}</b></p><p>⏭️ Skipped (no matching code): <b>${skipped}</b></p>${failed ? `<p>❌ Failed: <b>${failed}</b></p>` :''}`,
-        icon:'success'
-    });
 }
 async function exportProductsCsv() {
     if (guardPremiumFeature('advanced_reports')) return;
@@ -20652,105 +21151,442 @@ async function exportProductImagesOnly() {
     }
 }
 
-let selectedImportMode ='skip';
-function triggerProductImport() {
-    Swal.fire({
-        title:'How would you like to import the file?',
-        html:'<p style="font-size:14px;color:#64748b;">If a Product Code is already on record...</p>',
-        showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText:'Update Existing',
-        denyButtonText:'Skip Duplicates',
-        cancelButtonText:'Cancel',
-        confirmButtonColor:'#2563eb',
-        denyButtonColor:'#64748b'
-    }).then(result => {
-        if (result.isConfirmed) {
-            selectedImportMode ='update';
-        } else if (result.isDenied) {
-            selectedImportMode ='skip';
-        } else {
-            return;
-        }
-        const fileInput = document.getElementById('import-file-input');
-        if (fileInput) fileInput.click();
-    });
-}
-async function handleProductImportFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('username', currentUser.username);
-    formData.append('mode', selectedImportMode ||'skip');
-    Swal.fire({
-        title:'Importing products...',
-        text:'Please wait a moment.',
-        allowOutsideClick: false,
-        didOpen: () => Swal.showLoading()
-    });
+/* ===================== UNIFIED IMPORTER (Products + Specs / Description) ===================== */
+const IMP_MAX_BYTES = 10 * 1024 * 1024;
+const IMP_ACTION_LABELS = { add: 'New', update: 'Update', unchanged: 'No change', skip: 'Skipped', notfound: 'Not found', error: 'Error' };
+const IMP_KIND_LABELS = { products: 'Products', specs: 'Specs / Description only' };
+let impState = null;
+let impThemeWatch = null;
+let impKeyHandler = null;
+function impReadableInk(cssColor) {
     try {
-        const res = await authFetch(`${API_URL}/products/import`, {
-            method:'POST',
-            body: formData
-        });
-        const reply = await res.json();
-        event.target.value ='';
-        if (!reply.success) {
-            Swal.fire('Import Failed', reply.message ||'Could not import the file.','error');
-            return;
-        }
-        if (reply.products) applyServerProductsToGlobal(reply.products);
-        if (reply.categories) customCategories = reply.categories;
-        updateDropdownCategoriesDynamic();
-        updateCategoryChipsDynamic();
-        if (typeof loadInventoryProductsTable ==='function') loadInventoryProductsTable();
-        if (typeof loadDashboardMetrics ==='function') loadDashboardMetrics();
-        let summaryHtml = `<p>✅ Successfully added: <b>${reply.added}</b> product(s)</p>`;
-        if (reply.updated) {
-            summaryHtml += `<p>🔄 Updated: <b>${reply.updated}</b> existing product(s)</p>`;
-        }
-        if (reply.newCategories && reply.newCategories.length) {
-            summaryHtml += `<p>🏷️ New categories added: <b>${reply.newCategories.join(', ')}</b></p>`;
-        }
-        if (reply.skipped) {
-            summaryHtml += `<p>⚠️ Skipped: <b>${reply.skipped}</b> row(s) (duplicate code or missing data)</p>`;
-        }
-        if (reply.errors && reply.errors.length) {
-            summaryHtml += `<div style="text-align:left;max-height:150px;overflow:auto;margin-top:10px;padding:8px;background:#fef2f2;border-radius:6px;font-size:12.5px;color:#b91c1c;">${reply.errors.join('<br>')}</div>`;
-            summaryHtml += `<div style="margin-top:10px;"><button type="button" id="download-import-errors-btn" class="btn-action-outline" style="font-size:12.5px;padding:6px 12px;">📥 Download Error Report (CSV)</button></div>`;
-        }
-        Swal.fire({
-            title:'Import Complete',
-            html: summaryHtml,
-            icon: (reply.errors && reply.errors.length) ?'warning' :'success',
-            didOpen: () => {
-                const btn = document.getElementById('download-import-errors-btn');
-                if (btn) {
-                    btn.addEventListener('click', () => downloadImportErrorsCsv(reply.errors));
-                }
-            }
-        });
-    } catch (error) {
-        console.error(error);
-        event.target.value ='';
-        Swal.fire('Connection Lost','❌ Could not connect to the server. Try again.','error');
+        const el = document.createElement('span');
+        el.style.color = cssColor;
+        document.body.appendChild(el);
+        const m = (getComputedStyle(el).color || '').match(/[\d.]+/g);
+        el.remove();
+        if (!m || m.length < 3) return '#ffffff';
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const L = 0.2126 * lin(+m[0]) + 0.7152 * lin(+m[1]) + 0.0722 * lin(+m[2]);
+        return L > 0.4 ? '#0b1220' : '#ffffff';
+    } catch (e) {
+        return '#ffffff';
     }
 }
-function downloadImportErrorsCsv(errorsArray) {
-    if (!errorsArray || !errorsArray.length) return;
-    const escapeCsv = (val) => {
-        const s = (val === undefined || val === null) ?'' : val.toString();
-        return/[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+function impSyncInk() {
+    const overlay = document.getElementById('imp-overlay');
+    if (!overlay) return;
+    const dark = document.body.classList.contains('dark-mode');
+    const accent = dark ? (getComputedStyle(document.body).getPropertyValue('--dm-accent') || '').trim() : '#2563eb';
+    overlay.style.setProperty('--imp-accent-ink', accent ? impReadableInk(accent) : '#ffffff');
+}
+function impFormatBytes(n) {
+    if (!n && n !== 0) return '';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+function impCsvCell(v) {
+    let s = (v === undefined || v === null) ? '' : String(v);
+    if (/^[=+\-@]/.test(s)) s = "'" + s;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function triggerProductImport() {
+    if (document.getElementById('imp-overlay')) return;
+    impState = { step: 'choose', file: null, kind: 'auto', mode: 'skip', descMode: 'replace', clearBlank: false, preview: null, result: null, busy: false, filter: 'all', error: '', workingText: '', dragging: false };
+    const overlay = document.createElement('div');
+    overlay.id = 'imp-overlay';
+    overlay.className = 'imp-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'imp-title');
+    overlay.innerHTML = `
+        <div class="imp-modal" id="imp-modal">
+            <div class="imp-head">
+                <div class="imp-head-ico"><i class="fa-solid fa-file-import"></i></div>
+                <div class="imp-head-txt">
+                    <h3 id="imp-title">Import</h3>
+                    <p>Products, specs &amp; descriptions from Excel or CSV</p>
+                </div>
+                <button type="button" class="imp-x" data-imp="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <ol class="imp-steps" id="imp-steps">
+                <li class="imp-step" data-step="choose"><span>1</span> File</li>
+                <li class="imp-step" data-step="preview"><span>2</span> Review</li>
+                <li class="imp-step" data-step="done"><span>3</span> Done</li>
+            </ol>
+            <div class="imp-body" id="imp-body"></div>
+            <div class="imp-foot" id="imp-foot"></div>
+        </div>`;
+    document.body.appendChild(overlay);
+    document.body.classList.add('imp-open');
+    impSyncInk();
+    if (typeof MutationObserver !== 'undefined') {
+        impThemeWatch = new MutationObserver(impSyncInk);
+        impThemeWatch.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    }
+    overlay.addEventListener('mousedown', (e) => {
+        if (e.target === overlay && impState && !impState.busy && !impState.file) impClose();
+    });
+    overlay.addEventListener('click', impHandleClick);
+    overlay.addEventListener('change', impHandleChange);
+    overlay.addEventListener('dragover', (e) => {
+        if (!e.target.closest || !e.target.closest('.imp-drop')) return;
+        e.preventDefault();
+        if (impState && !impState.dragging) { impState.dragging = true; const d = overlay.querySelector('.imp-drop'); if (d) d.classList.add('is-over'); }
+    });
+    overlay.addEventListener('dragleave', (e) => {
+        if (!e.target.closest || !e.target.closest('.imp-drop')) return;
+        if (impState) impState.dragging = false;
+        const d = overlay.querySelector('.imp-drop'); if (d) d.classList.remove('is-over');
+    });
+    overlay.addEventListener('drop', (e) => {
+        if (!e.target.closest || !e.target.closest('.imp-drop')) return;
+        e.preventDefault();
+        if (impState) impState.dragging = false;
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files.length) impSetFile(files[0]);
+    });
+    impKeyHandler = (e) => {
+        if (e.key === 'Escape' && impState && !impState.busy) impClose();
     };
-    const lines = ['Error Message'];
-    errorsArray.forEach(e => lines.push(escapeCsv(e)));
-    const csvContent ='\uFEFF' + lines.join('\r\n');
-    const blob = new Blob([csvContent], { type:'text/csv;charset=utf-8;' });
+    document.addEventListener('keydown', impKeyHandler);
+    impRender();
+}
+function impClose() {
+    const overlay = document.getElementById('imp-overlay');
+    if (overlay) overlay.remove();
+    document.body.classList.remove('imp-open');
+    if (impThemeWatch) { impThemeWatch.disconnect(); impThemeWatch = null; }
+    if (impKeyHandler) { document.removeEventListener('keydown', impKeyHandler); impKeyHandler = null; }
+    impState = null;
+}
+function impSetFile(file) {
+    const s = impState;
+    if (!s || s.busy || !file) return;
+    const name = (file.name || '').toLowerCase();
+    if (!/\.(xlsx|csv|tsv|txt)$/.test(name)) {
+        s.error = name.endsWith('.xls')
+            ? 'The old .xls format is not supported. Save the file as .xlsx or .csv first.'
+            : 'Unsupported file type. Please choose an Excel (.xlsx) or CSV file.';
+        impRender();
+        return;
+    }
+    if (file.size > IMP_MAX_BYTES) {
+        s.error = `The file is too large (${impFormatBytes(file.size)}). The maximum is ${impFormatBytes(IMP_MAX_BYTES)} — split it into smaller files.`;
+        impRender();
+        return;
+    }
+    if (file.size === 0) {
+        s.error = 'The file is empty.';
+        impRender();
+        return;
+    }
+    s.file = file;
+    s.error = '';
+    s.preview = null;
+    impRender();
+}
+function impHandleChange(e) {
+    const t = e.target;
+    if (!impState) return;
+    if (t && t.id === 'imp-file') {
+        const f = t.files && t.files[0];
+        t.value = '';
+        if (f) impSetFile(f);
+    } else if (t && t.id === 'imp-clear-blank') {
+        impState.clearBlank = !!t.checked;
+    } else if (t && t.id === 'imp-filter') {
+        impState.filter = t.value;
+        impRenderPreviewRows();
+    }
+}
+function impHandleClick(e) {
+    const el = e.target.closest ? e.target.closest('[data-imp]') : null;
+    const s = impState;
+    if (!el || !s) return;
+    const act = el.getAttribute('data-imp');
+    if (act === 'close') { if (!s.busy) impClose(); return; }
+    if (s.busy) return;
+    if (act === 'kind') { s.kind = el.getAttribute('data-val'); impRender(); }
+    else if (act === 'seg') { s[el.getAttribute('data-group')] = el.getAttribute('data-val'); impRender(); }
+    else if (act === 'remove-file') { s.file = null; s.preview = null; s.error = ''; impRender(); }
+    else if (act === 'template') { downloadImportTemplate(el.getAttribute('data-val')); }
+    else if (act === 'analyze') { impSubmit(true); }
+    else if (act === 'run') { impSubmit(false); }
+    else if (act === 'back') { s.step = 'choose'; s.error = ''; impRender(); }
+    else if (act === 'again') { s.file = null; s.preview = null; s.result = null; s.error = ''; s.step = 'choose'; impRender(); }
+    else if (act === 'report') { impDownloadReport(s.step === 'done' ? s.result : s.preview); }
+}
+function impSegHtml(group, current, items) {
+    return `<div class="imp-seg" role="group">${items.map(it => `
+        <button type="button" class="imp-seg-btn ${current === it[0] ? 'on' : ''}" data-imp="seg" data-group="${group}" data-val="${it[0]}" aria-pressed="${current === it[0]}">${it[1]}</button>`).join('')}</div>`;
+}
+function impRender() {
+    const s = impState;
+    if (!s) return;
+    const body = document.getElementById('imp-body');
+    const foot = document.getElementById('imp-foot');
+    if (!body || !foot) return;
+    const order = ['choose', 'preview', 'done'];
+    const activeKey = s.step === 'working' ? (s.preview ? 'preview' : 'choose') : s.step;
+    const activeIdx = order.indexOf(activeKey);
+    document.querySelectorAll('#imp-steps .imp-step').forEach((li, i) => {
+        li.classList.toggle('is-active', i === activeIdx);
+        li.classList.toggle('is-done', i < activeIdx);
+    });
+    if (s.step === 'choose') impRenderChoose(body, foot);
+    else if (s.step === 'working') impRenderWorking(body, foot);
+    else if (s.step === 'preview') impRenderPreview(body, foot);
+    else impRenderDone(body, foot);
+    body.scrollTop = 0;
+}
+function impErrorHtml() {
+    const s = impState;
+    return s.error ? `<div class="imp-alert is-bad" role="alert"><i class="fa-solid fa-triangle-exclamation"></i><div>${escapeHtml(s.error)}</div></div>` : '';
+}
+function impRenderChoose(body, foot) {
+    const s = impState;
+    const f = s.file;
+    const kinds = [
+        ['auto', 'fa-wand-magic-sparkles', 'Auto-detect', 'Recommended. Recognizes the file type from its columns.'],
+        ['products', 'fa-boxes-stacked', 'Products', 'Full list: Code, Name, Price, Stock… Description &amp; Specs columns are optional.'],
+        ['specs', 'fa-align-left', 'Specs / Description only', 'Code + Description / Specs for products you already have.']
+    ];
+    const showDup = s.kind !== 'specs';
+    body.innerHTML = `
+        ${impErrorHtml()}
+        ${f ? `
+        <div class="imp-file">
+            <div class="imp-file-ico"><i class="fa-solid ${/\.xlsx$/i.test(f.name) ? 'fa-file-excel' : 'fa-file-csv'}"></i></div>
+            <div class="imp-file-txt"><b>${escapeHtml(f.name)}</b><small>${impFormatBytes(f.size)}</small></div>
+            <button type="button" class="imp-link" data-imp="remove-file"><i class="fa-solid fa-xmark"></i> Change</button>
+        </div>` : `
+        <label class="imp-drop" for="imp-file">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <b>Drop your file here, or tap to browse</b>
+            <small>Excel (.xlsx) or CSV · up to ${impFormatBytes(IMP_MAX_BYTES)}</small>
+        </label>`}
+        <input type="file" id="imp-file" class="imp-file-input" accept=".xlsx,.csv,.tsv,.txt" autocomplete="off">
+        <div class="imp-label">What are you importing?</div>
+        <div class="imp-kinds">
+            ${kinds.map(k => `
+            <button type="button" class="imp-kind ${s.kind === k[0] ? 'on' : ''}" data-imp="kind" data-val="${k[0]}" aria-pressed="${s.kind === k[0]}">
+                <span class="imp-kind-ico"><i class="fa-solid ${k[1]}"></i></span>
+                <span class="imp-kind-txt"><b>${k[2]}</b><small>${k[3]}</small></span>
+            </button>`).join('')}
+        </div>
+        <div class="imp-opts">
+            ${showDup ? `
+            <div class="imp-opt">
+                <div class="imp-label">If a Product Code already exists</div>
+                ${impSegHtml('mode', s.mode, [['skip', 'Skip it'], ['update', 'Update it']])}
+                <small class="imp-hint">${s.mode === 'update' ? 'Blank cells keep the product\'s current value.' : 'Existing products are left untouched.'}</small>
+            </div>` : ''}
+            <div class="imp-opt">
+                <div class="imp-label">Description &amp; Specs</div>
+                ${impSegHtml('descMode', s.descMode, [['replace', 'Replace'], ['append', 'Append'], ['fill', 'Only if empty']])}
+                <small class="imp-hint">${s.descMode === 'append' ? 'Adds to the current Description; Specs with the same label are updated.' : (s.descMode === 'fill' ? 'Products that already have a Description / Specs are not changed.' : 'The current Description / Specs are replaced by the file\'s values.')}</small>
+                ${s.descMode === 'replace' ? `
+                <label class="imp-check"><input type="checkbox" id="imp-clear-blank" ${s.clearBlank ? 'checked' : ''}> <span>Blank cells also clear the existing Description / Specs</span></label>` : ''}
+            </div>
+        </div>
+        <div class="imp-tpl-row">
+            <span>Need a template?</span>
+            <button type="button" class="imp-chip" data-imp="template" data-val="product-xlsx"><i class="fa-solid fa-file-excel"></i> Products</button>
+            <button type="button" class="imp-chip" data-imp="template" data-val="product-csv"><i class="fa-solid fa-file-csv"></i> Products</button>
+            <button type="button" class="imp-chip" data-imp="template" data-val="specs-xlsx"><i class="fa-solid fa-file-excel"></i> Specs</button>
+            <button type="button" class="imp-chip" data-imp="template" data-val="specs-csv"><i class="fa-solid fa-file-csv"></i> Specs</button>
+        </div>`;
+    foot.innerHTML = `
+        <button type="button" class="imp-btn" data-imp="close">Cancel</button>
+        <button type="button" class="imp-btn pri" data-imp="analyze" ${f ? '' : 'disabled'}>Review file <i class="fa-solid fa-arrow-right"></i></button>`;
+}
+function impRenderWorking(body, foot) {
+    const s = impState;
+    body.innerHTML = `
+        <div class="imp-working" role="status" aria-live="polite">
+            <div class="imp-spinner"></div>
+            <b>${escapeHtml(s.workingText || 'Working…')}</b>
+            <small>Please keep this window open.</small>
+            <div class="imp-bar"><i></i></div>
+        </div>`;
+    foot.innerHTML = '';
+}
+function impStatsHtml(r) {
+    const tiles = [
+        ['add', 'New', r.added, 'fa-plus'],
+        ['update', 'Updated', r.updated, 'fa-pen'],
+        ['unchanged', 'No change', r.unchanged, 'fa-equals'],
+        ['skip', 'Skipped', r.skipped, 'fa-forward'],
+        ['notfound', 'Not found', r.notFound, 'fa-magnifying-glass']
+    ].filter(t => t[2] > 0 || t[0] === 'add' || t[0] === 'update');
+    return `<div class="imp-stats">${tiles.map(t => `
+        <div class="imp-stat is-${t[0]}"><i class="fa-solid ${t[3]}"></i><b>${t[2]}</b><span>${t[1]}</span></div>`).join('')}</div>`;
+}
+function impColumnsHtml(r) {
+    const rec = (r.columns && r.columns.recognized) || [];
+    const ign = (r.columns && r.columns.ignored) || [];
+    if (!rec.length && !ign.length) return '';
+    return `
+        <div class="imp-cols">
+            ${rec.map(c => `<span class="imp-col is-used" title="Used"><i class="fa-solid fa-check"></i> ${escapeHtml(c)}</span>`).join('')}
+            ${ign.map(c => `<span class="imp-col is-ignored" title="Not used by this import"><i class="fa-solid fa-ban"></i> ${escapeHtml(c)}</span>`).join('')}
+        </div>`;
+}
+function impMessagesHtml(r) {
+    const errs = r.errors || [];
+    const warns = r.warnings || [];
+    if (!errs.length && !warns.length) return '';
+    return `
+        <details class="imp-details" ${errs.length && errs.length <= 5 ? 'open' : ''}>
+            <summary>
+                ${errs.length ? `<span class="imp-badge is-bad">${errs.length} issue${errs.length === 1 ? '' : 's'}</span>` : ''}
+                ${warns.length ? `<span class="imp-badge is-warn">${warns.length} warning${warns.length === 1 ? '' : 's'}</span>` : ''}
+                <span class="imp-details-t">Show details</span>
+            </summary>
+            <ul class="imp-msgs">
+                ${errs.slice(0, 300).map(m => `<li class="is-bad">${escapeHtml(m)}</li>`).join('')}
+                ${warns.slice(0, 300).map(m => `<li class="is-warn">${escapeHtml(m)}</li>`).join('')}
+            </ul>
+            ${(errs.length > 300 || warns.length > 300) ? '<small class="imp-hint">Showing the first 300 of each — download the report for the full list.</small>' : ''}
+        </details>`;
+}
+function impRenderPreview(body, foot) {
+    const s = impState;
+    const r = s.preview;
+    if (!r) { s.step = 'choose'; impRender(); return; }
+    const n = (r.added || 0) + (r.updated || 0);
+    const autoNote = s.kind === 'auto' ? ' (auto-detected)' : '';
+    body.innerHTML = `
+        ${impErrorHtml()}
+        <div class="imp-summary">
+            <div class="imp-summary-top">
+                <span class="imp-badge is-kind"><i class="fa-solid ${r.kind === 'specs' ? 'fa-align-left' : 'fa-boxes-stacked'}"></i> ${IMP_KIND_LABELS[r.kind] || r.kind}${autoNote}</span>
+                <span class="imp-summary-file"><b>${r.totalRows}</b> row${r.totalRows === 1 ? '' : 's'} · ${escapeHtml(r.fileName || (s.file && s.file.name) || '')}</span>
+            </div>
+            ${impStatsHtml(r)}
+        </div>
+        ${impColumnsHtml(r)}
+        ${impMessagesHtml(r)}
+        <div class="imp-table-bar">
+            <div class="imp-label" style="margin:0">Preview</div>
+            <select id="imp-filter" class="imp-select" aria-label="Filter rows">
+                ${[['all', 'All rows'], ['add', 'New'], ['update', 'Updated'], ['unchanged', 'No change'], ['skip', 'Skipped'], ['notfound', 'Not found'], ['error', 'Errors']].map(o => `<option value="${o[0]}" ${s.filter === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}
+            </select>
+        </div>
+        <div class="imp-table-wrap"><table class="imp-table">
+            <thead><tr><th>Row</th><th>Code</th><th>Name</th><th>Result</th></tr></thead>
+            <tbody id="imp-rows"></tbody>
+        </table></div>
+        <div class="imp-hint" id="imp-rows-note"></div>`;
+    impRenderPreviewRows();
+    foot.innerHTML = `
+        <button type="button" class="imp-btn" data-imp="back"><i class="fa-solid fa-arrow-left"></i> Back</button>
+        <button type="button" class="imp-btn" data-imp="report"><i class="fa-solid fa-download"></i> Report</button>
+        <button type="button" class="imp-btn pri" data-imp="run" ${n > 0 ? '' : 'disabled'}><i class="fa-solid fa-check"></i> ${n > 0 ? `Import ${n} row${n === 1 ? '' : 's'}` : 'Nothing to import'}</button>`;
+}
+function impRenderPreviewRows() {
+    const s = impState;
+    const tb = document.getElementById('imp-rows');
+    const note = document.getElementById('imp-rows-note');
+    if (!s || !s.preview || !tb) return;
+    const r = s.preview;
+    const list = (r.report || []).filter(x => s.filter === 'all' || x.action === s.filter);
+    tb.innerHTML = list.length ? list.map(x => `
+        <tr>
+            <td class="imp-td-row">${x.row}</td>
+            <td class="imp-td-code">${escapeHtml(x.code || '—')}</td>
+            <td>${escapeHtml(x.name || '—')}${x.note ? `<div class="imp-td-note">${escapeHtml(x.note)}</div>` : ''}</td>
+            <td><span class="imp-res is-${x.action}">${IMP_ACTION_LABELS[x.action] || escapeHtml(x.action)}</span></td>
+        </tr>`).join('') : '<tr><td colspan="4" class="imp-empty">No rows to show.</td></tr>';
+    if (note) note.textContent = r.reportTruncated ? `Showing the first ${(r.report || []).length} of ${r.totalRows} rows. The totals above cover the whole file.` : '';
+}
+function impRenderDone(body, foot) {
+    const s = impState;
+    const r = s.result;
+    if (!r) { s.step = 'choose'; impRender(); return; }
+    const changed = (r.added || 0) + (r.updated || 0);
+    body.innerHTML = `
+        <div class="imp-done ${changed ? 'is-ok' : 'is-info'}">
+            <div class="imp-done-ico"><i class="fa-solid ${changed ? 'fa-circle-check' : 'fa-circle-info'}"></i></div>
+            <h4>${changed ? 'Import complete' : 'Nothing was changed'}</h4>
+            <p>${escapeHtml(r.fileName || '')}</p>
+        </div>
+        ${impStatsHtml(r)}
+        ${r.newCategories && r.newCategories.length ? `<div class="imp-alert is-info"><i class="fa-solid fa-tags"></i><div>New categories added: <b>${r.newCategories.map(c => escapeHtml(c)).join(', ')}</b></div></div>` : ''}
+        ${impMessagesHtml(r)}`;
+    foot.innerHTML = `
+        <button type="button" class="imp-btn" data-imp="report"><i class="fa-solid fa-download"></i> Report</button>
+        <button type="button" class="imp-btn" data-imp="again"><i class="fa-solid fa-rotate-left"></i> Import another</button>
+        <button type="button" class="imp-btn pri" data-imp="close">Done</button>`;
+}
+async function impSubmit(dryRun) {
+    const s = impState;
+    if (!s || !s.file || s.busy) return;
+    s.busy = true;
+    s.error = '';
+    s.workingText = dryRun ? 'Reading and checking your file…' : 'Importing…';
+    s.step = 'working';
+    impRender();
+    const fd = new FormData();
+    fd.append('file', s.file);
+    fd.append('kind', s.kind);
+    fd.append('mode', s.mode);
+    fd.append('descMode', s.descMode);
+    fd.append('clearBlank', s.clearBlank ? '1' : '0');
+    fd.append('dryRun', dryRun ? '1' : '0');
+    if (typeof currentUser !== 'undefined' && currentUser && currentUser.username) fd.append('username', currentUser.username);
+    let reply = null;
+    try {
+        const res = await authFetch(`${API_URL}/products/import`, { method: 'POST', body: fd });
+        if (!res) throw new Error('No response');
+        try { reply = await res.json(); } catch (e) { reply = null; }
+        if (!reply) reply = { success: false, message: `The server sent an unexpected response (${res.status}).` };
+    } catch (err) {
+        console.error(err);
+        reply = { success: false, message: 'Could not reach the server. Check your connection and try again.' };
+    }
+    s.busy = false;
+    if (impState !== s) return;
+    if (!reply.success) {
+        s.error = reply.message || 'The import failed.';
+        s.step = dryRun ? 'choose' : 'preview';
+        impRender();
+        return;
+    }
+    if (dryRun) {
+        s.preview = reply;
+        s.filter = 'all';
+        s.step = 'preview';
+    } else {
+        try {
+            if (reply.products) applyServerProductsToGlobal(reply.products);
+            if (reply.categories) customCategories = reply.categories;
+            updateDropdownCategoriesDynamic();
+            updateCategoryChipsDynamic();
+            if (typeof loadInventoryProductsTable === 'function') loadInventoryProductsTable();
+            if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
+        } catch (err) {
+            console.error('Post-import refresh failed:', err);
+        }
+        s.result = reply;
+        s.step = 'done';
+    }
+    impRender();
+}
+function impDownloadReport(reply) {
+    if (!reply) return;
+    const lines = ['Type,Row,Code,Name,Result,Note'];
+    (reply.report || []).forEach(r => lines.push(['Row', r.row, r.code, r.name, IMP_ACTION_LABELS[r.action] || r.action, r.note].map(impCsvCell).join(',')));
+    if (reply.reportTruncated) lines.push(['Info', '', '', '', '', `Only the first ${(reply.report || []).length} of ${reply.totalRows} rows are listed above.`].map(impCsvCell).join(','));
+    (reply.errors || []).forEach(m => lines.push(['Error', '', '', '', '', m].map(impCsvCell).join(',')));
+    (reply.warnings || []).forEach(m => lines.push(['Warning', '', '', '', '', m].map(impCsvCell).join(',')));
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `import_errors_${Date.now()}.csv`;
+    a.download = `import_report_${Date.now()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -21795,6 +22631,409 @@ async function deleteProductTrigger(code) {
         productCatalogMutationVersion++;
     }
 }
+// ===========================================================================
+// BULK DELETE PRODUCTS (Products page > "Delete" button)
+// Filter (basic + advanced), tick the products, then confirm: type DELETE + password (same password
+// rules as deleting a single product). The selection is always limited to what is currently shown by the
+// filters, so a product that is filtered out can never be deleted by accident.
+// ===========================================================================
+const BULK_DELETE_RENDER_LIMIT = 300;
+let bulkDeleteMatches = [];
+let bulkDeleteSelected = new Set();
+let bulkDeleteTableFilterOn = false;
+let bulkDeleteBusy = false;
+function bdCodeKey(code) { return String(code == null ? '' : code).trim().toLowerCase(); }
+function bdHasPhoto(p) { return !!(p && (p.image || p._imgPending || Number(p.imageCount) > 0)); }
+function bdDaysLeft(p) {
+    if (!p || !p.expiryDate) return null;
+    const d = new Date(p.expiryDate);
+    if (isNaN(d.getTime())) return null;
+    return Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24));
+}
+function bdNumberOrNull(id) {
+    const el = document.getElementById(id);
+    if (!el || el.value === '') return null;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : null;
+}
+function bdFillSelect(id, values, anyLabel) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const previous = el.value;
+    el.innerHTML = '';
+    const addOption = (value, label) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        el.appendChild(opt);
+    };
+    addOption('', anyLabel);
+    values.forEach((v) => addOption(v, v));
+    el.value = values.includes(previous) ? previous : '';
+}
+function bdPopulateFilterOptions() {
+    const list = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [];
+    const categories = Array.from(new Set(list.map(p => (p && p.category) ? String(p.category) : '').filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    const suppliers = Array.from(new Set(list.map(p => (p && p.supplier) ? String(p.supplier) : '').filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    bdFillSelect('bd-category', categories, 'All categories');
+    bdFillSelect('bd-supplier', ['(No Supplier)'].concat(suppliers), 'All suppliers');
+}
+function openBulkDeleteModal() {
+    const modal = document.getElementById('bulk-delete-modal');
+    if (!modal) return;
+    bulkDeleteSelected = new Set();
+    bulkDeleteTableFilterOn = false;
+    const searchEl = document.getElementById('bd-search');
+    if (searchEl) searchEl.value = '';
+    ['bd-stock-level', 'bd-expiry', 'bd-photo', 'bd-specs'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['bd-stock-min', 'bd-stock-max', 'bd-price-min', 'bd-price-max'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const daysEl = document.getElementById('bd-expiry-days');
+    if (daysEl) daysEl.value = '30';
+    const adv = document.getElementById('bd-advanced');
+    const advBtn = document.getElementById('bd-adv-toggle');
+    if (adv) adv.style.display = 'none';
+    if (advBtn) advBtn.setAttribute('aria-expanded', 'false');
+    bdPopulateFilterOptions();
+    modal.style.display = 'flex';
+    bulkDeleteRefresh();
+    if (searchEl) setTimeout(() => { try { searchEl.focus(); } catch (e) {} }, 60);
+}
+function closeBulkDeleteModal() {
+    if (bulkDeleteBusy) return;
+    closeModal('bulk-delete-modal');
+    bulkDeleteSelected = new Set();
+}
+function toggleBulkDeleteAdvanced() {
+    const adv = document.getElementById('bd-advanced');
+    const btn = document.getElementById('bd-adv-toggle');
+    if (!adv) return;
+    const open = adv.style.display === 'none';
+    adv.style.display = open ? 'block' : 'none';
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function bulkDeleteResetFilters() {
+    bulkDeleteTableFilterOn = false;
+    const searchEl = document.getElementById('bd-search');
+    if (searchEl) searchEl.value = '';
+    ['bd-category', 'bd-supplier', 'bd-stock-level', 'bd-expiry', 'bd-photo', 'bd-specs'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['bd-stock-min', 'bd-stock-max', 'bd-price-min', 'bd-price-max'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const daysEl = document.getElementById('bd-expiry-days');
+    if (daysEl) daysEl.value = '30';
+    bulkDeleteRefresh();
+}
+function bulkDeleteApplyTableFilters() {
+    bulkDeleteTableFilterOn = true;
+    const tableSearch = document.getElementById('inventory-search');
+    const searchEl = document.getElementById('bd-search');
+    if (searchEl && tableSearch) searchEl.value = tableSearch.value || '';
+    bulkDeleteRefresh();
+}
+function bdProductMatches(p) {
+    if (!p) return false;
+    const query = ((document.getElementById('bd-search') || {}).value || '').trim().toLowerCase();
+    if (query && !(String(p.name || '').toLowerCase().includes(query) || String(p.code || '').toLowerCase().includes(query))) return false;
+    if (bulkDeleteTableFilterOn) {
+        for (const field in columnFilters) {
+            if (columnFilters[field].size > 0 && !columnFilters[field].has(getColumnDisplayValue(field, p))) return false;
+        }
+    }
+    const category = (document.getElementById('bd-category') || {}).value || '';
+    if (category && String(p.category || '') !== category) return false;
+    const supplier = (document.getElementById('bd-supplier') || {}).value || '';
+    if (supplier) {
+        const ps = p.supplier ? String(p.supplier) : '(No Supplier)';
+        if (ps !== supplier) return false;
+    }
+    const stock = parseFloat(p.stock) || 0;
+    const threshold = (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') ? parseInt(p.lowStockThreshold) : 5;
+    const level = (document.getElementById('bd-stock-level') || {}).value || '';
+    if (level === 'out' && stock > 0) return false;
+    if (level === 'low' && !(stock > 0 && stock <= threshold)) return false;
+    if (level === 'in' && !(stock > 0)) return false;
+    const stockMin = bdNumberOrNull('bd-stock-min');
+    const stockMax = bdNumberOrNull('bd-stock-max');
+    if (stockMin !== null && stock < stockMin) return false;
+    if (stockMax !== null && stock > stockMax) return false;
+    const price = parseFloat(p.price) || 0;
+    const priceMin = bdNumberOrNull('bd-price-min');
+    const priceMax = bdNumberOrNull('bd-price-max');
+    if (priceMin !== null && price < priceMin) return false;
+    if (priceMax !== null && price > priceMax) return false;
+    const expiryMode = (document.getElementById('bd-expiry') || {}).value || '';
+    if (expiryMode) {
+        const daysLeft = bdDaysLeft(p);
+        if (expiryMode === 'none' && daysLeft !== null) return false;
+        if (expiryMode === 'expired' && !(daysLeft !== null && daysLeft < 0)) return false;
+        if (expiryMode === 'soon') {
+            const limit = Math.max(1, parseInt((document.getElementById('bd-expiry-days') || {}).value, 10) || 30);
+            if (!(daysLeft !== null && daysLeft >= 0 && daysLeft <= limit)) return false;
+        }
+    }
+    const photoMode = (document.getElementById('bd-photo') || {}).value || '';
+    if (photoMode === 'with' && !bdHasPhoto(p)) return false;
+    if (photoMode === 'without' && bdHasPhoto(p)) return false;
+    const specsMode = (document.getElementById('bd-specs') || {}).value || '';
+    if (specsMode === 'with' && !productHasDetails(p)) return false;
+    if (specsMode === 'without' && productHasDetails(p)) return false;
+    return true;
+}
+function bulkDeleteRefresh() {
+    const list = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [];
+    bulkDeleteMatches = list.filter(bdProductMatches);
+    // Keep the selection inside what is visible, so nothing hidden by a filter can be deleted unseen.
+    const visibleKeys = new Set(bulkDeleteMatches.map(p => bdCodeKey(p.code)));
+    bulkDeleteSelected = new Set(Array.from(bulkDeleteSelected).filter(k => visibleKeys.has(k)));
+    bulkDeleteRender();
+}
+function bulkDeleteRender() {
+    const listEl = document.getElementById('bd-list');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const total = bulkDeleteMatches.length;
+    const shown = bulkDeleteMatches.slice(0, BULK_DELETE_RENDER_LIMIT);
+    if (!total) {
+        const empty = document.createElement('div');
+        empty.className = 'bd-empty';
+        empty.textContent = (Array.isArray(cachedInventoryProducts) && cachedInventoryProducts.length)
+            ? 'No products match these filters.'
+            : 'No products are loaded yet. Close this window, wait for the Products list to load, then try again.';
+        listEl.appendChild(empty);
+    }
+    const frag = document.createDocumentFragment();
+    shown.forEach((p) => {
+        const key = bdCodeKey(p.code);
+        const row = document.createElement('label');
+        row.className = 'bd-row' + (bulkDeleteSelected.has(key) ? ' is-selected' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = bulkDeleteSelected.has(key);
+        cb.setAttribute('data-bd-key', key);
+        cb.autocomplete = 'off';
+        cb.addEventListener('change', () => bulkDeleteToggleOne(key, cb.checked, row));
+        const main = document.createElement('span');
+        main.className = 'bd-row-main';
+        const name = document.createElement('span');
+        name.className = 'bd-row-name';
+        name.textContent = p.name || '(no name)';
+        const meta = document.createElement('span');
+        meta.className = 'bd-row-meta';
+        const daysLeft = bdDaysLeft(p);
+        const expiryText = p.expiryDate ? ('Exp ' + p.expiryDate + (daysLeft !== null && daysLeft < 0 ? ' (expired)' : '')) : '';
+        meta.textContent = [String(p.code || ''), p.category || '', expiryText].filter(Boolean).join(' · ');
+        main.appendChild(name);
+        main.appendChild(meta);
+        const side = document.createElement('span');
+        side.className = 'bd-row-side';
+        const price = document.createElement('span');
+        price.textContent = '₱' + (parseFloat(p.price) || 0).toFixed(2);
+        const stock = document.createElement('span');
+        stock.className = 'bd-row-stock';
+        stock.textContent = 'Stock ' + (p.stock == null ? 0 : p.stock);
+        side.appendChild(price);
+        side.appendChild(stock);
+        row.appendChild(cb);
+        row.appendChild(main);
+        row.appendChild(side);
+        frag.appendChild(row);
+    });
+    listEl.appendChild(frag);
+    const note = document.getElementById('bd-note');
+    if (note) {
+        if (total > shown.length) {
+            note.style.display = 'block';
+            note.textContent = 'Showing the first ' + shown.length + ' of ' + total + ' matching products. "Select all matching" covers all ' + total + ' of them — narrow the filters if you only want some.';
+        } else {
+            note.style.display = 'none';
+            note.textContent = '';
+        }
+    }
+    bulkDeleteUpdateSummary();
+}
+function bulkDeleteToggleOne(key, checked, rowEl) {
+    if (checked) bulkDeleteSelected.add(key); else bulkDeleteSelected.delete(key);
+    if (rowEl) rowEl.classList.toggle('is-selected', checked);
+    bulkDeleteUpdateSummary();
+}
+function bulkDeleteToggleAll(checked) {
+    if (checked) {
+        bulkDeleteMatches.forEach(p => bulkDeleteSelected.add(bdCodeKey(p.code)));
+    } else {
+        bulkDeleteSelected = new Set();
+    }
+    bulkDeleteRender();
+}
+function bulkDeleteUpdateSummary() {
+    const total = bulkDeleteMatches.length;
+    const selected = bulkDeleteSelected.size;
+    const countEl = document.getElementById('bd-count');
+    if (countEl) {
+        countEl.textContent = selected + ' selected · ' + total + ' match' + (total === 1 ? '' : 'es') + (bulkDeleteTableFilterOn ? ' · table filters on' : '');
+    }
+    const allEl = document.getElementById('bd-select-all');
+    if (allEl) {
+        allEl.checked = total > 0 && selected === total;
+        allEl.indeterminate = selected > 0 && selected < total;
+        allEl.disabled = total === 0;
+    }
+    const btn = document.getElementById('bd-delete-btn');
+    if (btn) {
+        btn.disabled = selected === 0 || bulkDeleteBusy;
+        btn.innerHTML = '<i class="fa-solid fa-trash-can"></i> Delete selected (' + selected + ')';
+    }
+}
+function bdCsvCell(value) {
+    const text = value == null ? '' : String(value);
+    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}
+function bdDownloadBackupCsv(products) {
+    try {
+        if (!Array.isArray(products) || !products.length) return;
+        // Every field of the deleted products is saved (not only a few columns), so nothing is lost.
+        // Photos are not included. Internal "_" fields and image data are skipped.
+        const skipKey = (k) => k.charAt(0) === '_' || /^(image|images|gallery|additionalImages|photos)$/i.test(k);
+        const keySet = new Set();
+        products.forEach((p) => Object.keys(p || {}).forEach((k) => { if (!skipKey(k)) keySet.add(k); }));
+        const preferred = ['code', 'name', 'category', 'supplier', 'price', 'stock', 'expiryDate'];
+        const header = preferred.filter(k => keySet.has(k)).concat(Array.from(keySet).filter(k => !preferred.includes(k)).sort());
+        const cellValue = (v) => {
+            if (v == null) return '';
+            if (typeof v === 'object') return JSON.stringify(v);
+            if (typeof v === 'string' && v.indexOf('data:') === 0) return '';
+            return v;
+        };
+        const lines = [header.map(bdCsvCell).join(',')];
+        products.forEach((p) => {
+            lines.push(header.map(k => bdCsvCell(cellValue(p ? p[k] : ''))).join(','));
+        });
+        const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        a.href = url;
+        a.download = 'deleted-products-backup-' + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' + pad(now.getHours()) + pad(now.getMinutes()) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) {
+        console.warn('Could not create the backup CSV for the deleted products.', err);
+    }
+}
+async function submitBulkDelete() {
+    if (bulkDeleteBusy) return;
+    const selectedProducts = bulkDeleteMatches.filter(p => bulkDeleteSelected.has(bdCodeKey(p.code)));
+    if (!selectedProducts.length) return;
+    const count = selectedProducts.length;
+    const isAdmin = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin');
+    const canApplyDirectly = isAdmin || !!(currentPermissions && currentPermissions.products_direct_apply);
+    const previewNames = selectedProducts.slice(0, 6).map(p => '<li>' + escapeHtml(p.name || p.code) + ' <span style="color:#94a3b8;">(' + escapeHtml(String(p.code)) + ')</span></li>').join('');
+    const moreText = count > 6 ? '<li style="list-style:none;color:#64748b;">…and ' + (count - 6) + ' more</li>' : '';
+    const confirmation = await Swal.fire({
+        title: 'Delete ' + count + ' product' + (count === 1 ? '' : 's') + '?',
+        html: '<div style="text-align:left;font-size:0.9rem;"><ul style="margin:0 0 10px 18px;padding:0;">' + previewNames + moreText + '</ul>' +
+            (canApplyDirectly
+                ? '<p style="margin:0 0 8px;color:#b91c1c;font-weight:600;">This cannot be undone.</p>'
+                : '<p style="margin:0 0 8px;color:#64748b;">You do not have Direct Apply permission, so this will send ' + count + ' delete request(s) to an Admin for approval.</p>') +
+            '<p style="margin:0;">Type <strong>DELETE</strong> to confirm:</p></div>',
+        icon: 'warning',
+        input: 'text',
+        inputPlaceholder: 'DELETE',
+        inputAttributes: { autocomplete: 'off', autocapitalize: 'characters', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'data-bwignore': 'true', 'data-form-type': 'other' },
+        inputValidator: (value) => (String(value || '').trim() === 'DELETE' ? undefined : 'Type DELETE exactly (all capital letters) to continue.'),
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: canApplyDirectly ? 'Continue' : 'Send requests'
+    });
+    if (!confirmation.isConfirmed) return;
+    let adminPassword;
+    if (canApplyDirectly) {
+        // A password manager must not overwrite the Products/Delete search boxes while the password prompt is open.
+        const guardIds = ['inventory-search', 'bd-search'];
+        const snapshots = {};
+        guardIds.forEach((id) => { const el = document.getElementById(id); if (el) snapshots[id] = el.value; });
+        const guard = (e) => {
+            const id = e.target && e.target.id;
+            if (id && Object.prototype.hasOwnProperty.call(snapshots, id)) {
+                e.stopImmediatePropagation();
+                if (e.target.value !== snapshots[id]) e.target.value = snapshots[id];
+            }
+        };
+        document.addEventListener('input', guard, true);
+        document.addEventListener('change', guard, true);
+        let promptResult;
+        try {
+            promptResult = await Swal.fire({
+                title: '🔒 Confirm Password',
+                html: 'To delete ' + count + ' product' + (count === 1 ? '' : 's') + ', an Admin or authorized password is required:',
+                input: 'password',
+                inputPlaceholder: 'Password',
+                inputAttributes: { autocomplete: 'new-password', name: 'omnipos-confirm-bulk-delete-pw', 'data-lpignore': 'true', 'data-1p-ignore': 'true', 'data-bwignore': 'true', 'data-form-type': 'other' },
+                showCancelButton: true,
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#ef4444'
+            });
+        } finally {
+            document.removeEventListener('input', guard, true);
+            document.removeEventListener('change', guard, true);
+            guardIds.forEach((id) => { const el = document.getElementById(id); if (el && snapshots[id] !== undefined && el.value !== snapshots[id]) el.value = snapshots[id]; });
+        }
+        adminPassword = promptResult && promptResult.value;
+        if (!adminPassword || String(adminPassword).trim() === '') {
+            Swal.fire('Cancelled', 'A password is required to delete products.', 'info');
+            return;
+        }
+    }
+    bulkDeleteBusy = true;
+    bulkDeleteUpdateSummary();
+    productCatalogMutationVersion++;
+    productDeleteInProgress = true;
+    const wantBackup = !!(document.getElementById('bd-backup') && document.getElementById('bd-backup').checked);
+    try {
+        const res = await authFetch(`${API_URL}/products/bulk-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ codes: selectedProducts.map(p => p.code), confirmText: 'DELETE', adminPassword })
+        });
+        const reply = await res.json().catch(() => ({}));
+        if (reply && reply.success && typeof reply.deleted === 'number') {
+            const deletedKeys = new Set((Array.isArray(reply.deletedCodes) ? reply.deletedCodes : selectedProducts.map(p => p.code)).map(bdCodeKey));
+            if (wantBackup) {
+                const fullRecords = Array.isArray(reply.deletedProducts) && reply.deletedProducts.length ? reply.deletedProducts : null;
+                bdDownloadBackupCsv(fullRecords || selectedProducts.filter(p => deletedKeys.has(bdCodeKey(p.code))));
+            }
+            cachedInventoryProducts = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts.filter(p => !deletedKeys.has(bdCodeKey(p && p.code))) : [];
+            globalProducts = Array.isArray(globalProducts) ? globalProducts.filter(p => !deletedKeys.has(bdCodeKey(p && p.code))) : [];
+            productCatalogMutationVersion++;
+            bulkDeleteSelected = new Set();
+            bulkDeleteBusy = false;
+            closeModal('bulk-delete-modal');
+            renderInventoryProductsTable();
+            loadDashboardMetrics();
+            Swal.fire('Deleted!', (reply.message || (reply.deleted + ' product(s) deleted.')) + (reply.notFound ? ' (' + reply.notFound + ' were already gone.)' : ''), 'success');
+        } else if (reply && reply.success) {
+            bulkDeleteSelected = new Set();
+            bulkDeleteBusy = false;
+            closeModal('bulk-delete-modal');
+            Swal.fire('Requests sent', reply.message || 'Delete requests were submitted for Admin approval.', 'success');
+        } else if (reply && reply.code === 'WRONG_ADMIN_PASSWORD') {
+            Swal.fire('Access Denied', reply.message || 'Incorrect password.', 'error');
+        } else {
+            Swal.fire('Error', (reply && reply.message) || 'Could not delete the selected products.', 'error');
+        }
+    } catch (e) {
+        console.error('Bulk product delete error:', e);
+        Swal.fire('Error', 'Failed to delete the selected products. Please check your connection and try again.', 'error');
+    } finally {
+        bulkDeleteBusy = false;
+        productDeleteInProgress = false;
+        productCatalogMutationVersion++;
+        if (document.getElementById('bulk-delete-modal') && document.getElementById('bulk-delete-modal').style.display !== 'none') {
+            bulkDeleteRefresh();
+        }
+    }
+}
 let barcodeGenProductsByCode = {};
 async function loadBarcodeGeneratorModule() {
     try {
@@ -22292,11 +23531,37 @@ function saResolveDateRange() {
     }
     return { from, to };
 }
+function saRequiredCoverageStartMs() {
+    const { from, to } = saResolveDateRange();
+    let need = from.getTime();
+    if (salesAnalyticsChartState.compare) need = Math.min(need, ovGetComparisonRange(from, to).from.getTime());
+    return need;
+}
+// Kapareho ng Dashboard: ang panahon lang ng napiling range (+ comparison) ang kinukuha; kusang lumalawak kapag pinalitan ng user ang range.
+function saEnsureChartCoverage() {
+    const covered = salesAnalyticsChartState.coveredFromMs;
+    if (covered === undefined || salesAnalyticsChartState.coverageLoading) return;
+    const need = saRequiredCoverageStartMs();
+    if (need >= covered) return;
+    salesAnalyticsChartState.coverageLoading = true;
+    ovFetchJsonOrNull(`${API_URL}/transactions${ovTxWindowQuery(need)}`).then(rows => {
+        salesAnalyticsChartState.coverageLoading = false;
+        if (!Array.isArray(rows)) return;
+        const merged = new Map();
+        rows.forEach(tx => { if (tx && tx.id) merged.set(tx.id, tx); });
+        (salesAnalyticsChartState.lastTxs || []).forEach(tx => { if (tx && tx.id) merged.set(tx.id, tx); });
+        salesAnalyticsChartState.coveredFromMs = need;
+        salesAnalyticsChartState.lastTxs = Array.from(merged.values());
+        renderAdvancedSalesAnalyticsChart();
+    });
+}
 async function loadSalesAnalyticsChartData() {
     try {
-        const res = await authFetch(`${API_URL}/transactions`);
+        const needMs = saRequiredCoverageStartMs();
+        const res = await authFetch(`${API_URL}/transactions${ovTxWindowQuery(needMs)}`);
         const txs = res.ok ? await res.json() : [];
         salesAnalyticsChartState.lastTxs = Array.isArray(txs) ? txs : [];
+        if (res.ok) salesAnalyticsChartState.coveredFromMs = needMs;
     } catch (e) {
         console.warn('Sales Analytics chart: could not fetch transactions, falling back to cache.', e);
         salesAnalyticsChartState.lastTxs = JSON.parse(localStorage.getItem('cached_transactions') || '[]');
@@ -22306,6 +23571,7 @@ async function loadSalesAnalyticsChartData() {
 function renderAdvancedSalesAnalyticsChart() {
     const wrap = document.getElementById('sa-chart-svg-wrap');
     if (!wrap) return;
+    saEnsureChartCoverage();
     const txs = salesAnalyticsChartState.lastTxs;
     const { from, to } = saResolveDateRange();
     const buckets = ovComputeBuckets(txs, salesAnalyticsChartState.granularity, from, to);
@@ -25343,14 +26609,14 @@ function closeQRScanner() {
     const stockCounterPanel = document.getElementById('product-scan-stock-counter');
     if (stockCounterPanel) stockCounterPanel.style.display ='none';
 }
-function handleScannedTransaction(scannedCode) {
+async function handleScannedTransaction(scannedCode) {
     const cleanCode = scannedCode.trim();
     const searchInput = document.getElementById('tx-history-search');
     if (searchInput) {
         searchInput.value = cleanCode;
         filterTransactionsTable();
     }
-    const match = localTransactionsList.find(tx => tx.id.toLowerCase() === cleanCode.toLowerCase());
+    const match = await findTransactionAcrossPages(cleanCode);
     if (match) {
         document.getElementById('qr-scanner-feedback').innerText = `✔ Entity Resolved: Reference key ${cleanCode} mapped successfully (Initializing transactional statement layout views rendering loops...)`;
         document.getElementById('qr-scanner-feedback').style.color ='#22c55e';
@@ -25469,6 +26735,9 @@ function applyTxColumnFilter(field) {
     updateTxFilterIconStates();
     closeTxColumnFilterDropdown();
     filterTransactionsTable();
+    if (txHistoryHasMore && Object.values(txColumnFilters).some(set => set.size > 0)) {
+        loadAllTransactionsHistory().then(() => filterTransactionsTable());
+    }
 }
 function clearTxColumnFilter(field) {
     txColumnFilters[field] = new Set();
@@ -27097,7 +28366,7 @@ async function handleHardwareScanTerminal(scannedCode) {
         });
     }
 }
-function handleHardwareScanTransaction(scannedCode) {
+async function handleHardwareScanTransaction(scannedCode) {
     const cleanCode = scannedCode.trim();
     if (!cleanCode) return;
     const searchInput = document.getElementById('tx-history-search');
@@ -27105,7 +28374,7 @@ function handleHardwareScanTransaction(scannedCode) {
         searchInput.value = cleanCode;
         filterTransactionsTable();
     }
-    const match = localTransactionsList.find(tx => tx.id.toLowerCase() === cleanCode.toLowerCase());
+    const match = await findTransactionAcrossPages(cleanCode);
     if (match) {
         if (typeof playScanBeep ==='function') playScanBeep();
         reopenReceiptFromHistory(match.id);

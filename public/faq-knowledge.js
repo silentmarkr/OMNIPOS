@@ -1545,4 +1545,52 @@ window.OMNIPOS_FAQ_KB_TL = [
   </ul>
   <p>Kapag naubos ang Free, babalik ang FAQ sa karaniwang keyword search at ipinapakita ng credit pill kung kailan puwedeng subukan ulit. Mag-subscribe sa Omni AI para umakyat sa Base pataas.</p>`
 },
+{
+  id: 'inventory-stock-ledger',
+  category: 'Inventory',
+  question: 'Ano ang Stock Ledger sa Inventory Tools?',
+  keywords: ['stock ledger', 'kardex', 'stock movement', 'galaw ng stock', 'nawawalang stock', 'movement history'],
+  answer: `<p>Ang <strong>Stock Ledger</strong> tab ng Inventory Tools ay <strong>read-only</strong> na timeline ng mga naitalang galaw ng stock ng isang produkto (o lahat): benta, return na na-restock, PO na natanggap, consignment, waste/batch loss, at count adjustment — kasama kung sino at kailan.</p>
+  <p>Gamitin ito kapag may "nawawalang stock" na hindi maipaliwanag. Maaaring i-filter ayon sa product code, uri ng galaw, at petsa, at i-export bilang CSV. Hindi kasama ang manual na pag-edit ng stock, quick restock, at branch transfer dahil wala itong petsang talaan.</p>`
+},
+{
+  id: 'inventory-shrinkage-report',
+  category: 'Inventory',
+  question: 'Ano ang Shrinkage / Variance Report?',
+  keywords: ['shrinkage', 'variance report', 'nawawalang stock', 'tagas', 'loss report', 'waste report'],
+  answer: `<p>Pinagsasama ng <strong>Shrinkage</strong> tab ang tunay na nawawalang stock: <em>count variance</em> (kulang sa physical count), <em>waste/damage</em>, <em>damaged na return</em> at <em>batch loss</em>, na may <strong>peso value</strong> (batay sa cost).</p>
+  <p>Hinahati ito ayon sa uri, dahilan, buwan, at produkto (pinakamalaki ang tagas ang una), at may kabuuang <em>Total loss</em>, <em>Count overages</em> (sobra sa count) at <em>Net loss</em>. Pumili ng petsa at i-export bilang CSV. Kailangan ng cost sa Products para tama ang halaga. May breakdown din ayon sa staff (sino ang nagbilang/nag-record), ang kabuuang loss bilang % ng cost of goods sold, at button na <em>Count the top 10</em> para magsimula ng blind count sa mga produktong pinakamalaki ang tagas.</p>`
+},
+{
+  id: 'inventory-smart-reorder',
+  category: 'Inventory',
+  question: 'Paano gumagana ang Smart Reorder?',
+  keywords: ['smart reorder', 'reorder', 'bilis ng benta', 'days left', 'ilang araw bago maubos', 'auto po', 'purchase order suggestion'],
+  answer: `<p>Kinukwenta ng <strong>Smart Reorder</strong> tab ang "ilang araw na lang bago maubos" mula sa average na benta (mas mabigat ang huling 7 araw, kaya nahuhuli ang seasonal na pagtaas o pagbaba), at nagmumungkahi ng dami ng oorderin para tumagal ang stock sa <em>lead time + cover days</em>. Ibinabawas ang mga naka-order pa na PO.</p>
+  <p>Piliin ang mga item, ayusin ang dami at supplier, at pindutin ang <strong>Create Purchase Order(s)</strong> — isang PO kada supplier. Kung may 2+ natanggap nang PO ang isang supplier, ang aktwal na average na lead time nito ang gagamitin. Kailangan ng Purchase Orders feature.</p>`
+},
+{
+  id: 'inventory-near-expiry',
+  category: 'Inventory',
+  question: 'Ano ang Near-Expiry Action List?',
+  keywords: ['near expiry', 'malapit mag-expire', 'markdown', 'expired', 'dispose', 'promo', 'expiry action'],
+  answer: `<p>Hindi lang alert ang <strong>Near-Expiry</strong> tab: tinitingnan nito kung <em>maibebenta pa</em> ang lot bago mag-expire batay sa bilis ng benta. Kung hindi, nagmumungkahi ito ng <strong>markdown</strong> (hindi bababa sa cost). Ang expired na lot ay may <strong>Dispose</strong> button na diretso sa Waste Log at nagde-deduct sa stock.</p>
+  <p>Ang "Dispose all expired" ay itinatapon ang lahat ng expired na lot nang sabay-sabay.</p>`
+},
+{
+  id: 'inventory-supplier-cost-history',
+  category: 'Inventory',
+  question: 'Ano ang Supplier Cost History at Price-Change Alert?',
+  keywords: ['cost history', 'supplier price', 'tumaas ang presyo', 'price change', 'mas murang supplier', 'cost alert'],
+  answer: `<p>Itinatala ang cost kada Purchase Order na natanggap — ilagay ang <strong>Cost (₱ / unit)</strong> sa pag-receive ng PO. Ipinapakita ng <strong>Cost History</strong> tab ang huling cost, naunang cost, % na pagbabago, at margin laban sa presyo ng benta.</p>
+  <p>Magbababala kapag tumaas ang cost ng supplier (5% pataas) o kapag may <strong>mas murang supplier</strong> para sa parehong produkto — lalabas din ang babala mismo sa pag-receive ng PO. Kung malaki ang pagbabago ng cost, may mungkahing bagong presyo (pareho ang margin, naka-round up sa ₱0.50) at button na <em>Update price</em> — dumadaan ito sa karaniwang product update kaya sumusunod sa approval rules ng Products; hindi kasama ang Wholesale/Reseller price.</p>`
+},
+{
+  id: 'inventory-count-approval',
+  category: 'Inventory',
+  question: 'Ano ang Blind Count at Count Approval?',
+  keywords: ['blind count', 'count approval', 'approve count', 'variance approval', 'physical count approval', 'inventory_count_approve'],
+  answer: `<p>Sa <strong>Blind Count</strong>, nakatago ang inaasahang (system) na bilang at ang variance habang nagbibilang ang staff. Makikita lang ito ng may permission na <em>Physical Count: See Expected Quantities &amp; Approve</em> (laging mayroon ang Admin).</p>
+  <p>Kapag ang pagkakaiba ng isang item ay umabot sa limit (default ₱500 kada item; mas mababang bilang ang ginagamit kapag walang cost), ang finalize ng staff ay mapupunta sa <strong>Pending Approval</strong> at <strong>hindi pa gagalaw ang stock</strong>. Puwedeng i-<em>Approve</em> ng manager (saka lang mag-a-adjust ang stock) o ibalik para sa <em>recount</em>. May lalabas na bilang sa tab at banner para sa mga manager, at may email sa admin address kung naka-setup ang email. Habang may nakabinbing count, hindi makakapagsimula ng bago.</p>`
+},
 ];

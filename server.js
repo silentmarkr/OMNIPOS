@@ -17,12 +17,22 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
+const { db: sqliteDb, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
+const registerMarketplace = require('./marketplace-sync');
 const webauthn = require('./webauthn');
 try {
     require('./env-loader')();
+} catch (err) {
+}
+// PERFORMANCE: db.js ay naglo-load bago mabasa ang .env, kaya dito ina-apply ulit ang opsyonal na
+// OMNIPOS_SQLITE_SYNCHRONOUS (NORMAL | FULL | EXTRA) kapag naka-set sa .env. Walang epekto kung wala.
+try {
+    const requestedSyncMode = String(process.env.OMNIPOS_SQLITE_SYNCHRONOUS || '').trim().toUpperCase();
+    if (['NORMAL', 'FULL', 'EXTRA'].includes(requestedSyncMode)) {
+        sqliteDb.exec(`PRAGMA synchronous = ${requestedSyncMode};`);
+    }
 } catch (err) {
 }
 process.on('uncaughtException', (err) => {
@@ -123,6 +133,12 @@ function rateLimit(routeKey, maxAttempts, windowMs, customMessage, keyFn) {
         let bucketId = ip;
         if (typeof keyFn === 'function') {
             try { bucketId = String(keyFn(req) || ip); } catch (err) { bucketId = ip; }
+        } else if (req.authUser && typeof req.authUser.username === 'string' && req.authUser.username) {
+            // SECURITY FIX: the IP comes from X-Forwarded-For (app.set('trust proxy', true)), which a logged-in
+            // client can fake on every request to get a fresh bucket each time. For authenticated routes the
+            // limit is therefore counted per ACCOUNT, so password-guessing endpoints (void/refund/discount
+            // authorizers, Terminal Settings, etc.) can no longer be brute-forced by rotating a fake IP.
+            bucketId = 'user:' + req.authUser.username.toLowerCase();
         }
         const key = `${routeKey}:${bucketId}`;
         const now = Date.now();
@@ -221,8 +237,38 @@ app.use('/api/attendance', (req, res, next) => {
     }
     next();
 });
+// Tracks write requests (sales, edits, uploads) so a database compaction (VACUUM) never starts in the middle of one.
+let dbWriteRequestsInFlight = 0;
+let dbLastWriteRequestAt = 0;
+app.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    dbWriteRequestsInFlight++;
+    dbLastWriteRequestAt = Date.now();
+    let counted = true;
+    const finish = () => {
+        if (!counted) return;
+        counted = false;
+        dbWriteRequestsInFlight = Math.max(0, dbWriteRequestsInFlight - 1);
+        dbLastWriteRequestAt = Date.now();
+    };
+    res.on('finish', finish);
+    res.on('close', finish);
+    next();
+});
 app.use('/api/attendance', express.json({ limit: '2mb' }));
-app.use(express.json({ limit:'5gb' }));
+// SCALE/SECURITY FIX: dati 5gb ang global JSON limit — binubuffer ng parser ang BUONG body sa RAM bago pa
+// ang login/auth check, kaya isang malaking request lang (kahit walang account) ay kayang pabagsakin ang
+// server (OOM sa phone). Ngayon: 100 MB ang default para sa lahat ng route (sapat para sa mga product
+// photo at karaniwang request), at 512 MB lang para sa /api/restore-backup (ang JSON string na lampas
+// ~512 MB ay hindi na rin kayang i-parse ng Node). Pwedeng baguhin sa .env: JSON_BODY_LIMIT / RESTORE_BODY_LIMIT
+// (format: 100mb, 512mb, 1gb). Kapag mali ang format, ang default ang gagamitin (hindi "walang limit").
+const BODY_LIMIT_FORMAT_RE = /^\d+(\.\d+)?\s*(kb|mb|gb)$/i;
+const DEFAULT_JSON_BODY_LIMIT = BODY_LIMIT_FORMAT_RE.test(String(process.env.JSON_BODY_LIMIT || '').trim())
+    ? String(process.env.JSON_BODY_LIMIT).trim() : '100mb';
+const RESTORE_BODY_LIMIT = BODY_LIMIT_FORMAT_RE.test(String(process.env.RESTORE_BODY_LIMIT || '').trim())
+    ? String(process.env.RESTORE_BODY_LIMIT).trim() : '512mb';
+app.use('/api/restore-backup', express.json({ limit: RESTORE_BODY_LIMIT }));
+app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 app.use((err, req, res, next) => {
     if (err && err.type ==='entity.too.large') {
         return res.status(413).json({
@@ -238,11 +284,115 @@ app.use((err, req, res, next) => {
     }
     next(err);
 });
+// PERFORMANCE: dati walang compression ang static files (app.js ~1.5 MB, style.css ~570 KB, index.html ~440 KB
+// ay ipinapadala nang buo sa bawat device/refresh). Ang middleware na ito ay nagse-serve ng gzip/brotli na kopya
+// ng mga text asset (.js .css .html .json .svg), kino-compress nang ASYNC nang isang beses lang at kino-cache sa
+// memory hangga't hindi nagbabago ang file (mtime/size). Pareho pa rin ang Cache-Control (no-cache + ETag/304),
+// kaya nag-a-update pa rin agad ang app kapag may bagong release. Kapag may anumang problema (hindi suportado ang
+// encoding, Range request, file na wala, atbp.) ay tahimik na ipinapasa sa express.static gaya ng dati.
+const STATIC_PUBLIC_ROOT = path.resolve(__dirname, 'public');
+const STATIC_COMPRESSIBLE_TYPES = {
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.mjs': 'application/javascript; charset=utf-8',
+    '.txt': 'text/plain; charset=utf-8',
+    '.xml': 'application/xml; charset=utf-8',
+    '.webmanifest': 'application/manifest+json; charset=utf-8'
+};
+const STATIC_COMPRESS_MIN_BYTES = 1024;
+const STATIC_COMPRESS_CACHE_MAX_BYTES = 48 * 1024 * 1024;
+const staticCompressionCache = new Map();
+let staticCompressionCacheBytes = 0;
+const gzipStaticAsync = promisify(zlib.gzip);
+const brotliStaticAsync = promisify(zlib.brotliCompress);
+function getCompressedStaticBuffer(fullPath, stat, encoding) {
+    const signature = `${stat.size}-${Math.floor(stat.mtimeMs)}`;
+    const cacheKey = `${fullPath}|${encoding}`;
+    const cached = staticCompressionCache.get(cacheKey);
+    if (cached && cached.signature === signature) return cached.promise;
+    const promise = (async () => {
+        const raw = await fs.promises.readFile(fullPath);
+        if (encoding === 'br') {
+            return brotliStaticAsync(raw, {
+                params: {
+                    [zlib.constants.BROTLI_PARAM_QUALITY]: 5,
+                    [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length
+                }
+            });
+        }
+        return gzipStaticAsync(raw, { level: 6 });
+    })();
+    const entry = { signature, promise, bytes: 0 };
+    if (cached) staticCompressionCacheBytes -= cached.bytes;
+    staticCompressionCache.set(cacheKey, entry);
+    promise.then((buf) => {
+        // Kung napalitan/nabura na ang entry habang nagko-compress, huwag nang idagdag sa bilang (iwas drift).
+        if (staticCompressionCache.get(cacheKey) !== entry) return;
+        entry.bytes = buf.length;
+        staticCompressionCacheBytes += buf.length;
+        if (staticCompressionCacheBytes > STATIC_COMPRESS_CACHE_MAX_BYTES) {
+            // Pananggalang sa memory: linisin lahat (mabilis lang ulit mag-compress, isang beses kada file).
+            staticCompressionCache.clear();
+            staticCompressionCacheBytes = 0;
+            staticCompressionCache.set(cacheKey, entry);
+            staticCompressionCacheBytes = entry.bytes;
+        }
+    }).catch(() => {
+        if (staticCompressionCache.get(cacheKey) === entry) staticCompressionCache.delete(cacheKey);
+    });
+    return promise;
+}
+app.use(async (req, res, next) => {
+    try {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        if (req.headers.range) return next();
+        const acceptEncoding = String(req.headers['accept-encoding'] || '');
+        const encoding = /\bbr\b/i.test(acceptEncoding) ? 'br' : (/\bgzip\b/i.test(acceptEncoding) ? 'gzip' : null);
+        if (!encoding) return next();
+        let relPath;
+        try { relPath = decodeURIComponent(req.path); } catch (_) { return next(); }
+        if (relPath.includes('\0') || relPath.includes('\\')) return next();
+        if (relPath.endsWith('/')) relPath += 'index.html';
+        const contentType = STATIC_COMPRESSIBLE_TYPES[path.extname(relPath).toLowerCase()];
+        if (!contentType) return next();
+        if (relPath.split('/').some((segment) => segment.startsWith('.'))) return next();
+        const fullPath = path.resolve(STATIC_PUBLIC_ROOT, '.' + relPath);
+        if (!fullPath.startsWith(STATIC_PUBLIC_ROOT + path.sep)) return next();
+        let stat;
+        try { stat = await fs.promises.stat(fullPath); } catch (_) { return next(); }
+        if (!stat.isFile() || stat.size < STATIC_COMPRESS_MIN_BYTES) return next();
+        const body = await getCompressedStaticBuffer(fullPath, stat, encoding);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Encoding', encoding);
+        res.setHeader('Vary', 'Accept-Encoding');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Last-Modified', stat.mtime.toUTCString());
+        res.setHeader('ETag', `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}-${encoding}"`);
+        if (req.fresh) return res.status(304).end();
+        res.setHeader('Content-Length', body.length);
+        if (req.method === 'HEAD') return res.end();
+        return res.end(body);
+    } catch (err) {
+        if (res.headersSent) return;
+        res.removeHeader('Content-Encoding');
+        res.removeHeader('Content-Length');
+        return next();
+    }
+});
 app.use(express.static(path.join(__dirname,'public'), {
     etag: true,
     lastModified: true,
-    setHeaders: (res) => {
-        res.setHeader('Cache-Control','no-cache');
+    setHeaders: (res, filePath) => {
+        // PERFORMANCE: ang Font Awesome webfonts ay hindi nagbabago kada release — i-cache nang 30 araw
+        // (hindi na nire-revalidate sa bawat load). Lahat ng iba (app.js, css, html) ay no-cache pa rin.
+        if (/[\\/]webfonts[\\/][^\\/]+\.(woff2?|ttf)$/i.test(filePath || '')) {
+            res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+        } else {
+            res.setHeader('Cache-Control','no-cache');
+        }
     }
 }));
 const SESSIONS = new Map();
@@ -469,6 +619,7 @@ registerModuleDefaults({
     [FILE_LOWSTOCK_TRACKING]: {}, [FILE_STOCK_RETURNS]: [], [FILE_ATTENDANCE]: [],
     [FILE_INVENTORY_COUNTS]: [], [FILE_CONSIGNMENTS]: [], [FILE_WASTE_LOG]: [], [FILE_SUPPLIERS]: [],
     fraudAlerts: [], loyaltySecurity: {},
+    marketplaceLinks: [], marketplaceOrders: [], marketplaceState: {},
     ...Object.fromEntries(birCompliance.BIR_MODULE_NAMES.map((name) => [
         name,
         name === 'birState' ? () => birCompliance.getBirState() : []
@@ -525,12 +676,14 @@ const MENU_REGISTRY = [
     { key:'stock_return_inspection', label:'Inventory — Inspect & Restock Returned/Void Items', group:'Reorder / Purchase Orders' },
     { key:'stock_return_manager_review', label:'Inventory — Finalize Manager Review on Damaged/Non-Restockable Items (2nd Reviewer, Separate From Initial Inspect)', group:'Reorder / Purchase Orders' },
     { key:'inventory_count', label:'Inventory — Physical Count / Stock Take (Cycle Count, Apply Variance to Stock)', group:'Reorder / Purchase Orders' },
+    { key:'inventory_count_approve', label:'Inventory — Physical Count: See Expected (System) Quantities During a Blind Count, and Approve / Reject Counts With a Large Variance', group:'Reorder / Purchase Orders' },
     { key:'consignment_tracking', label:'Inventory — Consignment Tracking (Goods on Consignment From Suppliers, Settlement)', group:'Reorder / Purchase Orders' },
     { key:'waste_log', label:'Inventory — Damage / Spoilage / Waste Log (Deducts Stock, Records Reason)', group:'Reorder / Purchase Orders' },
     { key:'supplier_directory', label:'Inventory — Supplier/Vendor Directory (Reusable Supplier List Used by Consignment & Purchase Orders)', group:'Reorder / Purchase Orders' },
     { key:'branches', label:'Branches Page (View Combined Sales, Per-Branch Drilldown, Trends, Alerts, and Stock Transfers From Other Branches, Premium Feature)', group:'Multi-Branch' },
     { key:'remoteops', label:'Remote Operations & Staff Attendance (Phone Monitoring, Selfie Time In/Out, Staff Activity Reports)', group:'Remote Operations' },
     { key:'attendance', label:'Staff Attendance — Time In / Time Out With Selfie', group:'Remote Operations' },
+    { key:'marketplace', label:'Marketplace Hub — Shopee, Lazada & TikTok Shop (Orders, Stock/Price Sync, Product Linking, Shipping Labels)', group:'Marketplace' },
     { key:'users',        label:'Users', group:'Users & Access' },
     { key:'users_manage', label:'Users — Users Management Tab (view/add accounts)', group:'Users & Access' },
     { key:'pending_requests', label:'Users — Pending Requests Tab', group:'Users & Access' },
@@ -1287,7 +1440,7 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
     if ((settings.customizeCount || 0) < freeLimit) {
         return res.json({ success: true, otpNeeded: false, message:'You still have free customizations left — no OTP needed.' });
     }
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    const otpCode = String(crypto.randomInt(100000, 1000000));
     settings.pendingOtp = {
         code: otpCode,
         expiresAt: Date.now() + OTP_TTL_MS,
@@ -2093,9 +2246,8 @@ function checkDiscountAnomaly(transaction, thresholds) {
     const totalDiscount = (parseFloat(transaction.discount) || 0) + (transaction.items || []).reduce((s, it) => s + (parseFloat(it.itemDiscount) || 0), 0);
     const currentPct = (totalDiscount / grossSubtotal) * 100;
     if (currentPct < thresholds.minDiscountPct) return null;
-    const history = readData(FILE_TRANSACTIONS, [])
-        .filter(t => t.cashier === cashier && t.id !== transaction.id)
-        .slice(0, 30)
+    // SCALE FIX: dati binabasa ang LAHAT ng transactions; ngayon 30 pinakabago lang ng cashier na ito ang kinukuha.
+    const history = readRecentRowsByJsonField(FILE_TRANSACTIONS, 'cashier', cashier, 30, transaction.id)
         .map(t => {
             const g = (t.items || []).reduce((sum, it) => sum + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 0), 0);
             if (g <= 0) return null;
@@ -2160,8 +2312,8 @@ function runFraudChecks(kind, ctx) {
                     summary: `${ctx.cashier || 'Unknown'} has processed ${count} refund(s) in the last 30 minutes (latest: ${ctx.transactionId}, ₱${(ctx.refundAmount || 0).toFixed(2)}).`
                 });
             }
-            const allTx = readData(FILE_TRANSACTIONS, []);
-            const avgTxTotal = allTx.length > 0 ? allTx.reduce((s, t) => s + (parseFloat(t.total) || 0), 0) / allTx.length : 0;
+            // SCALE FIX: average na kinakalkula sa SQL; hindi na nilo-load ang lahat ng transactions sa bawat refund.
+            const avgTxTotal = averageRowNumberField(FILE_TRANSACTIONS, 'total');
             if (avgTxTotal > 0 && ctx.refundAmount >= avgTxTotal * thresholds.largeRefundMultiplier) {
                 pushFraudAlert({
                     type: 'large_refund', cashier: ctx.cashier, transactionId: ctx.transactionId,
@@ -2205,6 +2357,32 @@ app.post('/api/verify-password', rateLimit('verify-password', 10, 5 * 60 * 1000)
     if (!isMatch) return res.status(403).json({ success: false, message: 'Incorrect password.' });
     res.json({ success: true });
 });
+// Admin-only password gate for revealing the locked (PRO) sidebar features.
+// Any logged-in user may ask, but the password must belong to an Admin account
+// (a cashier/staff can ask an Admin to type it in). Rate-limited per IP and per
+// logged-in user to block guessing. Hiding the features again needs no password.
+app.post('/api/sidebar-pro/unlock',
+    rateLimit('sidebar-pro-unlock-ip', 8, 5 * 60 * 1000),
+    rateLimit('sidebar-pro-unlock-user', 8, 5 * 60 * 1000, null, (req) => (req.authUser && req.authUser.username) || ''),
+    (req, res) => {
+        const password = req.body && typeof req.body.password === 'string' ? req.body.password : '';
+        if (!password) return res.status(400).json({ success: false, message: 'Admin password is required.' });
+        const users = readData(FILE_USERS);
+        const admins = (Array.isArray(users) ? users : []).filter(u => u && typeof u.password === 'string' && (u.role || '').toLowerCase() === 'admin');
+        let matchedAdmin = null;
+        for (const adminUser of admins) {
+            let ok = false;
+            try { ok = bcrypt.compareSync(password, adminUser.password); }
+            catch (e) { ok = (password === adminUser.password); }
+            if (ok) { matchedAdmin = adminUser; break; }
+        }
+        if (!matchedAdmin) {
+            logAction(req.authUser.username, 'Failed admin password attempt to reveal locked sidebar features');
+            return res.status(403).json({ success: false, message: 'Incorrect admin password.' });
+        }
+        logAction(req.authUser.username, 'Revealed locked sidebar features (admin password verified)');
+        res.json({ success: true });
+    });
 const FILE_FEATURE_UNLOCKS ='featureUnlocks';
 const FILE_CONNECTIVITY_MODE ='connectivityMode';
 const DEFAULT_CONNECTIVITY_MODE = { mode: 'online', changedAt: null };
@@ -3291,7 +3469,7 @@ function isVersionNewer(candidate, current) {
     return false;
 }
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
-const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations', 'marketplace_hub'];
 function isModuleSubscriptionFeature(featureId) {
     return MODULE_SUBSCRIPTION_FEATURE_IDS.includes(featureId);
 }
@@ -3322,6 +3500,12 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
         name: 'Remote Operations & Attendance',
         description: 'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports powered by the Relay service.',
         price: { monthly: 249, yearly: 2490 }
+    },
+    marketplace_hub: {
+        id: 'marketplace_hub',
+        name: 'Marketplace Hub (Shopee, Lazada & TikTok Shop)',
+        description: 'Connect your Shopee, Lazada and TikTok Shop stores: import orders and deduct stock automatically, sync stock and prices from the POS to your listings, and print shipping labels — all from one page.',
+        price: { monthly: 399, yearly: 3990 }
     }
 };
 const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
@@ -3636,6 +3820,33 @@ function applyUpgradeTierPricingOverlay(remoteUpgradeTiers) {
     upgradeTierPricingOverlay = remoteUpgradeTiers;
 }
 let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnabled: true };
+// RELAY "Not available yet" switch: { [featureId]: { message } } — mga feature na hindi pa pwedeng i-unlock/i-subscribe.
+// Ang RELAY pa rin ang tunay na nagpapatupad; ito ay para maipakita agad ang mensahe bago pa buksan ang plans modal.
+let featureAvailabilityCache = {};
+function applyFeatureAvailabilityOverlay(remote) {
+    if (!remote || typeof remote !== 'object') return;
+    const next = {};
+    for (const featureId of Object.keys(remote)) {
+        if (featureId === '__proto__' || featureId === 'constructor' || featureId === 'prototype') continue;
+        const entry = remote[featureId];
+        if (!entry || typeof entry !== 'object' || entry.available !== false) continue;
+        next[featureId] = { message: typeof entry.message === 'string' ? entry.message.trim().slice(0, 300) : '' };
+    }
+    featureAvailabilityCache = next;
+}
+// Para sa installation na ito: hindi isinasama ang feature na dati na niyang nakuha (may token) — pwede pa siyang mag-renew.
+function getFeatureAvailabilityForThisInstallation() {
+    const out = {};
+    const ids = Object.keys(featureAvailabilityCache);
+    if (!ids.length) return out;
+    let tokens = {};
+    try { tokens = (readFeatureUnlocks() || {}).tokens || {}; } catch (e) { tokens = {}; }
+    for (const featureId of ids) {
+        if (Object.prototype.hasOwnProperty.call(tokens, featureId) && tokens[featureId]) continue;
+        out[featureId] = { available: false, message: featureAvailabilityCache[featureId].message };
+    }
+    return out;
+}
 // Support desk state pushed by RELAY (closed until RELAY says otherwise).
 let supportDeskCache = { open: false, message: '', updateSeq: '0' };
 function applySupportDeskOverlay(remote) {
@@ -3677,6 +3888,9 @@ function loadCloudBackupPricingCache() {
         }
         if (cached && cached.activationFlags) {
             applyActivationFlagsOverlay(cached.activationFlags);
+        }
+        if (cached && cached.featureAvailability) {
+            applyFeatureAvailabilityOverlay(cached.featureAvailability);
         }
         // Restore the last known desk state; the next pricing refresh corrects it.
         if (cached && cached.supportDesk) {
@@ -3733,6 +3947,8 @@ async function fetchCloudBackupPricing() {
             applyActivationFlagsOverlay(data.activationFlags);
         }
         if (data && data.success) {
+            // Old RELAY without the featureAvailability field = walang naka-block na feature.
+            applyFeatureAvailabilityOverlay(data.featureAvailability || {});
             // An old RELAY without the support desk field means "closed".
             applySupportDeskOverlay(data.supportDesk || { open: false, message: '', updateSeq: '0' });
             onSupportDeskSignal();
@@ -3872,6 +4088,15 @@ const FEATURE_CATALOG = {
         get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.remote_operations.price; },
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
         description: 'Monitor sales and transaction activity from a phone, record staff time in/out with selfie evidence, and review staff activity reports. Billed as a monthly or yearly subscription.'
+    },
+    marketplace_hub: {
+        name: 'Marketplace Hub (Shopee, Lazada & TikTok Shop)',
+        category: 'module',
+        isSubscription: true,
+        get price() { return MODULE_SUBSCRIPTION_PLANS.marketplace_hub.price.monthly; },
+        get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.marketplace_hub.price; },
+        billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
+        description: 'Connect Shopee, Lazada and TikTok Shop: automatic order import with stock deduction, stock and price sync from the POS to your listings, and shipping label printing. Billed as a monthly or yearly subscription.'
     },
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
@@ -4391,14 +4616,17 @@ async function runRelayBackupSync() {
         return;
     }
     relayBackupStatus.lastAttemptAt = Date.now();
-    const mirrorResult = mirrorBackupToDownloads();
+    // SCALE FIX: async na ang mirror (SQLite online backup) — hindi na naka-freeze ang server habang kinokopya ang malaking DB.
+    const mirrorResult = await mirrorBackupToDownloads();
     // FIX: a failed file copy used to `return` here, so the device never checked in
     // to RELAY (no lastBackupAt / auto-allow / device-seen). The check-in only needs
     // the installationId, so it now continues even if the mirror failed; the mirror
     // problem is still reported through relayBackupStatus below.
     if (mirrorResult.success) {
         relayBackupStatus.path = mirrorResult.path;
-        console.log(
+        if (mirrorResult.unchanged) {
+            console.log(`⏭️ RELAY_BACKUP: walang nagbago sa database mula noong huling kopya — hindi na ulit kinopya (${mirrorResult.path}).`);
+        } else console.log(
             mirrorResult.existedBefore
                 ? `🔁 RELAY_BACKUP: na-update ang existing na file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
                 : `🆕 RELAY_BACKUP: unang beses na nagawa ang file sa ${mirrorResult.path} (${mirrorResult.sizeBytes} bytes)`
@@ -4457,12 +4685,15 @@ const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
     'cloud-backup-pricing-cache.json'
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
-function computeInstallDirManifest() {
+// PERFORMANCE: dati synchronous (readdirSync/readFileSync) ang pag-hash ng buong install folder — habang tumatakbo
+// ito (ilang MB ng app.js/css/html, mas mabagal pa sa phone) NAKA-FREEZE ang buong server, pati checkout/API.
+// Ngayon ay async at nagbibigay ng pagkakataon sa event loop sa bawat file. Pareho pa rin ang resulta (rel path -> sha256).
+async function computeInstallDirManifest() {
     const manifest = {};
-    function walk(dir, relBase) {
+    async function walk(dir, relBase) {
         let entries;
         try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
+            entries = await fs.promises.readdir(dir, { withFileTypes: true });
         } catch (err) {
             return;
         }
@@ -4471,19 +4702,19 @@ function computeInstallDirManifest() {
             const full = path.join(dir, entry.name);
             const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
             if (entry.isDirectory()) {
-                walk(full, rel);
+                await walk(full, rel);
                 continue;
             }
             if (INTEGRITY_SCAN_EXCLUDE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
             try {
                 const hash = crypto.createHash('sha256');
-                hash.update(fs.readFileSync(full));
+                hash.update(await fs.promises.readFile(full));
                 manifest[rel] = hash.digest('hex');
             } catch (err) {
             }
         }
     }
-    walk(__dirname, '');
+    await walk(__dirname, '');
     return manifest;
 }
 const relayIntegrityStatus = {
@@ -4516,7 +4747,7 @@ async function runRelayIntegrityCheckin() {
     try {
         const data = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(data);
-        const files = computeInstallDirManifest();
+        const files = await computeInstallDirManifest();
         const relayRes = await relayFetch(`${RELAY_URL}/relay/integrity-checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
@@ -4610,7 +4841,9 @@ function decryptForGroup(blob, rawKey) {
 function computeBranchSummaryPayload() {
     const now = new Date();
     const todayY = now.getFullYear(), todayM = now.getMonth(), todayD = now.getDate();
-    const transactions = readData(FILE_TRANSACTIONS);
+    // SCALE FIX: ang benta ng ngayon lang ang kailangan — SQL ang nagtatapon ng mga malinaw na luma/malayo (superset; ang eksaktong
+    // pagsusuri ng petsa sa ibaba ang nagpapasya pa rin).
+    const transactions = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', now.getTime() - 24 * 60 * 60 * 1000, now.getTime() + 24 * 60 * 60 * 1000) || readData(FILE_TRANSACTIONS);
     let grossSalesToday = 0, netSalesToday = 0, transactionCountToday = 0;
     transactions.forEach((t) => {
         const raw = t.isoDate || t.timestamp || t.date;
@@ -4838,7 +5071,8 @@ function resolveAttendanceRange(fromDate, toDate) {
 }
 function buildStaffActivityReport(fromDate, toDate) {
     const { startMs, endMs } = resolveAttendanceRange(fromDate, toDate);
-    const transactions = readData(FILE_TRANSACTIONS, []);
+    // SCALE FIX: ang benta sa loob ng piniling petsa lang (superset; ang eksaktong at >= startMs && at <= endMs sa ibaba ang nagpapasya pa rin).
+    const transactions = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', startMs, endMs) || readData(FILE_TRANSACTIONS, []);
     const attendance = getAttendanceRecords().filter((record) => {
         const at = new Date(record.timeInAt || record.createdAt || 0).getTime();
         return Number.isFinite(at) && at >= startMs && at <= endMs;
@@ -4989,7 +5223,10 @@ function purgeOldAttendanceSelfies() {
             if (!Object.keys(readAttendanceSelfieDay(dayKey)).length) return;
             if (writeData(`${ATTENDANCE_SELFIE_MODULE_PREFIX}${dayKey}`, {}) !== false) purged += 1;
         });
-        if (purged > 0) console.log(`[ATTENDANCE] Removed selfies of ${purged} day(s) older than ${ATTENDANCE_SELFIE_RETENTION_DAYS} days.`);
+        if (purged > 0) {
+            console.log(`[ATTENDANCE] Removed selfies of ${purged} day(s) older than ${ATTENDANCE_SELFIE_RETENTION_DAYS} days.`);
+            scheduleDatabaseCompaction('attendance selfie purge', 5000);
+        }
         return purged;
     } catch (err) {
         console.error('[ATTENDANCE] Selfie retention cleanup failed:', err);
@@ -5243,28 +5480,43 @@ const relayRemoteOperationsStatus = {
     featureLocked: true
 };
 function computeRemoteOperationsPayload() {
-    const rawTransactions = readData(FILE_TRANSACTIONS, []);
-    const transactions = Array.isArray(rawTransactions) ? rawTransactions : [];
     const todayKey = getAttendanceDateKey(new Date());
-    let todaySales = 0;
-    let todayTransactions = 0;
-    const dated = [];
-    transactions.forEach((transaction, index) => {
-        if (!transaction) return;
-        const at = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime();
-        if (!Number.isFinite(at) || at <= 0) return;
-        const gross = Math.max(0, Number(transaction.total) || 0);
-        const refunded = transaction.refundStatus === 'full'
-            ? gross
-            : Math.min(gross, Math.max(0, Number(transaction.totalRefunded) || 0));
-        const net = Math.max(0, gross - refunded);
-        if (getAttendanceDateKey(new Date(at)) === todayKey) {
-            // Net of refunds, same rule as computeBranchSummaryPayload(), so both screens agree.
-            todaySales += net;
-            if (net > 0.009) todayTransactions += 1;
+    const collectDated = (rawTransactions) => {
+        const transactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+        let todaySales = 0;
+        let todayTransactions = 0;
+        const dated = [];
+        transactions.forEach((transaction, index) => {
+            if (!transaction) return;
+            const at = new Date(transaction.isoDate || transaction.timestamp || transaction.date || 0).getTime();
+            if (!Number.isFinite(at) || at <= 0) return;
+            const gross = Math.max(0, Number(transaction.total) || 0);
+            const refunded = transaction.refundStatus === 'full'
+                ? gross
+                : Math.min(gross, Math.max(0, Number(transaction.totalRefunded) || 0));
+            const net = Math.max(0, gross - refunded);
+            if (getAttendanceDateKey(new Date(at)) === todayKey) {
+                // Net of refunds, same rule as computeBranchSummaryPayload(), so both screens agree.
+                todaySales += net;
+                if (net > 0.009) todayTransactions += 1;
+            }
+            dated.push({ transaction, at, gross, index });
+        });
+        return { todaySales, todayTransactions, dated };
+    };
+    // SCALE FIX: ang kailangan lang ay ang benta ng ngayon at ang 25 pinakabago, kaya ang huling 7 araw lang muna ang binabasa
+    // (walang pang-itaas na hangganan para kasama ang mga petsa sa hinaharap). Kung wala pang 25 doon, o hindi tiyak na ang
+    // ika-25 ay mas bago kaysa sa window, buong history ang binabasa gaya ng dati — kaya pareho pa rin ang resulta.
+    const RECENT_WINDOW_START_MS = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const windowedTx = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', RECENT_WINDOW_START_MS, Date.UTC(9000, 0, 1));
+    let collected = collectDated(windowedTx || readData(FILE_TRANSACTIONS, []));
+    if (windowedTx) {
+        const newestFirst = collected.dated.map(d => d.at).sort((a, b) => b - a);
+        if (newestFirst.length < 25 || newestFirst[24] < RECENT_WINDOW_START_MS - 24 * 60 * 60 * 1000) {
+            collected = collectDated(readData(FILE_TRANSACTIONS, []));
         }
-        dated.push({ transaction, at, gross, index });
-    });
+    }
+    const { todaySales, todayTransactions, dated } = collected;
     const nowMs = Date.now();
     const activeStaff = new Set();
     // Roster of today's attendance, shared cross-branch (via the encrypted Remote Operations
@@ -6634,6 +6886,154 @@ app.post('/api/admin/cloud-tokens/purchase', rateLimit('cloud-tokens-purchase', 
         res.status(502).json({ success: false, message: `Could not reach RELAY to start the purchase: ${err.message}` });
     }
 });
+// ===================================================================
+// BAGO: SUPPORT THE DEVELOPER (Sponsor / Donate)
+// Boluntaryong donasyon. HINDI ito nagdadagdag ng token/balance/benepisyo sa
+// customer — log lang (User Logs + Omni Tokens transaction history).
+//   - Omni Tokens: ibabawas sa wallet (kailangan ng admin password).
+//   - Online payment: kapag kulang/walang token, o kung ito ang piliin.
+// Ang RELAY ang tunay na nag-de-deduct/nagre-record; dito ay pasa lang at log.
+// ===================================================================
+const SPONSOR_PRESETS_PHP = [50, 100, 200, 500, 1000, 2000];
+const SPONSOR_MIN_PHP = 50;
+const SPONSOR_MAX_PHP = 100000;
+const sponsorLoggedPurchaseIds = new Set();
+function parseSponsorAmountLocal(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || Math.floor(n) !== n) return null;
+    if (n < SPONSOR_MIN_PHP || n > SPONSOR_MAX_PHP) return null;
+    return n;
+}
+function requireSponsorAdmin(req, res) {
+    if (!req.authUser || !req.authUser.role || String(req.authUser.role).toLowerCase() !== 'admin') {
+        res.status(403).json({ success: false, message: 'Admin privileges only can support the developer.' });
+        return false;
+    }
+    return true;
+}
+app.get('/api/admin/sponsor/info', async (req, res) => {
+    if (!requireSponsorAdmin(req, res)) return;
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        let balanceTokens = null;
+        let paymentMethods = [];
+        let defaultPaymentMethod = null;
+        if (RELAY_API_KEY && getConnectivityMode() !== 'offline') {
+            const [wallet, packages] = await Promise.all([
+                fetchCloudTokenWallet(installationId).catch(() => ({ ok: false })),
+                fetchCloudTokenPackages(false).catch(() => ({ ok: false }))
+            ]);
+            if (wallet && wallet.ok) balanceTokens = wallet.balanceTokens;
+            if (packages && packages.ok) {
+                paymentMethods = packages.paymentMethods || [];
+                defaultPaymentMethod = packages.defaultPaymentMethod || null;
+            }
+        }
+        res.json({
+            success: true,
+            configured: !!RELAY_API_KEY,
+            offline: getConnectivityMode() === 'offline',
+            balanceTokens,
+            tokenDonationEnabled: !!activationFlagsCache.omniTokenActivationEnabled,
+            paymentMethods,
+            defaultPaymentMethod,
+            presets: SPONSOR_PRESETS_PHP,
+            min: SPONSOR_MIN_PHP,
+            max: SPONSOR_MAX_PHP
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Could not load the support options. Please try again.' });
+    }
+});
+app.post('/api/admin/sponsor/donate-tokens', rateLimit('sponsor-donate-tokens', 10, 10 * 60 * 1000), async (req, res) => {
+    if (!requireSponsorAdmin(req, res)) return;
+    if (!activationFlagsCache.omniTokenActivationEnabled) {
+        return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). You can still donate via online payment.' });
+    }
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message: 'You are currently in OFFLINE mode. Tap the Online toggle first.' });
+    }
+    const amount = parseSponsorAmountLocal(req.body && req.body.amount);
+    const adminPassword = typeof (req.body && req.body.adminPassword) === 'string' ? req.body.adminPassword : '';
+    if (amount === null) return res.status(400).json({ success: false, message: `Please enter a whole-number amount from ${SPONSOR_MIN_PHP} to ${SPONSOR_MAX_PHP}.` });
+    if (!adminPassword) return res.status(400).json({ success: false, message: 'An admin password is required to approve this donation.' });
+    const users = readData(FILE_USERS);
+    const authResult = await findOmniTokenUnlockAuthorizer(users, adminPassword);
+    if (!authResult) {
+        return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The donation was not authorized.' });
+    }
+    const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+    try {
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/sponsor/donate-tokens`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, amount, clientRequestId: crypto.randomUUID() })
+        }, 20000);
+        const data = await parseRelayResponse(relayRes);
+        if (!data.success) {
+            return res.status(relayRes.status && relayRes.status >= 400 ? relayRes.status : 400).json({
+                success: false,
+                insufficient: !!data.insufficient,
+                reserveProtected: !!data.reserveProtected,
+                balanceTokens: data.balanceTokens,
+                requiredTokens: data.requiredTokens,
+                message: data.message || 'Failed to complete the donation.'
+            });
+        }
+        logAction((req.authUser && req.authUser.username) || authResult.user.username || 'Unknown', `Sponsored/donated ${amount} Omni Tokens to support the developer (admin-approved by ${authResult.user.username}) — donation only, no balance added`);
+        return res.json({ success: true, message: data.message, amount, balanceTokens: data.balanceTokens });
+    } catch (err) {
+        console.error('Could not reach the Unlock Relay (sponsor donate-tokens):', err);
+        return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please check your Omni Tokens balance/history first — the donation may have gone through — before trying again.` });
+    }
+});
+app.post('/api/admin/sponsor/donate-online', rateLimit('sponsor-donate-online', 10, 15 * 60 * 1000), async (req, res) => {
+    if (!requireSponsorAdmin(req, res)) return;
+    const amount = parseSponsorAmountLocal(req.body && req.body.amount);
+    const method = req.body && typeof req.body.method === 'string' ? req.body.method.trim() : '';
+    if (amount === null) return res.status(400).json({ success: false, message: `Please enter a whole-number amount from ${SPONSOR_MIN_PHP} to ${SPONSOR_MAX_PHP}.` });
+    if (!method) return res.status(400).json({ success: false, message: 'Piliin ang paraan ng bayad.' });
+    if (getConnectivityMode() === 'offline') {
+        return res.status(400).json({ success: false, message: 'You are currently in OFFLINE mode. Tap the Online toggle first.' });
+    }
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/sponsor/donate-online/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+            body: JSON.stringify({ installationId, amount, method, returnBaseUrl: RELAY_URL })
+        }, 15000);
+        const relayData = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !relayData.success) {
+            return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the donation request.' });
+        }
+        logAction(req.authUser.username, `Started an online donation to support the developer (₱${relayData.amountPHP}, via ${method}) — donation only, no balance added`);
+        res.json({ success: true, checkoutUrl: relayData.checkoutUrl, qrCodeImageUrl: relayData.qrCodeImageUrl, expiresAt: relayData.expiresAt, purchaseId: relayData.purchaseId, amountPHP: relayData.amountPHP });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach RELAY to start the donation: ${err.message}` });
+    }
+});
+app.get('/api/admin/sponsor/status', rateLimit('sponsor-status', 120, 10 * 60 * 1000), async (req, res) => {
+    if (!requireSponsorAdmin(req, res)) return;
+    const purchaseId = typeof req.query.purchaseId === 'string' ? req.query.purchaseId.trim().slice(0, 120) : '';
+    if (!purchaseId.startsWith('DON-')) return res.status(400).json({ success: false, message: 'Invalid donation reference.' });
+    if (!RELAY_API_KEY) return res.status(500).json({ success: false, message: 'No RELAY_API_KEY is configured in .env.' });
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/sponsor/donation-status?installationId=${encodeURIComponent(installationId)}&purchaseId=${encodeURIComponent(purchaseId)}`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+        const data = await parseRelayResponse(relayRes);
+        if (!relayRes.ok || !data.success) return res.status(relayRes.status || 502).json({ success: false, message: data.message || 'Could not check the donation status.' });
+        if (data.status === 'paid' && !sponsorLoggedPurchaseIds.has(purchaseId)) {
+            sponsorLoggedPurchaseIds.add(purchaseId);
+            logAction(req.authUser.username, `Sponsored/donated ₱${data.amountPHP} via online payment (${data.method || 'online'}) to support the developer — payment confirmed, donation only, no balance added`);
+        }
+        res.json({ success: true, status: data.status, amountPHP: data.amountPHP });
+    } catch (err) {
+        res.status(502).json({ success: false, message: `Could not reach RELAY: ${err.message}` });
+    }
+});
 app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
     const { username, password } = req.body || {};
     const currentUsersForSync = readData(FILE_USERS, []);
@@ -6792,6 +7192,7 @@ function applyRestoredModules(modules) {
             restoredModuleNames.push(moduleName);
         }
     }
+    if (restoredModuleNames.length) scheduleDatabaseCompaction('backup restore', 3000);
     return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset };
 }
 function mergeRestoredUsers(restoredUsers) {
@@ -7338,6 +7739,7 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
         'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
         'That system message may also include a "Pre-computed store insights" block — already-calculated numbers for sales totals (today/yesterday/week/month revenue, transaction counts, day-over-day % change, top products), a cashier sales ranking for this month (topCashierThisMonth/lowestCashierThisMonth/cashierRankingThisMonth), per-cashier shift/Z-Reading cash variance (shifts.byCashier, mostShortCashier, mostOverCashier), inventory status (low stock, out of stock, expiring soon, expired items), a customer loyalty points ranking (topByPoints/lowestByPoints), and unreviewed Fraud Alert counts — plus an optional "suggestedSettings" list. ALWAYS use these pre-computed numbers as-is for that kind of question instead of counting/summing/averaging/ranking the raw records yourself — you are not reliable at exact arithmetic or ranking over long record lists, and this app already computes them correctly elsewhere (the Overview dashboard). Every revenue figure in this block (todayRevenue, yesterdayRevenue, weekRevenue, monthRevenue, cashierRankingThisMonth revenue, topCashierThisMonth/lowestCashierThisMonth revenue) is already NET of refunds — it already matches the "Total Sales"/"Net Sales" headline on the Sales Report page, so never add, subtract, or re-explain a refund adjustment on top of it. The separate todayRefunded/monthRefunded fields are the total amount refunded in that period (a different number from revenue, not something already subtracted a second time), and todayPaymentBreakdown/monthPaymentBreakdown break the net revenue down by payment method (CASH, GCASH, CARD, etc.) when the question is about a specific payment method\'s total. A null "todayVsYesterdayPct" means there were no sales yesterday to compare against — say so plainly rather than inventing a percentage. IMPORTANT distinction: "*Revenue" (todayRevenue/monthRevenue/etc.) is total SALES/BENTA — it is NOT the same thing as "kita"/"profit". When the user asks about "kita", "tubo", "profit", "netong kita", or "how much did we (actually) make/earn", answer using todayProfit/monthProfit (and todayProfitMarginPct/monthProfitMarginPct for the margin %) instead — these already subtract each sold product\'s recorded cost (Cost of Goods Sold) from revenue, matching the Sales Analytics report\'s "Estimated Profit". If todayProfitHasCostData/monthProfitHasCostData is false, that period\'s profit figure is unreliable (little or no product "cost" was ever set in Products) — say so plainly and suggest the user fill in the Cost field per product (Products page) for an accurate profit figure, rather than presenting a 0 or near-0 profit as if it were real. Never call plain revenue "kita"/"profit", and never call profit "benta"/"revenue" — they answer different questions. When asked for the TOTAL COST/VALUE of all products/stock/inventory currently on hand (e.g. "magkano lahat ng product namin", "total cost ng lahat ng produkto", "how much is our inventory worth"), use inventory.totalInventoryCostValue directly (Admin/authorized sessions only) — it is the sum of stock × cost across EVERY product in the store, already computed server-side, NOT just the products included in the snapshot below (that list can be a partial sample for large catalogs, so never add up the "cost"/"price" fields of the individual product records yourself for this kind of question). If inventory.totalInventoryCostValueHasCostData is false, say the figure is unreliable/near-zero because little or no product has a "Cost" set (Products page) rather than presenting it as a real total. If totalInventoryCostValue is missing entirely (non-admin/limited session), say this requires Admin access rather than estimating from the partial product list you can see. IMPORTANT distinction: topProductsThisWeek and topProductsThisMonth are TWO SEPARATE best-selling-by-quantity rankings over DIFFERENT periods — topProductsThisWeek covers only the last 7 days, topProductsThisMonth covers the current calendar month so far — never use one to answer a question about the other\'s period, and never describe topProductsThisWeek\'s numbers as being "this month\'s" top products or vice versa. A negative shift "totalVariance"/"avgVariance" means cash SHORT for that cashier; positive means cash OVER — state this plainly and neutrally (it can have innocent explanations like miscounting) rather than accusing the cashier of wrongdoing. When "suggestedSettings" has entries relevant to the question (or to a problem the user describes), you may mention them as a suggestion — explain what setting to change and why it would help, but always make clear you cannot change it yourself; the user has to do it in Settings.',
         'For questions about billing, subscriptions, backup cost/consumption, or database safety, you may receive a separate "Pre-computed billing/subscription/backup-safety insights" system message (Admin/authorized sessions only). Use it as-is: expiredOrGraceFeatures lists any module or Cloud Backup subscription that is expired or in its grace period; cloudBackup.actualCostShare.yourShare is the REAL, usage-based cost for this store\'s Cloud Backup (not just the flat plan price) — prefer it over planPrice when asked "how much does it actually cost/consume", but always present it as usage cost so far, NEVER as the amount due or the renewal price; each billingSchedule entry\'s amount is the plan price actually due, and for Cloud Backup its usageCostSoFarPHP is the separate usage cost so far; billingSchedule lists upcoming charges with name/amount/dueDate for roughly the next 30 days; estimatedNextMonthTotalPHP is the rough sum of those (all amounts are PHP); databaseSafetyFeatures is a factual list of this app\'s real built-in safeguards — never add safety/security claims beyond what is listed there. If this block is missing entirely for a billing-type question, or actualCostShare/cbCostShare is null, say plainly that the live figure isn\'t available right now rather than estimating one. For a non-admin session, this data is intentionally withheld — tell the user this needs Admin access.',
+        'For questions about the PRODUCT CATALOG (how many products do or do not have a photo/picture, products per category, products missing a barcode/category/supplier/price, duplicate product names or barcodes, most expensive/cheapest/highest-stock products, margin or profit per product (Admin sessions only), expiry/batch tracking, or the full details of one specific product), you may receive a separate \"Pre-computed product catalog analysis\" system message. The server computes it live from the COMPLETE product list, so use its counts as-is: catalog.photos.withPhoto and catalog.photos.withoutPhoto are exact; any \"Sample\" list is only a partial example (say so and point to the Products page for the full list); matchedProducts holds the full details of products whose name/code/barcode appears in the question. When this block is present NEVER say that photo/picture information is unavailable, and never invent a number that is not literally in it.',
         isAdminRole
             ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
             : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
@@ -7439,11 +7841,16 @@ function computeAiStoreInsightsUncached(isAdminRole) {
         insights.inventory.totalInventoryCostValue = Number(totalInventoryCostValue.toFixed(2));
         insights.inventory.totalInventoryCostValueHasCostData = totalInventoryCostValueHasCostData;
         let transactions = [];
-        try { transactions = readData(FILE_TRANSACTIONS, []); } catch (err) { transactions = []; }
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
         const startOfWeek = new Date(startOfToday); startOfWeek.setDate(startOfWeek.getDate() - 6);
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        // SCALE FIX: ang kailangan lang ay mula sa pinakamaagang startOf* (kahapon/linggo/buwan). Walang pang-itaas na hangganan
+        // (ang mga petsa sa hinaharap ay >= startOfToday pa rin kaya binibilang), kaya SQL ang nagtatapon ng mga malinaw na mas luma lang.
+        try {
+            const earliestNeededMs = Math.min(startOfYesterday.getTime(), startOfWeek.getTime(), startOfMonth.getTime());
+            transactions = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', earliestNeededMs, Date.UTC(9000, 0, 1)) || readData(FILE_TRANSACTIONS, []);
+        } catch (err) { transactions = []; }
         // FIX: dati "t.timestamp" ang UNANG sinusubukan dito, pero ang
         // "timestamp" field ng isang tunay na transaction record ay isang
         // DISPLAY STRING lang sa "DD/MM/YYYY, HH:MM:SS" na format (hal.
@@ -7816,6 +8223,352 @@ async function computeAiBillingInsights(isAdminRole) {
     aiBillingInsightsCache = { ts: now, data };
     return data;
 }
+// ---- Omni AI: DEEP PRODUCT CATALOG ANALYSIS ------------------------------------------------
+// PROBLEMA: ang "Pre-computed store insights" ay may bilang lang ng produkto (totalProducts) at ilang stock/expiry
+// list — walang impormasyon tungkol sa picture/larawan, category, barcode, supplier, presyo, duplicate, atbp.
+// Kaya kapag tinanong ang Omni AI ng "ilang produkto ang may picture / wala pang picture?" ay napipilitan itong
+// sabihing "hindi naka-indicate". Ang raw products snapshot naman ay pinuputol sa ilang record lang, at ang AI model
+// ay hindi maaasahan sa pagbibilang sa mahabang listahan.
+// AYOS: ang server mismo ang nagku-kuwenta (gamit ang KUMPLETONG listahan ng produkto + metadata ng photo, walang
+// binabasang base64) at ipinapasa ang compact na resulta bilang hiwalay na system message — tuwing may kaugnay na
+// tanong lang, kaya hindi nadadagdagan ang laki ng ibang request. Ang cost/margin na datos ay Admin-only
+// (kapareho ng patakaran ng totalInventoryCostValue).
+// OPTIMIZATION: ang "strong" na hints ay para lang sa tunay na katalogo/produkto na tanong. Ang mga pangkalahatang salita
+// (item, stock, price, cost, inventory, expiry, batch, uom...) ay inilipat sa WEAK — kasama lang ang buong catalog
+// summary kapag may pangalan/code/barcode ng produkto na tugma sa tanong. Dati halos LAHAT ng tanong ay nagdadagdag
+// ng hanggang ~14 KB na system message (dagdag token, dagdag bagal, dagdag gastos sa AI).
+const AI_PRODUCT_QUESTION_HINTS = [
+    'product', 'produkto', 'sku', 'barcode', 'bar code', 'picture', 'photo', 'larawan', 'litrato', 'imahe',
+    'image', 'thumbnail', 'category', 'categories', 'kategorya', 'supplier', 'margin', 'tubo', 'markup',
+    'duplicate', 'doble', 'catalog', 'katalogo', 'pinakamahal', 'pinakamura', 'pinaka-mahal',
+    'pinaka-mura', 'most expensive', 'cheapest'
+];
+const AI_PRODUCT_WEAK_HINTS = ['magkano', 'how much', 'how many', 'ilan', 'meron', 'mayroon', 'available', 'may stock',
+    'item', 'stock', 'inventory', 'imbentaryo', 'price', 'presyo', 'cost', 'puhunan', 'capital', 'expiry', 'expire',
+    'expired', 'paso', 'batch', 'uom'];
+const AI_PRODUCT_NAME_STOPWORDS = new Set([
+    'ang', 'ng', 'sa', 'mga', 'ba', 'po', 'pa', 'na', 'at', 'ay', 'ito', 'yan', 'iyan', 'yung', 'yong', 'kung', 'may', 'meron',
+    'mayroon', 'wala', 'ilan', 'ilang', 'ano', 'alin', 'saan', 'paano', 'magkano', 'lahat', 'pang', 'lang', 'din', 'rin',
+    'the', 'and', 'for', 'how', 'many', 'much', 'what', 'which', 'are', 'there', 'have', 'has', 'with', 'without', 'does',
+    'show', 'list', 'give', 'tell', 'all', 'any', 'our', 'my', 'your',
+    'produkto', 'product', 'products', 'item', 'items', 'picture', 'pictures', 'photo', 'photos', 'larawan', 'litrato',
+    'imahe', 'image', 'images', 'stock', 'stocks', 'price', 'presyo', 'cost', 'category', 'barcode', 'supplier', 'inventory',
+    'total', 'bilang', 'dami', 'gaano', 'karami'
+]);
+function aiCatalogClip(value, max) {
+    const s = String(value === null || value === undefined ? '' : value).trim();
+    return s.length > max ? s.slice(0, Math.max(1, max - 1)) + '…' : s;
+}
+function aiCatalogRound(value, places) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    const f = Math.pow(10, places === undefined ? 2 : places);
+    return Math.round(n * f) / f;
+}
+function aiCatalogTokens(text) {
+    return String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3 && !AI_PRODUCT_NAME_STOPWORDS.has(t));
+}
+// Hanapin ang phrase bilang buong salita/parirala (hindi bahagi lang ng ibang salita): "ice" ay hindi tutugma sa "price".
+function aiCatalogContainsWord(haystack, needle) {
+    let from = 0;
+    for (;;) {
+        const i = haystack.indexOf(needle, from);
+        if (i === -1) return false;
+        const before = i === 0 ? '' : haystack[i - 1];
+        const after = i + needle.length >= haystack.length ? '' : haystack[i + needle.length];
+        const edge = /[\p{L}\p{N}]/u;
+        if ((!before || !edge.test(before)) && (!after || !edge.test(after))) return true;
+        from = i + 1;
+    }
+}
+function questionMentionsProductCatalog(question) {
+    const q = String(question || '').toLowerCase();
+    return AI_PRODUCT_QUESTION_HINTS.some((kw) => q.includes(kw));
+}
+function questionMightNameAProduct(question) {
+    const q = String(question || '').toLowerCase();
+    return AI_PRODUCT_WEAK_HINTS.some((kw) => q.includes(kw));
+}
+// Kumpletong listahan ng produkto + bilang ng photo (walang binabasang base64).
+function loadAiCatalogRecords() {
+    let list = null;
+    let mainPhotoCodes = null;
+    try { list = readDataLite('products', []); } catch (_) { list = null; }
+    if (!Array.isArray(list)) {
+        try {
+            list = readProductsNoImages([]);
+            mainPhotoCodes = getProductCodesWithMainImage();
+        } catch (_) { list = []; }
+    }
+    const records = [];
+    for (const p of list) {
+        if (!p || typeof p !== 'object') continue;
+        const photoCount = mainPhotoCodes
+            ? (mainPhotoCodes.has(String(p.code)) ? 1 : 0)
+            : Math.max(0, Number(p.imageCount) || 0);
+        records.push({ p, photoCount });
+    }
+    return records;
+}
+function summarizeAiCatalogProduct(rec, isAdminRole) {
+    const p = rec.p;
+    const out = {
+        code: aiCatalogClip(p.code, 40),
+        name: aiCatalogClip(p.name, 70),
+        barcode: aiCatalogClip(p.barcode, 40),
+        category: aiCatalogClip(p.category, 40),
+        supplier: aiCatalogClip(p.supplier, 40),
+        uom: aiCatalogClip(p.uom, 20),
+        price: aiCatalogRound(parseFloat(p.price) || 0, 2),
+        stock: aiCatalogRound(parseFloat(p.stock) || 0, 3),
+        hasPhoto: rec.photoCount > 0,
+        photoCount: rec.photoCount
+    };
+    if (p.lowStockThreshold !== undefined && p.lowStockThreshold !== null && p.lowStockThreshold !== '') {
+        out.lowStockThreshold = Number(p.lowStockThreshold) || 0;
+    }
+    try {
+        const expMs = getEffectiveExpiryMs(p);
+        if (expMs !== null && Number.isFinite(expMs)) out.nearestExpiry = new Date(expMs).toISOString().slice(0, 10);
+    } catch (_) { /* walang expiry */ }
+    if (Array.isArray(p.batches) && p.batches.length > 0) out.batchCount = p.batches.length;
+    if (p.priceLevels && typeof p.priceLevels === 'object') {
+        try {
+            const levelsJson = JSON.stringify(p.priceLevels);
+            if (levelsJson.length <= 240) out.priceLevels = p.priceLevels;
+        } catch (_) { /* laktawan */ }
+    }
+    if (isAdminRole) {
+        const cost = parseFloat(p.cost) || 0;
+        const price = parseFloat(p.price) || 0;
+        out.cost = aiCatalogRound(cost, 2);
+        if (price > 0 && cost > 0) out.marginPercent = aiCatalogRound(((price - cost) / price) * 100, 1);
+    }
+    for (const key of Object.keys(out)) {
+        if (out[key] === '' || out[key] === undefined) delete out[key];
+    }
+    return out;
+}
+// Mga produktong nabanggit sa tanong (pangalan / code / barcode) — para masagot ang "magkano ang X?", "ilan ang stock ng Y?".
+function findAiMatchedCatalogProducts(records, question, limit) {
+    const q = String(question || '').toLowerCase();
+    if (q.trim().length < 3) return [];
+    const qTokens = new Set(aiCatalogTokens(q));
+    const scored = [];
+    for (const rec of records) {
+        const p = rec.p;
+        const nameLower = String(p.name || '').trim().toLowerCase();
+        const codeLower = String(p.code || '').trim().toLowerCase();
+        const barcodeLower = String(p.barcode || '').trim().toLowerCase();
+        let score = 0;
+        if (nameLower.length >= 3 && aiCatalogContainsWord(q, nameLower)) {
+            score = 1000 + nameLower.length;
+        } else if (codeLower.length >= 3 && aiCatalogContainsWord(q, codeLower)) {
+            score = 900;
+        } else if (barcodeLower.length >= 4 && q.includes(barcodeLower)) {
+            score = 900;
+        } else if (qTokens.size > 0 && nameLower) {
+            const nameTokens = Array.from(new Set(aiCatalogTokens(nameLower)));
+            if (nameTokens.length > 0) {
+                let overlap = 0;
+                for (const t of nameTokens) if (qTokens.has(t)) overlap++;
+                const ratio = overlap / nameTokens.length;
+                if (nameTokens.length <= 2 ? overlap === nameTokens.length : (overlap >= 2 && ratio >= 0.6)) {
+                    score = overlap * 10 + ratio;
+                }
+            }
+        }
+        if (score > 0) scored.push({ rec, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit || 8).map((s) => s.rec);
+}
+function computeAiProductCatalogSummary(records, isAdminRole, mentionsPhoto) {
+    const total = records.length;
+    let withPhoto = 0;
+    const withoutPhotoNames = [];
+    const withPhotoNames = [];
+    const categoryMap = new Map();
+    let missingBarcode = 0, missingCategory = 0, missingSupplier = 0, zeroOrMissingPrice = 0, negativeStock = 0;
+    let missingCost = 0, priceBelowCost = 0;
+    const priceBelowCostSample = [];
+    let totalUnits = 0, productsWithStock = 0, trackingExpiry = 0, withBatches = 0;
+    let priceMin = Infinity, priceMax = 0, priceSum = 0, priceCount = 0;
+    let retailValue = 0, costValue = 0, marginSum = 0, marginCount = 0;
+    const nameCounts = new Map();
+    const barcodeCounts = new Map();
+    const priced = [];
+    const stocked = [];
+    const margined = [];
+    for (const rec of records) {
+        const p = rec.p;
+        const name = aiCatalogClip(p.name || p.code || '(walang pangalan)', 60);
+        const price = parseFloat(p.price) || 0;
+        const cost = parseFloat(p.cost) || 0;
+        const stock = parseFloat(p.stock) || 0;
+        const category = String(p.category || '').trim();
+        const barcode = String(p.barcode || '').trim();
+
+        if (rec.photoCount > 0) {
+            withPhoto++;
+            if (withPhotoNames.length < 15) withPhotoNames.push(name);
+        } else if (withoutPhotoNames.length < 40) {
+            withoutPhotoNames.push(name);
+        }
+
+        const catKey = category || '(walang category)';
+        let cat = categoryMap.get(catKey);
+        if (!cat) { cat = { name: aiCatalogClip(catKey, 40), products: 0, unitsInStock: 0, withoutPhoto: 0 }; categoryMap.set(catKey, cat); }
+        cat.products++;
+        if (stock > 0) cat.unitsInStock += stock;
+        if (rec.photoCount <= 0) cat.withoutPhoto++;
+
+        if (!barcode) missingBarcode++;
+        if (!category) missingCategory++;
+        if (!String(p.supplier || '').trim()) missingSupplier++;
+        if (price <= 0) zeroOrMissingPrice++;
+        if (stock < 0) negativeStock++;
+
+        if (price > 0) {
+            priced.push({ name, price: aiCatalogRound(price, 2) });
+            if (price < priceMin) priceMin = price;
+            if (price > priceMax) priceMax = price;
+            priceSum += price;
+            priceCount++;
+        }
+        if (stock > 0) {
+            totalUnits += stock;
+            productsWithStock++;
+            stocked.push({ name, stock: aiCatalogRound(stock, 3) });
+            if (price > 0) retailValue += stock * price;
+            if (cost > 0) costValue += stock * cost;
+        }
+        if (getEffectiveExpiryMs(p) !== null) trackingExpiry++;
+        if (Array.isArray(p.batches) && p.batches.length > 0) withBatches++;
+
+        const nameKey = String(p.name || '').trim().toLowerCase();
+        if (nameKey) {
+            const entry = nameCounts.get(nameKey);
+            if (entry) entry.count++; else nameCounts.set(nameKey, { name, count: 1 });
+        }
+        if (barcode) {
+            const bKey = barcode.toLowerCase();
+            barcodeCounts.set(bKey, (barcodeCounts.get(bKey) || 0) + 1);
+        }
+
+        if (isAdminRole) {
+            if (cost <= 0) missingCost++;
+            if (price > 0 && cost > 0) {
+                const marginPct = ((price - cost) / price) * 100;
+                marginSum += marginPct;
+                marginCount++;
+                margined.push({ name, marginPercent: aiCatalogRound(marginPct, 1), price: aiCatalogRound(price, 2), cost: aiCatalogRound(cost, 2) });
+                if (cost > price) {
+                    priceBelowCost++;
+                    if (priceBelowCostSample.length < 10) priceBelowCostSample.push({ name, price: aiCatalogRound(price, 2), cost: aiCatalogRound(cost, 2) });
+                }
+            }
+        }
+    }
+
+    const categories = Array.from(categoryMap.values())
+        .sort((a, b) => b.products - a.products)
+        .map((c) => ({ name: c.name, products: c.products, unitsInStock: aiCatalogRound(c.unitsInStock, 2), withoutPhoto: c.withoutPhoto }));
+    const duplicateNames = Array.from(nameCounts.values()).filter((e) => e.count > 1).sort((a, b) => b.count - a.count);
+    let duplicateBarcodeCount = 0;
+    for (const count of barcodeCounts.values()) if (count > 1) duplicateBarcodeCount++;
+
+    const withoutPhoto = total - withPhoto;
+    const summary = {
+        generatedAt: new Date().toISOString(),
+        totalProducts: total,
+        photos: {
+            withPhoto,
+            withoutPhoto,
+            withPhotoPercent: total > 0 ? aiCatalogRound((withPhoto / total) * 100, 1) : 0,
+            withoutPhotoSample: withoutPhotoNames.slice(0, mentionsPhoto ? 40 : 15),
+            withoutPhotoSampleIsPartial: withoutPhoto > (mentionsPhoto ? 40 : 15)
+        },
+        categories: {
+            distinctCategoryCount: categories.length,
+            top: categories.slice(0, 20),
+            hiddenCategoryCount: Math.max(0, categories.length - 20)
+        },
+        dataQuality: {
+            missingBarcode,
+            missingCategory,
+            missingSupplier,
+            zeroOrMissingPrice,
+            negativeStock,
+            duplicateProductNames: duplicateNames.slice(0, 10).map((e) => ({ name: e.name, count: e.count })),
+            duplicateProductNameCount: duplicateNames.length,
+            duplicateBarcodeCount
+        },
+        pricing: {
+            productsWithPrice: priceCount,
+            minPrice: priceCount ? aiCatalogRound(priceMin, 2) : 0,
+            maxPrice: aiCatalogRound(priceMax, 2),
+            averagePrice: priceCount ? aiCatalogRound(priceSum / priceCount, 2) : 0,
+            mostExpensive: priced.slice().sort((a, b) => b.price - a.price).slice(0, 5),
+            cheapest: priced.slice().sort((a, b) => a.price - b.price).slice(0, 5)
+        },
+        stock: {
+            totalUnitsInStock: aiCatalogRound(totalUnits, 2),
+            productsWithStock,
+            highestStock: stocked.slice().sort((a, b) => b.stock - a.stock).slice(0, 5),
+            productsTrackingExpiry: trackingExpiry,
+            productsWithBatches: withBatches
+        }
+    };
+    if (mentionsPhoto) summary.photos.withPhotoSample = withPhotoNames;
+    if (isAdminRole) {
+        summary.adminOnly = {
+            productsMissingCost: missingCost,
+            productsPricedBelowCost: priceBelowCost,
+            priceBelowCostSample,
+            averageMarginPercent: marginCount ? aiCatalogRound(marginSum / marginCount, 1) : 0,
+            highestMargin: margined.slice().sort((a, b) => b.marginPercent - a.marginPercent).slice(0, 5),
+            lowestMargin: margined.slice().sort((a, b) => a.marginPercent - b.marginPercent).slice(0, 5),
+            inventoryRetailValue: aiCatalogRound(retailValue, 2),
+            inventoryCostValue: aiCatalogRound(costValue, 2)
+        };
+    }
+    return summary;
+}
+function buildAiProductCatalogMessage(isAdminRole, question) {
+    const strong = questionMentionsProductCatalog(question);
+    const weak = !strong && questionMightNameAProduct(question);
+    if (!strong && !weak) return null;
+    const records = loadAiCatalogRecords();
+    if (!records.length) return null;
+    const matched = findAiMatchedCatalogProducts(records, question, 8);
+    if (!strong && matched.length === 0) return null;
+    const q = String(question || '').toLowerCase();
+    const mentionsPhoto = ['picture', 'photo', 'larawan', 'litrato', 'imahe', 'image', 'thumbnail'].some((kw) => q.includes(kw));
+    const payload = {};
+    if (strong) payload.catalog = computeAiProductCatalogSummary(records, isAdminRole, mentionsPhoto);
+    payload.matchedProducts = matched.map((rec) => summarizeAiCatalogProduct(rec, isAdminRole));
+    payload.matchedProductsNote = matched.length
+        ? 'These are the products whose name/code/barcode appear in the question (full details).'
+        : 'No product name/code/barcode in the question matched an item in the catalog.';
+    let json = JSON.stringify(payload);
+    // Proteksyon sa laki ng context ng AI model: paliitin kapag sobra.
+    if (json.length > 12000 && payload.catalog) {
+        payload.catalog.categories.top = payload.catalog.categories.top.slice(0, 10);
+        payload.matchedProducts = payload.matchedProducts.slice(0, 4);
+        json = JSON.stringify(payload);
+    }
+    if (json.length > 14000 && payload.catalog) {
+        delete payload.catalog.photos.withPhotoSample;
+        payload.catalog.photos.withoutPhotoSample = payload.catalog.photos.withoutPhotoSample.slice(0, 10);
+        payload.catalog.photos.withoutPhotoSampleIsPartial = payload.catalog.photos.withoutPhoto > 10;
+        json = JSON.stringify(payload);
+    }
+    return {
+        role: 'system',
+        content: `Pre-computed product catalog analysis (JSON — computed live by the server from the COMPLETE product list, not the truncated snapshot; generated ${new Date().toISOString()}):\n${json}\n\nUse these figures directly. catalog.photos.withPhoto / withoutPhoto are EXACT counts of products that do / do not have a picture — never say photo information is unavailable. Any "Sample" list is only a partial example: say it is partial and point the user to the Products page for the full list. For one specific product, use matchedProducts. Only state numbers that literally appear here or in the other context; if something is not covered, say what is missing instead of guessing.${isAdminRole ? '' : ' This is a regular staff session, so cost/margin/profit figures are intentionally not included — if asked, say it requires Admin access.'}`
+    };
+}
 async function buildAiDatabaseContextMessage(role, question = '') {
     const isAdminRole = (role || '').toLowerCase() === 'admin';
     let snapshot;
@@ -7856,8 +8609,17 @@ async function buildAiDatabaseContextMessage(role, question = '') {
         }
     }
 
+    // Deep product catalog analysis (picture/category/barcode/presyo/duplicate/atbp.) — tuwing may kaugnay na tanong lang.
+    let catalogMsg = null;
+    try {
+        catalogMsg = buildAiProductCatalogMessage(isAdminRole, question);
+    } catch (err) {
+        console.error('⚠️ Hindi na-compute ang Omni AI product catalog analysis:', err);
+        catalogMsg = null;
+    }
+
     if (!snapshot || !snapshot.moduleNames || !snapshot.moduleNames.length) {
-        if (!insightsJson && !billingMsg) return null;
+        if (!insightsJson && !billingMsg && !catalogMsg) return null;
         const msgs = [];
         if (insightsJson) {
             msgs.push({
@@ -7866,6 +8628,7 @@ async function buildAiDatabaseContextMessage(role, question = '') {
             });
         }
         if (billingMsg) msgs.push(billingMsg);
+        if (catalogMsg) msgs.push(catalogMsg);
         return msgs.length > 1 ? msgs : msgs[0];
     }
 
@@ -7959,7 +8722,8 @@ async function buildAiDatabaseContextMessage(role, question = '') {
         role: 'system',
         content: `${scopeNote}${truncationNote}${omittedNote}\n\n${insightsBlock}Live OmniPOS store data snapshot (JSON, module name -> array of records; generated ${snapshot.generatedAt}):\n${safeJson}\n\nUse this ONLY to answer questions about the store's actual current data. Do not fabricate figures beyond what is shown.`
     };
-    return billingMsg ? [mainMsg, billingMsg] : mainMsg;
+    const extraMsgs = [billingMsg, catalogMsg].filter(Boolean);
+    return extraMsgs.length ? [mainMsg, ...extraMsgs] : mainMsg;
 }
 // ---- Omni AI FREE plan ------------------------------------------------------------------
 // Walang Omni AI subscription ('ai_assistant' feature) = FREE plan: text lang, naka-Cloudflare sa RELAY, sariling maliit na limit.
@@ -8174,6 +8938,7 @@ const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     { keywords: ['batch(es)?', 'lots?', 'fefo', 'batch.{0,3}lot'], view: 'batchlots', feature: 'batch_lot_tracking', label: 'Open Batch/Lot Tracking' },
     { keywords: ['attendance', 'time in', 'time out', 'selfie', 'pasok', 'labas', 'clock in', 'clock out'], view: 'attendance', feature: 'remote_operations', label: 'Open Staff Attendance' },
     { keywords: ['remote operations?', 'remoteops', 'monitor(ing)?', 'live dashboard'], view: 'remoteops', feature: 'remote_operations', label: 'Open Remote Operations' },
+    { keywords: ['shopee', 'lazada', 'tiktok( shop)?', 'marketplace', 'online orders?', 'shipping labels?', 'waybill'], view: 'marketplace', feature: 'marketplace_hub', label: 'Open Marketplace Hub' },
     { keywords: ['branch(es)?', 'sanga', 'sangay', 'multi-branch', 'store locations?'], view: 'branches', feature: 'multi_branch', label: 'Open Branches' },
     { keywords: ['stock return inspection', 'ibalik sa stock', 'voided.{0,3}refunded'], view: 'stock_return_inspection', label: 'Open Voided/Refunded' },
     // BAGO: mga page na dating walang shortcut chip kahit nasa sidebar/menu
@@ -9043,6 +9808,9 @@ function relayRejectionResponse(res, relayData, fallbackMessage) {
     if (relayData && relayData.code === 'DEVELOPER_UNAVAILABLE') {
         return res.status(503).json({ success: false, code: 'DEVELOPER_UNAVAILABLE', message: relayData.message || 'Developer is unavailable at this time.' });
     }
+    if (relayData && relayData.featureUnavailable) {
+        return res.status(409).json({ success: false, featureUnavailable: true, featureId: relayData.featureId, message: relayData.message || 'This feature is not available yet. Please try again later.' });
+    }
     return res.status(502).json({ success: false, message: (relayData && relayData.message) || fallbackMessage });
 }
 app.post('/api/features/request-unlock', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-request', 3, 10 * 60 * 1000), async (req, res) => {
@@ -9376,7 +10144,7 @@ app.post('/api/admin/forgot-password/request-otp',
         }
         const recipientEmail = getForgotPasswordRecipientEmail();
         const otpMailCreds = getOtpMailCredentials();
-        const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+        const otpCode = String(crypto.randomInt(100000, 1000000));
         const token = generateForgotPasswordToken();
         // Only one active code at a time: a new request invalidates any earlier one.
         FORGOT_PW_CHALLENGES.clear();
@@ -9635,7 +10403,7 @@ app.get('/api/features/upgrade-catalog', async (req, res) => {
             effectiveBundlePrice: effectivePrice
         };
     });
-    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount, activationFlags: activationFlagsCache, aiPlans: AI_SUBSCRIPTION_PLANS });
+    res.json({ success: true, features, tiers, multiTerminalDiscountPercent, deviceCount, activationFlags: activationFlagsCache, featureAvailability: getFeatureAvailabilityForThisInstallation(), aiPlans: AI_SUBSCRIPTION_PLANS });
 });
 app.post('/api/features/request-unlock-bulk', requirePermission('relay_unlock_request'), rateLimit('feature-unlock-bulk-request', 3, 10 * 60 * 1000), async (req, res) => {
     if (!activationFlagsCache.otpRequestsEnabled) {
@@ -10109,8 +10877,8 @@ function getPHTime() {
 }
 const defaultUsers = [
     { username:'admin', password:'admin', role:'Admin', created:'2026-07-07 04:32:09' },
-    { username:'cashier1', password:'cashier123', role:'Cashier', created:'2026-07-07 18:30:20' },
-    { username:'staff', password:'staff123', role:'Staff', created:'2026-07-07 16:34:41' }
+    { username:'cashier', password:'cashier', role:'Cashier', created:'2026-07-07 18:30:20' },
+    { username:'staff', password:'staff', role:'Staff', created:'2026-07-07 16:34:41' }
 ];
 if (readData(FILE_USERS).length === 0) {
     const secureDefaultUsers = defaultUsers.map(u => ({
@@ -10230,7 +10998,7 @@ setInterval(() => {
     for (const [k, v] of LOGIN_OTP_CHALLENGES.entries()) if (now > v.expiresAt) LOGIN_OTP_CHALLENGES.delete(k);
 }, 60 * 1000).unref();
 function generateLoginToken() {
-    return 'LOGIN-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    return 'LOGIN-' + Date.now().toString(36) + '-' + crypto.randomBytes(8).toString('hex');
 }
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -10276,7 +11044,7 @@ app.post('/api/auth/login', async (req, res) => {
                 if (!otpMailCreds) {
                     console.warn('⚠️ Naka-enable ang 2FA Admin Login pero walang naka-configure na OTP sender email — nag-proceed nang walang OTP.');
                 } else {
-                    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+                    const otpCode = String(crypto.randomInt(100000, 1000000));
                     const loginToken = generateLoginToken();
                     LOGIN_OTP_CHALLENGES.set(loginToken, {
                         username: user.username,
@@ -10329,7 +11097,17 @@ app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 
         LOGIN_OTP_CHALLENGES.delete(loginToken);
         return res.status(400).json({ success: false, code: 'OTP_EXPIRED', message: 'Expired na ang OTP code. Mag-login ulit para makahingi ng bago.' });
     }
-    if (String(otp).trim() !== pending.code) {
+    // SECURITY FIX: this route is public and only rate-limited per IP (which can be faked), and the code is just
+    // 6 digits — so each login challenge now allows only 5 wrong guesses, then it is destroyed and the admin
+    // must sign in again to get a new OTP.
+    pending.attempts = (pending.attempts || 0) + 1;
+    if (pending.attempts > 5) {
+        LOGIN_OTP_CHALLENGES.delete(loginToken);
+        return res.status(429).json({ success: false, code: 'OTP_TOO_MANY_ATTEMPTS', message: 'Too many wrong OTP attempts. Please sign in again to get a new OTP.' });
+    }
+    const submittedLoginOtp = Buffer.from(String(otp).trim());
+    const expectedLoginOtp = Buffer.from(String(pending.code));
+    if (submittedLoginOtp.length !== expectedLoginOtp.length || !crypto.timingSafeEqual(submittedLoginOtp, expectedLoginOtp)) {
         return res.status(403).json({ success: false, code: 'WRONG_OTP', message: 'Maling OTP code.' });
     }
     LOGIN_OTP_CHALLENGES.delete(loginToken);
@@ -10768,7 +11546,7 @@ app.get('/api/products/template', async (req, res) => {
     const format = (req.query.format || 'xlsx').toString().trim().toLowerCase();
     if (format === 'csv') {
         try {
-            const headers = ['Code', 'Product Name', 'Category', 'Price', 'Wholesale Price', 'Reseller Price', 'Stock', 'Supplier', 'Expiry Date', 'Low Stock Threshold', 'Cost Price'];
+            const headers = ['Code', 'Product Name', 'Category', 'Price', 'Wholesale Price', 'Reseller Price', 'Stock', 'Supplier', 'Expiry Date', 'Low Stock Threshold', 'Cost Price', 'Description', 'Specs'];
             const csvContent = '\uFEFF' + headers.map(csvTemplateEscape).join(',') + '\r\n';
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', 'attachment; filename="product_import_template.csv"');
@@ -10799,7 +11577,9 @@ app.get('/api/products/template', async (req, res) => {
             { header:'Supplier', key:'supplier', width: 24 },
             { header:'Expiry Date', key:'expiry', width: 16 },
             { header:'Low Stock Threshold', key:'threshold', width: 18 },
-            { header:'Cost Price', key:'cost', width: 14 }
+            { header:'Cost Price', key:'cost', width: 14 },
+            { header:'Description', key:'description', width: 42 },
+            { header:'Specs', key:'specs', width: 42 }
         ];
         const headerRow = sheet.getRow(1);
         headerRow.eachCell(cell => {
@@ -10832,10 +11612,13 @@ app.get('/api/products/template', async (req, res) => {
 '3. Sa column na "Category" (column C), pindutin ang dropdown arrow para pumili ng existing category.',
 '4. Kung gusto mag-add ng BAGONG category, i-type lang ito diretso sa cell — awtomatiko itong madadagdag sa system pagka-import.',
 '5. Ang Price ay Retail/default. Ang Wholesale Price at Reseller Price ay awtomatikong ise-save bilang price levels na Wholesale at Reseller. Puwedeng iwanang blangko ang dalawang ito.',
-'6. Isave ang file (.xlsx), pagkatapos i-upload gamit ang "Import Excel/CSV" button sa Product Inventory page.',
+'6. Isave ang file (.xlsx), pagkatapos i-upload gamit ang "Import" button sa Product Inventory page.',
 '7. Ang mga Product Code na dati nang ginagamit ay ise-skip habang nag-i-import — MALIBAN kung pinili mong "Update Existing" bago mag-upload.',
 '8. Optional na columns: Supplier, Expiry Date (YYYY-MM-DD), Low Stock Threshold, at Cost Price — pwedeng iwanang blangko.',
-'9. Sa "Update Existing" mode, ang mga blangkong cell ay HINDI nagbabago sa laman ng existing product — mananatili ang dati nitong value.'
+'9. Sa "Update Existing" mode, ang mga blangkong cell ay HINDI nagbabago sa laman ng existing product — mananatili ang dati nitong value.',
+'10. Optional: Description (pwedeng multi-line, hanggang 3000 characters; gamitin ang "- " sa simula ng linya para maging bullet) at Specs (format: Size: 500ml | Color: Red | Material: Steel).',
+'11. Pwede ring gumawa ng sariling column na "Spec: Color", "Spec: Size" — ang pangalan pagkatapos ng "Spec:" ang magiging label ng spec.',
+'12. Description/Specs lang ang gusto mong i-update sa existing products? Piliin ang "Specs / Description only" sa Import window (Code + Description + Specs lang ang kailangan).'
         ];
         instructions.forEach((line, i) => { infoSheet.getCell(`A${i + 1}`).value = line; });
         infoSheet.getCell('A1').font = { bold: true, size: 13 };
@@ -10848,9 +11631,50 @@ app.get('/api/products/template', async (req, res) => {
         res.status(500).json({ success: false, message:'Hindi magawa ang Excel template.' });
     }
 });
-app.get('/api/products/bulk-specs-template', (req, res) => {
+app.get('/api/products/bulk-specs-template', async (req, res) => {
+    const format = (req.query.format || 'csv').toString().trim().toLowerCase();
+    const headers = ['Code', 'Description', 'Specs'];
+    if (format === 'xlsx') {
+        try {
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'OmniPOS System';
+            const sheet = workbook.addWorksheet('Specs');
+            sheet.columns = [
+                { header: 'Code', key: 'code', width: 22 },
+                { header: 'Description', key: 'description', width: 60 },
+                { header: 'Specs', key: 'specs', width: 50 }
+            ];
+            sheet.getRow(1).eachCell(cell => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+            sheet.addRow({ code: 'SAMPLE-001', description: 'Sample description line.\n- Bullet one\n- Bullet two', specs: 'Size: 500ml | Color: Red' });
+            sheet.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+            sheet.getColumn(3).alignment = { wrapText: true, vertical: 'top' };
+            const infoSheet = workbook.addWorksheet('Paano Gamitin');
+            infoSheet.getColumn(1).width = 95;
+            [
+                'PAANO GAMITIN ANG SPECS / DESCRIPTION TEMPLATE:',
+                '',
+                '1. Sa sheet na "Specs", ilagay ang Product Code sa column A at ang Description at/o Specs sa katabing columns.',
+                '2. Burahin ang SAMPLE-001 na row bago i-upload. Ang mga Code na wala sa system ay ise-skip.',
+                '3. Description: pwedeng multi-line, hanggang 3000 characters. Gamitin ang "- " sa simula ng linya para maging bullet.',
+                '4. Specs: Size: 500ml | Color: Red | Material: Steel (hiwalay ng | o ; o bagong linya, at Label: Value ang format).',
+                '5. Pwede ring gumawa ng sariling column na "Spec: Color", "Spec: Size" — ang pangalan pagkatapos ng "Spec:" ang magiging label.',
+                '6. I-upload gamit ang "Import" button sa Product Inventory page — kusa nitong makikilala na Specs / Description lang ang file.'
+            ].forEach((line, i) => { infoSheet.getCell(`A${i + 1}`).value = line; });
+            infoSheet.getCell('A1').font = { bold: true, size: 13 };
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', 'attachment; filename="bulk_specs_template.xlsx"');
+            await workbook.xlsx.write(res);
+            return res.end();
+        } catch (err) {
+            console.error('Bulk specs xlsx template generation error:', err);
+            return res.status(500).json({ success: false, message: 'Hindi magawa ang Excel template.' });
+        }
+    }
     try {
-        const headers = ['Code', 'Description'];
         const csvContent = '\uFEFF' + headers.map(csvTemplateEscape).join(',') + '\r\n';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="bulk_specs_template.csv"');
@@ -10936,7 +11760,196 @@ function importCellToText(v) {
     }
     return String(v).trim();
 }
-app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000), productImportUpload.single('file'), async (req, res) => {
+// ===== UNIFIED PRODUCT IMPORTER (products + specs/description) =====
+// Isang endpoint para sa dalawang uri ng file:
+//   - "products": buong product list (Code, Product Name, Price, Stock, ... + optional Description / Specs)
+//   - "specs"   : Code + Description at/o Specs lang (para sa existing products)
+// kind = auto  → kusang nade-detect (walang Product Name pero may Description/Specs = specs)
+// dryRun = 1   → preview lang, WALANG sine-save sa database.
+const IMPORT_DESC_MAX = 3000;      // kapareho ng limit ng Specs/Description form sa Product modal
+const IMPORT_SPECS_MAX = 30;
+const IMPORT_MAX_ROWS = 20000;
+const IMPORT_REPORT_MAX = 500;
+const IMPORT_MESSAGES_MAX = 2000;
+const IMPORT_ALIASES = {
+    code: ['code', 'product code', 'item code', 'sku', 'barcode'],
+    name: ['product name', 'name', 'item name', 'product'],
+    description: ['description', 'desc', 'details', 'product description', 'specs/description', 'specs / description', 'specs description'],
+    specs: ['specs', 'specifications', 'specification', 'spec']
+};
+const IMPORT_PRODUCT_COLUMNS = [
+    'price', 'retail price', 'retail', 'retail/default price', 'wholesale price', 'wholesale', 'wholesale/default price',
+    'reseller price', 'reseller', 'reseller/default price', 'stock', 'category', 'supplier', 'expiry date', 'expiry',
+    'expirydate', 'low stock threshold', 'threshold', 'lowstockthreshold', 'cost price', 'cost', 'costprice'
+];
+function normalizeImportName(str) {
+    return String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+function importPick(r, aliases) {
+    for (const k of aliases) {
+        const v = r[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+}
+function detectCsvDelimiter(text) {
+    const counts = { ',': 0, ';': 0, '\t': 0 };
+    let inQ = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '"') { inQ = !inQ; continue; }
+        if (inQ) continue;
+        if (ch === '\n' || ch === '\r') break;
+        if (counts[ch] !== undefined) counts[ch]++;
+    }
+    let best = ',';
+    Object.keys(counts).forEach(d => { if (counts[d] > counts[best]) best = d; });
+    return best;
+}
+// Tamang CSV parser (RFC 4180): kaya ang quoted cells na may kuwit, "" at MULTI-LINE (Enter sa loob ng Description).
+function parseCsvText(text, delimiter) {
+    const rows = [];
+    let row = [];
+    let cur = '';
+    let inQ = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQ) {
+            if (ch === '"') {
+                if (text[i + 1] === '"') { cur += '"'; i++; } else { inQ = false; }
+            } else {
+                cur += ch;
+            }
+        } else if (ch === '"') {
+            inQ = true;
+        } else if (ch === delimiter) {
+            row.push(cur);
+            cur = '';
+        } else if (ch === '\r' || ch === '\n') {
+            if (ch === '\r' && text[i + 1] === '\n') i++;
+            row.push(cur);
+            cur = '';
+            rows.push(row);
+            row = [];
+        } else {
+            cur += ch;
+        }
+    }
+    if (cur !== '' || row.length) {
+        row.push(cur);
+        rows.push(row);
+    }
+    return rows.filter(r => r.some(c => String(c).trim() !== ''));
+}
+// Binabasa ang .csv/.tsv/.txt o .xlsx at ibinabalik ang { rawHeaders, rows:[{ rowNum, data }] }; ang keys ng data ay lowercase headers.
+async function parseImportFile(filePath, ext) {
+    const rawHeaders = [];
+    const rows = [];
+    if (ext === '.csv' || ext === '.tsv' || ext === '.txt') {
+        const content = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+        const table = parseCsvText(content, detectCsvDelimiter(content));
+        if (table.length) {
+            table[0].forEach(h => rawHeaders.push(String(h).trim()));
+            for (let i = 1; i < table.length; i++) {
+                const cols = table[i];
+                const data = {};
+                rawHeaders.forEach((h, idx) => {
+                    const k = h.toLowerCase();
+                    if (!k) return;
+                    data[k] = String(cols[idx] === undefined ? '' : cols[idx]).trim();
+                });
+                rows.push({ rowNum: i + 1, data });
+            }
+        }
+    } else {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(filePath);
+        const sheet = workbook.getWorksheet('New Products') || workbook.getWorksheet('Specs')
+            || workbook.worksheets.find(ws => ws.state !== 'hidden' && ws.state !== 'veryHidden') || workbook.worksheets[0];
+        if (!sheet) throw new Error('Walang worksheet sa file.');
+        const headerValues = (sheet.getRow(1).values || []).map(v => importCellToText(v));
+        headerValues.forEach(h => { if (h) rawHeaders.push(h); });
+        sheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) return;
+            const rowValues = row.values;
+            const data = {};
+            headerValues.forEach((h, idx) => {
+                if (!h) return;
+                data[h.toLowerCase()] = importCellToText(rowValues[idx]);
+            });
+            if (Object.values(data).some(v => v !== '')) rows.push({ rowNum: rowNumber, data });
+        });
+    }
+    return { rawHeaders, rows };
+}
+// "Size: 500ml | Color: Red; Material = Steel" → [{key,value}, ...]
+function parseSpecsCell(text) {
+    const out = [];
+    const s = String(text || '').trim();
+    if (!s) return out;
+    s.split(/\r?\n|\||;/).forEach(seg => {
+        const t = seg.trim();
+        if (!t) return;
+        const m = t.match(/^([^:=]{1,60}?)\s*[:=]\s*([\s\S]*)$/);
+        const entry = m
+            ? { key: m[1].trim().slice(0, 60), value: m[2].trim().slice(0, 200) }
+            : { key: '', value: t.slice(0, 200) };
+        if (entry.key || entry.value) out.push(entry);
+    });
+    return out;
+}
+function normalizeStoredSpecs(list) {
+    return (Array.isArray(list) ? list : [])
+        .filter(s => s && (s.key || s.value))
+        .map(s => ({ key: String(s.key || ''), value: String(s.value || '') }));
+}
+function mergeImportedSpecs(existing, incoming, mode) {
+    const cur = normalizeStoredSpecs(existing);
+    if (mode === 'fill') return cur.length ? cur : incoming.slice(0, IMPORT_SPECS_MAX);
+    if (mode === 'append') {
+        const out = cur.slice();
+        incoming.forEach(n => {
+            const nk = n.key.toLowerCase();
+            const at = nk ? out.findIndex(o => o.key.toLowerCase() === nk) : out.findIndex(o => !o.key && o.value === n.value);
+            if (at >= 0) out[at] = n; else out.push(n);
+        });
+        return out.slice(0, IMPORT_SPECS_MAX);
+    }
+    return incoming.slice(0, IMPORT_SPECS_MAX);
+}
+// Ina-apply ang Description/Specs sa isang product object. Ibinabalik kung may nagbago at kung natruncate.
+function applyImportedDetails(product, details, descMode, clearBlank) {
+    let changed = false;
+    let truncated = false;
+    const curDesc = String(product.description || '');
+    if (details.description !== '') {
+        let next = details.description;
+        if (descMode === 'fill') {
+            next = curDesc.trim() ? curDesc : details.description;
+        } else if (descMode === 'append') {
+            if (!curDesc.trim()) next = details.description;
+            else if (curDesc.includes(details.description)) next = curDesc;
+            else next = curDesc.replace(/\s+$/, '') + '\n' + details.description;
+        }
+        if (next.length > IMPORT_DESC_MAX) { next = next.slice(0, IMPORT_DESC_MAX); truncated = true; }
+        if (next !== curDesc) { product.description = next; changed = true; }
+    } else if (clearBlank && details.hasDescriptionColumn && descMode === 'replace' && curDesc) {
+        product.description = '';
+        changed = true;
+    }
+    if (details.specs.length) {
+        const merged = mergeImportedSpecs(product.specs, details.specs, descMode);
+        if (JSON.stringify(merged) !== JSON.stringify(normalizeStoredSpecs(product.specs))) {
+            product.specs = merged;
+            changed = true;
+        }
+    } else if (clearBlank && details.hasSpecsColumn && descMode === 'replace' && normalizeStoredSpecs(product.specs).length) {
+        product.specs = [];
+        changed = true;
+    }
+    return { changed, truncated };
+}
+app.post('/api/products/import', rateLimit('product-import', 60, 10 * 60 * 1000), productImportUpload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message:'Walang na-attach na file.' });
     }
@@ -10952,49 +11965,134 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
     }
     try {
         const ext = path.extname(req.file.originalname).toLowerCase();
-        let rows = [];
-        if (ext ==='.csv') {
-            let content = fs.readFileSync(req.file.path,'utf8');
-            content = content.replace(/^\uFEFF/,'');
-            const lines = content.split(/\r?\n/).filter(l => l.trim() !=='');
-            if (lines.length > 1) {
-                const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
-                for (let i = 1; i < lines.length; i++) {
-                    const cols = parseCsvLine(lines[i]);
-                    const obj = {};
-                    headers.forEach((h, idx) => { obj[h] = (cols[idx] ||'').trim(); });
-                    rows.push(obj);
-                }
-            }
-        } else {
-            const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.readFile(req.file.path);
-            const sheet = workbook.getWorksheet('New Products') || workbook.worksheets[0];
-            if (!sheet) throw new Error('Walang worksheet sa file.');
-            const headerValues = (sheet.getRow(1).values || []).map(v => importCellToText(v).toLowerCase());
-            sheet.eachRow((row, rowNumber) => {
-                if (rowNumber === 1) return;
-                const rowValues = row.values;
-                const obj = {};
-                headerValues.forEach((h, idx) => {
-                    if (!h) return;
-                    const cellVal = rowValues[idx];
-                    obj[h] = importCellToText(cellVal);
-                });
-                if (Object.values(obj).some(v => v !=='')) rows.push(obj);
-            });
+        if (ext === '.xls') {
+            cleanupTmpFile();
+            return res.status(400).json({ success: false, message: 'Hindi suportado ang lumang .xls format. I-save muna ang file bilang .xlsx o .csv.' });
         }
-        const mode = (req.body.mode ||'skip').toLowerCase() ==='update' ?'update' :'skip';
+        const parsed = await parseImportFile(req.file.path, ext);
+        const rows = parsed.rows;
+        if (rows.length > IMPORT_MAX_ROWS) {
+            cleanupTmpFile();
+            return res.status(400).json({ success: false, message: `Masyadong marami ang rows (${rows.length}). Maximum na ${IMPORT_MAX_ROWS} rows kada import — hatiin ang file.` });
+        }
+        const headerSet = new Set(parsed.rawHeaders.map(h => h.toLowerCase()));
+        const hasHeader = (aliases) => aliases.some(a => headerSet.has(a));
+        // "Spec: Color" / "Spec - Size" na column → key ng spec ay ang pangalan pagkatapos ng "Spec:"
+        const specColumns = parsed.rawHeaders
+            .map(h => { const m = h.match(/^specs?\s*[:\-]\s*(\S.*)$/i); return m ? { header: h.toLowerCase(), key: m[1].trim().slice(0, 60) } : null; })
+            .filter(Boolean);
+        const hasDescriptionColumn = hasHeader(IMPORT_ALIASES.description);
+        const hasSpecsColumn = hasHeader(IMPORT_ALIASES.specs) || specColumns.length > 0;
+        const hasNameColumn = hasHeader(IMPORT_ALIASES.name);
+        const hasCodeColumn = hasHeader(IMPORT_ALIASES.code);
+        if (!parsed.rawHeaders.length || !rows.length) {
+            cleanupTmpFile();
+            return res.status(400).json({ success: false, message: 'Walang laman ang file — kailangan ng header row at kahit isang data row.' });
+        }
+        const requestedKind = String(req.body.kind || 'auto').toLowerCase();
+        let kind = requestedKind === 'products' || requestedKind === 'specs' ? requestedKind : 'auto';
+        if (kind === 'auto') kind = (!hasNameColumn && (hasDescriptionColumn || hasSpecsColumn)) ? 'specs' : 'products';
+        if (kind === 'specs' && !hasCodeColumn && !hasNameColumn) {
+            cleanupTmpFile();
+            return res.status(400).json({ success: false, message: 'Kailangan ng "Code" column (o "Product Name") para malaman kung aling product ang lalagyan ng Description/Specs.' });
+        }
+        if (kind === 'specs' && !hasDescriptionColumn && !hasSpecsColumn) {
+            cleanupTmpFile();
+            return res.status(400).json({ success: false, message: 'Walang "Description" o "Specs" column sa file.' });
+        }
+        const dryRun = ['1', 'true', 'yes'].includes(String(req.body.dryRun || '').toLowerCase());
+        const mode = String(req.body.mode || 'skip').toLowerCase() === 'update' ? 'update' : 'skip';
+        const descModeRaw = String(req.body.descMode || 'replace').toLowerCase();
+        const descMode = ['replace', 'append', 'fill'].includes(descModeRaw) ? descModeRaw : 'replace';
+        const clearBlank = ['1', 'true', 'yes'].includes(String(req.body.clearBlank || '').toLowerCase());
         let products = readProductsNoImages();
         let categories = [...readData(FILE_CATEGORIES, DEFAULT_CATEGORIES)]; // kopya para hindi mabago ang DEFAULT_CATEGORIES constant
         const codeIndex = new Map(products.map((p, i) => [p.code.trim().toLowerCase(), i]));
+        const nameIndex = new Map();
+        const ambiguousNames = new Set();
+        if (kind === 'specs') {
+            products.forEach((p, i) => {
+                const nk = normalizeImportName(p.name);
+                if (!nk) return;
+                if (nameIndex.has(nk)) ambiguousNames.add(nk); else nameIndex.set(nk, i);
+            });
+        }
         const newCategoriesFound = new Set();
-        let added = 0, updated = 0, skipped = 0;
+        let added = 0, updated = 0, skipped = 0, unchanged = 0, notFound = 0;
         const errors = [];
-        rows.forEach((r, idx) => {
-            const rowNum = idx + 2;
-            const code = (r.code ||'').toString().trim();
-            const name = (r['product name'] || r.name ||'').toString().trim();
+        const warnings = [];
+        const report = [];
+        const seenCodes = new Set();
+        const pushMsg = (list, msg) => { if (list.length < IMPORT_MESSAGES_MAX) list.push(msg); };
+        const addReport = (rowNum, code, name, action, note) => {
+            if (report.length < IMPORT_REPORT_MAX) report.push({ row: rowNum, code, name, action, note: note || '' });
+        };
+        const readDetails = (r) => {
+            const specs = parseSpecsCell(importPick(r, IMPORT_ALIASES.specs));
+            specColumns.forEach(sc => {
+                const v = String(r[sc.header] === undefined ? '' : r[sc.header]).trim();
+                if (v) specs.push({ key: sc.key, value: v.slice(0, 200) });
+            });
+            return {
+                description: importPick(r, IMPORT_ALIASES.description),
+                specs,
+                hasDescriptionColumn,
+                hasSpecsColumn
+            };
+        };
+        rows.forEach(({ rowNum, data: r }) => {
+            const code = importPick(r, IMPORT_ALIASES.code);
+            const name = importPick(r, IMPORT_ALIASES.name);
+            const details = readDetails(r);
+            if (code) {
+                const ck = code.toLowerCase();
+                if (seenCodes.has(ck)) pushMsg(warnings, `Row ${rowNum}: Lumabas nang higit isang beses ang Code "${code}" sa file — ang huling row ang nananaig.`);
+                seenCodes.add(ck);
+            }
+            // ---------- SPECS / DESCRIPTION ONLY ----------
+            if (kind === 'specs') {
+                let idx;
+                if (code) {
+                    idx = codeIndex.get(code.toLowerCase());
+                } else if (name) {
+                    const nk = normalizeImportName(name);
+                    if (ambiguousNames.has(nk)) {
+                        pushMsg(errors, `Row ${rowNum}: Higit isang product ang may pangalang "${name}" — gamitin ang Code.`);
+                        skipped++;
+                        addReport(rowNum, code, name, 'error', 'Ambiguous product name');
+                        return;
+                    }
+                    idx = nameIndex.get(nk);
+                } else {
+                    pushMsg(errors, `Row ${rowNum}: Walang Code o Product Name — na-skip.`);
+                    skipped++;
+                    addReport(rowNum, code, name, 'error', 'Missing Code');
+                    return;
+                }
+                if (idx === undefined) {
+                    notFound++;
+                    pushMsg(errors, `Row ${rowNum}: Walang product na may ${code ? `Code "${code}"` : `pangalang "${name}"`} — na-skip.`);
+                    addReport(rowNum, code, name, 'notfound', 'No matching product');
+                    return;
+                }
+                const hasContent = details.description !== '' || details.specs.length > 0;
+                if (!hasContent && !(clearBlank && descMode === 'replace')) {
+                    skipped++;
+                    addReport(rowNum, products[idx].code, products[idx].name, 'skip', 'Blank Description/Specs');
+                    return;
+                }
+                const result = applyImportedDetails(products[idx], details, descMode, clearBlank);
+                if (result.truncated) pushMsg(warnings, `Row ${rowNum}: Pinutol ang Description ng "${products[idx].code}" sa ${IMPORT_DESC_MAX} characters.`);
+                if (result.changed) {
+                    updated++;
+                    addReport(rowNum, products[idx].code, products[idx].name, 'update', result.truncated ? 'Description truncated' : '');
+                } else {
+                    unchanged++;
+                    addReport(rowNum, products[idx].code, products[idx].name, 'unchanged', 'Already up to date');
+                }
+                return;
+            }
+            // ---------- PRODUCTS (with optional Description / Specs) ----------
             const categoryRaw = (r.category ||'').toString().trim();
             const supplier = (r.supplier ||'').toString().trim();
             const expiry = (r['expiry date'] || r.expiry || r.expirydate ||'').toString().trim();
@@ -11008,23 +12106,25 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
             const stock = parseWholeNumber(stockRaw);
             const existingIdx = codeIndex.get(code.toLowerCase());
             if (!code || !name) {
-                errors.push(`Row ${rowNum}: Kulang ang Code o Product Name — na-skip.`);
+                pushMsg(errors, `Row ${rowNum}: Kulang ang Code o Product Name — na-skip.`);
                 skipped++;
+                addReport(rowNum, code, name, 'error', 'Missing Code or Product Name');
                 return;
             }
             if (existingIdx !== undefined) {
                 if (mode !=='update') {
-                    errors.push(`Row ${rowNum}: Ginagamit na ang Code "${code}" — na-skip.`);
+                    pushMsg(errors, `Row ${rowNum}: Ginagamit na ang Code "${code}" — na-skip.`);
                     skipped++;
+                    addReport(rowNum, code, name, 'skip', 'Code already exists');
                     return;
                 }
                 if (priceRaw !=='' && isNaN(price)) {
-                    errors.push(`Row ${rowNum}: Hindi valid ang Price para sa Code "${code}" — hindi na-update ang price.`);
+                    pushMsg(errors, `Row ${rowNum}: Hindi valid ang Price para sa Code "${code}" — hindi na-update ang price.`);
                 } else if (priceRaw !=='') {
                     products[existingIdx].price = price;
                 }
                 if (stockRaw !=='' && isNaN(stock)) {
-                    errors.push(`Row ${rowNum}: Hindi valid ang Stock para sa Code "${code}" — hindi na-update ang stock.`);
+                    pushMsg(errors, `Row ${rowNum}: Hindi valid ang Stock para sa Code "${code}" — hindi na-update ang stock.`);
                 } else if (stockRaw !=='') {
                     setProductStockExact(products[existingIdx], stock);
                 }
@@ -11042,26 +12142,30 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 }
                 const wholesaleResult = setImportedPriceLevel(products[existingIdx], 'Wholesale', wholesaleRaw);
                 const resellerResult = setImportedPriceLevel(products[existingIdx], 'Reseller', resellerRaw);
-                if (!wholesaleResult.ok) errors.push(`Row ${rowNum}: Hindi valid ang Wholesale Price para sa Code "${code}" — hindi na-update ang wholesale price.`);
-                if (!resellerResult.ok) errors.push(`Row ${rowNum}: Hindi valid ang Reseller Price para sa Code "${code}" — hindi na-update ang reseller price.`);
+                if (!wholesaleResult.ok) pushMsg(errors, `Row ${rowNum}: Hindi valid ang Wholesale Price para sa Code "${code}" — hindi na-update ang wholesale price.`);
+                if (!resellerResult.ok) pushMsg(errors, `Row ${rowNum}: Hindi valid ang Reseller Price para sa Code "${code}" — hindi na-update ang reseller price.`);
+                const detailResult = applyImportedDetails(products[existingIdx], details, descMode, clearBlank);
+                if (detailResult.truncated) pushMsg(warnings, `Row ${rowNum}: Pinutol ang Description ng "${code}" sa ${IMPORT_DESC_MAX} characters.`);
                 if (categoryRaw && !categories.includes(categoryRaw)) {
                     categories.push(categoryRaw);
                     newCategoriesFound.add(categoryRaw);
                 }
                 updated++;
+                addReport(rowNum, code, name, 'update', '');
                 return;
             }
             const category = categoryRaw ||'Others';
             if (isNaN(price) || isNaN(stock)) {
-                errors.push(`Row ${rowNum}: Hindi valid ang Price o Stock — na-skip.`);
+                pushMsg(errors, `Row ${rowNum}: Hindi valid ang Price o Stock — na-skip.`);
                 skipped++;
+                addReport(rowNum, code, name, 'error', 'Invalid Price or Stock');
                 return;
             }
             const newProduct = { code, name, category, price, stock };
             const newWholesale = setImportedPriceLevel(newProduct, 'Wholesale', wholesaleRaw);
             const newReseller = setImportedPriceLevel(newProduct, 'Reseller', resellerRaw);
-            if (!newWholesale.ok) errors.push(`Row ${rowNum}: Hindi valid ang Wholesale Price para sa Code "${code}" — hindi ise-save ang wholesale price.`);
-            if (!newReseller.ok) errors.push(`Row ${rowNum}: Hindi valid ang Reseller Price para sa Code "${code}" — hindi ise-save ang reseller price.`);
+            if (!newWholesale.ok) pushMsg(errors, `Row ${rowNum}: Hindi valid ang Wholesale Price para sa Code "${code}" — hindi ise-save ang wholesale price.`);
+            if (!newReseller.ok) pushMsg(errors, `Row ${rowNum}: Hindi valid ang Reseller Price para sa Code "${code}" — hindi ise-save ang reseller price.`);
             if (supplier) newProduct.supplier = supplier;
             if (expiry) newProduct.expiryDate = expiry;
             if (thresholdRaw !=='') {
@@ -11072,6 +12176,8 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 const costVal = parseMoney(costRaw);
                 if (!isNaN(costVal)) newProduct.cost = costVal;
             }
+            const newDetailResult = applyImportedDetails(newProduct, details, 'replace', false);
+            if (newDetailResult.truncated) pushMsg(warnings, `Row ${rowNum}: Pinutol ang Description ng "${code}" sa ${IMPORT_DESC_MAX} characters.`);
             products.push(newProduct);
             codeIndex.set(code.toLowerCase(), products.length - 1);
             if (!categories.includes(category)) {
@@ -11079,21 +12185,60 @@ app.post('/api/products/import', rateLimit('product-import', 20, 10 * 60 * 1000)
                 newCategoriesFound.add(category);
             }
             added++;
+            addReport(rowNum, code, name, 'add', '');
         });
-        writeData(FILE_PRODUCTS, products);
-        writeData(FILE_CATEGORIES, categories);
-        logAction(username, `Bulk-imported products via Excel/CSV: ${added} added, ${updated} updated, ${skipped} skipped.`);
+        const knownColumns = new Set([...IMPORT_ALIASES.code, ...IMPORT_ALIASES.name, ...IMPORT_ALIASES.description, ...IMPORT_ALIASES.specs, ...IMPORT_PRODUCT_COLUMNS]);
+        const recognizedColumns = [];
+        const ignoredColumns = [];
+        parsed.rawHeaders.forEach(h => {
+            const lower = h.toLowerCase();
+            const isSpecColumn = specColumns.some(sc => sc.header === lower);
+            const isKnown = knownColumns.has(lower) || isSpecColumn;
+            // sa specs mode, ang product columns (Price, Stock...) ay hindi ginagamit
+            const usedInKind = kind === 'specs'
+                ? (IMPORT_ALIASES.code.includes(lower) || IMPORT_ALIASES.name.includes(lower) || IMPORT_ALIASES.description.includes(lower) || IMPORT_ALIASES.specs.includes(lower) || isSpecColumn)
+                : isKnown;
+            (usedInKind ? recognizedColumns : ignoredColumns).push(h);
+        });
+        if (!dryRun) {
+            if (added || updated) {
+                if (writeData(FILE_PRODUCTS, products) === false) {
+                    cleanupTmpFile();
+                    return res.status(500).json({ success: false, message: 'Hindi na-save ang mga pagbabago sa database. Walang nabago — pakisubukan ulit.' });
+                }
+                if (newCategoriesFound.size && writeData(FILE_CATEGORIES, categories) === false) {
+                    console.error('Import: na-save ang products pero hindi ang bagong categories.');
+                }
+            }
+            logAction(username, `Bulk-imported ${kind === 'specs' ? 'specs/descriptions' : 'products'} via Excel/CSV: ${added} added, ${updated} updated, ${unchanged} unchanged, ${skipped} skipped, ${notFound} not found.`);
+        }
         cleanupTmpFile();
-        res.json({
+        const payload = {
             success: true,
+            dryRun,
+            kind,
+            mode,
+            descMode,
+            clearBlank,
+            fileName: req.file.originalname,
+            totalRows: rows.length,
             added,
             updated,
             skipped,
+            unchanged,
+            notFound,
             errors,
-            newCategories: [...newCategoriesFound],
-            categories,
-            products: readDataLite(FILE_PRODUCTS)
-        });
+            warnings,
+            report,
+            reportTruncated: rows.length > report.length,
+            columns: { recognized: recognizedColumns, ignored: ignoredColumns },
+            newCategories: [...newCategoriesFound]
+        };
+        if (!dryRun) {
+            payload.categories = categories;
+            payload.products = readDataLite(FILE_PRODUCTS);
+        }
+        res.json(payload);
     } catch (err) {
         console.error('Import error:', err);
         cleanupTmpFile();
@@ -11268,8 +12413,14 @@ function processProductUpdate(req, res) {
             return res.status(404).json({ success: false, message: 'Product not found.' });
         }
         products = products.map(p => p.code.trim().toLowerCase() === code.trim().toLowerCase() ? mergeProductUpdate(p, updatedData) : p);
+        const freePagesBeforeEdit = getDbFreePages();
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Updated product code: ${code}`);
+        // The edit form always sends image/images, so only compact when this write really freed pages
+        // (an old photo was removed or replaced).
+        if (getDbFreePages() > freePagesBeforeEdit) {
+            scheduleDatabaseCompaction('product photo change', 1500);
+        }
         return res.json({ success: true, message:'Product updated successfully' });
     } else {
         let requests = readData(FILE_REQUESTS);
@@ -11315,6 +12466,7 @@ async function processProductDelete(req, res) {
         logAction(username, `Deleted product code: ${code} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
         // Return the exact post-delete catalog so the Product page can update
         // from the same authoritative snapshot without a second GET race.
+        scheduleDatabaseCompaction('product delete', 1500);
         return res.json({ success: true, message:'Product deleted successfully', products: readDataLite(FILE_PRODUCTS) });
     } else {
         let requests = readData(FILE_REQUESTS);
@@ -11324,6 +12476,204 @@ async function processProductDelete(req, res) {
         return res.json({ success: true, message:'Delete request submitted for Admin approval' });
     }
 }
+// ---------------------------------------------------------------------------
+// BULK DELETE PRODUCTS (Products page > Delete button)
+// Same security as the single-product delete above, applied to many products at once:
+//   - needs the "products" permission (route guard) and a per-account rate limit;
+//   - the client must send confirmText === "DELETE" (server-side double confirm);
+//   - roles WITHOUT "Direct Apply" only submit one DELETE request per product for Admin approval;
+//   - roles WITH "Direct Apply" (and Admin) must also give an Admin / "product_delete_own_password"
+//     password, exactly like deleting a single product.
+// ---------------------------------------------------------------------------
+const BULK_DELETE_MAX_CODES = 5000;
+app.post('/api/products/bulk-delete', requirePermission('products'), rateLimit('product-bulk-delete', 5, 10 * 60 * 1000), async (req, res) => {
+    return transactionsMutexRunExclusive(() => processProductBulkDelete(req, res));
+});
+async function processProductBulkDelete(req, res) {
+    const username = req.authUser.username;
+    const body = req.body || {};
+    if (!Array.isArray(body.codes)) {
+        return res.status(400).json({ success: false, message: 'codes must be an array.' });
+    }
+    const wantedByKey = new Map();
+    body.codes.forEach((c) => {
+        if (typeof c !== 'string' && typeof c !== 'number') return;
+        const key = String(c).trim().toLowerCase();
+        if (key && !wantedByKey.has(key)) wantedByKey.set(key, String(c).trim());
+    });
+    if (wantedByKey.size === 0) {
+        return res.status(400).json({ success: false, message: 'No products were selected.' });
+    }
+    if (wantedByKey.size > BULK_DELETE_MAX_CODES) {
+        return res.status(400).json({ success: false, message: `You can delete at most ${BULK_DELETE_MAX_CODES} products per request. Narrow the selection and try again.` });
+    }
+    if (body.confirmText !== 'DELETE') {
+        return res.status(400).json({ success: false, code: 'CONFIRM_REQUIRED', message: 'Type DELETE to confirm the bulk delete.' });
+    }
+    let products = readProductsNoImages();
+    const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
+    const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
+    const existingCodes = products
+        .filter(p => p && typeof p.code === 'string' && wantedByKey.has(p.code.trim().toLowerCase()))
+        .map(p => p.code);
+    const notFound = wantedByKey.size - existingCodes.length;
+    if (canApplyDirectly) {
+        const { adminPassword } = body;
+        if (!adminPassword || typeof adminPassword !== 'string') {
+            return res.status(400).json({ success: false, message: 'A password is required to delete products.' });
+        }
+        const users = readData(FILE_USERS);
+        const authResult = await findProductDeleteAuthorizer(users, adminPassword);
+        if (!authResult) {
+            return res.status(403).json({
+                success: false,
+                code: 'WRONG_ADMIN_PASSWORD',
+                message: 'Incorrect password. No product was deleted.'
+            });
+        }
+        if (existingCodes.length === 0) {
+            return res.status(404).json({ success: false, message: 'None of the selected products were found.' });
+        }
+        const deleteKeys = new Set(existingCodes.map(c => c.trim().toLowerCase()));
+        const deletedProducts = products.filter(p => p && typeof p.code === 'string' && deleteKeys.has(p.code.trim().toLowerCase()));
+        const remaining = products.filter(p => !(p && typeof p.code === 'string' && deleteKeys.has(p.code.trim().toLowerCase())));
+        if (writeData(FILE_PRODUCTS, remaining) === false) {
+            return res.status(500).json({ success: false, message: 'Could not save the deletion to the local database. No product was removed — please try again.' });
+        }
+        const listed = existingCodes.slice(0, 30).join(', ') + (existingCodes.length > 30 ? `, … (+${existingCodes.length - 30} more)` : '');
+        logAction(username, `Bulk deleted ${existingCodes.length} product(s): ${listed} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
+        scheduleDatabaseCompaction('bulk product delete', 1500);
+        return res.json({
+            success: true,
+            deleted: existingCodes.length,
+            notFound,
+            deletedCodes: existingCodes,
+            // Full records (without photos) so the browser can build a complete backup CSV.
+            deletedProducts,
+            message: `${existingCodes.length} product(s) deleted successfully.`,
+            products: readDataLite(FILE_PRODUCTS)
+        });
+
+    }
+    if (existingCodes.length === 0) {
+        return res.status(404).json({ success: false, message: 'None of the selected products were found.' });
+    }
+    const requests = readData(FILE_REQUESTS);
+    // Request ids must be unique: start after the highest id already in use (or now, whichever is larger),
+    // so a bulk batch can never share an id with an existing request.
+    const highestExistingId = requests.reduce((max, r) => (r && Number.isFinite(Number(r.id)) && Number(r.id) > max ? Number(r.id) : max), 0);
+    const baseId = Math.max(Date.now(), highestExistingId + 1);
+    const timestamp = new Date().toLocaleString();
+    existingCodes.forEach((code, i) => {
+        requests.push({ id: baseId + i, type: 'DELETE', targetCode: code, requester: username, timestamp });
+    });
+    if (writeData(FILE_REQUESTS, requests) === false) {
+        return res.status(500).json({ success: false, message: 'Could not save the delete requests. Please try again.' });
+    }
+    logAction(username, `Submitted DELETE requests for ${existingCodes.length} product(s) (bulk delete)`);
+    return res.json({
+        success: true,
+        requested: existingCodes.length,
+        notFound,
+        message: `${existingCodes.length} delete request(s) submitted for Admin approval.`
+    });
+}
+
+// ---------------------------------------------------------------------------
+// DATABASE COMPACTION AFTER DELETES
+// SQLite never shrinks its file by itself: deleting products (and their photos) only turns the used
+// pages into free pages, so omnipos.db stays the same size on disk. VACUUM gives that space back.
+// After a product delete, and once shortly after startup, the server checks how much free space is
+// sitting inside the file and runs VACUUM only if it is worth it (at least DB_COMPACT_MIN_FREE_BYTES).
+// It runs a moment after the response was sent, never inside a request, and never twice at once.
+// ---------------------------------------------------------------------------
+const DB_COMPACT_MIN_FREE_BYTES = 5 * 1024 * 1024;
+const DB_COMPACT_BUSY_RETRY_MS = 5000;           // wait for a quiet moment (no sale/edit/upload running)...
+const DB_COMPACT_MAX_BUSY_RETRIES = 12;          // ...for up to about 1 minute, then try again at the next trigger
+const DB_COMPACT_QUIET_WINDOW_MS = 1000;
+const DB_COMPACT_FAILURE_COOLDOWN_MS = 60 * 60 * 1000; // after a failed/skipped VACUUM, do not retry for 1 hour
+// SCALE FIX: VACUUM ay synchronous (naka-freeze ang buong server, kasama ang mga benta) at ang tagal nito ay
+// proporsyonal sa laki ng LIVE data. Ang awtomatikong compaction ay para lang sa maliliit/katamtamang database;
+// kapag lumampas sa limit na ito, hindi ito awtomatikong tatakbo — manual na lang (itigil ang server, saka
+// `node vacuum-now.js`, sa oras na walang benta). Baguhin sa .env: DB_COMPACT_MAX_AUTO_MB (default 256; 0 = walang limit).
+function getDbCompactMaxAutoBytes() {
+    const raw = process.env.DB_COMPACT_MAX_AUTO_MB;
+    if (raw === undefined || String(raw).trim() === '') return 256 * 1024 * 1024;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n * 1024 * 1024 : 256 * 1024 * 1024;
+}
+let dbCompactionLargeNoticeShown = false;
+let dbCompactionTimer = null;
+let dbCompactionLastFailureAt = 0;
+function getDbFreePages() {
+    try { return Number((sqliteDb.prepare('PRAGMA freelist_count').get() || {}).freelist_count) || 0; } catch (_) { return 0; }
+}
+// VACUUM (in WAL mode) writes a temporary copy of the live data AND the same amount again into the WAL file, so
+// the peak extra disk use is about 2x the live data (measured: 401 MB file with 200 MB live data -> ~400 MB extra).
+// If the disk cannot take that, skip: a full disk would also block normal sales. If we cannot tell, we allow it.
+function hasRoomToCompactDatabase(freeBytesInsideFile) {
+    try {
+        if (typeof fs.statfsSync !== 'function') return true;
+        const dbFile = path.join(DB_DIR, 'omnipos.db');
+        const fileBytes = (fs.existsSync(dbFile) ? fs.statSync(dbFile).size : 0) + (fs.existsSync(dbFile + '-wal') ? fs.statSync(dbFile + '-wal').size : 0);
+        const liveBytes = Math.max(0, fileBytes - (Number(freeBytesInsideFile) || 0));
+        const st = fs.statfsSync(DB_DIR);
+        const freeDisk = Number(st.bavail) * Number(st.bsize);
+        return freeDisk >= liveBytes * 2.2 + 64 * 1024 * 1024;
+    } catch (_) { return true; }
+}
+function scheduleDatabaseCompaction(reason, delayMs, attempt) {
+    if (dbCompactionTimer) return;
+    const tries = Number(attempt) || 0;
+    dbCompactionTimer = setTimeout(() => {
+        dbCompactionTimer = null;
+        try {
+            if (Date.now() - dbCompactionLastFailureAt < DB_COMPACT_FAILURE_COOLDOWN_MS) return;
+            const pageSize = Number((sqliteDb.prepare('PRAGMA page_size').get() || {}).page_size) || 4096;
+            const freeBytes = getDbFreePages() * pageSize;
+            if (freeBytes < DB_COMPACT_MIN_FREE_BYTES) return;
+            // VACUUM blocks the server for a moment: never start it while a sale/edit/upload is running.
+            if (dbWriteRequestsInFlight > 0 || (Date.now() - dbLastWriteRequestAt) < DB_COMPACT_QUIET_WINDOW_MS) {
+                if (tries < DB_COMPACT_MAX_BUSY_RETRIES) scheduleDatabaseCompaction(reason, DB_COMPACT_BUSY_RETRY_MS, tries + 1);
+                else console.log(`ℹ️  Database compaction after ${reason} postponed: the system stayed busy. It will retry at the next delete.`);
+                return;
+            }
+            const maxAutoBytes = getDbCompactMaxAutoBytes();
+            if (maxAutoBytes > 0) {
+                let liveBytes = 0;
+                try {
+                    const dbFile = path.join(DB_DIR, 'omnipos.db');
+                    liveBytes = Math.max(0, (fs.existsSync(dbFile) ? fs.statSync(dbFile).size : 0) + (fs.existsSync(dbFile + '-wal') ? fs.statSync(dbFile + '-wal').size : 0) - freeBytes);
+                } catch (_) {}
+                if (liveBytes > maxAutoBytes) {
+                    if (!dbCompactionLargeNoticeShown) {
+                        dbCompactionLargeNoticeShown = true;
+                        console.log(`ℹ️  Awtomatikong compaction nilaktawan: ~${Math.round(liveBytes / 1048576)} MB ang live data (limit ${Math.round(maxAutoBytes / 1048576)} MB) at mag-freeze ang server habang nag-VACUUM. Kung gusto mong bawiin ang ~${Math.round(freeBytes / 1048576)} MB na libreng espasyo, itigil ang server at patakbuhin ang "node vacuum-now.js".`);
+                    }
+                    return;
+                }
+            }
+            if (!hasRoomToCompactDatabase(freeBytes)) {
+                dbCompactionLastFailureAt = Date.now();
+                console.warn(`⚠️  Database compaction after ${reason} skipped: not enough free disk space (about 2x the live data size is needed).`);
+                return;
+            }
+            const result = vacuumDatabase();
+            if (result && result.success) {
+                console.log(`🧹 Database compacted after ${reason}: reclaimed about ${(freeBytes / (1024 * 1024)).toFixed(1)} MB.`);
+            } else {
+                dbCompactionLastFailureAt = Date.now();
+                console.warn(`⚠️  Database compaction after ${reason} did not finish: ${(result && result.message) || 'unknown error'}`);
+            }
+        } catch (err) {
+            dbCompactionLastFailureAt = Date.now();
+            console.warn(`⚠️  Database compaction after ${reason} failed:`, err && err.message ? err.message : err);
+        }
+    }, Math.max(0, Number(delayMs) || 0));
+    if (dbCompactionTimer && typeof dbCompactionTimer.unref === 'function') dbCompactionTimer.unref();
+}
+// Also reclaim space that earlier deletes already left behind (checked once, ~20 seconds after startup).
+scheduleDatabaseCompaction('startup check', 20000);
 function normalizeMatchKey(str) {
     return (str || '')
         .toString()
@@ -11395,6 +12745,7 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
         if (applied.length) {
             writeData(FILE_PRODUCTS, products);
             logAction(username, `Bulk-uploaded product photos: ${applied.length} applied, ${unmatched.length} unmatched, ${failed.length} failed.`);
+            scheduleDatabaseCompaction('bulk photo upload', 1500);
         }
         res.json({
             success: true,
@@ -11683,6 +13034,7 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
     if (applied.length) {
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Bulk Search Images: naglapat ng ${applied.length} auto-search product photo(s) (${failed.length} nabigo).`);
+        scheduleDatabaseCompaction('bulk image search apply', 1500);
     }
     res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products: readDataLite(FILE_PRODUCTS) });
 });
@@ -11975,6 +13327,9 @@ function processRequestResolve(req, res) {
                 logAction(username, `APPROVED RESTOCK Request for code: ${targetReq.targetCode} (+${qtyToAdd})`);
             }
             writeData(FILE_PRODUCTS, products);
+            if (targetReq.type === 'DELETE' || targetReq.type === 'UPDATE') {
+                scheduleDatabaseCompaction('approved product request', 1500);
+            }
         }
     } else {
         if (targetReq.type ==='PROFILE_UPDATE') {
@@ -12005,18 +13360,20 @@ async function processTransaction(req, res) {
         const cashierRecord = readData(FILE_USERS).find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
         transaction.cashierDisplayName = (cashierRecord && cashierRecord.displayName) || null;
     }
-    let transactions = readData(FILE_TRANSACTIONS);
+    // SCALE FIX: dati binabasa at ipini-parse ang LAHAT ng transactions sa bawat benta para lang tingnan kung
+    // may duplicate. Ngayon, isang indexed na lookup na lang (syncId index / primary key ng transaction id).
     if (!transaction.id || typeof transaction.id !== 'string' || !transaction.id.trim()) {
         return res.status(400).json({ success: false, message: 'Kailangan ng valid na Transaction ID.' });
     }
-    if (transaction.syncId && transactions.some(t => t.syncId && t.syncId === transaction.syncId)) {
-        const existing = transactions.find(t => t.syncId === transaction.syncId);
+    const existingBySyncId = transaction.syncId ? findRowByJsonField(FILE_TRANSACTIONS, 'syncId', transaction.syncId) : null;
+    if (existingBySyncId) {
+        const existing = existingBySyncId;
         if (String(existing?.cashier || '').toLowerCase() !== String(req.authUser.username || '').toLowerCase()) {
             return res.status(403).json({ success: false, code: 'SYNC_ID_NOT_OWNED', message: 'This offline transaction belongs to a different cashier and cannot be synchronized by this account.' });
         }
         return res.status(200).json({ success: true, alreadyProcessed: true, currentTransaction: existing });
     }
-    if (transactions.some(t => t.id === transaction.id)) {
+    if (rowStoreHas(FILE_TRANSACTIONS, transaction.id)) {
         return res.status(409).json({
             success: false,
             code: transaction.syncId ? 'TRANSACTION_ID_COLLISION' : 'DUPLICATE_TRANSACTION_ID',
@@ -12378,10 +13735,14 @@ async function processTransaction(req, res) {
     delete transaction.loyaltyOfflineAuthorization;
     delete transaction.loyaltyCardToken;
     transaction.items.forEach(item => {
+        // Lot info is server-owned: never trust a client-supplied value.
+        delete item.batchAllocations;
         const prod = products.find(p => p.code === item.code);
         if (prod) {
             const deduct = (typeof item.baseQty === 'number') ? item.baseQty : item.quantity;
-            deductProductStock(prod, deduct);
+            const lotAllocations = normalizeAllocations(deductProductStock(prod, deduct));
+            // Remember the lot(s)/expiry this line was taken from so a void/refund can return it to the same lot.
+            if (lotAllocations.length) item.batchAllocations = lotAllocations;
         }
     });
     let newLoyaltyCardToken = null;
@@ -12432,9 +13793,10 @@ async function processTransaction(req, res) {
         transaction.birInvoiceNumber = birResult.invoiceNumber;
         transaction.birInvoiceNumberValue = birResult.invoiceNumberValue;
     }
-    transactions.unshift(transaction);
+    // SCALE FIX: idinadagdag na lang ang ISANG bagong transaction row (prependRows) sa loob ng parehong atomic
+    // SQLite transaction, sa halip na isulat muli ang buong history ng transactions sa bawat benta.
     const saleChanges = [
-        { module: FILE_TRANSACTIONS, data: transactions },
+        { module: FILE_TRANSACTIONS, prependRows: [transaction] },
         { module: FILE_PRODUCTS, data: products }
     ];
     if (customersDirty) saleChanges.push({ module: FILE_CUSTOMERS, data: customers });
@@ -12560,16 +13922,81 @@ app.post('/api/cart', (req, res) => {
 });
 app.get('/api/transactions', (req, res) => {
     const requester = req.authUser.username;
-    const allTransactions = readData(FILE_TRANSACTIONS);
     const users = readData(FILE_USERS);
     const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
     const activeRole = activeUser && activeUser.role;
     const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
-    if (canViewAll) {
-        return res.json(allTransactions);
+    // SCALE FIX: opsyonal na pagination (?limit=100&offset=0). Kapag may limit, SQL ang nag-LIMIT/OFFSET (newest-first)
+    // at ang header na X-Has-More ("true"/"false") ang nagsasabi kung may susunod pang pahina. Kapag WALANG limit,
+    // pareho pa rin ng dati ang sagot (buong array) para hindi masira ang kasalukuyang app.js; pero ang mga user
+    // na hindi "view all" ay SQL na ang nagsasala ng sarili nilang benta sa halip na i-load ang lahat.
+    const hasLimit = req.query.limit !== undefined && String(req.query.limit).trim() !== '';
+    const asciiRequester = /^[\x00-\x7F]*$/.test(requester);
+    const isMine = tx => canViewAll || (tx.cashier ||'').toLowerCase() === requester.toLowerCase();
+    // (1) ?id=TX-... : eksaktong lookup ng ISANG resibo (primary key) — para sa scan/search ng Receipt ID. Hindi na kailangang i-load ang history.
+    if (req.query.id !== undefined && String(req.query.id).trim() !== '') {
+        const wanted = String(req.query.id).trim();
+        let found = getRowById(FILE_TRANSACTIONS, wanted);
+        if (!found) found = (readRowsByJsonFieldNoCase(FILE_TRANSACTIONS, 'id', wanted)[0]) || null;
+        return res.json(found && isMine(found) ? [found] : []);
     }
-    const ownTransactions = allTransactions.filter(
+    // (2) ?from=&to= (ms epoch o ISO): SQL ang nagtatapon ng mga benta na malinaw na labas sa panahon (superset lang, may 2-araw na margin;
+    // ang client pa rin ang naglalapat ng eksaktong filter). Para sa Dashboard at Sales Analytics para hindi na ipadala ang buong history.
+    if (req.query.from !== undefined || req.query.to !== undefined) {
+        const parseT = (v, dflt) => {
+            if (v === undefined || String(v).trim() === '') return dflt;
+            const n = Number(v);
+            const t = Number.isFinite(n) ? n : Date.parse(String(v));
+            return Number.isFinite(t) ? t : dflt;
+        };
+        const fromT = parseT(req.query.from, 0);
+        const toT = parseT(req.query.to, Date.now() + 2 * 24 * 60 * 60 * 1000);
+        const windowed = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', fromT, toT) || readData(FILE_TRANSACTIONS);
+        return res.json(canViewAll ? windowed : windowed.filter(isMine));
+    }
+    // (3) ?q= : paghahanap sa Transaction ID / Cashier na SQL ang gumagawa, kasabay ng pagination.
+    const searchQ = req.query.q !== undefined ? String(req.query.q).trim() : '';
+    if (searchQ && hasLimit) {
+        // Ang SQL LIKE ay case-insensitive sa ASCII lang; kapag may non-ASCII na titik sa hinahanap, JS ang nagsasala (parehong dating asal).
+        if ((canViewAll || asciiRequester) && /^[\x00-\x7F]*$/.test(searchQ)) {
+            const page = readRowsSearchPage(FILE_TRANSACTIONS, {
+                q: searchQ, limit: req.query.limit, offset: req.query.offset,
+                ...(canViewAll ? {} : { field: 'cashier', value: requester })
+            });
+            res.set('X-Has-More', page.hasMore ? 'true' : 'false');
+            return res.json(page.rows);
+        }
+        const needle = searchQ.toLowerCase();
+        const mineQ = readData(FILE_TRANSACTIONS).filter(tx => isMine(tx) && (String(tx.id ||'').toLowerCase().includes(needle) || String(tx.cashier ||'').toLowerCase().includes(needle)));
+        const limQ = Math.max(1, Math.min(Math.floor(Number(req.query.limit)) || 100, 20000));
+        const offQ = Math.max(0, Math.floor(Number(req.query.offset)) || 0);
+        res.set('X-Has-More', mineQ.length > offQ + limQ ? 'true' : 'false');
+        return res.json(mineQ.slice(offQ, offQ + limQ));
+    }
+    if (hasLimit) {
+        if (canViewAll || asciiRequester) {
+            const page = readRowsPage(FILE_TRANSACTIONS, {
+                limit: req.query.limit,
+                offset: req.query.offset,
+                ...(canViewAll ? {} : { field: 'cashier', value: requester })
+            });
+            res.set('X-Has-More', page.hasMore ? 'true' : 'false');
+            return res.json(page.rows);
+        }
+        const mine = readData(FILE_TRANSACTIONS).filter(tx => (tx.cashier ||'').toLowerCase() === requester.toLowerCase());
+        const lim = Math.max(1, Math.min(Math.floor(Number(req.query.limit)) || 100, 20000));
+        const off = Math.max(0, Math.floor(Number(req.query.offset)) || 0);
+        res.set('X-Has-More', mine.length > off + lim ? 'true' : 'false');
+        return res.json(mine.slice(off, off + lim));
+    }
+    if (canViewAll) {
+        return res.json(readData(FILE_TRANSACTIONS));
+    }
+    if (asciiRequester) {
+        return res.json(readRowsByJsonFieldNoCase(FILE_TRANSACTIONS, 'cashier', requester));
+    }
+    const ownTransactions = readData(FILE_TRANSACTIONS).filter(
         tx => (tx.cashier ||'').toLowerCase() === requester.toLowerCase()
     );
     res.json(ownTransactions);
@@ -12721,12 +14148,12 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
     if (!toEmail || !emailPattern.test(toEmail)) {
         return res.status(400).json({ success: false, message:'Invalid email address.' });
     }
-    const transactions = readData(FILE_TRANSACTIONS, []);
-    const tx = transactions.find(t => t.id === transactionId) || clientTx;
+    const persistedTx = getRowById(FILE_TRANSACTIONS, transactionId);
+    const tx = persistedTx || clientTx;
     if (!tx) {
         return res.status(404).json({ success: false, message:'Transaction record not found.' });
     }
-    const isPersistedTransaction = transactions.some(t => t.id === transactionId);
+    const isPersistedTransaction = !!persistedTx;
     if (isPersistedTransaction) {
         const requester = req.authUser.username;
         const users = readData(FILE_USERS);
@@ -13148,6 +14575,16 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
         console.error(`⚠️ Nabigo ang pag-save ng bagong password para sa "${meUsername}" (self-service change-password).`);
         return res.status(500).json({ success: false, message: 'Nabigo ang pag-save ng bagong password sa lokal na database. Hindi nagbago ang password mo — subukan ulit.' });
     }
+    // SECURITY FIX: sign out every OTHER session of this account (other devices/browsers) so a stolen or
+    // forgotten session cannot outlive the password change. The session making this request stays logged in.
+    let otherSessionsRevoked = 0;
+    for (const [sessToken, session] of SESSIONS.entries()) {
+        if (sessToken !== req.authToken && session.username && session.username.toLowerCase() === meUsername.toLowerCase()) {
+            SESSIONS.delete(sessToken);
+            otherSessionsRevoked++;
+        }
+    }
+    if (otherSessionsRevoked > 0) persistSessions();
     logAction(meUsername, `Changed own account password`);
     res.json({ success: true, message:'Na-update na ang password mo.' });
 });
@@ -13280,19 +14717,34 @@ app.post('/api/users/delete-account', rateLimit('admin-delete-user', 8, 10 * 60 
     logAction(username, `Deleted user account: ${targetUser}`);
     res.json({ success: true, message: `Account ${targetUser} has been completely removed.` });
 });
+// SCALE FIX: dati bawat log entry ay binabasa ang BUONG userlogs, nag-unshift ng isa, at isinusulat muli
+// lahat (O(N) sa bawat aksyon, at walang limit ang paglaki). Ngayon isang row lang ang idinadagdag, at
+// pinuputol ang pinakalumang logs kapag lumagpas sa USERLOGS_MAX_ROWS (default 250000; 0 = walang limit).
+function getUserLogsMaxRows() {
+    const raw = process.env.USERLOGS_MAX_ROWS;
+    if (raw === undefined || String(raw).trim() === '') return 250000;
+    const n = Math.floor(Number(raw));
+    return Number.isFinite(n) && n >= 0 ? n : 250000;
+}
+function appendUserLogEntry(entry) {
+    // Hindi dapat mag-throw ito (tinatawag pagkatapos ng matagumpay na sale/void/refund) — kapareho ng dating
+    // writeData() para sa row modules na nagla-log lang ng error.
+    try {
+        addNewestRow(FILE_USERLOGS, entry, { uniqueId: true, maxRows: getUserLogsMaxRows() });
+    } catch (err) {
+        console.error('⚠️ Hindi na-save ang user log entry:', err && err.message ? err.message : err);
+    }
+}
 function logAction(username, action) {
-    let logs = readData(FILE_USERLOGS);
-    logs.unshift({
+    appendUserLogEntry({
         id: Date.now(),
         username: username,
         action: action,
         timestamp: new Date().toLocaleString('en-US', { timeZone:'Asia/Manila' })
     });
-    writeData(FILE_USERLOGS, logs);
 }
 function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
-    let logs = readData(FILE_USERLOGS);
-    logs.unshift({
+    appendUserLogEntry({
         id: Date.now(),
         username: username,
         action: `VOIDED Transaction ID: ${transactionId} (${authMethodLabel})`,
@@ -13300,11 +14752,9 @@ function logVoidAction(username, transactionId, voidedAmount, authMethodLabel) {
         voidedAmount: Math.round((parseFloat(voidedAmount) || 0) * 100) / 100,
         voidedTransactionId: transactionId
     });
-    writeData(FILE_USERLOGS, logs);
 }
 function logRefundAction(username, transactionId, refundAmount, itemsLabel, reason, authMethodLabel) {
-    let logs = readData(FILE_USERLOGS);
-    logs.unshift({
+    appendUserLogEntry({
         id: Date.now(),
         username: username,
         action: `REFUNDED ₱${refundAmount.toFixed(2)} for Transaction ID: ${transactionId} — Items: ${itemsLabel}. Reason: ${reason || '(no reason provided)'} (${authMethodLabel})`,
@@ -13312,7 +14762,6 @@ function logRefundAction(username, transactionId, refundAmount, itemsLabel, reas
         refundedAmount: Math.round((parseFloat(refundAmount) || 0) * 100) / 100,
         refundedTransactionId: transactionId
     });
-    writeData(FILE_USERLOGS, logs);
 }
 app.get('/api/system/backup-status', (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
@@ -14160,6 +15609,14 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             writeData(FILE_CONSIGNMENTS, []);
             writeData(FILE_WASTE_LOG, []);
             writeData(FILE_SUPPLIERS, []);
+            // Marketplace Hub: linisin ang links/orders (naka-link sa binurang products) at itala ang resetAt
+            // para hindi ma-deduct ulit ang mga lumang marketplace order laban sa bagong stock.
+            {
+                let mpPrev = {}; try { mpPrev = readData('marketplaceState', {}) || {}; } catch (_) { mpPrev = {}; }
+                writeData('marketplaceLinks', []);
+                writeData('marketplaceOrders', []);
+                writeData('marketplaceState', { settings: mpPrev.settings || undefined, cursors: {}, connections: [], lastSync: null, resetAt: Date.now() });
+            }
             writeData(FILE_DEMO_DATA_SNAPSHOT, null);
             writeData(FILE_CATEGORIES, []);
             const preResetIdentity = readFeatureUnlocks();
@@ -14363,23 +15820,45 @@ function foldLegacyStockIntoBatches(prod) {
     }
     bucket.quantity = uomPricing.round((parseFloat(bucket.quantity) || 0) + gap, uomPricing.DECIMAL_PLACES);
 }
-// Deducts `qty` base units from a product at sale time. When the product has
-// batches, deducts FEFO (oldest-expiring batch first) so the stock actually
-// leaving the shelf matches what the register reports; otherwise falls back to
-// the original plain stock decrement.
-function deductProductStock(prod, qty) {
+// Deducts `qty` base units from a product (sale, waste, count, transfer, consignment return).
+// When the product has batches, deducts FEFO (oldest-expiring batch first) so the stock actually
+// leaving the shelf matches what the register reports; otherwise falls back to the original plain
+// stock decrement.
+// RETURNS an array of allocations [{ batchId, lotNumber, expiryDate, costPrice, qty }] describing which
+// lots the quantity was taken from (empty for products that do not use batches). Existing callers that
+// ignore the return value are unaffected. The sale flow stores it on the transaction line so a later
+// void/refund can put the goods back into the SAME lot (with its expiry) instead of an undated bucket.
+// opts.batchId       -> take from that batch FIRST (then continue FEFO unless opts.strictBatch).
+// opts.strictBatch   -> take ONLY from opts.batchId (used by the waste log when a specific lot is disposed).
+function deductProductStock(prod, qty, opts) {
     const q = uomPricing.round(Math.max(0, parseFloat(qty) || 0), uomPricing.DECIMAL_PLACES);
+    const allocations = [];
     if (Array.isArray(prod.batches) && prod.batches.length > 0) {
         foldLegacyStockIntoBatches(prod);
         let remaining = q;
-        const ordered = sortBatchesFEFO(prod.batches);
+        let ordered = sortBatchesFEFO(prod.batches);
+        const preferId = opts && opts.batchId ? String(opts.batchId) : null;
+        if (preferId) {
+            const preferred = ordered.find(b => String(b.id) === preferId);
+            if (preferred) ordered = [preferred, ...ordered.filter(b => b !== preferred)];
+        }
+        const onlyPreferred = !!(opts && opts.strictBatch && preferId);
         for (const batch of ordered) {
             if (remaining <= 1e-9) break;
+            if (onlyPreferred && String(batch.id) !== preferId) break;
             const avail = Math.max(0, parseFloat(batch.quantity) || 0);
             if (avail <= 0) continue;
             const take = Math.min(avail, remaining);
             batch.quantity = uomPricing.round(avail - take, uomPricing.DECIMAL_PLACES);
             remaining = uomPricing.round(remaining - take, uomPricing.DECIMAL_PLACES);
+            const bc = parseFloat(batch.costPrice);
+            allocations.push({
+                batchId: batch.id,
+                lotNumber: batch.lotNumber || null,
+                expiryDate: batch.expiryDate || null,
+                costPrice: isFinite(bc) ? bc : null,
+                qty: uomPricing.round(take, uomPricing.DECIMAL_PLACES)
+            });
         }
         // Drop fully-consumed batches so the batch list stays tidy.
         prod.batches = prod.batches.filter(b => (parseFloat(b.quantity) || 0) > 1e-9);
@@ -14387,6 +15866,7 @@ function deductProductStock(prod, qty) {
     } else {
         prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - q), uomPricing.DECIMAL_PLACES);
     }
+    return allocations;
 }
 // Adds `baseQty` back onto a product's stock (void/refund/stock-return/PO-receive/
 // quick-restock). If `batchInfo` names a lot number or expiry date, a new dated
@@ -14401,16 +15881,33 @@ function addBaseStock(prod, baseQty, batchInfo) {
         foldLegacyStockIntoBatches(prod);
         if (!Array.isArray(prod.batches)) prod.batches = [];
         if (hasExplicitBatchInfo) {
-            prod.batches.push({
-                id: genBatchId(),
-                lotNumber: String(batchInfo.lotNumber || '').trim() || null,
-                quantity: q,
-                expiryDate: String(batchInfo.expiryDate || '').trim() || null,
-                costPrice: (batchInfo.costPrice !== undefined && batchInfo.costPrice !== null && batchInfo.costPrice !== '') ? (parseFloat(batchInfo.costPrice) || 0) : null,
-                supplier: String(batchInfo.supplier || '').trim() || null,
-                receivedDate: String(batchInfo.receivedDate || '').trim() || new Date().toISOString(),
-                notes: String(batchInfo.notes || '').trim() || null
-            });
+            const newLot = String(batchInfo.lotNumber || '').trim() || null;
+            const newExpiry = String(batchInfo.expiryDate || '').trim() || null;
+            const newCost = (batchInfo.costPrice !== undefined && batchInfo.costPrice !== null && batchInfo.costPrice !== '') ? (parseFloat(batchInfo.costPrice) || 0) : null;
+            // `mergeIfSame` (used when goods are returned to their ORIGINAL lot / a PO line is received in
+            // pieces): fold the quantity into an existing batch with the same lot, expiry and cost instead of
+            // creating a duplicate row. Plain restocks keep the old behaviour (always a new dated batch).
+            let mergeTarget = null;
+            if (batchInfo.mergeIfSame) {
+                mergeTarget = prod.batches.find(b => {
+                    const bCost = (b.costPrice === undefined || b.costPrice === null || b.costPrice === '') ? null : (parseFloat(b.costPrice) || 0);
+                    return (b.lotNumber || null) === newLot && (b.expiryDate || null) === newExpiry && bCost === newCost;
+                }) || null;
+            }
+            if (mergeTarget) {
+                mergeTarget.quantity = uomPricing.round((parseFloat(mergeTarget.quantity) || 0) + q, uomPricing.DECIMAL_PLACES);
+            } else {
+                prod.batches.push({
+                    id: genBatchId(),
+                    lotNumber: newLot,
+                    quantity: q,
+                    expiryDate: newExpiry,
+                    costPrice: newCost,
+                    supplier: String(batchInfo.supplier || '').trim() || null,
+                    receivedDate: String(batchInfo.receivedDate || '').trim() || new Date().toISOString(),
+                    notes: String(batchInfo.notes || '').trim() || null
+                });
+            }
         } else {
             let bucket = prod.batches.find(b => b.lotNumber === 'UNSPECIFIED' && !b.expiryDate);
             if (!bucket) {
@@ -14432,6 +15929,191 @@ function lineFactor(item) {
     if (q > 0 && isFinite(b) && b > 0) return uomPricing.round(b / q, 6);
     const f = parseFloat(item && item.factor);
     return f > 0 ? f : 1;
+}
+// ---- RETURN / DISPOSE HELPERS ---------------------------------------------
+// When true, goods that came back from a lot whose expiry date has already passed can NOT be put back
+// into sellable stock during a stock-return inspection (they must be marked Damaged -> Disposed/Write-off).
+const BLOCK_RESTOCK_OF_EXPIRED_RETURNS = true;
+// Damaged-return dispositions that are a real inventory LOSS and therefore also belong in the Waste Log
+// (stock was already deducted when the item was sold, so the log entry does not deduct anything again).
+const WASTE_LOSS_RETURN_STATUSES = new Set(['disposed', 'write_off']);
+
+// Expired = the expiry DAY is over (an item that expires today is still sellable today).
+function isDateExpired(expiryDate) {
+    if (!expiryDate) return false;
+    const t = new Date(expiryDate).getTime();
+    if (isNaN(t)) return false;
+    return t + 24 * 60 * 60 * 1000 <= Date.now();
+}
+// Keeps only allocations that carry lot/expiry information, in a compact storable shape (no batchId: the
+// original batch row may be gone by the time the goods come back).
+function normalizeAllocations(list) {
+    return (Array.isArray(list) ? list : []).map(a => {
+        const cp = a ? parseFloat(a.costPrice) : NaN;
+        return {
+            lotNumber: a && a.lotNumber ? String(a.lotNumber) : null,
+            expiryDate: a && a.expiryDate ? String(a.expiryDate) : null,
+            costPrice: isFinite(cp) ? cp : null,
+            qty: uomPricing.round(Math.max(0, parseFloat(a && a.qty) || 0), uomPricing.DECIMAL_PLACES)
+        };
+    }).filter(a => a.qty > 0 && (a.lotNumber || a.expiryDate));
+}
+// Takes `partQty` out of a line of `wholeQty` (both in SELLING units) and scales its base-unit allocations.
+function scaleAllocations(allocs, partQty, wholeQty) {
+    const whole = parseFloat(wholeQty) || 0;
+    const part = parseFloat(partQty) || 0;
+    if (!(whole > 0) || !(part > 0)) return [];
+    const fraction = Math.min(1, part / whole);
+    return normalizeAllocations(allocs)
+        .map(a => ({ ...a, qty: uomPricing.round(a.qty * fraction, uomPricing.DECIMAL_PLACES) }))
+        .filter(a => a.qty > 0);
+}
+// ---- Lot order of a returned line -------------------------------------------------------------------
+// The lots a returned line was sold from, in the order the goods are ASSUMED to come back: sellable (not
+// expired) lots first, goods of unknown lot next (legacy sales / rounding), EXPIRED lots LAST. So whatever the
+// inspector restocks fills the good lots first, and what stays Damaged is the expired part. All quantities are
+// BASE units. Sorting is stable, so the order inside each group is the original sale order.
+function orderedReturnLots(item) {
+    const DP = uomPricing.DECIMAL_PLACES;
+    const allocs = normalizeAllocations(item && item.batchAllocations);
+    const lineBase = uomPricing.round(Math.max(0, (parseFloat(item && item.quantity) || 0) * lineFactor(item)), DP);
+    const covered = uomPricing.round(allocs.reduce((sum, a) => sum + a.qty, 0), DP);
+    const lots = allocs.filter(a => !isDateExpired(a.expiryDate));
+    const unknown = uomPricing.round(lineBase - covered, DP);
+    if (unknown > 1e-9) lots.push({ lotNumber: null, expiryDate: null, costPrice: null, qty: unknown, unknown: true });
+    return lots.concat(allocs.filter(a => isDateExpired(a.expiryDate)));
+}
+// The part [startBase, startBase + lenBase) of that ordered list, as lot pieces. Anything beyond the known
+// size of the line is returned as an "unknown lot" piece, so the pieces always add up to exactly lenBase.
+function sliceReturnLots(item, startBase, lenBase) {
+    const DP = uomPricing.DECIMAL_PLACES;
+    const start = uomPricing.round(Math.max(0, parseFloat(startBase) || 0), DP);
+    const end = uomPricing.round(start + Math.max(0, parseFloat(lenBase) || 0), DP);
+    const pieces = [];
+    let pos = 0;
+    for (const lot of orderedReturnLots(item)) {
+        const lotStart = pos;
+        const lotEnd = uomPricing.round(pos + lot.qty, DP);
+        pos = lotEnd;
+        const from = Math.max(start, lotStart);
+        const to = Math.min(end, lotEnd);
+        const q = uomPricing.round(to - from, DP);
+        if (q > 1e-9) pieces.push({ ...lot, qty: q });
+    }
+    const beyond = uomPricing.round(end - Math.max(start, pos), DP);
+    if (beyond > 1e-9) pieces.push({ lotNumber: null, expiryDate: null, costPrice: null, qty: beyond, unknown: true });
+    return pieces;
+}
+// How many SELLING units of this line may still be restocked without touching an expired lot
+// (`alreadyRestockedSell` = what was restocked on this line before).
+function restockableLimit(item, alreadyRestockedSell) {
+    const DP = uomPricing.DECIMAL_PLACES;
+    const f = lineFactor(item);
+    const lineBase = uomPricing.round(Math.max(0, (parseFloat(item && item.quantity) || 0) * f), DP);
+    const expiredBase = uomPricing.round(normalizeAllocations(item && item.batchAllocations)
+        .filter(a => isDateExpired(a.expiryDate)).reduce((sum, a) => sum + a.qty, 0), DP);
+    return uomPricing.round(Math.max(0, (lineBase - expiredBase) / f - (parseFloat(alreadyRestockedSell) || 0)), DP);
+}
+// Decides HOW a restocked return quantity is put back: a list of { qty (base units), info } steps. Goods go
+// back to the lots they were sold from (lot + expiry + cost), sellable lots first (see orderedReturnLots);
+// goods of unknown lot go into the plain/UNSPECIFIED stock. `alreadyRestockedSell` = selling units of this line
+// restocked EARLIER (manager review after an inspection), so the same lot is never counted twice. The step
+// quantities always add up to EXACTLY restockSellQty * factor.
+function planReturnRestock(item, restockSellQty, alreadyRestockedSell) {
+    const DP = uomPricing.DECIMAL_PLACES;
+    const f = lineFactor(item);
+    const baseTotal = uomPricing.round(Math.max(0, (parseFloat(restockSellQty) || 0) * f), DP);
+    if (!(baseTotal > 0)) return [];
+    const startBase = uomPricing.round(Math.max(0, parseFloat(alreadyRestockedSell) || 0) * f, DP);
+    return sliceReturnLots(item, startBase, baseTotal).map(piece => ({
+        qty: piece.qty,
+        info: piece.unknown ? null : {
+            lotNumber: piece.lotNumber, expiryDate: piece.expiryDate, costPrice: piece.costPrice,
+            mergeIfSame: true, notes: 'Returned to sellable stock after inspection'
+        }
+    }));
+}
+function findExpiredInRestockPlan(plan) {
+    return (plan || []).find(step => step.info && isDateExpired(step.info.expiryDate)) || null;
+}
+function applyRestockPlan(prod, plan) {
+    for (const step of plan) addBaseStock(prod, step.qty, step.info || undefined);
+}
+// Cost of `totalQty` base units given the lots they came from (falls back to the product cost per unit
+// for lots without a cost and for any quantity not covered by an allocation).
+function costFromAllocations(allocs, totalQty, unitCost) {
+    let cost = 0;
+    let covered = 0;
+    for (const a of (allocs || [])) {
+        const q = parseFloat(a.qty) || 0;
+        const c = (a.costPrice !== null && a.costPrice !== undefined && isFinite(parseFloat(a.costPrice)) && parseFloat(a.costPrice) > 0) ? parseFloat(a.costPrice) : unitCost;
+        cost += q * c;
+        covered += q;
+    }
+    cost += Math.max(0, (parseFloat(totalQty) || 0) - covered) * unitCost;
+    return uomPricing.round(cost, 2);
+}
+// Builds Waste Log entries for damaged-return lines that ended as Disposed / Written Off and were not logged yet.
+// Marks each line's `wasteLoggedQty` so the same quantity can never be logged twice (inspection then review).
+function collectReturnWasteEntries(record, productByCode, who) {
+    const entries = [];
+    const nowIso = new Date().toISOString();
+    for (const item of (record.items || [])) {
+        const status = String(item.damageStatus || '').toLowerCase();
+        const damaged = toQty3(item.damagedQty);
+        if (!(damaged > 0) || !WASTE_LOSS_RETURN_STATUSES.has(status)) continue;
+        const delta = uomPricing.round(damaged - toQty3(item.wasteLoggedQty), uomPricing.DECIMAL_PLACES);
+        if (!(delta > 1e-9)) continue;
+        const baseQty = uomPricing.round(delta * lineFactor(item), uomPricing.DECIMAL_PLACES);
+        const prod = productByCode ? productByCode.get(String(item.code || '').trim().toLowerCase()) : null;
+        // The Damaged part is what is left after the restocked part, i.e. the expired lots first.
+        const allocs = sliceReturnLots(item, uomPricing.round((toQty3(item.restockedQty) + toQty3(item.wasteLoggedQty)) * lineFactor(item), uomPricing.DECIMAL_PLACES), baseQty)
+            .filter(piece => !piece.unknown);
+        const note = String(record.inspectionReason || '').trim();
+        entries.push({
+            id: genWasteId(),
+            code: item.code,
+            name: item.name || (prod && prod.name) || '',
+            unit: (prod && prod.baseUnit) || 'unit',
+            quantity: baseQty,
+            category: 'damage',
+            reason: `Returned item (${record.sourceType} ${record.transactionId}) — ${STOCK_RETURN_DAMAGE_STATUSES[status] || status}${note ? ': ' + note : ''}`,
+            costImpact: costFromAllocations(allocs, baseQty, productUnitCost(prod)),
+            notes: '',
+            recordedAt: nowIso,
+            recordedBy: who || 'Unknown',
+            source: 'stock_return',
+            sourceId: record.id,
+            sourceTransactionId: record.transactionId,
+            damageStatus: status,
+            stockDeducted: false,
+            lots: allocs.map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty }))
+        });
+        item.wasteLoggedQty = damaged;
+    }
+    return entries;
+}
+// Waste Log entry for stock that is removed from a batch/lot directly (batch delete, or a batch quantity cut).
+function buildBatchLossEntry({ prod, batch, qty, category, reason, who, source }) {
+    const bc = parseFloat(batch.costPrice);
+    const unitCost = (isFinite(bc) && bc > 0) ? bc : productUnitCost(prod);
+    return {
+        id: genWasteId(),
+        code: prod.code,
+        name: prod.name || '',
+        unit: prod.baseUnit || 'unit',
+        quantity: qty,
+        category,
+        reason,
+        costImpact: uomPricing.round(qty * unitCost, 2),
+        notes: '',
+        recordedAt: new Date().toISOString(),
+        recordedBy: who || 'Unknown',
+        source,
+        batchId: batch.id,
+        stockDeducted: true,
+        lots: [{ lotNumber: batch.lotNumber || null, expiryDate: batch.expiryDate || null, qty }]
+    };
 }
 // Sets a product's stock to an exact value while keeping `batches` consistent (used by product edit,
 // request approval and bulk import, which used to assign `stock` directly and desync the batches).
@@ -14496,7 +16178,9 @@ function createStockReturnRecord({ sourceType, transactionId, requester, items, 
             unit: item.unit || null,
             restockedQty: 0,
             damagedQty: 0,
-            damageStatus: null
+            damageStatus: null,
+            wasteLoggedQty: 0,
+            batchAllocations: normalizeAllocations(item.batchAllocations)
         })).filter(item => item.code && item.quantity > 0)
     };
     if (!record.items.length) return null;
@@ -14566,11 +16250,23 @@ async function processStockReturnInspection(req, res) {
         }
         normalized.push({ ...item, restockedQty, damagedQty, damageStatus });
     }
+    // Decide (and validate) HOW every restocked quantity goes back BEFORE touching any stock: returns to their
+    // original lot/expiry when known, and expired lots are not allowed back onto the shelf.
+    const restockPlans = [];
     for (const item of normalized) {
-        if (item.restockedQty > 0) {
-            const prod = productByCode.get(String(item.code).toLowerCase());
-            addBaseStock(prod, item.restockedQty * lineFactor(item));
+        if (!(item.restockedQty > 0)) continue;
+        const plan = planReturnRestock(item, item.restockedQty, 0);
+        const expiredStep = BLOCK_RESTOCK_OF_EXPIRED_RETURNS ? findExpiredInRestockPlan(plan) : null;
+        if (expiredStep) {
+            return res.status(400).json({
+                success: false,
+                message: `${item.name || item.code}: ang lot ${expiredStep.info.lotNumber || '(walang lot #)'} ay expired na (${expiredStep.info.expiryDate}) — hindi maaaring ibalik sa sellable stock. Hanggang ${restockableLimit(item, 0)} lang ang maaaring i-restock; ilagay ang natitira sa Damaged (Disposed / Written Off).`
+            });
         }
+        restockPlans.push({ item, plan });
+    }
+    for (const rp of restockPlans) {
+        applyRestockPlan(productByCode.get(String(rp.item.code).toLowerCase()), rp.plan);
     }
     const totalQty = normalized.reduce((sum, i) => sum + i.quantity, 0);
     const totalRestocked = normalized.reduce((sum, i) => sum + i.restockedQty, 0);
@@ -14581,11 +16277,17 @@ async function processStockReturnInspection(req, res) {
     record.inspectedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
     record.inspectionReason = inspectionReason;
     returns[index] = record;
+    // Disposed / written-off returns are a real loss: log them in the Waste Log in the SAME transaction.
+    const inspectionWasteEntries = collectReturnWasteEntries(record, productByCode, record.inspectedBy);
+    const inspectionChanges = [
+        { module: FILE_PRODUCTS, data: products },
+        { module: FILE_STOCK_RETURNS, data: returns }
+    ];
+    if (inspectionWasteEntries.length) {
+        inspectionChanges.push({ module: FILE_WASTE_LOG, data: [...inspectionWasteEntries, ...readData(FILE_WASTE_LOG, [])] });
+    }
     try {
-        commitDataModules([
-            { module: FILE_PRODUCTS, data: products },
-            { module: FILE_STOCK_RETURNS, data: returns }
-        ]);
+        commitDataModules(inspectionChanges);
     } catch (error) {
         console.error('Stock return inspection commit failed:', error);
         return res.status(500).json({ success: false, message: 'The inspection could not be saved completely. No permanent stock-return change should remain; please try again.' });
@@ -14624,7 +16326,7 @@ async function processStockReturnReview(req, res) {
         return res.status(403).json({ success: false, message: 'Hindi maaaring ikaw rin ang mag-finalize ng review sa sarili mong inspection. Kailangan ito ng ibang authorized na manager/reviewer.' });
     }
     const pendingLineIds = new Set((record.items || [])
-        .filter(i => (parseInt(i.damagedQty, 10) || 0) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review')
+        .filter(i => toQty3(i.damagedQty) > 0 && String(i.damageStatus || '').toLowerCase() === 'pending_manager_review')
         .map(i => i.lineId));
     if (!pendingLineIds.size) {
         return res.status(409).json({ success: false, message: 'There are no items on this record awaiting manager review.' });
@@ -14657,12 +16359,20 @@ async function processStockReturnReview(req, res) {
                 return res.status(400).json({ success: false, message: `Piliin ang status ng sirang item para sa ${item.name || item.code}.` });
             }
         }
-        updates.push({ item, restockNow, stillDamaged, damageStatus });
+        const plan = restockNow > 0 ? planReturnRestock(item, restockNow, toQty3(item.restockedQty)) : [];
+        const expiredStep = BLOCK_RESTOCK_OF_EXPIRED_RETURNS ? findExpiredInRestockPlan(plan) : null;
+        if (expiredStep) {
+            return res.status(400).json({
+                success: false,
+                message: `${item.name || item.code}: ang lot ${expiredStep.info.lotNumber || '(walang lot #)'} ay expired na (${expiredStep.info.expiryDate}) — hindi maaaring ibalik sa sellable stock. Hanggang ${restockableLimit(item, toQty3(item.restockedQty))} na lang ang maaaring i-restock; ilagay ang natitira sa Still Damaged (Disposed / Written Off).`
+            });
+        }
+        updates.push({ item, restockNow, stillDamaged, damageStatus, plan });
     }
     for (const u of updates) {
         if (u.restockNow > 0) {
             const prod = productByCode.get(String(u.item.code).toLowerCase());
-            addBaseStock(prod, u.restockNow * lineFactor(u.item));
+            applyRestockPlan(prod, u.plan);
         }
         u.item.restockedQty = uomPricing.round(toQty3(u.item.restockedQty) + u.restockNow, uomPricing.DECIMAL_PLACES);
         u.item.damagedQty = u.stillDamaged;
@@ -14674,11 +16384,16 @@ async function processStockReturnReview(req, res) {
     record.lastReviewedAt = new Date().toISOString();
     record.lastReviewedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
     returns[index] = record;
+    const reviewWasteEntries = collectReturnWasteEntries(record, productByCode, record.lastReviewedBy);
+    const reviewChanges = [
+        { module: FILE_PRODUCTS, data: products },
+        { module: FILE_STOCK_RETURNS, data: returns }
+    ];
+    if (reviewWasteEntries.length) {
+        reviewChanges.push({ module: FILE_WASTE_LOG, data: [...reviewWasteEntries, ...readData(FILE_WASTE_LOG, [])] });
+    }
     try {
-        commitDataModules([
-            { module: FILE_PRODUCTS, data: products },
-            { module: FILE_STOCK_RETURNS, data: returns }
-        ]);
+        commitDataModules(reviewChanges);
     } catch (error) {
         console.error('Stock return review commit failed:', error);
         return res.status(500).json({ success: false, message: 'The review could not be saved completely. No permanent stock-return change should remain; please try again.' });
@@ -14699,18 +16414,125 @@ async function processStockReturnReview(req, res) {
 // ============================================================================
 function genCountId() { return 'CNT-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'); }
 
+// ---- BLIND COUNT + MANAGER APPROVAL ----------------------------------------------------------------------
+// Blind count: while a session is being counted (or waits for approval) the expected (system) quantity and the
+// variance are hidden from users who do NOT hold the `inventory_count_approve` permission (Admin always does), so
+// the shelf is counted honestly instead of being "adjusted" to the expected number.
+// Approval: when a finished count would adjust an item by a large peso value, a user without the approve
+// permission can only SUBMIT it. Stock is not touched until a manager approves it (or sends it back for a recount).
+const COUNT_APPROVAL_DEFAULT_VALUE = 500;     // peso value of ONE item's variance (variance x cost) that needs approval
+const COUNT_APPROVAL_PCT = 25;                // products without a cost: % of the expected quantity that needs approval...
+const COUNT_APPROVAL_PCT_MIN_UNITS = 3;       // ...but only when at least this many units are off
+function canApproveInventoryCounts(req) {
+    const role = req && req.authUser && req.authUser.role;
+    if (!role) return false;
+    if (String(role).toLowerCase() === 'admin') return true;
+    return !!getPermissionsForRole(role).inventory_count_approve;
+}
+function countSessionForViewer(session, canApprove) {
+    if (!session || canApprove) return session;
+    if (!session.blind || (session.status !== 'open' && session.status !== 'pending_approval')) return session;
+    const copy = { ...session, items: (Array.isArray(session.items) ? session.items : []).map(i => ({ ...i, systemQty: null, variance: null })) };
+    delete copy.approvalFlagged;
+    return copy;
+}
+function evaluateCountVariance(session, productByCode) {
+    const threshold = (isFinite(parseFloat(session.approvalValueThreshold)) && parseFloat(session.approvalValueThreshold) >= 0)
+        ? parseFloat(session.approvalValueThreshold) : COUNT_APPROVAL_DEFAULT_VALUE;
+    const flagged = [];
+    let totalAbsValue = 0;
+    for (const item of (Array.isArray(session.items) ? session.items : [])) {
+        const diff = uomPricing.round(item.variance || 0, uomPricing.DECIMAL_PLACES);
+        if (Math.abs(diff) < 1e-6) continue;
+        const prod = productByCode.get(String(item.code || '').trim().toLowerCase());
+        if (!prod) continue;
+        const cost = productUnitCost(prod);
+        const value = uomPricing.round(diff * cost, 2);
+        totalAbsValue += Math.abs(value);
+        let reason = null;
+        if (cost > 0) {
+            if (Math.abs(value) >= threshold) reason = 'value';
+        } else if (Math.abs(diff) >= COUNT_APPROVAL_PCT_MIN_UNITS
+            && (Math.abs(diff) / Math.max(parseFloat(item.systemQty) || 0, 1)) * 100 >= COUNT_APPROVAL_PCT) {
+            reason = 'percent';
+        }
+        if (reason) flagged.push({ code: item.code, name: item.name || '', variance: diff, valueImpact: value, reason });
+    }
+    return { threshold, flagged, totalAbsValue: uomPricing.round(totalAbsValue, 2) };
+}
+// Applies every counted variance to the live stock (delta, like every other stock movement) and stamps each item with
+// the cost used, so the Shrinkage report can value the variance later. Returns how many items were adjusted.
+function applyCountSessionToStock(session, products) {
+    const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    let totalVarianceValue = 0;
+    let changedCount = 0;
+    for (const item of session.items) {
+        const diff = uomPricing.round(item.variance || 0, uomPricing.DECIMAL_PLACES);
+        if (Math.abs(diff) < 1e-6) continue;
+        const prod = productByCode.get(item.code.toLowerCase());
+        if (!prod) continue; // product deleted since count started — skip silently, variance stays on record for reference
+        if (diff > 0) {
+            addBaseStock(prod, diff);
+        } else {
+            deductProductStock(prod, -diff);
+        }
+        const cost = productUnitCost(prod);
+        item.unitCost = cost;
+        item.valueImpact = uomPricing.round(diff * cost, 2);
+        totalVarianceValue += diff * cost;
+        changedCount++;
+    }
+    session.totalVarianceValue = uomPricing.round(totalVarianceValue, 2);
+    return { changedCount };
+}
+
+// Emails the store's admin address (the same recipient used for password recovery) when a count is waiting for approval.
+// Best effort only: no mail setup / a failed send never blocks the count.
+function notifyCountPendingApproval(session, evaluation) {
+    try {
+        const to = getForgotPasswordRecipientEmail();
+        const creds = getOtpMailCredentials();
+        if (!to || !creds) return;
+        const lines = evaluation.flagged.slice(0, 15).map(f =>
+            `- ${f.name || f.code} (${f.code}): ${f.variance > 0 ? '+' : ''}${f.variance} (≈ ₱${Math.abs(f.valueImpact).toFixed(2)} ${f.valueImpact < 0 ? 'short' : 'over'})`);
+        sendMailSmart(creds.user, creds.pass, {
+            from: `"OmniPOS Inventory" <${creds.user}>`,
+            to,
+            subject: `OmniPOS: A physical count is waiting for approval (${session.id})`,
+            text: `${session.submittedBy || 'Unknown'} submitted a physical count with large variances. Stock does not change until it is approved.\n\n`
+                + `${lines.join('\n')}${evaluation.flagged.length > lines.length ? `\n...and ${evaluation.flagged.length - lines.length} more` : ''}\n\n`
+                + `Open Inventory Tools > Physical Count to approve it or send it back for a recount.`
+        }).catch(err => console.error('Count approval email failed:', err.message));
+    } catch (mailErr) {
+        console.error('Count approval email error:', mailErr.message);
+    }
+}
+
 app.get('/api/inventory-counts', requirePermission('inventory_count'), requireFeature('inventory_tools'), (req, res) => {
     const status = String(req.query.status || '').trim().toLowerCase();
     const sessions = readData(FILE_INVENTORY_COUNTS, []);
     const filtered = status ? sessions.filter(s => String(s.status || '').toLowerCase() === status) : sessions;
-    res.json({ success: true, sessions: filtered });
+    const canApprove = canApproveInventoryCounts(req);
+    res.json({
+        success: true,
+        sessions: filtered.map(s => countSessionForViewer(s, canApprove)),
+        canApprove,
+        approvalDefaultValue: COUNT_APPROVAL_DEFAULT_VALUE
+    });
 });
 
 app.post('/api/inventory-counts', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-start', 20, 10 * 60 * 1000), (req, res) => {
     const sessions = readData(FILE_INVENTORY_COUNTS, []);
-    if (sessions.some(s => s.status === 'open')) {
-        return res.status(409).json({ success: false, message: 'May bukas nang physical count session. Kumpletuhin o kanselahin muna iyon bago magsimula ng bago.' });
+    if (sessions.some(s => s.status === 'open' || s.status === 'pending_approval')) {
+        return res.status(409).json({ success: false, message: 'A physical count session is already open or waiting for approval. Complete, approve or cancel it before starting a new one.' });
     }
+    const startedByApprover = canApproveInventoryCounts(req);
+    const blind = !(req.body.blind === false || req.body.blind === 'false');
+    let approvalValueThreshold = parseFloat(req.body.approvalValueThreshold);
+    if (!isFinite(approvalValueThreshold) || approvalValueThreshold < 0) approvalValueThreshold = COUNT_APPROVAL_DEFAULT_VALUE;
+    // Only a manager may RAISE the limit above the default; anyone may make it stricter.
+    if (!startedByApprover && approvalValueThreshold > COUNT_APPROVAL_DEFAULT_VALUE) approvalValueThreshold = COUNT_APPROVAL_DEFAULT_VALUE;
+    approvalValueThreshold = uomPricing.round(approvalValueThreshold, 2);
     const scope = String(req.body.scope || 'all').trim().toLowerCase();
     const category = String(req.body.category || '').trim();
     const codes = Array.isArray(req.body.codes) ? req.body.codes.map(c => String(c).trim()).filter(Boolean) : [];
@@ -14725,7 +16547,7 @@ app.post('/api/inventory-counts', requirePermission('inventory_count'), requireF
         targetProducts = products;
     }
     if (!targetProducts.length) {
-        return res.status(400).json({ success: false, message: 'Walang product na tumugma sa napiling scope.' });
+        return res.status(400).json({ success: false, message: 'No products matched the selected scope.' });
     }
     const session = {
         id: genCountId(),
@@ -14737,6 +16559,8 @@ app.post('/api/inventory-counts', requirePermission('inventory_count'), requireF
         createdBy: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown',
         finalizedAt: null,
         finalizedBy: null,
+        blind,
+        approvalValueThreshold,
         items: targetProducts.map(p => ({
             code: String(p.code || '').trim(),
             name: p.name || '',
@@ -14750,20 +16574,20 @@ app.post('/api/inventory-counts', requirePermission('inventory_count'), requireF
     };
     sessions.unshift(session);
     writeData(FILE_INVENTORY_COUNTS, sessions);
-    logAction(session.createdBy, `PHYSICAL COUNT STARTED (${session.id}): ${session.items.length} item(s), scope=${scope}${category ? ' [' + category + ']' : ''}`);
-    res.json({ success: true, session });
+    logAction(session.createdBy, `PHYSICAL COUNT STARTED (${session.id}): ${session.items.length} item(s), scope=${scope}${category ? ' [' + category + ']' : ''}${blind ? ', blind count' : ''}, approval needed from ₱${approvalValueThreshold.toFixed(2)} per item`);
+    res.json({ success: true, session: countSessionForViewer(session, startedByApprover) });
 });
 
 app.put('/api/inventory-counts/:id', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-submit', 120, 10 * 60 * 1000), (req, res) => {
     const id = String(req.params.id || '').trim();
     const counts = Array.isArray(req.body.counts) ? req.body.counts : [];
-    if (!counts.length) return res.status(400).json({ success: false, message: 'Walang binigay na bilang (counts).' });
+    if (!counts.length) return res.status(400).json({ success: false, message: 'No counts were provided.' });
     const sessions = readData(FILE_INVENTORY_COUNTS, []);
     const idx = sessions.findIndex(s => s.id === id);
-    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang count session.' });
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Count session not found.' });
     const session = sessions[idx];
     if (session.status !== 'open') {
-        return res.status(409).json({ success: false, message: 'Hindi na maaaring baguhin ang session na ito (hindi na open).' });
+        return res.status(409).json({ success: false, message: 'This session can no longer be changed (it is no longer open).' });
     }
     const byCode = new Map(counts.map(c => [String(c.code || '').trim().toLowerCase(), c]));
     const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
@@ -14787,7 +16611,7 @@ app.put('/api/inventory-counts/:id', requirePermission('inventory_count'), requi
     });
     sessions[idx] = session;
     writeData(FILE_INVENTORY_COUNTS, sessions);
-    res.json({ success: true, message: `${updated} item(s) na-update ang bilang.`, session });
+    res.json({ success: true, message: `${updated} item count(s) updated.`, session: countSessionForViewer(session, canApproveInventoryCounts(req)) });
 });
 
 app.post('/api/inventory-counts/:id/finalize', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-finalize', 10, 10 * 60 * 1000), async (req, res) => {
@@ -14797,37 +16621,54 @@ function processFinalizeInventoryCount(req, res) {
     const id = String(req.params.id || '').trim();
     const sessions = readData(FILE_INVENTORY_COUNTS, []);
     const idx = sessions.findIndex(s => s.id === id);
-    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang count session.' });
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Count session not found.' });
     const session = sessions[idx];
     if (session.status !== 'open') {
-        return res.status(409).json({ success: false, message: 'Na-finalize na o cancelled na ang session na ito.' });
+        return res.status(409).json({ success: false, message: session.status === 'pending_approval'
+            ? 'This session is already waiting for manager approval.'
+            : 'This session has already been finalized or cancelled.' });
     }
     const uncounted = session.items.filter(i => i.countedQty === null || i.countedQty === undefined);
     if (uncounted.length) {
-        return res.status(400).json({ success: false, message: `May ${uncounted.length} item(s) na wala pang bilang. Kumpletuhin muna ang lahat bago i-finalize.` });
+        return res.status(400).json({ success: false, message: `${uncounted.length} item(s) have not been counted yet. Complete all of them before finalizing.` });
     }
     const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
-    let totalVarianceValue = 0;
-    let changedCount = 0;
-    for (const item of session.items) {
-        const diff = uomPricing.round(item.variance || 0, uomPricing.DECIMAL_PLACES);
-        if (Math.abs(diff) < 1e-6) continue;
-        const prod = productByCode.get(item.code.toLowerCase());
-        if (!prod) continue; // product deleted since count started — skip silently, variance stays on record for reference
-        if (diff > 0) {
-            addBaseStock(prod, diff);
-        } else {
-            deductProductStock(prod, -diff);
+    const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const canApprove = canApproveInventoryCounts(req);
+    const evaluation = evaluateCountVariance(session, productByCode);
+    if (evaluation.flagged.length && !canApprove) {
+        // Large variance: hold the count for a manager. NOTHING is changed in the stock yet.
+        session.status = 'pending_approval';
+        session.submittedAt = new Date().toISOString();
+        session.submittedBy = who;
+        session.approvalFlagged = evaluation.flagged;
+        session.approvalTotalAbsValue = evaluation.totalAbsValue;
+        sessions[idx] = session;
+        try {
+            writeData(FILE_INVENTORY_COUNTS, sessions);
+        } catch (error) {
+            console.error('Inventory count submit-for-approval failed:', error);
+            return res.status(500).json({ success: false, message: 'Could not save the submission for approval. Please try again.' });
         }
-        const cost = productUnitCost(prod);
-        totalVarianceValue += diff * cost;
-        changedCount++;
+        logAction(who, `PHYSICAL COUNT SUBMITTED FOR APPROVAL (${session.id}): ${evaluation.flagged.length} item(s) over the approval limit — stock NOT changed yet`);
+        notifyCountPendingApproval(session, evaluation);
+        return res.json({
+            success: true,
+            pendingApproval: true,
+            message: `Submitted for manager approval: ${evaluation.flagged.length} item(s) have large variances. Stock has not changed yet.`,
+            session: countSessionForViewer(session, false)
+        });
     }
+    const { changedCount } = applyCountSessionToStock(session, products);
     session.status = 'finalized';
     session.finalizedAt = new Date().toISOString();
-    session.finalizedBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
-    session.totalVarianceValue = uomPricing.round(totalVarianceValue, 2);
+    session.finalizedBy = who;
+    if (evaluation.flagged.length) {
+        session.approvedBy = who;
+        session.approvedAt = session.finalizedAt;
+    }
+    delete session.approvalFlagged;
     sessions[idx] = session;
     try {
         commitDataModules([
@@ -14836,25 +16677,91 @@ function processFinalizeInventoryCount(req, res) {
         ]);
     } catch (error) {
         console.error('Inventory count finalize commit failed:', error);
-        return res.status(500).json({ success: false, message: 'Hindi na-save nang buo ang finalize. Walang permanenteng pagbabago na dapat naiwan; subukan muli.' });
+        return res.status(500).json({ success: false, message: 'The finalize could not be fully saved. No permanent changes should remain; please try again.' });
     }
     logAction(session.finalizedBy, `PHYSICAL COUNT FINALIZED (${session.id}): ${changedCount} item(s) adjusted, net variance value ≈ ₱${session.totalVarianceValue.toFixed(2)}`);
-    res.json({ success: true, message: `Na-finalize ang count. ${changedCount} item(s) ang na-adjust.`, session });
+    res.json({ success: true, message: `Count finalized. ${changedCount} item(s) adjusted.`, session });
 }
+
+app.post('/api/inventory-counts/:id/approve', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-approve', 20, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processApproveInventoryCount(req, res));
+});
+function processApproveInventoryCount(req, res) {
+    if (!canApproveInventoryCounts(req)) {
+        return res.status(403).json({ success: false, message: 'Authorization Required: you need permission to approve physical counts.' });
+    }
+    const id = String(req.params.id || '').trim();
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    const idx = sessions.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Count session not found.' });
+    const session = sessions[idx];
+    if (session.status !== 'pending_approval') {
+        return res.status(409).json({ success: false, message: 'This session is not waiting for approval.' });
+    }
+    const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const products = readProductsNoImages([]);
+    const { changedCount } = applyCountSessionToStock(session, products);
+    session.status = 'finalized';
+    session.finalizedAt = new Date().toISOString();
+    session.finalizedBy = session.submittedBy || who;
+    session.approvedBy = who;
+    session.approvedAt = session.finalizedAt;
+    delete session.approvalFlagged;
+    sessions[idx] = session;
+    try {
+        commitDataModules([
+            { module: FILE_PRODUCTS, data: products },
+            { module: FILE_INVENTORY_COUNTS, data: sessions }
+        ]);
+    } catch (error) {
+        console.error('Inventory count approve commit failed:', error);
+        return res.status(500).json({ success: false, message: 'The approval could not be fully saved. No permanent changes should remain; please try again.' });
+    }
+    logAction(who, `PHYSICAL COUNT APPROVED (${session.id}, submitted by ${session.submittedBy || 'Unknown'}): ${changedCount} item(s) adjusted, net variance value ≈ ₱${session.totalVarianceValue.toFixed(2)}`);
+    res.json({ success: true, message: `Count approved. ${changedCount} item(s) adjusted in stock.`, session });
+}
+
+app.post('/api/inventory-counts/:id/reject', requirePermission('inventory_count'), requireFeature('inventory_tools'), rateLimit('inventory-count-reject', 20, 10 * 60 * 1000), (req, res) => {
+    if (!canApproveInventoryCounts(req)) {
+        return res.status(403).json({ success: false, message: 'Authorization Required: you need permission to approve physical counts.' });
+    }
+    const id = String(req.params.id || '').trim();
+    const sessions = readData(FILE_INVENTORY_COUNTS, []);
+    const idx = sessions.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Count session not found.' });
+    const session = sessions[idx];
+    if (session.status !== 'pending_approval') {
+        return res.status(409).json({ success: false, message: 'This session is not waiting for approval.' });
+    }
+    const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300);
+    session.rejections = [...(Array.isArray(session.rejections) ? session.rejections : []), {
+        at: new Date().toISOString(), by: who, reason, submittedBy: session.submittedBy || null
+    }];
+    session.status = 'open'; // back to the counters for a recount; the counts entered so far are kept
+    delete session.approvalFlagged;
+    delete session.approvalTotalAbsValue;
+    delete session.submittedAt;
+    delete session.submittedBy;
+    sessions[idx] = session;
+    writeData(FILE_INVENTORY_COUNTS, sessions);
+    logAction(who, `PHYSICAL COUNT SENT BACK FOR RECOUNT (${session.id})${reason ? ': ' + reason : ''}`);
+    res.json({ success: true, message: 'Count sent back for a recount. Stock was not changed.', session });
+});
 
 app.delete('/api/inventory-counts/:id', requirePermission('inventory_count'), requireFeature('inventory_tools'), (req, res) => {
     const id = String(req.params.id || '').trim();
     const sessions = readData(FILE_INVENTORY_COUNTS, []);
     const idx = sessions.findIndex(s => s.id === id);
-    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang count session.' });
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Count session not found.' });
     if (sessions[idx].status === 'finalized') {
-        return res.status(409).json({ success: false, message: 'Hindi na makakansela ang isang session na na-finalize na.' });
+        return res.status(409).json({ success: false, message: 'A session that has already been finalized cannot be cancelled.' });
     }
     sessions[idx].status = 'cancelled';
     sessions[idx].cancelledAt = new Date().toISOString();
     sessions[idx].cancelledBy = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
     writeData(FILE_INVENTORY_COUNTS, sessions);
-    res.json({ success: true, message: 'Nakansela ang count session.' });
+    res.json({ success: true, message: 'Count session cancelled.' });
 });
 
 // ============================================================================
@@ -14882,31 +16789,52 @@ function processAddWasteEntry(req, res) {
     const quantity = toQty3(req.body.quantity);
     const category = String(req.body.category || 'other').trim().toLowerCase();
     const reason = String(req.body.reason || '').trim();
+    const batchId = String(req.body.batchId || '').trim();
     if (!code || quantity <= 0) {
-        return res.status(400).json({ success: false, message: 'Kailangan ng product code at quantity na mas malaki sa zero.' });
+        return res.status(400).json({ success: false, message: 'A product code and a quantity greater than zero are required.' });
     }
     if (!WASTE_CATEGORIES.has(category)) {
-        return res.status(400).json({ success: false, message: `Invalid category. Pumili sa: ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
+        return res.status(400).json({ success: false, message: `Invalid category. Choose one of: ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
+    }
+    if (batchId && !getUnlockedFeatureIds().includes('batch_lot_tracking')) {
+        return res.status(403).json({ success: false, message: 'Selecting a lot is part of the Batch/Lot Tracking feature, which is still locked.' });
     }
     const products = readProductsNoImages([]);
     const prod = products.find(p => String(p.code || '').trim().toLowerCase() === code.toLowerCase());
-    if (!prod) return res.status(404).json({ success: false, message: `Product ${code} hindi nahanap.` });
+    if (!prod) return res.status(404).json({ success: false, message: `Product ${code} not found.` });
     const currentStock = uomPricing.round(parseFloat(prod.stock) || 0, uomPricing.DECIMAL_PLACES);
     if (quantity > currentStock + 1e-6) {
-        return res.status(400).json({ success: false, message: `Ang stock ng ${prod.name || code} ay ${currentStock} lang — hindi maaaring mag-log ng ${quantity}.` });
+        return res.status(400).json({ success: false, message: `Stock of ${prod.name || code} is only ${currentStock} — cannot log ${quantity}.` });
     }
-    deductProductStock(prod, quantity);
+    if (batchId) {
+        // A specific lot is being disposed (e.g. the expired / damaged one): take it from THAT lot only.
+        if (!Array.isArray(prod.batches) || prod.batches.length === 0) {
+            return res.status(400).json({ success: false, message: `${prod.name || code} has no batch/lot; do not select a lot.` });
+        }
+        foldLegacyStockIntoBatches(prod);
+        const targetBatch = prod.batches.find(b => String(b.id) === batchId);
+        if (!targetBatch) return res.status(404).json({ success: false, message: 'The selected lot was not found. Refresh the lot list.' });
+        const lotAvail = uomPricing.round(parseFloat(targetBatch.quantity) || 0, uomPricing.DECIMAL_PLACES);
+        if (quantity > lotAvail + 1e-6) {
+            return res.status(400).json({ success: false, message: `Lot ${targetBatch.lotNumber || '(no lot #)'} only has ${lotAvail} — cannot log ${quantity} from it.` });
+        }
+    }
+    const allocations = deductProductStock(prod, quantity, batchId ? { batchId, strictBatch: true } : undefined);
     const cost = productUnitCost(prod);
     const entries = readData(FILE_WASTE_LOG, []);
     const entry = {
         id: genWasteId(),
         code, name: prod.name || '', unit: prod.baseUnit || 'unit',
         quantity, category, reason,
-        costImpact: uomPricing.round(quantity * cost, 2),
+        costImpact: costFromAllocations(allocations, quantity, cost),
         notes: String(req.body.notes || '').trim(),
         recordedAt: new Date().toISOString(),
-        recordedBy: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown'
+        recordedBy: req.authUser && req.authUser.username ? req.authUser.username : 'Unknown',
+        source: 'waste_log',
+        stockDeducted: true,
+        lots: allocations.map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty }))
     };
+    if (batchId) entry.batchId = batchId;
     entries.unshift(entry);
     try {
         commitDataModules([
@@ -14915,11 +16843,690 @@ function processAddWasteEntry(req, res) {
         ]);
     } catch (error) {
         console.error('Waste log commit failed:', error);
-        return res.status(500).json({ success: false, message: 'Hindi na-save ang waste entry. Subukan muli.' });
+        return res.status(500).json({ success: false, message: 'Could not save the waste entry. Please try again.' });
     }
     logAction(entry.recordedBy, `WASTE LOG: ${quantity} x ${prod.name || code} (${category}) — ${reason || 'no reason given'} — est. loss ₱${entry.costImpact.toFixed(2)}`);
-    res.json({ success: true, message: 'Na-record ang waste/damage at na-deduct na sa stock.', entry });
+    res.json({ success: true, message: 'Waste/damage recorded and deducted from stock.', entry });
 }
+// Lots of a product that can be picked when disposing stock (FEFO order, only lots that still have stock).
+app.get('/api/waste-log/lots', requirePermission('waste_log'), requireFeature('inventory_tools'), (req, res) => {
+    const code = String(req.query.code || '').trim().toLowerCase();
+    if (!code || !getUnlockedFeatureIds().includes('batch_lot_tracking')) {
+        return res.json({ success: true, lots: [] });
+    }
+    const prod = readProductsNoImages([]).find(p => String(p.code || '').trim().toLowerCase() === code);
+    if (!prod || !Array.isArray(prod.batches)) return res.json({ success: true, lots: [] });
+    const lots = sortBatchesFEFO(prod.batches)
+        .filter(b => (parseFloat(b.quantity) || 0) > 1e-9)
+        .map(b => ({
+            id: b.id,
+            lotNumber: b.lotNumber || null,
+            expiryDate: b.expiryDate || null,
+            quantity: uomPricing.round(parseFloat(b.quantity) || 0, uomPricing.DECIMAL_PLACES),
+            expired: isDateExpired(b.expiryDate)
+        }));
+    res.json({ success: true, lots });
+});
+
+// ============================================================================
+// STOCK MOVEMENT LEDGER (read-only)
+// Builds a per-product timeline of every stock movement that is already recorded by the other modules
+// (sales, returns put back on the shelf, PO receipts, consignment receipts, waste / batch losses, physical
+// count adjustments). Nothing is written or changed here, so it can never affect stock.
+// NOT covered (no dated record exists): manual stock edits in the product form, quick-restock requests,
+// branch transfers, consignment returns to the supplier and batch add/correction without a loss.
+// ============================================================================
+const LEDGER_TYPE_LABELS = {
+    sale: 'Sale',
+    return_restock: 'Return restocked',
+    po_receive: 'PO received',
+    consignment_in: 'Consignment in',
+    waste: 'Waste / damage',
+    batch_delete: 'Batch deleted',
+    batch_edit: 'Batch qty cut',
+    count_adjust: 'Count adjustment'
+};
+function buildStockMovements({ code, type, fromMs, toMs }) {
+    const want = String(code || '').trim().toLowerCase();
+    const DP = uomPricing.DECIMAL_PLACES;
+    const events = [];
+    const match = (c) => !want || String(c || '').trim().toLowerCase() === want;
+    const push = (e) => {
+        const ts = new Date(e.at).getTime();
+        if (isNaN(ts) || ts < fromMs || ts > toMs) return;
+        const delta = uomPricing.round(e.delta, DP);
+        if (!(Math.abs(delta) > 1e-9)) return;
+        if (type && e.type !== type) return;
+        events.push({ ...e, delta, ts });
+    };
+    // SCALE FIX: SQL ang nagtatapon ng mga benta na malinaw na labas sa fromMs..toMs (superset; ang eksaktong filter sa ibaba ang nagpapasya pa rin).
+    for (const tx of (readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', fromMs, toMs) || readData(FILE_TRANSACTIONS, []))) {
+        const at = tx && (tx.isoDate || tx.createdAt || tx.date || tx.timestamp || tx.isoTimestamp);
+        const t = new Date(at).getTime();
+        if (isNaN(t) || t < fromMs || t > toMs) continue;
+        for (const item of (Array.isArray(tx.items) ? tx.items : [])) {
+            if (!match(item.code)) continue;
+            const base = (typeof item.baseQty === 'number') ? item.baseQty : (parseFloat(item.quantity) || 0);
+            push({
+                at, type: 'sale', code: item.code, name: item.name || '', delta: -base,
+                ref: tx.id ? `Sale ${tx.id}` : 'Sale', by: tx.cashier || '',
+                lots: normalizeAllocations(item.batchAllocations).map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty }))
+            });
+        }
+    }
+    for (const rec of readData(FILE_STOCK_RETURNS, [])) {
+        const at = rec && (rec.lastReviewedAt || rec.inspectedAt);
+        if (!at) continue;
+        for (const item of (Array.isArray(rec.items) ? rec.items : [])) {
+            if (!match(item.code)) continue;
+            const restocked = toQty3(item.restockedQty);
+            if (!(restocked > 0)) continue;
+            push({
+                at, type: 'return_restock', code: item.code, name: item.name || '',
+                delta: restocked * lineFactor(item),
+                ref: `${rec.sourceType || 'Return'} ${rec.transactionId || ''}`.trim(), by: rec.lastReviewedBy || rec.inspectedBy || ''
+            });
+        }
+    }
+    for (const po of readData(FILE_PURCHASE_ORDERS, [])) {
+        if (!po) continue;
+        const ref = `PO #${po.id}${po.supplier ? ' · ' + po.supplier : ''}`;
+        if (Array.isArray(po.receiveHistory) && po.receiveHistory.length) {
+            for (const h of po.receiveHistory) {
+                for (const l of (Array.isArray(h.lines) ? h.lines : [])) {
+                    if (!match(l.code)) continue;
+                    push({
+                        at: h.at, type: 'po_receive', code: l.code, name: l.name || '', delta: toQty3(l.qty), ref, by: h.by || '',
+                        lots: (l.lotNumber || l.expiryDate) ? [{ lotNumber: l.lotNumber || null, expiryDate: l.expiryDate || null, qty: toQty3(l.qty) }] : []
+                    });
+                }
+            }
+        } else if (po.status === 'received' && po.receivedAt) {
+            // Older PO (received before partial receiving existed): the whole order was added at once.
+            const missing = new Set((Array.isArray(po.receivedMissingProducts) ? po.receivedMissingProducts : []).map(c => String(c).trim().toLowerCase()));
+            for (const it of (Array.isArray(po.items) ? po.items : [])) {
+                if (!match(it.code) || missing.has(String(it.code || '').trim().toLowerCase())) continue;
+                push({ at: po.receivedAt, type: 'po_receive', code: it.code, name: it.name || '', delta: toQty3(it.qty), ref, by: po.receivedBy || '' });
+            }
+        }
+    }
+    for (const rec of readData(FILE_CONSIGNMENTS, [])) {
+        if (!rec || !rec.dateReceived) continue;
+        for (const it of (Array.isArray(rec.items) ? rec.items : [])) {
+            if (!match(it.code)) continue;
+            push({
+                at: rec.dateReceived, type: 'consignment_in', code: it.code, name: it.name || '', delta: toQty3(it.qtyReceived),
+                ref: `Consignment ${rec.id}${rec.supplierName ? ' · ' + rec.supplierName : ''}`, by: rec.createdBy || ''
+            });
+        }
+    }
+    for (const w of readData(FILE_WASTE_LOG, [])) {
+        // Entries that came from a return inspection never deducted stock (it left at the sale), so skip them.
+        if (!w || w.stockDeducted === false || !match(w.code)) continue;
+        const kind = (w.source === 'batch_delete' || w.source === 'batch_edit') ? w.source : 'waste';
+        push({
+            at: w.recordedAt, type: kind, code: w.code, name: w.name || '', delta: -toQty3(w.quantity),
+            ref: `${LEDGER_TYPE_LABELS[kind]} · ${w.category || ''}${w.reason ? ' · ' + w.reason : ''}`, by: w.recordedBy || '',
+            lots: Array.isArray(w.lots) ? w.lots : []
+        });
+    }
+    for (const sess of readData(FILE_INVENTORY_COUNTS, [])) {
+        if (!sess || sess.status !== 'finalized' || !sess.finalizedAt) continue;
+        for (const it of (Array.isArray(sess.items) ? sess.items : [])) {
+            if (!match(it.code)) continue;
+            push({
+                at: sess.finalizedAt, type: 'count_adjust', code: it.code, name: it.name || '', delta: parseFloat(it.variance) || 0,
+                ref: `Count ${sess.id}${sess.approvedBy ? ' · approved by ' + sess.approvedBy : ''}`, by: sess.finalizedBy || ''
+            });
+        }
+    }
+    events.sort((a, b) => b.ts - a.ts);
+    return events;
+}
+app.get('/api/stock-movements', requirePermission('inventory_count'), requireFeature('inventory_tools'), (req, res) => {
+    const code = String(req.query.code || '').trim();
+    const type = String(req.query.type || '').trim().toLowerCase();
+    if (type && !Object.prototype.hasOwnProperty.call(LEDGER_TYPE_LABELS, type)) {
+        return res.status(400).json({ success: false, message: 'Unknown stock movement type.' });
+    }
+    const parseDay = (v, endOfDay) => {
+        const raw = String(v || '').trim();
+        if (!raw) return NaN;
+        const t = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw + (endOfDay ? 'T23:59:59.999' : 'T00:00:00') : raw).getTime();
+        return t;
+    };
+    let toMs = parseDay(req.query.to, true);
+    let fromMs = parseDay(req.query.from, false);
+    if (isNaN(toMs)) toMs = Date.now() + 24 * 60 * 60 * 1000;
+    if (isNaN(fromMs)) fromMs = toMs - 30 * 24 * 60 * 60 * 1000;
+    if (fromMs > toMs) return res.status(400).json({ success: false, message: 'The "From" date is later than the "To" date.' });
+    const limit = Math.min(2000, Math.max(1, parseInt(req.query.limit, 10) || 500));
+    const all = buildStockMovements({ code, type, fromMs, toMs });
+    const summary = {};
+    for (const e of all) {
+        const row = summary[e.type] || (summary[e.type] = { type: e.type, label: LEDGER_TYPE_LABELS[e.type], count: 0, qtyIn: 0, qtyOut: 0 });
+        row.count++;
+        if (e.delta > 0) row.qtyIn = uomPricing.round(row.qtyIn + e.delta, uomPricing.DECIMAL_PLACES);
+        else row.qtyOut = uomPricing.round(row.qtyOut + (-e.delta), uomPricing.DECIMAL_PLACES);
+    }
+    const totalIn = uomPricing.round(all.filter(e => e.delta > 0).reduce((s, e) => s + e.delta, 0), uomPricing.DECIMAL_PLACES);
+    const totalOut = uomPricing.round(all.filter(e => e.delta < 0).reduce((s, e) => s - e.delta, 0), uomPricing.DECIMAL_PLACES);
+    res.json({
+        success: true,
+        movements: all.slice(0, limit).map(({ ts, ...rest }) => ({ ...rest, typeLabel: LEDGER_TYPE_LABELS[rest.type] })),
+        total: all.length,
+        truncated: all.length > limit,
+        totalIn, totalOut,
+        net: uomPricing.round(totalIn - totalOut, uomPricing.DECIMAL_PLACES),
+        summary: Object.values(summary)
+    });
+});
+
+// ============================================================================
+// INVENTORY INSIGHTS (read-only reports built from records that already exist; nothing here changes stock)
+//   1. Shrinkage / Variance report      GET /api/shrinkage-report
+//   2. Smart Reorder (sales velocity)   GET /api/smart-reorder
+//   3. Near-Expiry Action List          GET /api/near-expiry-actions   (the Dispose button reuses POST /api/waste-log)
+//   4. Supplier Cost History + alerts   GET /api/supplier-costs        (cost is recorded when a PO is received)
+// Known limits (documented, not bugs): sales velocity counts what was sold (voided sales are already removed; refunds are
+// not netted out), and the cost history only has data from Purchase Orders received WITH a unit cost entered.
+// ============================================================================
+const INSIGHT_DAY_MS = 24 * 60 * 60 * 1000;
+function insightClampInt(v, def, min, max) {
+    const n = parseInt(v, 10);
+    return isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+}
+function insightTxTimeMs(tx) {
+    const at = tx && (tx.isoDate || tx.createdAt || tx.date || tx.timestamp || tx.isoTimestamp);
+    const t = new Date(at).getTime();
+    return isNaN(t) ? null : t;
+}
+// Base units sold per product: inside the window, inside the last 7 days, and when it was first ever sold.
+function computeSalesVelocity(windowDays) {
+    const now = Date.now();
+    const cutoff = now - windowDays * INSIGHT_DAY_MS;
+    const recentCutoff = now - 7 * INSIGHT_DAY_MS;
+    const map = new Map();
+    for (const tx of readData(FILE_TRANSACTIONS, [])) {
+        const t = insightTxTimeMs(tx);
+        if (t === null || t > now || !Array.isArray(tx.items)) continue;
+        for (const item of tx.items) {
+            const key = String(item && item.code || '').trim().toLowerCase();
+            if (!key) continue;
+            const q = (typeof item.baseQty === 'number') ? item.baseQty : (parseFloat(item.quantity) || 0);
+            if (!(q > 0)) continue;
+            let e = map.get(key);
+            if (!e) { e = { sold: 0, sold7: 0, firstAt: t }; map.set(key, e); }
+            if (t < e.firstAt) e.firstAt = t;
+            if (t >= cutoff) e.sold += q;
+            if (t >= recentCutoff) e.sold7 += q;
+        }
+    }
+    return map;
+}
+// Daily sales rate. A product that only started selling recently is judged over its own (>= 7 day) life instead of
+// the whole window, and once there are 2+ weeks of history the last 7 days weigh 40% so a seasonal rise or drop shows up.
+function forecastDailyRate(entry, windowDays, now) {
+    if (!entry || !(entry.sold > 0)) return { avgDaily: 0, recentDaily: 0, forecastDaily: 0 };
+    const ageDays = Math.max(1, Math.ceil((now - entry.firstAt) / INSIGHT_DAY_MS));
+    const effectiveDays = Math.min(windowDays, Math.max(7, ageDays));
+    const avgDaily = entry.sold / effectiveDays;
+    const recentDaily = entry.sold7 / 7;
+    const forecastDaily = effectiveDays >= 14 ? (0.6 * avgDaily + 0.4 * recentDaily) : avgDaily;
+    return { avgDaily, recentDaily, forecastDaily };
+}
+function insightRoundUpQty(n, allowDecimal) {
+    if (!(n > 0)) return 0;
+    return allowDecimal ? Math.ceil(n * 1000 - 1e-9) / 1000 : Math.ceil(n - 1e-9);
+}
+function insightMonthKey(ms) {
+    // 'YYYY-MM' in Manila time, like the rest of the store reports
+    return new Date(ms).toLocaleString('sv-SE', { timeZone: 'Asia/Manila' }).slice(0, 7);
+}
+function insightParseDay(v, endOfDay) {
+    const raw = String(v || '').trim();
+    if (!raw) return NaN;
+    return new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw + (endOfDay ? 'T23:59:59.999' : 'T00:00:00') : raw).getTime();
+}
+
+// ---------------- 1. SHRINKAGE / VARIANCE REPORT ----------------
+const SHRINKAGE_TYPE_LABELS = {
+    count_variance: 'Count variance',
+    waste: 'Waste / damage',
+    damaged_return: 'Damaged returns',
+    batch_loss: 'Batch loss'
+};
+app.get('/api/shrinkage-report', requirePermission('inventory_count'), requireFeature('inventory_tools'), (req, res) => {
+    let toMs = insightParseDay(req.query.to, true);
+    let fromMs = insightParseDay(req.query.from, false);
+    if (isNaN(toMs)) toMs = Date.now() + INSIGHT_DAY_MS;
+    if (isNaN(fromMs)) fromMs = toMs - 90 * INSIGHT_DAY_MS;
+    if (fromMs > toMs) return res.status(400).json({ success: false, message: 'The "From" date is later than the "To" date.' });
+    const productByCode = new Map(readProductsNoImages([]).map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    const rows = []; // { ts, type, category, code, name, qty (signed: negative = lost), value (signed: negative = lost) }
+    let hasEstimated = false;
+    for (const sess of readData(FILE_INVENTORY_COUNTS, [])) {
+        if (!sess || sess.status !== 'finalized' || !sess.finalizedAt) continue;
+        const ts = new Date(sess.finalizedAt).getTime();
+        if (isNaN(ts) || ts < fromMs || ts > toMs) continue;
+        for (const it of (Array.isArray(sess.items) ? sess.items : [])) {
+            const diff = uomPricing.round(parseFloat(it.variance) || 0, uomPricing.DECIMAL_PLACES);
+            if (Math.abs(diff) < 1e-6) continue;
+            let value;
+            if (typeof it.valueImpact === 'number' && isFinite(it.valueImpact)) {
+                value = it.valueImpact;
+            } else {
+                // Counts finalized before costs were stamped on the session: valued at the product's current cost.
+                value = uomPricing.round(diff * productUnitCost(productByCode.get(String(it.code || '').trim().toLowerCase())), 2);
+                hasEstimated = true;
+            }
+            rows.push({ ts, type: 'count_variance', category: 'count_variance', code: it.code, name: it.name || '', qty: diff, value, by: String(it.countedBy || sess.finalizedBy || '') });
+        }
+    }
+    for (const w of readData(FILE_WASTE_LOG, [])) {
+        if (!w) continue;
+        const ts = new Date(w.recordedAt).getTime();
+        if (isNaN(ts) || ts < fromMs || ts > toMs) continue;
+        const type = w.source === 'stock_return' ? 'damaged_return'
+            : ((w.source === 'batch_delete' || w.source === 'batch_edit') ? 'batch_loss' : 'waste');
+        const qty = toQty3(w.quantity);
+        const cost = Math.max(0, parseFloat(w.costImpact) || 0);
+        rows.push({ ts, type, category: String(w.category || 'other').toLowerCase(), code: w.code, name: w.name || '', qty: -qty, value: -cost, by: String(w.recordedBy || '') });
+    }
+    const types = {};
+    Object.keys(SHRINKAGE_TYPE_LABELS).forEach(k => { types[k] = { type: k, label: SHRINKAGE_TYPE_LABELS[k], loss: 0, qty: 0, count: 0 }; });
+    let countGainValue = 0, countGainQty = 0;
+    const byProduct = new Map();
+    const byMonth = new Map();
+    const byCategory = new Map();
+    const byUser = new Map();
+    for (const r of rows) {
+        const isGain = r.value > 0 || (r.value === 0 && r.qty > 0);
+        if (isGain) {
+            countGainValue += r.value;
+            countGainQty += r.qty;
+            continue;
+        }
+        const loss = -r.value;
+        const lostQty = -r.qty;
+        const t = types[r.type];
+        t.loss += loss; t.qty += lostQty; t.count++;
+        const pKey = String(r.code || '').trim().toLowerCase();
+        let p = byProduct.get(pKey);
+        if (!p) { p = { code: r.code, name: r.name, loss: 0, qty: 0, count: 0, byType: {} }; byProduct.set(pKey, p); }
+        p.loss += loss; p.qty += lostQty; p.count++;
+        p.byType[r.type] = (p.byType[r.type] || 0) + loss;
+        const mKey = insightMonthKey(r.ts);
+        let m = byMonth.get(mKey);
+        if (!m) { m = { month: mKey, loss: 0, byType: {} }; byMonth.set(mKey, m); }
+        m.loss += loss;
+        m.byType[r.type] = (m.byType[r.type] || 0) + loss;
+        let c = byCategory.get(r.category);
+        if (!c) { c = { category: r.category, loss: 0, count: 0 }; byCategory.set(r.category, c); }
+        c.loss += loss; c.count++;
+        const uKey = r.by || '(unknown)';
+        let u = byUser.get(uKey);
+        if (!u) { u = { user: uKey, loss: 0, count: 0, byType: {} }; byUser.set(uKey, u); }
+        u.loss += loss; u.count++;
+        u.byType[r.type] = (u.byType[r.type] || 0) + loss;
+    }
+    // Cost of goods sold in the same period (current product cost x base units sold), so the loss can be read as a % of it.
+    let cogs = 0;
+    // SCALE FIX: SQL ang nagtatapon ng mga benta na malinaw na labas sa from..to (superset lang; ang eksaktong filter sa ibaba ang nagpapasya pa rin).
+    for (const tx of (readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', fromMs, toMs) || readData(FILE_TRANSACTIONS, []))) {
+        const t = insightTxTimeMs(tx);
+        if (t === null || t < fromMs || t > toMs || !Array.isArray(tx.items)) continue;
+        for (const item of tx.items) {
+            const q = (typeof item.baseQty === 'number') ? item.baseQty : (parseFloat(item.quantity) || 0);
+            if (!(q > 0)) continue;
+            cogs += q * productUnitCost(productByCode.get(String(item.code || '').trim().toLowerCase()));
+        }
+    }
+    const r2 = (n) => uomPricing.round(n, 2);
+    const typeList = Object.values(types).map(t => ({ ...t, loss: r2(t.loss), qty: uomPricing.round(t.qty, uomPricing.DECIMAL_PLACES) }));
+    const totalLoss = r2(typeList.reduce((s, t) => s + t.loss, 0));
+    const fixBreakdown = (obj) => { const out = {}; Object.keys(obj).forEach(k => { out[k] = r2(obj[k]); }); return out; };
+    res.json({
+        success: true,
+        from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(),
+        totalLoss,
+        countGainValue: r2(countGainValue),
+        countGainQty: uomPricing.round(countGainQty, uomPricing.DECIMAL_PLACES),
+        netLoss: r2(totalLoss - countGainValue),
+        cogs: r2(cogs),
+        shrinkPctOfCogs: cogs > 0 ? Math.round((totalLoss / cogs) * 1000) / 10 : null,
+        byUser: Array.from(byUser.values()).map(u => ({ ...u, loss: r2(u.loss), byType: fixBreakdown(u.byType) })).sort((a, b) => b.loss - a.loss).slice(0, 50),
+        hasEstimated,
+        byType: typeList,
+        byCategory: Array.from(byCategory.values()).map(c => ({ ...c, loss: r2(c.loss) })).sort((a, b) => b.loss - a.loss),
+        byMonth: Array.from(byMonth.values()).map(m => ({ ...m, loss: r2(m.loss), byType: fixBreakdown(m.byType) })).sort((a, b) => a.month.localeCompare(b.month)),
+        byProduct: Array.from(byProduct.values())
+            .map(p => ({ ...p, loss: r2(p.loss), qty: uomPricing.round(p.qty, uomPricing.DECIMAL_PLACES), byType: fixBreakdown(p.byType) }))
+            .sort((a, b) => b.loss - a.loss).slice(0, 100)
+    });
+});
+
+// ---------------- 2. SMART REORDER (based on sales speed) ----------------
+app.get('/api/smart-reorder', requirePermission('reorder'), requireFeature('inventory_tools'), (req, res) => {
+    const windowDays = insightClampInt(req.query.days, 30, 7, 365);
+    const leadDays = insightClampInt(req.query.lead, 7, 0, 90);
+    const coverDays = insightClampInt(req.query.cover, 14, 1, 180);
+    const now = Date.now();
+    const DP = uomPricing.DECIMAL_PLACES;
+    const velocity = computeSalesVelocity(windowDays);
+    const orders = readData(FILE_PURCHASE_ORDERS, []);
+    const openByCode = new Map();
+    const lastSupplierByCode = new Map();
+    const orderedOldestFirst = [...orders].sort((a, b) => String(a && a.createdAt || '').localeCompare(String(b && b.createdAt || '')));
+    for (const po of orderedOldestFirst) {
+        if (!po) continue;
+        for (const it of (Array.isArray(po.items) ? po.items : [])) {
+            const key = String(it.code || '').trim().toLowerCase();
+            if (!key) continue;
+            if (po.supplier && po.supplier !== 'No Supplier Specified' && po.supplier !== 'Walang Tinukoy na Supplier') lastSupplierByCode.set(key, po.supplier);
+            if (po.status === 'ordered') {
+                const left = Math.max(0, uomPricing.round(toQty3(it.qty) - toQty3(it.receivedQty), DP));
+                if (left > 0) openByCode.set(key, uomPricing.round((openByCode.get(key) || 0) + left, DP));
+            }
+        }
+    }
+    // Real lead time per supplier = average days from PO created to PO fully received (needs 2+ received POs).
+    const leadAgg = new Map();
+    for (const po of orders) {
+        if (!po || po.status !== 'received' || po.closedShort || !po.receivedAt || !po.createdAt || !po.supplier) continue;
+        const days = (new Date(po.receivedAt).getTime() - new Date(po.createdAt).getTime()) / INSIGHT_DAY_MS;
+        if (!isFinite(days) || days < 0 || days > 120) continue;
+        const k = supplierKey(po.supplier);
+        const a = leadAgg.get(k) || { sum: 0, n: 0 };
+        a.sum += days; a.n++;
+        leadAgg.set(k, a);
+    }
+    const items = [];
+    let okCount = 0;
+    for (const p of readProductsNoImages([])) {
+        const key = String(p.code || '').trim().toLowerCase();
+        if (!key) continue;
+        const rate = forecastDailyRate(velocity.get(key), windowDays, now);
+        if (!(rate.forecastDaily > 0)) continue;
+        const stock = uomPricing.round(Math.max(0, parseFloat(p.stock) || 0), DP);
+        const onOrder = openByCode.get(key) || 0;
+        const supplierName = p.supplier || lastSupplierByCode.get(key) || '';
+        const agg = leadAgg.get(supplierKey(supplierName));
+        const measuredLead = (agg && agg.n >= 2) ? Math.min(90, Math.max(1, Math.ceil(agg.sum / agg.n))) : null;
+        const itemLead = measuredLead !== null ? measuredLead : leadDays;
+        const need = rate.forecastDaily * (itemLead + coverDays) - stock - onOrder;
+        const suggestedQty = insightRoundUpQty(need, !!p.allowDecimal);
+        if (suggestedQty <= 0) { okCount++; continue; }
+        const daysLeft = stock / rate.forecastDaily;
+        const unitCost = productUnitCost(p);
+        items.push({
+            code: p.code, name: p.name || '', category: p.category || '',
+            unit: p.baseUnit || 'unit',
+            supplier: supplierName,
+            leadDays: itemLead, leadSource: measuredLead !== null ? 'measured' : 'default',
+            stock, onOrder,
+            avgDaily: uomPricing.round(rate.avgDaily, 3),
+            forecastDaily: uomPricing.round(rate.forecastDaily, 3),
+            trendPct: rate.avgDaily > 0 ? Math.round((rate.recentDaily / rate.avgDaily - 1) * 100) : null,
+            daysLeft: uomPricing.round(daysLeft, 1),
+            suggestedQty,
+            unitCost,
+            estCost: uomPricing.round(suggestedQty * unitCost, 2),
+            status: daysLeft <= itemLead ? 'urgent' : 'soon'
+        });
+    }
+    items.sort((a, b) => (a.status === b.status ? a.daysLeft - b.daysLeft : (a.status === 'urgent' ? -1 : 1)));
+    res.json({
+        success: true, windowDays, leadDays, coverDays, items, okCount,
+        urgentCount: items.filter(i => i.status === 'urgent').length,
+        soonCount: items.filter(i => i.status === 'soon').length,
+        totalEstCost: uomPricing.round(items.reduce((s, i) => s + i.estCost, 0), 2),
+        purchaseOrdersUnlocked: getUnlockedFeatureIds().includes('purchase_orders')
+    });
+});
+
+// ---------------- 3. NEAR-EXPIRY ACTION LIST ----------------
+app.get('/api/near-expiry-actions', requirePermission('waste_log'), requireFeature('inventory_tools'), (req, res) => {
+    const withinDays = insightClampInt(req.query.days, 30, 1, 365);
+    const now = Date.now();
+    const DP = uomPricing.DECIMAL_PLACES;
+    const velocity = computeSalesVelocity(30);
+    const lots = [];
+    for (const p of readProductsNoImages([])) {
+        const key = String(p.code || '').trim().toLowerCase();
+        if (!key) continue;
+        const dailyRate = forecastDailyRate(velocity.get(key), 30, now).forecastDaily;
+        const productCost = productUnitCost(p);
+        const price = Math.max(0, parseFloat(p.price) || 0);
+        let candidates = [];
+        if (Array.isArray(p.batches) && p.batches.length) {
+            candidates = sortBatchesFEFO(p.batches)
+                .map(b => {
+                    const bc = parseFloat(b.costPrice);
+                    return {
+                        batchId: b.id, lotNumber: b.lotNumber || null, expiryDate: b.expiryDate || null,
+                        qty: uomPricing.round(parseFloat(b.quantity) || 0, DP),
+                        cost: (isFinite(bc) && bc > 0) ? bc : productCost
+                    };
+                })
+                .filter(c => c.qty > 1e-9);
+        } else if (p.expiryDate && (parseFloat(p.stock) || 0) > 1e-9) {
+            candidates = [{ batchId: null, lotNumber: null, expiryDate: p.expiryDate, qty: uomPricing.round(parseFloat(p.stock) || 0, DP), cost: productCost }];
+        }
+        let aheadQty = 0; // stock that is sold first (FEFO) and so eats into the selling time of this lot
+        for (const c of candidates) {
+            const expMs = c.expiryDate ? new Date(c.expiryDate).getTime() : NaN;
+            const ahead = aheadQty;
+            aheadQty += c.qty;
+            if (isNaN(expMs)) continue;
+            const diffMs = expMs + INSIGHT_DAY_MS - now; // expiry DAY is still sellable (same rule as isDateExpired)
+            const expired = diffMs <= 0;
+            const daysLeft = expired ? -Math.max(1, Math.ceil(-diffMs / INSIGHT_DAY_MS)) : Math.floor(diffMs / INSIGHT_DAY_MS);
+            if (!expired && daysLeft > withinDays) continue;
+            const sellable = expired ? 0 : Math.max(0, dailyRate * (diffMs / INSIGHT_DAY_MS) - ahead);
+            const atRiskQty = expired ? c.qty : uomPricing.round(Math.max(0, c.qty - sellable), DP);
+            let action = 'watch', markdownPct = 0, suggestedPrice = null, noMargin = false;
+            if (expired) {
+                action = 'dispose';
+            } else if (atRiskQty > 1e-6) {
+                action = 'markdown';
+                markdownPct = daysLeft <= 3 ? 40 : (daysLeft <= 7 ? 30 : (daysLeft <= 14 ? 20 : 10));
+                if (price > 0 && c.cost > 0) {
+                    // never suggest a price below what the lot cost
+                    const maxPct = Math.floor((1 - c.cost / price) * 100);
+                    if (maxPct < markdownPct) { markdownPct = Math.max(0, maxPct); }
+                    if (markdownPct <= 0) noMargin = true;
+                }
+                if (price > 0) suggestedPrice = uomPricing.round(price * (1 - markdownPct / 100), 2);
+            }
+            lots.push({
+                code: p.code, name: p.name || '', unit: p.baseUnit || 'unit',
+                batchId: c.batchId, lotNumber: c.lotNumber, expiryDate: c.expiryDate,
+                qty: c.qty, daysLeft, expired,
+                dailyRate: uomPricing.round(dailyRate, 3),
+                atRiskQty: uomPricing.round(atRiskQty, DP),
+                valueAtRisk: uomPricing.round(atRiskQty * c.cost, 2),
+                price, cost: c.cost,
+                action, markdownPct, suggestedPrice, noMargin,
+                noSales: !(dailyRate > 0)
+            });
+        }
+    }
+    lots.sort((a, b) => a.daysLeft - b.daysLeft);
+    res.json({
+        success: true, withinDays, items: lots,
+        expiredCount: lots.filter(l => l.action === 'dispose').length,
+        markdownCount: lots.filter(l => l.action === 'markdown').length,
+        watchCount: lots.filter(l => l.action === 'watch').length,
+        totalValueAtRisk: uomPricing.round(lots.reduce((s, l) => s + l.valueAtRisk, 0), 2),
+        batchLotUnlocked: getUnlockedFeatureIds().includes('batch_lot_tracking')
+    });
+});
+
+// ---------------- 4. SUPPLIER COST HISTORY + PRICE-CHANGE ALERTS ----------------
+// The unit cost is written on each Purchase Order receipt line (receiveHistory[].lines[].unitCost), so no new storage
+// module is needed: the history is derived from the Purchase Orders themselves.
+const COST_INCREASE_ALERT_PCT = 5;          // supplier's cost went up by at least this % vs their previous delivery
+const CHEAPER_SUPPLIER_ALERT_PCT = 5;       // another supplier's latest cost is at least this % lower
+const CHEAPER_SUPPLIER_MAX_AGE_DAYS = 180;  // ...and was delivered within this many days
+function parseUnitCost(v) {
+    if (v === undefined || v === null || String(v).trim() === '') return null;
+    const n = parseFloat(v);
+    return (isFinite(n) && n > 0) ? Math.round(n * 10000) / 10000 : null;
+}
+function supplierKey(name) { return String(name || '').trim().toLowerCase(); }
+function buildSupplierCostEntries(orders) {
+    const out = [];
+    for (const po of (Array.isArray(orders) ? orders : [])) {
+        if (!po || !Array.isArray(po.receiveHistory)) continue;
+        const supplier = String(po.supplier || '').trim();
+        for (const h of po.receiveHistory) {
+            const ts = new Date(h && h.at).getTime();
+            if (isNaN(ts)) continue;
+            for (const l of (Array.isArray(h.lines) ? h.lines : [])) {
+                const cost = parseUnitCost(l && l.unitCost);
+                if (cost === null || !l.code) continue;
+                out.push({ at: h.at, ts, poId: po.id, supplier, code: l.code, name: l.name || '', unitCost: cost, qty: toQty3(l.qty) });
+            }
+        }
+    }
+    out.sort((a, b) => a.ts - b.ts); // oldest first
+    return out;
+}
+// entries: one product's cost entries, oldest first
+function summarizeSupplierCosts(entries, now) {
+    const bySupplier = new Map();
+    for (const e of entries) {
+        const k = supplierKey(e.supplier);
+        let r = bySupplier.get(k);
+        if (!r) { r = { supplier: e.supplier, list: [] }; bySupplier.set(k, r); }
+        r.list.push(e);
+    }
+    const suppliers = Array.from(bySupplier.values()).map(r => {
+        const latest = r.list[r.list.length - 1];
+        const prev = r.list.length > 1 ? r.list[r.list.length - 2] : null;
+        const avg = r.list.reduce((s, e) => s + e.unitCost, 0) / r.list.length;
+        return {
+            supplier: r.supplier,
+            latestCost: latest.unitCost, latestAt: latest.at, latestTs: latest.ts,
+            previousCost: prev ? prev.unitCost : null,
+            changePct: prev ? Math.round(((latest.unitCost - prev.unitCost) / prev.unitCost) * 1000) / 10 : null,
+            avgCost: Math.round(avg * 100) / 100,
+            deliveries: r.list.length
+        };
+    });
+    const latestEntry = entries[entries.length - 1];
+    const current = suppliers.find(s => supplierKey(s.supplier) === supplierKey(latestEntry.supplier));
+    const maxAge = CHEAPER_SUPPLIER_MAX_AGE_DAYS * INSIGHT_DAY_MS;
+    const others = suppliers.filter(s => s !== current && (now - s.latestTs) <= maxAge).sort((a, b) => a.latestCost - b.latestCost);
+    const cheapest = others.length ? others[0] : null;
+    const alerts = [];
+    if (current && current.changePct !== null && current.changePct >= COST_INCREASE_ALERT_PCT) alerts.push('increase');
+    let savingPct = null;
+    if (current && cheapest && cheapest.latestCost < current.latestCost) {
+        savingPct = Math.round(((current.latestCost - cheapest.latestCost) / current.latestCost) * 1000) / 10;
+        if (savingPct >= CHEAPER_SUPPLIER_ALERT_PCT) alerts.push('cheaper');
+    }
+    return { suppliers, current, cheapest, savingPct, alerts };
+}
+// Alerts raised the moment a PO line is received with a cost (called BEFORE that receipt is added to the history).
+function costAlertsForReceipt(orders, po, receivedLines) {
+    const entries = buildSupplierCostEntries(orders);
+    const now = Date.now();
+    const alerts = [];
+    for (const l of receivedLines) {
+        const cost = parseUnitCost(l.unitCost);
+        if (cost === null) continue;
+        const codeKey = String(l.code || '').trim().toLowerCase();
+        const sameCode = entries.filter(e => String(e.code || '').trim().toLowerCase() === codeKey);
+        const mine = supplierKey(po.supplier);
+        const prevSame = sameCode.filter(e => supplierKey(e.supplier) === mine);
+        if (prevSame.length) {
+            const prev = prevSame[prevSame.length - 1];
+            const pct = ((cost - prev.unitCost) / prev.unitCost) * 100;
+            if (pct >= COST_INCREASE_ALERT_PCT) {
+                alerts.push({ type: 'increase', code: l.code, name: l.name || l.code, supplier: po.supplier, previousCost: prev.unitCost, newCost: cost, changePct: Math.round(pct * 10) / 10 });
+            }
+        }
+        const latestByOther = new Map();
+        for (const e of sameCode) {
+            if (supplierKey(e.supplier) === mine || (now - e.ts) > CHEAPER_SUPPLIER_MAX_AGE_DAYS * INSIGHT_DAY_MS) continue;
+            latestByOther.set(supplierKey(e.supplier), e); // entries are oldest-first, so the last one wins
+        }
+        let cheaper = null;
+        for (const e of latestByOther.values()) if (!cheaper || e.unitCost < cheaper.unitCost) cheaper = e;
+        if (cheaper && cheaper.unitCost < cost) {
+            const pct = ((cost - cheaper.unitCost) / cost) * 100;
+            if (pct >= CHEAPER_SUPPLIER_ALERT_PCT) {
+                alerts.push({ type: 'cheaper_supplier', code: l.code, name: l.name || l.code, supplier: po.supplier, newCost: cost, cheaperSupplier: cheaper.supplier, cheaperCost: cheaper.unitCost, savingPct: Math.round(pct * 10) / 10 });
+            }
+        }
+    }
+    return alerts;
+}
+function describeCostAlert(a) {
+    return a.type === 'increase'
+        ? `${a.name}: cost went up from ${a.supplier} (₱${a.previousCost.toFixed(2)} → ₱${a.newCost.toFixed(2)}, +${a.changePct}%)`
+        : `${a.name}: cheaper at ${a.cheaperSupplier} (₱${a.cheaperCost.toFixed(2)} vs ₱${a.newCost.toFixed(2)}, -${a.savingPct}%)`;
+}
+app.get('/api/supplier-costs', requirePermission('reorder'), requireFeature('inventory_tools'), (req, res) => {
+    const now = Date.now();
+    const wantCode = String(req.query.code || '').trim().toLowerCase();
+    const entries = buildSupplierCostEntries(readData(FILE_PURCHASE_ORDERS, []));
+    const productByCode = new Map(readProductsNoImages([]).map(p => [String(p.code || '').trim().toLowerCase(), p]));
+    const byCode = new Map();
+    for (const e of entries) {
+        const k = String(e.code || '').trim().toLowerCase();
+        if (wantCode && k !== wantCode) continue;
+        if (!byCode.has(k)) byCode.set(k, []);
+        byCode.get(k).push(e);
+    }
+    const rows = [];
+    for (const [k, list] of byCode) {
+        const prod = productByCode.get(k);
+        const s = summarizeSupplierCosts(list, now);
+        const latest = list[list.length - 1];
+        const price = prod ? Math.max(0, parseFloat(prod.price) || 0) : 0;
+        const currentCost = prod ? productUnitCost(prod) : 0;
+        // Reprice suggestion: keep the product's current margin on the supplier's latest cost (rounded UP to the next ₱0.50).
+        let suggestedPrice = null;
+        if (price > 0 && currentCost > 0 && Math.abs(latest.unitCost - currentCost) / currentCost >= 0.03) {
+            const margin = (price - currentCost) / price;
+            if (margin > 0 && margin < 0.95) {
+                const sp = Math.ceil((latest.unitCost / (1 - margin)) * 2 - 1e-9) / 2;
+                if (Math.abs(sp - price) >= 0.005) suggestedPrice = sp;
+            }
+        }
+        rows.push({
+            code: latest.code, name: (prod && prod.name) || latest.name || latest.code,
+            latestSupplier: latest.supplier, latestCost: latest.unitCost, latestAt: latest.at,
+            previousCost: s.current ? s.current.previousCost : null,
+            changePct: s.current ? s.current.changePct : null,
+            cheapestSupplier: s.cheapest ? s.cheapest.supplier : null,
+            cheapestCost: s.cheapest ? s.cheapest.latestCost : null,
+            savingPct: s.savingPct,
+            supplierCount: s.suppliers.length,
+            price, currentCost, suggestedPrice,
+            marginPct: price > 0 ? Math.round(((price - latest.unitCost) / price) * 1000) / 10 : null,
+            alerts: suggestedPrice !== null ? [...s.alerts, 'reprice'] : s.alerts,
+            suppliers: wantCode ? s.suppliers.sort((a, b) => a.latestCost - b.latestCost) : undefined
+        });
+    }
+    rows.sort((a, b) => (b.alerts.length - a.alerts.length) || (Math.abs(b.changePct || 0) - Math.abs(a.changePct || 0)));
+    const out = {
+        success: true,
+        increaseAlertPct: COST_INCREASE_ALERT_PCT, cheaperAlertPct: CHEAPER_SUPPLIER_ALERT_PCT,
+        increaseCount: rows.filter(r => r.alerts.includes('increase')).length,
+        cheaperCount: rows.filter(r => r.alerts.includes('cheaper')).length,
+        repriceCount: rows.filter(r => r.alerts.includes('reprice')).length,
+        products: rows.slice(0, 300)
+    };
+    if (wantCode) {
+        out.history = (byCode.get(wantCode) || []).slice().reverse().slice(0, 200)
+            .map(({ ts, ...rest }) => rest);
+    }
+    res.json(out);
+});
 
 // ============================================================================
 // NEW (additive) — CONSIGNMENT TRACKING (goods received from a supplier on
@@ -14933,6 +17540,20 @@ function genConsignmentId() { return 'CNS-' + Date.now() + '-' + crypto.randomBy
 // by scanning completed transactions (voided sales are already removed from
 // FILE_TRANSACTIONS, and refunds are handled separately — this is a good-
 // enough operational figure for supplier settlement, not a BIR figure).
+// SCALE FIX: ang benta lang mula sa pinakamaagang dateReceived ng lahat ng consignment ang may epekto (ang mas luma ay
+// laging nilalaktawan ng at < since), kaya SQL ang nagtatapon ng mas luma. Kung may record na walang mababasang petsa
+// (since = 0), buong history ang binabasa gaya ng dati. Walang pang-itaas na hangganan.
+function readTransactionsForConsignments(allRecords) {
+    const recs = Array.isArray(allRecords) ? allRecords : [];
+    if (!recs.length) return [];
+    let minSince = Infinity;
+    for (const r of recs) {
+        const t = new Date(r && r.dateReceived).getTime() || 0;
+        if (t < minSince) minSince = t;
+    }
+    if (!(minSince > 0)) return readData(FILE_TRANSACTIONS, []);
+    return readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', minSince, Date.UTC(9000, 0, 1)) || readData(FILE_TRANSACTIONS, []);
+}
 function sumUnitsSoldSince(transactions, code, sinceIso) {
     const sinceTime = new Date(sinceIso).getTime() || 0;
     const lowerCode = String(code || '').trim().toLowerCase();
@@ -15022,7 +17643,7 @@ app.get('/api/consignments', requirePermission('consignment_tracking'), requireF
     let records = readData(FILE_CONSIGNMENTS, []);
     const allConsignmentRecords = records;
     if (status) records = records.filter(r => String(r.status || '').toLowerCase() === status);
-    const transactions = readData(FILE_TRANSACTIONS, []);
+    const transactions = readTransactionsForConsignments(allConsignmentRecords);
     res.json({ success: true, consignments: records.map(r => attachConsignmentComputedFields(r, transactions, allConsignmentRecords)) });
 });
 
@@ -15032,8 +17653,8 @@ app.post('/api/consignments', requirePermission('consignment_tracking'), require
 function processCreateConsignment(req, res) {
     const supplierName = String(req.body.supplierName || '').trim();
     const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
-    if (!supplierName) return res.status(400).json({ success: false, message: 'Kailangan ng pangalan ng supplier.' });
-    if (!rawItems.length) return res.status(400).json({ success: false, message: 'Kailangan ng kahit isang item.' });
+    if (!supplierName) return res.status(400).json({ success: false, message: 'A supplier name is required.' });
+    if (!rawItems.length) return res.status(400).json({ success: false, message: 'At least one item is required.' });
     const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
     const items = [];
@@ -15043,10 +17664,10 @@ function processCreateConsignment(req, res) {
         const unitCost = Math.max(0, parseFloat(raw.unitCost) || 0);
         if (!code || qtyReceived <= 0) continue;
         const prod = productByCode.get(code.toLowerCase());
-        if (!prod) return res.status(404).json({ success: false, message: `Product ${code} hindi nahanap.` });
+        if (!prod) return res.status(404).json({ success: false, message: `Product ${code} not found.` });
         items.push({ code, name: prod.name || '', unit: prod.baseUnit || 'unit', qtyReceived, unitCost, qtySettled: 0, qtyReturned: 0 });
     }
-    if (!items.length) return res.status(400).json({ success: false, message: 'Walang valid na item.' });
+    if (!items.length) return res.status(400).json({ success: false, message: 'No valid items.' });
     for (const item of items) {
         const prod = productByCode.get(item.code.toLowerCase());
         addBaseStock(prod, item.qtyReceived, { supplier: supplierName, notes: 'Received on consignment' });
@@ -15070,22 +17691,22 @@ function processCreateConsignment(req, res) {
         ]);
     } catch (error) {
         console.error('Consignment create commit failed:', error);
-        return res.status(500).json({ success: false, message: 'Hindi na-save ang consignment. Subukan muli.' });
+        return res.status(500).json({ success: false, message: 'Could not save the consignment. Please try again.' });
     }
     logAction(record.createdBy, `CONSIGNMENT RECEIVED (${record.id}) from ${supplierName}: ${items.length} product line(s) added to stock.`);
-    res.json({ success: true, message: 'Naitala ang consignment at naidagdag na sa stock.', consignment: record });
+    res.json({ success: true, message: 'Consignment recorded and added to stock.', consignment: record });
 }
 
 app.post('/api/consignments/:id/settle', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-settle', 60, 10 * 60 * 1000), (req, res) => {
     const id = String(req.params.id || '').trim();
     const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
-    if (!rawItems.length) return res.status(400).json({ success: false, message: 'Walang item na isesettle.' });
+    if (!rawItems.length) return res.status(400).json({ success: false, message: 'No items to settle.' });
     const records = readData(FILE_CONSIGNMENTS, []);
     const idx = records.findIndex(r => r.id === id);
-    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang consignment record.' });
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Consignment record not found.' });
     const record = records[idx];
-    if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
-    const transactions = readData(FILE_TRANSACTIONS, []);
+    if (record.status === 'closed') return res.status(409).json({ success: false, message: 'This consignment record is already closed.' });
+    const transactions = readTransactionsForConsignments(records);
     const computed = attachConsignmentComputedFields(record, transactions, records);
     const byCode = new Map(rawItems.map(i => [String(i.code || '').trim().toLowerCase(), i]));
     let settledAmount = 0, settledQtyTotal = 0;
@@ -15096,14 +17717,14 @@ app.post('/api/consignments/:id/settle', requirePermission('consignment_tracking
         const settleQty = toQty3(submitted.settleQty);
         if (settleQty <= 0) continue;
         if (settleQty > computedItem.qtyPendingSettlement + 1e-6) {
-            return res.status(400).json({ success: false, message: `${item.name || item.code}: pinakamataas na pwedeng i-settle ngayon ay ${computedItem.qtyPendingSettlement}.` });
+            return res.status(400).json({ success: false, message: `${item.name || item.code}: the most that can be settled right now is ${computedItem.qtyPendingSettlement}.` });
         }
         item.qtySettled = uomPricing.round((parseFloat(item.qtySettled) || 0) + settleQty, uomPricing.DECIMAL_PLACES);
         settledQtyTotal += settleQty;
         settledAmount += settleQty * (parseFloat(item.unitCost) || 0);
     }
     if (settledQtyTotal <= 0) {
-        return res.status(400).json({ success: false, message: 'Walang na-settle na quantity (baka lagpas sa pending o zero lahat).' });
+        return res.status(400).json({ success: false, message: 'No quantity was settled (it may exceed the pending amount, or all quantities are zero).' });
     }
     record.settlements.push({
         at: new Date().toISOString(),
@@ -15114,7 +17735,7 @@ app.post('/api/consignments/:id/settle', requirePermission('consignment_tracking
     records[idx] = record;
     writeData(FILE_CONSIGNMENTS, records);
     logAction(record.settlements[record.settlements.length - 1].by, `CONSIGNMENT SETTLED (${record.id}) with ${record.supplierName}: ₱${settledAmount.toFixed(2)} for ${settledQtyTotal} unit(s) sold.`);
-    res.json({ success: true, message: `Na-settle ang ₱${settledAmount.toFixed(2)} sa supplier.`, consignment: attachConsignmentComputedFields(record, transactions, records) });
+    res.json({ success: true, message: `₱${settledAmount.toFixed(2)} settled with the supplier.`, consignment: attachConsignmentComputedFields(record, transactions, records) });
 });
 
 app.post('/api/consignments/:id/return-unsold', requirePermission('consignment_tracking'), requireFeature('inventory_tools'), rateLimit('consignment-return', 30, 10 * 60 * 1000), async (req, res) => {
@@ -15123,13 +17744,13 @@ app.post('/api/consignments/:id/return-unsold', requirePermission('consignment_t
 function processConsignmentReturnUnsold(req, res) {
     const id = String(req.params.id || '').trim();
     const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
-    if (!rawItems.length) return res.status(400).json({ success: false, message: 'Walang item na ibabalik.' });
+    if (!rawItems.length) return res.status(400).json({ success: false, message: 'No items to return.' });
     const records = readData(FILE_CONSIGNMENTS, []);
     const idx = records.findIndex(r => r.id === id);
-    if (idx === -1) return res.status(404).json({ success: false, message: 'Hindi nahanap ang consignment record.' });
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Consignment record not found.' });
     const record = records[idx];
-    if (record.status === 'closed') return res.status(409).json({ success: false, message: 'Sarado na ang consignment record na ito.' });
-    const transactions = readData(FILE_TRANSACTIONS, []);
+    if (record.status === 'closed') return res.status(409).json({ success: false, message: 'This consignment record is already closed.' });
+    const transactions = readTransactionsForConsignments(records);
     const computed = attachConsignmentComputedFields(record, transactions, records);
     const products = readProductsNoImages([]);
     const productByCode = new Map(products.map(p => [String(p.code || '').trim().toLowerCase(), p]));
@@ -15142,19 +17763,19 @@ function processConsignmentReturnUnsold(req, res) {
         const returnQty = toQty3(submitted.returnQty);
         if (returnQty <= 0) continue;
         if (returnQty > computedItem.qtyUnsold + 1e-6) {
-            return res.status(400).json({ success: false, message: `${item.name || item.code}: pinakamataas na pwedeng ibalik ay ${computedItem.qtyUnsold} (unsold).` });
+            return res.status(400).json({ success: false, message: `${item.name || item.code}: the most that can be returned is ${computedItem.qtyUnsold} (unsold).` });
         }
         const prod = productByCode.get(item.code.toLowerCase());
-        if (!prod) return res.status(404).json({ success: false, message: `Product ${item.code} hindi na nahanap sa katalogo.` });
+        if (!prod) return res.status(404).json({ success: false, message: `Product ${item.code} is no longer in the catalog.` });
         const currentStock = uomPricing.round(parseFloat(prod.stock) || 0, uomPricing.DECIMAL_PLACES);
         if (returnQty > currentStock + 1e-6) {
-            return res.status(400).json({ success: false, message: `Ang aktwal na stock ng ${prod.name || item.code} ay ${currentStock} lang.` });
+            return res.status(400).json({ success: false, message: `The actual stock of ${prod.name || item.code} is only ${currentStock}.` });
         }
         deductProductStock(prod, returnQty);
         item.qtyReturned = uomPricing.round((parseFloat(item.qtyReturned) || 0) + returnQty, uomPricing.DECIMAL_PLACES);
         anyReturned = true;
     }
-    if (!anyReturned) return res.status(400).json({ success: false, message: 'Walang na-proseso na return (baka lagpas sa unsold o zero lahat).' });
+    if (!anyReturned) return res.status(400).json({ success: false, message: 'No return was processed (it may exceed the unsold quantity, or all quantities are zero).' });
     const stillOpen = record.items.some(item => {
         const c = attachConsignmentComputedFields(record, transactions, records).items.find(x => x.code === item.code);
         return c && (c.qtyUnsold > 1e-6 || c.qtyPendingSettlement > 1e-6);
@@ -15168,10 +17789,10 @@ function processConsignmentReturnUnsold(req, res) {
         ]);
     } catch (error) {
         console.error('Consignment return commit failed:', error);
-        return res.status(500).json({ success: false, message: 'Hindi na-save ang return. Subukan muli.' });
+        return res.status(500).json({ success: false, message: 'Could not save the return. Please try again.' });
     }
     logAction(req.authUser && req.authUser.username, `CONSIGNMENT RETURN TO SUPPLIER (${record.id}, ${record.supplierName})`);
-    res.json({ success: true, message: 'Naibalik sa supplier ang unsold na item(s).', consignment: attachConsignmentComputedFields(record, transactions, records) });
+    res.json({ success: true, message: 'Unsold item(s) returned to the supplier.', consignment: attachConsignmentComputedFields(record, transactions, records) });
 }
 
 // ============================================================================
@@ -15182,17 +17803,21 @@ app.get('/api/reports/dead-stock', requirePermission('dashboard'), requireFeatur
     const days = Math.max(1, parseInt(req.query.days, 10) || 60);
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const products = readProductsNoImages([]);
-    const transactions = readData(FILE_TRANSACTIONS, []);
+    // SCALE FIX: SQL (json_each + GROUP BY) ang kumukuha ng huling benta bawat code para sa mga row na may malinis na UTC isoDate;
+    // ang natitirang kakaibang row lang ang dumadaan sa dating JavaScript na lohika. Pareho pa rin ang resulta.
     const lastSoldByCode = new Map();
-    for (const t of transactions) {
+    const noteSold = (rawCode, at) => {
+        const code = String(rawCode || '').trim().toLowerCase();
+        if (!code || isNaN(at)) return;
+        const prev = lastSoldByCode.get(code);
+        if (!prev || at > prev) lastSoldByCode.set(code, at);
+    };
+    const lastSold = readLastSoldAggregates(FILE_TRANSACTIONS);
+    for (const row of lastSold.byCode) noteSold(row.code, new Date(row.iso).getTime());
+    for (const t of lastSold.otherRows) {
         const at = new Date(t.isoDate || t.timestamp || t.date || 0).getTime();
         if (isNaN(at) || !Array.isArray(t.items)) continue;
-        for (const item of t.items) {
-            const code = String(item.code || '').trim().toLowerCase();
-            if (!code) continue;
-            const prev = lastSoldByCode.get(code);
-            if (!prev || at > prev) lastSoldByCode.set(code, at);
-        }
+        for (const item of t.items) noteSold(item && item.code, at);
     }
     const now = Date.now();
     const results = products
@@ -15305,12 +17930,11 @@ async function processVoidTransaction(req, res) {
             message:'Incorrect password. The void was not authorized.'
         });
     }
-    let transactions = readData(FILE_TRANSACTIONS);
-    const txIndex = transactions.findIndex(t => t.id === transactionId);
-    if (txIndex === -1) {
+    // SCALE FIX: isang row lang ang binabasa/binubura (hindi na buong transactions).
+    const targetTx = getRowById(FILE_TRANSACTIONS, transactionId);
+    if (!targetTx) {
         return res.status(404).json({ success: false, message:'Transaction ID not found.' });
     }
-    const targetTx = transactions[txIndex];
     const voidedAmount = parseFloat(targetTx.total) || 0;
     const alreadyRefundedForVoid = Math.round((parseFloat(targetTx.totalRefunded) || 0) * 100) / 100;
     if (alreadyRefundedForVoid > 0) {
@@ -15356,7 +17980,6 @@ async function processVoidTransaction(req, res) {
         if (cust.totalSpent < 0) cust.totalSpent = 0;
         cust.visits = Math.max(0, (cust.visits || 0) - 1);
     }
-    transactions = transactions.filter(t => t.id !== transactionId);
     stockReturns.unshift(stockReturn);
     // AYOS/BUGFIX: dating hindi ibinabalik ang promo "use" kapag na-void ang
     // isang bentang gumamit ng PROMO discount — dahil buong transaksyon ang
@@ -15384,7 +18007,7 @@ async function processVoidTransaction(req, res) {
         ];
         if (customers) changes.push({ module: FILE_CUSTOMERS, data: customers });
         if (promosForVoid) changes.push({ module: FILE_PROMOCODES, data: promosForVoid });
-        changes.push({ module: FILE_TRANSACTIONS, data: transactions });
+        changes.push({ module: FILE_TRANSACTIONS, deleteRowIds: [transactionId] });
         commitDataModules(changes);
     } catch (error) {
         console.error('VOID commit failed:', error);
@@ -15427,12 +18050,11 @@ async function processRefundTransaction(req, res) {
             message: 'Incorrect password. The refund was not authorized.'
         });
     }
-    let transactions = readData(FILE_TRANSACTIONS);
-    const txIndex = transactions.findIndex(t => t.id === transactionId);
-    if (txIndex === -1) {
+    // SCALE FIX: isang row lang ang binabasa/ina-update (hindi na buong transactions).
+    const targetTx = getRowById(FILE_TRANSACTIONS, transactionId);
+    if (!targetTx) {
         return res.status(404).json({ success: false, message: 'Transaction ID not found.' });
     }
-    const targetTx = transactions[txIndex];
     const grandTotal = parseFloat(targetTx.total) || 0;
     if (requestedItems) {
         const requestedCodes = requestedItems
@@ -15454,6 +18076,7 @@ async function processRefundTransaction(req, res) {
     };
     const sumAllLinesGross = (targetTx.items || []).reduce((s, it) => s + lineGross(it), 0);
     const refundLines = [];
+    const refundLineAllocs = [];
     const rejectedRefundItems = [];
     let sumRefundGross = 0;
     const DP = uomPricing.DECIMAL_PLACES;
@@ -15514,6 +18137,7 @@ async function processRefundTransaction(req, res) {
             unit: item.unit || null,
             unitPrice: parseFloat(item.price) || 0
         });
+        refundLineAllocs.push(scaleAllocations(item.batchAllocations, qtyToRefund, toQty3(item.quantity)));
         const perUnitGross = item.quantity > 0 ? lineGross(item) / item.quantity : 0;
         sumRefundGross += perUnitGross * qtyToRefund;
     });
@@ -15539,7 +18163,7 @@ async function processRefundTransaction(req, res) {
         transactionId,
         requester: requester || 'Unknown',
         reason,
-        items: refundLines.map((line, index) => ({ ...line, lineId: `${transactionId}:refund:${Date.now()}:${index}` }))
+        items: refundLines.map((line, index) => ({ ...line, lineId: `${transactionId}:refund:${Date.now()}:${index}`, batchAllocations: refundLineAllocs[index] || [] }))
     });
     if (!stockReturn) {
         return res.status(400).json({ success: false, message: 'There are no valid items to move to stock-return inspection.' });
@@ -15584,7 +18208,6 @@ async function processRefundTransaction(req, res) {
             linkedDebt.status = 'unpaid';
         }
     }
-    transactions[txIndex] = targetTx;
     const refundRecord = {
         id: 'RFD-' + Date.now(),
         transactionId,
@@ -15608,7 +18231,7 @@ async function processRefundTransaction(req, res) {
         if (targetTx.customerId && customers) changes.push({ module: FILE_CUSTOMERS, data: customers });
         changes.push(
             { module: FILE_DEBTS, data: debts },
-            { module: FILE_TRANSACTIONS, data: transactions },
+            { module: FILE_TRANSACTIONS, upsertRows: [targetTx] },
             { module: FILE_REFUNDS, data: refunds }
         );
         commitDataModules(changes);
@@ -15653,8 +18276,7 @@ app.get('/api/transactions/:transactionId/refunds', (req, res) => {
     // permission check, unlike /api/refunds (list) and
     // /api/transactions/:id/email-receipt, which both already have a
     // canViewAll/isOwnTransaction guard. The same guard is applied here.
-    const transactions = readData(FILE_TRANSACTIONS, []);
-    const tx = transactions.find(t => t.id === transactionId);
+    const tx = getRowById(FILE_TRANSACTIONS, transactionId);
     if (!tx) {
         return res.status(404).json({ success: false, message: 'Transaction not found.' });
     }
@@ -15766,10 +18388,14 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
     }
 });
 app.post('/api/logs', (req, res) => {
-    const { user, action, authMethod, details } = req.body;
+    const { user, authMethod } = req.body;
+    // Robustness: a missing/odd "details" or "action" used to throw a TypeError (non-JSON 500). Only plain
+    // strings/objects are accepted, and the text length is capped so the audit log cannot be flooded.
+    const action = typeof req.body.action === 'string' ? req.body.action.slice(0, 80) : 'UNKNOWN';
+    const details = (req.body.details && typeof req.body.details === 'object') ? req.body.details : {};
     let formattedAction = `[${action}]`;
     if (action ==="VOID_CART") {
-        formattedAction += ` Voided cart: ${details.itemsCount} items, Total: ₱${details.totalAmount.toFixed(2)} (${authMethod}).`;
+        formattedAction += ` Voided cart: ${details.itemsCount} items, Total: ₱${(Number(details.totalAmount) || 0).toFixed(2)} (${authMethod}).`;
     }
     else if (action ==="MODIFY_MATRIX_QTY") {
         formattedAction += ` ${details.itemName}: Reduced by ${details.reducedQty}, Remaining: ${details.newQty} (${authMethod}).`;
@@ -15780,6 +18406,7 @@ app.post('/api/logs', (req, res) => {
     else {
         formattedAction += ` ${details.message ||'Executed non-standard action.'}`;
     }
+    formattedAction = String(formattedAction).slice(0, 600);
     try {
         logAction(user, formattedAction);
         res.json({ success: true, message:'Log saved.' });
@@ -15846,7 +18473,6 @@ app.get('/api/products/low-stock', (req, res) => {
 app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFeature('advanced_reports'), (req, res) => {
     try {
         const rangeParam = (req.query.range || 'all').toString();
-        const transactions = readData(FILE_TRANSACTIONS);
         const now = Date.now();
         const RANGE_MS = {
             today: 24 * 60 * 60 * 1000,
@@ -15856,6 +18482,14 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
             year: 365 * 24 * 60 * 60 * 1000
         };
         const cutoffMs = RANGE_MS[rangeParam] || null;
+        // SCALE FIX: para sa today/7d/30d/90d/year, SQL na ang nagtatapon ng mga benta na malinaw na labas sa panahon
+        // (superset lang; ang eksaktong filter sa ibaba ang nagpapasya pa rin). Ang range na "all" ay buong basa pa rin
+        // dahil lahat talaga ang kailangan; gayundin kung hindi mahulaan ang window.
+        const transactions = (rangeParam === 'today'
+            ? readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', now - 24 * 60 * 60 * 1000, now + 24 * 60 * 60 * 1000)
+            : cutoffMs
+                ? readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', now - cutoffMs, now)
+                : null) || readData(FILE_TRANSACTIONS);
         const txs = rangeParam === 'today'
             ? transactions.filter(t => {
                 const raw = t.isoDate || t.timestamp || t.date || '';
@@ -16032,18 +18666,17 @@ app.get('/api/products/low-stock/export', requirePermission('reorder'), requireF
         res.send(csvContent);
     } catch (err) {
         console.error('Reorder export error:', err);
-        res.status(500).json({ success: false, message:'Hindi ma-export ang reorder list.' });
+        res.status(500).json({ success: false, message:'Could not export the reorder list.' });
     }
 });
 app.post('/api/products/:code/quick-restock', requirePermission('reorder'), rateLimit('quick-restock', 60, 10 * 60 * 1000), async (req, res) => {
-    // AYOS/BUGFIX: dati, hindi ito saklaw ng transactionsMutexRunExclusive
-    // (ang parehong mutex na gamit ng sales/void/refund/stock-return para
-    // protektahan ang product stock laban sa lost-update race). Dahil
-    // read-modify-write sa parehong FILE_PRODUCTS blob din ito, posible
-    // itong ma-interleave sa gitna ng isang kasabay na benta (sa isang
-    // await point nito) at "mawala" ang restock na ito kapag na-overwrite
-    // ng mas lumang in-memory na products array ng benta. Sa parehong
-    // mutex na lang din ito para ligtas.
+    // BUGFIX: this used to run outside transactionsMutexRunExclusive
+    // (the same mutex that sales/void/refund/stock-return use to protect
+    // product stock against the lost-update race). Because it is also a
+    // read-modify-write on the same FILE_PRODUCTS blob, it could be
+    // interleaved with a concurrent sale (at one of its await points) and
+    // this restock could be "lost" when it was overwritten by the sale's
+    // older in-memory products array. It now runs under the same mutex to be safe.
     await transactionsMutexRunExclusive(() => processQuickRestock(req, res));
 });
 function processQuickRestock(req, res) {
@@ -16053,7 +18686,7 @@ function processQuickRestock(req, res) {
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).restock_direct_apply;
     if (!qty || qty <= 0) {
-        return res.status(400).json({ success: false, message:'Mangyaring maglagay ng valid na quantity.' });
+        return res.status(400).json({ success: false, message:'Please enter a valid quantity.' });
     }
     let products = readProductsNoImages();
     const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
@@ -16070,8 +18703,8 @@ function processQuickRestock(req, res) {
             supplier: req.body.supplier
         } : {});
         writeData(FILE_PRODUCTS, products);
-        logAction(username, `Quick-restocked "${target.name}" (+${qty}, bagong stock: ${target.stock})`);
-        return res.json({ success: true, message: `+${qty} na-restock sa "${target.name}".`, newStock: target.stock });
+        logAction(username, `Quick-restocked "${target.name}" (+${qty}, new stock: ${target.stock})`);
+        return res.json({ success: true, message: `+${qty} restocked to "${target.name}".`, newStock: target.stock });
     } else {
         let requests = readData(FILE_REQUESTS);
         requests.push({ id: Date.now(), type:'RESTOCK', targetCode: code, requester: username, data: { qtyToAdd: qty, productName: target.name }, timestamp: new Date().toLocaleString() });
@@ -16171,6 +18804,12 @@ app.put('/api/products/:code/batches/:batchId', requirePermission('products'), r
 function processUpdateProductBatch(req, res) {
     const { code, batchId } = req.params;
     const { lotNumber, quantity, expiryDate, costPrice, supplier, receivedDate, notes } = req.body || {};
+    // `category` (optional): when the quantity is CUT, say why. A loss category records a Waste Log entry;
+    // 'correction' (or nothing) means it was only a counting/typing fix, so no loss is recorded.
+    const lossCategory = String((req.body && req.body.category) || '').trim().toLowerCase();
+    if (lossCategory && lossCategory !== 'correction' && !WASTE_CATEGORIES.has(lossCategory)) {
+        return res.status(400).json({ success: false, message: `Invalid category. Choose one of: correction, ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
+    }
     if (expiryDate !== undefined && expiryDate !== null && String(expiryDate).trim() && isNaN(new Date(expiryDate).getTime())) {
         return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
     }
@@ -16180,11 +18819,14 @@ function processUpdateProductBatch(req, res) {
     foldLegacyStockIntoBatches(prod);
     const batch = Array.isArray(prod.batches) ? prod.batches.find(b => b.id === batchId) : null;
     if (!batch) return res.status(404).json({ success: false, message: 'Batch/lot not found.' });
+    const oldQty = uomPricing.round(parseFloat(batch.quantity) || 0, uomPricing.DECIMAL_PLACES);
+    let removedQty = 0;
     if (quantity !== undefined && quantity !== null && String(quantity).trim() !== '') {
         const newQty = toQty3(quantity);
-        const delta = uomPricing.round(newQty - (parseFloat(batch.quantity) || 0), uomPricing.DECIMAL_PLACES);
+        const delta = uomPricing.round(newQty - oldQty, uomPricing.DECIMAL_PLACES);
         batch.quantity = newQty;
         prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) + delta), uomPricing.DECIMAL_PLACES);
+        if (delta < -1e-9) removedQty = uomPricing.round(-delta, uomPricing.DECIMAL_PLACES);
     }
     if (lotNumber !== undefined) batch.lotNumber = String(lotNumber || '').trim() || null;
     if (expiryDate !== undefined) batch.expiryDate = String(expiryDate || '').trim() || null;
@@ -16192,15 +18834,40 @@ function processUpdateProductBatch(req, res) {
     if (supplier !== undefined) batch.supplier = String(supplier || '').trim() || null;
     if (receivedDate !== undefined && String(receivedDate).trim()) batch.receivedDate = String(receivedDate).trim();
     if (notes !== undefined) batch.notes = String(notes || '').trim() || null;
-    writeData(FILE_PRODUCTS, products);
-    logAction(req.authUser.username, `Updated batch/lot for "${prod.name}" (ID: ${batchId})`);
-    res.json({ success: true, message: 'Batch/lot updated.', batch, newStock: prod.stock });
+    const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const changes = [{ module: FILE_PRODUCTS, data: products }];
+    let wasteEntry = null;
+    if (removedQty > 0 && lossCategory && lossCategory !== 'correction') {
+        wasteEntry = buildBatchLossEntry({
+            prod, batch, qty: removedQty, category: lossCategory,
+            reason: String((req.body && req.body.reason) || '').trim() || `Batch/lot quantity reduced (Lot ${batch.lotNumber || '—'}: ${oldQty} → ${batch.quantity})`,
+            who, source: 'batch_edit'
+        });
+        const entries = readData(FILE_WASTE_LOG, []);
+        entries.unshift(wasteEntry);
+        changes.push({ module: FILE_WASTE_LOG, data: entries });
+    }
+    try {
+        commitDataModules(changes);
+    } catch (error) {
+        console.error('Batch update commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Could not save the batch/lot change. Please try again.' });
+    }
+    logAction(who, `Updated batch/lot for "${prod.name}" (ID: ${batchId})${removedQty > 0 ? ` — quantity cut ${oldQty} → ${batch.quantity}${wasteEntry ? ` (recorded in Waste Log as ${wasteEntry.category})` : ' (recorded as a correction, no loss)'}` : ''}`);
+    res.json({ success: true, message: 'Batch/lot updated.', batch, newStock: prod.stock, wasteEntry });
 }
 app.delete('/api/products/:code/batches/:batchId', requirePermission('products'), requireFeature('batch_lot_tracking'), rateLimit('product-batch-delete', 30, 10 * 60 * 1000), async (req, res) => {
     await transactionsMutexRunExclusive(() => processDeleteProductBatch(req, res));
 });
 function processDeleteProductBatch(req, res) {
     const { code, batchId } = req.params;
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    // Deleting a batch removes its remaining stock. By default that is a LOSS (Waste Log entry: 'expired' if the
+    // lot is past its expiry, otherwise 'other'); send category 'correction' only when the batch was a mistake.
+    const rawCategory = String(body.category || (req.query && req.query.category) || '').trim().toLowerCase();
+    if (rawCategory && rawCategory !== 'correction' && !WASTE_CATEGORIES.has(rawCategory)) {
+        return res.status(400).json({ success: false, message: `Invalid category. Choose one of: correction, ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
+    }
     let products = readProductsNoImages();
     const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
@@ -16208,11 +18875,31 @@ function processDeleteProductBatch(req, res) {
     foldLegacyStockIntoBatches(prod);
     const batch = prod.batches.find(b => b.id === batchId);
     if (!batch) return res.status(404).json({ success: false, message: 'Batch/lot not found.' });
+    const removedQty = toQty3(batch.quantity);
     prod.batches = prod.batches.filter(b => b.id !== batchId);
-    prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - (parseFloat(batch.quantity) || 0)), uomPricing.DECIMAL_PLACES);
-    writeData(FILE_PRODUCTS, products);
-    logAction(req.authUser.username, `Deleted batch/lot for "${prod.name}" (Lot: ${batch.lotNumber || '—'}, -${batch.quantity})`);
-    res.json({ success: true, message: 'Batch/lot deleted.', newStock: prod.stock });
+    prod.stock = uomPricing.round(Math.max(0, (parseFloat(prod.stock) || 0) - removedQty), uomPricing.DECIMAL_PLACES);
+    const who = req.authUser && req.authUser.username ? req.authUser.username : 'Unknown';
+    const changes = [{ module: FILE_PRODUCTS, data: products }];
+    let wasteEntry = null;
+    if (removedQty > 0 && rawCategory !== 'correction') {
+        const category = rawCategory || (isDateExpired(batch.expiryDate) ? 'expired' : 'other');
+        wasteEntry = buildBatchLossEntry({
+            prod, batch, qty: removedQty, category,
+            reason: String(body.reason || '').trim() || `Batch/lot deleted (Lot ${batch.lotNumber || '—'})`,
+            who, source: 'batch_delete'
+        });
+        const entries = readData(FILE_WASTE_LOG, []);
+        entries.unshift(wasteEntry);
+        changes.push({ module: FILE_WASTE_LOG, data: entries });
+    }
+    try {
+        commitDataModules(changes);
+    } catch (error) {
+        console.error('Batch delete commit failed:', error);
+        return res.status(500).json({ success: false, message: 'Could not delete the batch/lot. Please try again.' });
+    }
+    logAction(who, `Deleted batch/lot for "${prod.name}" (Lot: ${batch.lotNumber || '—'}, -${removedQty})${wasteEntry ? ` — recorded in Waste Log as ${wasteEntry.category}, est. loss ₱${wasteEntry.costImpact.toFixed(2)}` : ' — recorded as a correction (no loss)'}`);
+    res.json({ success: true, message: 'Batch/lot deleted.', newStock: prod.stock, wasteEntry });
 }
 app.get('/api/purchase-orders', requirePermission('reorder'), requireFeature('purchase_orders'), (req, res) => {
     const orders = readData(FILE_PURCHASE_ORDERS, []).sort((a, b) => (b.createdAt ||'').localeCompare(a.createdAt ||''));
@@ -16222,18 +18909,23 @@ app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('p
     const { supplier, items, notes } = req.body;
     const username = req.authUser.username;
     if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ success: false, message:'Walang napiling item para sa Purchase Order.' });
+        return res.status(400).json({ success: false, message:'No items selected for the Purchase Order.' });
     }
     const cleanItems = items
-        .map(it => ({ code: (it.code ||'').toString(), name: (it.name ||'').toString(), qty: toQty3(it.qty) }))
+        .map(it => {
+            const line = { code: (it.code ||'').toString(), name: (it.name ||'').toString(), qty: toQty3(it.qty) };
+            const expectedCost = parseUnitCost(it.unitCost); // optional: only shown as a hint when the order is received
+            if (expectedCost !== null) line.unitCost = expectedCost;
+            return line;
+        })
         .filter(it => it.code && it.qty > 0);
     if (cleanItems.length === 0) {
-        return res.status(400).json({ success: false, message:'Walang valid na item/quantity sa Purchase Order.' });
+        return res.status(400).json({ success: false, message:'No valid item/quantity in the Purchase Order.' });
     }
     const orders = readData(FILE_PURCHASE_ORDERS, []);
     const newPO = {
         id: Date.now(),
-        supplier: (supplier ||'Walang Tinukoy na Supplier').toString(),
+        supplier: (supplier ||'No Supplier Specified').toString(),
         items: cleanItems,
         notes: (notes ||'').toString(),
         status:'ordered',
@@ -16242,35 +18934,127 @@ app.post('/api/purchase-orders', requirePermission('reorder'), requireFeature('p
     };
     orders.push(newPO);
     writeData(FILE_PURCHASE_ORDERS, orders);
-    logAction(username, `Gumawa ng Purchase Order #${newPO.id} para kay "${newPO.supplier}" (${cleanItems.length} item/s)`);
-    res.json({ success: true, message:'Nagawa ang Purchase Order.', po: newPO });
+    logAction(username, `Created Purchase Order #${newPO.id} for "${newPO.supplier}" (${cleanItems.length} item/s)`);
+    res.json({ success: true, message:'Purchase Order created.', po: newPO });
 });
 app.post('/api/purchase-orders/:id/receive', requirePermission('reorder'), requireFeature('purchase_orders'), async (req, res) => {
-    // AYOS/BUGFIX: parehong dahilan gaya ng quick-restock sa itaas —
-    // nagsusulat din ito sa FILE_PRODUCTS (nagdaragdag ng stock), kaya
-    // dapat ding sumailalim sa parehong mutex laban sa lost-update race
-    // kontra sa mga kasabay na benta/void/refund/stock-return.
+    // BUGFIX: same reason as quick-restock above —
+    // this also writes to FILE_PRODUCTS (adds stock), so it must also run
+    // under the same mutex against the lost-update race with concurrent
+    // sales/void/refund/stock-return.
     await transactionsMutexRunExclusive(() => processPurchaseOrderReceive(req, res));
 });
 function processPurchaseOrderReceive(req, res) {
     const { id } = req.params;
     const username = req.authUser.username;
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
     let orders = readData(FILE_PURCHASE_ORDERS, []);
     const po = orders.find(o => o.id.toString() === id.toString());
     if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
-    if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
+    if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Cannot apply — this PO's status is already "${po.status}".` });
+    const DP = uomPricing.DECIMAL_PLACES;
+    const lines = Array.isArray(po.items) ? po.items : [];
+    const outstandingOf = (it) => Math.max(0, uomPricing.round(toQty3(it.qty) - toQty3(it.receivedQty), DP));
+    const batchLotUnlocked = getUnlockedFeatureIds().includes('batch_lot_tracking');
+    // ---- 1. Work out WHAT is being received (nothing is changed until everything is validated) ----
+    // Without a body: receive everything still outstanding (old behaviour). With body.items: the ACTUAL
+    // received quantity per line (partial / short deliveries), optionally with lot, expiry and cost.
+    const plan = [];
+    if (Array.isArray(body.items) && body.items.length) {
+        const plannedByLine = new Map();
+        for (const sub of body.items) {
+            if (!sub || typeof sub !== 'object') continue;
+            const qty = toQty3(sub.receivedQty !== undefined ? sub.receivedQty : sub.qty);
+            if (!(qty > 0)) continue;
+            let idx = parseInt(sub.lineIndex, 10);
+            if (!Number.isInteger(idx) || idx < 0 || idx >= lines.length) {
+                const codeKey = String(sub.code || '').trim().toLowerCase();
+                idx = lines.findIndex((it, i) => String(it.code || '').trim().toLowerCase() === codeKey
+                    && uomPricing.round(outstandingOf(it) - (plannedByLine.get(i) || 0), DP) > 1e-9);
+                if (idx === -1) {
+                    return res.status(400).json({ success: false, message: `No remaining item with code "${sub.code}" on this Purchase Order.` });
+                }
+            }
+            const line = lines[idx];
+            const room = uomPricing.round(outstandingOf(line) - (plannedByLine.get(idx) || 0), DP);
+            if (qty > room + 1e-6) {
+                return res.status(400).json({ success: false, message: `${line.name || line.code}: the received quantity (${qty}) exceeds the remaining order (${Math.max(0, room)}).` });
+            }
+            const expiry = String(sub.expiryDate || '').trim();
+            if (expiry && isNaN(new Date(expiry).getTime())) {
+                return res.status(400).json({ success: false, message: `${line.name || line.code}: invalid expiry date.` });
+            }
+            plannedByLine.set(idx, uomPricing.round((plannedByLine.get(idx) || 0) + qty, DP));
+            plan.push({
+                idx, qty,
+                unitCost: parseUnitCost(sub.unitCost !== undefined ? sub.unitCost : sub.costPrice),
+                info: batchLotUnlocked ? {
+                    lotNumber: sub.lotNumber, expiryDate: expiry, costPrice: sub.costPrice,
+                    supplier: po.supplier, mergeIfSame: true, notes: `Received via PO #${po.id}`
+                } : null
+            });
+        }
+        if (!plan.length) {
+            return res.status(400).json({ success: false, message: 'Enter a received quantity (greater than zero) for at least one item.' });
+        }
+    } else {
+        lines.forEach((it, idx) => {
+            const q = outstandingOf(it);
+            if (q > 1e-9) plan.push({ idx, qty: q, info: null });
+        });
+    }
+    // ---- 2. Apply to stock ----
     let products = readProductsNoImages();
     const missingCodes = [];
-    let addedLines = 0;
-    po.items.forEach(it => {
-        const prod = products.find(p => p.code.trim().toLowerCase() === it.code.trim().toLowerCase());
-        if (prod) { addBaseStock(prod, toQty3(it.qty)); addedLines++; }
-        else missingCodes.push(it.code);
-    });
-    po.status ='received';
-    po.receivedBy = username;
-    po.receivedAt = new Date().toISOString();
+    const receivedLines = [];
+    for (const step of plan) {
+        const it = lines[step.idx];
+        const prod = products.find(p => p.code.trim().toLowerCase() === String(it.code || '').trim().toLowerCase());
+        if (!prod) {
+            if (!missingCodes.includes(it.code)) missingCodes.push(it.code);
+            continue;
+        }
+        addBaseStock(prod, step.qty, step.info || undefined);
+        it.receivedQty = uomPricing.round(toQty3(it.receivedQty) + step.qty, DP);
+        receivedLines.push({
+            code: it.code, name: it.name, qty: step.qty,
+            lotNumber: step.info && step.info.lotNumber ? String(step.info.lotNumber).trim() || null : null,
+            expiryDate: step.info && step.info.expiryDate ? String(step.info.expiryDate).trim() || null : null,
+            ...(step.unitCost ? { unitCost: step.unitCost } : {})
+        });
+    }
+    if (!receivedLines.length) {
+        // Nothing could be added (every product is missing from the catalog, or nothing was outstanding).
+        // The PO stays "ordered" so it can be received again once the product exists.
+        return res.status(409).json({
+            success: false,
+            message: missingCodes.length
+                ? `No stock was added — not found in the catalog: ${missingCodes.join(', ')}. Add the product first, then receive again.`
+                : 'No remaining items to receive on this Purchase Order.',
+            missingProducts: missingCodes
+        });
+    }
+    // ---- 3. PO status: complete only when EVERYTHING ordered has arrived (or it is closed short on purpose) ----
+    const nowIso = new Date().toISOString();
+    const stillOutstanding = lines.filter(it => outstandingOf(it) > 1e-9);
+    const fullyReceived = stillOutstanding.length === 0;
+    const closeShort = body.closeShort === true || body.closeShort === 'true';
+    // Price-change alerts are worked out against the history BEFORE this receipt is added to it.
+    const costAlerts = costAlertsForReceipt(orders, po, receivedLines);
+    po.receiveHistory = [...(Array.isArray(po.receiveHistory) ? po.receiveHistory : []), { at: nowIso, by: username, lines: receivedLines }];
+    po.lastReceivedAt = nowIso;
+    po.lastReceivedBy = username;
     if (missingCodes.length) po.receivedMissingProducts = missingCodes;
+    else delete po.receivedMissingProducts;
+    if (fullyReceived || closeShort) {
+        po.status = 'received';
+        po.receivedBy = username;
+        po.receivedAt = nowIso;
+        if (!fullyReceived) {
+            po.closedShort = true;
+            po.shortItems = stillOutstanding.map(it => ({ code: it.code, name: it.name, qty: outstandingOf(it) }));
+        }
+    }
     // BUGFIX: products and the PO status used to be saved with two separate writes. If the second one failed,
     // the stock was already added while the PO stayed "ordered", so receiving it again doubled the stock.
     // Save both in ONE transaction like the other inventory flows.
@@ -16281,15 +19065,24 @@ function processPurchaseOrderReceive(req, res) {
         ]);
     } catch (error) {
         console.error('Purchase order receive commit failed:', error);
-        return res.status(500).json({ success: false, message: 'Hindi na-save ang pag-receive ng Purchase Order. Walang permanenteng pagbabago na dapat naiwan; subukan muli.' });
+        return res.status(500).json({ success: false, message: 'Could not save the Purchase Order receipt. No permanent changes should remain; please try again.' });
     }
-    logAction(username, `Na-receive ang Purchase Order #${po.id} (${po.supplier}) — idinagdag sa stock ang ${addedLines} item/s${missingCodes.length ? `; HINDI nahanap sa katalogo: ${missingCodes.join(', ')}` : ''}`);
+    const outstandingLabel = stillOutstanding.map(it => `${it.name || it.code} (${outstandingOf(it)})`).join(', ');
+    logAction(username, `Received Purchase Order #${po.id} (${po.supplier}) — added ${receivedLines.length} item/s to stock${missingCodes.length ? `; NOT found in the catalog: ${missingCodes.join(', ')}` : ''}${po.status === 'received' ? (fullyReceived ? '' : `; CLOSED SHORT: ${outstandingLabel}`) : `; PARTIAL — still outstanding: ${outstandingLabel}`}`);
+    let message;
+    if (po.status === 'received' && fullyReceived && !missingCodes.length) message = 'Purchase Order received and stock updated.';
+    else if (po.status === 'received') message = `Purchase Order received and closed. Not delivered: ${outstandingLabel}.`;
+    else message = `Purchase Order partially received. Still outstanding: ${outstandingLabel}.${missingCodes.length ? ` Not found in the catalog: ${missingCodes.join(', ')}.` : ''}`;
+    if (costAlerts.length) {
+        message += ` PRICE ALERT: ${costAlerts.map(describeCostAlert).join('; ')}.`;
+        logAction(username, `PO #${po.id} PRICE ALERT: ${costAlerts.map(describeCostAlert).join('; ')}`);
+    }
     res.json({
         success: true,
-        message: missingCodes.length
-            ? `Na-receive ang Purchase Order. Pero hindi nahanap sa katalogo (walang naidagdag na stock): ${missingCodes.join(', ')}.`
-            : 'Na-receive ang Purchase Order at na-update ang stock.',
+        message,
+        fullyReceived,
         missingProducts: missingCodes,
+        costAlerts,
         po
     });
 }
@@ -16299,13 +19092,35 @@ app.post('/api/purchase-orders/:id/cancel', requirePermission('reorder'), requir
     let orders = readData(FILE_PURCHASE_ORDERS, []);
     const po = orders.find(o => o.id.toString() === id.toString());
     if (!po) return res.status(404).json({ success: false, message:'Purchase Order not found.' });
-    if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Hindi na-a-apply — status na ito ay "${po.status}".` });
+    if (po.status !=='ordered') return res.status(400).json({ success: false, message: `Cannot apply — this PO's status is already "${po.status}".` });
+    const nowIso = new Date().toISOString();
+    // A PO that was already PARTIALLY received has real goods in stock. Marking it "cancelled" would hide
+    // that delivery, so cancelling it closes the PO as received-short instead: the received stock stays,
+    // only the undelivered remainder is cancelled.
+    const lines = Array.isArray(po.items) ? po.items : [];
+    const receivedSome = lines.some(it => toQty3(it.receivedQty) > 0);
+    if (receivedSome) {
+        const shortItems = lines
+            .map(it => ({ code: it.code, name: it.name, qty: Math.max(0, uomPricing.round(toQty3(it.qty) - toQty3(it.receivedQty), uomPricing.DECIMAL_PLACES)) }))
+            .filter(it => it.qty > 1e-9);
+        po.status = 'received';
+        po.receivedBy = po.lastReceivedBy || username;
+        po.receivedAt = po.lastReceivedAt || nowIso;
+        po.closedShort = shortItems.length > 0;
+        po.shortItems = shortItems;
+        po.remainderCancelledBy = username;
+        po.remainderCancelledAt = nowIso;
+        writeData(FILE_PURCHASE_ORDERS, orders);
+        const label = shortItems.map(it => `${it.name || it.code} (${it.qty})`).join(', ');
+        logAction(username, `Closed Purchase Order #${po.id} (${po.supplier}) — some items already received, remainder cancelled${label ? `: ${label}` : ''}`);
+        return res.json({ success: true, partiallyReceived: true, message: 'Some items on this PO were already received, so they stay in stock. The PO was closed and only the undelivered remainder was cancelled.', po });
+    }
     po.status ='cancelled';
     po.cancelledBy = username;
-    po.cancelledAt = new Date().toISOString();
+    po.cancelledAt = nowIso;
     writeData(FILE_PURCHASE_ORDERS, orders);
-    logAction(username, `Kinansela ang Purchase Order #${po.id} (${po.supplier})`);
-    res.json({ success: true, message:'Kinansela ang Purchase Order.', po });
+    logAction(username, `Cancelled Purchase Order #${po.id} (${po.supplier})`);
+    res.json({ success: true, message:'Purchase Order cancelled.', po });
 });
 app.get('/api/customers', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
     res.json(readData(FILE_CUSTOMERS, []).map(sanitizeCustomerForClient));
@@ -16989,8 +19804,7 @@ function awardLoyaltyPointsForPaidDebt(debt, actorUsername) {
     if (!debt || debt.pointsAwarded || !debt.transactionId) return;
     const storeSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
     if (!storeSettings.loyaltyEnabled) return;
-    const transactions = readData(FILE_TRANSACTIONS, []);
-    const linkedTx = transactions.find(t => t.id === debt.transactionId);
+    const linkedTx = getRowById(FILE_TRANSACTIONS, debt.transactionId);
     if (!linkedTx || !linkedTx.customerId) return;
     const customers = readData(FILE_CUSTOMERS, []);
     const cust = customers.find(c => c.id === linkedTx.customerId);
@@ -17533,9 +20347,11 @@ app.get('/api/promocodes/:code/validate', requireFeature('promo_codes'), (req, r
     });
 });
 function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
-    const allTx = readData(FILE_TRANSACTIONS);
     const start = new Date(periodStartIso).getTime();
     const end = new Date(periodEndIso).getTime();
+    // SCALE FIX: SQL na ang nagtatapon ng mga benta na malinaw na wala sa panahon ng shift (superset lang ito; ang
+    // eksaktong dating filter sa ibaba ang nagpapasya pa rin). Kung hindi mahulaan ang window, buong basa gaya ng dati.
+    const allTx = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', start, end) || readData(FILE_TRANSACTIONS);
     const cashierKey = cashierFilter ? String(cashierFilter).toLowerCase() : null;
     const txs = allTx.filter(t => {
         const ts = new Date(t.isoDate || t.timestamp || 0).getTime();
@@ -17569,7 +20385,8 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
             paymentBreakdown[method].total = Math.round((paymentBreakdown[method].total + net) * 100) / 100;
         }
     });
-    const logs = readData(FILE_USERLOGS);
+    // SCALE FIX: user logs na nasa pagitan lang ng start at end ang binabasa (superset; eksaktong filter pa rin sa ibaba).
+    const logs = readRowsInNumberWindow(FILE_USERLOGS, 'id', start, end) || readData(FILE_USERLOGS);
     const voidLogs = logs.filter(l => l.action && l.action.indexOf('VOIDED Transaction') === 0 && l.id > start && l.id <= end
         && (!cashierKey || (l.username ||'').toLowerCase() === cashierKey));
     const voidCount = voidLogs.length;
@@ -17966,6 +20783,13 @@ app.get('/ca-cert.pem', (req, res) => {
     res.setHeader('Content-Type', 'application/x-pem-file');
     res.setHeader('Content-Disposition', 'attachment; filename="omnipos-lan-ca.pem"');
     res.sendFile(path.resolve(caPath));
+});
+// Marketplace Hub (Shopee / Lazada / TikTok Shop) — routes + background auto-sync. Tingnan ang marketplace-sync.js.
+registerMarketplace({
+    app, readData, commitDataModules, readProductsNoImages, deductProductStock, addBaseStock,
+    requirePermission, requireFeature, getUnlockedFeatureIds, relayFetch, RELAY_URL, RELAY_API_KEY,
+    getInstallationId: () => getOrCreateInstallationId(readFeatureUnlocks()),
+    logAction, transactionsMutexRunExclusive, rateLimit, FILE_PRODUCTS, isDemoActive
 });
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
 async function startOmniposServer() {

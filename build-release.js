@@ -78,6 +78,8 @@ const SERVER_TARGETS = new Set([
   // New backend modules require()-d by server.js (BIR compliance + UOM/price-level math).
   "bir-compliance.js",
   "uom-pricing.js",
+  // Marketplace Hub (Shopee/Lazada/TikTok) server module — require()-d by server.js.
+  "marketplace-sync.js",
 ]);
 
 const ENV_LOADER_FILENAME = "env-loader.js";
@@ -86,6 +88,7 @@ const ENV_KEY_FILENAME = ".env.key";
 
 const CLIENT_TARGETS = new Set([
   path.join("public", "app.js"),
+  path.join("public", "marketplace-ui.js"),
   path.join("public", "bt-printer.js"),
   // Printer Device Settings (Bluetooth brand presets + WiFi/LAN network
   // printing) — proprietary code, must ship/obfuscate alongside bt-printer.js.

@@ -1525,4 +1525,52 @@ window.OMNIPOS_FAQ_KB_EN = [
   </ul>
   <p>If the Free allowance runs out, the FAQ falls back to the regular keyword search and the credit pill shows when you can try again. Subscribe to Omni AI to move up to Base or higher.</p>`
 },
+{
+  id: 'inventory-stock-ledger',
+  category: 'Inventory',
+  question: 'What is the Stock Ledger in Inventory Tools?',
+  keywords: ['stock ledger', 'kardex', 'stock movement', 'missing stock', 'movement history'],
+  answer: `<p>The <strong>Stock Ledger</strong> tab of Inventory Tools is a <strong>read-only</strong> timeline of every recorded stock movement for a product (or all products): sales, returns put back on the shelf, received POs, consignment, waste/batch loss and count adjustments — with who and when.</p>
+  <p>Use it when stock goes missing and you cannot explain it. Filter by product code, movement type and date, and export to CSV. Manual stock edits, quick restock and branch transfers are not included because they have no dated record.</p>`
+},
+{
+  id: 'inventory-shrinkage-report',
+  category: 'Inventory',
+  question: 'What is the Shrinkage / Variance Report?',
+  keywords: ['shrinkage', 'variance report', 'missing stock', 'loss report', 'waste report'],
+  answer: `<p>The <strong>Shrinkage</strong> tab combines the real stock loss: <em>count variance</em> (short in a physical count), <em>waste/damage</em>, <em>damaged returns</em> and <em>batch loss</em>, valued in pesos (based on cost).</p>
+  <p>It is split by type, reason, month and product (biggest loss first), with <em>Total loss</em>, <em>Count overages</em> and <em>Net loss</em>. Pick a date range and export to CSV. Costs must be set in Products for the values to be accurate. It also breaks losses down by staff (who counted/recorded), shows total loss as a % of cost of goods sold, and has a <em>Count the top 10</em> button that starts a blind count of the biggest-loss products.</p>`
+},
+{
+  id: 'inventory-smart-reorder',
+  category: 'Inventory',
+  question: 'How does Smart Reorder work?',
+  keywords: ['smart reorder', 'reorder', 'sales speed', 'days left', 'days until out of stock', 'purchase order suggestion'],
+  answer: `<p><strong>Smart Reorder</strong> works out "days left before it runs out" from average sales (the last 7 days weigh more, so seasonal rises and drops are picked up) and suggests how much to order so stock lasts through <em>lead time + cover days</em>. Quantities already on open POs are subtracted.</p>
+  <p>Select items, adjust quantity and supplier, then press <strong>Create Purchase Order(s)</strong> — one PO per supplier. If a supplier has 2+ received POs, its real average lead time is used. Requires the Purchase Orders feature.</p>`
+},
+{
+  id: 'inventory-near-expiry',
+  category: 'Inventory',
+  question: 'What is the Near-Expiry Action List?',
+  keywords: ['near expiry', 'expiring soon', 'markdown', 'expired', 'dispose', 'promo', 'expiry action'],
+  answer: `<p>The <strong>Near-Expiry</strong> tab is more than an alert: it checks whether a lot can still <em>sell in time</em> based on sales speed. If not, it suggests a <strong>markdown</strong> (never below cost). Expired lots get a <strong>Dispose</strong> button that goes straight to the Waste Log and deducts the stock.</p>
+  <p>"Dispose all expired" disposes of every expired lot in one go.</p>`
+},
+{
+  id: 'inventory-supplier-cost-history',
+  category: 'Inventory',
+  question: 'What are Supplier Cost History and Price-Change Alerts?',
+  keywords: ['cost history', 'supplier price', 'price increase', 'price change', 'cheaper supplier', 'cost alert'],
+  answer: `<p>Cost is recorded for every received Purchase Order — enter the <strong>Cost (₱ / unit)</strong> when receiving a PO. The <strong>Cost History</strong> tab shows the latest cost, previous cost, % change and margin against the selling price.</p>
+  <p>It warns when a supplier's cost goes up (5% or more) or when a <strong>cheaper supplier</strong> exists for the same product — the warning also appears right when you receive the PO. When a cost change is large, it suggests a new selling price (same margin, rounded up to ₱0.50) with an <em>Update price</em> button — it goes through the normal product update, so Products approval rules still apply; Wholesale/Reseller prices are not changed.</p>`
+},
+{
+  id: 'inventory-count-approval',
+  category: 'Inventory',
+  question: 'What are Blind Count and Count Approval?',
+  keywords: ['blind count', 'count approval', 'approve count', 'variance approval', 'physical count approval', 'inventory_count_approve'],
+  answer: `<p>In a <strong>Blind Count</strong>, the expected (system) quantity and the variance are hidden while staff count. Only users with the <em>Physical Count: See Expected Quantities &amp; Approve</em> permission can see them (Admin always can).</p>
+  <p>When an item's variance reaches the limit (default ₱500 per item; for products without a cost, a large percentage is used instead), the staff's finalize goes to <strong>Pending Approval</strong> and <strong>stock does not change yet</strong>. A manager can <em>Approve</em> it (only then is stock adjusted) or send it back for a <em>recount</em>. Managers see a badge on the tab and a banner, and the admin address gets an email if email is set up. While a count is pending, a new one cannot be started.</p>`
+},
 ];

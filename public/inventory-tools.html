@@ -204,6 +204,23 @@
   .pill.active{background:var(--accent-soft);color:var(--accent);}
   .pill.finalized,.pill.closed{background:var(--good-soft);color:var(--good);}
   .pill.cancelled{background:var(--border);color:var(--muted);}
+  .pill.in{background:var(--good-soft);color:var(--good);}
+  .pill.out{background:var(--bad-soft);color:var(--bad);}
+  .qty-in{color:var(--good);font-weight:700;white-space:nowrap;}
+  .qty-out{color:var(--bad);font-weight:700;white-space:nowrap;}
+  .ledger-chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+  .ledger-chip{background:var(--panel2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:.78rem;color:var(--muted);}
+  .ledger-chip b{color:var(--text);}
+  .pill.pending_approval,.pill.soon,.pill.markdown{background:var(--warn-soft);color:color-mix(in srgb, var(--warn) 55%, var(--text));}
+  .pill.urgent,.pill.dispose{background:var(--bad-soft);color:color-mix(in srgb, var(--bad) 70%, var(--text));}
+  .pill.watch,.pill.ok{background:var(--good-soft);color:color-mix(in srgb, var(--good) 60%, var(--text));}
+  .check-inline{display:flex;align-items:center;gap:8px;text-transform:none;font-size:.82rem;color:var(--text);font-weight:500;letter-spacing:0;margin:0;padding:9px 0;cursor:pointer;}
+  .bar-track{background:var(--border);border-radius:999px;height:8px;min-width:90px;overflow:hidden;}
+  .bar-fill{background:var(--bad);height:100%;border-radius:999px;}
+  .notice{border:1px solid var(--border);border-left:3px solid var(--warn);background:var(--warn-soft);color:var(--text);border-radius:var(--radius-sm);padding:9px 12px;font-size:.8rem;margin:10px 0;line-height:1.5;}
+  .sub-title{margin:18px 0 8px;font-size:.85rem;font-weight:700;color:var(--text);}
+  td.num,th.num{text-align:right;white-space:nowrap;}
+  .tab-badge{background:var(--bad);color:#fff;border-radius:999px;font-size:.66rem;font-weight:800;padding:1px 7px;margin-left:2px;}
   .num-pos{color:var(--good);font-weight:700;}
   .num-neg{color:var(--bad);font-weight:700;}
   .muted{color:var(--muted);}
@@ -294,6 +311,11 @@
   <button data-tab="waste"><i class="fa-solid fa-dumpster"></i><span>Damage / Waste Log</span></button>
   <button data-tab="deadstock"><i class="fa-solid fa-chart-line"></i><span>Dead Stock Report</span></button>
   <button data-tab="suppliers"><i class="fa-solid fa-address-book"></i><span>Suppliers</span></button>
+  <button data-tab="ledger"><i class="fa-solid fa-right-left"></i><span>Stock Ledger</span></button>
+  <button data-tab="shrinkage"><i class="fa-solid fa-chart-pie"></i><span>Shrinkage</span></button>
+  <button data-tab="reorder"><i class="fa-solid fa-cart-arrow-down"></i><span>Smart Reorder</span></button>
+  <button data-tab="expiry"><i class="fa-solid fa-hourglass-half"></i><span>Near-Expiry</span></button>
+  <button data-tab="costs"><i class="fa-solid fa-tags"></i><span>Cost History</span></button>
 </nav>
 
 <main>
@@ -303,7 +325,7 @@
   <section id="tab-count" class="tab-panel">
     <div class="card">
       <h2><i class="fa-solid fa-clipboard-check"></i> Start a new count session</h2>
-      <p class="section-note"><i class="fa-solid fa-circle-info"></i>This will take the current "system stock" of the selected products as a baseline, to compare against the actual count on the shelf.</p>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>This will take the current "system stock" of the selected products as a baseline, to compare against the actual count on the shelf. With a blind count, the system quantity stays hidden from staff while they count, and a count with a large variance must be approved by a manager before it changes the stock.</p>
       <div class="row">
         <div>
           <label>Scope</label>
@@ -321,6 +343,13 @@
         <div class="flex-1">
           <label>Notes (optional)</label>
           <input id="countNotes" placeholder="e.g. Monthly stock take — Sept">
+        </div>
+        <div>
+          <label>Approval needed from (₱ / item)</label>
+          <input id="countApprovalValue" type="number" min="0" step="1" style="width:130px;" placeholder="500">
+        </div>
+        <div>
+          <label class="check-inline"><input type="checkbox" id="countBlind" checked> Blind count (hide system qty)</label>
         </div>
         <div style="align-self:flex-end;">
           <button class="btn" id="btnStartCount"><i class="fa-solid fa-play"></i> Start Count</button>
@@ -403,6 +432,12 @@
             <option value="other">Other</option>
           </select>
         </div>
+        <div id="wasteBatchWrap" style="display:none;">
+          <label>Lot (optional)</label>
+          <select id="wasteBatch" style="max-width:260px;">
+            <option value="">Auto — pinakamalapit mag-expire (FEFO)</option>
+          </select>
+        </div>
         <div class="flex-1">
           <label>Reason</label>
           <input id="wasteReason" placeholder="e.g. broken during delivery">
@@ -441,6 +476,136 @@
       </div>
       <div id="deadStockSummary" class="section-note"></div>
       <div id="deadStockList"></div>
+    </div>
+  </section>
+
+  <!-- ============ STOCK MOVEMENT LEDGER ============ -->
+  <section id="tab-ledger" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-right-left"></i> Stock movement ledger</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>Read-only timeline of recorded stock movements: sales, restocked returns, POs, consignment, waste/batch loss and count adjustments. Manual stock edits, quick restocks and transfers are not included.</p>
+      <div class="row">
+        <div>
+          <label>Product code (optional)</label>
+          <input id="ledgerCode" placeholder="all products">
+        </div>
+        <div>
+          <label>Type</label>
+          <select id="ledgerType">
+            <option value="">All movements</option>
+            <option value="sale">Sale</option>
+            <option value="return_restock">Return restocked</option>
+            <option value="po_receive">PO received</option>
+            <option value="consignment_in">Consignment in</option>
+            <option value="waste">Waste / damage</option>
+            <option value="batch_delete">Batch deleted</option>
+            <option value="batch_edit">Batch qty cut</option>
+            <option value="count_adjust">Count adjustment</option>
+          </select>
+        </div>
+        <div>
+          <label>From</label>
+          <input id="ledgerFrom" type="date">
+        </div>
+        <div>
+          <label>To</label>
+          <input id="ledgerTo" type="date">
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnRunLedger"><i class="fa-solid fa-magnifying-glass"></i> Show</button>
+          <button class="btn secondary" id="btnExportLedger"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+        </div>
+      </div>
+      <div id="ledgerSummary" class="ledger-chips"></div>
+      <div id="ledgerList"></div>
+    </div>
+  </section>
+
+  <!-- ============ SHRINKAGE / VARIANCE REPORT ============ -->
+  <section id="tab-shrinkage" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-chart-pie"></i> Shrinkage / variance report</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>Combines all real stock loss: count variance (shortages), waste/damage, damaged returns and batch loss, with a peso value (based on cost). Count overages are shown separately.</p>
+      <div class="row">
+        <div><label>From</label><input id="shrinkFrom" type="date"></div>
+        <div><label>To</label><input id="shrinkTo" type="date"></div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnRunShrink"><i class="fa-solid fa-magnifying-glass"></i> Show</button>
+          <button class="btn secondary" id="btnExportShrink"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+        </div>
+      </div>
+      <div id="shrinkSummary" class="ledger-chips"></div>
+      <div id="shrinkBody"></div>
+    </div>
+  </section>
+
+  <!-- ============ SMART REORDER ============ -->
+  <section id="tab-reorder" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-cart-arrow-down"></i> Smart reorder (based on sales speed)</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>Calculates "days until stockout" from average sales (the last 7 days are weighted more heavily), and the quantity to order so the stock lasts through the lead time + cover days. Quantities already on order (open POs) are deducted. If a supplier has 2 or more received POs, its actual average lead time is used instead of the default.</p>
+      <div class="row">
+        <div>
+          <label>Sales window</label>
+          <select id="reorderDays"><option value="14">Last 14 days</option><option value="30" selected>Last 30 days</option><option value="60">Last 60 days</option><option value="90">Last 90 days</option></select>
+        </div>
+        <div><label>Default lead time (days)</label><input id="reorderLead" type="number" min="0" max="90" value="7" style="width:90px;"></div>
+        <div><label>Cover (days)</label><input id="reorderCover" type="number" min="1" max="180" value="14" style="width:90px;"></div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnRunReorder"><i class="fa-solid fa-magnifying-glass"></i> Show</button>
+        </div>
+      </div>
+      <div id="reorderSummary" class="ledger-chips"></div>
+      <div id="reorderList"></div>
+      <div id="reorderActions" style="display:none;margin-top:12px;">
+        <button class="btn secondary small" id="btnReorderSelectUrgent"><i class="fa-solid fa-triangle-exclamation"></i> Select urgent</button>
+        <button class="btn" id="btnReorderCreatePo"><i class="fa-solid fa-file-circle-plus"></i> Create Purchase Order(s) from selected</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ NEAR-EXPIRY ACTION LIST ============ -->
+  <section id="tab-expiry" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-hourglass-half"></i> Near-expiry action list</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>More than just an alert: it checks whether the lot can still be sold before it expires (based on sales speed). If not, it suggests a markdown that never goes below cost. An expired lot can be disposed of directly into the Waste Log (deducted from stock).</p>
+      <div class="row">
+        <div>
+          <label>Expiring within</label>
+          <select id="expiryDays"><option value="7">7 days</option><option value="14">14 days</option><option value="30" selected>30 days</option><option value="60">60 days</option><option value="90">90 days</option></select>
+        </div>
+        <div>
+          <label>Show</label>
+          <select id="expiryFilter"><option value="action" selected>Needs action only</option><option value="all">All lots</option></select>
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnRunExpiry"><i class="fa-solid fa-magnifying-glass"></i> Show</button>
+          <button class="btn danger" id="btnDisposeAllExpired" style="display:none;"><i class="fa-solid fa-dumpster"></i> Dispose all expired</button>
+        </div>
+      </div>
+      <div id="expirySummary" class="ledger-chips"></div>
+      <div id="expiryList"></div>
+    </div>
+  </section>
+
+  <!-- ============ SUPPLIER COST HISTORY ============ -->
+  <section id="tab-costs" class="tab-panel" style="display:none;">
+    <div class="card">
+      <h2><i class="fa-solid fa-tags"></i> Supplier cost history &amp; price-change alerts</h2>
+      <p class="section-note"><i class="fa-solid fa-circle-info"></i>Records the cost of every received Purchase Order (enter the <b>Cost (₱)</b> when receiving the PO). Warns you when a supplier's cost goes up or when a cheaper supplier exists for the same product.</p>
+      <div class="row">
+        <div><label>Product code (optional)</label><input id="costCode" placeholder="all products"></div>
+        <div>
+          <label class="check-inline"><input type="checkbox" id="costOnlyAlerts"> Alerts only</label>
+        </div>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="btnRunCosts"><i class="fa-solid fa-magnifying-glass"></i> Show</button>
+          <button class="btn secondary" id="btnExportCosts"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+        </div>
+      </div>
+      <div id="costSummary" class="ledger-chips"></div>
+      <div id="costList"></div>
+      <div id="costDetail"></div>
     </div>
   </section>
 
@@ -535,7 +700,7 @@ function showMsg(text, isError){
   setTimeout(() => { el.innerHTML = ''; }, 6000);
 }
 function statusIcon(status){
-  const map = { open:'fa-clock', active:'fa-clock', finalized:'fa-circle-check', closed:'fa-circle-check', cancelled:'fa-ban' };
+  const map = { open:'fa-clock', active:'fa-clock', pending_approval:'fa-hourglass-half', finalized:'fa-circle-check', closed:'fa-circle-check', cancelled:'fa-ban' };
   return '<i class="fa-solid ' + (map[status] || 'fa-circle') + '"></i>';
 }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -582,7 +747,11 @@ document.getElementById('btnStartCount').addEventListener('click', async () => {
     const scope = document.getElementById('countScope').value;
     const category = document.getElementById('countCategory').value.trim();
     const notes = document.getElementById('countNotes').value.trim();
-    await api('POST', '/api/inventory-counts', { scope, category, notes });
+    const blind = document.getElementById('countBlind').checked;
+    const body = { scope, category, notes, blind };
+    const limit = document.getElementById('countApprovalValue').value.trim();
+    if (limit !== '') body.approvalValueThreshold = limit;
+    await api('POST', '/api/inventory-counts', body);
     showMsg('New count session started.');
     document.getElementById('countNotes').value = '';
     loadCounts();
@@ -590,12 +759,30 @@ document.getElementById('btnStartCount').addEventListener('click', async () => {
 });
 let allCountSessions = [];
 let showCancelledCounts = false;
+let canApproveCounts = false;
+function updateCountApprovalBadge(){
+  const btn = document.querySelector('nav.tabs button[data-tab="count"]');
+  if (!btn) return;
+  const old = btn.querySelector('.tab-badge');
+  if (old) old.remove();
+  const n = canApproveCounts ? allCountSessions.filter(s => s.status === 'pending_approval').length : 0;
+  if (n > 0) {
+    const b = document.createElement('span');
+    b.className = 'tab-badge';
+    b.title = n + ' count(s) waiting for your approval';
+    b.textContent = String(n);
+    btn.appendChild(b);
+  }
+}
+function statusLabel(st){ return String(st || '').replace(/_/g, ' '); }
 async function loadCounts(){
   const wrap = document.getElementById('countSessionsList');
   wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading...</p>';
   try {
     const data = await api('GET', '/api/inventory-counts');
     allCountSessions = data.sessions || [];
+    canApproveCounts = !!data.canApprove;
+    updateCountApprovalBadge();
     renderCountSessionsList();
   } catch (e) { wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>'; }
 }
@@ -608,7 +795,9 @@ function renderCountSessionsList(){
     wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-ban"></i>All sessions here are cancelled. Click "Show cancelled" above to view them.</p>';
     return;
   }
-  let html = visible.map(renderCountSession).join('');
+  const pendingN = canApproveCounts ? allCountSessions.filter(s => s.status === 'pending_approval').length : 0;
+  let html = (pendingN > 0 ? '<div class="notice"><i class="fa-solid fa-bell"></i> ' + pendingN + ' physical count(s) waiting for your approval — stock does not change until they are approved.</div>' : '')
+    + visible.map(renderCountSession).join('');
   if (hiddenCount > 0 && !showCancelledCounts) {
     html += '<p class="empty" style="padding:12px 10px;"><i class="fa-solid fa-eye-slash"></i>' + hiddenCount + ' cancelled session(s) hidden. Click "Show cancelled" above to view them.</p>';
   }
@@ -627,7 +816,7 @@ function exportCountsCsv(){
     (s.items || []).forEach(item => {
       rows.push([
         s.id, s.status, fmtDate(s.createdAt), s.createdBy || '',
-        item.code, item.name, item.systemQty, item.unit,
+        item.code, item.name, item.systemQty == null ? '' : item.systemQty, item.unit,
         item.countedQty !== null && item.countedQty !== undefined ? item.countedQty : '',
         item.variance !== null && item.variance !== undefined ? item.variance : ''
       ]);
@@ -639,30 +828,57 @@ function exportCountsCsv(){
 }
 function renderCountSession(s){
   const countedN = s.items.filter(i => i.countedQty !== null && i.countedQty !== undefined).length;
-  const rows = s.items.map(item => `
-    <tr>
+  const flaggedByCode = new Map((Array.isArray(s.approvalFlagged) ? s.approvalFlagged : []).map(f => [String(f.code || '').toLowerCase(), f]));
+  const rows = s.items.map(item => {
+    const flagged = flaggedByCode.get(String(item.code || '').toLowerCase());
+    return `
+    <tr${flagged ? ' style="background:var(--warn-soft);"' : ''}>
       <td>${esc(item.code)}</td>
       <td>${esc(item.name)}</td>
-      <td>${fmtQty(item.systemQty)} ${esc(item.unit)}</td>
+      <td>${item.systemQty == null ? '<span class="muted" title="Hidden during a blind count">••••</span>' : fmtQty(item.systemQty) + ' ' + esc(item.unit)}</td>
       <td>${s.status === 'open'
-        ? `<input class="item-count-input" type="number" step="0.001" min="0" data-code="${esc(item.code)}" value="${item.countedQty !== null ? fmtQty(item.countedQty) : ''}">`
-        : (item.countedQty !== null ? fmtQty(item.countedQty) : '—')}</td>
-      <td class="${item.variance > 0 ? 'num-pos' : (item.variance < 0 ? 'num-neg' : '')}">${item.variance !== null ? fmtQty(item.variance) : '—'}</td>
-    </tr>`).join('');
-  return `
-  <div class="card" style="background:var(--panel);" data-count-session-id="${esc(s.id)}">
-    <div class="toolbar">
-      <div><strong>${esc(s.id)}</strong> <span class="pill ${esc(s.status)}">${statusIcon(s.status)}${esc(s.status)}</span>
-        <div class="muted" style="font-size:.78rem;">Started ${fmtDate(s.createdAt)} by ${esc(s.createdBy)} — ${countedN}/${s.items.length} counted${s.notes ? ' — ' + esc(s.notes) : ''}</div>
-      </div>
-      ${s.status === 'open' ? `
+        ? `<input class="item-count-input" type="number" step="0.001" min="0" data-code="${esc(item.code)}" value="${item.countedQty !== null && item.countedQty !== undefined ? fmtQty(item.countedQty) : ''}">`
+        : (item.countedQty !== null && item.countedQty !== undefined ? fmtQty(item.countedQty) : '—')}</td>
+      <td class="${item.variance > 0 ? 'num-pos' : (item.variance < 0 ? 'num-neg' : '')}">${item.variance == null ? '—' : fmtQty(item.variance)}${flagged ? ` <small class="muted">(${fmtMoney(Math.abs(flagged.valueImpact))})</small>` : ''}</td>
+    </tr>`;
+  }).join('');
+  const blindTag = s.blind ? ' — <i class="fa-solid fa-eye-slash"></i> blind count' : '';
+  const lastRejection = Array.isArray(s.rejections) && s.rejections.length ? s.rejections[s.rejections.length - 1] : null;
+  const rejectionNote = (s.status === 'open' && lastRejection)
+    ? `<div class="notice"><i class="fa-solid fa-rotate-left"></i> Sent back by ${esc(lastRejection.by)} for a recount${lastRejection.reason ? ': ' + esc(lastRejection.reason) : '.'}</div>` : '';
+  let actions = '';
+  if (s.status === 'open') {
+    actions = `
         <div>
           <button class="btn secondary small" onclick="openScanModal('${esc(s.id)}')"><i class="fa-solid fa-barcode"></i> Scan Mode</button>
           <button class="btn secondary small" onclick="saveCounts('${esc(s.id)}')"><i class="fa-solid fa-floppy-disk"></i> Save Counts</button>
           <button class="btn small" onclick="finalizeCount('${esc(s.id)}')"><i class="fa-solid fa-check-double"></i> Finalize (Apply to Stock)</button>
           <button class="btn danger small" onclick="cancelCount('${esc(s.id)}')"><i class="fa-solid fa-ban"></i> Cancel</button>
-        </div>` : (s.status === 'finalized' ? `<div class="muted" style="font-size:.8rem;"><i class="fa-solid fa-circle-check" style="color:var(--good);margin-right:5px;"></i>Finalized ${fmtDate(s.finalizedAt)} by ${esc(s.finalizedBy)} — net variance value ≈ ${fmtMoney(s.totalVarianceValue)}</div>` : '')}
+        </div>`;
+  } else if (s.status === 'pending_approval') {
+    actions = canApproveCounts ? `
+        <div>
+          <button class="btn small" onclick="approveCount('${esc(s.id)}')"><i class="fa-solid fa-circle-check"></i> Approve &amp; apply to stock</button>
+          <button class="btn secondary small" onclick="rejectCount('${esc(s.id)}')"><i class="fa-solid fa-rotate-left"></i> Send back for recount</button>
+          <button class="btn danger small" onclick="cancelCount('${esc(s.id)}')"><i class="fa-solid fa-ban"></i> Cancel</button>
+        </div>` : `
+        <div>
+          <button class="btn danger small" onclick="cancelCount('${esc(s.id)}')"><i class="fa-solid fa-ban"></i> Cancel</button>
+        </div>`;
+  } else if (s.status === 'finalized') {
+    actions = `<div class="muted" style="font-size:.8rem;"><i class="fa-solid fa-circle-check" style="color:var(--good);margin-right:5px;"></i>Finalized ${fmtDate(s.finalizedAt)} by ${esc(s.finalizedBy)}${s.approvedBy ? ' — approved by ' + esc(s.approvedBy) : ''} — net variance value ≈ ${fmtMoney(s.totalVarianceValue)}</div>`;
+  }
+  const pendingNote = s.status === 'pending_approval'
+    ? `<div class="notice"><i class="fa-solid fa-hourglass-half"></i> Submitted by ${esc(s.submittedBy || '—')} on ${fmtDate(s.submittedAt)}: large variances found${s.approvalTotalAbsValue != null ? ' (total ≈ ' + fmtMoney(s.approvalTotalAbsValue) + ')' : ''}. Stock does not change until a manager approves.</div>` : '';
+  return `
+  <div class="card" style="background:var(--panel);" data-count-session-id="${esc(s.id)}">
+    <div class="toolbar">
+      <div><strong>${esc(s.id)}</strong> <span class="pill ${esc(s.status)}">${statusIcon(s.status)}${esc(statusLabel(s.status))}</span>
+        <div class="muted" style="font-size:.78rem;">Started ${fmtDate(s.createdAt)} by ${esc(s.createdBy)} — ${countedN}/${s.items.length} counted${blindTag}${s.notes ? ' — ' + esc(s.notes) : ''}</div>
+      </div>
+      ${actions}
     </div>
+    ${pendingNote}${rejectionNote}
     <div class="table-wrap"><table>
       <thead><tr><th>Code</th><th>Name</th><th>System Qty</th><th>Counted Qty</th><th>Variance</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -683,12 +899,29 @@ async function saveCounts(id){
   } catch (e) { showMsg(e.message, true); }
 }
 async function finalizeCount(id){
-  if (!confirm('Finalize this count session? This will be applied to product stock immediately and cannot be undone.')) return;
+  if (!confirm('Finalize this count session? If every variance is within the approval limit it is applied to product stock immediately and cannot be undone. A large variance is sent to a manager for approval first.')) return;
   try {
     const data = await api('POST', '/api/inventory-counts/' + encodeURIComponent(id) + '/finalize');
-    showMsg(data.message);
+    showMsg(esc(data.message));
     loadCounts();
-  } catch (e) { showMsg(e.message, true); }
+  } catch (e) { showMsg(esc(e.message), true); }
+}
+async function approveCount(id){
+  if (!confirm('Approve this count and apply every variance to product stock now? This cannot be undone.')) return;
+  try {
+    const data = await api('POST', '/api/inventory-counts/' + encodeURIComponent(id) + '/approve');
+    showMsg(esc(data.message));
+    loadCounts();
+  } catch (e) { showMsg(esc(e.message), true); }
+}
+async function rejectCount(id){
+  const reason = prompt('Reason for the recount (optional):', '');
+  if (reason === null) return;
+  try {
+    const data = await api('POST', '/api/inventory-counts/' + encodeURIComponent(id) + '/reject', { reason: reason.trim() });
+    showMsg(esc(data.message));
+    loadCounts();
+  } catch (e) { showMsg(esc(e.message), true); }
 }
 async function cancelCount(id){
   if (!confirm('Cancel this count session?')) return;
@@ -932,6 +1165,31 @@ async function returnConsignment(id){
 }
 
 // ================= WASTE LOG =================
+let wasteLotsToken = 0;
+async function loadWasteLots(){
+  const token = ++wasteLotsToken;
+  const sel = document.getElementById('wasteBatch');
+  const wrapEl = document.getElementById('wasteBatchWrap');
+  sel.innerHTML = '<option value="">Auto — pinakamalapit mag-expire (FEFO)</option>';
+  wrapEl.style.display = 'none';
+  const code = document.getElementById('wasteCode').value.trim();
+  if (!code) return;
+  try {
+    const data = await api('GET', '/api/waste-log/lots?code=' + encodeURIComponent(code));
+    if (token !== wasteLotsToken) return; // a newer lookup is in flight
+    const lots = Array.isArray(data.lots) ? data.lots : [];
+    if (!lots.length) return;
+    lots.forEach(l => {
+      const o = document.createElement('option');
+      o.value = l.id;
+      o.textContent = (l.lotNumber || 'No lot #') + (l.expiryDate ? ' · exp ' + l.expiryDate : '') + (l.expired ? ' (EXPIRED)' : '') + ' · qty ' + fmtQty(l.quantity);
+      sel.appendChild(o);
+    });
+    wrapEl.style.display = '';
+  } catch (e) { /* lot picking is optional — ignore lookup errors */ }
+}
+document.getElementById('wasteCode').addEventListener('change', loadWasteLots);
+document.getElementById('wasteCode').addEventListener('blur', loadWasteLots);
 document.getElementById('btnAddWaste').addEventListener('click', async () => {
   try {
     const code = document.getElementById('wasteCode').value.trim();
@@ -939,11 +1197,15 @@ document.getElementById('btnAddWaste').addEventListener('click', async () => {
     const category = document.getElementById('wasteCategory').value;
     const reason = document.getElementById('wasteReason').value.trim();
     if (!code || !quantity) { showMsg('Product code and quantity are required.', true); return; }
-    const data = await api('POST', '/api/waste-log', { code, quantity, category, reason });
+    const batchId = document.getElementById('wasteBatch').value;
+    const wastePayload = { code, quantity, category, reason };
+    if (batchId) wastePayload.batchId = batchId;
+    const data = await api('POST', '/api/waste-log', wastePayload);
     showMsg(data.message);
     document.getElementById('wasteCode').value = '';
     document.getElementById('wasteQty').value = '';
     document.getElementById('wasteReason').value = '';
+    loadWasteLots();
     loadWasteLog();
   } catch (e) { showMsg(e.message, true); }
 });
@@ -964,7 +1226,7 @@ async function loadWasteLog(){
           <td>${esc(e.name)}</td>
           <td>${fmtQty(e.quantity)} ${esc(e.unit)}</td>
           <td>${esc(e.category)}</td>
-          <td>${esc(e.reason)}</td>
+          <td>${esc(e.reason)}${wasteLotsLabel(e) ? `<br><small class="muted">${esc(wasteLotsLabel(e))}</small>` : ''}</td>
           <td>${fmtMoney(e.costImpact)}</td>
           <td>${esc(e.recordedBy)}</td>
         </tr>`).join('')}</tbody>
@@ -972,12 +1234,20 @@ async function loadWasteLog(){
   } catch (e) { wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>'; }
 }
 let wasteLogRawEntries = [];
+function wasteLotsLabel(e){
+  const lots = Array.isArray(e.lots) ? e.lots : [];
+  if (!lots.length) return '';
+  return 'Lot: ' + lots.map(l => (l.lotNumber || 'no lot #') + (l.expiryDate ? ' (exp ' + l.expiryDate + ')' : '') + ' ×' + fmtQty(l.qty)).join(', ');
+}
+function wasteSourceLabel(e){
+  return ({ stock_return: 'Returned item', batch_delete: 'Batch deleted', batch_edit: 'Batch qty cut', waste_log: 'Waste log' })[e.source] || '';
+}
 function exportWasteLogCsv(){
   const rows = wasteLogRawEntries.map(e => [
-    fmtDate(e.recordedAt), e.code, e.name, fmtQty(e.quantity), e.unit, e.category, e.reason || '', e.costImpact, e.recordedBy
+    fmtDate(e.recordedAt), e.code, e.name, fmtQty(e.quantity), e.unit, e.category, e.reason || '', e.costImpact, e.recordedBy, wasteSourceLabel(e), wasteLotsLabel(e)
   ]);
   downloadCsv(`waste_log_${Date.now()}.csv`,
-    ['Date', 'Code', 'Name', 'Qty', 'Unit', 'Category', 'Reason', 'Est. Loss', 'Recorded By'],
+    ['Date', 'Code', 'Name', 'Qty', 'Unit', 'Category', 'Reason', 'Est. Loss', 'Recorded By', 'Source', 'Lots'],
     rows);
 }
 
@@ -1022,6 +1292,436 @@ function exportDeadStockCsv(){
     ['Code', 'Name', 'Category', 'Stock', 'Last Sold', 'Days Idle', 'Tied-up Value'],
     rows);
 }
+
+// ================= STOCK MOVEMENT LEDGER =================
+let ledgerRaw = [];
+let ledgerLoadedOnce = false;
+function ledgerLocalDay(d){ return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+function ledgerSignedQty(delta){ return (delta > 0 ? '+' : '−') + fmtQty(Math.abs(delta)); }
+async function loadLedger(){
+  const wrap = document.getElementById('ledgerList');
+  const sum = document.getElementById('ledgerSummary');
+  const fromEl = document.getElementById('ledgerFrom');
+  const toEl = document.getElementById('ledgerTo');
+  if (!toEl.value) toEl.value = ledgerLocalDay(new Date());
+  if (!fromEl.value) fromEl.value = ledgerLocalDay(new Date(Date.now() - 30 * 86400000));
+  const qs = new URLSearchParams();
+  const code = document.getElementById('ledgerCode').value.trim();
+  const type = document.getElementById('ledgerType').value;
+  if (code) qs.set('code', code);
+  if (type) qs.set('type', type);
+  qs.set('from', fromEl.value);
+  qs.set('to', toEl.value);
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading…</p>';
+  try {
+    const data = await api('GET', '/api/stock-movements?' + qs.toString());
+    ledgerLoadedOnce = true;
+    ledgerRaw = data.movements || [];
+    sum.innerHTML = `<span class="ledger-chip">In: <b class="qty-in">+${fmtQty(data.totalIn)}</b></span>`
+      + `<span class="ledger-chip">Out: <b class="qty-out">−${fmtQty(data.totalOut)}</b></span>`
+      + `<span class="ledger-chip">Net: <b>${data.net > 0 ? '+' : (data.net < 0 ? '−' : '')}${fmtQty(Math.abs(data.net))}</b></span>`
+      + (data.summary || []).map(r => `<span class="ledger-chip">${esc(r.label)}: <b>${r.count}</b></span>`).join('');
+    if (!ledgerRaw.length) { wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-box-open"></i>Walang naitalang galaw sa napiling filter.</p>'; return; }
+    wrap.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Type</th><th>Product</th><th>Qty</th><th>Details</th><th>By</th></tr></thead>
+      <tbody>${ledgerRaw.map(m => `
+        <tr>
+          <td>${fmtDate(m.at)}</td>
+          <td><span class="pill ${m.delta > 0 ? 'in' : 'out'}">${esc(m.typeLabel || m.type)}</span></td>
+          <td>${esc(m.code)}${m.name ? `<br><small class="muted">${esc(m.name)}</small>` : ''}</td>
+          <td class="${m.delta > 0 ? 'qty-in' : 'qty-out'}">${ledgerSignedQty(m.delta)}</td>
+          <td>${esc(m.ref)}${wasteLotsLabel(m) ? `<br><small class="muted">${esc(wasteLotsLabel(m))}</small>` : ''}</td>
+          <td>${esc(m.by)}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`
+      + (data.truncated ? `<p class="section-note"><i class="fa-solid fa-circle-info"></i>Ipinapakita ang pinakabagong ${ledgerRaw.length} sa ${data.total}. Paliitin ang petsa o pumili ng product para makita ang iba.</p>` : '');
+  } catch (e) {
+    ledgerRaw = [];
+    sum.innerHTML = '';
+    wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>';
+  }
+}
+document.getElementById('btnRunLedger').addEventListener('click', loadLedger);
+document.getElementById('ledgerCode').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') loadLedger(); });
+document.querySelector('nav.tabs button[data-tab="ledger"]').addEventListener('click', () => { if (!ledgerLoadedOnce) loadLedger(); });
+document.getElementById('btnExportLedger').addEventListener('click', () => {
+  downloadCsv('stock_ledger_' + Date.now() + '.csv',
+    ['Date', 'Type', 'Code', 'Name', 'Qty (+in / -out)', 'Details', 'By', 'Lots'],
+    ledgerRaw.map(m => [fmtDate(m.at), m.typeLabel || m.type, m.code, m.name || '', m.delta, m.ref || '', m.by || '', wasteLotsLabel(m)]));
+});
+
+// ================= SHRINKAGE / VARIANCE REPORT =================
+let shrinkRaw = null;
+let shrinkLoadedOnce = false;
+const SHRINK_LABELS = { count_variance: 'Count variance', waste: 'Waste / damage', damaged_return: 'Damaged returns', batch_loss: 'Batch loss' };
+const SHRINK_TYPES = Object.keys(SHRINK_LABELS);
+async function loadShrinkage(){
+  const wrap = document.getElementById('shrinkBody');
+  const sum = document.getElementById('shrinkSummary');
+  const fromEl = document.getElementById('shrinkFrom');
+  const toEl = document.getElementById('shrinkTo');
+  if (!toEl.value) toEl.value = ledgerLocalDay(new Date());
+  if (!fromEl.value) fromEl.value = ledgerLocalDay(new Date(Date.now() - 90 * 86400000));
+  const qs = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading…</p>';
+  try {
+    const d = await api('GET', '/api/shrinkage-report?' + qs.toString());
+    shrinkLoadedOnce = true;
+    shrinkRaw = d;
+    sum.innerHTML = `<span class="ledger-chip">Total loss: <b class="qty-out">${fmtMoney(d.totalLoss)}</b></span>`
+      + `<span class="ledger-chip">Count overages: <b class="qty-in">${fmtMoney(d.countGainValue)}</b></span>`
+      + `<span class="ledger-chip">Net loss: <b>${fmtMoney(d.netLoss)}</b></span>`
+      + (d.shrinkPctOfCogs !== null && d.shrinkPctOfCogs !== undefined ? `<span class="ledger-chip" title="Total loss ÷ cost of goods sold in the same period (${fmtMoney(d.cogs)})">Loss vs. COGS: <b>${d.shrinkPctOfCogs}%</b></span>` : '');
+    if (!d.totalLoss && !d.countGainValue && !(d.byProduct || []).length) {
+      wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-circle-check"></i>No loss recorded for the selected dates.</p>';
+      return;
+    }
+    const maxType = Math.max(1, ...d.byType.map(t => t.loss));
+    let html = (d.hasEstimated ? '<div class="notice"><i class="fa-solid fa-circle-info"></i> Some older counts have no saved cost, so their value is based on the current product cost.</div>' : '')
+      + '<div class="sub-title">By category</div><div class="table-wrap"><table><thead><tr><th>Type</th><th class="num">Entries</th><th class="num">Qty lost</th><th class="num">Loss (₱)</th><th style="width:30%;"></th></tr></thead><tbody>'
+      + d.byType.map(t => `<tr><td>${esc(t.label)}</td><td class="num">${t.count}</td><td class="num">${fmtQty(t.qty)}</td><td class="num">${fmtMoney(t.loss)}</td><td><div class="bar-track"><div class="bar-fill" style="width:${Math.round(t.loss / maxType * 100)}%;"></div></div></td></tr>`).join('')
+      + '</tbody></table></div>';
+    if ((d.byCategory || []).length) {
+      html += '<div class="sub-title">By reason</div><div class="table-wrap"><table><thead><tr><th>Reason</th><th class="num">Entries</th><th class="num">Loss (₱)</th></tr></thead><tbody>'
+        + d.byCategory.map(c => `<tr><td>${esc(c.category === 'count_variance' ? 'Count variance' : c.category)}</td><td class="num">${c.count}</td><td class="num">${fmtMoney(c.loss)}</td></tr>`).join('')
+        + '</tbody></table></div>';
+    }
+    html += '<div class="sub-title">By month</div><div class="table-wrap"><table><thead><tr><th>Month</th>'
+      + SHRINK_TYPES.map(k => `<th class="num">${esc(SHRINK_LABELS[k])}</th>`).join('') + '<th class="num">Total (₱)</th></tr></thead><tbody>'
+      + d.byMonth.map(m => `<tr><td>${esc(m.month)}</td>${SHRINK_TYPES.map(k => `<td class="num">${m.byType[k] ? fmtMoney(m.byType[k]) : '—'}</td>`).join('')}<td class="num"><b>${fmtMoney(m.loss)}</b></td></tr>`).join('')
+      + '</tbody></table></div>';
+    if ((d.byUser || []).length) {
+      html += '<div class="sub-title">By staff (who counted / recorded)</div><div class="table-wrap"><table><thead><tr><th>Staff</th>'
+        + SHRINK_TYPES.map(k => `<th class="num">${esc(SHRINK_LABELS[k])}</th>`).join('') + '<th class="num">Entries</th><th class="num">Total (₱)</th></tr></thead><tbody>'
+        + d.byUser.map(u => `<tr><td>${esc(u.user)}</td>${SHRINK_TYPES.map(k => `<td class="num">${u.byType[k] ? fmtMoney(u.byType[k]) : '—'}</td>`).join('')}<td class="num">${u.count}</td><td class="num"><b>${fmtMoney(u.loss)}</b></td></tr>`).join('')
+        + '</tbody></table></div>';
+    }
+    html += '<div class="sub-title">By product (biggest loss first) <button class="btn secondary small" style="margin-left:8px;" onclick="startCountForTopLoss()"><i class="fa-solid fa-clipboard-check"></i> Count the top 10</button></div><div class="table-wrap"><table><thead><tr><th>Product</th>'
+      + SHRINK_TYPES.map(k => `<th class="num">${esc(SHRINK_LABELS[k])}</th>`).join('') + '<th class="num">Qty lost</th><th class="num">Total (₱)</th></tr></thead><tbody>'
+      + d.byProduct.map(p => `<tr><td>${esc(p.code)}${p.name ? `<br><small class="muted">${esc(p.name)}</small>` : ''}</td>${SHRINK_TYPES.map(k => `<td class="num">${p.byType[k] ? fmtMoney(p.byType[k]) : '—'}</td>`).join('')}<td class="num">${fmtQty(p.qty)}</td><td class="num"><b>${fmtMoney(p.loss)}</b></td></tr>`).join('')
+      + '</tbody></table></div>';
+    wrap.innerHTML = html;
+  } catch (e) {
+    shrinkRaw = null;
+    sum.innerHTML = '';
+    wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>';
+  }
+}
+async function startCountForTopLoss(){
+  const codes = ((shrinkRaw && shrinkRaw.byProduct) || []).slice(0, 10).map(p => p.code).filter(Boolean);
+  if (!codes.length) { showMsg('No products to count.', true); return; }
+  if (!confirm('Start a blind count for the ' + codes.length + ' products with the biggest loss?')) return;
+  try {
+    await api('POST', '/api/inventory-counts', { scope: 'codes', codes, blind: true, notes: 'Recount of top shrinkage items' });
+    showMsg('Count session started for the top-loss items.');
+    loadCounts();
+    document.querySelector('nav.tabs button[data-tab="count"]').click();
+  } catch (e) { showMsg(esc(e.message), true); }
+}
+document.getElementById('btnRunShrink').addEventListener('click', loadShrinkage);
+document.querySelector('nav.tabs button[data-tab="shrinkage"]').addEventListener('click', () => { if (!shrinkLoadedOnce) loadShrinkage(); });
+document.getElementById('btnExportShrink').addEventListener('click', () => {
+  if (!shrinkRaw) { showMsg('Nothing to export yet.', true); return; }
+  downloadCsv('shrinkage_' + Date.now() + '.csv',
+    ['Code', 'Name'].concat(SHRINK_TYPES.map(k => SHRINK_LABELS[k] + ' (PHP)')).concat(['Qty lost', 'Total loss (PHP)']),
+    (shrinkRaw.byProduct || []).map(p => [p.code, p.name || ''].concat(SHRINK_TYPES.map(k => p.byType[k] || 0)).concat([p.qty, p.loss])));
+});
+
+// ================= SMART REORDER =================
+let reorderRows = [];
+let reorderPoUnlocked = true;
+let reorderLoadedOnce = false;
+async function loadSmartReorder(){
+  const wrap = document.getElementById('reorderList');
+  const sum = document.getElementById('reorderSummary');
+  const actions = document.getElementById('reorderActions');
+  const qs = new URLSearchParams({
+    days: document.getElementById('reorderDays').value,
+    lead: document.getElementById('reorderLead').value || '7',
+    cover: document.getElementById('reorderCover').value || '14'
+  });
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading…</p>';
+  actions.style.display = 'none';
+  try {
+    const d = await api('GET', '/api/smart-reorder?' + qs.toString());
+    reorderLoadedOnce = true;
+    reorderRows = d.items || [];
+    reorderPoUnlocked = d.purchaseOrdersUnlocked !== false;
+    sum.innerHTML = `<span class="ledger-chip">Urgent: <b class="qty-out">${d.urgentCount}</b></span>`
+      + `<span class="ledger-chip">Soon: <b>${d.soonCount}</b></span>`
+      + `<span class="ledger-chip">Covered / OK: <b>${d.okCount}</b></span>`
+      + `<span class="ledger-chip">Est. cost: <b>${fmtMoney(d.totalEstCost)}</b></span>`;
+    if (!reorderRows.length) {
+      wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-circle-check"></i>Nothing needs to be reordered right now based on sales speed.</p>';
+      return;
+    }
+    wrap.innerHTML = (reorderPoUnlocked ? '' : '<div class="notice"><i class="fa-solid fa-lock"></i> The Purchase Orders feature is locked, so POs cannot be created from here yet.</div>')
+      + `<div class="table-wrap"><table>
+      <thead><tr><th></th><th>Product</th><th class="num">Stock</th><th class="num">On order</th><th class="num">Sold / day</th><th class="num">Days left</th><th class="num">Lead</th><th class="num">Order qty</th><th>Supplier</th><th class="num">Est. cost</th><th>Status</th></tr></thead>
+      <tbody>${reorderRows.map((r, i) => `
+        <tr>
+          <td><input type="checkbox" class="reorder-pick" data-i="${i}"${r.status === 'urgent' ? ' checked' : ''}></td>
+          <td>${esc(r.code)}<br><small class="muted">${esc(r.name)}</small></td>
+          <td class="num">${fmtQty(r.stock)} ${esc(r.unit)}</td>
+          <td class="num">${r.onOrder ? fmtQty(r.onOrder) : '—'}</td>
+          <td class="num">${fmtQty(r.forecastDaily)}${r.trendPct !== null && Math.abs(r.trendPct) >= 20 ? ` <small class="${r.trendPct > 0 ? 'qty-out' : 'muted'}" title="Last 7 days vs. average">${r.trendPct > 0 ? '▲' : '▼'}${Math.abs(r.trendPct)}%</small>` : ''}</td>
+          <td class="num">${r.stock <= 0 ? '<b class="qty-out">0</b>' : fmtQty(r.daysLeft)}</td>
+          <td class="num" title="${r.leadSource === 'measured' ? 'Measured from this supplier\'s received POs' : 'Default lead time'}">${r.leadDays}d${r.leadSource === 'measured' ? ' <i class="fa-solid fa-ruler" style="opacity:.6;"></i>' : ''}</td>
+          <td class="num"><input type="number" class="reorder-qty" data-i="${i}" min="0" step="any" value="${fmtQty(r.suggestedQty)}" style="width:90px;"></td>
+          <td><input class="reorder-supplier" data-i="${i}" list="supplierNamesDatalist" value="${esc(r.supplier)}" placeholder="supplier" style="width:150px;" autocomplete="off"></td>
+          <td class="num">${r.unitCost > 0 ? fmtMoney(r.estCost) : '—'}</td>
+          <td><span class="pill ${esc(r.status)}">${esc(r.status)}</span></td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+    actions.style.display = 'block';
+  } catch (e) {
+    reorderRows = [];
+    sum.innerHTML = '';
+    wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>';
+  }
+}
+document.getElementById('btnRunReorder').addEventListener('click', loadSmartReorder);
+document.querySelector('nav.tabs button[data-tab="reorder"]').addEventListener('click', () => { if (!reorderLoadedOnce) loadSmartReorder(); });
+document.getElementById('btnReorderSelectUrgent').addEventListener('click', () => {
+  document.querySelectorAll('#reorderList input.reorder-pick').forEach(cb => { cb.checked = !!reorderRows[parseInt(cb.dataset.i, 10)] && reorderRows[parseInt(cb.dataset.i, 10)].status === 'urgent'; });
+});
+document.getElementById('btnReorderCreatePo').addEventListener('click', async () => {
+  const groups = new Map();
+  let missingSupplier = 0;
+  document.querySelectorAll('#reorderList input.reorder-pick:checked').forEach(cb => {
+    const i = parseInt(cb.dataset.i, 10);
+    const row = reorderRows[i];
+    if (!row) return;
+    const qty = parseFloat(document.querySelector(`#reorderList input.reorder-qty[data-i="${i}"]`).value);
+    const supInput = document.querySelector(`#reorderList input.reorder-supplier[data-i="${i}"]`);
+    const supplier = supInput.value.trim();
+    if (!isFinite(qty) || qty <= 0) return;
+    if (!supplier) { missingSupplier++; supInput.style.borderColor = 'var(--bad)'; return; }
+    supInput.style.borderColor = '';
+    if (!groups.has(supplier)) groups.set(supplier, []);
+    const line = { code: row.code, name: row.name, qty };
+    if (row.unitCost > 0) line.unitCost = row.unitCost;
+    groups.get(supplier).push(line);
+  });
+  if (missingSupplier) { showMsg('Enter a supplier for the selected items (highlighted in red).', true); return; }
+  if (!groups.size) { showMsg('Select at least one item with a quantity.', true); return; }
+  const summary = Array.from(groups.entries()).map(([sup, items]) => `${sup}: ${items.length} item(s)`).join('\n');
+  if (!confirm('Create ' + groups.size + ' Purchase Order(s)?\n\n' + summary)) return;
+  let ok = 0, lastErr = '';
+  for (const [supplier, items] of groups) {
+    try {
+      await api('POST', '/api/purchase-orders', { supplier, items, notes: 'Smart reorder (based on sales speed)' });
+      ok++;
+    } catch (e) { lastErr = e.message; }
+  }
+  if (ok === groups.size) showMsg(ok + ' Purchase Order(s) created.');
+  else showMsg(ok + ' of ' + groups.size + ' PO(s) created. ' + esc(lastErr), true);
+  loadSmartReorder();
+});
+
+// ================= NEAR-EXPIRY ACTION LIST =================
+let expiryRows = [];
+let expiryBatchUnlocked = false;
+let expiryLoadedOnce = false;
+function expiryActionText(r){
+  if (r.action === 'dispose') return '<b>Expired</b> — dispose';
+  if (r.action === 'watch') return 'Can still be sold before it expires';
+  let t = r.markdownPct > 0
+    ? `Markdown <b>${r.markdownPct}%</b>${r.suggestedPrice !== null ? ' → ' + fmtMoney(r.suggestedPrice) : ''} (orig. ${fmtMoney(r.price)})`
+    : 'No margin room for a markdown — bundle/promote it or sell it at cost';
+  if (r.noSales) t += '<br><small class="muted">No recent sales — consider disposing of or donating it if expiry is close.</small>';
+  return t;
+}
+function expiryDaysText(r){
+  if (r.expired) return `<span class="qty-out">expired ${Math.abs(r.daysLeft)}d ago</span>`;
+  return r.daysLeft === 0 ? '<span class="qty-out">expires today</span>' : r.daysLeft + 'd left';
+}
+async function loadExpiryActions(){
+  const wrap = document.getElementById('expiryList');
+  const sum = document.getElementById('expirySummary');
+  const bulkBtn = document.getElementById('btnDisposeAllExpired');
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading…</p>';
+  bulkBtn.style.display = 'none';
+  try {
+    const d = await api('GET', '/api/near-expiry-actions?days=' + encodeURIComponent(document.getElementById('expiryDays').value));
+    expiryLoadedOnce = true;
+    expiryRows = d.items || [];
+    expiryBatchUnlocked = !!d.batchLotUnlocked;
+    sum.innerHTML = `<span class="ledger-chip">Expired: <b class="qty-out">${d.expiredCount}</b></span>`
+      + `<span class="ledger-chip">Needs markdown: <b>${d.markdownCount}</b></span>`
+      + `<span class="ledger-chip">Will sell in time: <b>${d.watchCount}</b></span>`
+      + `<span class="ledger-chip">Value at risk: <b>${fmtMoney(d.totalValueAtRisk)}</b></span>`;
+    bulkBtn.style.display = d.expiredCount > 0 ? 'inline-flex' : 'none';
+    const onlyAction = document.getElementById('expiryFilter').value === 'action';
+    const visible = expiryRows.map((r, i) => ({ r, i })).filter(x => !onlyAction || x.r.action !== 'watch');
+    if (!visible.length) {
+      wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-circle-check"></i>No lots need action in the selected period.</p>';
+      return;
+    }
+    wrap.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Product / lot</th><th>Expiry</th><th class="num">Qty</th><th class="num">At risk</th><th class="num">Sold / day</th><th>Suggested action</th><th></th></tr></thead>
+      <tbody>${visible.map(({ r, i }) => `
+        <tr>
+          <td>${esc(r.code)}<br><small class="muted">${esc(r.name)}${r.lotNumber ? ' · Lot ' + esc(r.lotNumber) : ''}</small></td>
+          <td>${esc(r.expiryDate || '')}<br><small>${expiryDaysText(r)}</small></td>
+          <td class="num">${fmtQty(r.qty)} ${esc(r.unit)}</td>
+          <td class="num">${fmtQty(r.atRiskQty)}<br><small class="muted">${r.cost > 0 ? fmtMoney(r.valueAtRisk) : ''}</small></td>
+          <td class="num">${fmtQty(r.dailyRate)}</td>
+          <td><span class="pill ${esc(r.action)}">${esc(r.action)}</span><div style="margin-top:4px;font-size:.8rem;">${expiryActionText(r)}</div></td>
+          <td>${r.action === 'watch' ? '' : `<button class="btn danger small" onclick="disposeExpiryLot(${i})"><i class="fa-solid fa-dumpster"></i> Dispose</button>`}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+  } catch (e) {
+    expiryRows = [];
+    sum.innerHTML = '';
+    wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>';
+  }
+}
+async function postExpiryDisposal(r, qty){
+  const body = {
+    code: r.code, quantity: qty,
+    category: r.expired ? 'expired' : 'spoilage',
+    reason: r.expired ? 'Expired — disposed from the Near-Expiry Action List' : 'Near expiry — disposed from the Near-Expiry Action List'
+  };
+  if (expiryBatchUnlocked && r.batchId) body.batchId = r.batchId;
+  return api('POST', '/api/waste-log', body);
+}
+async function disposeExpiryLot(i){
+  const r = expiryRows[i];
+  if (!r) return;
+  let qty = r.qty;
+  if (r.expired) {
+    if (!confirm('Dispose of ' + fmtQty(qty) + ' ' + r.unit + ' of ' + (r.name || r.code) + (r.lotNumber ? ' (Lot ' + r.lotNumber + ')' : '') + '? It will be deducted from stock and recorded in the Waste Log.')) return;
+  } else {
+    const ans = prompt('How many ' + r.unit + ' of ' + (r.name || r.code) + ' will be thrown away? (lot qty: ' + fmtQty(r.qty) + ')', fmtQty(r.qty));
+    if (ans === null) return;
+    qty = parseFloat(ans);
+    if (!isFinite(qty) || qty <= 0 || qty > r.qty + 1e-6) { showMsg('Enter a quantity greater than 0 and up to ' + fmtQty(r.qty) + '.', true); return; }
+  }
+  try {
+    await postExpiryDisposal(r, qty);
+    showMsg('Disposed and recorded in the Waste Log.');
+    loadExpiryActions();
+    loadWasteLog();
+  } catch (e) { showMsg(esc(e.message), true); }
+}
+document.getElementById('btnDisposeAllExpired').addEventListener('click', async () => {
+  const expired = expiryRows.filter(r => r.action === 'dispose');
+  if (!expired.length) return;
+  if (!confirm('Dispose of all ' + expired.length + ' expired lot(s)? They will be deducted from stock and recorded in the Waste Log.')) return;
+  let ok = 0, lastErr = '';
+  for (const r of expired) {
+    try { await postExpiryDisposal(r, r.qty); ok++; } catch (e) { lastErr = e.message; }
+  }
+  if (ok === expired.length) showMsg(ok + ' expired lot(s) disposed.');
+  else showMsg(ok + ' of ' + expired.length + ' lot(s) disposed. ' + esc(lastErr), true);
+  loadExpiryActions();
+  loadWasteLog();
+});
+document.getElementById('btnRunExpiry').addEventListener('click', loadExpiryActions);
+document.getElementById('expiryFilter').addEventListener('change', () => { if (expiryLoadedOnce) loadExpiryActions(); });
+document.querySelector('nav.tabs button[data-tab="expiry"]').addEventListener('click', () => { if (!expiryLoadedOnce) loadExpiryActions(); });
+
+// ================= SUPPLIER COST HISTORY =================
+let costRows = [];
+let costLoadedOnce = false;
+function costAlertPills(a){
+  return (a.alerts || []).map(k => k === 'increase'
+    ? '<span class="pill out">price up</span>'
+    : (k === 'reprice' ? '<span class="pill markdown">reprice</span>' : '<span class="pill soon">cheaper supplier</span>')).join(' ');
+}
+function renderCostTable(){
+  const wrap = document.getElementById('costList');
+  const onlyAlerts = document.getElementById('costOnlyAlerts').checked;
+  const rows = costRows.map((r, i) => ({ r, i })).filter(x => !onlyAlerts || (x.r.alerts || []).length);
+  if (!rows.length) {
+    wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-box-open"></i>' + (costRows.length ? 'No alerts at the moment.' : 'No cost recorded yet. Enter the Cost (₱) for each item when receiving a Purchase Order.') + '</p>';
+    return;
+  }
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Product</th><th>Latest supplier</th><th class="num">Latest cost</th><th class="num">Previous</th><th class="num">Change</th><th>Cheaper elsewhere</th><th class="num">Margin</th><th>Selling price</th><th>Alerts</th><th></th></tr></thead>
+    <tbody>${rows.map(({ r, i }) => `
+      <tr>
+        <td>${esc(r.code)}<br><small class="muted">${esc(r.name)}</small></td>
+        <td>${esc(r.latestSupplier)}<br><small class="muted">${fmtDate(r.latestAt)}</small></td>
+        <td class="num">${fmtMoney(r.latestCost)}</td>
+        <td class="num">${r.previousCost != null ? fmtMoney(r.previousCost) : '—'}</td>
+        <td class="num ${r.changePct > 0 ? 'num-neg' : (r.changePct < 0 ? 'num-pos' : '')}">${r.changePct == null ? '—' : (r.changePct > 0 ? '+' : '') + r.changePct + '%'}</td>
+        <td>${r.cheapestSupplier ? esc(r.cheapestSupplier) + '<br><small class="muted">' + fmtMoney(r.cheapestCost) + (r.savingPct ? ' (−' + r.savingPct + '%)' : '') + '</small>' : '—'}</td>
+        <td class="num ${r.marginPct != null && r.marginPct < 0 ? 'num-neg' : ''}">${r.marginPct == null ? '—' : r.marginPct + '%'}</td>
+        <td>${r.price > 0 ? fmtMoney(r.price) : '—'}${r.suggestedPrice != null ? `<br><small class="muted">suggested ${fmtMoney(r.suggestedPrice)}</small>` : ''}</td>
+        <td>${costAlertPills(r)}</td>
+        <td>
+          <button class="btn secondary small" data-code="${esc(r.code)}" onclick="showCostDetail(this.dataset.code)"><i class="fa-solid fa-clock-rotate-left"></i> History</button>
+          ${r.suggestedPrice != null ? `<button class="btn small" data-code="${esc(r.code)}" onclick="repriceFromCost(this.dataset.code)"><i class="fa-solid fa-tag"></i> Update price</button>` : ''}
+        </td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+async function loadCostHistory(){
+  const wrap = document.getElementById('costList');
+  const sum = document.getElementById('costSummary');
+  const detail = document.getElementById('costDetail');
+  const code = document.getElementById('costCode').value.trim();
+  detail.innerHTML = '';
+  wrap.innerHTML = '<p class="empty"><i class="fa-solid fa-spinner fa-spin"></i>Loading…</p>';
+  try {
+    const d = await api('GET', '/api/supplier-costs' + (code ? '?code=' + encodeURIComponent(code) : ''));
+    costLoadedOnce = true;
+    costRows = d.products || [];
+    sum.innerHTML = `<span class="ledger-chip">Products with cost data: <b>${costRows.length}</b></span>`
+      + `<span class="ledger-chip">Price increases (≥${d.increaseAlertPct}%): <b class="qty-out">${d.increaseCount}</b></span>`
+      + `<span class="ledger-chip">Cheaper supplier available (≥${d.cheaperAlertPct}%): <b>${d.cheaperCount}</b></span>`
+      + `<span class="ledger-chip">Selling price needs review: <b>${d.repriceCount || 0}</b></span>`;
+    renderCostTable();
+    if (code && d.history) renderCostDetail(code, costRows[0], d.history);
+  } catch (e) {
+    costRows = [];
+    sum.innerHTML = '';
+    wrap.innerHTML = '<p class="empty" style="color:var(--bad);"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bad);"></i>' + esc(e.message) + '</p>';
+  }
+}
+function renderCostDetail(code, row, history){
+  const el = document.getElementById('costDetail');
+  if (!row) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="sub-title">${esc(row.code)} — ${esc(row.name)}</div>
+    <div class="table-wrap"><table><thead><tr><th>Supplier</th><th class="num">Latest</th><th class="num">Average</th><th class="num">Previous</th><th class="num">Deliveries</th><th>Last delivery</th></tr></thead><tbody>
+    ${(row.suppliers || []).map(s => `<tr><td>${esc(s.supplier)}</td><td class="num">${fmtMoney(s.latestCost)}</td><td class="num">${fmtMoney(s.avgCost)}</td><td class="num">${s.previousCost != null ? fmtMoney(s.previousCost) : '—'}</td><td class="num">${s.deliveries}</td><td>${fmtDate(s.latestAt)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="sub-title">Delivery history</div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Supplier</th><th>PO</th><th class="num">Qty</th><th class="num">Unit cost</th></tr></thead><tbody>
+    ${history.map(h => `<tr><td>${fmtDate(h.at)}</td><td>${esc(h.supplier)}</td><td>#${esc(h.poId)}</td><td class="num">${fmtQty(h.qty)}</td><td class="num">${fmtMoney(h.unitCost)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+async function repriceFromCost(code){
+  const row = costRows.find(r => String(r.code).toLowerCase() === String(code).toLowerCase());
+  if (!row || row.suggestedPrice == null) return;
+  const ans = prompt('New selling price for ' + (row.name || row.code) + '\n(cost: ' + fmtMoney(row.currentCost) + ' → ' + fmtMoney(row.latestCost) + '; current price: ' + fmtMoney(row.price) + '; same margin at ' + fmtMoney(row.suggestedPrice) + ')\nWholesale/Reseller prices are not included.', String(row.suggestedPrice));
+  if (ans === null) return;
+  const newPrice = parseFloat(ans);
+  if (!isFinite(newPrice) || newPrice <= 0) { showMsg('Enter a valid price.', true); return; }
+  try {
+    const d = await api('PUT', '/api/products/' + encodeURIComponent(row.code), { updatedData: { cost: row.latestCost, price: Math.round(newPrice * 100) / 100 } });
+    showMsg(esc(d.message || 'Product updated.'));
+    loadCostHistory();
+  } catch (e) { showMsg(esc(e.message), true); }
+}
+async function showCostDetail(code){
+  try {
+    const d = await api('GET', '/api/supplier-costs?code=' + encodeURIComponent(code));
+    renderCostDetail(code, (d.products || [])[0], d.history || []);
+  } catch (e) { showMsg(esc(e.message), true); }
+}
+document.getElementById('btnRunCosts').addEventListener('click', loadCostHistory);
+document.getElementById('costCode').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') loadCostHistory(); });
+document.getElementById('costOnlyAlerts').addEventListener('change', renderCostTable);
+document.querySelector('nav.tabs button[data-tab="costs"]').addEventListener('click', () => { if (!costLoadedOnce) loadCostHistory(); });
+document.getElementById('btnExportCosts').addEventListener('click', () => {
+  downloadCsv('supplier_costs_' + Date.now() + '.csv',
+    ['Code', 'Name', 'Latest supplier', 'Latest cost', 'Latest date', 'Previous cost', 'Change %', 'Cheapest other supplier', 'Cheapest cost', 'Saving %', 'Margin %', 'Alerts'],
+    costRows.map(r => [r.code, r.name, r.latestSupplier, r.latestCost, r.latestAt, r.previousCost == null ? '' : r.previousCost, r.changePct == null ? '' : r.changePct, r.cheapestSupplier || '', r.cheapestCost == null ? '' : r.cheapestCost, r.savingPct == null ? '' : r.savingPct, r.marginPct == null ? '' : r.marginPct, (r.alerts || []).join('+')]));
+});
 
 // ================= CATEGORIES (from system) =================
 async function loadCategories(){
