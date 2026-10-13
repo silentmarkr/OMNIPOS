@@ -11,6 +11,7 @@ const OFFLINE_QUEUE_VERSION = 2;
 const OFFLINE_QUEUE_MAX_ITEMS = 500;
 let offlineSyncInFlight = null;
 
+
 function getOfflineDeviceId() {
     const key = 'omnipos_offline_device_id';
     try {
