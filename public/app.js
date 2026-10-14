@@ -3881,44 +3881,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const prodForm = document.getElementById('product-schema-form');
     if(prodForm) prodForm.addEventListener('submit', handleProductFormSubmit);
     if(prodForm) prodForm.addEventListener('reset', () => { if (typeof resetProductUomForm === 'function') resetProductUomForm(); });
-const categorySelect = document.getElementById('p-form-category');
-if (categorySelect) {
-    categorySelect.addEventListener('change', async function() {
-        if (this.value ==='ADD_NEW_CATEGORY') {
-            const { value: newCategory } = await Swal.fire({
-                title:'Enter New Category Name',
-                input:'text',
-                inputPlaceholder:'Category name...',
-                showCancelButton: true,
-                confirmButtonColor:'#2563eb',
-                cancelButtonColor:'#64748b'
-            });
-            if (newCategory && newCategory.trim() !=="") {
-                const cleanCategory = newCategory.trim();
-                try {
-                    const response = await authFetch(`${API_URL}/categories`, {
-                        method:'POST',
-                        headers: {'Content-Type':'application/json' },
-                        body: JSON.stringify({ category: cleanCategory })
-                    });
-                    const data = await response.json();
-                    if (data.success) {
-                        customCategories = data.categories;
-                        updateDropdownCategoriesDynamic();
-                        this.value = cleanCategory;
-                    } else {
-                        Swal.fire('Error',"Could not save the category: " + data.message,'error');
-                    }
-                } catch (err) {
-                    console.error("Error saving category:", err);
-                    Swal.fire('Could Not Save','Your changes could not be saved to the server. Please try again.','error');
-                }
-            } else {
-                this.selectedIndex = 0;
-            }
-        }
-    });
-}
+// The "Add New Category" behaviour (select option + the "+" button) is wired once at script load by a
+    // delegated listener (see openAddCategoryModal below), so it no longer depends on this handler reaching this line.
     const userForm = document.getElementById('user-schema-form');
     if(userForm) userForm.addEventListener('submit', handleUserFormSubmit);
     if (currentUser) {
@@ -20588,6 +20552,12 @@ async function handleProductFormSubmit(e) {
     e.preventDefault();
     const mode = document.getElementById('p-form-mode').value;
     const code = document.getElementById('p-form-code').value.trim();
+    // Never save the dropdown's "+ Add New Category..." sentinel as a real category: ask the user to pick/create one.
+    if (document.getElementById('p-form-category').value === 'ADD_NEW_CATEGORY') {
+        await Swal.fire('Category Required', 'Please choose a category, or use the "+" button to create a new one.', 'warning');
+        openAddCategoryModal();
+        return;
+    }
     const payload = {
         code: code,
         name: document.getElementById('p-form-name').value,
@@ -25960,7 +25930,7 @@ async function saveAccumulatedStockIfPending() {
     const payload = {
         code: code,
         name: document.getElementById('p-form-name').value,
-        category: document.getElementById('p-form-category').value,
+        category: (document.getElementById('p-form-category').value === 'ADD_NEW_CATEGORY') ? 'Others' : document.getElementById('p-form-category').value,
         price: parseFloat(document.getElementById('p-form-price').value),
         stock: parseInt(document.getElementById('p-form-stock').value),
         image: document.getElementById('p-form-image').value ||''
@@ -27304,7 +27274,7 @@ function updateDropdownCategoriesDynamic() {
     const categorySelect = document.getElementById('p-form-category');
     if (!categorySelect) return;
     const dbCategories = globalProducts.map(p => p.category ||'Others');
-    const uniqueCategories = [...new Set([...dbCategories, ...customCategories])];
+    const uniqueCategories = [...new Set([...dbCategories, ...customCategories])].filter(c => c !== 'ADD_NEW_CATEGORY');
     const previousSelectedValue = categorySelect.value;
     categorySelect.innerHTML ='';
     if (uniqueCategories.length === 0) {
@@ -27330,6 +27300,142 @@ function updateDropdownCategoriesDynamic() {
         categorySelect.value = previousSelectedValue;
     }
 }
+// ---------------------------------------------------------------------------
+// Add New Category (Product form)
+// Opened from the "+ Add New Category..." option of the Category dropdown AND from the "+" button next to it.
+// Validates the name, avoids duplicates (case-insensitive), saves it on the server, then selects it in the form.
+// ---------------------------------------------------------------------------
+let addCategoryModalBusy = false;
+function getAllKnownCategoryNames() {
+    const fromProducts = (Array.isArray(globalProducts) ? globalProducts : []).map(p => (p && p.category) || 'Others');
+    const fromServer = Array.isArray(customCategories) ? customCategories : [];
+    return [...new Set([...fromProducts, ...fromServer].map(c => String(c || '').trim()).filter(Boolean))];
+}
+function restoreCategorySelection(sel, previousValue) {
+    if (!sel) return;
+    const hasPrev = previousValue && previousValue !== 'ADD_NEW_CATEGORY' &&
+        Array.from(sel.options).some(o => o.value === previousValue);
+    if (hasPrev) {
+        sel.value = previousValue;
+    } else if (sel.options.length && sel.options[0].value !== 'ADD_NEW_CATEGORY') {
+        sel.selectedIndex = 0;
+    } else {
+        sel.value = '';
+    }
+}
+async function openAddCategoryModal(fromSelect, previousValue) {
+    if (addCategoryModalBusy) return;
+    const sel = document.getElementById('p-form-category');
+    if (!sel || typeof Swal === 'undefined') return;
+    addCategoryModalBusy = true;
+    try {
+        const result = await Swal.fire({
+            title: 'Add New Category',
+            input: 'text',
+            inputLabel: 'Category name',
+            inputPlaceholder: 'e.g. Beverages',
+            inputAttributes: { maxlength: 60, autocomplete: 'off', autocapitalize: 'words' },
+            showCancelButton: true,
+            confirmButtonText: 'Save Category',
+            confirmButtonColor: '#2563eb',
+            cancelButtonColor: '#64748b',
+            showLoaderOnConfirm: true,
+            allowOutsideClick: () => !Swal.isLoading(),
+            preConfirm: async (rawName) => {
+                const name = String(rawName || '').replace(/\s+/g, ' ').trim();
+                if (!name) {
+                    Swal.showValidationMessage('Please enter a category name.');
+                    return false;
+                }
+                if (name.length > 60) {
+                    Swal.showValidationMessage('Category name is too long (max 60 characters).');
+                    return false;
+                }
+                if (name === 'ADD_NEW_CATEGORY') {
+                    Swal.showValidationMessage('That name is reserved. Please choose another one.');
+                    return false;
+                }
+                // Already exists (ignoring upper/lower case): just select the existing one, no need to save again.
+                const existing = getAllKnownCategoryNames().find(c => c.toLowerCase() === name.toLowerCase());
+                if (existing) return { name: existing, categories: null };
+                try {
+                    const response = await authFetch(`${API_URL}/categories`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ category: name })
+                    });
+                    let data = null;
+                    try { data = await response.json(); } catch (_) { data = null; }
+                    if (!response.ok || !data || !data.success || !Array.isArray(data.categories)) {
+                        Swal.showValidationMessage((data && data.message) || 'Could not save the category. Please try again.');
+                        return false;
+                    }
+                    const saved = data.categories.find(c => String(c).toLowerCase() === name.toLowerCase()) || name;
+                    return { name: saved, categories: data.categories };
+                } catch (err) {
+                    console.error('Error saving category:', err);
+                    Swal.showValidationMessage('Your changes could not be saved to the server. Please try again.');
+                    return false;
+                }
+            }
+        });
+        if (result && result.isConfirmed && result.value && result.value.name) {
+            if (Array.isArray(result.value.categories)) customCategories = result.value.categories;
+            updateDropdownCategoriesDynamic();
+            if (typeof updateCategoryChipsDynamic === 'function') {
+                try { updateCategoryChipsDynamic(); } catch (chipErr) { console.warn('Category chips refresh failed:', chipErr); }
+            }
+            const target = document.getElementById('p-form-category');
+            if (target) {
+                if (!Array.from(target.options).some(o => o.value === result.value.name)) {
+                    const opt = document.createElement('option');
+                    opt.value = result.value.name;
+                    opt.text = result.value.name;
+                    const addOpt = Array.from(target.options).find(o => o.value === 'ADD_NEW_CATEGORY');
+                    target.insertBefore(opt, addOpt || null);
+                }
+                target.value = result.value.name;
+            }
+        } else if (fromSelect) {
+            // Cancelled: put the dropdown back so the "+ Add New Category..." option can be picked again.
+            restoreCategorySelection(sel, previousValue);
+        }
+    } catch (err) {
+        console.error('Add Category dialog failed:', err);
+        if (fromSelect) restoreCategorySelection(sel, previousValue);
+    } finally {
+        addCategoryModalBusy = false;
+    }
+}
+(function wireAddCategoryControls() {
+    const rememberSelection = (e) => {
+        const t = e.target;
+        if (t && t.id === 'p-form-category' && t.value !== 'ADD_NEW_CATEGORY') t.dataset.prevCategory = t.value;
+    };
+    document.addEventListener('focusin', rememberSelection, true);
+    document.addEventListener('mousedown', rememberSelection, true);
+    document.addEventListener('touchstart', rememberSelection, true);
+    const onCategoryPicked = (e) => {
+        const t = e.target;
+        if (!t || t.id !== 'p-form-category') return;
+        if (t.value === 'ADD_NEW_CATEGORY') {
+            // Revert the visible selection immediately so picking the option again always fires a new change event.
+            const prev = t.dataset.prevCategory || '';
+            restoreCategorySelection(t, prev);
+            openAddCategoryModal(true, prev);
+        } else {
+            t.dataset.prevCategory = t.value;
+        }
+    };
+    // Some Android WebViews fire only 'input' (or only a blur) after the native <select> popup closes,
+    // so all of them are listened to. openAddCategoryModal() ignores repeated calls while it is already open.
+    ['change', 'input'].forEach(evt => document.addEventListener(evt, onCategoryPicked, true));
+    // The "+" button is also wired here (not only through its inline onclick) so it works in every container.
+    document.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('#p-form-add-category-btn') : null;
+        if (btn) { e.preventDefault(); openAddCategoryModal(); }
+    });
+})();
 async function initializeSystem() {
     if (!currentUser) return;
     try {

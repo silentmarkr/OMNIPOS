@@ -5578,6 +5578,32 @@ body.dark-mode .avatar-photo-box {
 .input-field-group textarea {
     resize: vertical;
 }
+/* Category dropdown + "+" button (Product form). */
+.pf-category-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.pf-category-row select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.pf-category-add-btn {
+    flex: 0 0 auto;
+    min-width: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--primary-color, #2563eb);
+    border-radius: 6px;
+    background: var(--primary-color, #2563eb);
+    color: #ffffff;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+.pf-category-add-btn:hover { filter: brightness(1.08); }
+.pf-category-add-btn:active { transform: scale(0.97); }
+body.dark-mode .pf-category-add-btn {
+    border-radius: var(--dm-radius-sm, 8px);
+}
 
 .theme-callout-box {
     background-color: var(--dm-accent-soft, rgba(124, 92, 255, 0.16));
@@ -6894,7 +6920,12 @@ body.dark-mode .bottom-nav-item:active {
     .no-print, .no-print * { display: none !important; }
     body.print-target-receipt #receipt-modal,
     body.print-target-receipt #receipt-modal * { visibility: visible; }
-    #main-view, #auth-view, #sidebar-overlay {
+    /* Hide the whole app shell when printing. The selectors are deliberately more specific than
+       "html.has-session #main-view { display:flex !important }" (inline <style> in index.html);
+       otherwise the hidden-but-still-laid-out app shell fills page 1 and the receipt lands on page 2. */
+    #main-view, #auth-view, #sidebar-overlay,
+    html body #main-view, html body #auth-view, html body #sidebar-overlay,
+    html.has-session body #main-view, html.has-session body #auth-view, html.has-session body #sidebar-overlay {
         display: none !important;
     }
     body.print-target-receipt #receipt-modal {
