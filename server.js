@@ -2236,7 +2236,7 @@ app.post('/api/verify-password', rateLimit('verify-password', 10, 5 * 60 * 1000)
     const { password } = req.body;
     if (!password) return res.status(400).json({ success: false, message: 'Password is required.' });
     let users = readData(FILE_USERS);
-    const me = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    const me = users.find(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
     if (!me) return res.status(404).json({ success: false, message: 'Account not found.' });
     let isMatch = false;
     try { isMatch = bcrypt.compareSync(password, me.password); }
@@ -2297,7 +2297,9 @@ MCowBQYDK2VwAyEARoRImC1WH3GgR6yO9ZeRYmiMsDvHfytsKQ2f/lwVzfU=
 -----END PUBLIC KEY-----
 `;
 const RELAY_PUBLIC_KEY = crypto.createPublicKey(RELAY_PUBLIC_KEY_PEM);
-const RELAY_URL = process.env.RELAY_URL ||'http://127.0.0.1:4477';
+// Nililinis ang value: inaalis ang leading ':'/quotes/spaces at trailing '/' para hindi maging
+// ":https://host//relay/..." (Failed to parse URL) kapag may typo sa .env.
+const RELAY_URL = String(process.env.RELAY_URL || '').trim().replace(/^[\s:'"]+/, '').replace(/[\s'"]+$/, '').replace(/\/+$/, '') || 'http://127.0.0.1:4477';
 const RELAY_API_KEY = process.env.RELAY_API_KEY || null;
 if (!RELAY_API_KEY) {
     console.warn('⚠️  Walang RELAY_API_KEY na naka-set sa .env — hindi magfa-function ang feature unlock requests hangga\'t hindi ito nalagyan.');
@@ -2816,7 +2818,9 @@ function omniMergeBatches(batches) {
 const OMNI_AUTO_DEADLINE_MS = 6500;
 function omniSearchAuto(q, timeoutMs, opts) {
     const ctx = { rawQuery: opts.rawQuery || q };
-    const pool = OMNI_FREE_IMAGE_PROVIDERS;
+    // opts.excludeIds: mga provider na hindi isasama (hal. ang piniling site na naka-block, kapag nag-fallback sa Auto).
+    const excludedIds = opts && opts.excludeIds;
+    const pool = excludedIds ? OMNI_FREE_IMAGE_PROVIDERS.filter(p => !excludedIds.has(p.id)) : OMNI_FREE_IMAGE_PROVIDERS;
     let candidates = pool.filter(p => !omniProviderIsOpen(p.id));
     if (!candidates.length) candidates = pool.slice(); 
     const plan = [];
@@ -2868,18 +2872,44 @@ function omniSearchAuto(q, timeoutMs, opts) {
         });
     });
 }
+// Mga error na senyales na ang site mismo ang may problema (block / rate-limit / timeout / nagbago ang layout / network),
+// hindi na lang \"walang nahanap\" — dito lang awtomatikong nag-fa-fallback sa Auto.
+function isProviderUnavailableError(message) {
+    return isLikelyBlockedSearchError(message)
+        || /abort|timed? ?out|vqd token|layout|returned HTTP 5\d\d|fetch failed|econn|enotfound|eai_again|socket|network|unexpected token|not valid json|unexpected end of json/i.test(String(message || ''));
+}
 async function omniSearchOneProvider(chosen, q, timeoutMs, opts) {
     const ctx = { rawQuery: opts.rawQuery || q };
+    // Kapag naka-block/hindi gumagana ang piniling site, gamitin ang ibang libreng site (Auto, hindi kasama ang piniling site)
+    // imbes na mag-error ang buong search/bulk run. Makikita sa result.provider at result.fallbackFrom kung ano ang nangyari.
+    const autoFallback = async (reason) => {
+        try {
+            const r = await omniSearchAuto(q, timeoutMs, { ...opts, excludeIds: new Set([chosen.id]) });
+            console.warn(`ℹ️  Omni Search Images: ${chosen.name} ${reason} — gumamit ng Auto (${r.provider}) para sa \"${q}\".`);
+            return { ...r, provider: `${r.provider} (Auto — ${chosen.name} ${reason})`, fallbackFrom: chosen.id, fallbackReason: reason };
+        } catch (_) {
+            return null;
+        }
+    };
+    if (omniProviderIsOpen(chosen.id)) {
+        // Naka-open ang circuit breaker (paulit-ulit nang pumalya) — huwag nang dagdagan ang request sa site na iyon.
+        const fb = await autoFallback('ay pansamantalang naka-block');
+        if (fb) return fb;
+    }
     const wait = omniProviderAcquire(chosen, 5000);
     try {
         const results = await omniRunProvider(chosen, q, ctx, Math.max(0, wait), timeoutMs);
         if (results.length) return { provider: chosen.name, results: omniMergeBatches([{ provider: chosen, results }]), providers: [chosen.id] };
-        const err = new Error(`Walang nahanap na image sa ${chosen.name} para sa "${q}". Subukan ang ibang site o piliin ang "Auto".`);
+        const err = new Error(`Walang nahanap na image sa ${chosen.name} para sa \"${q}\". Subukan ang ibang site o piliin ang \"Auto\".`);
         err.statusCode = 502;
         throw err;
     } catch (err) {
         if (err.statusCode) throw err;
-        const wrapped = new Error(`${chosen.name} failed: ${err.message} — subukan ang ibang site o piliin ang "Auto".`);
+        if (isProviderUnavailableError(err.message)) {
+            const fb = await autoFallback('ay hindi available/naka-block');
+            if (fb) return fb;
+        }
+        const wrapped = new Error(`${chosen.name} failed: ${err.message} — subukan ang ibang site o piliin ang \"Auto\".`);
         wrapped.statusCode = 502;
         throw wrapped;
     }
@@ -6921,7 +6951,7 @@ app.get('/api/admin/sponsor/status', rateLimit('sponsor-status', 120, 10 * 60 * 
 app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, res) => {
     const { username, password } = req.body || {};
     const currentUsersForSync = readData(FILE_USERS, []);
-    const currentAdminForSync = currentUsersForSync.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
+    const currentAdminForSync = currentUsersForSync.find(u => u.username && username && String(u.username || '').toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
     if (!currentAdminForSync || !bcrypt.compareSync(password || '', currentAdminForSync.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Cloud backup was not authorized.' });
     }
@@ -7102,7 +7132,7 @@ function mergeRestoredUsers(restoredUsers) {
 app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit('cloud-backup-restore', 5, 15 * 60 * 1000), async (req, res) => {
     const { username, password } = req.body;
     const currentUsers = readData(FILE_USERS, []);
-    const currentAdmin = currentUsers.find(u => u.username && username && u.username.toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
+    const currentAdmin = currentUsers.find(u => u.username && username && String(u.username || '').toLowerCase() === username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
     if (!currentAdmin || !bcrypt.compareSync(password || '', currentAdmin.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Restore was not authorized.' });
     }
@@ -10420,7 +10450,7 @@ function verifyAdmin(req, res, next) {
         return res.status(400).json({ success: false, message:'May kulang na impormasyon (Username required).' });
     }
     const users = readData(FILE_USERS);
-    const activeUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    const activeUser = users.find(u => String(u.username || '').toLowerCase() === username.toLowerCase());
     if (!activeUser || typeof activeUser.role !=='string' || activeUser.role.toLowerCase() !=='admin') {
         return res.status(403).json({
             success: false,
@@ -10638,7 +10668,7 @@ app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 
     }
     LOGIN_OTP_CHALLENGES.delete(loginToken);
     const users = readData(FILE_USERS);
-    const user = users.find(u => u.username.toLowerCase() === pending.username.toLowerCase());
+    const user = users.find(u => String(u.username || '').toLowerCase() === pending.username.toLowerCase());
     if (!user) {
         return res.status(404).json({ success: false, message: 'Hindi na umiiral ang account na ito.' });
     }
@@ -10664,7 +10694,7 @@ function webauthnExpectedOrigin(req) {
 app.post('/api/auth/webauthn/register-options', (req, res) => {
     const username = req.authUser.username;
     const users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === username.toLowerCase());
     if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
     const user = users[userIndex];
     const challenge = webauthn.randomChallenge();
@@ -10742,7 +10772,7 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
         if (alreadyUsed) {
             return res.status(409).json({ success: false, message:'Naka-rehistro na ang fingerprint na ito.' });
         }
-        const userIndex = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+        const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === username.toLowerCase());
         if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
         if (!Array.isArray(users[userIndex].webauthnCredentials)) users[userIndex].webauthnCredentials = [];
         users[userIndex].webauthnCredentials.push({
@@ -10763,13 +10793,13 @@ app.post('/api/auth/webauthn/register-verify', (req, res) => {
 });
 app.get('/api/auth/webauthn/credentials', (req, res) => {
     const users = readData(FILE_USERS);
-    const user = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    const user = users.find(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
     const creds = ((user && user.webauthnCredentials) || []).map(c => ({ id: c.id, deviceLabel: c.deviceLabel, createdAt: c.createdAt }));
     res.json({ success: true, credentials: creds });
 });
 app.delete('/api/auth/webauthn/credentials/:id', (req, res) => {
     const users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
     if (userIndex === -1) return res.status(404).json({ success: false, message:'Hindi mahanap ang account.' });
     const before = (users[userIndex].webauthnCredentials || []).length;
     users[userIndex].webauthnCredentials = (users[userIndex].webauthnCredentials || []).filter(c => c.id !== req.params.id);
@@ -10795,7 +10825,7 @@ app.post('/api/auth/webauthn/login-options', rateLimit('webauthn-login-options',
         });
     }
     const users = readData(FILE_USERS);
-    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    const user = users.find(u => String(u.username || '').toLowerCase() === username.toLowerCase());
     const credentials = (user && user.webauthnCredentials) || [];
     if (!user || credentials.length === 0) {
         return res.status(404).json({ success: false, message:'Fingerprint Login is not enabled for this account/device.' });
@@ -10829,7 +10859,7 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     let userIndex = -1;
     let credIndex = -1;
     if (stored.username) {
-        userIndex = users.findIndex(u => u.username.toLowerCase() === stored.username.toLowerCase());
+        userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === stored.username.toLowerCase());
         if (userIndex !== -1) {
             credIndex = (users[userIndex].webauthnCredentials || []).findIndex(c => c.id === credentialId);
         }
@@ -12883,7 +12913,7 @@ async function processTransaction(req, res) {
     }
     transaction.cashier = req.authUser.username;
     {
-        const cashierRecord = readData(FILE_USERS).find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+        const cashierRecord = readData(FILE_USERS).find(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
         transaction.cashierDisplayName = (cashierRecord && cashierRecord.displayName) || null;
     }
     // SCALE FIX: dati binabasa at ipini-parse ang LAHAT ng transactions sa bawat benta para lang tingnan kung
@@ -13143,7 +13173,7 @@ async function processTransaction(req, res) {
         const pointValue = Math.max(0, parseFloat(storeSettings.loyaltyPointValue) || 0);
         let pointsToRedeem = Math.min(requestedPoints, availablePoints);
         cartDiscount = Math.round(Math.min(pointsToRedeem * pointValue, netAfterItemDiscounts) * 100) / 100;
-        pointsToRedeem = pointValue > 0 ? Math.floor(cartDiscount / pointValue) : 0;
+        pointsToRedeem = pointValue > 0 ? Math.floor(cartDiscount / pointValue + 1e-9) : 0; // +1e-9: iwas floating-point (0.3/0.1 = 2.999…)
         cartDiscount = Math.round(pointsToRedeem * pointValue * 100) / 100;
         if (pointsToRedeem <= 0) {
             return res.status(400).json({ success: false, message: 'Walang sapat na loyalty points para gamitin.' });
@@ -13449,7 +13479,7 @@ app.post('/api/cart', (req, res) => {
 app.get('/api/transactions', (req, res) => {
     const requester = req.authUser.username;
     const users = readData(FILE_USERS);
-    const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+    const activeUser = users.find(u => String(u.username || '').toLowerCase() === requester.toLowerCase());
     const activeRole = activeUser && activeUser.role;
     const isAdminRole = (activeRole ||'').toLowerCase() ==='admin';
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
@@ -13683,7 +13713,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
     if (isPersistedTransaction) {
         const requester = req.authUser.username;
         const users = readData(FILE_USERS);
-        const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+        const activeUser = users.find(u => String(u.username || '').toLowerCase() === requester.toLowerCase());
         const activeRole = activeUser && activeUser.role;
         const isAdminRole = (activeRole || '').toLowerCase() === 'admin';
         const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
@@ -13855,13 +13885,13 @@ app.get('/api/users', requirePermission('users'), (req, res) => {
 });
 app.get('/api/users/self', (req, res) => {
     const users = readData(FILE_USERS);
-    const me = users.find(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    const me = users.find(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
     if (!me) return res.status(404).json({ success: false, message:'Account not found.' });
     res.json({ success: true, username: me.username, displayName: me.displayName || null, role: me.role, avatar: me.avatar || null, created: me.created || null });
 });
 function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw, displayName: displayNameRaw }) {
     let users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === currentUsername.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === currentUsername.toLowerCase());
     if (userIndex === -1) {
         return { ok: false, error:'Account not found.' };
     }
@@ -13871,7 +13901,7 @@ function applyProfileChanges(currentUsername, { avatar, username: newUsernameRaw
         if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(newUsername)) {
             return { ok: false, error:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' };
         }
-        const taken = users.some((u, i) => i !== userIndex && u.username.toLowerCase() === newUsername.toLowerCase());
+        const taken = users.some((u, i) => i !== userIndex && String(u.username || '').toLowerCase() === newUsername.toLowerCase());
         if (taken) {
             return { ok: false, error:'Kinuha na ng ibang account ang username na iyan.' };
         }
@@ -13955,7 +13985,7 @@ app.put('/api/users/self/profile', rateLimit('self-edit-profile', 15, 10 * 60 * 
             return res.status(400).json({ success: false, message:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' });
         }
         const users = readData(FILE_USERS);
-        const taken = users.some(u => u.username.toLowerCase() === trimmedNewUsername.toLowerCase());
+        const taken = users.some(u => String(u.username || '').toLowerCase() === trimmedNewUsername.toLowerCase());
         if (taken) {
             return res.status(400).json({ success: false, message:'Kinuha na ng ibang account ang username na iyan.' });
         }
@@ -13983,7 +14013,7 @@ app.put('/api/users/:targetUser/avatar', rateLimit('admin-set-avatar', 20, 10 * 
     const { targetUser } = req.params;
     const { avatar, username } = req.body;
     let users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === targetUser.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
@@ -13996,7 +14026,7 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
     const { targetUser } = req.params;
     const { username: actingUsername, newUsername: newUsernameRaw, displayName, role, avatar } = req.body;
     let users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === targetUser.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
@@ -14007,7 +14037,7 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
         if (!/^[a-zA-Z0-9_.\-]{3,32}$/.test(newUsername)) {
             return res.status(400).json({ success: false, message:'Invalid na username. 3-32 characters lang, walang space (pwede lang letra, numero, "_", "." at "-").' });
         }
-        const taken = users.some((u, i) => i !== userIndex && u.username.toLowerCase() === newUsername.toLowerCase());
+        const taken = users.some((u, i) => i !== userIndex && String(u.username || '').toLowerCase() === newUsername.toLowerCase());
         if (taken) {
             return res.status(400).json({ success: false, message:'Kinuha na ng ibang account ang username na iyan.' });
         }
@@ -14074,7 +14104,7 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
         return res.status(400).json({ success: false, message:'Masyadong maikli ang bagong password.' });
     }
     let users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === req.authUser.username.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'Account not found.' });
     }
@@ -14140,7 +14170,7 @@ app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdm
         return res.status(400).json({ success: false, message:'Masyadong maikli ang password.' });
     }
     let users = readData(FILE_USERS);
-    if (users.some(u => u.username.toLowerCase() === newUsername.toLowerCase())) {
+    if (users.some(u => String(u.username || '').toLowerCase() === newUsername.toLowerCase())) {
         return res.status(400).json({ success: false, message:'Username is already taken.' });
     }
     const newRole = typeof newUser.role ==='string' ? newUser.role.trim() :'';
@@ -14170,7 +14200,7 @@ app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdm
     users.push(userToSave);
     const writeOk = writeData(FILE_USERS, users);
     const verifyUsers = readData(FILE_USERS) || [];
-    const verified = writeOk && verifyUsers.some(u => u.username.toLowerCase() === newUsername.toLowerCase());
+    const verified = writeOk && verifyUsers.some(u => String(u.username || '').toLowerCase() === newUsername.toLowerCase());
     if (!verified) {
         return res.status(500).json({ success: false, message: 'Nabigo ang pag-save ng bagong account sa lokal na database. Subukan ulit.' });
     }
@@ -14188,14 +14218,14 @@ app.put('/api/users/:targetUser/reset-password', rateLimit('admin-reset-pw', 8, 
         return res.status(400).json({ success: false, message:'Kailangan ng bagong password na hindi bababa sa 4 karakter.' });
     }
     let users = readData(FILE_USERS);
-    const userIndex = users.findIndex(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === targetUser.toLowerCase());
     if (userIndex === -1) {
         return res.status(404).json({ success: false, message:'User account not found.' });
     }
     users[userIndex].password = bcrypt.hashSync(newPassword, 10);
     const writeOk = writeData(FILE_USERS, users);
     const verifyUsers = readData(FILE_USERS) || [];
-    const verifyUser = verifyUsers.find(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    const verifyUser = verifyUsers.find(u => String(u.username || '').toLowerCase() === targetUser.toLowerCase());
     const verified = writeOk && verifyUser && (() => {
         try { return bcrypt.compareSync(newPassword, verifyUser.password); }
         catch (e) { return false; }
@@ -14224,13 +14254,13 @@ app.post('/api/users/delete-account', rateLimit('admin-delete-user', 8, 10 * 60 
         return res.status(400).json({ success: false, message:'Bawal mong burahin ang sarili mong account habang naka-login!' });
     }
     let users = readData(FILE_USERS);
-    const filteredUsers = users.filter(u => u.username.toLowerCase() !== targetUser.toLowerCase());
+    const filteredUsers = users.filter(u => String(u.username || '').toLowerCase() !== targetUser.toLowerCase());
     if (users.length === filteredUsers.length) {
         return res.status(404).json({ success: false, message:'Account to delete not found.' });
     }
     const writeOk = writeData(FILE_USERS, filteredUsers);
     const verifyUsers = readData(FILE_USERS) || [];
-    const verified = writeOk && !verifyUsers.some(u => u.username.toLowerCase() === targetUser.toLowerCase());
+    const verified = writeOk && !verifyUsers.some(u => String(u.username || '').toLowerCase() === targetUser.toLowerCase());
     if (!verified) {
         return res.status(500).json({ success: false, message: 'Nabigo ang pagbura ng account sa lokal na database. Subukan ulit.' });
     }
@@ -14949,7 +14979,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
     }
     const { password: adminPasswordForReset } = req.body;
     const usersForReset = readData(FILE_USERS, []);
-    const currentAdminForReset = usersForReset.find(u => u.username && u.username.toLowerCase() === req.authUser.username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
+    const currentAdminForReset = usersForReset.find(u => u.username && String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
     if (!currentAdminForReset || !bcrypt.compareSync(adminPasswordForReset || '', currentAdminForReset.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Hard Factory Reset not authorized.' });
     }
@@ -15225,7 +15255,7 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
     // sa labas ng try/catch at 500 HTML error page ang bumalik imbes na malinaw na JSON na mensahe. Null-safe na ito,
     // kapareho ng /api/cloud-backup/restore.
     const currentAdmin = (typeof username === 'string' && username)
-        ? currentUsers.find(u => u && typeof u.username === 'string' && u.username.toLowerCase() === username.toLowerCase() && typeof u.role === 'string' && u.role.toLowerCase() === 'admin')
+        ? currentUsers.find(u => u && typeof u.username === 'string' && String(u.username || '').toLowerCase() === username.toLowerCase() && typeof u.role === 'string' && u.role.toLowerCase() === 'admin')
         : null;
     if (!currentAdmin) {
         return res.status(403).json({ success: false, message:"Aksyon Tinanggihan: Walang pribilehiyong pang-administrator." });
@@ -17808,7 +17838,7 @@ app.get('/api/transactions/:transactionId/refunds', (req, res) => {
     }
     const requester = req.authUser.username;
     const users = readData(FILE_USERS);
-    const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+    const activeUser = users.find(u => String(u.username || '').toLowerCase() === requester.toLowerCase());
     const activeRole = activeUser && activeUser.role;
     const isAdminRole = (activeRole || '').toLowerCase() === 'admin';
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;
@@ -17823,7 +17853,7 @@ app.get('/api/refunds', (req, res) => {
     const requester = req.authUser.username;
     const allRefunds = readData(FILE_REFUNDS, []);
     const users = readData(FILE_USERS);
-    const activeUser = users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+    const activeUser = users.find(u => String(u.username || '').toLowerCase() === requester.toLowerCase());
     const activeRole = activeUser && activeUser.role;
     const isAdminRole = (activeRole || '').toLowerCase() === 'admin';
     const canViewAll = isAdminRole || !!getPermissionsForRole(activeRole).transactions_view_all;

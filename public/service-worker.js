@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'omnipos-shell-v87';
+const CACHE_VERSION = 'omnipos-shell-v88';
 
 // Everything required to boot the POS shell and operate the cached UI without a network.
 const SHELL_FILES = [
@@ -74,12 +74,18 @@ self.addEventListener('fetch', event => {
     event.respondWith((async () => {
       try {
         const network = await fetch(req);
-        if (network.ok) {
+        // Ang '/index.html' lang ang dapat ma-update ng root navigation. Dati, kahit anong page
+        // (hal. customer-display.html) ang nag-overwrite nito, kaya offline ay hindi POS ang bumubukas.
+        if (network.ok && (url.pathname === '/' || url.pathname === '/index.html')) {
           const cache = await caches.open(CACHE_VERSION);
           await cache.put('/index.html', network.clone());
         }
         return network;
       } catch (err) {
+        if (url.pathname !== '/' && url.pathname !== '/index.html') {
+          const exact = await caches.match(req, { ignoreSearch: true });
+          if (exact) return exact;
+        }
         return (await caches.match('/index.html', { ignoreSearch: true })) || (await caches.match('/', { ignoreSearch: true })) || Response.error();
       }
     })());

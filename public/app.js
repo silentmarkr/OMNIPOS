@@ -818,6 +818,7 @@ const SYSTEM_CONFIG = {
     getSuccessMessage: (msg) => `${msg}`
 };
 let currentUser = null;
+let userFormEditingUsername = null; // dating hindi dineklara (implicit global)
 try {
     const storedUser = localStorage.getItem('omnipos_user');
     if (storedUser && storedUser !=='undefined') {
@@ -13979,7 +13980,7 @@ function applyLoyaltyPointsToCart() {
     const pointValue = (storeSettingsCache && Number.isFinite(storeSettingsCache.loyaltyPointValue))
         ? storeSettingsCache.loyaltyPointValue : 1;
     let discountAmount = Math.min(pts * pointValue, subtotal);
-    pts = pointValue > 0 ? Math.floor(discountAmount / pointValue) : 0;
+    pts = pointValue > 0 ? Math.floor(discountAmount / pointValue + 1e-9) : 0;
     discountAmount = Math.round(pts * pointValue * 100) / 100;
     if (pts <= 0) {
         Swal.fire('Invalid Amount', 'Not enough points to apply a discount.', 'warning');
