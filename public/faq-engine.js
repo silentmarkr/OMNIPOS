@@ -4445,6 +4445,15 @@
     const RESTART_IDLE_DELAY_MS = 300;      // mas mahabang gap kung walang narinig sa nagtapos na session (iwas mabilis na loop)
     const MAX_CONSECUTIVE_ERRORS = 3;       // ilang sunod-sunod na error bago sumuko
 
+    // BAGO: hindi na nakadepende sa Eng/Tag toggle ang wika ng mic. Dati,
+    // kapag English ang toggle, 'en-US' ang gamit kaya mali ang basa sa
+    // Tagalog na salita. Ngayon, Filipino (fil-PH) palagi ang una — kaya
+    // nitong basahin ang Tagalog at ang karaniwang English na salita
+    // (Taglish). Kung hindi supported ng device ang isa, kusang lilipat
+    // sa susunod sa listahan.
+    const VOICE_LANGS = ['fil-PH', 'tl-PH', 'en-PH', 'en-US'];
+    let voiceLangIdx = 0;
+
     let recognition = null;
     let listening = false;      // UI state
     let wantListening = false;  // intensyon ng user (para sa auto-restart)
@@ -4630,7 +4639,7 @@
       r.continuous = true;
       r.interimResults = true;
       r.maxAlternatives = 1;
-      r.lang = currentLang() === 'tl' ? 'fil-PH' : 'en-US';
+      r.lang = VOICE_LANGS[voiceLangIdx] || 'en-US';
       r.onstart = () => { setListening(true); };
       r.onresult = (event) => {
         if (recognition !== r) return;
@@ -4661,7 +4670,13 @@
       r.onerror = (event) => {
         const lang = L();
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') { wantListening = false; showVoiceError(lang.voicePermissionDenied); }
-        else if (event.error === 'audio-capture' || event.error === 'network' || event.error === 'language-not-supported') { wantListening = false; showVoiceError(lang.voiceError); }
+        else if (event.error === 'language-not-supported') {
+          // Hindi supported ng device ang wikang ito: subukan ang susunod
+          // (mananatiling "listening"; ang onend ang magre-restart).
+          if (voiceLangIdx < VOICE_LANGS.length - 1) { voiceLangIdx++; }
+          else { wantListening = false; showVoiceError(lang.voiceError); }
+        }
+        else if (event.error === 'audio-capture' || event.error === 'network') { wantListening = false; showVoiceError(lang.voiceError); }
         else if (event.error !== 'aborted' && event.error !== 'no-speech') {
           // ibang error: subukan ulit, pero sumuko kung paulit-ulit para hindi mag-loop.
           consecutiveErrors++;
