@@ -338,6 +338,14 @@ function isDefaultSeededCredential(username, password) {
     const def = DEFAULT_SEEDED_PASSWORDS[String(username || '').trim().toLowerCase()];
     return typeof def === 'string' && String(password || '') === def;
 }
+// Only the Admin account is forced to replace a default password. Cashier/staff accounts that still use their seeded
+// password are NOT blocked (the Admin controls those accounts from Users). Used by every login path + the session guard.
+function roleMustChangeDefaultPassword(role) {
+    return String(role || '').trim().toLowerCase() === 'admin';
+}
+// "Change it later" may be used at most this many times while the default password is still in place.
+// After that the Admin must really change it (the button is removed from the dialog).
+const MAX_DEFAULT_PASSWORD_SKIPS = 3;
 // Same check for logins that never send the password (fingerprint/passkey): does the stored hash still match
 // the seeded default? Only the three seeded usernames are checked, so this costs one bcrypt compare at most.
 function isStoredPasswordDefault(user) {
@@ -348,7 +356,7 @@ function isStoredPasswordDefault(user) {
     catch (_e) { return typeof user.password === 'string' && user.password === def; } // legacy plaintext record
 }
 // While a session is flagged mustChangePassword, only these endpoints work (change the password, sign out, health).
-const PASSWORD_CHANGE_ALLOWED_PATHS = new Set(['/api/users/self/change-password', '/api/auth/logout', '/api/health']);
+const PASSWORD_CHANGE_ALLOWED_PATHS = new Set(['/api/users/self/change-password', '/api/users/self/skip-password-change', '/api/auth/logout', '/api/health']);
 function createSession(username, role, userAgent, ip, opts) {
     const token = crypto.randomBytes(32).toString('hex');
     SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown', ...((opts && opts.mustChangePassword) ? { mustChangePassword: true } : {}) });
@@ -463,11 +471,16 @@ app.use((req, res, next) => {
         lastLiveRecheckAt = Date.now();
         recheckDeviceAuthorizationLive();
     }
-    if (session.mustChangePassword && !PASSWORD_CHANGE_ALLOWED_PATHS.has(req.path)) {
+    if (session.mustChangePassword && !roleMustChangeDefaultPassword(session.role)) {
+        // Session created before the Admin-only rule: drop the stale flag so it can never block a Cashier/Staff session.
+        delete session.mustChangePassword;
+        persistSessions();
+    }
+    if (session.mustChangePassword && roleMustChangeDefaultPassword(session.role) && !PASSWORD_CHANGE_ALLOWED_PATHS.has(req.path)) {
         return res.status(403).json({
             success: false,
             code: 'PASSWORD_CHANGE_REQUIRED',
-            message: 'Default password pa rin ang gamit ng account na ito. Magpalit muna ng password bago magpatuloy.'
+            message: 'This account still uses a default password. Please set a new password before continuing.'
         });
     }
     req.authUser = { username: session.username, role: session.role };
@@ -10623,7 +10636,7 @@ app.post('/api/auth/login', async (req, res) => {
                 user.password = bcrypt.hashSync(password, 10);
                 writeData(FILE_USERS, users);
             }
-            const mustChangePassword = isDefaultSeededCredential(user.username, password);
+            const mustChangePassword = roleMustChangeDefaultPassword(user.role) && isDefaultSeededCredential(user.username, password);
             const advSettingsForLogin = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
             const isAdminRole = (user.role || '').toLowerCase() === 'admin';
             if (advSettingsForLogin.twoFactorLoginEnabled && isAdminRole) {
@@ -10950,7 +10963,7 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         WEBAUTHN_LOGIN_CHALLENGES.delete(clientData.challenge);
         const user = users[userIndex];
         logAction(user.username,`Naka-login gamit ang Fingerprint/Biometric Login (${cred.deviceLabel || 'device'})`);
-        const mustChangePassword = isStoredPasswordDefault(user);
+        const mustChangePassword = roleMustChangeDefaultPassword(user.role) && isStoredPasswordDefault(user);
         const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword });
         const permissions = getPermissionsForRole(user.role);
         return res.json({ success: true, mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
@@ -13913,7 +13926,7 @@ app.get('/api/logs', requirePermission('logs'), (req, res) => {
 });
 app.get('/api/users', requirePermission('users'), (req, res) => {
     const users = readData(FILE_USERS);
-    const safeUsers = users.map(({ password, webauthnCredentials, ...rest }) => rest);
+    const safeUsers = users.map(({ password, webauthnCredentials, pwSkips, ...rest }) => rest);
     res.json(safeUsers);
 });
 app.get('/api/users/self', (req, res) => {
@@ -14131,22 +14144,32 @@ app.put('/api/users/:targetUser', rateLimit('admin-edit-user', 15, 10 * 60 * 100
 app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 60 * 1000), (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) {
-        return res.status(400).json({ success: false, message:'Kailangan ang kasalukuyan at bagong password.' });
+        return res.status(400).json({ success: false, message:'Both the current and the new password are required.' });
     }
     if (typeof newPassword !== 'string' || typeof currentPassword !== 'string') {
-        return res.status(400).json({ success: false, message:'Hindi valid ang password na ipinasa.' });
+        return res.status(400).json({ success: false, message:'The password sent is not valid.' });
     }
     if (String(newPassword).length < 4) {
-        return res.status(400).json({ success: false, message:'Masyadong maikli ang bagong password.' });
+        return res.status(400).json({ success: false, message:'The new password is too short.' });
     }
     const forcedChangeSession = !!(SESSIONS.get(req.authToken) || {}).mustChangePassword;
     if (forcedChangeSession) {
         // Forced change: the new password must be at least 6 characters, differ from the current one, and not be a default/username.
         if (String(newPassword).length < 6) {
-            return res.status(400).json({ success: false, code: 'WEAK_NEW_PASSWORD', message:'Kailangan ang bagong password na hindi bababa sa 6 na karakter.' });
+            return res.status(400).json({ success: false, code: 'WEAK_NEW_PASSWORD', message:'The new password must be at least 6 characters long.' });
         }
         if (newPassword === currentPassword || String(newPassword).toLowerCase() === String(req.authUser.username).toLowerCase() || isDefaultSeededCredential(req.authUser.username, newPassword) || Object.values(DEFAULT_SEEDED_PASSWORDS).includes(String(newPassword).toLowerCase())) {
-            return res.status(400).json({ success: false, code: 'WEAK_NEW_PASSWORD', message:'Hindi pwedeng default o kapareho ng kasalukuyan ang bagong password. Pumili ng ibang password.' });
+            return res.status(400).json({ success: false, code: 'WEAK_NEW_PASSWORD', message:'The new password cannot be a default password, your username, or the same as the current password. Please choose a different one.' });
+        }
+    }
+    // 2FA EMAIL: during the forced change of the Admin account, a registered Gmail is required. It becomes the
+    // recipient of the Admin Login OTP (Advanced Settings > Two-Factor Authentication) and turns that setting on.
+    const requiresTwoFactorEmail = forcedChangeSession && String(req.authUser.role || '').toLowerCase() === 'admin';
+    let twoFactorEmail = '';
+    if (requiresTwoFactorEmail) {
+        twoFactorEmail = String(req.body.twoFactorEmail || '').trim().toLowerCase();
+        if (!/^[a-z0-9._%+-]+@(gmail|googlemail)\.com$/.test(twoFactorEmail)) {
+            return res.status(400).json({ success: false, code: 'INVALID_2FA_EMAIL', message: 'A valid Gmail address (name@gmail.com) is required to enable two-factor authentication.' });
         }
     }
     let users = readData(FILE_USERS);
@@ -14162,9 +14185,30 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
         isMatch = (currentPassword === me.password);
     }
     if (!isMatch) {
-        return res.status(403).json({ success: false, code:'WRONG_CURRENT_PASSWORD', message:'Mali ang kasalukuyang password.' });
+        return res.status(403).json({ success: false, code:'WRONG_CURRENT_PASSWORD', message:'The current password is incorrect.' });
+    }
+    let advSnapshotBefore = null; // used to roll the 2FA settings back if the password write fails afterwards
+    let previousTwoFactorRecipient = '';
+    if (twoFactorEmail) {
+        // Saved BEFORE the password is touched. If the password write fails later, the 2FA settings are rolled back
+        // from advSnapshotBefore, so a failed attempt never leaves a half-applied change.
+        try {
+            const currentAdv = readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS) || {};
+            advSnapshotBefore = JSON.parse(JSON.stringify(currentAdv));
+            previousTwoFactorRecipient = (currentAdv.twoFactorLoginEnabled && typeof currentAdv.twoFactorRecipientEmail === 'string') ? currentAdv.twoFactorRecipientEmail.trim() : '';
+            const nextAdv = getAdvancedSettingsPublic({ ...DEFAULT_ADVANCED_SETTINGS, ...currentAdv, twoFactorLoginEnabled: true, twoFactorRecipientEmail: twoFactorEmail });
+            nextAdv.updatedAt = new Date().toISOString();
+            writeData(FILE_ADVANCED_SETTINGS, nextAdv);
+            const checkAdv = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
+            if (!checkAdv.twoFactorLoginEnabled || checkAdv.twoFactorRecipientEmail !== twoFactorEmail) throw new Error('2FA settings did not persist');
+        } catch (e) {
+            console.error('Failed to save the 2FA Gmail during forced password change:', e.message);
+            if (advSnapshotBefore) { try { writeData(FILE_ADVANCED_SETTINGS, advSnapshotBefore); } catch (_e) {} }
+            return res.status(500).json({ success: false, message: 'The 2FA Gmail could not be saved. Your password was not changed — please try again.' });
+        }
     }
     users[userIndex].password = bcrypt.hashSync(newPassword, 10);
+    delete users[userIndex].pwSkips; // a real change resets the "Change it later" counter
     const meUsername = users[userIndex].username;
     const writeOk = writeData(FILE_USERS, users);
     const verifyUsers = readData(FILE_USERS) || [];
@@ -14175,7 +14219,11 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
     })();
     if (!verified) {
         console.error(`⚠️ Nabigo ang pag-save ng bagong password para sa "${meUsername}" (self-service change-password).`);
-        return res.status(500).json({ success: false, message: 'Nabigo ang pag-save ng bagong password sa lokal na database. Hindi nagbago ang password mo — subukan ulit.' });
+        if (advSnapshotBefore) {
+            // Roll the 2FA settings back so "your password was not changed" is also true for the 2FA Gmail.
+            try { writeData(FILE_ADVANCED_SETTINGS, advSnapshotBefore); } catch (_e) { console.error('2FA settings rollback failed:', _e.message); }
+        }
+        return res.status(500).json({ success: false, message: 'The new password could not be saved to the local database. Your password was not changed — please try again.' });
     }
     // SECURITY FIX: sign out every OTHER session of this account (other devices/browsers) so a stolen or
     // forgotten session cannot outlive the password change. The session making this request stays logged in.
@@ -14194,7 +14242,41 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
     }
     if (otherSessionsRevoked > 0) persistSessions();
     logAction(meUsername, `Changed own account password`);
-    res.json({ success: true, message:'Na-update na ang password mo.' });
+    if (twoFactorEmail) {
+        logAction(meUsername, `Registered ${maskEmail(twoFactorEmail)} as the 2FA Gmail and enabled Admin Login OTP` + (previousTwoFactorRecipient && previousTwoFactorRecipient.toLowerCase() !== twoFactorEmail ? ` (replaced ${maskEmail(previousTwoFactorRecipient)})` : ''));
+    }
+    // twoFactorActive tells the client whether login codes can really be sent (an OTP sender mailbox must be configured);
+    // without it the Admin login proceeds without OTP, so the UI must not claim that 2FA is already protecting the account.
+    let twoFactorActive = false;
+    try { twoFactorActive = !!twoFactorEmail && !!getOtpMailCredentials(); } catch (_e) { twoFactorActive = false; }
+    res.json({ success: true, twoFactorEnabled: !!twoFactorEmail, twoFactorActive, message: twoFactorEmail ? (twoFactorActive ? 'Your password has been updated and two-factor login is enabled.' : 'Your password has been updated. The 2FA Gmail is saved, but no OTP sender email is configured yet.') : 'Your password has been updated.' });
+});
+// "Change it later": lifts the forced-change lock on THIS session only. The password stays unchanged, so the
+// next login with the default password is prompted again. The postponement is written to the action log.
+app.post('/api/users/self/skip-password-change', rateLimit('self-skip-pw', 10, 10 * 60 * 1000), (req, res) => {
+    const sess = SESSIONS.get(req.authToken);
+    if (!sess || !sess.mustChangePassword) {
+        return res.json({ success: true, skipped: false });
+    }
+    // Limit the postponements: the counter lives on the user record and is cleared by a real password change.
+    let usersForSkip = readData(FILE_USERS) || [];
+    const skipIdx = usersForSkip.findIndex(u => String(u.username || '').toLowerCase() === String(req.authUser.username).toLowerCase());
+    if (skipIdx === -1) return res.status(404).json({ success: false, message: 'Account not found.' });
+    const skipState = (usersForSkip[skipIdx].pwSkips && typeof usersForSkip[skipIdx].pwSkips === 'object') ? usersForSkip[skipIdx].pwSkips : { count: 0 };
+    const usedSkips = Number(skipState.count) || 0;
+    if (usedSkips >= MAX_DEFAULT_PASSWORD_SKIPS) {
+        logAction(req.authUser.username, 'Tried to postpone the default-password change but the limit was reached');
+        return res.status(403).json({ success: false, code: 'SKIP_LIMIT_REACHED', message: `You already postponed this ${MAX_DEFAULT_PASSWORD_SKIPS} times. Please set a new password now.` });
+    }
+    usersForSkip[skipIdx].pwSkips = { count: usedSkips + 1, lastAt: new Date().toISOString() };
+    if (!writeData(FILE_USERS, usersForSkip)) {
+        return res.status(500).json({ success: false, message: 'Could not record the postponement. Please try again.' });
+    }
+    delete sess.mustChangePassword;
+    persistSessions();
+    const skipsLeft = MAX_DEFAULT_PASSWORD_SKIPS - (usedSkips + 1);
+    logAction(req.authUser.username, `Postponed the required default-password change ("Change it later", ${skipsLeft} left)`);
+    res.json({ success: true, skipped: true, skipsLeft });
 });
 app.post('/api/users', rateLimit('admin-add-user', 8, 10 * 60 * 1000), verifyAdmin, (req, res) => {
     // BUG FIX: this used to read the new account's data from req.body.user.

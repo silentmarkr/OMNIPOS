@@ -1,4 +1,8 @@
-const CACHE_VERSION = 'omnipos-shell-v91';
+const CACHE_VERSION = 'omnipos-shell-v95';
+
+// A weak store Wi-Fi must never freeze the POS: if the network does not answer within this time and a cached copy
+// exists, the cached copy is used right away and the cache is refreshed in the background when the network replies.
+const NETWORK_TIMEOUT_MS = 3500;
 
 // Everything required to boot the POS shell and operate the cached UI without a network.
 const SHELL_FILES = [
@@ -62,6 +66,29 @@ self.addEventListener('activate', event => {
   })());
 });
 
+// Network-first with a timeout. `cacheKey` is what the successful response is stored under (null = do not store).
+// `cachedLookup` returns the fallback copy. Resolves to a Response (or Response.error() when nothing is available).
+async function networkFirstWithTimeout(event, req, cacheKey, cachedLookup) {
+  const networkPromise = fetch(req).then(async network => {
+    if (network && network.ok && cacheKey) {
+      try { await (await caches.open(CACHE_VERSION)).put(cacheKey, network.clone()); } catch (e) {}
+    }
+    return network;
+  });
+  networkPromise.catch(() => {}); // never an unhandled rejection when the timeout wins
+  const timeout = new Promise(resolve => setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS));
+  let first = null;
+  try { first = await Promise.race([networkPromise, timeout]); } catch (e) { first = null; }
+  if (first) return first;
+  const cached = await cachedLookup();
+  if (cached) {
+    // Keep the worker alive so the slow network response still refreshes the cache.
+    event.waitUntil(networkPromise.catch(() => {}));
+    return cached;
+  }
+  try { return await networkPromise; } catch (e) { return Response.error(); }
+}
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   const url = new URL(req.url);
@@ -71,41 +98,28 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/api/')) return;
 
   if (req.mode === 'navigate') {
-    event.respondWith((async () => {
-      try {
-        const network = await fetch(req);
-        // Ang '/index.html' lang ang dapat ma-update ng root navigation. Dati, kahit anong page
-        // (hal. customer-display.html) ang nag-overwrite nito, kaya offline ay hindi POS ang bumubukas.
-        if (network.ok && (url.pathname === '/' || url.pathname === '/index.html')) {
-          const cache = await caches.open(CACHE_VERSION);
-          await cache.put('/index.html', network.clone());
-        }
-        return network;
-      } catch (err) {
-        if (url.pathname !== '/' && url.pathname !== '/index.html') {
+    const isRoot = url.pathname === '/' || url.pathname === '/index.html';
+    // Only '/index.html' is refreshed by root navigation. Other pages (e.g. customer-display.html) must not overwrite it,
+    // otherwise the POS would not open offline.
+    event.respondWith(networkFirstWithTimeout(
+      event, req, isRoot ? '/index.html' : null,
+      async () => {
+        if (!isRoot) {
           const exact = await caches.match(req, { ignoreSearch: true });
           if (exact) return exact;
         }
-        return (await caches.match('/index.html', { ignoreSearch: true })) || (await caches.match('/', { ignoreSearch: true })) || Response.error();
+        return (await caches.match('/index.html', { ignoreSearch: true })) || (await caches.match('/', { ignoreSearch: true })) || null;
       }
-    })());
+    ));
     return;
   }
 
-  // App shell: network-first so releases update promptly, cache fallback keeps offline use working.
+  // App shell: network-first (with timeout) so releases update promptly, cache fallback keeps offline use working.
   if (SHELL_FILES.includes(url.pathname)) {
-    event.respondWith((async () => {
-      try {
-        const network = await fetch(req);
-        if (network.ok) {
-          const cache = await caches.open(CACHE_VERSION);
-          await cache.put(req, network.clone());
-        }
-        return network;
-      } catch (err) {
-        return (await caches.match(req, { ignoreSearch: true })) || Response.error();
-      }
-    })());
+    event.respondWith(networkFirstWithTimeout(
+      event, req, req,
+      () => caches.match(req, { ignoreSearch: true })
+    ));
     return;
   }
 

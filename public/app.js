@@ -144,53 +144,310 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOU
 }
 // FORCED PASSWORD CHANGE: shown while an account still uses a default password (admin/admin, cashier/cashier,
 // staff/staff). Resolves to true when the password was changed, false when the user chose to log out instead.
-async function runForcedPasswordChange() {
+// The dialog is self-contained: its own scoped styles (injected once), a show/hide eye on every password field,
+// a live strength meter, a live requirements checklist and a Caps Lock warning. Works in light and dark themes
+// because it only uses translucent neutral colours plus the accent blue.
+const FPC_GMAIL_RE = /^[A-Za-z0-9._%+-]+@(gmail|googlemail)\.com$/i; // 2FA Gmail (Admin only); mirrored in server.js
+const FPC_DEFAULT_PASSWORDS = ['admin', 'cashier', 'staff']; // mirrors DEFAULT_SEEDED_PASSWORDS in server.js
+function ensureForcedPasswordStyles() {
+    if (document.getElementById('fpc-style')) return;
+    const st = document.createElement('style');
+    st.id = 'fpc-style';
+    st.textContent = `
+.fpc-popup{width:min(460px,94vw)!important;max-width:94vw!important;padding:1.4rem 1.2rem 1.1rem!important;border-radius:22px!important;box-sizing:border-box!important}
+.fpc-popup .swal2-title{font-size:1.45rem!important;font-weight:800!important;letter-spacing:-.01em;padding:0 0 .35rem!important;margin:0!important}
+.fpc-popup .swal2-html-container{margin:.4rem 0 0!important;padding:0!important;overflow:visible!important;max-width:100%!important}
+.fpc-popup .swal2-actions{margin:1.1rem 0 0!important;gap:.6rem;flex-wrap:wrap;width:100%}
+.fpc-popup .swal2-actions .swal2-deny{order:3;flex:1 1 100%!important;background:transparent!important;color:inherit!important;opacity:.7;box-shadow:none!important;text-decoration:underline;font-weight:600!important;padding:.4rem .9rem!important}
+.fpc-popup .swal2-actions .swal2-deny:hover,.fpc-popup .swal2-actions .swal2-deny:focus-visible{opacity:1}
+.fpc-popup .swal2-actions .swal2-styled{margin:0!important;flex:1 1 0;border-radius:12px!important;font-weight:700!important;padding:.8rem .9rem!important;font-size:.95rem!important}
+.fpc-popup .swal2-validation-message{margin:.9rem 0 0!important;border-radius:12px!important;font-size:.85rem!important;justify-content:flex-start;text-align:left;color:inherit!important;background:rgba(239,68,68,.14)!important;border:1px solid rgba(239,68,68,.45)}
+.fpc-wrap{text-align:left;font-size:.92rem;line-height:1.45;box-sizing:border-box;max-width:100%}
+.fpc-wrap *{box-sizing:border-box}
+.fpc-hero{display:flex;align-items:center;gap:12px;margin:0 0 .9rem}
+.fpc-shield{flex:0 0 46px;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:1.25rem;color:#fff;background:linear-gradient(135deg,#f59e0b,#ef4444);box-shadow:0 8px 20px -8px rgba(239,68,68,.65)}
+.fpc-lead{margin:0;opacity:.85;font-size:.9rem}
+.fpc-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;margin:0 0 .9rem;padding:6px 12px;border-radius:999px;font-size:.82rem;background:rgba(127,127,127,.14);border:1px solid rgba(127,127,127,.28)}
+.fpc-chip b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpc-label{display:block;margin:.8rem 0 .35rem;font-size:.78rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;opacity:.75}
+.fpc-field{position:relative;width:100%}
+.fpc-field input{display:block;width:100%;height:48px;margin:0;padding:0 48px 0 14px;font-size:16px;color:inherit;background:rgba(127,127,127,.10);border:1.5px solid rgba(127,127,127,.35);border-radius:12px;outline:none;transition:border-color .15s,box-shadow .15s;-webkit-appearance:none;appearance:none}
+.fpc-field input:focus{border-color:#3b82f6;box-shadow:0 0 0 4px rgba(59,130,246,.22)}
+.fpc-field input.fpc-bad{border-color:#ef4444;box-shadow:0 0 0 4px rgba(239,68,68,.2)}
+.fpc-field input::-ms-reveal,.fpc-field input::-ms-clear{display:none}
+.fpc-eye{position:absolute;top:0;right:0;width:46px;height:48px;border:0;background:transparent;color:inherit;opacity:.65;cursor:pointer;font-size:1.05rem;border-radius:0 12px 12px 0;display:grid;place-items:center;padding:0}
+.fpc-eye:hover,.fpc-eye:focus-visible{opacity:1;outline:none;background:rgba(127,127,127,.14)}
+.fpc-eye[aria-pressed="true"]{color:#3b82f6;opacity:1}
+.fpc-meter{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:.55rem 0 .25rem}
+.fpc-meter span{height:6px;border-radius:99px;background:rgba(127,127,127,.28);transition:background .2s}
+.fpc-meter[data-level="1"] span:nth-child(-n+1){background:#ef4444}
+.fpc-meter[data-level="2"] span:nth-child(-n+2){background:#f59e0b}
+.fpc-meter[data-level="3"] span:nth-child(-n+3){background:#84cc16}
+.fpc-meter[data-level="4"] span:nth-child(-n+4){background:#22c55e}
+.fpc-strength{font-size:.78rem;opacity:.8;min-height:1.1em}
+.fpc-rules{list-style:none;margin:.8rem 0 0;padding:10px 12px;border-radius:12px;background:rgba(127,127,127,.10);border:1px solid rgba(127,127,127,.22);display:grid;gap:6px;font-size:.82rem}
+.fpc-rules li{display:flex;align-items:flex-start;gap:8px;opacity:.78;transition:color .15s,opacity .15s}
+.fpc-rules li i{margin-top:3px;font-size:.8rem;width:14px;text-align:center}
+.fpc-rules li.ok{color:#22c55e;opacity:1}
+.fpc-caps{display:flex;align-items:center;gap:8px;margin:.7rem 0 0;padding:7px 12px;border-radius:10px;font-size:.8rem;font-weight:600;color:#b45309;background:rgba(245,158,11,.16);border:1px solid rgba(245,158,11,.4)}
+.fpc-caps[hidden]{display:none}
+@media (max-width:380px){.fpc-popup .swal2-actions .swal2-deny{order:-1}.fpc-popup{padding:1.1rem .9rem .9rem!important}.fpc-popup .swal2-actions{flex-direction:column-reverse}.fpc-popup .swal2-actions .swal2-styled{width:100%;flex:none}}
+`;
+    document.head.appendChild(st);
+}
+function fpcPasswordScore(pw) {
+    // 0 = empty, 1 = weak, 2 = fair, 3 = good, 4 = strong
+    if (!pw) return 0;
+    let pts = 0;
+    if (pw.length >= 6) pts++;
+    if (pw.length >= 8) pts++;
+    if (pw.length >= 12) pts++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) pts++;
+    if (/\d/.test(pw)) pts++;
+    if (/[^A-Za-z0-9]/.test(pw)) pts++;
+    if (FPC_DEFAULT_PASSWORDS.includes(pw.toLowerCase()) || /^(.)\1+$/.test(pw) || /^(0123|1234|abcd|qwer|pass)/i.test(pw)) pts = Math.min(pts, 1);
+    if (pts <= 1) return 1;
+    if (pts === 2) return 2;
+    if (pts <= 4) return 3;
+    return 4;
+}
+async function runForcedPasswordChange(usernameHint, roleHint) {
     if (window.__forcedPwChangeOpen) return false;
     window.__forcedPwChangeOpen = true;
     try {
+        ensureForcedPasswordStyles();
+        let accountName = String(usernameHint || '').trim();
+        if (!accountName) {
+            try { accountName = String((JSON.parse(localStorage.getItem('omnipos_user') || '{}') || {}).username || '').trim(); } catch (_e) { accountName = ''; }
+        }
+        // 2FA email is only collected for the Admin account (the Admin Login OTP is what it protects).
+        let accountRole = String(roleHint || '').trim().toLowerCase();
+        if (!accountRole) {
+            try { accountRole = String((JSON.parse(localStorage.getItem('omnipos_user') || '{}') || {}).role || '').trim().toLowerCase(); } catch (_e) { accountRole = ''; }
+        }
+        let needsTwoFa = accountRole === 'admin'; // may flip to true if the server says the Gmail is required
+        let allowSkip = true;      // turns false when the server says the "Change it later" limit was reached
+        let twoFaActive = true;    // false when the Gmail was saved but no OTP sender mailbox is configured yet
+        const draft = { cur: '', nw: '', cf: '' }; // keeps what was typed if the dialog has to be rebuilt
+        const eyeBtn = (target) => `<button type="button" class="fpc-eye" data-target="${target}" aria-label="Show password" aria-pressed="false" title="Show password"><i class="fa-solid fa-eye"></i></button>`;
+        const buildHtml = () => `
+<div class="fpc-wrap">
+  <div class="fpc-hero">
+    <div class="fpc-shield"><i class="fa-solid fa-shield-halved"></i></div>
+    <p class="fpc-lead">This account still uses a <b>default password</b>. For the security of your store, choose a new password before you continue.</p>
+  </div>
+  ${accountName ? `<div class="fpc-chip"><i class="fa-solid fa-user-shield"></i><span>Signed in as</span> <b>${escapeHtml(accountName)}</b></div>` : ''}
+  <label class="fpc-label" for="fpc-current">Current password</label>
+  <div class="fpc-field"><input id="fpc-current" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" placeholder="Enter the current password">${eyeBtn('fpc-current')}</div>
+  <label class="fpc-label" for="fpc-new">New password</label>
+  <div class="fpc-field"><input id="fpc-new" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="At least 6 characters">${eyeBtn('fpc-new')}</div>
+  <div class="fpc-meter" id="fpc-meter" data-level="0"><span></span><span></span><span></span><span></span></div>
+  <div class="fpc-strength" id="fpc-strength">Enter a new password</div>
+  <label class="fpc-label" for="fpc-confirm">Confirm new password</label>
+  <div class="fpc-field"><input id="fpc-confirm" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Re-enter the new password">${eyeBtn('fpc-confirm')}</div>
+  ${needsTwoFa ? `
+  <label class="fpc-label" for="fpc-email">Registered Gmail (for 2FA)</label>
+  <div class="fpc-field"><input id="fpc-email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="yourname@gmail.com" style="padding-right:14px"></div>
+  <label class="fpc-label" for="fpc-email2">Confirm Gmail</label>
+  <div class="fpc-field"><input id="fpc-email2" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Re-enter the Gmail" style="padding-right:14px"></div>
+  <div class="fpc-strength" style="margin-top:.35rem">A 6-digit login code will be sent to this Gmail every time the Admin signs in.</div>` : ''}
+  <ul class="fpc-rules" id="fpc-rules">
+    <li data-rule="len"><i class="fa-regular fa-circle"></i><span>At least 6 characters</span></li>
+    <li data-rule="diff"><i class="fa-regular fa-circle"></i><span>Different from the current password, your username and the default passwords</span></li>
+    <li data-rule="match"><i class="fa-regular fa-circle"></i><span>Both new passwords match</span></li>
+    ${needsTwoFa ? '<li data-rule="gmail"><i class="fa-regular fa-circle"></i><span>A valid Gmail address, entered the same way twice</span></li>' : ''}
+  </ul>
+  <div class="fpc-caps" id="fpc-caps" hidden><i class="fa-solid fa-arrow-up"></i><span>Caps Lock is on</span></div>
+</div>`;
+        const strengthLabels = ['Enter a new password', 'Weak', 'Fair', 'Good', 'Strong'];
+        const shake = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.add('fpc-bad');
+            try { el.focus(); } catch (_e) {}
+        };
         while (true) {
             const result = await Swal.fire({
-                icon: 'warning',
-                title: 'Palitan ang Default Password',
-                html: '<p style="margin:0 0 10px;font-size:.95rem">Default pa rin ang password ng account na ito. Kailangan itong palitan bago magpatuloy.</p>' +
-                      '<input id="fpc-current" type="password" class="swal2-input" placeholder="Kasalukuyang password" autocomplete="current-password">' +
-                      '<input id="fpc-new" type="password" class="swal2-input" placeholder="Bagong password (min. 6 na karakter)" autocomplete="new-password">' +
-                      '<input id="fpc-confirm" type="password" class="swal2-input" placeholder="Ulitin ang bagong password" autocomplete="new-password">',
+                title: 'Set a new password',
+                html: buildHtml(),
                 allowOutsideClick: false,
                 allowEscapeKey: false,
                 showCancelButton: true,
-                confirmButtonText: 'Palitan ang Password',
-                cancelButtonText: 'Mag-logout',
+                showDenyButton: allowSkip,
+                confirmButtonText: 'Update password',
+                cancelButtonText: 'Log out',
+                denyButtonText: 'Change it later',
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#64748b',
+                reverseButtons: true,
                 focusConfirm: false,
                 showLoaderOnConfirm: true,
+                customClass: { popup: 'fpc-popup' },
+                didOpen: (popup) => {
+                    const cur = popup.querySelector('#fpc-current');
+                    const nw = popup.querySelector('#fpc-new');
+                    const cf = popup.querySelector('#fpc-confirm');
+                    const em = popup.querySelector('#fpc-email');
+                    const em2 = popup.querySelector('#fpc-email2');
+                    const allFields = [cur, nw, cf].concat(em && em2 ? [em, em2] : []);
+                    cur.value = draft.cur; nw.value = draft.nw; cf.value = draft.cf;
+                    const meter = popup.querySelector('#fpc-meter');
+                    const strength = popup.querySelector('#fpc-strength');
+                    const caps = popup.querySelector('#fpc-caps');
+                    const setRule = (name, ok) => {
+                        const li = popup.querySelector(`#fpc-rules li[data-rule="${name}"]`);
+                        if (!li) return;
+                        li.classList.toggle('ok', !!ok);
+                        const ic = li.querySelector('i');
+                        if (ic) ic.className = ok ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle';
+                    };
+                    const refresh = () => {
+                        const a = cur.value, b = nw.value, c = cf.value;
+                        const level = fpcPasswordScore(b);
+                        meter.setAttribute('data-level', String(level));
+                        strength.textContent = strengthLabels[level];
+                        setRule('len', b.length >= 6);
+                        setRule('diff', b.length > 0 && b !== a
+                            && b.toLowerCase() !== accountName.toLowerCase()
+                            && !FPC_DEFAULT_PASSWORDS.includes(b.toLowerCase()));
+                        setRule('match', c.length > 0 && b === c);
+                        if (em && em2) setRule('gmail', FPC_GMAIL_RE.test(em.value.trim()) && em.value.trim().toLowerCase() === em2.value.trim().toLowerCase());
+                        allFields.forEach((el) => el.classList.remove('fpc-bad'));
+                    };
+                    allFields.forEach((el) => {
+                        el.addEventListener('input', refresh);
+                        el.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); Swal.clickConfirm(); }
+                        });
+                        const capsCheck = (e) => {
+                            if (typeof e.getModifierState !== 'function') return;
+                            caps.hidden = !e.getModifierState('CapsLock');
+                        };
+                        el.addEventListener('keydown', capsCheck);
+                        el.addEventListener('keyup', capsCheck);
+                        el.addEventListener('blur', () => { caps.hidden = true; });
+                    });
+                    popup.querySelectorAll('.fpc-eye').forEach((btn) => {
+                        // mousedown preventDefault keeps the caret in the input when the eye is tapped
+                        btn.addEventListener('mousedown', (e) => e.preventDefault());
+                        btn.addEventListener('click', () => {
+                            const input = popup.querySelector('#' + btn.getAttribute('data-target'));
+                            if (!input) return;
+                            const show = input.type === 'password';
+                            input.type = show ? 'text' : 'password';
+                            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+                            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+                            btn.title = show ? 'Hide password' : 'Show password';
+                            const ic = btn.querySelector('i');
+                            if (ic) ic.className = show ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
+                        });
+                    });
+                    refresh();
+                    setTimeout(() => { try { cur.focus(); } catch (_e) {} }, 60);
+                },
                 preConfirm: async () => {
                     const currentPassword = document.getElementById('fpc-current').value;
                     const newPassword = document.getElementById('fpc-new').value;
                     const confirmPassword = document.getElementById('fpc-confirm').value;
-                    if (!currentPassword || !newPassword) { Swal.showValidationMessage('Punan ang lahat ng field.'); return false; }
-                    if (newPassword.length < 6) { Swal.showValidationMessage('Hindi bababa sa 6 na karakter ang bagong password.'); return false; }
-                    if (newPassword !== confirmPassword) { Swal.showValidationMessage('Hindi magkapareho ang bagong password at ang kumpirmasyon.'); return false; }
+                    const emailEl = document.getElementById('fpc-email');
+                    const twoFactorEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
+                    const twoFactorEmail2 = emailEl ? document.getElementById('fpc-email2').value.trim().toLowerCase() : '';
+                    if (!currentPassword) { Swal.showValidationMessage('Enter your current password.'); shake('fpc-current'); return false; }
+                    if (!newPassword) { Swal.showValidationMessage('Enter a new password.'); shake('fpc-new'); return false; }
+                    if (newPassword.length < 6) { Swal.showValidationMessage('The new password must be at least 6 characters long.'); shake('fpc-new'); return false; }
+                    if (newPassword === currentPassword
+                        || newPassword.toLowerCase() === accountName.toLowerCase()
+                        || FPC_DEFAULT_PASSWORDS.includes(newPassword.toLowerCase())) {
+                        Swal.showValidationMessage('Choose a password that is not a default password, your username, or your current password.');
+                        shake('fpc-new');
+                        return false;
+                    }
+                    if (newPassword !== confirmPassword) { Swal.showValidationMessage('The two new passwords do not match.'); shake('fpc-confirm'); return false; }
+                    if (needsTwoFa) {
+                        if (!FPC_GMAIL_RE.test(twoFactorEmail)) { Swal.showValidationMessage('Enter a valid Gmail address (name@gmail.com) for two-factor authentication.'); shake('fpc-email'); return false; }
+                        if (twoFactorEmail !== twoFactorEmail2) { Swal.showValidationMessage('The two Gmail addresses do not match.'); shake('fpc-email2'); return false; }
+                    }
                     try {
                         const res = await authFetch(`${API_URL}/users/self/change-password`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ currentPassword, newPassword })
+                            body: JSON.stringify(needsTwoFa ? { currentPassword, newPassword, twoFactorEmail } : { currentPassword, newPassword })
                         });
                         const data = await res.json().catch(() => ({}));
-                        if (!(res.ok && data.success)) {
-                            Swal.showValidationMessage(data.message || 'Hindi napalitan ang password. Subukan ulit.');
-                            return false;
+                        if (res.ok && data.success) { twoFaActive = data.twoFactorActive !== false; return true; }
+                        if (res.status === 429) {
+                            Swal.showValidationMessage('Too many attempts. Please wait a few minutes and try again.');
+                        } else if (data.code === 'WRONG_CURRENT_PASSWORD') {
+                            Swal.showValidationMessage('The current password is incorrect.');
+                            shake('fpc-current');
+                        } else if (data.code === 'INVALID_2FA_EMAIL' && !document.getElementById('fpc-email')) {
+                            // The role was unknown to the client (e.g. page reloaded mid-flow) but the server needs the 2FA Gmail:
+                            // rebuild the dialog with the Gmail fields instead of leaving the Admin stuck.
+                            needsTwoFa = true;
+                            draft.cur = currentPassword; draft.nw = newPassword; draft.cf = confirmPassword;
+                            return 'NEED_2FA';
+                        } else if (data.code === 'INVALID_2FA_EMAIL') {
+                            Swal.showValidationMessage(data.message || 'Enter a valid Gmail address for two-factor authentication.');
+                            shake('fpc-email');
+                        } else if (data.code === 'WEAK_NEW_PASSWORD') {
+                            Swal.showValidationMessage(data.message || 'Please choose a stronger password.');
+                            shake('fpc-new');
+                        } else {
+                            Swal.showValidationMessage(data.message || 'The password could not be changed. Please try again.');
                         }
-                        return true;
+                        return false;
                     } catch (e) {
-                        Swal.showValidationMessage('Hindi maabot ang server. Subukan ulit.');
+                        Swal.showValidationMessage('Cannot reach the server. Please try again.');
                         return false;
                     }
                 }
             });
             if (result.isConfirmed && result.value === true) {
-                await Swal.fire({ icon: 'success', title: 'Napalitan na ang password', timer: 1600, showConfirmButton: false });
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'Password updated',
+                    text: needsTwoFa
+                        ? (twoFaActive
+                            ? 'Your account is now secured and two-factor login is on.'
+                            : 'Password updated and Gmail saved. Set up the OTP sender email in Advanced Settings to start receiving login codes.')
+                        : 'Your account is now secured.',
+                    timer: 1700,
+                    timerProgressBar: true,
+                    showConfirmButton: false
+                });
                 return true;
+            }
+            if (result.isConfirmed && result.value === 'NEED_2FA') continue;
+            if (result.isDenied) {
+                // "Change it later": ask once, then let the server lift the lock for THIS session only.
+                const sure = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Change it later?',
+                    html: '<p style="margin:0;text-align:left;font-size:.92rem;line-height:1.5">Until you change it, <b>anyone who knows the default password can sign in to this account</b>. You will be asked again the next time you sign in.</p>',
+                    showCancelButton: true,
+                    confirmButtonText: 'Skip for now',
+                    cancelButtonText: 'Go back',
+                    confirmButtonColor: '#b45309',
+                    cancelButtonColor: '#64748b',
+                    reverseButtons: true,
+                    allowOutsideClick: false,
+                    focusCancel: true
+                });
+                if (!sure.isConfirmed) continue;
+                try {
+                    const skipRes = await authFetch(`${API_URL}/users/self/skip-password-change`, { method: 'POST' });
+                    const skipData = await skipRes.json().catch(() => ({}));
+                    if (skipRes.ok && skipData.success) return 'skipped';
+                    if (skipData.code === 'SKIP_LIMIT_REACHED') {
+                        allowSkip = false; // the next loop iteration rebuilds the dialog without the "Change it later" button
+                        await Swal.fire({ icon: 'info', title: 'Password change required', text: skipData.message || 'You can no longer postpone this. Please set a new password.' });
+                        continue;
+                    }
+                    await Swal.fire({ icon: 'error', title: 'Could not skip', text: skipData.message || 'Please try again.' });
+                } catch (_e) {
+                    await Swal.fire({ icon: 'error', title: 'Could not skip', text: 'Cannot reach the server. Please try again.' });
+                }
+                continue;
             }
             if (result.dismiss === Swal.DismissReason.cancel) {
                 try { await authFetch(`${API_URL}/auth/logout`, { method: 'POST' }); } catch (_e) {}
@@ -401,9 +658,9 @@ async function loginWithBiometric() {
             if (data.mustChangePassword) {
                 // Fingerprint login on an account that still has its default password: force the change first.
                 if (data.token) localStorage.setItem('omnipos_token', data.token);
-                const changed = await runForcedPasswordChange();
+                const changed = await runForcedPasswordChange(data.user && data.user.username, data.user && data.user.role);
                 if (!changed) {
-                    errorBanner.innerText = 'Kailangang palitan ang default password bago makapasok.';
+                    errorBanner.innerText = 'You must change the default password before you can sign in.';
                     errorBanner.style.display ='block';
                     return;
                 }
@@ -7951,10 +8208,10 @@ async function completeLoginSuccess(data) {
     if (data && data.mustChangePassword) {
         // The token is needed to call change-password before entering the system.
         if (data.token) localStorage.setItem('omnipos_token', data.token);
-        const changed = await runForcedPasswordChange();
+        const changed = await runForcedPasswordChange(data.user && data.user.username, data.user && data.user.role);
         if (!changed) {
             const eb = document.getElementById('login-error');
-            if (eb) { eb.innerText = 'Kailangang palitan ang default password bago makapasok.'; eb.style.display = 'block'; }
+            if (eb) { eb.innerText = 'You must change the default password before you can sign in.'; eb.style.display = 'block'; }
             return;
         }
     }
