@@ -142,6 +142,67 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_FETCH_TIMEOU
         clearTimeout(timer);
     }
 }
+// FORCED PASSWORD CHANGE: shown while an account still uses a default password (admin/admin, cashier/cashier,
+// staff/staff). Resolves to true when the password was changed, false when the user chose to log out instead.
+async function runForcedPasswordChange() {
+    if (window.__forcedPwChangeOpen) return false;
+    window.__forcedPwChangeOpen = true;
+    try {
+        while (true) {
+            const result = await Swal.fire({
+                icon: 'warning',
+                title: 'Palitan ang Default Password',
+                html: '<p style="margin:0 0 10px;font-size:.95rem">Default pa rin ang password ng account na ito. Kailangan itong palitan bago magpatuloy.</p>' +
+                      '<input id="fpc-current" type="password" class="swal2-input" placeholder="Kasalukuyang password" autocomplete="current-password">' +
+                      '<input id="fpc-new" type="password" class="swal2-input" placeholder="Bagong password (min. 6 na karakter)" autocomplete="new-password">' +
+                      '<input id="fpc-confirm" type="password" class="swal2-input" placeholder="Ulitin ang bagong password" autocomplete="new-password">',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                showCancelButton: true,
+                confirmButtonText: 'Palitan ang Password',
+                cancelButtonText: 'Mag-logout',
+                focusConfirm: false,
+                showLoaderOnConfirm: true,
+                preConfirm: async () => {
+                    const currentPassword = document.getElementById('fpc-current').value;
+                    const newPassword = document.getElementById('fpc-new').value;
+                    const confirmPassword = document.getElementById('fpc-confirm').value;
+                    if (!currentPassword || !newPassword) { Swal.showValidationMessage('Punan ang lahat ng field.'); return false; }
+                    if (newPassword.length < 6) { Swal.showValidationMessage('Hindi bababa sa 6 na karakter ang bagong password.'); return false; }
+                    if (newPassword !== confirmPassword) { Swal.showValidationMessage('Hindi magkapareho ang bagong password at ang kumpirmasyon.'); return false; }
+                    try {
+                        const res = await authFetch(`${API_URL}/users/self/change-password`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ currentPassword, newPassword })
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!(res.ok && data.success)) {
+                            Swal.showValidationMessage(data.message || 'Hindi napalitan ang password. Subukan ulit.');
+                            return false;
+                        }
+                        return true;
+                    } catch (e) {
+                        Swal.showValidationMessage('Hindi maabot ang server. Subukan ulit.');
+                        return false;
+                    }
+                }
+            });
+            if (result.isConfirmed && result.value === true) {
+                await Swal.fire({ icon: 'success', title: 'Napalitan na ang password', timer: 1600, showConfirmButton: false });
+                return true;
+            }
+            if (result.dismiss === Swal.DismissReason.cancel) {
+                try { await authFetch(`${API_URL}/auth/logout`, { method: 'POST' }); } catch (_e) {}
+                localStorage.removeItem('omnipos_user');
+                localStorage.removeItem('omnipos_token');
+                return false;
+            }
+        }
+    } finally {
+        window.__forcedPwChangeOpen = false;
+    }
+}
 async function authFetch(url, options = {}) {
     const token = localStorage.getItem('omnipos_token');
     const opts = { ...options };
@@ -172,6 +233,14 @@ async function authFetch(url, options = {}) {
                 window.location.reload();
             }
         }
+    }
+    if (res.status === 403 && token && !window.__forcedPwChangeOpen && !url.includes('/users/self/change-password')) {
+        try {
+            const pwData = await res.clone().json();
+            if (pwData && pwData.code === 'PASSWORD_CHANGE_REQUIRED') {
+                runForcedPasswordChange().then(() => { window.location.reload(); });
+            }
+        } catch (_e) { /* not JSON - ignore */ }
     }
     if (res.status === 402) {
         try {
@@ -329,6 +398,16 @@ async function loginWithBiometric() {
         });
         const data = await verifyRes.json();
         if (data.success) {
+            if (data.mustChangePassword) {
+                // Fingerprint login on an account that still has its default password: force the change first.
+                if (data.token) localStorage.setItem('omnipos_token', data.token);
+                const changed = await runForcedPasswordChange();
+                if (!changed) {
+                    errorBanner.innerText = 'Kailangang palitan ang default password bago makapasok.';
+                    errorBanner.style.display ='block';
+                    return;
+                }
+            }
             currentUser = data.user;
             localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
             localStorage.setItem('omnipos_last_username', currentUser.username);
@@ -7869,6 +7948,16 @@ async function promptLoginOtp(loginToken, errorBanner) {
     }
 }
 async function completeLoginSuccess(data) {
+    if (data && data.mustChangePassword) {
+        // The token is needed to call change-password before entering the system.
+        if (data.token) localStorage.setItem('omnipos_token', data.token);
+        const changed = await runForcedPasswordChange();
+        if (!changed) {
+            const eb = document.getElementById('login-error');
+            if (eb) { eb.innerText = 'Kailangang palitan ang default password bago makapasok.'; eb.style.display = 'block'; }
+            return;
+        }
+    }
     currentUser = data.user;
     localStorage.setItem('omnipos_user', JSON.stringify(currentUser));
     localStorage.setItem('omnipos_last_username', currentUser.username);

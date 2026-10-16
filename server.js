@@ -326,9 +326,32 @@ function parseDeviceInfo(userAgent) {
     else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser ='Safari';
     return { deviceType, os, browser, label: `${deviceType} · ${os} · ${browser}` };
 }
-function createSession(username, role, userAgent, ip) {
+// FORCED PASSWORD CHANGE: the default accounts seeded by the system (admin/admin, cashier/cashier, staff/staff)
+// must change their password on first login. It is detected at login time (the only moment the plaintext
+// password is available), so older installs that still use a default password are covered too.
+// Fingerprint/passkey logins have no plaintext, so they compare the stored hash instead (isStoredPasswordDefault).
+// Opt-out (not recommended): OMNIPOS_ALLOW_DEFAULT_PASSWORDS=true in .env.
+const DEFAULT_SEEDED_PASSWORDS = { admin: 'admin', cashier: 'cashier', staff: 'staff' };
+const ALLOW_DEFAULT_PASSWORDS = String(process.env.OMNIPOS_ALLOW_DEFAULT_PASSWORDS || '').trim().toLowerCase() === 'true';
+function isDefaultSeededCredential(username, password) {
+    if (ALLOW_DEFAULT_PASSWORDS) return false;
+    const def = DEFAULT_SEEDED_PASSWORDS[String(username || '').trim().toLowerCase()];
+    return typeof def === 'string' && String(password || '') === def;
+}
+// Same check for logins that never send the password (fingerprint/passkey): does the stored hash still match
+// the seeded default? Only the three seeded usernames are checked, so this costs one bcrypt compare at most.
+function isStoredPasswordDefault(user) {
+    if (ALLOW_DEFAULT_PASSWORDS || !user) return false;
+    const def = DEFAULT_SEEDED_PASSWORDS[String(user.username || '').trim().toLowerCase()];
+    if (typeof def !== 'string') return false;
+    try { return bcrypt.compareSync(def, user.password); }
+    catch (_e) { return typeof user.password === 'string' && user.password === def; } // legacy plaintext record
+}
+// While a session is flagged mustChangePassword, only these endpoints work (change the password, sign out, health).
+const PASSWORD_CHANGE_ALLOWED_PATHS = new Set(['/api/users/self/change-password', '/api/auth/logout', '/api/health']);
+function createSession(username, role, userAgent, ip, opts) {
     const token = crypto.randomBytes(32).toString('hex');
-    SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown' });
+    SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown', ...((opts && opts.mustChangePassword) ? { mustChangePassword: true } : {}) });
     persistSessions();
     return token;
 }
@@ -439,6 +462,13 @@ app.use((req, res, next) => {
     if (Date.now() - lastLiveRecheckAt > DEVICE_REVOCATION_RECHECK_MS) {
         lastLiveRecheckAt = Date.now();
         recheckDeviceAuthorizationLive();
+    }
+    if (session.mustChangePassword && !PASSWORD_CHANGE_ALLOWED_PATHS.has(req.path)) {
+        return res.status(403).json({
+            success: false,
+            code: 'PASSWORD_CHANGE_REQUIRED',
+            message: 'Default password pa rin ang gamit ng account na ito. Magpalit muna ng password bago magpatuloy.'
+        });
     }
     req.authUser = { username: session.username, role: session.role };
     req.authToken = token;
@@ -10593,6 +10623,7 @@ app.post('/api/auth/login', async (req, res) => {
                 user.password = bcrypt.hashSync(password, 10);
                 writeData(FILE_USERS, users);
             }
+            const mustChangePassword = isDefaultSeededCredential(user.username, password);
             const advSettingsForLogin = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
             const isAdminRole = (user.role || '').toLowerCase() === 'admin';
             if (advSettingsForLogin.twoFactorLoginEnabled && isAdminRole) {
@@ -10605,6 +10636,7 @@ app.post('/api/auth/login', async (req, res) => {
                     LOGIN_OTP_CHALLENGES.set(loginToken, {
                         username: user.username,
                         role: user.role,
+                        mustChangePassword,
                         code: otpCode,
                         expiresAt: Date.now() + LOGIN_OTP_TTL_MS,
                         userAgent: req.headers['user-agent'],
@@ -10633,9 +10665,9 @@ app.post('/api/auth/login', async (req, res) => {
                 }
             }
             logAction(user.username, `Logged into the system`);
-            const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req));
+            const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword });
             const permissions = getPermissionsForRole(user.role);
-            return res.json({ success: true, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
+            return res.json({ success: true, mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
         }
     }
     res.status(401).json({ success: false, message:'Incorrect username or password.' });
@@ -10673,9 +10705,9 @@ app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 
         return res.status(404).json({ success: false, message: 'Hindi na umiiral ang account na ito.' });
     }
     logAction(user.username, `Logged into the system (2FA-verified)`);
-    const token = createSession(user.username, user.role, pending.userAgent, pending.ip);
+    const token = createSession(user.username, user.role, pending.userAgent, pending.ip, { mustChangePassword: !!pending.mustChangePassword });
     const permissions = getPermissionsForRole(user.role);
-    res.json({ success: true, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
+    res.json({ success: true, mustChangePassword: !!pending.mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
 });
 const WEBAUTHN_CHALLENGE_TTL_MS = 2 * 60 * 1000;
 const WEBAUTHN_REGISTER_CHALLENGES = new Map();
@@ -10918,9 +10950,10 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         WEBAUTHN_LOGIN_CHALLENGES.delete(clientData.challenge);
         const user = users[userIndex];
         logAction(user.username,`Naka-login gamit ang Fingerprint/Biometric Login (${cred.deviceLabel || 'device'})`);
-        const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req));
+        const mustChangePassword = isStoredPasswordDefault(user);
+        const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword });
         const permissions = getPermissionsForRole(user.role);
-        return res.json({ success: true, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
+        return res.json({ success: true, mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
     } catch (err) {
         console.error('webauthn login-verify error:', err);
         return res.status(400).json({ success: false, message:'Unable to verify Fingerprint Login. Please try again or use your password.' });
@@ -14100,8 +14133,21 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
     if (!currentPassword || !newPassword) {
         return res.status(400).json({ success: false, message:'Kailangan ang kasalukuyan at bagong password.' });
     }
+    if (typeof newPassword !== 'string' || typeof currentPassword !== 'string') {
+        return res.status(400).json({ success: false, message:'Hindi valid ang password na ipinasa.' });
+    }
     if (String(newPassword).length < 4) {
         return res.status(400).json({ success: false, message:'Masyadong maikli ang bagong password.' });
+    }
+    const forcedChangeSession = !!(SESSIONS.get(req.authToken) || {}).mustChangePassword;
+    if (forcedChangeSession) {
+        // Forced change: the new password must be at least 6 characters, differ from the current one, and not be a default/username.
+        if (String(newPassword).length < 6) {
+            return res.status(400).json({ success: false, code: 'WEAK_NEW_PASSWORD', message:'Kailangan ang bagong password na hindi bababa sa 6 na karakter.' });
+        }
+        if (newPassword === currentPassword || String(newPassword).toLowerCase() === String(req.authUser.username).toLowerCase() || isDefaultSeededCredential(req.authUser.username, newPassword) || Object.values(DEFAULT_SEEDED_PASSWORDS).includes(String(newPassword).toLowerCase())) {
+            return res.status(400).json({ success: false, code: 'WEAK_NEW_PASSWORD', message:'Hindi pwedeng default o kapareho ng kasalukuyan ang bagong password. Pumili ng ibang password.' });
+        }
     }
     let users = readData(FILE_USERS);
     const userIndex = users.findIndex(u => String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase());
@@ -14139,6 +14185,12 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
             SESSIONS.delete(sessToken);
             otherSessionsRevoked++;
         }
+    }
+    // The forced password change is done: clear the flag on this session.
+    const ownSessionAfterChange = SESSIONS.get(req.authToken);
+    if (ownSessionAfterChange && ownSessionAfterChange.mustChangePassword) {
+        delete ownSessionAfterChange.mustChangePassword;
+        otherSessionsRevoked++; // forces the persistSessions() call below so the cleared flag is saved
     }
     if (otherSessionsRevoked > 0) persistSessions();
     logAction(meUsername, `Changed own account password`);
@@ -20415,6 +20467,8 @@ async function handleShutdownSignal(signal) {
     } catch (err) {
         console.error('⚠️  [cloud-snapshot] Nabigo ang shutdown push:', err.message);
     } finally {
+        // Checkpoint the WAL and close SQLite cleanly before exiting.
+        try { require('./db').closeDatabaseGracefully(); } catch (e) { console.error('⚠️  closeDatabaseGracefully:', e && e.message); }
         process.exit(0);
     }
 }

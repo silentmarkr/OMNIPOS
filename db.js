@@ -32,9 +32,252 @@ if (!fs.existsSync(DB_DIR)) {
 }
 const DB_PATH = path.join(DB_DIR, 'omnipos.db');
 
+// ---------------------------------------------------------------------------
+// DB HEALTH CHECK AT STARTUP
+//
+// Problem: when omnipos.db became "database disk image is malformed" (seen in a Termux device log), the
+// server kept running while every read/write failed. Before the database is opened we now run
+// PRAGMA quick_check. When the file is corrupt:
+//   1) the corrupt file (+ -wal/-shm) is MOVED (never deleted) to omnipos.db.corrupt-<ts>
+//   2) the newest local backup that passes quick_check is restored
+//   3) if no valid backup exists the corrupt DB is left untouched (so it can still be recovered manually)
+//      and a loud warning is logged
+// ---------------------------------------------------------------------------
+
+// Returns true only for errors that mean the database FILE itself is damaged (SQLITE_CORRUPT = 11,
+// SQLITE_NOTADB = 26, including their extended codes). Other errors (locked, permission, I/O) are NOT
+// corruption and must never trigger a restore, because the database may be perfectly healthy.
+function isCorruptionError(e) {
+    if (!e) return false;
+    const msg = String(e.message || '').toLowerCase();
+    const code = Number(e.errcode);
+    const primary = Number.isFinite(code) ? (code & 0xff) : -1; // extended codes keep the primary code in the low byte
+    return primary === 11 || primary === 26 || msg.includes('malformed') || msg.includes('not a database');
+}
+
+// Returns 'ok' | 'corrupt' | 'unknown'.
+// 'unknown' = could not verify (locked, permission, I/O error); it is NOT treated as corruption.
+function checkDbFile(filePath) {
+    let probe = null;
+    try {
+        probe = new DatabaseSync(filePath, { readOnly: true });
+        const rows = probe.prepare('PRAGMA quick_check').all();
+        const ok = rows.length === 1 && String(Object.values(rows[0])[0]).toLowerCase() === 'ok';
+        return ok ? 'ok' : 'corrupt';
+    } catch (e) {
+        return isCorruptionError(e) ? 'corrupt' : 'unknown';
+    } finally {
+        try { if (probe) probe.close(); } catch (_e) {}
+    }
+}
+
+// Bounded probe for very large databases (> HUGE_DB_BYTES). A full quick_check reads the whole file, which on a phone
+// could keep the server from listening for longer than the OmniPOS Installer's 90-second start-up wait. The probe only
+// reads the schema and the first rows of the main tables, so its cost does not grow with the database size; it still
+// catches header/schema corruption and damage in the first pages. Only definitive corruption errors count.
+function probeDbFile(filePath) {
+    let probe = null;
+    try {
+        probe = new DatabaseSync(filePath, { readOnly: true });
+        probe.prepare('SELECT name FROM sqlite_master').all();
+        probe.prepare('SELECT module, length(data) AS n FROM store LIMIT 2000').all();
+        probe.prepare('SELECT module, record_id FROM row_store LIMIT 2000').all();
+        return 'ok';
+    } catch (e) {
+        return isCorruptionError(e) ? 'corrupt' : 'unknown';
+    } finally {
+        try { if (probe) probe.close(); } catch (_e) {}
+    }
+}
+
+// --- When the check runs -------------------------------------------------------------------------
+// To keep startup fast on a large DB, quick_check only runs when (a) the previous shutdown was not clean
+// (killed by Android, crash, no marker, or a corruption error was seen while running) or (b) more than
+// 24 hours passed since the last check. The marker is written as "unclean" on every startup and flipped to
+// "clean" by closeDatabaseGracefully() only after a successful WAL checkpoint.
+const DB_HEALTH_STATE_PATH = path.join(DB_DIR, '.db-health.json');
+const DB_HEALTH_RECHECK_MS = 24 * 60 * 60 * 1000;
+const HUGE_DB_BYTES = 300 * 1024 * 1024;
+function readDbHealthState() {
+    try { return JSON.parse(fs.readFileSync(DB_HEALTH_STATE_PATH, 'utf8')) || {}; } catch (_e) { return {}; }
+}
+function writeDbHealthState(patch) {
+    try {
+        const next = { ...readDbHealthState(), ...patch };
+        const tmp = `${DB_HEALTH_STATE_PATH}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(next));
+        fs.renameSync(tmp, DB_HEALTH_STATE_PATH);
+    } catch (_e) { /* best-effort only */ }
+}
+
+// The health check/recovery is for the server process only. Helper scripts (vacuum-now.js,
+// verify-gmail-connection.js, ...) that also require db.js must NOT move/restore the DB while the server
+// may be live, and must not touch the clean-shutdown marker.
+function isServerProcess() {
+    try {
+        if (!require.main || !require.main.filename) return true; // e.g. node -e / test harness
+        return path.basename(require.main.filename).toLowerCase() === 'server.js';
+    } catch (_e) { return true; }
+}
+const IS_DB_SERVER_PROCESS = isServerProcess();
+
+// Runtime detection: if a corruption error shows up while the server is running, remember it so that
+//  - the clean-shutdown marker is NOT flipped to "clean" on a later graceful stop, and
+//  - the next startup runs the full check + auto-recovery instead of skipping it.
+// Without this, a graceful restart of an already-corrupt DB would be marked "clean" and the check skipped.
+let dbSuspectedCorrupt = false;
+function noteDbRuntimeError(err) {
+    if (dbSuspectedCorrupt || !IS_DB_SERVER_PROCESS || !isCorruptionError(err)) return;
+    dbSuspectedCorrupt = true;
+    writeDbHealthState({ cleanShutdown: false, suspectedAt: Date.now() });
+    console.error('🔴 [DB-HEALTH] Corruption error detected while running — restart the server to run the integrity check and auto-recovery.');
+}
+
+// --- Salvage: bring back newer data that can still be read from the corrupt DB ----------------------
+// After restoring the backup, the corrupt copy (including its -wal) is read row by row. Every row that can
+// be read, is valid JSON, and is newer (updated_at) than the restored one - or missing from it - is merged
+// in. Rows on damaged pages are skipped. Nothing is deleted from the restored DB. Best-effort: any error
+// here must never stop the startup. Rows are streamed (never collected into one array) so a large DB with
+// product photos cannot exhaust memory on a phone.
+function salvageNewerRowsFromCorrupt(restoredPath, corruptPath) {
+    const stats = { store: 0, row_store: 0, product_images: 0, skipped: 0, halted: false };
+    let src = null, dst = null;
+    // Calls handler(row) for every readable row. If SQLite fails mid-scan (damaged page) the rows read so far
+    // are kept and the scan of that table stops. Errors thrown by handler() itself are NOT swallowed here.
+    const forEachReadableRow = (stmt, handler) => {
+        let iterator;
+        try { iterator = typeof stmt.iterate === 'function' ? stmt.iterate() : stmt.all()[Symbol.iterator](); }
+        catch (_e) { stats.skipped++; stats.halted = true; return; }
+        while (true) {
+            let step;
+            try { step = iterator.next(); } catch (_e) { stats.skipped++; stats.halted = true; return; }
+            if (step.done) return;
+            handler(step.value);
+        }
+    };
+    const validJson = (t) => { try { JSON.parse(t); return true; } catch (_e) { return false; } };
+    try {
+        src = new DatabaseSync(corruptPath, { readOnly: true });
+        dst = new DatabaseSync(restoredPath);
+        dst.exec('PRAGMA busy_timeout = 5000;');
+        // store: one row per module
+        const dstStoreGet = dst.prepare('SELECT updated_at FROM store WHERE module = ?');
+        const dstStoreUp = dst.prepare('INSERT INTO store (module, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(module) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at');
+        forEachReadableRow(src.prepare('SELECT module, data, updated_at FROM store'), (r) => {
+            if (!validJson(r.data)) { stats.skipped++; return; }
+            const cur = dstStoreGet.get(r.module);
+            if (!cur || String(r.updated_at) > String(cur.updated_at)) { dstStoreUp.run(r.module, r.data, r.updated_at); stats.store++; }
+        });
+        // row_store: transactions, userlogs, ...
+        const dstRowGet = dst.prepare('SELECT updated_at FROM row_store WHERE module = ? AND record_id = ?');
+        const dstRowUp = dst.prepare('INSERT INTO row_store (module, record_id, seq, data, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(module, record_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at');
+        dst.exec('BEGIN');
+        try {
+            forEachReadableRow(src.prepare('SELECT module, record_id, seq, data, updated_at FROM row_store'), (r) => {
+                if (!validJson(r.data)) { stats.skipped++; return; }
+                const cur = dstRowGet.get(r.module, r.record_id);
+                if (!cur || String(r.updated_at) > String(cur.updated_at)) { dstRowUp.run(r.module, r.record_id, r.seq, r.data, r.updated_at); stats.row_store++; }
+            });
+            dst.exec('COMMIT');
+        } catch (e) { try { dst.exec('ROLLBACK'); } catch (_e) {} throw e; }
+        // product_images
+        const dstImgGet = dst.prepare('SELECT updated_at FROM product_images WHERE code = ?');
+        const dstImgUp = dst.prepare('INSERT INTO product_images (code, image, images, image_ver, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET image = excluded.image, images = excluded.images, image_ver = excluded.image_ver, updated_at = excluded.updated_at');
+        forEachReadableRow(src.prepare('SELECT code, image, images, image_ver, updated_at FROM product_images'), (r) => {
+            if (!validJson(r.images)) { stats.skipped++; return; }
+            const cur = dstImgGet.get(r.code);
+            if (!cur || String(r.updated_at) > String(cur.updated_at)) { dstImgUp.run(r.code, r.image, r.images, r.image_ver, r.updated_at); stats.product_images++; }
+        });
+    } catch (e) {
+        stats.halted = true;
+        console.error(`⚠️  [DB-HEALTH] Salvage stopped early: ${e.message}`);
+    } finally {
+        try { if (src) src.close(); } catch (_e) {}
+        try { if (dst) { dst.exec('PRAGMA wal_checkpoint(TRUNCATE);'); dst.close(); } } catch (_e) {}
+    }
+    return stats;
+}
+
+// Keep only the newest `keep` corrupt copies (each one = main file + -wal + -shm) so the disk cannot fill up.
+// Their useful rows were already merged back by the salvage step.
+function pruneCorruptDbCopies(keep) {
+    try {
+        const prefix = path.basename(DB_PATH) + '.corrupt-';
+        const stamps = [...new Set(fs.readdirSync(DB_DIR).filter((f) => f.startsWith(prefix))
+            .map((f) => f.slice(prefix.length).replace(/-(wal|shm)$/, '')))].sort().reverse();
+        for (const st of stamps.slice(keep)) {
+            for (const suffix of ['', '-wal', '-shm']) {
+                try { fs.unlinkSync(path.join(DB_DIR, `${prefix}${st}${suffix}`)); } catch (_e) {}
+            }
+        }
+    } catch (_e) {}
+}
+
+function ensureDatabaseHealthyAtStartup() {
+    if (!IS_DB_SERVER_PROCESS) return;
+    if (String(process.env.OMNIPOS_SKIP_DB_STARTUP_CHECK || '').trim().toLowerCase() === 'true') return;
+    const prevState = readDbHealthState();
+    writeDbHealthState({ cleanShutdown: false }); // flipped back to true by closeDatabaseGracefully()
+    if (!fs.existsSync(DB_PATH)) return;
+    try {
+        if (fs.statSync(DB_PATH).size === 0) return; // brand-new DB
+    } catch (_e) { return; }
+    let dbSizeBytes = 0;
+    try { dbSizeBytes = fs.statSync(DB_PATH).size; } catch (_e) {}
+    const hugeDb = dbSizeBytes > HUGE_DB_BYTES; // >300 MB: no routine daily check and only a bounded probe (a full scan is too slow on Termux)
+    const dueByTime = !hugeDb && (!prevState.lastCheckAt || (Date.now() - Number(prevState.lastCheckAt)) > DB_HEALTH_RECHECK_MS);
+    if (prevState.cleanShutdown === true && !prevState.suspectedAt && !dueByTime) return; // clean stop + recently checked: skip
+    // A huge DB gets the bounded probe, unless a corruption error was already seen at runtime (then run the full check).
+    const verdict = (hugeDb && !prevState.suspectedAt) ? probeDbFile(DB_PATH) : checkDbFile(DB_PATH);
+    if (verdict === 'ok') { writeDbHealthState({ lastCheckAt: Date.now(), suspectedAt: null }); return; }
+    if (verdict === 'unknown') {
+        console.error('⚠️  [DB-HEALTH] Could not verify omnipos.db (it is NOT treated as corrupt) — auto-recovery skipped.');
+        return;
+    }
+    console.error('🔴 [DB-HEALTH] omnipos.db failed quick_check (the file is corrupt).');
+    const backupDir = path.join(DB_DIR, 'backups');
+    let candidates = [];
+    try {
+        candidates = fs.readdirSync(backupDir)
+            .filter((f) => /^omnipos-.*\.db$/.test(f))
+            .sort()
+            .reverse();
+    } catch (_e) { /* no backups folder */ }
+    const good = candidates.find((f) => checkDbFile(path.join(backupDir, f)) === 'ok');
+    if (!good) {
+        console.error('🔴 [DB-HEALTH] No valid local backup to restore from. The corrupt database was NOT touched — restore from a Cloud/JSON backup or have it recovered manually.');
+        return;
+    }
+    const stamp = Date.now();
+    const moved = [];
+    try {
+        for (const suffix of ['', '-wal', '-shm']) {
+            const f = DB_PATH + suffix;
+            if (fs.existsSync(f)) { fs.renameSync(f, `${DB_PATH}.corrupt-${stamp}${suffix}`); moved.push(suffix); }
+        }
+        fs.copyFileSync(path.join(backupDir, good), DB_PATH);
+    } catch (e) {
+        // Roll back: put the moved files back so we are never left without a database.
+        console.error(`🔴 [DB-HEALTH] Restore failed (${e.message}) — putting the original files back.`);
+        try { if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH); } catch (_e) {}
+        for (const suffix of moved) {
+            try { fs.renameSync(`${DB_PATH}.corrupt-${stamp}${suffix}`, DB_PATH + suffix); } catch (_e) {}
+        }
+        return;
+    }
+    console.error(`✅ [DB-HEALTH] Database restored from backup: ${good}. The corrupt copy is kept as omnipos.db.corrupt-${stamp}.`);
+    const salv = salvageNewerRowsFromCorrupt(DB_PATH, `${DB_PATH}.corrupt-${stamp}`);
+    console.error(`${salv.halted ? '⚠️ ' : '✅'} [DB-HEALTH] Salvage from the corrupt copy${salv.halted ? ' (partial)' : ''}: store=${salv.store}, row_store=${salv.row_store}, product_images=${salv.product_images} rows recovered (${salv.skipped} skipped because of damage).`);
+    writeDbHealthState({ lastCheckAt: Date.now(), suspectedAt: null });
+    pruneCorruptDbCopies(1); // keep only the newest corrupt copy: each one is a full DB-sized file and phone storage is tight
+}
+ensureDatabaseHealthyAtStartup();
+
 const db = new DatabaseSync(DB_PATH);
 
 db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA synchronous = FULL;'); // explicit (same as the SQLite default): safest against Android/Termux killing the process
+db.exec('PRAGMA busy_timeout = 2000;'); // node:sqlite is synchronous: caps how long the server can stall (2s) when another process holds the lock
 db.exec('PRAGMA foreign_keys = ON;');
 
 db.exec(`
@@ -321,6 +564,7 @@ function readData(moduleName, defaultData = []) {
             }
             return readRowNormalizedData(moduleName);
         } catch (err) {
+            noteDbRuntimeError(err);
             console.error(`⚠️ May sira sa row-normalized data ng module "${moduleName}". Ibinalik ang default data.`, err);
             return defaultData;
         }
@@ -340,6 +584,7 @@ function readData(moduleName, defaultData = []) {
         const parsed = JSON.parse(rawData);
         return moduleName === 'products' && Array.isArray(parsed) ? mergeProductImages(parsed) : parsed;
     } catch (err) {
+        noteDbRuntimeError(err);
         console.error(`⚠️ May sira sa SQLite data ng module "${moduleName}". Ibinalik ang default data.`, err);
         return defaultData;
     }
@@ -428,6 +673,7 @@ function readDataLite(moduleName, defaultData = []) {
             return copy;
         });
     } catch (err) {
+        noteDbRuntimeError(err);
         console.error('⚠️ Hindi mabasa ang lite products data:', err);
         return Array.isArray(defaultData) ? defaultData : [];
     }
@@ -452,6 +698,7 @@ function writeData(moduleName, data) {
             return true;
         } catch (error) {
             try { db.exec('ROLLBACK'); } catch (_) {}
+            noteDbRuntimeError(error);
             console.error(`Error writing SQLite data para sa module "${moduleName}":`, error);
             return false;
         }
@@ -462,6 +709,7 @@ function writeData(moduleName, data) {
         blobStringCache.set(moduleName, json);
         return true;
     } catch (error) {
+        noteDbRuntimeError(error);
         console.error(`Error writing SQLite data para sa module "${moduleName}":`, error);
         return false;
     }
@@ -595,6 +843,7 @@ function runDatabaseTransaction(changes) {
         try { db.exec('ROLLBACK'); } catch (rollbackError) {
             console.error('[DB-TRANSACTION] SQLite rollback failed:', rollbackError);
         }
+        noteDbRuntimeError(error);
         throw error;
     }
 }
@@ -1766,3 +2015,15 @@ function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
 }
 
 module.exports.checkModuleBlobSizes = checkModuleBlobSizes;
+
+// Checkpoints the WAL and closes the DB before exit (called by the server's shutdown handler).
+// The "clean shutdown" marker is only written AFTER a successful checkpoint+close and only when no corruption
+// error was seen while running, so a failing/corrupt DB is never marked clean (the next start re-checks it).
+function closeDatabaseGracefully() {
+    let checkpointOk = true;
+    try { db.exec('PRAGMA wal_checkpoint(TRUNCATE);'); }
+    catch (e) { checkpointOk = false; noteDbRuntimeError(e); console.error('⚠️ wal_checkpoint on shutdown failed:', e.message); }
+    try { db.close(); } catch (e) { console.error('⚠️ Could not close the database on shutdown:', e.message); }
+    if (IS_DB_SERVER_PROCESS && checkpointOk && !dbSuspectedCorrupt) writeDbHealthState({ cleanShutdown: true });
+}
+module.exports.closeDatabaseGracefully = closeDatabaseGracefully;
