@@ -1773,7 +1773,11 @@ const DEFAULT_STORE_SETTINGS = {
         vatStatus: 'VAT',
         ptuNo: '',
         min: '',
-        serialNo: ''
+        serialNo: '',
+        supplierName: '',
+        supplierAddress: '',
+        supplierTin: '',
+        ptuDate: ''
     },
     branchName: '',
     branchGroupKey: '',
@@ -1787,7 +1791,8 @@ function sanitizeQrImageDataUrl(val) {
     if (val.length > MAX_QR_IMAGE_DATAURL_LENGTH) return null;
     return val;
 }
-const VALID_BIR_DOC_TITLES = ['SALES INVOICE', 'OFFICIAL RECEIPT', ''];
+// RR 7-2024 (EOPT): Invoice na ang principal document; hindi na valid na title ang "OFFICIAL RECEIPT" (kusang nagiging SALES INVOICE ang lumang setting).
+const VALID_BIR_DOC_TITLES = ['SALES INVOICE', ''];
 const VALID_BIR_VAT_STATUSES = ['VAT', 'NON_VAT'];
 const DEFAULT_BIR_SETTINGS = {
     enabled: false,
@@ -1797,7 +1802,11 @@ const DEFAULT_BIR_SETTINGS = {
     vatStatus: 'VAT',
     ptuNo: '',
     min: '',
-    serialNo: ''
+    serialNo: '',
+    supplierName: '',
+    supplierAddress: '',
+    supplierTin: '',
+    ptuDate: ''
 };
 function cleanBirText(val, maxLen) {
     if (typeof val !== 'string') return '';
@@ -1813,7 +1822,11 @@ function sanitizeBirSettings(raw) {
         vatStatus: VALID_BIR_VAT_STATUSES.includes(r.vatStatus) ? r.vatStatus : DEFAULT_BIR_SETTINGS.vatStatus,
         ptuNo: cleanBirText(r.ptuNo, 40),
         min: cleanBirText(r.min, 40),
-        serialNo: cleanBirText(r.serialNo, 40)
+        serialNo: cleanBirText(r.serialNo, 40),
+        supplierName: cleanBirText(r.supplierName, 80),
+        supplierAddress: cleanBirText(r.supplierAddress, 120),
+        supplierTin: cleanBirText(r.supplierTin, 20),
+        ptuDate: /^\d{4}-\d{2}-\d{2}$/.test(String(r.ptuDate || '')) ? String(r.ptuDate) : ''
     };
 }
 function validateBirSettings(bir, taxEnabled) {
@@ -1822,6 +1835,12 @@ function validateBirSettings(bir, taxEnabled) {
         const digits = bir.tin.replace(/\D/g, '');
         if (/[^0-9\-\s]/.test(bir.tin) || digits.length < 9 || digits.length > 14) {
             return 'Di-wasto ang TIN. Numero lang (may dash o space) na 9 hanggang 14 digits, hal. 123-456-789-00000.';
+        }
+    }
+    if (bir.supplierTin) {
+        const supDigits = bir.supplierTin.replace(/\D/g, '');
+        if (/[^0-9\-\s]/.test(bir.supplierTin) || supDigits.length < 9 || supDigits.length > 14) {
+            return 'Di-wasto ang TIN ng POS Supplier. Numero lang (may dash o space) na 9 hanggang 14 digits.';
         }
     }
     if (!bir.enabled) return null;
@@ -1845,7 +1864,19 @@ function buildBirReceiptLines(rawBir) {
     if (b.tin) lines.push({ text: `${b.vatStatus === 'VAT' ? 'VAT REG' : 'NON-VAT REG'} TIN: ${b.tin}`, bold: false });
     if (b.min) lines.push({ text: `MIN: ${b.min}`, bold: false });
     if (b.serialNo) lines.push({ text: `S/N: ${b.serialNo}`, bold: false });
-    if (b.ptuNo) lines.push({ text: `PTU No: ${b.ptuNo}`, bold: false });
+    // PTU No. ay nasa ILALIM na ng resibo (buildBirFooterLines) — hindi na inuulit sa taas.
+    return lines;
+}
+// Nasa ILALIM ng resibo (BIR): impormasyon ng accredited POS supplier at Permit to Use (PTU).
+function buildBirFooterLines(rawBir) {
+    const b = sanitizeBirSettings(rawBir);
+    if (!b.enabled) return [];
+    const lines = [];
+    if (b.supplierName) lines.push(`POS Supplier: ${b.supplierName}`);
+    if (b.supplierAddress) lines.push(b.supplierAddress);
+    if (b.supplierTin) lines.push(`Supplier TIN: ${b.supplierTin}`);
+    if (b.ptuNo) lines.push(`PTU No: ${b.ptuNo}${b.ptuDate ? ` | Date Issued: ${b.ptuDate}` : ''}`);
+    if (lines.length) lines.push('THIS INVOICE SHALL BE VALID FOR FIVE (5) YEARS FROM THE DATE OF THE PERMIT TO USE.');
     return lines;
 }
 function getStoreSettingsPublic(rawSettings) {
@@ -7126,9 +7157,17 @@ function mergeRestoredFeatureUnlocks(backupFeatureUnlocks) {
 // One restore routine for BOTH the file restore (/api/restore-backup) and the Cloud Backup restore, so the
 // device-identity protection can never be missed in one of the two paths.
 function applyRestoredModules(modules) {
+    // RESTORE INTEGRITY FIX: dati isa-isang writeData() ang bawat module at HINDI sinusuri ang return value nito
+    // (false kapag pumalya) — kaya kapag pumalya sa gitna (disk full/lock/crash) ay kalahati lang ng data ang
+    // naibalik pero "Successfully restored" pa rin ang sinabi. Dati ring puwedeng mabura ang buong
+    // transactions/products kung ang backup ay may maling uri ng data (hal. {} imbes na []).
+    // Ngayon: (1) sinusuri ang uri ng bawat module, (2) may safety snapshot ng KASALUKUYANG data bago mag-apply,
+    // (3) LAHAT ng module ay isinusulat sa IISANG SQLite transaction — lahat o wala.
     const restoredModuleNames = [];
     const skippedModuleNames = [];
     const accountsNeedingPasswordReset = [];
+    const changes = [];
+    const MUST_BE_ARRAY = new Set([FILE_PRODUCTS, FILE_TRANSACTIONS, FILE_USERS, 'userlogs']);
     for (const [moduleName, data] of Object.entries(modules || {})) {
         if (moduleName === 'timestamp') continue;
         if (data === undefined || data === null) continue;
@@ -7136,20 +7175,53 @@ function applyRestoredModules(modules) {
             skippedModuleNames.push(moduleName);
             continue;
         }
-        if (moduleName === FILE_USERS && Array.isArray(data)) {
-            const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
-            writeData(moduleName, merged);
-            accountsNeedingPasswordReset.push(...needReset);
-            restoredModuleNames.push(moduleName);
-        } else if (moduleName === FILE_FEATURE_UNLOCKS) {
-            writeData(moduleName, mergeRestoredFeatureUnlocks(data));
-            restoredModuleNames.push(moduleName);
-        } else if (Array.isArray(data) || typeof data === 'object') {
-            writeData(moduleName, data);
-            restoredModuleNames.push(moduleName);
+        if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(moduleName) || typeof data !== 'object') {
+            skippedModuleNames.push(moduleName);
+            continue;
         }
+        // Type guard: huwag palitan ang array module ng object (o kabaliktaran) — iyon ang nakakabura ng data.
+        let existingIsArray = MUST_BE_ARRAY.has(moduleName) ? true : null;
+        if (existingIsArray === null) {
+            try {
+                const current = readData(moduleName, null);
+                if (current !== null && current !== undefined) existingIsArray = Array.isArray(current);
+            } catch (_e) { existingIsArray = null; }
+        }
+        if (existingIsArray !== null && existingIsArray !== Array.isArray(data)) {
+            console.warn(`⚠️ RESTORE: nilaktawan ang module "${moduleName}" — maling uri ng data sa backup (inaasahan: ${existingIsArray ? 'array' : 'object'}).`);
+            skippedModuleNames.push(moduleName);
+            continue;
+        }
+        if (moduleName === FILE_USERS) {
+            if (!data.length) { skippedModuleNames.push(moduleName); continue; } // huwag burahin ang lahat ng user
+            const { merged, accountsNeedingPasswordReset: needReset } = mergeRestoredUsers(data);
+            changes.push({ module: moduleName, data: merged });
+            accountsNeedingPasswordReset.push(...needReset);
+        } else if (moduleName === FILE_FEATURE_UNLOCKS) {
+            changes.push({ module: moduleName, data: mergeRestoredFeatureUnlocks(data) });
+        } else {
+            changes.push({ module: moduleName, data });
+        }
+        restoredModuleNames.push(moduleName);
     }
-    if (restoredModuleNames.length) scheduleDatabaseCompaction('backup restore', 3000);
+    if (!changes.length) return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset };
+    // Safety snapshot ng kasalukuyang data (para maibalik kung nagkamali ng piniling backup file).
+    try {
+        const snap = getFullDatabaseSnapshot({ excludeProductImages: true }); // walang HD photo: iwas OOM sa Termux
+        const safetyDir = path.join(DB_DIR, 'backups');
+        fs.mkdirSync(safetyDir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const tmpPath = path.join(safetyDir, `pre-restore-${stamp}.json.tmp`);
+        const finalPath = path.join(safetyDir, `pre-restore-${stamp}.json`);
+        fs.writeFileSync(tmpPath, JSON.stringify({ timestamp: snap.generatedAt, ...snap.modules }));
+        fs.renameSync(tmpPath, finalPath);
+        const olds = fs.readdirSync(safetyDir).filter(f => /^pre-restore-.*\.json$/.test(f)).sort();
+        while (olds.length > 3) { try { fs.unlinkSync(path.join(safetyDir, olds.shift())); } catch (_e) { break; } }
+    } catch (snapErr) {
+        console.warn('⚠️ RESTORE: hindi nagawa ang pre-restore safety snapshot (tuloy pa rin, atomic naman ang restore):', snapErr.message);
+    }
+    runDatabaseTransaction(changes); // throws + ROLLBACK kapag may pumalya — walang kalahating restore
+    scheduleDatabaseCompaction('backup restore', 3000);
     return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset };
 }
 function mergeRestoredUsers(restoredUsers) {
@@ -7164,6 +7236,11 @@ function mergeRestoredUsers(restoredUsers) {
         const existing = currentByUsername.get(key);
         if (existing && existing.password) {
             clone.password = existing.password;
+        } else if (typeof clone.password === 'string' && /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(clone.password)) {
+            // BUGFIX: ang LOKAL na backup file ay may tunay na bcrypt hash ng password. Dati, sa bagong device/fresh install
+            // (walang existing na user) pinalitan ito ng random na password kaya LAHAT ng user (pati cashier) ay kailangang
+            // i-reset. Ang cloud backup lang ang may redacted na password — doon pa rin ang reset.
+            // (keep the valid hash as-is)
         } else {
             clone.password = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
             accountsNeedingPasswordReset.push(clone.username);
@@ -7259,7 +7336,14 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
             return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the cloud backup restore.' });
         }
         const modules = relayData.modules || {};
-        const { restoredModuleNames: cloudRestoredNames, accountsNeedingPasswordReset } = applyRestoredModules(modules);
+        let cloudApplied;
+        try {
+            cloudApplied = applyRestoredModules(modules);
+        } catch (applyErr) {
+            console.error('CLOUD RESTORE apply failed (rolled back):', applyErr);
+            return res.status(500).json({ success: false, message: `Hindi na-apply ang cloud restore — ibinalik sa dati ang lahat, walang nabago sa data mo. Detalye: ${applyErr.message}` });
+        }
+        const { restoredModuleNames: cloudRestoredNames, accountsNeedingPasswordReset } = cloudApplied;
         const restoredCount = cloudRestoredNames.length;
         logAction(username, `Cloud Backup: restored ${restoredCount}/${Object.keys(modules).length} modules.`);
         res.json({
@@ -13312,6 +13396,33 @@ async function processTransaction(req, res) {
     const grandTotal = (storeSettings.taxEnabled && !storeSettings.pricesIncludeTax && !seniorPwdVatExempt)
         ? Math.round((verifiedTotal + taxAmount) * 100) / 100
         : verifiedTotal;
+    // BIR BUYER DETAILS (RR 7-2024): ang name/address/TIN ng buyer ay kailangan sa VAT invoice kapag ang benta ay
+    // ₱1,000 pataas AT VAT-registered ang buyer. Sinusuri at nililinis dito (client input ay hindi pinagkakatiwalaan).
+    {
+        const rawBuyer = (transaction.buyer && typeof transaction.buyer === 'object') ? transaction.buyer : null;
+        let buyer = null;
+        if (rawBuyer) {
+            buyer = {
+                name: cleanBirText(rawBuyer.name, 120),
+                address: cleanBirText(rawBuyer.address, 200),
+                tin: cleanBirText(rawBuyer.tin, 20),
+                businessStyle: cleanBirText(rawBuyer.businessStyle, 120),
+                vatRegistered: rawBuyer.vatRegistered === true
+            };
+            if (!(buyer.name || buyer.address || buyer.tin || buyer.businessStyle || buyer.vatRegistered)) buyer = null;
+        }
+        if (buyer && buyer.tin) {
+            const buyerTinDigits = buyer.tin.replace(/\D/g, '');
+            if (/[^0-9\-\s]/.test(buyer.tin) || buyerTinDigits.length < 9 || buyerTinDigits.length > 14) {
+                return res.status(400).json({ success: false, message: 'Di-wasto ang TIN ng buyer. Numero lang (may dash o space) na 9 hanggang 14 digits.' });
+            }
+        }
+        const sellerIsVat = !!storeSettings.taxEnabled && taxRatePct > 0;
+        if (buyer && buyer.vatRegistered && sellerIsVat && grandTotal >= 1000 && !(buyer.name && buyer.address && buyer.tin)) {
+            return res.status(400).json({ success: false, message: 'Kailangan ang pangalan, address, at TIN ng buyer sa invoice kapag VAT-registered ang buyer at ₱1,000 pataas ang benta.' });
+        }
+        if (buyer) transaction.buyer = buyer; else delete transaction.buyer;
+    }
     const tendered = Array.isArray(transaction.payments) && transaction.payments.length > 0
         ? transaction.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
         : (parseFloat(transaction.received ?? transaction.amount_paid) || 0);
@@ -13700,6 +13811,7 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
             ${tx.birInvoiceNumber ? `<tr><td style="padding:4px 0;">Invoice No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.birInvoiceNumber)}</td></tr>` : ''}
             <tr><td style="padding:4px 0;">Date</td><td align="right" style="padding:4px 0;">${escapeHtml(dateLabel)}</td></tr>
             <tr><td style="padding:4px 0;">Cashier</td><td align="right" style="padding:4px 0;">${escapeHtml(cashierLabel)}</td></tr>
+            ${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `<tr><td style="padding:4px 0;">${r[0]}</td><td align="right" style="padding:4px 0;">${escapeHtml(r[1])}</td></tr>`).join('') : ''}
             ${customerRow}
         </table>
     </td></tr>
@@ -13733,6 +13845,7 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
     <tr><td style="padding:28px 32px 6px;text-align:center;">
         <div style="font-size:14px;font-style:italic;color:#334155;">${escapeHtml(footerText)}</div>
     </td></tr>
+    ${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? `<tr><td style="padding:6px 32px 0;text-align:center;">${fl.map(l => `<div style="font-size:10px;color:#64748b;margin-bottom:2px;">${escapeHtml(l)}</div>`).join('')}</td></tr>` : ''; })()}
     <tr><td style="padding:6px 32px 28px;text-align:center;">
         <div style="font-size:11px;color:#94a3b8;">This is an electronic receipt. Please keep this for your records.</div>
     </td></tr>
@@ -13812,7 +13925,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const grandTotal = parseFloat(tx.total || 0) || 0;
         const changeAmount = Math.max(0, parseFloat(tx.change) || 0);
         const birTextBlock = buildBirReceiptLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir).map(l => l.text).join('\n');
-        const textBody = `${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nReceipt: ${tx.id}${tx.birInvoiceNumber ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier: ${cashierLabel}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}`;
+        const textBody = `${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nReceipt: ${tx.id}${tx.birInvoiceNumber ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier: ${cashierLabel}${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `\n${r[0]}: ${r[1]}`).join('') : ''}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? '\n\n' + fl.join('\n') : ''; })()}`;
         const grossSubtotal = items.reduce((sum, i) => sum + ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)), 0);
         const itemsHtml = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
@@ -13827,6 +13940,11 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         let totalsRows = `<tr><td style="padding:2px 0;">Subtotal</td><td align="right" style="padding:2px 0;">₱${grossSubtotal.toFixed(2)}</td></tr>`;
         if (discountAmount > 0) {
             totalsRows += `<tr><td style="padding:2px 0;color:#059669;">Discount${tx.discountAuthorizedBy ? ` (${escapeHtml(tx.discountAuthorizedBy)})` : ''}</td><td align="right" style="padding:2px 0;color:#059669;">-₱${discountAmount.toFixed(2)}</td></tr>`;
+        }
+        const emailTaxBase = parseFloat(tx.subtotalBeforeTax);
+        const emailVatableNet = (taxAmount > 0 && Number.isFinite(emailTaxBase)) ? Math.max(0, tx.taxInclusive ? emailTaxBase - taxAmount : emailTaxBase) : null;
+        if (emailVatableNet !== null && !tx.vatExempt) {
+            totalsRows += `<tr><td style="padding:2px 0;">VATable Sales</td><td align="right" style="padding:2px 0;">₱${emailVatableNet.toFixed(2)}</td></tr>`;
         }
         if (taxAmount > 0) {
             totalsRows += `<tr><td style="padding:2px 0;">Tax${tx.taxRate ? ` (${tx.taxRate}%)` : ''}</td><td align="right" style="padding:2px 0;">₱${taxAmount.toFixed(2)}</td></tr>`;
@@ -15041,6 +15159,17 @@ async function runSelfUpdateFromRelay(req, res) {
             if (job) job.downloadedBytes = downloadedBytes;
         }
         const fullBuffer = Buffer.concat(chunks.map(c => (Buffer.isBuffer(c) ? c : Buffer.from(c))));
+        // UPDATE SAFETY: kapag pumutol ang download, hindi dapat i-apply ang kalahating package.
+        // content-length ay sukat ng COMPRESSED na bytes kapag may Content-Encoding (gzip/br via proxy), kaya hindi
+        // ito maihahambing sa na-decompress na buffer — laktawan ang check na iyon (ZIP magic-bytes check pa rin sa ibaba).
+        const relayContentEncoding = String((relayRes.headers && relayRes.headers.get && relayRes.headers.get('content-encoding')) || '').trim().toLowerCase();
+        const relayIsEncoded = relayContentEncoding !== '' && relayContentEncoding !== 'identity';
+        if (totalBytes > 0 && !relayIsEncoded && fullBuffer.length !== totalBytes) {
+            throw new Error(`Hindi kumpleto ang na-download na update (${fullBuffer.length} / ${totalBytes} bytes). Walang nabago sa system — subukan ulit.`);
+        }
+        if (fullBuffer.length < 4 || fullBuffer[0] !== 0x50 || fullBuffer[1] !== 0x4b) {
+            throw new Error('Ang na-download na update ay hindi valid na ZIP file. Walang nabago sa system.');
+        }
         fs.writeFileSync(zipPath, fullBuffer);
         jobAdvanceStep(jobId,'extract','Extracting the update package...', 40);
         fs.mkdirSync(extractDir, { recursive: true });
@@ -15049,6 +15178,46 @@ async function runSelfUpdateFromRelay(req, res) {
         } catch (unzipErr) {
             throw new Error(`Hindi ma-extract ang release package. Siguraduhing naka-install ang "unzip" sa Termux ("pkg install unzip -y"). Detalye: ${unzipErr.message}`);
         }
+        // UPDATE SAFETY: i-validate ang laman ng package BAGO galawin ang kasalukuyang files. Dati, kapag may
+        // nakabalot na folder sa zip (hal. OMNIPOS/...), walang na-update pero "success" at nagre-restart pa; at
+        // kapag sira/kulang ang bagong server.js (SyntaxError, nawawalang ./module), nag-crash-loop ang buong POS.
+        let packageRoot = extractDir;
+        if (!fs.existsSync(path.join(packageRoot, 'server.js'))) {
+            const subDirs = fs.readdirSync(extractDir, { withFileTypes: true }).filter(e => e.isDirectory() && e.name !== '__MACOSX');
+            const wrapped = subDirs.find(d => fs.existsSync(path.join(extractDir, d.name, 'server.js')));
+            if (wrapped) packageRoot = path.join(extractDir, wrapped.name);
+        }
+        if (!fs.existsSync(path.join(packageRoot, 'server.js')) || !fs.existsSync(path.join(packageRoot, 'package.json'))) {
+            throw new Error('Kulang ang release package (walang server.js o package.json). Walang nabago sa system.');
+        }
+        try { JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')); }
+        catch (_pj) { throw new Error('Sira ang package.json sa release package. Walang nabago sa system.'); }
+        for (const jsName of ['server.js', 'db.js']) {
+            const jsPath = path.join(packageRoot, jsName);
+            if (!fs.existsSync(jsPath)) continue;
+            try { await execAsync(`node --check "${jsPath}"`, { timeout: 60 * 1000 }); }
+            catch (syntaxErr) { throw new Error(`May syntax error ang ${jsName} sa bagong release package — kinansela ang update, walang nabago sa system. ${String(syntaxErr.stderr || syntaxErr.message).split('\n').slice(0, 3).join(' ')}`); }
+        }
+        {
+            const serverSrc = fs.readFileSync(path.join(packageRoot, 'server.js'), 'utf8');
+            const missingLocal = [];
+            for (const m of serverSrc.matchAll(/require\(\s*['"](\.\/[A-Za-z0-9_.\/-]+)['"]\s*\)/g)) {
+                const rel = m[1];
+                const candidates = [rel, rel + '.js', rel + '.json'];
+                const found = candidates.some(c => fs.existsSync(path.join(packageRoot, c)) || fs.existsSync(path.join(installRoot, c)));
+                if (!found && !missingLocal.includes(rel)) missingLocal.push(rel);
+            }
+            if (missingLocal.length) {
+                throw new Error(`Kulang ang mga file sa release package: ${missingLocal.join(', ')}. Kinansela ang update para hindi mag-crash ang system; walang nabago.`);
+            }
+        }
+        // UPDATE SAFETY: kumuha ng sariwang kopya ng database bago mag-apply (best effort — hindi hinaharang ang update).
+        try {
+            const preUpdateBackup = await runLocalDatabaseBackup(14);
+            if (preUpdateBackup && preUpdateBackup.success === false) console.warn('⚠️ Pre-update DB backup failed:', preUpdateBackup.message);
+        } catch (preBackupErr) {
+            console.warn('⚠️ Pre-update DB backup error:', preBackupErr && preBackupErr.message);
+        }
         jobAdvanceStep(jobId,'apply','Backing up the current version before applying update...', 55);
         try {
             backupInstallFiles(installRoot);
@@ -15056,8 +15225,8 @@ async function runSelfUpdateFromRelay(req, res) {
             throw new Error(`Hindi magawa ang backup ng kasalukuyang bersyon bago mag-apply ng update — kinansela ang update para sa kaligtasan (walang nabago sa disk). Detalye: ${backupErr.message}`);
         }
         jobAdvanceStep(jobId,'apply','Applying updated files...', 60);
-        const copyStats = { copied: 0, total: countFilesRecursive(extractDir, SELF_UPDATE_PRESERVE) };
-        copyRecursivePreservingWithProgress(extractDir, installRoot, SELF_UPDATE_PRESERVE, copyStats, jobId);
+        const copyStats = { copied: 0, total: countFilesRecursive(packageRoot, SELF_UPDATE_PRESERVE) };
+        copyRecursivePreservingWithProgress(packageRoot, installRoot, SELF_UPDATE_PRESERVE, copyStats, jobId);
         jobAdvanceStep(jobId,'apply','Installing updated dependencies (npm install)...', 80);
         let npmTick = null;
         try {
@@ -15412,7 +15581,7 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
             accountsNeedingPasswordReset
         });
     } catch (e) {
-        res.status(500).json({ success: false, message: `An error occurred while writing the extracted data: ${e.message}` });
+        res.status(500).json({ success: false, message: `The restore could not be completed. Nothing was changed — your current data is intact. Details: ${e.message}` });
     }
 });
 
@@ -20382,9 +20551,14 @@ app.get('/api/bir/z-reading/history', requirePermission('bir_compliance'), (req,
     res.json(birCompliance.getZReadingHistory(limit));
 });
 app.post('/api/bir/z-reading', requirePermission('bir_compliance'), rateLimit('bir-z-reading', 20, 10 * 60 * 1000), (req, res) => {
-    const record = birCompliance.performZReading({ authorizedBy: req.authUser.username });
-    logAction(req.authUser.username, `BIR Z-Reading #${record.zCounter}: Beginning AGT ₱${record.beginningAGT.toFixed(2)}, Ending AGT ₱${record.endingAGT.toFixed(2)}, Net Sales ₱${record.netSales.toFixed(2)}, Invoices ${record.invoiceFrom}-${record.invoiceTo}${record.voidCount ? `, ${record.voidCount} void(s)` : ''}`);
-    res.json({ success: true, reading: record });
+    try {
+        const record = birCompliance.performZReading({ authorizedBy: req.authUser.username });
+        logAction(req.authUser.username, `BIR Z-Reading #${record.zCounter}: Beginning AGT ₱${record.beginningAGT.toFixed(2)}, Ending AGT ₱${record.endingAGT.toFixed(2)}, Net Sales ₱${record.netSales.toFixed(2)}, Invoices ${record.invoiceFrom}-${record.invoiceTo}${record.voidCount ? `, ${record.voidCount} void(s)` : ''}`);
+        res.json({ success: true, reading: record });
+    } catch (err) {
+        console.error('BIR Z-Reading failed:', err);
+        res.status(500).json({ success: false, message: `Hindi nai-save ang Z-Reading (walang nabago sa data). Detalye: ${err.message}` });
+    }
 });
 app.get('/api/bir/voids', requirePermission('bir_compliance'), (req, res) => {
     const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
@@ -20411,7 +20585,9 @@ app.post('/api/bir/reset-agt', requirePermission('bir_compliance'), rateLimit('b
         logAction(req.authUser.username, `BIR AGT RESET #${record.resetCounter}: Previous AGT ₱${record.previousAGT.toFixed(2)} — Reason: ${record.reason} — ${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`}`);
         res.json({ success: true, reset: record });
     } catch (err) {
-        res.status(400).json({ success: false, message: err.message });
+        const isUserError = !!(err && err.code === 'REASON_REQUIRED');
+        if (!isUserError) console.error('BIR AGT reset failed:', err);
+        res.status(isUserError ? 400 : 500).json({ success: false, message: isUserError ? err.message : `Hindi nai-save ang AGT reset (walang nabago sa data). Detalye: ${err.message}` });
     }
 });
 function parseBirDateRange(req) {

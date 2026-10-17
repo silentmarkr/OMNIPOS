@@ -13990,6 +13990,36 @@ function updateCartTotals() {
         ? estimateSeniorPwdDiscount(subtotal).vatExemptedAmount
         : 0;
     let total = Math.max(0, subtotal - discount - vatExemptedAmount);
+    let cartAddedVat = 0;
+    let cartVatRatePct = 0;
+    // BUGFIX (VAT-exclusive pricing): kapag naka-OFF ang "Product prices already include tax", idinadagdag ng SERVER
+    // ang VAT sa total (round(base * rate%)), pero dati HINDI ito isinasama ng cart/payment total dito — kaya mas
+    // mababa ang sinisingil ng cashier at tinatanggihan ng server ang benta ("kulang ang binayad"). Ginagaya na
+    // ngayon ang eksaktong formula ng server. Hindi ito nalalapat sa Senior/PWD (VAT-exempt) na benta.
+    if (storeSettingsCache && storeSettingsCache.taxEnabled && storeSettingsCache.pricesIncludeTax === false
+        && cartDiscountType !== 'SENIOR_PWD') {
+        const exclTaxRatePct = Math.min(Math.max(0, Number(storeSettingsCache.taxRate) || 0), 100);
+        if (exclTaxRatePct > 0) {
+            const baseForTax = Math.round(total * 100) / 100;
+            const addedVat = Math.round(baseForTax * (exclTaxRatePct / 100) * 100) / 100;
+            total = Math.round((baseForTax + addedVat) * 100) / 100;
+            cartAddedVat = addedVat;
+            cartVatRatePct = exclTaxRatePct;
+        }
+    }
+    // Ipakita kung magkano ang idinagdag na VAT para klaro sa cashier/customer kung bakit mas mataas ang total.
+    const vatRowEl = document.getElementById('summary-vat-row');
+    if (vatRowEl) {
+        if (cartAddedVat > 0) {
+            const vatLabelEl = document.getElementById('summary-vat-label');
+            const vatAmountEl = document.getElementById('summary-vat-amount');
+            if (vatLabelEl) vatLabelEl.innerText = `VAT (${cartVatRatePct}%)`;
+            if (vatAmountEl) vatAmountEl.innerText = `₱${cartAddedVat.toFixed(2)}`;
+            vatRowEl.style.display = '';
+        } else {
+            vatRowEl.style.display = 'none';
+        }
+    }
     if (subtotalEl) subtotalEl.innerText = `₱${subtotal.toFixed(2)}`;
     if (totalEl) totalEl.innerText = `₱${total.toFixed(2)}`;
     broadcastCustomerDisplay('cart', {
@@ -14692,6 +14722,7 @@ function openPaymentModal() {
     document.getElementById('pay-modal-change-output').innerText ='₱0.00';
     const ewalletRefInput = document.getElementById('pay-ewallet-reference-input');
     if (ewalletRefInput) ewalletRefInput.value ='';
+    resetBuyerInfoInPaymentModal();
     selectPaymentMethod('CASH');
     splitPaymentMode = false;
     splitPaymentLines = [];
@@ -14907,6 +14938,7 @@ async function submitFinalPaymentTransactionInner() {
         customerId: selectedCartCustomer ? selectedCartCustomer.id : null,
         customerName: selectedCartCustomer ? selectedCartCustomer.name :'',
         customerEmail: selectedCartCustomer ? (selectedCartCustomer.email ||'') :'',
+        buyer: collectBuyerInfoFromPaymentModal(),
         timestamp: new Date().toLocaleString(),
         isoDate: new Date().toISOString()
     };
@@ -15115,6 +15147,32 @@ function triggerAutoPrintIfEnabled() {
 function printCurrentReceipt() {
     setTimeout(() => window.print(), 120);
 }
+// BIR buyer details (RR 7-2024): kinukuha mula sa Payment modal at isinasama sa transaction para maitala sa system.
+function collectBuyerInfoFromPaymentModal() {
+    const val = (id) => {
+        const el = document.getElementById(id);
+        return el ? String(el.value || '').replace(/\s+/g, ' ').trim() : '';
+    };
+    const vatEl = document.getElementById('pay-buyer-vat-registered');
+    const buyer = {
+        name: val('pay-buyer-name'),
+        address: val('pay-buyer-address'),
+        tin: val('pay-buyer-tin'),
+        businessStyle: val('pay-buyer-style'),
+        vatRegistered: !!(vatEl && vatEl.checked)
+    };
+    return (buyer.name || buyer.address || buyer.tin || buyer.businessStyle || buyer.vatRegistered) ? buyer : null;
+}
+function resetBuyerInfoInPaymentModal() {
+    ['pay-buyer-name', 'pay-buyer-address', 'pay-buyer-tin', 'pay-buyer-style'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const vatEl = document.getElementById('pay-buyer-vat-registered');
+    if (vatEl) vatEl.checked = false;
+    const details = document.getElementById('pay-buyer-details');
+    if (details) details.open = false;
+}
 let receiptSettingsPromise = null;
 async function fetchReceiptSettings() {
     try {
@@ -15136,8 +15194,34 @@ function getBirReceiptLines() {
     if (b.tin) lines.push({ text: `${b.vatStatus === 'NON_VAT' ? 'NON-VAT REG' : 'VAT REG'} TIN: ${b.tin}`, bold: false });
     if (b.min) lines.push({ text: `MIN: ${b.min}`, bold: false });
     if (b.serialNo) lines.push({ text: `S/N: ${b.serialNo}`, bold: false });
-    if (b.ptuNo) lines.push({ text: `PTU No: ${b.ptuNo}`, bold: false });
+    // PTU No. ay nasa ILALIM na ng resibo (getBirFooterLines) — hindi na inuulit sa taas.
     return lines;
+}
+// Nasa ILALIM ng resibo: POS supplier + PTU + validity (BIR). Tugma sa buildBirFooterLines() ng server.
+function getBirFooterLines() {
+    let b = null;
+    try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
+    if (!b || b.enabled !== true) return [];
+    const lines = [];
+    if (b.supplierName) lines.push(`POS Supplier: ${b.supplierName}`);
+    if (b.supplierAddress) lines.push(String(b.supplierAddress));
+    if (b.supplierTin) lines.push(`Supplier TIN: ${b.supplierTin}`);
+    if (b.ptuNo) lines.push(`PTU No: ${b.ptuNo}${b.ptuDate ? ` | Date Issued: ${b.ptuDate}` : ''}`);
+    if (lines.length) lines.push('THIS INVOICE SHALL BE VALID FOR FIVE (5) YEARS FROM THE DATE OF THE PERMIT TO USE.');
+    return lines;
+}
+function renderBirFooterBlock(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.textContent = '';
+    const lines = getBirFooterLines();
+    if (!lines.length) { el.style.display = 'none'; return; }
+    lines.forEach((text) => {
+        const p = document.createElement('div');
+        p.textContent = text;
+        el.appendChild(p);
+    });
+    el.style.display = 'block';
 }
 function renderBirReceiptBlock(containerId) {
     const el = document.getElementById(containerId);
@@ -15205,6 +15289,8 @@ function applyReceiptBranding() {
     applyHeaderMode('rp-store-title', 'rp-header-image');
     renderBirReceiptBlock('r-bir-block');
     renderBirReceiptBlock('rp-bir-block');
+    renderBirFooterBlock('r-bir-footer-block');
+    renderBirFooterBlock('rp-bir-footer-block');
     const barcodeContainer = document.querySelector('#printable-receipt-area .receipt-barcode-container');
     if (barcodeContainer) {
         const showBarcode = !s.barcodeSettings || s.barcodeSettings.show !== false;
@@ -16473,6 +16559,10 @@ async function loadStoreSettingsPanel() {
     setVal('ss-bir-min', birCfg.min || '');
     setVal('ss-bir-serial', birCfg.serialNo || '');
     setVal('ss-bir-ptu', birCfg.ptuNo || '');
+    setVal('ss-bir-ptu-date', birCfg.ptuDate || '');
+    setVal('ss-bir-supplier-name', birCfg.supplierName || '');
+    setVal('ss-bir-supplier-address', birCfg.supplierAddress || '');
+    setVal('ss-bir-supplier-tin', birCfg.supplierTin || '');
     window.__birPanelLoaded = !!document.getElementById('ss-bir-enabled');
     setVal('ss-branch-name', s.branchName || '');
     setVal('ss-branch-group-key', s.branchGroupKey || '');
@@ -16523,7 +16613,11 @@ async function saveStoreSettings() {
             vatStatus: document.getElementById('ss-bir-vat-status').value,
             min: (document.getElementById('ss-bir-min').value || '').trim(),
             serialNo: (document.getElementById('ss-bir-serial').value || '').trim(),
-            ptuNo: (document.getElementById('ss-bir-ptu').value || '').trim()
+            ptuNo: (document.getElementById('ss-bir-ptu').value || '').trim(),
+            ptuDate: (document.getElementById('ss-bir-ptu-date') ? document.getElementById('ss-bir-ptu-date').value : '') || '',
+            supplierName: ((document.getElementById('ss-bir-supplier-name') || {}).value || '').trim(),
+            supplierAddress: ((document.getElementById('ss-bir-supplier-address') || {}).value || '').trim(),
+            supplierTin: ((document.getElementById('ss-bir-supplier-tin') || {}).value || '').trim()
         };
     }
     try {
@@ -18211,13 +18305,46 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     }
     const taxRow = document.getElementById('r-tax-row');
     const taxAmt = parseFloat(tx.taxAmount) || 0;
+    // BIR-style: ipakita ang VATable Sales (base na pinagbasehan ng VAT) bago ang VAT amount sa regular na benta.
+    const vatableNetRow = document.getElementById('r-vatable-net-row');
+    if (vatableNetRow) {
+        if (taxAmt > 0 && !isSeniorPwdBreakdown) {
+            const taxBase = parseFloat(tx.subtotalBeforeTax);
+            const vatableNet = Number.isFinite(taxBase) ? Math.max(0, tx.taxInclusive ? taxBase - taxAmt : taxBase) : 0;
+            document.getElementById('r-vatable-net-amount').innerText = `₱${vatableNet.toFixed(2)}`;
+            vatableNetRow.style.display = 'flex';
+        } else {
+            vatableNetRow.style.display = 'none';
+        }
+    }
     if (taxRow && taxAmt > 0) {
         const taxRatePart = Number.isFinite(tx.taxRate) && tx.taxRate > 0 ? ` (${tx.taxRate}%)` : '';
-        document.getElementById('r-tax-label').innerText = `${tx.taxInclusive ? 'VAT Incl.' : 'Tax'}${taxRatePart}`;
+        document.getElementById('r-tax-label').innerText = `VAT${taxRatePart}`;
         document.getElementById('r-tax-amount').innerText = `₱${taxAmt.toFixed(2)}`;
         taxRow.style.display ='flex';
     } else {
         if (taxRow) taxRow.style.display ='none';
+    }
+    // BIR: "Total amount includes VAT" + buyer details (o blangkong linya na susulatan kung wala) + SC/PWD signature.
+    const vatNoteRow = document.getElementById('r-vat-note-row');
+    if (vatNoteRow) vatNoteRow.style.display = (taxAmt > 0 || (tx.taxInclusive && Number(tx.taxRate) > 0)) ? 'flex' : 'none';
+    const scPwdSigRow = document.getElementById('r-scpwd-signature-row');
+    if (scPwdSigRow) scPwdSigRow.style.display = (tx.discountType === 'SENIOR_PWD') ? 'block' : 'none';
+    const buyerBlock = document.getElementById('r-buyer-block');
+    if (buyerBlock) {
+        const buyer = (tx.buyer && typeof tx.buyer === 'object') ? tx.buyer : null;
+        const birOn = !!(storeSettingsCache && storeSettingsCache.bir && storeSettingsCache.bir.enabled === true);
+        const blank = '______________________';
+        const setBuyer = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v || blank; };
+        if (buyer || birOn) {
+            setBuyer('r-buyer-name', buyer && buyer.name);
+            setBuyer('r-buyer-address', buyer && buyer.address);
+            setBuyer('r-buyer-tin', buyer && buyer.tin);
+            setBuyer('r-buyer-style', buyer && buyer.businessStyle);
+            buyerBlock.style.display = 'block';
+        } else {
+            buyerBlock.style.display = 'none';
+        }
     }
     const customerRow = document.getElementById('r-customer-row');
     if (customerRow) {

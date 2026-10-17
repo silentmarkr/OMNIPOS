@@ -87,6 +87,19 @@
 
   <script src="sweetalert2.all.min.js"></script>
 
+<style id="print-receipt-overrides">
+@media print {
+    /* Puting papel ang print: tanggalin ang dark gradient ng app sa html/body (hindi sakop ng "body *" rule). */
+    html, body, html.has-session, html.has-session body {
+        background: #fff !important;
+        background-image: none !important;
+        color: #000 !important;
+    }
+    body::before, body::after { display: none !important; background: none !important; }
+    /* Mas maliit ang taas ng padding para hindi tumapon sa 2nd page ang huling linya. */
+    body.print-target-receipt #printable-receipt-area { padding: 4mm 10mm !important; }
+}
+</style>
 </head>
 
 <body>
@@ -594,6 +607,7 @@
                                     <span>Discount ₱</span>
                                     <input type="number" id="cart-discount-input" value="0" min="0" oninput="handleManualDiscountInput()" autocomplete="off">
                                 </div>
+                                <div class="summary-row cart-customer-subpane" id="summary-vat-row" style="display:none;"><span id="summary-vat-label">VAT</span><span id="summary-vat-amount">₱0.00</span></div>
                                 <div id="cart-discount-best-badge" class="cart-customer-subpane" style="display:none;font-size:0.75em;color:#16a34a;font-weight:600;padding:2px 0 4px;text-align:right;"></div>
                                 <div class="cart-checkout-sticky">
                                     <div class="mobile-terminal-search-slot" id="mobile-terminal-search-slot"></div>
@@ -2232,7 +2246,6 @@
                 <label>Uri ng Dokumento <small style="font-weight:normal;color:#64748b;">(nakasulat sa taas ng resibo)</small></label>
                 <select id="ss-bir-doc-title" autocomplete="off">
                     <option value="SALES INVOICE">SALES INVOICE</option>
-                    <option value="OFFICIAL RECEIPT">OFFICIAL RECEIPT</option>
                     <option value="">Walang title</option>
                 </select>
             </div>
@@ -2262,6 +2275,22 @@
             <div class="input-field-group">
                 <label>PTU No. <small style="font-weight:normal;color:#64748b;">(Permit to Use, opsyonal)</small></label>
                 <input type="text" id="ss-bir-ptu" maxlength="40" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>PTU Date Issued <small style="font-weight:normal;color:#64748b;">(petsa ng Permit to Use, opsyonal)</small></label>
+                <input type="date" id="ss-bir-ptu-date" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>POS Supplier Name <small style="font-weight:normal;color:#64748b;">(BIR-accredited supplier ng POS, nakalimbag sa ilalim ng resibo)</small></label>
+                <input type="text" id="ss-bir-supplier-name" maxlength="80" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>POS Supplier Address</label>
+                <input type="text" id="ss-bir-supplier-address" maxlength="120" autocomplete="off">
+            </div>
+            <div class="input-field-group">
+                <label>POS Supplier TIN <small style="font-weight:normal;color:#64748b;">(9&ndash;14 digits)</small></label>
+                <input type="text" id="ss-bir-supplier-tin" maxlength="20" autocomplete="off">
             </div>
 
             <h3 style="margin-top:24px; display:flex; align-items:center; gap:8px; font-size:1.05rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
@@ -3825,6 +3854,16 @@
             </div>
             <div class="modal-body">
                 <div class="calc-row" style="margin-bottom:4px;"><span>Amount Due</span><strong id="pay-modal-amount-due" style="font-size:1.3rem;">₱0.00</strong></div>
+                <details id="pay-buyer-details" style="margin:6px 0 8px;border:1px solid rgba(148,163,184,.35);border-radius:8px;padding:6px 10px;">
+                    <summary style="cursor:pointer;font-weight:600;font-size:.9rem;">Buyer details para sa Invoice (BIR)</summary>
+                    <div style="display:grid;gap:6px;margin-top:8px;">
+                        <label style="font-size:.85rem;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="pay-buyer-vat-registered" autocomplete="off"> VAT-registered ang buyer (kailangan ang buong detalye kapag ₱1,000 pataas)</label>
+                        <input type="text" id="pay-buyer-name" maxlength="120" placeholder="Registered name ng buyer" autocomplete="off" style="padding:8px;border-radius:6px;">
+                        <input type="text" id="pay-buyer-address" maxlength="200" placeholder="Business address" autocomplete="off" style="padding:8px;border-radius:6px;">
+                        <input type="text" id="pay-buyer-tin" maxlength="20" placeholder="TIN (hal. 123-456-789-00000)" inputmode="numeric" autocomplete="off" style="padding:8px;border-radius:6px;">
+                        <input type="text" id="pay-buyer-style" maxlength="120" placeholder="Business style (optional)" autocomplete="off" style="padding:8px;border-radius:6px;">
+                    </div>
+                </details>
                 <div id="single-payment-mode-block">
                 <div class="payment-method-selector-row">
                     <button id="pay-method-cash" class="method-btn active" onclick="selectPaymentMethod('CASH')"><i class="fa-solid fa-money-bill-wave"></i> Cash</button>
@@ -3930,6 +3969,12 @@
                         <div>Customer: <span id="r-customer-name"></span></div>
                         <div class="text-right">Points: <span id="r-customer-points-balance">0</span></div>
                     </div>
+                    <div id="r-buyer-block" style="display:none;font-size:.8em;line-height:1.35;margin:2px 0;">
+                        <div>Buyer Name: <span id="r-buyer-name"></span></div>
+                        <div>Address: <span id="r-buyer-address"></span></div>
+                        <div>TIN: <span id="r-buyer-tin"></span></div>
+                        <div>Business Style: <span id="r-buyer-style"></span></div>
+                    </div>
                     <hr class="dashed-divider">
                     <div id="receipt-items-table" class="receipt-items-table">
                         </div>
@@ -3943,11 +3988,14 @@
                         <div class="r-total-row" id="r-vatexempt-row" style="display:none;"><span>VAT-Exempt Sales</span><span id="r-vatexempt-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-discount-row" style="display:none;"><span>Discount (<span id="r-discount-type"></span>)</span><span id="r-discount-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-scpwd-discount-row" style="display:none;"><span>Less: SC/PWD Discount<span id="r-scpwd-discount-pct"></span></span><span id="r-scpwd-discount-amount">₱0.00</span></div>
+                        <div class="r-total-row" id="r-vatable-net-row" style="display:none;"><span>VATable Sales</span><span id="r-vatable-net-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-tax-row" style="display:none;"><span id="r-tax-label">Tax</span><span id="r-tax-amount">₱0.00</span></div>
                         <div class="r-total-row font-bold"><span>TOTAL</span><span id="r-total">₱0.00</span></div>
+                        <div class="r-total-row" id="r-vat-note-row" style="display:none;font-size:.8em;"><span>Total amount includes VAT</span><span></span></div>
                         <div class="r-total-row"><span>Payment (<span id="r-method">CASH</span>)</span><span id="r-paid">₱0.00</span></div>
                         <div class="r-total-row" id="r-payref-row" style="display:none;"><span>Ref. No.</span><span id="r-payref"></span></div>
                         <div class="r-total-row"><span>Change</span><span id="r-change">₱0.00</span></div>
+                        <div id="r-scpwd-signature-row" style="display:none;margin-top:14px;font-size:.85em;">SC/PWD Signature: ______________________</div>
                         <div class="r-total-row" id="r-loyalty-redeemed-row" style="display:none;"><span>Points Redeemed</span><span id="r-loyalty-redeemed">0</span></div>
 
                     </div>
@@ -3962,6 +4010,7 @@
                         <p class="receipt-footer-msg-id" id="r-loyalty-qr-note" style="margin:0 0 8px;"></p>
                         <div id="r-loyalty-qr-render" style="display:flex;justify-content:center;align-items:flex-start;"></div>
                   </div>
+                    <div id="r-bir-footer-block" style="display:none;text-align:center;font-size:.72em;line-height:1.5;margin:8px 0;"></div>
                     <p class="receipt-footer-msg" id="r-footer-msg">Thank you for shopping!</p>
                     <p class="receipt-footer-msg-id" id="r-footer-id">RCP-20260426-2641</p>
                 </div>
@@ -4017,6 +4066,7 @@
                     </div>
                     </div>
                     <hr class="dashed-divider">
+                    <div id="rp-bir-footer-block" style="display:none;text-align:center;font-size:.72em;line-height:1.5;margin:8px 0;"></div>
                     <p class="receipt-footer-msg" id="rp-footer-msg">Thank you for shopping!</p>
                 </div>
                 <div class="modal-footer-controls-row no-print">
@@ -5167,7 +5217,7 @@
 <script src="faq-lang.js?v=20261009-1"></script>
 <script src="faq-engine.js?v=20261009-2"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
-<script src="app.js?v=20261016-5"></script>
+<script src="app.js?v=20261017-5"></script>
 <script src="app1.js?v=20261013-1"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 

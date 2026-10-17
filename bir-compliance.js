@@ -216,10 +216,14 @@ function performZReading({ authorizedBy } = {}) {
     state.baselineAGT = endingAGT;
     state.invoiceNumberAtPeriodStart = state.nextInvoiceNumber;
     state.lastZReadingAt = record.performedAt;
-    saveBirState(state);
+    // ATOMICITY FIX: dati magkahiwalay na write ang state at ang history — kapag pumalya sa gitna, umusad na ang
+    // Z-counter/baseline pero walang Z-Reading record (nawawalang report sa BIR audit). Iisang transaction na ngayon.
     const history = readData(MODULE_ZHISTORY, []);
     history.unshift(record);
-    writeData(MODULE_ZHISTORY, history);
+    runDatabaseTransaction([
+        { module: MODULE_STATE, data: state },
+        { module: MODULE_ZHISTORY, data: history }
+    ]);
     return record;
 }
 
@@ -251,10 +255,14 @@ function resetAGT({ authorizedBy, reason } = {}) {
     state.agt = 0;
     state.baselineAGT = 0;
     state.lastResetAt = record.performedAt;
-    saveBirState(state);
+    // ATOMICITY FIX: state + reset history sa iisang transaction (dati kapag pumalya sa gitna, na-zero na ang AGT
+    // pero walang audit record ng reset).
     const history = readData(MODULE_RESET_HISTORY, []);
     history.unshift(record);
-    writeData(MODULE_RESET_HISTORY, history);
+    runDatabaseTransaction([
+        { module: MODULE_STATE, data: state },
+        { module: MODULE_RESET_HISTORY, data: history }
+    ]);
     return record;
 }
 
