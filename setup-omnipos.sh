@@ -787,8 +787,8 @@ else
 fi
 
 echo ""
-echo "The .env is ready (RELAY_URL/RELAY_API_KEY are already baked in"
-echo "from the RELAY build) — no need to set this up manually anymore."
+echo "The .env is ready with the RELAY URL only; the RELAY master API key is not included."
+echo "On first launch, activate this installation with its customer activation key."
 echo ""
 
 echo "🧹 Cleaning up the installer file (omnipos-installer.sh) from Downloads..."

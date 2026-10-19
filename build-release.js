@@ -502,7 +502,10 @@ function encryptEnvAndPatchLoader() {
     return Promise.resolve();
   }
 
-  const plaintext = fs.readFileSync(envSrcPath, "utf8");
+  // Never ship the RELAY master credential inside the customer package. The customer
+  // activates once and receives a revocable, installation-bound client credential.
+  const sourceEnv = fs.readFileSync(envSrcPath, "utf8");
+  const plaintext = sourceEnv.split(/\r?\n/).filter((line) => !/^\s*(?:export\s+)?RELAY_API_KEY\s*=/.test(line)).join("\n");
   const key = crypto.randomBytes(32); 
   const iv = crypto.randomBytes(12); 
 

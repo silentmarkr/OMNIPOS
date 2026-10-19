@@ -322,6 +322,16 @@ app.use((err, req, res, next) => {
     }
     next(err);
 });
+// Activation gate for new customer installs. Existing licensed installs continue normally;
+// unactivated installs can only access the activation screen and activation endpoint.
+app.use((req, res, next) => {
+    let activated = Boolean(process.env.RELAY_API_KEY);
+    try { activated = activated || Boolean(readRelayClientCredential()); } catch (_) {}
+    if (activated || req.path === '/activate.html' || req.path === '/api/relay/activate') return next();
+    if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/activate.html');
+    return res.status(423).json({ success: false, code: 'CLIENT_ACTIVATION_REQUIRED', message: 'Activate this OMNIPOS installation with your customer activation key first.' });
+});
+
 app.use(express.static(path.join(__dirname,'public'), {
     etag: true,
     lastModified: true,
@@ -2564,9 +2574,28 @@ const RELAY_PUBLIC_KEY = crypto.createPublicKey(RELAY_PUBLIC_KEY_PEM);
 // Nililinis ang value: inaalis ang leading ':'/quotes/spaces at trailing '/' para hindi maging
 // ":https://host//relay/..." (Failed to parse URL) kapag may typo sa .env.
 const RELAY_URL = String(process.env.RELAY_URL || '').trim().replace(/^[\s:'"]+/, '').replace(/[\s'"]+$/, '').replace(/\/+$/, '') || 'http://127.0.0.1:4477';
-const RELAY_API_KEY = process.env.RELAY_API_KEY || null;
-if (!RELAY_API_KEY) {
-    console.warn('⚠️  Walang RELAY_API_KEY na naka-set sa .env — hindi magfa-function ang feature unlock requests hangga\'t hindi ito nalagyan.');
+const RELAY_CLIENT_CREDENTIAL_PATH = path.join(DB_DIR, 'relay-client-credential.json');
+// PERF: dating sync na readFileSync+JSON.parse sa BAWAT request (kasama ang bawat static asset). Naka-cache na sa memory
+// (5s TTL para sa "wala pang file"; agad na ina-update kapag nag-activate).
+let relayCredentialCache = { value: null, at: 0 };
+const RELAY_CREDENTIAL_CACHE_MS = 5000;
+function setRelayCredentialCache(value) { relayCredentialCache = { value: value || null, at: Date.now() }; }
+function readRelayClientCredential() {
+    if (relayCredentialCache.value) return relayCredentialCache.value;   // may credential na: hindi na nagbabago hanggang mag-reactivate
+    if (Date.now() - relayCredentialCache.at < RELAY_CREDENTIAL_CACHE_MS) return null;
+    let value = null;
+    try { const j = JSON.parse(fs.readFileSync(RELAY_CLIENT_CREDENTIAL_PATH, 'utf8')); value = j && typeof j.credential === 'string' ? j.credential : null; }
+    catch (_) { value = null; }
+    setRelayCredentialCache(value);
+    return value;
+}
+let RELAY_API_KEY = readRelayClientCredential() || process.env.RELAY_API_KEY || null;
+if (!RELAY_API_KEY) console.warn('⚠️  RELAY client is not activated. Use the local /api/relay/activate endpoint first.');
+// Mga gawain na dating nagsisimula lang kung may key na sa startup (integrity poll, feature sync, pricing, Free Omni AI status).
+// Sa bagong install, ang key ay nakukuha pagkatapos mag-activate — kaya pinapatakbo ang mga ito pagkatapos ng activation (hindi na kailangan ng restart).
+const relayKeyActivatedHooks = [];
+function runRelayKeyActivatedHooks() {
+    for (const hook of relayKeyActivatedHooks) { try { hook(); } catch (_hookErr) { /* best-effort */ } }
 }
 const IMAGE_SEARCH_PROVIDER = (process.env.IMAGE_SEARCH_PROVIDER || '').trim().toLowerCase();
 const IMAGE_SEARCH_API_KEY = (process.env.IMAGE_SEARCH_API_KEY || '').trim();
@@ -2705,7 +2734,7 @@ async function imageSearchProviderFetchWithTimeout(url, options = {}, timeoutMs 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        return await fetch(url, { ...options, signal: controller.signal });
+        return await fetch(url, { ...options, headers: options.headers || {}, signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
@@ -3355,12 +3384,38 @@ async function runOmniImageSearchInProcess(nonce, targets, username, providerId)
         }
     }
 }
+// Ang fingerprint ay mabigat kwentahin (sync na `getprop` sa Android) at hindi nagbabago habang tumatakbo ang app:
+// i-cache sa memory. Ang installationId ay binabasa nang live para agad masunod ang anumang reassign.
+let relayFingerprintCache = { at: 0, value: '' };
+const RELAY_FINGERPRINT_CACHE_MS = 30 * 60 * 1000;
+function getRelayIdentityHeaders() {
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    const now = Date.now();
+    if (!relayFingerprintCache.value || now - relayFingerprintCache.at > RELAY_FINGERPRINT_CACHE_MS) {
+        const fp = computeHardwareFingerprint(featureData);
+        if (fp) relayFingerprintCache = { at: now, value: fp };
+    }
+    return { installationId, fingerprint: relayFingerprintCache.value };
+}
 async function relayFetch(url, options = {}, timeoutMs = 20000) {
+    // Resolve the credential dynamically: activation happens after the server starts, and
+    // modules may have imported the pre-activation value. Never send the master key in client builds.
+    // OFFLINE FIX: unahin ang internet check — dati ay kinukwenta muna ang fingerprint (limang `getprop` execSync na
+    // humaharang sa event loop) kahit walang internet, kaya bumabagal/nag-freeze ang POS tuwing tatawag ang mga poller (hal. 30s feature sync).
     if (!(await isInternetLikelyUp())) {
         const err = new Error('No internet connection has been detected on this device.');
         err.code = 'NO_INTERNET';
         throw err;
     }
+    const clientCredential = readRelayClientCredential() || RELAY_API_KEY || null;
+    const requestHeaders = new Headers(options.headers || {});
+    if (clientCredential) requestHeaders.set('x-relay-key', clientCredential);
+    try {
+        const identity = getRelayIdentityHeaders();
+        if (identity.installationId) requestHeaders.set('x-relay-installation-id', identity.installationId);
+        if (identity.fingerprint) requestHeaders.set('x-relay-device-fingerprint', identity.fingerprint);
+    } catch (err) { /* activation bootstrap may run before identity is ready */ }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     // Sumusunod sa panlabas na signal (hal. Stop button ng Omni AI) para maputol agad ang request papuntang RELAY.
@@ -3370,7 +3425,9 @@ async function relayFetch(url, options = {}, timeoutMs = 20000) {
         else extSignal.addEventListener('abort', () => controller.abort(), { once: true });
     }
     try {
-        return await fetch(url, { ...options, signal: controller.signal });
+        // FIX: dati ay `options.headers` ang ipinapadala kaya hindi nakararating sa RELAY ang credential,
+        // x-relay-installation-id at x-relay-device-fingerprint na binuo sa itaas (lahat ng call ay 403).
+        return await fetch(url, { ...options, headers: requestHeaders, signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
@@ -4511,21 +4568,14 @@ function getNonAndroidMachineParts() {
         return [];
     }
     const parts = [];
-    try { parts.push(os.hostname()); } catch (e) {}
+    // Sadyang WALA ang hostname at MAC address: nagbabago ang mga ito kapag pinatay/binuksan ang Wi-Fi, Ethernet, VPN o
+    // virtual adapter (o pinalitan ang pangalan ng PC), kaya mag-iiba ang fingerprint, mababara ang offline login
+    // at tatanggihan ng RELAY ang credential. Ang deviceSeed (nasa identity sidecar) ang nagbibigay ng pagiging unique.
     try { parts.push(os.platform()); } catch (e) {}
     try { parts.push(os.arch()); } catch (e) {}
     try {
         const cpus = os.cpus();
         if (cpus && cpus[0] && cpus[0].model) parts.push(cpus[0].model);
-    } catch (e) {}
-    try {
-        const nets = os.networkInterfaces();
-        const macs = Object.values(nets || {})
-            .flat()
-            .filter(n => n && !n.internal && n.mac && n.mac !== '00:00:00:00:00:00')
-            .map(n => n.mac)
-            .sort();
-        if (macs.length) parts.push(macs.join(','));
     } catch (e) {}
     try {
         if (fs.existsSync('/etc/machine-id')) {
@@ -4539,7 +4589,8 @@ function computeHardwareFingerprint(data) {
         getAndroidProp('ro.product.model'),
         getAndroidProp('ro.product.device'),
         getAndroidProp('ro.product.board'),
-        getAndroidProp('ro.build.fingerprint'),
+        // Sadyang wala rito ang ro.build.fingerprint: nagbabago ito sa bawat Android OTA update at
+        // masisira ang credential binding (CLIENT_DEVICE_MISMATCH) kahit parehong device pa rin.
         getAndroidProp('ro.serialno'),
         getAndroidProp('ro.boot.serialno'),
     ].filter(Boolean);
@@ -4552,6 +4603,39 @@ function computeHardwareFingerprint(data) {
     const allParts = [...machineParts, seed].filter(Boolean);
     if (allParts.length === 0) return null;
     return crypto.createHash('sha256').update(allParts.join('|')).digest('hex');
+}
+// MIGRATION: ang lumang formula (may hostname, MAC at ro.build.fingerprint). Ipinapadala bilang `legacyFingerprint` para
+// makilala ng RELAY ang mga device na na-verify na dati at tahimik na i-migrate (hindi i-flag bilang clone).
+let _legacyFingerprintCache;
+function computeLegacyHardwareFingerprint(data) {
+    if (_legacyFingerprintCache !== undefined) return _legacyFingerprintCache;
+    let result = null;
+    try {
+        const androidParts = [
+            getAndroidProp('ro.product.model'), getAndroidProp('ro.product.device'), getAndroidProp('ro.product.board'),
+            getAndroidProp('ro.build.fingerprint'), getAndroidProp('ro.serialno'), getAndroidProp('ro.boot.serialno')
+        ].filter(Boolean);
+        const seed = getOrCreateDeviceSeed(data);
+        if (androidParts.length > 0) {
+            result = crypto.createHash('sha256').update((seed ? [...androidParts, seed] : androidParts).join('|')).digest('hex');
+        } else if (!IS_VOLATILE_CLOUD_HOST) {
+            const parts = [];
+            try { parts.push(os.hostname()); } catch (e) {}
+            try { parts.push(os.platform()); } catch (e) {}
+            try { parts.push(os.arch()); } catch (e) {}
+            try { const cpus = os.cpus(); if (cpus && cpus[0] && cpus[0].model) parts.push(cpus[0].model); } catch (e) {}
+            try {
+                const macs = Object.values(os.networkInterfaces() || {}).flat()
+                    .filter(n => n && !n.internal && n.mac && n.mac !== '00:00:00:00:00:00').map(n => n.mac).sort();
+                if (macs.length) parts.push(macs.join(','));
+            } catch (e) {}
+            try { if (fs.existsSync('/etc/machine-id')) parts.push(fs.readFileSync('/etc/machine-id', 'utf8').trim()); } catch (e) {}
+            const all = [...parts.filter(Boolean), seed].filter(Boolean);
+            if (all.length) result = crypto.createHash('sha256').update(all.join('|')).digest('hex');
+        }
+    } catch (_) { result = null; }
+    _legacyFingerprintCache = result;
+    return result;
 }
 function getOrCreateInstallationId(data) {
     const fixedId = process.env.OMNIPOS_FIXED_INSTALLATION_ID;
@@ -4578,6 +4662,57 @@ function getOrCreateInstallationId(data) {
     writeData(FILE_FEATURE_UNLOCKS, data);
     return data.installationId;
 }
+// First-install customer activation. The customer package does not need the RELAY master key.
+app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 * 1000), async (req, res) => {
+    try {
+        const activationKey = String(req.body?.activationKey || '').trim();
+        if (!activationKey) return res.status(400).json({ success: false, message: 'Activation key is required.' });
+        const featureData = readFeatureUnlocks();
+        const installationId = getOrCreateInstallationId(featureData);
+        const fingerprint = computeHardwareFingerprint(featureData);
+        if (!fingerprint || !/^[a-fA-F0-9]{32,128}$/.test(String(fingerprint))) return res.status(409).json({ success: false, message: 'Could not verify this device identity. Activation was not attempted.' });
+        // RECOVERY: ang admin 'Reissue credential' ay nagbabalik ng `omniclient_...` credential (hindi activation key).
+        // Dito ito tinatanggap: bine-verify muna sa RELAY (nakatali sa installationId + fingerprint ng device na ito) bago i-save.
+        if (/^omniclient_[A-Za-z0-9_-]{20,200}$/.test(activationKey)) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 15000);
+            let chk;
+            try {
+                chk = await fetch(`${RELAY_URL}/relay/client/credential-check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-relay-key': activationKey, 'x-relay-installation-id': installationId, 'x-relay-device-fingerprint': fingerprint },
+                    body: JSON.stringify({ installationId }),
+                    signal: ctrl.signal
+                });
+            } finally { clearTimeout(timer); }
+            const chkData = await chk.json().catch(() => ({}));
+            if (!chk.ok || !chkData.success) return res.status(chk.status === 403 ? 403 : 502).json({ success: false, code: chkData.code || 'CREDENTIAL_REJECTED', message: chkData.message || 'RELAY rejected this credential for this device.' });
+            fs.mkdirSync(DB_DIR, { recursive: true });
+            const tmpCred = RELAY_CLIENT_CREDENTIAL_PATH + '.tmp';
+            fs.writeFileSync(tmpCred, JSON.stringify({ credential: activationKey, installationId, activatedAt: Date.now(), expiresAt: chkData.expiresAt || null }, null, 2), { mode: 0o600 });
+            fs.renameSync(tmpCred, RELAY_CLIENT_CREDENTIAL_PATH);
+            RELAY_API_KEY = activationKey;
+            setRelayCredentialCache(activationKey);
+            runRelayKeyActivatedHooks();
+            return res.json({ success: true, activated: true, installationId, expiresAt: chkData.expiresAt || null, message: 'Credential restored on this device.' });
+        }
+        const response = await relayFetch(`${RELAY_URL}/relay/client/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activationKey, installationId, fingerprint }) }, 15000);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success || !data.credential) return res.status(response.status || 502).json({ success: false, code: data.code || 'ACTIVATION_FAILED', message: data.message || 'RELAY activation failed.' });
+        fs.mkdirSync(DB_DIR, { recursive: true });
+        const temp = RELAY_CLIENT_CREDENTIAL_PATH + '.tmp';
+        fs.writeFileSync(temp, JSON.stringify({ credential: data.credential, credentialId: data.credentialId, installationId, activatedAt: Date.now(), expiresAt: data.expiresAt || null }, null, 2), { mode: 0o600 });
+        fs.renameSync(temp, RELAY_CLIENT_CREDENTIAL_PATH);
+        RELAY_API_KEY = data.credential;
+        setRelayCredentialCache(data.credential);
+        runRelayKeyActivatedHooks();
+        return res.json({ success: true, activated: true, installationId, expiresAt: data.expiresAt || null, message: 'OMNIPOS activated successfully on this device.' });
+    } catch (err) {
+        console.error('RELAY customer activation failed:', err.message);
+        return res.status(503).json({ success: false, message: 'Activation could not be completed safely. Check RELAY connectivity and try again.' });
+    }
+});
+
 // SIMULA NG PRICING FETCH — dito na tinatawag (pagkatapos ma-declare ang IDENTITY_SIDECAR_PATH/_identityMirrored at ang identity helpers).
 fetchCloudBackupPricing();
 setInterval(fetchCloudBackupPricing, CLOUD_BACKUP_PRICING_REFRESH_MS).unref?.();
@@ -4667,7 +4802,7 @@ async function verifyDeviceWithRelay(installationId, hardwareFingerprint, { user
         const relayRes = await relayFetch(`${RELAY_URL}/relay/verify-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, hardwareFingerprint, username, storeName })
+            body: JSON.stringify({ installationId, hardwareFingerprint, legacyFingerprint: (() => { try { return computeLegacyHardwareFingerprint(readFeatureUnlocks()); } catch (_) { return null; } })(), username, storeName })
         });
         const relayData = await relayRes.json().catch(() => ({}));
         if (!relayRes.ok || !relayData.success) {
@@ -6388,10 +6523,15 @@ async function pollPendingIntegrityCheckNow() {
     } catch (err) {
     }
 }
-if (!INTEGRITY_MONITOR_DISABLED && RELAY_API_KEY) {
+let integrityPollStarted = false;
+function startIntegrityPoll() {
+    if (integrityPollStarted || INTEGRITY_MONITOR_DISABLED || !RELAY_API_KEY) return;
+    integrityPollStarted = true;
     setTimeout(pollPendingIntegrityCheckNow, 15 * 1000);
     setInterval(() => { pollPendingIntegrityCheckNow().catch(() => {}); }, INTEGRITY_CHECK_NOW_POLL_MS).unref();
 }
+startIntegrityPoll();
+relayKeyActivatedHooks.push(startIntegrityPoll);
 app.get('/api/relay-integrity/status', (req, res) => {
     res.json({ success: true, ...relayIntegrityStatus });
 });
@@ -7492,7 +7632,7 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
                 relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-                    body: JSON.stringify({ installationId, hardwareFingerprint })
+                    body: JSON.stringify({ installationId, hardwareFingerprint, legacyFingerprint: computeLegacyHardwareFingerprint(featureData) })
                 }, 2400000);
                 if (relayRes.status === 429) {
                     const retryAfterSec = parseInt(relayRes.headers.get('retry-after'), 10);
@@ -7900,10 +8040,17 @@ async function attemptRelayFeatureSync() {
     return { attempted: true, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures };
 }
 const RELAY_FEATURE_SYNC_INTERVAL_MS = Number(process.env.RELAY_FEATURE_SYNC_INTERVAL_MS) || 30 * 1000;
-if (RELAY_API_KEY) {
+let relayFeatureSyncStarted = false;
+function startRelayFeatureSync() {
+    if (relayFeatureSyncStarted || !RELAY_API_KEY) return;
+    relayFeatureSyncStarted = true;
     setTimeout(() => { attemptRelayFeatureSync().catch(() => {}); }, 10 * 1000);
     setInterval(() => { attemptRelayFeatureSync().catch(() => {}); }, RELAY_FEATURE_SYNC_INTERVAL_MS).unref();
 }
+startRelayFeatureSync();
+relayKeyActivatedHooks.push(startRelayFeatureSync);
+relayKeyActivatedHooks.push(() => { fetchCloudBackupPricing().catch(() => {}); });
+relayKeyActivatedHooks.push(() => { getRelayAiFreeState({ force: true, timeoutMs: 25000 }).catch(() => {}); });
 app.post('/api/features/restore-check', rateLimit('feature-restore-check', 10, 10 * 60 * 1000), async (req, res) => {
     const result = await attemptRelayFeatureSync();
     const restoredFeatureIds = result.restoredFeatureIds || [];

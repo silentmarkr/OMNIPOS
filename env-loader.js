@@ -70,7 +70,7 @@ module.exports = function loadEnv() {
 
         if (!hasKeyFile) {
             console.error(
-                `⚠️  Naka-encrypt ang .env pero WALANG ${ENV_KEY_FILENAME} — hindi mababasa ang tunay na config (RELAY_URL/RELAY_API_KEY/atbp.). Ito ang dahilan kung bakit nabibigong ma-verify ang device sa login. Kailangan i-restore ang tamang ${ENV_KEY_FILENAME} (kasabay dapat ito ng .env mula sa parehong build), o i-reset ang .env sa plain KEY=VALUE format.`
+                `⚠️  Naka-encrypt ang .env pero WALANG ${ENV_KEY_FILENAME} — hindi mababasa ang tunay na config (RELAY_URL at iba pang settings). Ito ang dahilan kung bakit nabibigong ma-verify ang device sa login. Kailangan i-restore ang tamang ${ENV_KEY_FILENAME} (kasabay dapat ito ng .env mula sa parehong build), o i-reset ang .env sa plain KEY=VALUE format.`
             );
             return;
         }

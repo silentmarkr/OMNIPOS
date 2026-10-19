@@ -62,9 +62,8 @@ module.exports = function registerMarketplace(deps) {
 
     // ------------------------------------------------------------ RELAY client
     async function relayCall(path, body, timeoutMs = 30000) {
-        if (!RELAY_API_KEY) {
-            const e = new Error('RELAY_API_KEY is not configured on this server. Please contact the developer.'); e.status = 500; throw e;
-        }
+        // relayFetch resolves the credential dynamically after first-install activation.
+        // Do not gate this module on the stale value captured during startup.
         let res;
         try {
             res = await relayFetch(`${RELAY_URL}${path}`, {
