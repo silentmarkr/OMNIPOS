@@ -170,8 +170,12 @@ function ensureForcedPasswordStyles() {
     st.textContent = `
 .fpc-popup{width:min(460px,94vw)!important;max-width:94vw!important;padding:1.4rem 1.2rem 1.1rem!important;border-radius:22px!important;box-sizing:border-box!important}
 .fpc-popup .swal2-title{font-size:1.45rem!important;font-weight:800!important;letter-spacing:-.01em;padding:0 0 .35rem!important;margin:0!important}
-.fpc-popup .swal2-html-container{margin:.4rem 0 0!important;padding:0!important;overflow:visible!important;max-width:100%!important}
-.fpc-popup .swal2-actions{margin:1.1rem 0 0!important;gap:.6rem;flex-wrap:wrap;width:100%}
+/* Never taller than the screen: the form scrolls inside the card while the buttons (Update / Log out / Change it later) stay pinned and visible. */
+.fpc-popup{display:flex!important;flex-direction:column!important;max-height:calc(100vh - 16px)!important;max-height:calc(100dvh - 16px)!important;overflow:hidden!important}
+.fpc-popup .swal2-title{flex:0 0 auto}
+.fpc-popup .swal2-html-container{margin:.4rem 0 0!important;padding:0 2px 0 0!important;overflow-y:auto!important;overflow-x:hidden!important;max-width:100%!important;flex:1 1 auto!important;min-height:0!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.fpc-popup .swal2-actions{margin:1.1rem 0 0!important;gap:.6rem;flex-wrap:wrap;width:100%;flex:0 0 auto;padding-bottom:env(safe-area-inset-bottom,0)}
+.fpc-popup .swal2-validation-message{flex:0 0 auto}
 .fpc-popup .swal2-actions .swal2-deny{order:3;flex:1 1 100%!important;background:transparent!important;color:inherit!important;opacity:.7;box-shadow:none!important;text-decoration:underline;font-weight:600!important;padding:.4rem .9rem!important}
 .fpc-popup .swal2-actions .swal2-deny:hover,.fpc-popup .swal2-actions .swal2-deny:focus-visible{opacity:1}
 .fpc-popup .swal2-actions .swal2-styled{margin:0!important;flex:1 1 0;border-radius:12px!important;font-weight:700!important;padding:.8rem .9rem!important;font-size:.95rem!important}
