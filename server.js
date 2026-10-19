@@ -324,9 +324,14 @@ app.use((err, req, res, next) => {
 });
 // Activation gate for new customer installs. Existing licensed installs continue normally;
 // unactivated installs can only access the activation screen and activation endpoint.
-app.use((req, res, next) => {
+// Single source of truth for "is this installation activated yet?" (used by the activation gate AND the login gate below).
+function isClientActivated() {
     let activated = Boolean(process.env.RELAY_API_KEY);
     try { activated = activated || Boolean(readRelayClientCredential()); } catch (_) {}
+    return activated;
+}
+app.use((req, res, next) => {
+    const activated = isClientActivated();
     if (activated || req.path === '/activate.html' || req.path === '/api/relay/activate') return next();
     if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/activate.html');
     return res.status(423).json({ success: false, code: 'CLIENT_ACTIVATION_REQUIRED', message: 'Activate this OMNIPOS installation with your customer activation key first.' });
@@ -506,6 +511,10 @@ const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp'
 app.use((req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
+    // FIX: first-install activation happens BEFORE any user can log in, so it must not require a session token
+    // (otherwise the Activate page always failed with "Kailangan mag-login muna. Walang session token.").
+    // It is public ONLY while the device is not activated; once activated, replacing the credential needs an Admin login.
+    if (req.path === '/api/relay/activate' && !isClientActivated()) return next();
     if (req.path.startsWith('/api/system/reset/status/')) return next();
     const token = extractToken(req);
     if (!token) {
@@ -4665,6 +4674,11 @@ function getOrCreateInstallationId(data) {
 // First-install customer activation. The customer package does not need the RELAY master key.
 app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 * 1000), async (req, res) => {
     try {
+        // Already-activated device: only a logged-in Admin may replace the credential (the login gate lets us through with req.authUser set).
+        // Not-activated device: public first-install activation (no req.authUser yet).
+        if (isClientActivated() && String(req.authUser?.role || '').toLowerCase() !== 'admin') {
+            return res.status(403).json({ success: false, code: 'ADMIN_REQUIRED', message: 'Replacing the activation key on this device requires administrator approval.' });
+        }
         const activationKey = String(req.body?.activationKey || '').trim();
         if (!activationKey) return res.status(400).json({ success: false, message: 'Activation key is required.' });
         const featureData = readFeatureUnlocks();
