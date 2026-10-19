@@ -13578,3 +13578,549 @@ MODE: Development (Localhost Access Only)
 ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
 Server running at http://localhost:3000
 MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-17 15:24:01] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-17 15:24:02] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-17 15:24:04] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-17 15:24:07] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-17T07:23:46.614Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-17 15:29:15] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-17 23:08:47] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-17 23:08:50] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-17T07:28:21.273Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-17 23:09:32] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-18 03:30:30] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-18 03:30:33] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-17T07:28:21.273Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-18 20:55:52] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-18 20:55:53] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-18 20:55:55] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-18 20:55:58] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T12:38:11.373Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-18 22:22:08] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-18 22:22:11] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T14:22:01.913Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-18 22:22:23] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-18 22:24:13] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-18 22:24:16] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T14:22:14.277Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 02:03:35] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 02:03:38] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T14:29:09.870Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+[2026-10-19 06:41:05] ⚠️  May natirang lock file mula sa dating session (PID 9555, hindi na tumatakbo) — nililinis.
+[2026-10-19 06:41:05] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 06:41:08] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T14:29:09.870Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+Unable to refresh Receipt Credit pricing from RELAY: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 07:00:53] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 07:01:00] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 07:01:03] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T23:00:53.192Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+[2026-10-19 07:37:59] ❌ May tumatakbo na supervisor loop (PID 12297). Hindi na papatakbuhin ulit.
+[2026-10-19 07:39:55] ❌ May tumatakbo na supervisor loop (PID 12297). Hindi na papatakbuhin ulit.
+[2026-10-19 07:40:22] ❌ May tumatakbo na supervisor loop (PID 12297). Hindi na papatakbuhin ulit.
+[2026-10-19 07:41:03] ❌ May tumatakbo na supervisor loop (PID 12297). Hindi na papatakbuhin ulit.
+[2026-10-19 07:41:31] ❌ May tumatakbo na supervisor loop (PID 12297). Hindi na papatakbuhin ulit.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 07:41:49] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 07:41:59] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 07:42:02] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T23:41:46.562Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-10-19 07:42:14] ❌ May tumatakbo na supervisor loop (PID 21600). Hindi na papatakbuhin ulit.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 07:42:42] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 09:40:57] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 09:41:00] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-18T23:42:05.183Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 09:45:11] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 09:45:20] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 09:45:23] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T01:41:04.731Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+Omni Search Images error for SS-FG0003: Error: All free image search providers failed or returned nothing for "Tender Juicy Hotdog Cocktail 250g product photo". (Wikipedia: Wikipedia returned no image results. | Wikimedia Commons: Wikimedia Commons returned no image results. | Openverse: This operation was aborted)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous> {
+  statusCode: 502
+}
+Omni Search Images error for SS-FG0010: Error: All free image search providers failed or returned nothing for "Purefoods Classic Chicken Tocino 225g product photo". (Open Facts (Food/Beauty/Products): Open Facts returned no matching products.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for SS-FG0009: Error: All free image search providers failed or returned nothing for "Purefoods Pork Tocino Sweet & Juicy 225g product photo". (DuckDuckGo: DuckDuckGo image search returned HTTP 403. | Bing (free): Bing (free) timed out.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous> {
+  statusCode: 502
+}
+Omni Search Images error for SS-FG0012: Error: All free image search providers failed or returned nothing for "Mekeni Pork Tocino Tamis-Anhang 225g product photo". (Bing (free): This operation was aborted)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous> {
+  statusCode: 502
+}
+Omni Search Images error for SS-FG0013: Error: All free image search providers failed or returned nothing for "Mekeni Skinless Longganisa 250g product photo". (Bing (free): This operation was aborted)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous> {
+  statusCode: 502
+}
+Omni Search Images error for SS-FG0016: Error: All free image search providers failed or returned nothing for "Purefoods Classic Honey Cured Bacon 200g product photo". (Open Facts (Food/Beauty/Products): Open Facts returned no matching products.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images error for SS-FG0015: Error: All free image search providers failed or returned nothing for "Purefoods Native Longganisa 250g product photo". (Open Facts (Food/Beauty/Products): Open Facts returned no matching products.)
+    at finish (/data/data/com.termux/files/home/OMNIPOS/server.js:3110:29)
+    at /data/data/com.termux/files/home/OMNIPOS/server.js:3134:35
+    at <anonymous>
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  statusCode: 502
+}
+Omni Search Images fetch error for SS-FG0014 (https://images.freshop.ncrcloud.com/1564405684702539870/fba1684227fc7ee9301804ebe15798c4_large.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0036 (https://kiasumart.com/wp-content/uploads/2023/03/Frozen-Chicken-Wings-500g.png): Error: socket hang up
+    at TLSSocket.socketOnEnd (node:_http_client:631:25)
+    at TLSSocket.emit (node:events:521:24)
+    at endReadableNT (node:internal/streams/readable:1746:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'ECONNRESET'
+}
+Omni Search Images fetch error for SS-FG0039 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=2871022596340979): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0048 (https://images.freshop.ncrcloud.com/1564405684702544774/08573591ba04d83a3448bf3c48b1c0e3_large.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0049 (https://assets.tops.co.th/SHRIMPEXPRESS-ShrimpExpressCookedWhiteShrimpPeeledDeveinedTailonXLSize250g-8856104000208-1?$JPEG$): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2675:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0051 (https://d19oj5aeuefgv.cloudfront.net/0259024-1): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0055 (https://images.freshop.ncrcloud.com/1564405684702537302/89decf14d5ba9e0cf487b2f7307ee1c2_large.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0061 (https://pinoycupidgifts.com/wp-content/uploads/2022/02/Selecta-Supreme-Coffee-Crumble-Ice-Cream-1.3L.jpg): Error [ERR_TLS_CERT_ALTNAME_INVALID]: Hostname/IP does not match certificate's altnames: Host: pinoycupidgifts.com. is not in the cert's altnames: DNS:drh4.hostwhitelabel.com
+    at Object.checkServerIdentity (node:tls:466:12)
+    at TLSSocket.onConnectSecure (node:internal/tls/wrap:1773:27)
+    at TLSSocket.emit (node:events:509:20)
+    at TLSSocket._finishInit (node:internal/tls/wrap:1202:8)
+    at ssl.onhandshakedone (node:internal/tls/wrap:983:12) {
+  code: 'ERR_TLS_CERT_ALTNAME_INVALID',
+  reason: "Host: pinoycupidgifts.com. is not in the cert's altnames: DNS:drh4.hostwhitelabel.com",
+  host: 'pinoycupidgifts.com',
+  cert: {
+    subject: [Object: null prototype] { CN: 'drh4.hostwhitelabel.com' },
+    issuer: [Object: null prototype] { C: 'US', O: "Let's Encrypt", CN: 'YE2' },
+    subjectaltname: 'DNS:drh4.hostwhitelabel.com',
+    infoAccess: [Object: null prototype] { 'CA Issuers - URI': [Array] },
+    ca: false,
+    modulus: undefined,
+    exponent: undefined,
+    pubkey: <Buffer 04 b1 35 28 3b e1 2c 45 a3 21 dd ed d5 d0 86 34 6c 48 62 51 f8 d3 8a f3 98 c7 08 8b c8 ed 2b 9e a0 0d bc 9a 07 e0 87 43 7c 59 1c 6c 8a 11 3d b8 42 6c ... 15 more bytes>,
+    bits: 256,
+    valid_from: 'Sep  3 21:49:20 2026 GMT',
+    valid_to: 'Dec  2 21:49:19 2026 GMT',
+    fingerprint: '10:4F:3F:52:87:4C:1A:BD:C1:6A:D1:52:2C:83:4C:9A:71:3E:06:A1',
+    fingerprint256: '23:13:3A:A6:BD:06:0C:F0:44:F6:4A:40:31:D8:90:DF:EB:EE:57:4D:28:0B:8B:B3:16:83:A0:EF:54:1F:FE:8C',
+    fingerprint512: '9B:6B:70:E8:A7:88:32:AB:B7:D4:C8:AC:AD:8F:BC:D2:6E:49:4D:A6:89:AF:53:12:1A:F8:9E:4C:61:43:BB:4C:BA:7E:B2:28:4B:8D:2D:9F:BF:31:36:CF:D3:12:B4:9D:B8:37:56:8E:B6:88:4A:A9:88:37:54:74:09:F5:30:FD',
+    ext_key_usage: [ '1.3.6.1.5.5.7.3.1' ],
+    serialNumber: '05C1C0BA805A82D93519476351C6C715C39C',
+    raw: <Buffer 30 82 03 9d 30 82 03 22 a0 03 02 01 02 02 12 05 c1 c0 ba 80 5a 82 d9 35 19 47 63 51 c6 c7 15 c3 9c 30 0a 06 08 2a 86 48 ce 3d 04 03 03 30 33 31 0b 30 ... 879 more bytes>,
+    asn1Curve: 'prime256v1',
+    nistCurve: 'P-256',
+    issuerCertificate: {
+      subject: [Object: null prototype],
+      issuer: [Object: null prototype],
+      subjectaltname: undefined,
+      infoAccess: [Object: null prototype],
+      ca: true,
+      modulus: undefined,
+      exponent: undefined,
+      pubkey: <Buffer 04 71 9a b4 33 91 d6 c4 10 bd cc a9 7b 77 74 94 2d b5 87 38 ed ac 64 74 34 c7 b9 de 53 3e a3 36 cf 9b 92 0f 97 26 93 45 ab 1e 55 97 be 79 6f a8 12 ea ... 47 more bytes>,
+      bits: 384,
+      valid_from: 'Sep  3 00:00:00 2025 GMT',
+      valid_to: 'Sep  2 23:59:59 2028 GMT',
+      fingerprint: 'F8:15:8C:A8:A3:A7:C5:DB:D7:84:22:18:F5:D9:49:CE:C8:3A:CD:BA',
+      fingerprint256: '97:65:8D:E8:C6:8D:FA:98:AC:E1:E5:02:8A:63:D5:4A:1A:AE:91:1B:3E:21:47:10:76:C6:85:0C:D0:8C:BA:B4',
+      fingerprint512: '2D:FD:6C:37:2D:61:71:42:AD:8B:BD:10:44:08:52:18:DD:A3:92:09:CC:F2:DA:45:84:82:51:21:6E:03:82:25:36:B3:43:21:12:63:42:23:B0:46:E3:7D:10:D3:E5:B4:D0:CF:B1:A1:69:AE:5F:F9:11:3F:12:95:22:2E:ED:87',
+      ext_key_usage: [Array],
+      serialNumber: '4DF3B15DD6C0784C507CD37B58E6F115',
+      raw: <Buffer 30 82 02 8c 30 82 02 11 a0 03 02 01 02 02 10 4d f3 b1 5d d6 c0 78 4c 50 7c d3 7b 58 e6 f1 15 30 0a 06 08 2a 86 48 ce 3d 04 03 03 30 2e 31 0b 30 09 06 ... 606 more bytes>,
+      asn1Curve: 'secp384r1',
+      nistCurve: 'P-384',
+      issuerCertificate: [Object]
+    }
+  }
+}
+Omni Search Images fetch error for SS-FG0064 (https://assets.unileversolutions.com/v1/125788602.png): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2675:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0066 (https://cdn0.woolworths.media/content/wowproductimages/large/107539_2.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2675:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0073 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=4059045527744115): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0074 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=712360687575002): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0080 (https://img06.weeecdn.com/product/image/470/202/7E51EA0D8815B5C8.png): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0085 (https://assets.tops.co.th/FREEZEZONE-FreezeZoneFrozenShoestringFrenchFries500g-8853474093021-1?$JPEG$): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2675:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0088 (https://www.allrecipes.com/thmb/D3UiuduDE-8-omNA33CkCbtGZJk=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/ar-taste-test-frozen-hash-browns-seasons-choice-hash-browns-patties-0c85d1c2d1bd4bf0a0b6e2fa8cf60771.jpg): Error: Nagbalik ng HTTP 403 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2675:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0091 (https://www.degrocery.com/de-grocery/2020/04/Kawan-Frozen-Sweet-Corn-500g.jpg): Error: socket hang up
+    at TLSSocket.socketOnEnd (node:_http_client:631:25)
+    at TLSSocket.emit (node:events:521:24)
+    at endReadableNT (node:internal/streams/readable:1746:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'ECONNRESET'
+}
+Omni Search Images fetch error for SS-FG0097 (https://www.smithsice.com.au/_next/image?url=https:%2F%2Fapi.smithsice.com.au%2Fstorage%2Fv1%2Fobject%2Fpublic%2Fproduct-images%2F56dfefbf-6851-4328-afff-8e655d0f522c%2F1748836136923.png&w=640&q=85): Error: Nagbalik ng HTTP 400 ang image host.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2675:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0098 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=330961962607454): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+Omni Search Images fetch error for SS-FG0099 (https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=1116286090532065): Error: Hindi image ang na-fetch na file.
+    at ClientRequest.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:2680:35)
+    at Object.onceWrapper (node:events:631:12)
+    at ClientRequest.emit (node:events:509:20)
+    at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:812:27)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+    at TLSSocket.socketOnData (node:_http_client:647:22)
+    at TLSSocket.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23)
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: This operation was aborted
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 11:18:27] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 11:24:39] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 11:24:42] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T02:50:30.072Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+[2026-10-19 11:25:08] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T03:24:45.482Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 11:28:34] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 11:28:37] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 11:28:40] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T03:25:11.365Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 11:32:26] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 11:32:31] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 11:32:34] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T03:29:56.118Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+Unable to refresh Receipt Credit pricing from RELAY: No internet connection has been detected on this device.
+[2026-10-19 11:33:52] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T03:33:38.967Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 11:34:54] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-10-19 11:34:58] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-10-19 11:35:01] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 2 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-19T03:33:55.251Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://localhost:3000
+MODE: Development (Localhost Access Only)
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-10-19 11:35:22] 🛑 Ihihinto ang supervisor loop (signal received).

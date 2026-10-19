@@ -98,13 +98,27 @@ async function addOfflineQueueItem(item) {
         queueUserKey
     };
     if (window.OfflineStorage?.enqueue) {
-        await window.OfflineStorage.enqueue(normalized);
-        return normalized;
+        // Ibalik ang mismong na-save na record (may localQueueId) para tama ang offlineQueueId ng resibo.
+        const saved = await window.OfflineStorage.enqueue(normalized);
+        return saved || normalized;
     }
     const queue = await getOfflineQueue();
     queue.push(normalized);
     await saveOfflineQueue(queue);
     return normalized;
+}
+// Kapag pumalya mismo ang pag-save sa offline queue (IndexedDB at localStorage ay parehong bumigay, hal. puno ang storage),
+// HUWAG hayaang tahimik na mawala ang benta: ipaalam sa cashier at panatilihin ang cart.
+async function addOfflineQueueItemSafely(item) {
+    try {
+        return await addOfflineQueueItem(item);
+    } catch (e) {
+        console.error('Could not save the sale to the offline queue:', e);
+        if (typeof Swal !== 'undefined') {
+            Swal.fire('Sale NOT Saved', 'The sale could not be saved on this device (storage may be full or blocked). The cart was kept. Do not release the items yet — check the Transactions list to make sure it was not recorded, free up device storage or reconnect, then try again.', 'error');
+        }
+        return null;
+    }
 }
 
 async function removeOfflineQueueItem(item) {
@@ -6137,6 +6151,8 @@ async function openEditDebtForm(id) {
     const dueLocalValue = debt.dueAt
         ? new Date(new Date(debt.dueAt).getTime() - new Date(debt.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16)
         :'';
+    const isAdminUser = !!(currentUser && currentUser.role && String(currentUser.role).toLowerCase() === 'admin');
+    const originalAmount = parseFloat(debt.amount) || 0;
     const { value: formValues } = await Swal.fire({
         title:'Edit Debt',
         html: `
@@ -6146,7 +6162,24 @@ async function openEditDebtForm(id) {
             <textarea id="swal-debt-note" class="swal2-textarea" placeholder="Note" style="width:100%;margin:0 0 10px;box-sizing:border-box;">${escapeHtml(debt.note ||'')}</textarea>
             <label style="display:block;text-align:left;font-size:0.85rem;color:#94a3b8;margin:0 0 6px;">Due Date/Time:</label>
             <input type="datetime-local" id="swal-debt-due" class="swal2-input" value="${dueLocalValue}" style="width:100%;margin:0;box-sizing:border-box;">
+            ${isAdminUser ? '' : `
+            <div id="swal-debt-pw-wrap" style="display:none;margin-top:12px;text-align:left;">
+                <label style="display:block;font-size:0.85rem;color:var(--pos-warning);margin:0 0 6px;">🔒 Admin password is required to change the amount owed:</label>
+                <input type="password" id="swal-debt-admin-pw" class="swal2-input" placeholder="Admin Password" autocomplete="off" style="width:100%;margin:0;box-sizing:border-box;">
+            </div>`}
         `,
+        didOpen: () => {
+            if (isAdminUser) return;
+            const amountInput = document.getElementById('swal-debt-amount');
+            const pwWrap = document.getElementById('swal-debt-pw-wrap');
+            if (!amountInput || !pwWrap) return;
+            const syncPwVisibility = () => {
+                const v = parseFloat(amountInput.value);
+                pwWrap.style.display = (!isNaN(v) && Math.abs(v - originalAmount) >= 0.005) ? 'block' : 'none';
+            };
+            amountInput.addEventListener('input', syncPwVisibility);
+            syncPwVisibility();
+        },
         focusConfirm: false,
         showCancelButton: true,
         confirmButtonText:'Update',
@@ -6156,13 +6189,26 @@ async function openEditDebtForm(id) {
                 Swal.showValidationMessage('A valid amount is required.');
                 return false;
             }
-            return {
+            const newAmount = parseFloat(amount);
+            const amountChanged = Math.abs(newAmount - originalAmount) >= 0.005;
+            let adminPassword = '';
+            if (!isAdminUser && amountChanged) {
+                const pwInput = document.getElementById('swal-debt-admin-pw');
+                adminPassword = pwInput ? pwInput.value : '';
+                if (!adminPassword.trim()) {
+                    Swal.showValidationMessage('An admin password is required to change the amount owed.');
+                    return false;
+                }
+            }
+            const payload = {
                 customerName: document.getElementById('swal-debt-name').value.trim(),
                 phone: document.getElementById('swal-debt-phone').value.trim(),
-                amount: parseFloat(amount),
+                amount: newAmount,
                 note: document.getElementById('swal-debt-note').value.trim(),
                 dueAt: document.getElementById('swal-debt-due').value || null
             };
+            if (adminPassword) payload.adminPassword = adminPassword;
+            return payload;
         }
     });
     if (!formValues) return;
@@ -6176,6 +6222,8 @@ async function openEditDebtForm(id) {
         if (data.success) {
             Swal.fire({ icon:'success', title:'Updated!', timer: 1200, showConfirmButton: false });
             loadDebtsView();
+        } else if (data.code === 'WRONG_ADMIN_PASSWORD' || data.code === 'ADMIN_PASSWORD_REQUIRED') {
+            Swal.fire('Access Denied', data.message || 'Incorrect admin password.', 'error');
         } else {
             Swal.fire('Error', data.message ||'Could not update.','error');
         }
@@ -14952,7 +15000,10 @@ async function submitFinalPaymentTransactionInner() {
                 creditDebtInfo: (paymentMethodLabel ==='CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null
             })
         });
-        const output = await res.json();
+        // Hindi-JSON na sagot (hal. HTML error page ng proxy/gateway) ay hindi dapat maging "Connection Error" na walang
+        // offline copy — baka naproseso na ng server ang benta. Gawin itong normal na {success:false} para sundin ang
+        // parehong daan ng 5xx (ligtas na ma-queue at ma-verify gamit ang syncId).
+        const output = await res.json().catch(() => ({ success: false, message: `HTTP ${res.status}` }));
         if(output.success) {
             Swal.fire('Transaction Saved!', `Reference Code: ${output.currentTransaction?.id || txId}`,'success');
             {
@@ -14999,7 +15050,10 @@ async function submitFinalPaymentTransactionInner() {
             }
         } else if (res.status >= 500) {
 
-            await addOfflineQueueItem({ transaction: transactionPayload, username: currentUser.username, creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null, status: 'pending', lastError: `Server returned HTTP ${res.status}; outcome will be verified during synchronization.` });
+            const queuedAfterServerError = await addOfflineQueueItemSafely({ transaction: transactionPayload, username: currentUser.username, creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null, status: 'pending', lastError: `Server returned HTTP ${res.status}; outcome will be verified during synchronization.` });
+            if (!queuedAfterServerError) return;
+            transactionPayload.offlineQueued = true;
+            transactionPayload.offlineQueueId = queuedAfterServerError.localQueueId || transactionPayload.syncId;
             transactionPayload.items.forEach(item => {
                 const localProd = globalProducts.find(p => p.code === item.code);
                 if (localProd) localProd.stock = Math.max(0, qty3(parseFloat(localProd.stock || 0) - lineBaseQty(item)));
@@ -15035,11 +15089,12 @@ async function submitFinalPaymentTransactionInner() {
             Swal.fire('Connection Error', e?.message || 'The transaction could not be submitted. No offline copy was created.', 'error');
             return;
         }
-        const queueItem = await addOfflineQueueItem({
+        const queueItem = await addOfflineQueueItemSafely({
             transaction: transactionPayload,
             username: currentUser.username,
             creditDebtInfo: (paymentMethodLabel === 'CCREDIT' && pendingCreditDebtDraft) ? pendingCreditDebtDraft : null
         });
+        if (!queueItem) return;
         transactionPayload.offlineQueued = true;
         transactionPayload.offlineQueueId = queueItem.localQueueId || transactionPayload.syncId;
         transactionPayload.items.forEach(item => {
@@ -17508,7 +17563,8 @@ const FRAUD_ALERT_TYPE_LABELS = {
     void_velocity: 'Rapid Voids',
     refund_velocity: 'Rapid Refunds',
     large_refund: 'Oversized Refund',
-    unusual_hour_sale: 'Off-Hours Sale'
+    unusual_hour_sale: 'Off-Hours Sale',
+    offline_stock_shortfall: 'Offline Stock Shortfall'
 };
 const FRAUD_ALERT_SEVERITY_COLORS = {
     low: '#64748b',
@@ -18191,6 +18247,21 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         const invNo = tx.birInvoiceNumber ? String(tx.birInvoiceNumber) : '';
         if (invNoEl) invNoEl.innerText = invNo;
         if (invRowEl) invRowEl.style.display = invNo ? '' : 'none';
+        // Receipt issued while offline: the official BIR invoice number only exists after the sale syncs.
+        let offlineNoticeEl = document.getElementById('r-offline-notice');
+        const showOfflineNotice = !!(tx.offlineQueued && !invNo);
+        if (showOfflineNotice && invRowEl && invRowEl.parentNode) {
+            if (!offlineNoticeEl) {
+                offlineNoticeEl = document.createElement('div');
+                offlineNoticeEl.id = 'r-offline-notice';
+                offlineNoticeEl.style.cssText = 'text-align:center;font-size:0.72rem;font-weight:700;color:#000;border:1px dashed #000;padding:3px 6px;margin:4px 0;';
+                invRowEl.parentNode.insertBefore(offlineNoticeEl, invRowEl);
+            }
+            offlineNoticeEl.textContent = 'OFFLINE RECEIPT — the official BIR invoice no. is assigned once this sale syncs.';
+            offlineNoticeEl.style.display = '';
+        } else if (offlineNoticeEl) {
+            offlineNoticeEl.style.display = 'none';
+        }
     }
     const parts = tx.timestamp.split(', ');
     document.getElementById('r-date').innerText = parts[0] || tx.timestamp;
@@ -27236,28 +27307,145 @@ function reopenReceiptFromHistory(id) {
         alert("Transaction ID: " + foundTx.id);
     }
 }
-async function showOfflineQueueStatus() {
+function offlineQueueItemId(item) {
+    return item ? (item.localQueueId || (item.transaction && (item.transaction.syncId || item.transaction.id)) || '') : '';
+}
+// Para sa Admin: lahat ng nakapila sa device na ito, kahit sinong cashier ang may-ari (ang queue ay per-cashier, kaya dati
+// hindi makita ng Admin ang mga benta ng cashier na tinanggihan ng server at wala siyang paraan para linisin ang mga ito).
+async function getOfflineQueueOfAllCashiersOnDevice() {
+    try {
+        if (window.OfflineStorage && window.OfflineStorage.getAllQueue) return await window.OfflineStorage.getAllQueue();
+    } catch (e) { console.warn('Could not read the offline queue of the other cashiers:', e); }
+    return getOfflineQueue();
+}
+async function retryOfflineQueueItemById(id) {
     const queue = await getOfflineQueue();
-    if (!queue.length) {
+    const item = queue.find(x => offlineQueueItemId(x) === id);
+    if (item && item.status === 'needs-review') await updateOfflineQueueItem(item, { status: 'pending' });
+    await updateOfflineQueueIndicator();
+    syncOfflineTransactions();
+}
+// Best effort: iwanan ng bakas sa server audit log kung sino ang nag-discard ng benta na may resibo na (kung walang internet,
+// ang backup copy sa device pa rin ang rekord).
+async function recordOfflineSaleDiscardInAuditLog(item) {
+    try {
+        const tx = (item && item.transaction) || {};
+        const actor = currentUser ? currentUser.username : 'Unknown';
+        const message = `Discarded the rejected offline sale ${tx.id || ''} (₱${Number(tx.total || 0).toFixed(2)}, cashier ${item.username || tx.cashier || 'unknown'}). Server reason: ${String(item.lastError || 'n/a').slice(0, 200)}. A backup copy was kept on the device.`;
+        await authFetch(`${API_URL}/logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'DISCARD_OFFLINE_SALE', username: actor, user: actor, details: { message } })
+        });
+    } catch (e) { console.warn('Could not write the offline-sale discard to the audit log:', e); }
+}
+async function discardOfflineQueueItemById(id, queueUserKey) {
+    const isAdmin = !!(currentUser && String(currentUser.role || '').toLowerCase() === 'admin');
+    if (!isAdmin) { Swal.fire('Admin Only', 'Only an Admin can discard an offline sale.', 'warning'); return; }
+    const queue = await getOfflineQueueOfAllCashiersOnDevice();
+    const item = queue.find(x => offlineQueueItemId(x) === id && (!queueUserKey || x.queueUserKey === queueUserKey));
+    if (!item) return;
+    if (item.status !== 'needs-review') { Swal.fire('Not Discarded', 'Only a sale that the server rejected (Needs review) can be discarded.', 'info'); return; }
+    const tx = item.transaction || {};
+    const confirm = await Swal.fire({
+        icon: 'warning',
+        title: 'Discard this offline sale?',
+        html: `<div style="text-align:left;font-size:.9rem;">Reference <b>${escapeHtml(String(tx.id || ''))}</b> · ₱${Number(tx.total || 0).toFixed(2)}${item.username ? ` · Cashier <b>${escapeHtml(String(item.username))}</b>` : ''}<br><br>The server rejected it${item.lastError ? `: <i>${escapeHtml(String(item.lastError).slice(0, 200))}</i>` : '.'}<br><br>Discarding removes it from the queue, so it will <b>never</b> be recorded in sales, stock or BIR. A backup copy is kept on this device.</div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Discard sale',
+        confirmButtonColor: 'var(--danger-red)'
+    });
+    if (!confirm.isConfirmed) return;
+    const backupKey = 'discarded_offline_sales';
+    const backupId = `${Date.now()}-${offlineQueueItemId(item)}`;
+    let backedUp = false;
+    try {
+        if (window.OfflineStorage && window.OfflineStorage.putLargeCache && window.OfflineStorage.getLargeCache) {
+            const existing = await window.OfflineStorage.getLargeCache(backupKey);
+            const list = Array.isArray(existing) ? existing : [];
+            list.unshift({ backupId, discardedAt: new Date().toISOString(), discardedBy: currentUser.username, item });
+            await window.OfflineStorage.putLargeCache(backupKey, list.slice(0, 200));
+            const check = await window.OfflineStorage.getLargeCache(backupKey);
+            backedUp = Array.isArray(check) && check.some(x => x && x.backupId === backupId);
+        }
+    } catch (e) { backedUp = false; }
+    if (!backedUp) {
+        Swal.fire('Not Discarded', 'A backup copy of this sale could not be saved on this device, so it was kept in the queue.', 'error');
+        return;
+    }
+    await removeOfflineQueueItem(item);
+    recordOfflineSaleDiscardInAuditLog(item);
+    const key = tx.syncId || tx.id;
+    localTransactionsList = localTransactionsList.filter(t => (t.syncId || t.id) !== key);
+    ovWriteJsonCache('cached_transactions', localTransactionsList);
+    updateOfflineQueueIndicator();
+    if (typeof filterTransactionsTable === 'function') { try { filterTransactionsTable(); } catch (e) {} }
+    Swal.fire({ icon: 'success', title: 'Discarded', text: 'The sale was removed from the queue. A backup copy was kept on this device.', timer: 1800, showConfirmButton: false });
+}
+async function showOfflineQueueStatus() {
+    const isAdmin = !!(currentUser && String(currentUser.role || '').toLowerCase() === 'admin');
+    const queue = await getOfflineQueue();
+    // Admin: isama ang mga benta ng IBANG cashier sa device na ito na tinanggihan ng server (para ma-review/ma-discard).
+    let othersNeedingReview = [];
+    if (isAdmin) {
+        const myKey = getOfflineQueueUserKey();
+        const everything = await getOfflineQueueOfAllCashiersOnDevice();
+        othersNeedingReview = everything.filter(x => x && x.queueUserKey !== myKey && x.status === 'needs-review');
+    }
+    if (!queue.length && !othersNeedingReview.length) {
         if (typeof Swal !== 'undefined') Swal.fire({ icon: 'success', title: 'Offline Queue', text: 'There are no pending offline transactions for this cashier on this device.', confirmButtonText: 'OK' });
         return;
     }
     const pending = queue.filter(item => item.status === 'pending' || item.status === 'syncing');
     const failed = queue.filter(item => item.status === 'failed' || item.status === 'needs-review');
+    const btnStyle = 'padding:2px 8px;font-size:.72rem;margin-left:4px;';
     const rows = queue.slice(0, 25).map(item => {
         const tx = item.transaction || {};
+        const id = escapeHtml(String(offlineQueueItemId(item)));
+        const user = escapeHtml(String(item.queueUserKey || ''));
         const state = item.status === 'needs-review' ? 'Needs review' : item.status === 'failed' ? 'Failed' : item.status === 'syncing' ? 'Syncing…' : 'Pending';
-        return `<tr><td style="padding:5px 7px;font-weight:700;">${escapeHtml(tx.id || 'Unknown')}</td><td style="padding:5px 7px;">${escapeHtml(state)}</td><td style="padding:5px 7px;text-align:right;">₱${Number(tx.total || 0).toFixed(2)}</td></tr>`;
+        const reason = (item.lastError && item.status !== 'syncing')
+            ? `<div style="font-size:.72rem;font-weight:400;color:${item.status === 'needs-review' || item.status === 'failed' ? 'var(--danger-red)' : 'var(--text-muted)'};">${escapeHtml(String(item.lastError).slice(0, 160))}</div>` : '';
+        const actions = item.status === 'needs-review'
+            ? `<button type="button" class="btn-action-outline offq-retry" data-id="${id}" style="${btnStyle}">Retry</button>${isAdmin ? `<button type="button" class="btn-action-outline offq-discard" data-id="${id}" data-user="${user}" style="${btnStyle}">Discard</button>` : ''}`
+            : '';
+        return `<tr><td style="padding:5px 7px;font-weight:700;">${escapeHtml(tx.id || 'Unknown')}${reason}</td><td style="padding:5px 7px;">${escapeHtml(state)}</td><td style="padding:5px 7px;text-align:right;">₱${Number(tx.total || 0).toFixed(2)}</td><td style="padding:5px 7px;text-align:right;white-space:nowrap;">${actions}</td></tr>`;
     }).join('');
+    const otherRows = othersNeedingReview.length ? (`<tr><td colspan="4" style="padding:10px 7px 4px;font-size:.75rem;font-weight:700;color:var(--text-muted);">Rejected sales of other cashiers on this device — only that cashier can retry them; an Admin can discard them.</td></tr>` + othersNeedingReview.slice(0, 25).map(item => {
+        const tx = item.transaction || {};
+        const id = escapeHtml(String(offlineQueueItemId(item)));
+        const user = escapeHtml(String(item.queueUserKey || ''));
+        const owner = escapeHtml(String(item.username || tx.cashier || 'unknown cashier'));
+        const reason = item.lastError ? `<div style="font-size:.72rem;font-weight:400;color:var(--danger-red);">${escapeHtml(String(item.lastError).slice(0, 160))}</div>` : '';
+        return `<tr><td style="padding:5px 7px;font-weight:700;">${escapeHtml(tx.id || 'Unknown')}<div style="font-size:.72rem;font-weight:400;color:var(--text-muted);">Cashier: ${owner}</div>${reason}</td><td style="padding:5px 7px;">Needs review</td><td style="padding:5px 7px;text-align:right;">₱${Number(tx.total || 0).toFixed(2)}</td><td style="padding:5px 7px;text-align:right;white-space:nowrap;"><button type="button" class="btn-action-outline offq-discard" data-id="${id}" data-user="${user}" style="${btnStyle}">Discard</button></td></tr>`;
+    }).join('')) : '';
     if (typeof Swal !== 'undefined') {
         Swal.fire({
-            icon: failed.length ? 'warning' : 'info',
+            icon: (failed.length || othersNeedingReview.length) ? 'warning' : 'info',
             title: 'Offline Transaction Queue',
-            html: `<div style="text-align:left"><p><strong>${pending.length}</strong> pending · <strong>${failed.length}</strong> need review.</p><div style="max-height:300px;overflow:auto"><table style="width:100%;font-size:.82rem"><thead><tr><th style="text-align:left">Reference</th><th style="text-align:left">Status</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table></div>${queue.length > 25 ? `<p style="margin:8px 0 0;font-size:.78rem;opacity:.7">Showing the first 25 queued transactions.</p>` : ''}</div>`,
+            html: `<div style="text-align:left"><p><strong>${pending.length}</strong> pending · <strong>${failed.length}</strong> need review.</p><div style="max-height:300px;overflow:auto"><table style="width:100%;font-size:.82rem"><thead><tr><th style="text-align:left">Reference</th><th style="text-align:left">Status</th><th style="text-align:right">Total</th><th></th></tr></thead><tbody>${rows}${otherRows}</tbody></table></div>${queue.length > 25 ? `<p style="margin:8px 0 0;font-size:.78rem;opacity:.7">Showing the first 25 queued transactions.</p>` : ''}</div>`,
             confirmButtonText: 'Sync Now',
             showCancelButton: true,
-            cancelButtonText: 'Close'
-        }).then(result => { if (result.isConfirmed) syncOfflineTransactions(); });
+            cancelButtonText: 'Close',
+            didOpen: (popup) => {
+                popup.querySelectorAll('.offq-retry').forEach(btn => btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    Swal.close();
+                    await retryOfflineQueueItemById(id);
+                }));
+                popup.querySelectorAll('.offq-discard').forEach(btn => btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    const user = btn.getAttribute('data-user');
+                    Swal.close();
+                    await discardOfflineQueueItemById(id, user);
+                }));
+            }
+        }).then(async result => {
+            if (!result.isConfirmed) return;
+            // Manual retry: ibalik sa pending ang mga "needs review" para masubukan ulit (dati walang paraan para ma-retry ang mga ito).
+            try { await requeueNeedsReviewOfflineItems(); } catch (e) { console.warn('Could not re-queue offline items for review:', e); }
+            syncOfflineTransactions();
+        });
     }
 }
 
@@ -27282,6 +27470,16 @@ async function updateOfflineQueueIndicator() {
     } catch (e) {}
 }
 
+async function requeueNeedsReviewOfflineItems() {
+    const queue = await getOfflineQueue();
+    for (const item of queue) {
+        if (item && item.status === 'needs-review' && item.queueUserKey === getOfflineQueueUserKey()) {
+            await updateOfflineQueueItem(item, { status: 'pending' });
+        }
+    }
+}
+const OFFLINE_SYNC_SETTLE_MS = 70 * 1000; // server gate = 60s; may dagdag na palugit para sa pagkakaiba ng orasan ng device at server
+let offlineSettleTimer = null;
 async function syncOfflineTransactions() {
     if (!currentUser || offlineSyncInFlight) return;
     offlineSyncInFlight = (async () => {
@@ -27289,8 +27487,20 @@ async function syncOfflineTransactions() {
         const items = queue.filter(item => item && item.status !== 'needs-review');
         if (!items.length) { updateOfflineQueueIndicator(); return; }
         console.log(`Offline synchronization started: ${items.length} transaction(s) pending for ${currentUser.username}.`);
+        let syncedCount = 0;
+        let newlyNeedsReview = 0;
+        let waitForSettleMs = 0;
         for (const item of items) {
             if (item.queueUserKey !== getOfflineQueueUserKey()) continue;
+            // Ang server ay tinatrato lang na "offline sale" (tatanggapin kahit kulang ang stock) ang benta na may edad na 60s+.
+            // Ang benta na na-queue dahil sa timeout/5xx na wala pang isang minuto ay hihintayin muna dito, para hindi ito
+            // matanggihan (Needs review) sa stock check kahit tapos na ang benta sa harap ng customer.
+            const rungAtMs = new Date(item.transaction && item.transaction.isoDate).getTime();
+            if (Number.isFinite(rungAtMs)) {
+                // Naka-clamp: kung maling nauuna ang orasan ng device (isoDate sa hinaharap), hindi dapat maghintay nang mas matagal sa isang settle window.
+                const remaining = Math.min(OFFLINE_SYNC_SETTLE_MS, OFFLINE_SYNC_SETTLE_MS - (Date.now() - rungAtMs));
+                if (remaining > 0) { waitForSettleMs = Math.max(waitForSettleMs, remaining); continue; }
+            }
             await updateOfflineQueueItem(item, { status: 'syncing', attempts: (Number(item.attempts) || 0) + 1, lastAttemptAt: new Date().toISOString() });
             try {
                 const res = await authFetch(`${API_URL}/transactions`, {
@@ -27299,25 +27509,39 @@ async function syncOfflineTransactions() {
                     body: JSON.stringify({
                         transaction: item.transaction,
                         username: item.username || currentUser.username,
-                        creditDebtInfo: item.creditDebtInfo || null
+                        creditDebtInfo: item.creditDebtInfo || null,
+                        // Tapos na ang benta sa harap ng customer (offline) — dapat maitala ito ng server kahit kulang na ang stock.
+                        offlineSync: true
                     })
                 });
                 const output = await res.json().catch(() => ({}));
                 if (output.success || output.code === 'DUPLICATE_TRANSACTION_ID') {
                     await removeOfflineQueueItem(item);
+                    syncedCount += 1;
                     continue;
                 }
                 if (output.code === 'TRANSACTION_ID_COLLISION') {
-                    const tx = { ...item.transaction, id: generateTransactionId((receiptSettingsCache?.transactionIdSettings?.format) || DEFAULT_TRANSACTION_ID_SETTINGS.format) };
+                    // Keep the reference that was already printed on the customer's receipt so the sale can still be found by it.
+                    const tx = { ...item.transaction, offlineOriginalId: item.transaction.offlineOriginalId || item.transaction.id, id: generateTransactionId((receiptSettingsCache?.transactionIdSettings?.format) || DEFAULT_TRANSACTION_ID_SETTINGS.format) };
                     await updateOfflineQueueItem(item, { status: 'pending', transaction: tx, lastError: 'Transaction reference collision; a new reference was generated.' });
                     continue;
                 }
-                if (res.status === 401 || output.featureLocked || output.code === 'PERMISSION_DENIED') {
+                // Pansamantalang problema (nag-expire ang session, kailangang magpalit ng password, naka-lock pansamantala ang
+                // feature, rate limit/timeout): HUWAG gawing "needs-review" — walang paraan noon para i-retry iyon, kaya
+                // hindi na kailanman nare-record ang benta. Panatilihing pending at subukan ulit mamaya.
+                if (res.status === 401 || res.status === 402 || res.status === 408 || res.status === 425 || res.status === 429
+                    || output.featureLocked || output.code === 'PASSWORD_CHANGE_REQUIRED') {
+                    await updateOfflineQueueItem(item, { status: 'pending', lastError: output.message || (res.status === 401 ? 'Session expired — will retry after the cashier logs in again.' : `HTTP ${res.status}`) });
+                    break;
+                }
+                if (output.code === 'PERMISSION_DENIED') {
                     await updateOfflineQueueItem(item, { status: 'needs-review', lastError: output.message || `HTTP ${res.status}` });
+                    newlyNeedsReview += 1;
                     continue;
                 }
                 if (res.status >= 400 && res.status < 500) {
                     await updateOfflineQueueItem(item, { status: 'needs-review', lastError: output.message || `HTTP ${res.status}` });
+                    newlyNeedsReview += 1;
                     continue;
                 }
                 await updateOfflineQueueItem(item, { status: 'pending', lastError: output.message || `HTTP ${res.status}` });
@@ -27329,8 +27553,19 @@ async function syncOfflineTransactions() {
             }
         }
         updateOfflineQueueIndicator();
+        if (waitForSettleMs > 0 && !offlineSettleTimer) {
+            offlineSettleTimer = setTimeout(() => { offlineSettleTimer = null; syncOfflineTransactions(); }, waitForSettleMs + 1000);
+        }
         if (typeof loadDashboardMetrics === 'function') loadDashboardMetrics();
         if (typeof loadTransactionsHistory === 'function') loadTransactionsHistory();
+        // Pull the server's real stock right away (the local numbers were only estimates while offline).
+        if (syncedCount > 0 && typeof silentRefreshTerminalStock === 'function') {
+            try { await silentRefreshTerminalStock(); } catch (e) {}
+        }
+        // Tell the cashier immediately when the server refused a sale, instead of leaving it silently in the queue.
+        if (newlyNeedsReview > 0 && typeof Swal !== 'undefined') {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: `${newlyNeedsReview} offline sale(s) were rejected by the server`, text: 'Tap the offline queue badge to see why and retry or discard.', showConfirmButton: false, timer: 9000 });
+        }
     })().finally(() => { offlineSyncInFlight = null; });
     return offlineSyncInFlight;
 }
@@ -29140,7 +29375,7 @@ async function promptOtpBoxesAndNewPassword({ title, descriptionHtml, confirmBut
     const result = await Swal.fire({
         title: title || 'Enter Verification Code',
         html:
-            '<div style="text-align:left;font-size:0.85rem;line-height:1.55;color:#64748b;margin:0 0 14px;">' + (descriptionHtml || '') + '</div>' +
+            '<div class="otp-swal-desc" style="text-align:left;font-size:0.85rem;line-height:1.55;margin:0 0 14px;">' + (descriptionHtml || '') + '</div>' +
             '<div class="otp-verify-boxes" style="margin-bottom:6px;">' + boxesHtml + '</div>' +
             '<div style="text-align:center;margin:0 0 14px;"><button type="button" id="swal-fpw-paste" style="background:none;border:none;color:var(--primary-blue,#3b82f6);font-size:0.8rem;font-weight:600;text-decoration:underline;cursor:pointer;padding:4px 8px;"><i class="fa-regular fa-clipboard"></i> Paste code from clipboard</button></div>' +
             '<input id="swal-fpw-new-pw" type="password" class="swal2-input" placeholder="New Password (min 8 chars)" autocomplete="new-password" style="width:100%;margin:0;box-sizing:border-box;">',
@@ -29192,7 +29427,7 @@ async function promptOtpBoxesOnly({ title, descriptionHtml, confirmButtonText })
     const result = await Swal.fire({
         title: title || 'Enter Verification Code',
         html:
-            '<div style="text-align:left;font-size:0.85rem;line-height:1.55;color:#64748b;margin:0 0 14px;">' + (descriptionHtml || '') + '</div>' +
+            '<div class="otp-swal-desc" style="text-align:left;font-size:0.85rem;line-height:1.55;margin:0 0 14px;">' + (descriptionHtml || '') + '</div>' +
             '<div class="otp-verify-boxes" style="margin-bottom:6px;">' + boxesHtml + '</div>' +
             '<div style="text-align:center;margin:0 0 4px;"><button type="button" id="swal-fpw-paste" style="background:none;border:none;color:var(--primary-blue,#3b82f6);font-size:0.8rem;font-weight:600;text-decoration:underline;cursor:pointer;padding:4px 8px;"><i class="fa-regular fa-clipboard"></i> Paste code from clipboard</button></div>',
         focusConfirm: false,
@@ -29645,7 +29880,7 @@ function renderBirZHistory(list) {
             <td>${birPeso(r.beginningAGT)}</td>
             <td>${birPeso(r.endingAGT)}</td>
             <td>${birPeso(r.netSales)}</td>
-            <td>${r.invoiceCount > 0 ? `${escapeHtml(birInvNo(r.invoiceFrom))} – ${escapeHtml(birInvNo(r.invoiceTo))} (${r.invoiceCount})` : '—'}</td>
+            <td>${r.invoiceCount > 0 ? `${escapeHtml(birInvNo(r.invoiceFrom))} – ${escapeHtml(birInvNo(r.invoiceTo))} (${r.invoiceCount})` : '—'}${r.lateSyncedCount ? `<div style="font-size:.72rem;color:var(--pos-warning);">${r.lateSyncedCount} late-synced offline sale(s) · ${birPeso(r.lateSyncedAmount)}</div>` : ''}</td>
             <td>${r.voidCount ? `${r.voidCount} (${birPeso(r.voidAmount)})` : '0'}</td>
             <td><button type="button" class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="printBirZReadingById('${escapeHtml(r.id)}')"><i class="fa-solid fa-print"></i> Print</button></td>
         </tr>`).join('');
@@ -29748,7 +29983,9 @@ function printBirZReading(r) {
         ${row('Last Invoice', r.invoiceCount > 0 ? birInvNo(r.invoiceTo) : '—')}
         ${row('Invoice Count', r.invoiceCount)}
         ${row('Void Count', r.voidCount)}
-        ${row('Void Amount', birPeso(r.voidAmount))}<hr>
+        ${row('Void Amount', birPeso(r.voidAmount))}
+        ${r.offlineSyncedCount ? row('Offline-synced sales', r.offlineSyncedCount) : ''}
+        ${r.lateSyncedCount ? row('Sold before this period', `${r.lateSyncedCount} (${birPeso(r.lateSyncedAmount)})`) : ''}<hr>
         ${row('AGT Resets to date', r.resetCounterAtReading)}
         </body></html>`);
     win.document.close();

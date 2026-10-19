@@ -95,43 +95,62 @@
         return item.localQueueId || item.transaction?.syncId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
-    async function migrateLegacyQueue() {
+    // Single-flight: getQueue() and the load handler can both ask for a migration at the same time.
+    let legacyQueueMigration = null;
+    function migrateLegacyQueue() {
+        if (!legacyQueueMigration) {
+            legacyQueueMigration = migrateLegacyQueueOnce().finally(() => { legacyQueueMigration = null; });
+        }
+        return legacyQueueMigration;
+    }
+
+    function hasLegacyQueueItems() {
+        try {
+            const raw = localStorage.getItem('offline_transactions');
+            return !!raw && raw !== '[]';
+        } catch (e) { return false; }
+    }
+
+    async function migrateLegacyQueueOnce() {
         let legacy = [];
         try { legacy = JSON.parse(localStorage.getItem('offline_transactions') || '[]'); } catch (e) { legacy = []; }
         if (!Array.isArray(legacy) || !legacy.length) return;
         const deviceId = localStorage.getItem('omnipos_offline_device_id') || '';
         const now = new Date().toISOString();
-        const remaining = [];
+        const migratedSerialized = new Set();
         for (let index = 0; index < legacy.length; index += 1) {
             const item = legacy[index];
-            if (!item?.transaction) {
-                remaining.push(item);
-                continue;
-            }
+            if (!item?.transaction) continue;
             const username = String(item.username || item.transaction.cashier || '').trim().toLowerCase();
-            if (!username) {
-                remaining.push(item);
-                continue;
-            }
+            if (!username) continue;
             const migrated = {
                 ...item,
                 version: 2,
                 queueUserKey: `${deviceId}::${username}`,
                 localQueueId: item.localQueueId || item.transaction.syncId || item.transaction.id,
                 queuedAt: item.queuedAt || now,
-                status: 'pending',
+                // Ang "needs-review" ay hindi dapat ibalik sa "pending" ng migration — kung hindi, uulit-ulitin ang pagpapadala
+                // ng benta na tinanggihan na ng server at mawawala ang babala sa cashier/admin.
+                status: item.status === 'needs-review' ? 'needs-review' : 'pending',
                 attempts: Number(item.attempts) || 0
             };
             try {
-                await enqueue(migrated);
+                // CRITICAL FIX: gamitin ang IndexedDB-only na pag-save. Ang normal na enqueue() ay bumabagsak sa localStorage
+                // (parehong 'offline_transactions' key) kapag pumalya ang IndexedDB — kaya noon, ang "migration" ay isinusulat
+                // ang parehong item pabalik sa key na buburahin sa dulo (removeItem), at NAWAWALA ang mga offline na benta.
+                await transaction(QUEUE_STORE, 'readwrite', store => store.put({ ...migrated, localQueueId: makeQueueId(migrated) }));
+                migratedSerialized.add(JSON.stringify(item));
             } catch (e) {
-                remaining.push(item);
-                remaining.push(...legacy.slice(index + 1));
-                break;
+                break; // IndexedDB is failing: leave this item and the rest in localStorage for the next attempt.
             }
         }
+        if (!migratedSerialized.size) return;
         try {
-            if (remaining.length) localStorage.setItem('offline_transactions', JSON.stringify(remaining));
+            // Re-read localStorage NOW and drop only the items that were really moved. Anything another call
+            // appended to the localStorage fallback while we were awaiting IndexedDB must not be lost.
+            const current = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+            const left = Array.isArray(current) ? current.filter(x => !migratedSerialized.has(JSON.stringify(x))) : [];
+            if (left.length) localStorage.setItem('offline_transactions', JSON.stringify(left));
             else localStorage.removeItem('offline_transactions');
         } catch (e) {}
     }
@@ -139,6 +158,11 @@
     async function getQueue(queueUserKey) {
         try {
             const db = await openDb();
+            // Sales that were saved in the localStorage fallback while IndexedDB was unavailable (e.g. a blocked upgrade)
+            // would otherwise stay invisible, and never sync, until the next page reload. Move them in now that it works.
+            if (hasLegacyQueueItems()) {
+                try { await migrateLegacyQueue(); } catch (e) {}
+            }
             const items = await new Promise((resolve, reject) => {
                 const tx = db.transaction(QUEUE_STORE, 'readonly');
                 const index = tx.objectStore(QUEUE_STORE).index('queueUserKey');
@@ -155,6 +179,29 @@
         }
     }
 
+    // Lahat ng nakapila sa device na ito, kahit sinong cashier ang may-ari (para sa Admin na magre-review ng mga benta
+    // na tinanggihan ng server). Ang pag-sync ay nananatiling per-cashier: ang server mismo ang tumatanggi sa benta ng iba.
+    async function getAllQueue() {
+        const sortByQueuedAt = list => list.sort((a, b) => String(a.queuedAt || '').localeCompare(String(b.queuedAt || '')));
+        try {
+            const db = await openDb();
+            if (hasLegacyQueueItems()) {
+                try { await migrateLegacyQueue(); } catch (e) {}
+            }
+            const items = await new Promise((resolve, reject) => {
+                const req = db.transaction(QUEUE_STORE, 'readonly').objectStore(QUEUE_STORE).getAll();
+                req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+                req.onerror = () => reject(req.error);
+            });
+            return sortByQueuedAt(items);
+        } catch (e) {
+            try {
+                const raw = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+                return Array.isArray(raw) ? sortByQueuedAt(raw.filter(x => x && x.queueUserKey)) : [];
+            } catch (fallbackError) { return []; }
+        }
+    }
+
     async function enqueue(item) {
         const record = { ...item, localQueueId: makeQueueId(item) };
         try {
@@ -162,9 +209,13 @@
             return record;
         } catch (e) {
             const raw = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
-            const next = Array.isArray(raw) ? raw.filter(x => x.localQueueId !== record.localQueueId) : [];
+            const next = Array.isArray(raw) ? raw.filter(x => x && x.localQueueId !== record.localQueueId) : [];
+            // CRITICAL FIX: dati, ang slice(-500) ay TAHIMIK na nagtatapon ng pinakamatandang benta na hindi pa na-sync kapag
+            // lumampas sa 500. Mas mabuting tanggihan ang bagong save (makikita ng cashier ang "Sale NOT Saved" at mananatili ang cart)
+            // kaysa tahimik na mawala ang benta na may resibo na sa customer.
+            if (next.length >= 500) throw new Error('The offline fallback queue on this device is full (500 sales). Reconnect so the queued sales can sync first.');
             next.push(record);
-            localStorage.setItem('offline_transactions', JSON.stringify(next.slice(-500)));
+            localStorage.setItem('offline_transactions', JSON.stringify(next));
             return record;
         }
     }
@@ -205,7 +256,17 @@
                 tx.oncomplete = resolve;
                 tx.onerror = () => reject(tx.error);
             });
-        } catch (e) {}
+        } catch (e) {
+            // Kapag nasa localStorage fallback ang item (pumalya ang IndexedDB nang i-queue), doon din dapat i-update —
+            // kung hindi, hindi kailanman magbabago ang status nito at uulit-ulitin ang pag-sync.
+            try {
+                const raw = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+                if (Array.isArray(raw)) {
+                    const next = raw.map(x => (x && x.queueUserKey === queueUserKey && (x.localQueueId || x.transaction?.syncId || x.transaction?.id) === id) ? { ...x, ...patch } : x);
+                    localStorage.setItem('offline_transactions', JSON.stringify(next));
+                }
+            } catch (fallbackError) {}
+        }
     }
 
     async function removeQueueItem(queueUserKey, id) {
@@ -219,7 +280,16 @@
                 tx.oncomplete = resolve;
                 tx.onerror = () => reject(tx.error);
             });
-        } catch (e) {}
+        } catch (e) {
+            try {
+                const raw = JSON.parse(localStorage.getItem('offline_transactions') || '[]');
+                if (Array.isArray(raw)) {
+                    const next = raw.filter(x => !(x && x.queueUserKey === queueUserKey && (x.localQueueId || x.transaction?.syncId || x.transaction?.id) === id));
+                    if (next.length) localStorage.setItem('offline_transactions', JSON.stringify(next));
+                    else localStorage.removeItem('offline_transactions');
+                }
+            } catch (fallbackError) {}
+        }
     }
 
     async function putLargeCache(key, value) {
@@ -398,7 +468,7 @@
         } catch (e) {}
     }
 
-    window.OfflineStorage = { getQueue, enqueue, replaceQueue, updateQueueItem, removeQueueItem, putLargeCache, getLargeCache, mirrorLocalCaches, hydrateLocalCaches, migrateLegacyQueue, getProductImageVersions, getProductImages, putProductImages };
+    window.OfflineStorage = { getQueue, getAllQueue, enqueue, replaceQueue, updateQueueItem, removeQueueItem, putLargeCache, getLargeCache, mirrorLocalCaches, hydrateLocalCaches, migrateLegacyQueue, getProductImageVersions, getProductImages, putProductImages };
     window.addEventListener('load', async () => {
         try {
             if (!localStorage.getItem('omnipos_offline_device_id')) {

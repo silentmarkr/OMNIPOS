@@ -260,6 +260,53 @@ const RESTORE_BODY_LIMIT = BODY_LIMIT_FORMAT_RE.test(String(process.env.RESTORE_
     ? String(process.env.RESTORE_BODY_LIMIT).trim() : '512mb';
 app.use('/api/restore-backup', express.json({ limit: RESTORE_BODY_LIMIT }));
 app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
+// EXPRESS 5: ang req.body ay `undefined` (hindi na `{}`) kapag walang body o hindi JSON ang Content-Type. Ang daan-daang handler na gumagamit ng
+// `const { x } = req.body` / `req.body.x` ay nag-TypeError (500) sa ganoong request. Isang default dito para hindi na mangyari iyon.
+app.use((req, res, next) => {
+    if (req.body === undefined) req.body = {};
+    next();
+});
+// SAFE PRODUCT-CODE KEY: ang `code` ay pwedeng number (galing sa import/API/lumang data) — ang `p.code.trim()` ay nag-TypeError (500) sa edit/delete/restock/
+// approve-request/benta para sa mga ganoong product. Ang helper na ito ay laging nagbabalik ng trimmed lowercase string (walang throw).
+function normalizeProductCodeKey(value) {
+    return String(value == null ? '' : value).trim().toLowerCase();
+}
+// WRITE-REFUSED GUARD: kapag tumanggi ang db.js na magsulat dahil pumalya ang pagbasa ng module (para hindi mabura ang tunay na data),
+// hindi dapat sabihin ng server sa cashier na "success" — kasi hindi nai-save ang pagbabago. Ang POST/PUT/PATCH/DELETE na dapat sana ay
+// magrereply ng success ay ginagawang 503 {code:'WRITE_REFUSED'} para ma-retry. I-disable sa pamamagitan ng OMNIPOS_WRITE_REFUSED_503=0.
+{
+    const { writeRefusalContext } = require('./db');
+    const REFUSAL_GUARD_ENABLED = String(process.env.OMNIPOS_WRITE_REFUSED_503 || '1') !== '0';
+    const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+    app.use('/api', (req, res, next) => {
+        if (!REFUSAL_GUARD_ENABLED || !writeRefusalContext || !STATE_CHANGING_METHODS.has(req.method)) return next();
+        const ctx = { refused: [] };
+        const originalJson = res.json.bind(res);
+        res.json = function (body) {
+            try {
+                if (ctx.refused.length && ctx.committed && !res.headersSent && res.statusCode < 400 && body && typeof body === 'object' && body.success !== false) {
+                    // PARTIAL: may naisulat nang TAGUMPAY sa request na ito (hal. nai-commit na ang benta) — ang 503 ay mag-uudyok ng retry at
+                    // madodoble ang naisulat na. Ibinabalik ang totoong sagot, may malinaw na babala (header + writeWarning) at log.
+                    console.error(`[WRITE-PARTIAL] ${req.method} ${req.originalUrl}: tinanggihan ang write sa [${ctx.refused.join(', ')}] pero may naisulat nang bahagi ng request — HINDI ginawang 503 para hindi madoble sa retry.`);
+                    try { res.setHeader('X-Omnipos-Write-Refused', ctx.refused.join(',')); } catch (_h) {}
+                    if (!Array.isArray(body)) return originalJson({ ...body, writeWarning: { code: 'WRITE_PARTIALLY_REFUSED', modules: ctx.refused.slice() } });
+                    return originalJson(body);
+                }
+                if (ctx.refused.length && !res.headersSent && res.statusCode < 400 && body && typeof body === 'object' && body.success !== false) {
+                    console.error(`[WRITE-REFUSED] ${req.method} ${req.originalUrl} would have answered success, but the write to [${ctx.refused.join(', ')}] was refused — answering 503 instead.`);
+                    res.status(503);
+                    return originalJson({
+                        success: false,
+                        code: 'WRITE_REFUSED',
+                        message: 'The change could NOT be saved because the database was temporarily unreadable (your existing data was protected and left untouched). Please try again in a few seconds.'
+                    });
+                }
+            } catch (_e) { /* huwag pigilan ang normal na sagot */ }
+            return originalJson(body);
+        };
+        writeRefusalContext.run(ctx, next);
+    });
+}
 app.use((err, req, res, next) => {
     if (err && err.type ==='entity.too.large') {
         return res.status(413).json({
@@ -742,6 +789,28 @@ function findBirResetAuthorizer(users, password) {
 }
 function findDebtDeleteAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'debt_delete_own_password');
+}
+// Admin-only password check (hindi puwede ang ibang role kahit may permission) — ginagamit sa pagpapalit ng halaga ng utang
+// ng mga non-admin na may 'customers' permission.
+async function findAdminOnlyPasswordAuthorizer(users, password) {
+    if (!password || typeof password !== 'string') return null;
+    for (const u of (Array.isArray(users) ? users : [])) {
+        if (!u || String(u.role || '').toLowerCase() !== 'admin') continue;
+        let match = false;
+        try {
+            match = await bcrypt.compare(password, u.password);
+        } catch (e) {
+            match = (password === u.password);
+        }
+        if (match) return { user: u, isAdmin: true };
+    }
+    return null;
+}
+const debtAmountEditPasswordLimiter = rateLimit('debt-amount-edit', 10, 10 * 60 * 1000);
+function debtAmountEditLimiter(req, res, next) {
+    const isAdminUser = String((req.authUser && req.authUser.role) || '').toLowerCase() === 'admin';
+    if (!isAdminUser && req.body && req.body.adminPassword) return debtAmountEditPasswordLimiter(req, res, next);
+    next();
 }
 function findProductDeleteAuthorizer(users, password) {
     return findPasswordAuthorizer(users, password,'product_delete_own_password');
@@ -1359,13 +1428,15 @@ app.post('/api/receipt-settings/otp-sender/clear', rateLimit('otp-sender-clear',
 });
 app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
-    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     let installationId = null;
     try {
         const featureData = readFeatureUnlocks();
         installationId = getOrCreateInstallationId(featureData);
     } catch (_) {}
     await refreshReceiptCreditPricingFromRelay(installationId);
+    // RACE FIX: binabasa PAGKATAPOS ng await (dati bago) para hindi mabura ng lumang kopya ang pagbabago
+    // (hal. bagong binili na credit) na naisulat habang naghihintay sa Relay.
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const freeLimit = receiptCreditPricingCache.freeCustomizeLimit;
     if ((settings.customizeCount || 0) < freeLimit) {
         return res.json({ success: true, otpNeeded: false, message:'You still have free customizations left — no OTP needed.' });
@@ -1443,13 +1514,14 @@ app.post('/api/receipt-settings', rateLimit('otp-verify-save', 120, 10 * 60 * 10
         logAction(req.authUser.username, `Submitted a Receipt Customization update request for Admin approval`);
         return res.json({ success: true, pending: true, message:'The Receipt Customization request has been submitted for Admin approval.' });
     }
-    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     let installationIdForPricing = null;
     try {
         const featureDataForPricing = readFeatureUnlocks();
         installationIdForPricing = getOrCreateInstallationId(featureDataForPricing);
     } catch (_) {}
     await refreshReceiptCreditPricingFromRelay(installationIdForPricing);
+    // RACE FIX: binabasa PAGKATAPOS ng await (dati bago) — iwas lost update sa customizeCredits/pendingOtp/Gmail settings.
+    const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const currentCount = settings.customizeCount || 0;
     const freeLimit = receiptCreditPricingCache.freeCustomizeLimit;
     const needsOtp = currentCount >= freeLimit;
@@ -1582,7 +1654,115 @@ app.post('/api/receipt-settings/confirm-credit-purchase', rateLimit('credit-purc
 // tinatanong at ipinapasa ng client sa iisang request na ito. Ang
 // "Send Request" (developer OTP) na flow sa itaas ay hindi ginalaw.
 // ===================================================================
-app.post('/api/receipt-settings/token-activate/confirm', requirePermission('receipt_settings_view'), rateLimit('receipt-credit-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
+// ===================================================================
+// OMNI TOKEN SPEND SAFETY (proteksyon laban sa dobleng singil)
+//
+// Ang RELAY ay nagde-dedupe ng bayad gamit ang `clientRequestId` (naka-cache ang matagumpay na resulta nang 15 minuto). Para gumana iyon,
+// dapat PAREHO ang clientRequestId sa bawat RETRY ng IISANG pagbili, at BAGO naman sa bawat TOTOONG bagong pagbili.
+//   - Dating bagong randomUUID() kada request  -> walang silbi ang dedupe (double-tap/retry = dalawang singil).
+//   - Time-bucket (30s) na bersyon              -> pumapalya kapag tumawid ng bucket ang retry (hal. 20s timeout + retry ng user).
+// Ngayon: bawat "intent" (installation + aksyon + parametro) ay may sariling ID na NAKA-SAVE sa disk at hindi nagbabago hangga't hindi
+// alam ang kinalabasan ng pagbili:
+//   - Hindi tiyak ang resulta (network error/timeout, 5xx, 429)  -> gagamitin ulit ang PAREHONG ID sa retry (hanggang 10 min, mas maikli sa
+//     15-min replay window ng RELAY) kaya kung nasingil na pala, ibabalik lang ng RELAY ang naunang resulta at WALANG ikalawang singil.
+//   - Tiyak na tagumpay (2xx)                    -> binubura agad ang intent. (DATI: 8 segundo itong ginagamit ulit — pero ibabalik ng RELAY ang naka-cache na
+//                                                   resulta nang walang singil, at idadagdag ulit ng local handler ang credit = LIBRENG credit. Kaya bago na ang ID sa susunod.)
+//   - Tiyak na pagkabigo (4xx: kulang ang token, maling password...) -> binubura agad ang intent; hindi nasingil, kaya bago na ang susunod.
+// Dagdag pa: isa-isa lang ang pwedeng tumakbong token purchase sa device na ito (ang pangalawa ay 429 bago pa umabot sa RELAY).
+// ===================================================================
+const { AsyncLocalStorage } = require('async_hooks');
+const omniSpendContext = new AsyncLocalStorage();
+const OMNI_SPEND_INTENT_FILE = path.join(DB_DIR, 'omni-spend-intents.json');
+const OMNI_SPEND_UNKNOWN_TTL_MS = 10 * 60 * 1000;
+const omniSpendIntents = new Map(); // fingerprint -> { id, createdAt }
+let omniSpendIntentsLoaded = false;
+function omniSpendIntentIsLive(entry, now) {
+    if (!entry || typeof entry.id !== 'string' || !entry.id || !Number.isFinite(entry.createdAt)) return false;
+    return (now - entry.createdAt) < OMNI_SPEND_UNKNOWN_TTL_MS;
+}
+function loadOmniSpendIntents() {
+    if (omniSpendIntentsLoaded) return;
+    omniSpendIntentsLoaded = true;
+    try {
+        const raw = JSON.parse(fs.readFileSync(OMNI_SPEND_INTENT_FILE, 'utf8'));
+        const now = Date.now();
+        for (const [fingerprint, entry] of Object.entries(raw || {})) {
+            if (omniSpendIntentIsLive(entry, now)) omniSpendIntents.set(fingerprint, { id: entry.id, createdAt: entry.createdAt });
+        }
+    } catch (_e) { /* walang file/sira ang file = magsimula nang blangko; ligtas ito (bagong ID lang ang magagawa) */ }
+}
+function saveOmniSpendIntents() {
+    try {
+        const now = Date.now();
+        const out = {};
+        for (const [fingerprint, entry] of omniSpendIntents) {
+            if (omniSpendIntentIsLive(entry, now)) out[fingerprint] = entry; else omniSpendIntents.delete(fingerprint);
+        }
+        const tmp = `${OMNI_SPEND_INTENT_FILE}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(out));
+        fs.renameSync(tmp, OMNI_SPEND_INTENT_FILE);
+    } catch (e) {
+        // Hindi dapat pigilan ng pagsulat sa disk ang pagbili: nasa memory pa rin ang intent (gumagana habang tumatakbo ang server).
+        console.error('⚠️ Could not persist the Omni Token spend intents:', e && e.message);
+    }
+}
+function omniSpendFingerprint(installationId, action, params) {
+    return crypto.createHash('sha256').update(JSON.stringify([String(installationId), String(action), params === undefined ? null : params])).digest('hex');
+}
+// Ibinabalik ang clientRequestId para sa pagbiling ito (tingnan ang paliwanag sa itaas). Dapat tawagin sa loob ng guardOmniTokenSpend().
+function stableClientRequestId(installationId, action, params) {
+    loadOmniSpendIntents();
+    const now = Date.now();
+    const fingerprint = omniSpendFingerprint(installationId, action, params);
+    let entry = omniSpendIntents.get(fingerprint);
+    if (!omniSpendIntentIsLive(entry, now)) {
+        entry = { id: `omni-${String(action).replace(/[^a-z0-9-]/gi, '')}-${crypto.randomUUID()}`, createdAt: now };
+        omniSpendIntents.set(fingerprint, entry);
+        saveOmniSpendIntents();
+    }
+    const ctx = omniSpendContext.getStore();
+    if (ctx && ctx.fingerprints) ctx.fingerprints.add(fingerprint);
+    return entry.id;
+}
+function settleOmniSpendIntents(fingerprints, statusCode) {
+    if (!fingerprints || !fingerprints.size) return;
+    const status = Number(statusCode) || 500;
+    let changed = false;
+    for (const fingerprint of fingerprints) {
+        const entry = omniSpendIntents.get(fingerprint);
+        if (!entry) continue;
+        if (status >= 200 && status < 300) {
+            omniSpendIntents.delete(fingerprint); changed = true;
+        } else if (status >= 400 && status < 500 && status !== 408 && status !== 425 && status !== 429) {
+            omniSpendIntents.delete(fingerprint); changed = true;
+        } // iba pa (5xx, 408, 425, 429, nag-throw) = HINDI TIYAK ang resulta: panatilihin ang parehong ID para sa retry
+    }
+    if (changed) saveOmniSpendIntents();
+}
+let omniTokenSpendInFlightSince = 0;
+const OMNI_TOKEN_SPEND_STALE_MS = 90 * 1000;
+function guardOmniTokenSpend(handler) {
+    return async (req, res, next) => {
+        if (omniTokenSpendInFlightSince && (Date.now() - omniTokenSpendInFlightSince) < OMNI_TOKEN_SPEND_STALE_MS) {
+            return res.status(429).json({ success: false, message: 'Another Omni Token purchase is still being processed. Please wait a few seconds and check your balance before trying again — this prevents being charged twice.' });
+        }
+        const myStamp = Date.now();
+        omniTokenSpendInFlightSince = myStamp;
+        const ctx = { fingerprints: new Set() };
+        let threw = false;
+        try {
+            return await omniSpendContext.run(ctx, () => handler(req, res, next));
+        } catch (err) {
+            threw = true;
+            console.error('Omni Token purchase handler error:', err);
+            if (!res.headersSent) res.status(500).json({ success: false, message: 'Unexpected server error while processing the purchase. Please check your Omni Token balance before trying again.' });
+        } finally {
+            try { settleOmniSpendIntents(ctx.fingerprints, threw ? 500 : res.statusCode); } catch (e) { console.error('settleOmniSpendIntents error:', e && e.message); }
+            if (omniTokenSpendInFlightSince === myStamp) omniTokenSpendInFlightSince = 0;
+        }
+    };
+}
+app.post('/api/receipt-settings/token-activate/confirm', requirePermission('receipt_settings_view'), rateLimit('receipt-credit-token-activate-confirm', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
     }
@@ -1624,7 +1804,7 @@ app.post('/api/receipt-settings/token-activate/confirm', requirePermission('rece
     if (!authResult) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The activation was not authorized.' });
     }
-    const activationRequestId = crypto.randomUUID();
+    const activationRequestId = stableClientRequestId(installationId, 'receipt-credit', { quantity: quote.quantity || 1 });
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-receipt-credit`, {
             method: 'POST',
@@ -1645,7 +1825,7 @@ app.post('/api/receipt-settings/token-activate/confirm', requirePermission('rece
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
-            return res.status(400).json({ success: false, message: relayData.message || 'Failed to add the Receipt Customization credit.' });
+            return res.status(relayRes.status && relayRes.status >= 400 ? relayRes.status : 400).json({ success: false, message: relayData.message || 'Failed to add the Receipt Customization credit.' });
         }
         if (!verifyReceiptCreditTicket(relayData.ticket, installationId)) {
             console.error('⚠️ Received a receipt-credit-purchase ticket (token activation) from the relay but its signature is INVALID.');
@@ -1669,7 +1849,7 @@ app.post('/api/receipt-settings/token-activate/confirm', requirePermission('rece
         console.error('Could not reach the Unlock Relay (receipt-credit token-activate/confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
+}));
 app.post('/api/receipt-settings/request-reset-otp', rateLimit('otp-reset-request', 3, 10 * 60 * 1000), requirePermission('receipt_settings_view'), async (req, res) => {
     const { username } = req.body;
     const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
@@ -2234,12 +2414,15 @@ function checkDiscountAnomaly(transaction, thresholds) {
     return null;
 }
 function checkUnusualHour(transaction, thresholds) {
-    const hour = new Date().getHours();
+    // An offline sale is judged by when it was rung up, not by the (possibly much later) moment it synced.
+    const saleAt = (transaction && transaction.offlineSale && transaction.soldAt && !isNaN(new Date(transaction.soldAt).getTime()))
+        ? new Date(transaction.soldAt) : new Date();
+    const hour = saleAt.getHours();
     const inWindow = thresholds.unusualHourStart <= thresholds.unusualHourEnd
         ? (hour >= thresholds.unusualHourStart && hour < thresholds.unusualHourEnd)
         : (hour >= thresholds.unusualHourStart || hour < thresholds.unusualHourEnd);
     if (!inWindow) return null;
-    return { severity: 'low', summary: `Transaction ${transaction.id} by ${transaction.cashier} was processed at an unusual hour (${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}).` };
+    return { severity: 'low', summary: `Transaction ${transaction.id} by ${transaction.cashier} was processed at an unusual hour (${saleAt.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}).` };
 }
 function runFraudChecks(kind, ctx) {
     try {
@@ -2254,6 +2437,13 @@ function runFraudChecks(kind, ctx) {
             const hourFlag = checkUnusualHour(ctx.transaction, thresholds);
             if (hourFlag) {
                 pushFraudAlert({ type: 'unusual_hour_sale', cashier: ctx.transaction.cashier, transactionId: ctx.transaction.id, ...hourFlag });
+            }
+            if (Array.isArray(ctx.transaction.stockShortfall) && ctx.transaction.stockShortfall.length) {
+                pushFraudAlert({
+                    type: 'offline_stock_shortfall', cashier: ctx.transaction.cashier, transactionId: ctx.transaction.id,
+                    severity: 'medium',
+                    summary: `Offline sale ${ctx.transaction.id} by ${ctx.transaction.cashier} was recorded although stock was short: ${ctx.transaction.stockShortfall.join('; ')}. Check whether the item was sold elsewhere while offline or the stock count is wrong.`
+                });
             }
         } else if (kind === 'void') {
             const count = recordAndCountVelocity(ctx.cashier, 'void', 30);
@@ -6933,7 +7123,7 @@ app.get('/api/admin/sponsor/info', async (req, res) => {
         res.status(500).json({ success: false, message: 'Could not load the support options. Please try again.' });
     }
 });
-app.post('/api/admin/sponsor/donate-tokens', rateLimit('sponsor-donate-tokens', 10, 10 * 60 * 1000), async (req, res) => {
+app.post('/api/admin/sponsor/donate-tokens', rateLimit('sponsor-donate-tokens', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!requireSponsorAdmin(req, res)) return;
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). You can still donate via online payment.' });
@@ -6956,7 +7146,7 @@ app.post('/api/admin/sponsor/donate-tokens', rateLimit('sponsor-donate-tokens', 
         const relayRes = await relayFetch(`${RELAY_URL}/relay/sponsor/donate-tokens`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, amount, clientRequestId: crypto.randomUUID() })
+            body: JSON.stringify({ installationId, amount, clientRequestId: stableClientRequestId(installationId, 'sponsor-donate', { amount }) })
         }, 20000);
         const data = await parseRelayResponse(relayRes);
         if (!data.success) {
@@ -6975,7 +7165,7 @@ app.post('/api/admin/sponsor/donate-tokens', rateLimit('sponsor-donate-tokens', 
         console.error('Could not reach the Unlock Relay (sponsor donate-tokens):', err);
         return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please check your Omni Tokens balance/history first — the donation may have gone through — before trying again.` });
     }
-});
+}));
 app.post('/api/admin/sponsor/donate-online', rateLimit('sponsor-donate-online', 10, 15 * 60 * 1000), async (req, res) => {
     if (!requireSponsorAdmin(req, res)) return;
     const amount = parseSponsorAmountLocal(req.body && req.body.amount);
@@ -7585,7 +7775,7 @@ async function attemptRelayRestore() {
     if (!(await isInternetLikelyUp())) {
         return { attempted: false, restoredCount: 0, restoredFeatureIds: [] };
     }
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/restore-tokens`, {
@@ -7600,6 +7790,9 @@ async function attemptRelayRestore() {
         const subscriptionMeta = (relayData.subscriptionMeta && typeof relayData.subscriptionMeta === 'object')
             ? relayData.subscriptionMeta
             : {};
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         let restoredCount = 0;
         let metaChanged = false;
         const restoredFeatureIds = [];
@@ -7664,7 +7857,7 @@ async function attemptRelayFeatureSync() {
     if (!RELAY_API_KEY || getConnectivityMode() === 'offline' || !(await isInternetLikelyUp())) {
         return { attempted: restoreResult.attempted, restoredCount: restoreResult.restoredCount || 0, restoredFeatureIds, removedFeatures: [] };
     }
-    const latestData = readFeatureUnlocks();
+    let latestData = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(latestData);
     const localFeatureIds = Object.keys(latestData.tokens);
     const removedFeatures = [];
@@ -7679,8 +7872,13 @@ async function attemptRelayFeatureSync() {
             runRelayIntegrityCheckin().catch(() => {});
         }
         if (relayData.success && relayData.statuses && typeof relayData.statuses === 'object') {
+            // RACE FIX: ang `latestData` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        latestData = readFeatureUnlocks();
             for (const [featureId, info] of Object.entries(relayData.statuses)) {
                 if (!info || info.status === 'active') continue;
+                // Huwag i-lock ang feature na hindi kasama sa tinanong sa Relay (hal. kaka-unlock lang habang naghihintay).
+                if (!localFeatureIds.includes(featureId)) continue;
                 if (!latestData.tokens[featureId]) continue;
                 delete latestData.tokens[featureId];
                 removedFeatures.push({
@@ -8803,7 +9001,7 @@ app.get('/api/ai-assistant/plans', requireAiAssistantOrFree(), async (req, res) 
         return res.status(502).json({ success: false, message: err.message || 'Could not get the AI plans from RELAY.' });
     }
 });
-app.post('/api/ai-assistant/plans/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-plan-purchase', 10, 10 * 60 * 1000), async (req, res) => {
+app.post('/api/ai-assistant/plans/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-plan-purchase', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try again later.' });
     }
@@ -8822,7 +9020,7 @@ app.post('/api/ai-assistant/plans/purchase', requireFeature('ai_assistant'), rat
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/plans/purchase`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, tierId, clientRequestId: crypto.randomUUID() })
+            body: JSON.stringify({ installationId, tierId, clientRequestId: stableClientRequestId(installationId, 'ai-plan', { tierId }) })
         }, 20000);
         const data = await parseRelayResponse(relayRes);
         if (!data.success) {
@@ -8841,8 +9039,8 @@ app.post('/api/ai-assistant/plans/purchase', requireFeature('ai_assistant'), rat
         console.error('Could not reach the Unlock Relay (ai-plan purchase):', err);
         return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
-app.post('/api/ai-assistant/extra-credits/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-extra-purchase', 10, 10 * 60 * 1000), async (req, res) => {
+}));
+app.post('/api/ai-assistant/extra-credits/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-extra-purchase', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try again later.' });
     }
@@ -8861,7 +9059,7 @@ app.post('/api/ai-assistant/extra-credits/purchase', requireFeature('ai_assistan
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/extra-credits/purchase`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, packId, clientRequestId: crypto.randomUUID() })
+            body: JSON.stringify({ installationId, packId, clientRequestId: stableClientRequestId(installationId, 'ai-extra', { packId }) })
         }, 20000);
         const data = await parseRelayResponse(relayRes);
         if (!data.success) {
@@ -8880,10 +9078,10 @@ app.post('/api/ai-assistant/extra-credits/purchase', requireFeature('ai_assistan
         console.error('Could not reach the Unlock Relay (ai extra credits purchase):', err);
         return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
+}));
 // BAGO: One-day Boost — dagdag na neurons para sa ISANG ARAW lang kapag naubos ang daily limit.
 // Ang presyo/limits ay hawak ng RELAY; ang OMNIPOS ay nagpapasa lang ng pagbili (kailangan ng admin password, tulad ng extra credits).
-app.post('/api/ai-assistant/day-boost/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-day-boost', 10, 10 * 60 * 1000), async (req, res) => {
+app.post('/api/ai-assistant/day-boost/purchase', requireFeature('ai_assistant'), rateLimit('ai-assistant-day-boost', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try again later.' });
     }
@@ -8902,7 +9100,7 @@ app.post('/api/ai-assistant/day-boost/purchase', requireFeature('ai_assistant'),
         const relayRes = await relayFetch(`${RELAY_URL}/relay/ai-assistant/day-boost/purchase`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-            body: JSON.stringify({ installationId, boostId, clientRequestId: crypto.randomUUID() })
+            body: JSON.stringify({ installationId, boostId, clientRequestId: stableClientRequestId(installationId, 'ai-boost', { boostId }) })
         }, 20000);
         const data = await parseRelayResponse(relayRes);
         if (!data.success) {
@@ -8921,7 +9119,7 @@ app.post('/api/ai-assistant/day-boost/purchase', requireFeature('ai_assistant'),
         console.error('Could not reach the Unlock Relay (ai day boost purchase):', err);
         return res.status(502).json({ success: false, message: `Could not reach the relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
+}));
 app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assistant-ask', 20, 5 * 60 * 1000, (retryAfterSec) => `Too many questions to Omni AI. Please try again after ${retryAfterSec} seconds.`), async (req, res) => {
     if (!isAiAssistantConfigured()) {
         return res.status(503).json({ success: false, message: 'Omni AI is not configured on this server yet (RELAY_API_KEY is required in .env; in the developer RELAY/.env: CF_ACCOUNT_ID/CF_AI_API_TOKEN for the Free plan and GOOGLE_AI_API_KEY for Base/Plus/Pro). Please contact the developer/admin.' });
@@ -9580,7 +9778,7 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock`, {
@@ -9599,6 +9797,9 @@ app.post('/api/features/confirm-unlock', rateLimit('feature-unlock-confirm', 120
             console.error('⚠️ Natanggap ang isang token mula sa relay pero HINDI valid ang signature nito. Posibleng may problema sa RELAY_PUBLIC_KEY_PEM o kompromisado ang koneksyon.');
             return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
         }
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         data.tokens[featureId] = relayData.token;
         if (isCloudBackup) {
             const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : tier;
@@ -9974,7 +10175,7 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     const wasActiveBeforeThisConfirm = isDemoActive();
     try {
@@ -9994,6 +10195,9 @@ app.post('/api/features/confirm-demo', rateLimit('feature-demo-confirm', 120, 10
             console.error('⚠️ Natanggap ang isang demo token mula sa relay pero HINDI valid ang signature/expiry nito.');
             return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
         }
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         data.tokens[DEMO_FEATURE_ID] = relayData.token;
         writeData(FILE_FEATURE_UNLOCKS, data);
         // Snapshot the real data BEFORE the demo can touch anything, but only
@@ -10164,7 +10368,7 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock-bulk`, {
@@ -10187,6 +10391,9 @@ app.post('/api/features/confirm-unlock-bulk', rateLimit('feature-unlock-bulk-con
                 return res.status(500).json({ success: false, message: `Invalid token received for ${featureId}. Please contact the developer.` });
             }
         }
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         featureIds.forEach(featureId => { data.tokens[featureId] = tokens[featureId]; });
         writeData(FILE_FEATURE_UNLOCKS, data);
         logAction(username ||'Unknown', `Unlocked ${featureIds.length} feature(s) via bundle`);
@@ -10226,7 +10433,7 @@ app.post('/api/features/cancel-otp', rateLimit('feature-cancel-otp', 30, 10 * 60
 // pahintulot ng ADMIN PASSWORD (findOmniTokenUnlockAuthorizer), na
 // tinatanong at ipinapasa ng client sa iisang request na ito. Ang
 // "Send Request" (developer OTP) na flow ay hindi ginalaw.
-app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('cloud-backup-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
+app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('cloud-backup-token-activate-confirm', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
     }
@@ -10238,7 +10445,7 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
     const requiredTokens = getCloudBackupPlanPrice(tier, billingCycle);
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     const wallet = await fetchCloudTokenWallet(installationId);
     if (!wallet.ok) {
@@ -10261,7 +10468,7 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
     if (!authResult) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The activation was not authorized.' });
     }
-    const activationRequestId = crypto.randomUUID();
+    const activationRequestId = stableClientRequestId(installationId, 'cloud-backup', { tier, billingCycle });
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-cloud-backup`, {
             method: 'POST',
@@ -10287,12 +10494,15 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
-            return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate Cloud Backup.' });
+            return res.status(relayRes.status && relayRes.status >= 400 ? relayRes.status : 400).json({ success: false, message: relayData.message || 'Failed to activate Cloud Backup.' });
         }
         if (!verifyUnlockToken(relayData.token, installationId, CLOUD_BACKUP_FEATURE_ID)) {
             console.error('⚠️ Natanggap ang isang cloud-backup activation token mula sa relay pero HINDI valid ang signature nito.');
             return res.status(500).json({ success: false, message: 'The activation token received is not valid. Please contact the developer.' });
         }
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         data.tokens[CLOUD_BACKUP_FEATURE_ID] = relayData.token;
         const confirmedTier = (relayData.tier && CLOUD_BACKUP_PLANS[relayData.tier]) ? relayData.tier : tier;
         const confirmedCycle = (relayData.billingCycle && CLOUD_BACKUP_BILLING_CYCLES[relayData.billingCycle]) ? relayData.billingCycle : billingCycle;
@@ -10309,7 +10519,7 @@ app.post('/api/cloud-backup/token-activate/confirm', requirePermission('relay_un
         console.error('Could not reach the Unlock Relay (token-activate/confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
+}));
 // AYOS/UPDATE: dating naghihintay ito ng email-OTP mula sa requestor
 // bago mag-deduct ng Omni Tokens. Dahil napatunayan na ang pagmamay-ari
 // ng Omni Token balance mismo (binili na ang mga token na ito), inalis
@@ -10340,7 +10550,7 @@ function computeMinimumLegitimatePrice(featureIds) {
     }
     return bestPrice;
 }
-app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-confirm', 10, 10 * 60 * 1000), async (req, res) => {
+app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock_request'), rateLimit('feature-token-activate-confirm', 10, 10 * 60 * 1000), guardOmniTokenSpend(async (req, res) => {
     if (!activationFlagsCache.omniTokenActivationEnabled) {
         return res.status(503).json({ success: false, message: '"Activate via Omni Tokens" is temporarily disabled (maintenance/upgrade). Please try "Send Request" instead, or try again later.' });
     }
@@ -10384,7 +10594,7 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message: 'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     const wallet = await fetchCloudTokenWallet(installationId);
     if (!wallet.ok) {
@@ -10408,7 +10618,7 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect admin password. The activation was not authorized.' });
     }
     const featureNames = featureIds.map(id => FEATURE_CATALOG[id].name);
-    const activationRequestId = crypto.randomUUID();
+    const activationRequestId = stableClientRequestId(installationId, 'feature-purchase', { featureIds: [...featureIds].sort(), billingCycle: isModuleSubscriptionPurchase ? billingCycle : null, aiTierId: aiPlanChoice ? aiPlanChoice.aiTierId : null });
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/activate-purchase`, {
             method: 'POST',
@@ -10436,8 +10646,11 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
                     message: relayData.message || 'Insufficient Omni Tokens. Please buy more tokens and try again.'
                 });
             }
-            return res.status(400).json({ success: false, message: relayData.message || 'Failed to activate.' });
+            return res.status(relayRes.status && relayRes.status >= 400 ? relayRes.status : 400).json({ success: false, message: relayData.message || 'Failed to activate.' });
         }
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         for (const featureId of featureIds) {
             const token = relayData.tokens && relayData.tokens[featureId];
             if (!token || !verifyUnlockToken(token, installationId, featureId)) {
@@ -10465,7 +10678,7 @@ app.post('/api/features/token-activate/confirm', requirePermission('relay_unlock
         console.error('Could not reach the Unlock Relay (features token-activate/confirm):', err);
         res.status(502).json({ success: false, message: `Could not reach the unlock relay: ${err.message}. Please verify RELAY_URL and your internet connection.` });
     }
-});
+}));
 app.get('/api/themes/status', (req, res) => {
     const unlockedFeatureIds = getUnlockedFeatureIds();
     const unlockedThemeIds = unlockedFeatureIds.filter(id => FEATURE_CATALOG[id] && FEATURE_CATALOG[id].category ==='theme');
@@ -10526,7 +10739,7 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
     if (!RELAY_API_KEY) {
         return res.status(500).json({ success: false, message:'RELAY_API_KEY is not configured on this server. Please contact the developer.' });
     }
-    const data = readFeatureUnlocks();
+    let data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
     try {
         const relayRes = await relayFetch(`${RELAY_URL}/relay/confirm-unlock`, {
@@ -10545,6 +10758,9 @@ app.post('/api/themes/confirm-unlock', rateLimit('theme-unlock-confirm', 120, 10
             console.error('⚠️ Natanggap ang isang token mula sa relay pero HINDI valid ang signature nito.');
             return res.status(500).json({ success: false, message:'Hindi valid ang signature ng token na natanggap. Kontakin ang developer.' });
         }
+        // RACE FIX: ang `data` ay nabasa BAGO ang await sa Relay (segundo). Binabasa ulit dito ang pinakabagong featureUnlocks
+        // para hindi mabura ang token/plan/demo/identity na naisulat ng ibang request habang naghihintay.
+        data = readFeatureUnlocks();
         data.tokens[themeId] = relayData.token;
         writeData(FILE_FEATURE_UNLOCKS, data);
         logAction(username ||'Unknown', `Na-unlock ang Pro theme: ${theme.name}`);
@@ -10984,6 +11200,9 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
     if (!stored || Date.now() > stored.expiresAt) {
         return res.status(400).json({ success: false, message:'The login request has expired. Please try again.' });
     }
+    // SECURITY FIX: one-time ang challenge. Dati, binubura lang ito PAGKATAPOS ng mga await (device check), kaya may
+    // bintana kung saan magagamit ulit ang parehong signed response (lalo na sa authenticator na counter=0).
+    WEBAUTHN_LOGIN_CHALLENGES.delete(clientData.challenge);
     const users = readData(FILE_USERS);
     let userIndex = -1;
     let credIndex = -1;
@@ -11042,10 +11261,20 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         if (!(parsed.counter === 0 && cred.counter === 0) && parsed.counter <= cred.counter) {
             return res.status(401).json({ success: false, message:'Suspicious repeated fingerprint signature (possible cloned authenticator). Please log in with your password.' });
         }
-        cred.counter = parsed.counter;
-        writeData(FILE_USERS, users);
-        WEBAUTHN_LOGIN_CHALLENGES.delete(clientData.challenge);
-        const user = users[userIndex];
+        // RACE FIX: ang `users` ay nabasa BAGO ang await ng checkDeviceBeforeLogin (network sa Relay). Isinusulat dito ang
+        // pinakabagong listahan para hindi mabura ang pagbabago sa users (bagong password, bagong user) na nangyari habang naghihintay.
+        const usersAfterAwait = readData(FILE_USERS);
+        const userAfterAwait = usersAfterAwait.find(u => String(u.username || '').toLowerCase() === String(username).toLowerCase());
+        const credAfterAwait = userAfterAwait && (userAfterAwait.webauthnCredentials || []).find(c => c.id === credentialId);
+        if (!userAfterAwait || !credAfterAwait) {
+            return res.status(401).json({ success: false, message:'This fingerprint is no longer registered. Please re-enroll it in Profile settings.' });
+        }
+        if (!(parsed.counter === 0 && credAfterAwait.counter === 0) && parsed.counter <= credAfterAwait.counter) {
+            return res.status(401).json({ success: false, message:'Suspicious repeated fingerprint signature (possible cloned authenticator). Please log in with your password.' });
+        }
+        credAfterAwait.counter = parsed.counter;
+        writeData(FILE_USERS, usersAfterAwait);
+        const user = userAfterAwait;
         logAction(user.username,`Naka-login gamit ang Fingerprint/Biometric Login (${cred.deviceLabel || 'device'})`);
         const mustChangePassword = roleMustChangeDefaultPassword(user.role) && isStoredPasswordDefault(user);
         const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword });
@@ -11693,7 +11922,7 @@ app.post('/api/products/import', rateLimit('product-import', 60, 10 * 60 * 1000)
         const clearBlank = ['1', 'true', 'yes'].includes(String(req.body.clearBlank || '').toLowerCase());
         let products = readProductsNoImages();
         let categories = [...readData(FILE_CATEGORIES, DEFAULT_CATEGORIES)]; // kopya para hindi mabago ang DEFAULT_CATEGORIES constant
-        const codeIndex = new Map(products.map((p, i) => [p.code.trim().toLowerCase(), i]));
+        const codeIndex = new Map(products.map((p, i) => [normalizeProductCodeKey(p.code), i]));
         const nameIndex = new Map();
         const ambiguousNames = new Set();
         if (kind === 'specs') {
@@ -12021,10 +12250,13 @@ app.post('/api/products', requirePermission('products'), (req, res) => {
     if (addStockError) return res.status(400).json({ success: false, message: `❌ ${addStockError}` });
     delete product.batches; // batches are only created through the Batch/Lot endpoints
     delete product.stockBaseline;
+    // BUGFIX: kapag number ang code (hal. 12345 mula sa API/import), nag-TypeError ang `.trim()` sa ibaba (500 error).
+    // Ginagawang trimmed string ito bago gamitin.
+    product.code = String(product.code).trim();
     normalizeProductUomFields(product);
     const username = req.authUser.username;
     let products = readProductsNoImages();
-    const codeExists = products.some(p => p.code.trim().toLowerCase() === product.code.trim().toLowerCase());
+    const codeExists = products.some(p => String(p.code == null ? '' : p.code).trim().toLowerCase() === product.code.toLowerCase());
     if (codeExists) {
         return res.status(400).json({ success: false, message: `❌ Ang Product Code [${product.code}] ay ginagamit na!` });
     }
@@ -12095,10 +12327,10 @@ function processProductUpdate(req, res) {
     const isAdminRole = (req.authUser.role ||'').toLowerCase() ==='admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
     if (canApplyDirectly) {
-        if (!products.some(p => p.code.trim().toLowerCase() === code.trim().toLowerCase())) {
+        if (!products.some(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code))) {
             return res.status(404).json({ success: false, message: 'Product not found.' });
         }
-        products = products.map(p => p.code.trim().toLowerCase() === code.trim().toLowerCase() ? mergeProductUpdate(p, updatedData) : p);
+        products = products.map(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code) ? mergeProductUpdate(p, updatedData) : p);
         const freePagesBeforeEdit = getDbFreePages();
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Updated product code: ${code}`);
@@ -12144,10 +12376,15 @@ async function processProductDelete(req, res) {
                 message: 'Incorrect password. The product was not deleted.'
             });
         }
-        if (!products.some(p => p.code.trim().toLowerCase() === code.trim().toLowerCase())) {
+        // RACE FIX: ang `products` ay nabasa BAGO ang bcrypt await sa itaas. Ang ibang product write na hindi dumadaan sa
+        // mutex na ito (edit/add/approve request) ay mabubura kapag ang lumang listahan ang isinulat pabalik. Basahin ulit.
+        products = readProductsNoImages();
+        const codeKey = String(code == null ? '' : code).trim().toLowerCase();
+        const productCodeKey = (p) => String(p && p.code != null ? p.code : '').trim().toLowerCase();
+        if (!products.some(p => productCodeKey(p) === codeKey)) {
             return res.status(404).json({ success: false, message:'Product not found.' });
         }
-        products = products.filter(p => p.code.trim().toLowerCase() !== code.trim().toLowerCase());
+        products = products.filter(p => productCodeKey(p) !== codeKey);
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Deleted product code: ${code} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
         // Return the exact post-delete catalog so the Product page can update
@@ -12199,10 +12436,10 @@ async function processProductBulkDelete(req, res) {
     let products = readProductsNoImages();
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
-    const existingCodes = products
-        .filter(p => p && typeof p.code === 'string' && wantedByKey.has(p.code.trim().toLowerCase()))
-        .map(p => p.code);
-    const notFound = wantedByKey.size - existingCodes.length;
+    let existingCodes = products
+        .filter(p => p && p.code != null && wantedByKey.has(normalizeProductCodeKey(p.code)))
+        .map(p => String(p.code));
+    let notFound = wantedByKey.size - existingCodes.length;
     if (canApplyDirectly) {
         const { adminPassword } = body;
         if (!adminPassword || typeof adminPassword !== 'string') {
@@ -12217,12 +12454,20 @@ async function processProductBulkDelete(req, res) {
                 message: 'Incorrect password. No product was deleted.'
             });
         }
+        // RACE FIX: ang `products` ay nabasa BAGO ang bcrypt await sa itaas (daan-daang ms). Ang ibang product write na hindi dumadaan sa mutex
+        // (edit/add/approve request/restock) ay mabubura kapag ang LUMANG listahan ang isinulat pabalik — kapareho ng inayos sa single delete.
+        // Binabasa ulit dito, at ang listahan ng mabubura ay muling kinukuwenta mula sa pinakabagong catalog (walang await mula rito hanggang sa write).
+        products = readProductsNoImages();
+        existingCodes = products
+            .filter(p => p && p.code != null && wantedByKey.has(normalizeProductCodeKey(p.code)))
+            .map(p => String(p.code));
+        notFound = wantedByKey.size - existingCodes.length;
         if (existingCodes.length === 0) {
             return res.status(404).json({ success: false, message: 'None of the selected products were found.' });
         }
-        const deleteKeys = new Set(existingCodes.map(c => c.trim().toLowerCase()));
-        const deletedProducts = products.filter(p => p && typeof p.code === 'string' && deleteKeys.has(p.code.trim().toLowerCase()));
-        const remaining = products.filter(p => !(p && typeof p.code === 'string' && deleteKeys.has(p.code.trim().toLowerCase())));
+        const deleteKeys = new Set(existingCodes.map(c => normalizeProductCodeKey(c)));
+        const deletedProducts = products.filter(p => p && p.code != null && deleteKeys.has(normalizeProductCodeKey(p.code)));
+        const remaining = products.filter(p => !(p && p.code != null && deleteKeys.has(normalizeProductCodeKey(p.code))));
         if (writeData(FILE_PRODUCTS, remaining) === false) {
             return res.status(500).json({ success: false, message: 'Could not save the deletion to the local database. No product was removed — please try again.' });
         }
@@ -12978,14 +13223,14 @@ function processRequestResolve(req, res) {
                 if (updReqStockError) {
                     return res.status(400).json({ success: false, message: `${updReqStockError} Reject this request instead.` });
                 }
-                if (!products.some(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase())) {
+                if (!products.some(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(targetReq.targetCode))) {
                     return res.status(404).json({ success: false, message: 'The product for this UPDATE request no longer exists. Reject the request instead.' });
                 }
-                products = products.map(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase() ? mergeProductUpdate(p, targetReq.data) : p);
+                products = products.map(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(targetReq.targetCode) ? mergeProductUpdate(p, targetReq.data) : p);
                 logAction(username, `APPROVED UPDATE Request for code: ${targetReq.targetCode}`);
             }
             else if (targetReq.type ==='DELETE') {
-                products = products.filter(p => p.code.trim().toLowerCase() !== targetReq.targetCode.trim().toLowerCase());
+                products = products.filter(p => normalizeProductCodeKey(p.code) !== normalizeProductCodeKey(targetReq.targetCode));
                 logAction(username, `APPROVED DELETE Request for code: ${targetReq.targetCode}`);
             }
             else if (targetReq.type ==='RESTOCK') {
@@ -12999,7 +13244,7 @@ function processRequestResolve(req, res) {
                 // ang parehong addBaseStock() na ginagamit ng quick-restock direct-apply
                 // at PO-receive, para laging magkatugma ang stock at batches sum.
                 const qtyToAdd = toQty3(targetReq.data?.qtyToAdd);
-                const prod = products.find(p => p.code.trim().toLowerCase() === targetReq.targetCode.trim().toLowerCase());
+                const prod = products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(targetReq.targetCode));
                 if (!prod) {
                     // BUGFIX: used to log "APPROVED" and delete the request even though no stock was added.
                     return res.status(404).json({ success: false, message: 'The product for this RESTOCK request no longer exists. Reject the request instead.' });
@@ -13036,10 +13281,81 @@ app.get('/api/health', (req, res) => {
 app.post('/api/transactions', requirePermission('terminal'), async (req, res) => {
     await transactionsMutexRunExclusive(() => processTransaction(req, res));
 });
+// Sale-clock rules. The sale date (isoDate) feeds the BIR e-Journal/Sales Book, period reports and the AI insights, so the
+// client may no longer pick any value it likes: an online sale must be within +/-10 minutes of the server clock, and an
+// offline-queued sale (offlineSync) must be in the past and not older than 30 days. Anything else falls back to the
+// server clock and the claimed value is kept in clientIsoDate for audit.
+const SALE_CLOCK_SKEW_MS = 10 * 60 * 1000;
+const OFFLINE_SALE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// The "offlineSync" flag is sent by the CLIENT, so it cannot be trusted by itself. It only counts when (1) the sale has a
+// syncId (every queued sale has one) and (2) the sale is really OLD: a sale that is claimed "offline" but was rung up less
+// than a minute ago is treated like a normal online sale (stock is checked, the clock is held to +/-10 minutes). A genuine
+// quick re-sync is not harmed by this: if it is short on stock it is held for review and a Retry a minute later goes through.
+// Even a genuine offline sale may only oversell a limited number of times per cashier per hour, so a client that fakes the
+// flag cannot sell stock that does not exist without limit.
+const OFFLINE_SYNC_MIN_DELAY_MS = 60 * 1000;
+const OFFLINE_SHORTFALL_MAX_PER_HOUR = 30;
+const OFFLINE_LONG_DELAY_MS = 24 * 60 * 60 * 1000;
+const OFFLINE_SHORTFALL_BUCKETS = new Map();
+function recentOfflineShortfallCount(username) {
+    const key = String(username || '').toLowerCase();
+    const now = Date.now();
+    const fresh = (OFFLINE_SHORTFALL_BUCKETS.get(key) || []).filter(ts => now - ts < 60 * 60 * 1000);
+    if (fresh.length) OFFLINE_SHORTFALL_BUCKETS.set(key, fresh); else OFFLINE_SHORTFALL_BUCKETS.delete(key);
+    return fresh.length;
+}
+function noteOfflineShortfallSale(username) {
+    const key = String(username || '').toLowerCase();
+    recentOfflineShortfallCount(key); // prunes old entries first
+    const list = OFFLINE_SHORTFALL_BUCKETS.get(key) || [];
+    list.push(Date.now());
+    OFFLINE_SHORTFALL_BUCKETS.set(key, list);
+}
 async function processTransaction(req, res) {
     const { transaction, username, creditDebtInfo } = req.body;
+    // Galing sa offline queue ng cashier: tapos na ang benta sa harap ng customer, kaya HINDI puwedeng tanggihan dahil
+    // kulang na ang stock (naibenta na ito ng ibang terminal habang offline) — dapat maitala ang benta (kita/BIR),
+    // at ma-flag para ma-review. Ang stock ay hindi bababa sa 0 (tingnan ang deductProductStock).
+    const claimedOfflineSync = !!(req.body && req.body.offlineSync === true);
+    let isOfflineSync = false; // decided below, after the claim is checked against the sale itself
+    const offlineStockShortfalls = [];
     if (!transaction || typeof transaction !== 'object' || !Array.isArray(transaction.items) || transaction.items.length === 0) {
         return res.status(400).json({ success: false, message: 'Walang laman o hindi valid ang transaction items.' });
+    }
+    delete transaction.stockShortfall; // server-owned flag; never trust a client-supplied value
+    for (const k of ['offlineSale', 'soldAt', 'syncedAt', 'soldAtAdjusted', 'clientIsoDate']) delete transaction[k]; // server-owned
+    if (claimedOfflineSync) {
+        const claimedForGate = transaction.isoDate ? new Date(transaction.isoDate).getTime() : NaN;
+        const hasSyncId = typeof transaction.syncId === 'string' && transaction.syncId.trim().length > 0;
+        isOfflineSync = hasSyncId && Number.isFinite(claimedForGate) && (Date.now() - claimedForGate) >= OFFLINE_SYNC_MIN_DELAY_MS;
+    }
+    if (isOfflineSync && typeof transaction.offlineOriginalId === 'string' && transaction.offlineOriginalId.trim()) {
+        transaction.offlineOriginalId = transaction.offlineOriginalId.trim().slice(0, 80); // receipt reference printed before an ID collision
+    } else {
+        delete transaction.offlineOriginalId;
+    }
+    {
+        const nowMs = Date.now();
+        const claimedMs = transaction.isoDate ? new Date(transaction.isoDate).getTime() : NaN;
+        let saleMs = nowMs;
+        if (Number.isFinite(claimedMs)) {
+            const acceptable = isOfflineSync
+                ? (claimedMs <= nowMs + SALE_CLOCK_SKEW_MS && claimedMs >= nowMs - OFFLINE_SALE_MAX_AGE_MS)
+                : (Math.abs(claimedMs - nowMs) <= SALE_CLOCK_SKEW_MS);
+            if (acceptable) {
+                saleMs = Math.min(claimedMs, nowMs);
+            } else {
+                transaction.clientIsoDate = String(transaction.isoDate).slice(0, 40);
+                transaction.soldAtAdjusted = true;
+            }
+        }
+        transaction.isoDate = new Date(saleMs).toISOString();
+        if (isOfflineSync) {
+            // The BIR invoice number of an offline sale is only assigned when it syncs; keep both moments on the record.
+            transaction.offlineSale = true;
+            transaction.soldAt = transaction.isoDate;
+            transaction.syncedAt = new Date(nowMs).toISOString();
+        }
     }
     transaction.cashier = req.authUser.username;
     {
@@ -13192,7 +13508,7 @@ async function processTransaction(req, res) {
             const availableStock = parseFloat(prod.stock) || 0;
             const totalRequested = requestedBaseQtyByCode[code];
             if (totalRequested > availableStock + 1e-6) {
-                stockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${totalRequested})`);
+                (isOfflineSync ? offlineStockShortfalls : stockIssues).push(`${prod.name} (natitira: ${availableStock}, hiniling: ${totalRequested})`);
             }
         }
     }
@@ -13358,7 +13674,25 @@ async function processTransaction(req, res) {
         }
     }
     products = readDataLite(FILE_PRODUCTS);
+    // RACE FIX: ang `customers` ay nabasa sa pinakataas, BAGO ang mga await sa itaas (bcrypt authorizer ng loyalty/discount).
+    // Habang naghihintay, may ibang request (edit/add customer, debt payment na nagbibigay ng points) na maaaring nakapagsulat
+    // na — at ang lumang kopya ang isinusulat pabalik sa commit sa ibaba (nawawala ang pagbabagong iyon). Binabasa ulit dito,
+    // kapareho ng ginagawa sa products. Wala nang await mula rito hanggang sa commit.
+    customers = readData(FILE_CUSTOMERS, []);
+    if (discountType === 'LOYALTY') {
+        const freshRedeemingCustomer = customers.find(c => c.id === transaction.customerId);
+        const pointsNeededNow = Math.max(0, parseInt(transaction.loyaltyPointsRedeemed) || 0);
+        if (!freshRedeemingCustomer) {
+            return res.status(400).json({ success: false, message: 'Customer not found.' });
+        }
+        if (Math.max(0, freshRedeemingCustomer.points || 0) < pointsNeededNow) {
+            return res.status(409).json({ success: false, message: 'Nagbago ang loyalty points ng customer habang pinoproseso ang benta — kulang na ang points. I-refresh at subukan ulit.' });
+        }
+    }
     const freshStockIssues = [];
+    // Ang stock na nabasa ulit dito ang huling basehan; burahin ang mga nakolekta sa unang pagsusuri para hindi
+    // magkaroon ng lipas/dobleng "stockShortfall" kapag nagbago ang stock sa pagitan ng dalawang pagbasa.
+    offlineStockShortfalls.length = 0;
     for (const code of Object.keys(requestedBaseQtyByCode)) {
         const prod = products.find(p => p.code === code);
         if (!prod) {
@@ -13368,7 +13702,7 @@ async function processTransaction(req, res) {
         const availableStock = parseFloat(prod.stock) || 0;
         const totalRequested = requestedBaseQtyByCode[code];
         if (totalRequested > availableStock + 1e-6) {
-            freshStockIssues.push(`${prod.name} (natitira: ${availableStock}, hiniling: ${totalRequested})`);
+            (isOfflineSync ? offlineStockShortfalls : freshStockIssues).push(`${prod.name} (natitira: ${availableStock}, hiniling: ${totalRequested})`);
         }
     }
     if (freshStockIssues.length > 0) {
@@ -13377,6 +13711,16 @@ async function processTransaction(req, res) {
             outOfStock: true,
             message: `Hindi ma-proceed ang benta — naubos/kulang na ang stock: ${freshStockIssues.join(', ')}. Malamang na-benta na ito sa ibang terminal/device. I-refresh ang product list.`
         });
+    }
+    if (isOfflineSync && offlineStockShortfalls.length > 0) {
+        if (recentOfflineShortfallCount(req.authUser.username) >= OFFLINE_SHORTFALL_MAX_PER_HOUR) {
+            return res.status(409).json({
+                success: false,
+                code: 'OFFLINE_SHORTFALL_LIMIT',
+                message: `Too many offline sales with short stock from this cashier in the last hour (limit ${OFFLINE_SHORTFALL_MAX_PER_HOUR}). This sale was held for review: ${[...new Set(offlineStockShortfalls)].join('; ')}. Check the stock count, then retry later.`
+            });
+        }
+        transaction.stockShortfall = [...new Set(offlineStockShortfalls)];
     }
     const verifiedTotal = Math.max(0, Math.round((netAfterItemDiscounts - cartDiscount) * 100) / 100);
     let taxAmount = 0;
@@ -13495,7 +13839,7 @@ async function processTransaction(req, res) {
     // store-level Accumulated Grand Total. Done as LATE as possible (right before the sale is
     // persisted) so nothing above can throw after the number/AGT were already consumed.
     // createdAt = server clock; the client-sent isoDate is not trusted as the only date source.
-    if (!transaction.createdAt) transaction.createdAt = new Date().toISOString();
+    transaction.createdAt = new Date().toISOString(); // server clock (never a client-supplied value)
     // ATOMICITY FIX: dati magkakahiwalay na writeData() ang transactions, products, promo, customers at debts.
     // Kapag pumalya ang isa sa gitna (disk full, lock, crash), maaaring may sale na hindi nabawasan ang stock, o
     // nabawasan ang stock/points na walang sale, o C-Credit sale na walang utang. Ngayon, lahat ay iisang SQLite
@@ -13580,6 +13924,16 @@ async function processTransaction(req, res) {
         + (transaction.loyaltyAuthorizedBy ? ` (Loyalty redemption authorized by: ${transaction.loyaltyAuthorizedBy})` : ''));
     if (createdDebt) {
         logAction(username, `Auto-recorded a debt from C-Credit sale ${transaction.id}: ${createdDebt.customerName} — ₱${(transaction.total || 0).toFixed(2)}`);
+    }
+    if (transaction.stockShortfall) {
+        noteOfflineShortfallSale(transaction.cashier);
+        logAction(username, `Offline sale ${transaction.id} was recorded even though stock was short (sold elsewhere while offline): ${transaction.stockShortfall.join('; ')}. Please review the inventory.`);
+    }
+    if (transaction.offlineSale) {
+        const syncDelayMs = new Date(transaction.syncedAt).getTime() - new Date(transaction.soldAt).getTime();
+        if (Number.isFinite(syncDelayMs) && syncDelayMs >= OFFLINE_LONG_DELAY_MS) {
+            logAction(username, `Offline sale ${transaction.id} was synced ${Math.round(syncDelayMs / 3600000)} hour(s) after it was rung up (sold ${transaction.soldAt}). Review if this is unexpected.`);
+        }
     }
     runFraudChecks('sale', { transaction });
     try {
@@ -15442,56 +15796,64 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 password: bcrypt.hashSync(u.password, 10),
                 created: getPHTime()
             }));
-            writeData(FILE_USERS, secureDefaultUsers);
+            let mpPrev = {}; try { mpPrev = readData('marketplaceState', {}) || {}; } catch (_) { mpPrev = {}; }
+            const preResetIdentity = readFeatureUnlocks();
+            // ATOMICITY FIX: dati magkakahiwalay na writeData() ang bawat module at HINDI sinusuri kung nagtagumpay — kapag
+            // pumalya ang isa (hal. "database disk image is malformed", disk full), tuloy pa rin ang reset at lumalabas na
+            // "Done! System has been reset" kahit buo pa ang products/benta (nangyari ito sa log noong Sep 19). Ngayon, LAHAT ng
+            // pagbura ay iisang SQLite transaction: either lahat nabura, o wala (at lalabas ang totoong error sa user).
+            // Ang Marketplace Hub links/orders ay nililinis (naka-link sa binurang products) at itinatala ang resetAt para
+            // hindi ma-deduct ulit ang mga lumang marketplace order laban sa bagong stock.
+            // Ang mga operational module (stock returns, counts, consignments, waste log, suppliers) at ang demo snapshot ay
+            // kasama rin para walang orphan data / walang mabubuhay na lumang data kapag natapos ang Demo Mode.
+            try {
+                commitDataModules([
+                    { module: FILE_USERS, data: secureDefaultUsers },
+                    { module: FILE_PRODUCTS, data: [] },
+                    { module: FILE_TRANSACTIONS, data: [] },
+                    { module: FILE_REQUESTS, data: [] },
+                    { module: FILE_CARTS, data: {} },
+                    { module: FILE_CUSTOMERS, data: [] },
+                    { module: FILE_SHIFTS, data: [] },
+                    { module: FILE_SHIFT_META, data: {} },
+                    { module: FILE_FRAUD_ALERTS, data: [] },
+                    { module: FILE_REFUNDS, data: [] },
+                    { module: FILE_DEBTS, data: [] },
+                    { module: FILE_PROMOCODES, data: [] },
+                    { module: FILE_PURCHASE_ORDERS, data: [] },
+                    { module: FILE_LOWSTOCK_TRACKING, data: {} },
+                    { module: FILE_LOYALTY_SECURITY, data: {} },
+                    { module: FILE_STOCK_RETURNS, data: [] },
+                    { module: FILE_INVENTORY_COUNTS, data: [] },
+                    { module: FILE_CONSIGNMENTS, data: [] },
+                    { module: FILE_WASTE_LOG, data: [] },
+                    { module: FILE_SUPPLIERS, data: [] },
+                    { module: 'marketplaceLinks', data: [] },
+                    { module: 'marketplaceOrders', data: [] },
+                    { module: 'marketplaceState', data: { settings: mpPrev.settings || undefined, cursors: {}, connections: [], lastSync: null, resetAt: Date.now() } },
+                    { module: FILE_DEMO_DATA_SNAPSHOT, data: null },
+                    { module: FILE_CATEGORIES, data: [] },
+                    { module: FILE_FEATURE_UNLOCKS, data: {
+                        ...DEFAULT_FEATURE_UNLOCKS,
+                        installationId: preResetIdentity.installationId,
+                        hardwareFingerprint: preResetIdentity.hardwareFingerprint,
+                        verifiedFingerprint: preResetIdentity.verifiedFingerprint,
+                        deviceVerified: preResetIdentity.deviceVerified,
+                        firstVerifiedAt: preResetIdentity.firstVerifiedAt,
+                        lastVerifiedAt: preResetIdentity.lastVerifiedAt,
+                        devicePermit: preResetIdentity.devicePermit,
+                        relayAuthorized: preResetIdentity.relayAuthorized,
+                        deviceSeed: preResetIdentity.deviceSeed
+                    } },
+                    { module: FILE_USERLOGS, data: [] }
+                ]);
+            } catch (dbResetErr) {
+                dbResetErr.resetStage = 'db';
+                throw dbResetErr;
+            }
             SESSIONS.clear();
             persistSessions();
-            writeData(FILE_PRODUCTS, []);
-            writeData(FILE_TRANSACTIONS, []);
-            writeData(FILE_REQUESTS, []);
-            writeData(FILE_CARTS, {});
-            writeData(FILE_CUSTOMERS, []);
-            writeData(FILE_SHIFTS, []);
-            writeData(FILE_SHIFT_META, {});
-            writeData(FILE_FRAUD_ALERTS, []);
             fraudVelocityLog.clear();
-            writeData(FILE_REFUNDS, []);
-            writeData(FILE_DEBTS, []);
-            writeData(FILE_PROMOCODES, []);
-            writeData(FILE_PURCHASE_ORDERS, []);
-            writeData(FILE_LOWSTOCK_TRACKING, {});
-            writeData(FILE_LOYALTY_SECURITY, {});
-            // These operational modules used to survive a Hard Reset even though products/sales were wiped
-            // (orphaned stock returns, counts, consignments, waste log, suppliers). A stale demo snapshot would
-            // also resurrect the deleted data the next time Demo Mode ended, so it is cleared too.
-            writeData(FILE_STOCK_RETURNS, []);
-            writeData(FILE_INVENTORY_COUNTS, []);
-            writeData(FILE_CONSIGNMENTS, []);
-            writeData(FILE_WASTE_LOG, []);
-            writeData(FILE_SUPPLIERS, []);
-            // Marketplace Hub: linisin ang links/orders (naka-link sa binurang products) at itala ang resetAt
-            // para hindi ma-deduct ulit ang mga lumang marketplace order laban sa bagong stock.
-            {
-                let mpPrev = {}; try { mpPrev = readData('marketplaceState', {}) || {}; } catch (_) { mpPrev = {}; }
-                writeData('marketplaceLinks', []);
-                writeData('marketplaceOrders', []);
-                writeData('marketplaceState', { settings: mpPrev.settings || undefined, cursors: {}, connections: [], lastSync: null, resetAt: Date.now() });
-            }
-            writeData(FILE_DEMO_DATA_SNAPSHOT, null);
-            writeData(FILE_CATEGORIES, []);
-            const preResetIdentity = readFeatureUnlocks();
-            writeData(FILE_FEATURE_UNLOCKS, {
-                ...DEFAULT_FEATURE_UNLOCKS,
-                installationId: preResetIdentity.installationId,
-                hardwareFingerprint: preResetIdentity.hardwareFingerprint,
-                verifiedFingerprint: preResetIdentity.verifiedFingerprint,
-                deviceVerified: preResetIdentity.deviceVerified,
-                firstVerifiedAt: preResetIdentity.firstVerifiedAt,
-                lastVerifiedAt: preResetIdentity.lastVerifiedAt,
-                devicePermit: preResetIdentity.devicePermit,
-                relayAuthorized: preResetIdentity.relayAuthorized,
-                deviceSeed: preResetIdentity.deviceSeed
-            });
-            writeData(FILE_USERLOGS, []);
             clearAllAttendanceData();
             updateResetJob(jobId, { percent: 96, message: 'Compacting the database file to reclaim disk space...' });
             const vacuumResult = vacuumDatabase();
@@ -15524,6 +15886,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
         } catch (err) {
             console.error("Mail Reset Failure Context:", err);
             const failedAtBirReset = !!(err && err.resetStage === 'bir');
+            const failedAtDbReset = !!(err && err.resetStage === 'db');
             updateResetJob(jobId, {
                 status: 'error',
                 percent: 0,
@@ -15532,6 +15895,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     success: false,
                     message: (err && err.birStale)
                         ? `The reset was stopped before anything was deleted — all your data is still intact. ${err.message} Please make sure no sales are being processed (on any device), then run the reset again.`
+                        : failedAtDbReset
+                        ? `The backup email was sent, but the database could not be reset, so NOTHING was deleted from the main data (the reset is all-or-nothing). ${includeBirData ? 'NOTE: the BIR Compliance data was already reset before this error — keep the separate BIR backup file that was emailed. ' : ''}Check that the device has free storage and that the database is healthy, then try again. Error: ${err.message}`
                         : failedAtBirReset
                         ? `The backup email was sent, but the BIR Compliance data could not be reset, so the reset was stopped before anything was deleted — all your data is still intact. Please try again. Error: ${err.message}`
                         : `Reset was not completed because email verification failed. Make sure your Gmail and 16-character App Password are CORRECT. Error: ${err.message}`
@@ -18247,7 +18612,10 @@ app.post('/api/auth/verify-void', rateLimit('verify-void', 8, 10 * 60 * 1000), a
     }
 });
 app.post('/api/logs', (req, res) => {
-    const { user, authMethod } = req.body;
+    const { authMethod } = req.body;
+    // SECURITY FIX: ang pangalan sa audit log ay galing sa nakalogin na session, hindi sa sinasabi ng client — kung hindi,
+    // kahit sinong cashier ay makakapagsulat ng log entry (hal. DISCARD_OFFLINE_SALE, VOID_CART) sa ngalan ng ibang user.
+    const user = (req.authUser && req.authUser.username) || (req.body && req.body.user);
     // Robustness: a missing/odd "details" or "action" used to throw a TypeError (non-JSON 500). Only plain
     // strings/objects are accepted, and the text length is capped so the audit log cannot be flooded.
     const action = typeof req.body.action === 'string' ? req.body.action.slice(0, 80) : 'UNKNOWN';
@@ -18366,6 +18734,9 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
                 })
                 : transactions;
 
+        // BUGFIX: dati UTC ang pang-araw na susi (toISOString().slice(0,10)) kaya ang mga benta mula 12:00am hanggang 8:00am (oras sa Pilipinas)
+        // ay napupunta sa NAKARAANG araw sa Daily Trend. Lokal na petsa na ang gamit (kapareho ng 'today' filter sa itaas).
+        const localDayKey = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
         const roundMoney = value => Math.round((Number(value) || 0) * 100) / 100;
         const grossAmount = tx => Math.max(0, parseFloat(tx && tx.total) || 0);
         const refundedAmount = tx => {
@@ -18407,7 +18778,7 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
 
             const rawDate = t.isoDate || t.timestamp || t.date || '';
             const parsedDate = new Date(rawDate);
-            const dayKey = !isNaN(parsedDate.getTime()) ? parsedDate.toISOString().slice(0, 10) : 'unknown';
+            const dayKey = !isNaN(parsedDate.getTime()) ? localDayKey(parsedDate) : 'unknown';
             if (netTx > 0 && dayKey !== 'unknown') dailyTrendMap[dayKey] = roundMoney((dailyTrendMap[dayKey] || 0) + netTx);
 
             (t.items || []).forEach(i => {
@@ -18474,8 +18845,10 @@ app.get('/api/reports/sales-analytics', requirePermission('reports'), requireFea
 
         const dailyTrend = [];
         for (let d = 6; d >= 0; d--) {
-            const dt = new Date(now - d * 24 * 60 * 60 * 1000);
-            const key = dt.toISOString().slice(0, 10);
+            // Tanghali ng lokal na araw (hindi now - N*24h) para hindi laktawan/duplicate ang petsa sa DST shift.
+            const nowLocalForTrend = new Date(now);
+            const dt = new Date(nowLocalForTrend.getFullYear(), nowLocalForTrend.getMonth(), nowLocalForTrend.getDate() - d, 12, 0, 0);
+            const key = localDayKey(dt);
             dailyTrend.push({
                 date: key,
                 label: dt.toLocaleDateString('en-PH', { weekday: 'short' }),
@@ -18548,7 +18921,7 @@ function processQuickRestock(req, res) {
         return res.status(400).json({ success: false, message:'Please enter a valid quantity.' });
     }
     let products = readProductsNoImages();
-    const target = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    const target = products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code));
     if (!target) return res.status(404).json({ success: false, message:'Product not found.' });
     if (canApplyDirectly) {
         // Batch/Lot Tracking is a gated premium feature — only honor the
@@ -18616,7 +18989,7 @@ app.get('/api/products/batches', requirePermission('products'), requireFeature('
 app.get('/api/products/:code/batches', requirePermission('products'), requireFeature('batch_lot_tracking'), (req, res) => {
     const { code } = req.params;
     const products = readProductsNoImages();
-    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    const prod = products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code));
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     const batches = sortBatchesFEFO(prod.batches);
     res.json({ success: true, code: prod.code, name: prod.name, stock: prod.stock, batches });
@@ -18635,7 +19008,7 @@ function processAddProductBatch(req, res) {
         return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
     }
     let products = readProductsNoImages();
-    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    const prod = products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code));
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     const username = req.authUser.username;
     // BUGFIX: keep existing plain stock when the FIRST lot is created (otherwise it is erased on the next sale).
@@ -18673,7 +19046,7 @@ function processUpdateProductBatch(req, res) {
         return res.status(400).json({ success: false, message: 'Invalid expiry date.' });
     }
     let products = readProductsNoImages();
-    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    const prod = products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code));
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     foldLegacyStockIntoBatches(prod);
     const batch = Array.isArray(prod.batches) ? prod.batches.find(b => b.id === batchId) : null;
@@ -18728,7 +19101,7 @@ function processDeleteProductBatch(req, res) {
         return res.status(400).json({ success: false, message: `Invalid category. Choose one of: correction, ${Array.from(WASTE_CATEGORIES).join(', ')}.` });
     }
     let products = readProductsNoImages();
-    const prod = products.find(p => p.code.trim().toLowerCase() === code.trim().toLowerCase());
+    const prod = products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code));
     if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
     if (!Array.isArray(prod.batches)) prod.batches = [];
     foldLegacyStockIntoBatches(prod);
@@ -18868,7 +19241,7 @@ function processPurchaseOrderReceive(req, res) {
     const receivedLines = [];
     for (const step of plan) {
         const it = lines[step.idx];
-        const prod = products.find(p => p.code.trim().toLowerCase() === String(it.code || '').trim().toLowerCase());
+        const prod = products.find(p => normalizeProductCodeKey(p.code) === String(it.code || '').trim().toLowerCase());
         if (!prod) {
             if (!missingCodes.includes(it.code)) missingCodes.push(it.code);
             continue;
@@ -19535,39 +19908,65 @@ function applyDebtPayment(debt, paymentAmount, recordedBy, meta = {}) {
     }
 }
 const ONLINE_PAYMENT_SWEEP_INTERVAL_MS = 60 * 1000;
+let sweepPendingOnlinePaymentsRunning = false;
 async function sweepPendingOnlinePayments() {
     if (!getPaymongoSecretKey() && !getXenditSecretKey()) return;
+    // RACE FIX: (1) hindi na nagsasapawan ang dalawang sweep (ang network retrieve ay pwedeng tumagal nang higit sa 60s),
+    // (2) hindi na isinusulat pabalik ang LUMANG listahan ng debts pagkatapos ng mga await. Dati: binasa ang buong debts,
+    // naghintay sa gateway (segundo), saka isinulat ang buong listahan — kaya nabubura ang utang na kakadagdag lang ng
+    // C-Credit sale o ang bayad na kakarekord lang ng cashier sa pagitan. Ngayon: ang mga resulta lang ng gateway ang
+    // inaalala habang naghihintay, tapos binabasa ulit ang pinakabagong debts at doon inilalapat (walang await sa pagitan).
+    if (sweepPendingOnlinePaymentsRunning) return;
+    sweepPendingOnlinePaymentsRunning = true;
     try {
-        const debts = readData(FILE_DEBTS, []);
-        let changed = false;
-        for (const debt of debts) {
+        const snapshot = readData(FILE_DEBTS, []);
+        const outcomes = [];
+        for (const debt of snapshot) {
             const pending = debt.onlinePayment;
             if (!pending || pending.status !== 'pending') continue;
             if (pending.expiresAt && new Date(pending.expiresAt).getTime() < Date.now()) {
-                pending.status = 'expired';
-                changed = true;
+                outcomes.push({ debtId: debt.id, intentId: pending.paymentIntentId, kind: 'expired' });
                 continue;
             }
             const driver = GATEWAY_DRIVERS[pending.provider] || GATEWAY_DRIVERS.paymongo;
             try {
                 const intent = await driver.retrieve(pending.paymentIntentId);
                 if (intent.status === 'succeeded') {
-                    const already = (debt.paymentHistory || []).some(p => p.reference === pending.paymentIntentId);
-                    if (!already) {
-                        applyDebtPayment(debt, pending.amount, 'online-qrph', { method: 'online_qrph', reference: pending.paymentIntentId });
-                        logAction('system', `Automatically recorded the QR Ph payment from ${debt.customerName}: ₱${pending.amount.toFixed(2)} (${pending.paymentIntentId} via ${ONLINE_PAYMENT_GATEWAYS[pending.provider] ? ONLINE_PAYMENT_GATEWAYS[pending.provider].name : pending.provider})`);
-                    }
-                    pending.status = 'succeeded';
-                    changed = true;
+                    outcomes.push({ debtId: debt.id, intentId: pending.paymentIntentId, kind: 'succeeded' });
                 } else if (intent.status && !['awaiting_payment_method', 'awaiting_next_action', 'processing', 'requires_action', 'accepting_payments', 'pending'].includes(intent.status)) {
-                    pending.status = intent.status;
-                    changed = true;
+                    outcomes.push({ debtId: debt.id, intentId: pending.paymentIntentId, kind: 'status', status: intent.status });
                 }
             } catch (e) {                                                                       }
+        }
+        if (!outcomes.length) return;
+        const debts = readData(FILE_DEBTS, []);
+        let changed = false;
+        for (const outcome of outcomes) {
+            const debt = debts.find(d => d.id === outcome.debtId);
+            const pending = debt && debt.onlinePayment;
+            // Lumipas na ang sitwasyon (nabura ang utang / may bagong QR / naproseso na ng ibang request)? Laktawan.
+            if (!pending || pending.status !== 'pending' || pending.paymentIntentId !== outcome.intentId) continue;
+            if (outcome.kind === 'expired') {
+                pending.status = 'expired';
+                changed = true;
+            } else if (outcome.kind === 'succeeded') {
+                const already = (debt.paymentHistory || []).some(p => p.reference === pending.paymentIntentId);
+                if (!already) {
+                    applyDebtPayment(debt, pending.amount, 'online-qrph', { method: 'online_qrph', reference: pending.paymentIntentId });
+                    logAction('system', `Automatically recorded the QR Ph payment from ${debt.customerName}: ₱${pending.amount.toFixed(2)} (${pending.paymentIntentId} via ${ONLINE_PAYMENT_GATEWAYS[pending.provider] ? ONLINE_PAYMENT_GATEWAYS[pending.provider].name : pending.provider})`);
+                }
+                pending.status = 'succeeded';
+                changed = true;
+            } else {
+                pending.status = outcome.status;
+                changed = true;
+            }
         }
         if (changed) writeData(FILE_DEBTS, debts);
     } catch (e) {
         console.error('sweepPendingOnlinePayments error:', e.message);
+    } finally {
+        sweepPendingOnlinePaymentsRunning = false;
     }
 }
 setInterval(sweepPendingOnlinePayments, ONLINE_PAYMENT_SWEEP_INTERVAL_MS);
@@ -19612,7 +20011,14 @@ app.post('/api/debts/:id/qrph', requirePermission('customers'), requireFeature('
                 throw primaryErr;
             }
         }
-        debt.onlinePayment = {
+        // RACE FIX: may await (gateway create) sa itaas — basahin ulit ang pinakabagong debts bago isulat,
+        // para hindi mabura ang mga pagbabago (bagong utang/bayad) na nangyari habang naghihintay.
+        const debtsAfterGateway = readData(FILE_DEBTS, []);
+        const debtAfterGateway = debtsAfterGateway.find(d => d.id === req.params.id);
+        if (!debtAfterGateway) {
+            throw new Error('Debt record not found (it was removed while the QR Ph request was being created).');
+        }
+        debtAfterGateway.onlinePayment = {
             provider: usedProvider,
             paymentIntentId: result.id,
             amount: amountPHP,
@@ -19620,8 +20026,8 @@ app.post('/api/debts/:id/qrph', requirePermission('customers'), requireFeature('
             createdAt: new Date().toISOString(),
             expiresAt: result.expiresAt
         };
-        writeData(FILE_DEBTS, debts);
-        logAction(req.authUser.username, `Created a QR Ph payment request for ${debt.customerName}: ₱${amountPHP.toFixed(2)} (${ONLINE_PAYMENT_GATEWAYS[usedProvider].name})`);
+        writeData(FILE_DEBTS, debtsAfterGateway);
+        logAction(req.authUser.username, `Created a QR Ph payment request for ${debtAfterGateway.customerName}: ₱${amountPHP.toFixed(2)} (${ONLINE_PAYMENT_GATEWAYS[usedProvider].name})`);
         res.json({ success: true, qrCodeImageUrl: result.qrCodeImageUrl, expiresAt: result.expiresAt, paymentIntentId: result.id, amount: amountPHP, provider: usedProvider });
     } catch (err) {
         res.status(400).json({ success: false, message: err.message || 'Failed to create the QR Ph payment request.' });
@@ -19645,14 +20051,21 @@ app.get('/api/debts/:id/qrph/status', requirePermission('customers'), requireFea
         const driver = GATEWAY_DRIVERS[pending.provider] || GATEWAY_DRIVERS.paymongo;
         const intent = await driver.retrieve(pending.paymentIntentId);
         if (intent.status === 'succeeded') {
-            const already = (debt.paymentHistory || []).some(p => p.reference === pending.paymentIntentId);
-            if (!already) {
-                applyDebtPayment(debt, pending.amount, 'online-qrph', { method: 'online_qrph', reference: pending.paymentIntentId });
-                logAction('system', `Automatically recorded the QR Ph payment from ${debt.customerName}: ₱${pending.amount.toFixed(2)} (${pending.paymentIntentId})`);
+            // RACE FIX: may await (gateway retrieve) sa itaas — ilapat sa pinakabagong debts, hindi sa lumang kopya.
+            const debtsAfterGateway = readData(FILE_DEBTS, []);
+            const debtAfterGateway = debtsAfterGateway.find(d => d.id === req.params.id);
+            if (!debtAfterGateway) return res.status(404).json({ success: false, message: 'Debt record not found.' });
+            const pendingAfterGateway = debtAfterGateway.onlinePayment;
+            if (pendingAfterGateway && pendingAfterGateway.paymentIntentId === pending.paymentIntentId && pendingAfterGateway.status === 'pending') {
+                const already = (debtAfterGateway.paymentHistory || []).some(p => p.reference === pendingAfterGateway.paymentIntentId);
+                if (!already) {
+                    applyDebtPayment(debtAfterGateway, pendingAfterGateway.amount, 'online-qrph', { method: 'online_qrph', reference: pendingAfterGateway.paymentIntentId });
+                    logAction('system', `Automatically recorded the QR Ph payment from ${debtAfterGateway.customerName}: ₱${pendingAfterGateway.amount.toFixed(2)} (${pendingAfterGateway.paymentIntentId})`);
+                }
+                pendingAfterGateway.status = 'succeeded';
+                writeData(FILE_DEBTS, debtsAfterGateway);
             }
-            pending.status = 'succeeded';
-            writeData(FILE_DEBTS, debts);
-            return res.json({ success: true, status: 'succeeded', debt });
+            return res.json({ success: true, status: 'succeeded', debt: debtAfterGateway });
         }
         return res.json({ success: true, status: intent.status || 'pending', debt });
     } catch (err) {
@@ -19733,39 +20146,75 @@ app.post('/api/debts', requirePermission('customers'), requireFeature('customer_
     logAction(req.authUser.username, `Added a new debt record: ${debt.customerName} — ₱${debt.amount.toFixed(2)}`);
     res.json({ success: true, debt });
 });
-app.put('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), (req, res) => {
+app.put('/api/debts/:id', requirePermission('customers'), requireFeature('customer_crm'), debtAmountEditLimiter, async (req, res) => {
+    const body = req.body || {};
+    const { customerName, phone, amount, note, dueAt } = body;
+    const isAdminUser = String((req.authUser && req.authUser.role) || '').toLowerCase() === 'admin';
+    let amountAuthorizer = null;
+    let parsedNewAmount = null;
+    if (amount !== undefined) {
+        parsedNewAmount = parseFloat(amount);
+        if (!parsedNewAmount || parsedNewAmount <= 0) {
+            return res.status(400).json({ success: false, message:'A valid amount is required.' });
+        }
+        const currentDebt = readData(FILE_DEBTS, []).find(d => d.id === req.params.id);
+        if (!currentDebt) return res.status(404).json({ success: false, message:'Debt record not found.' });
+        const amountChanged = Math.abs(parsedNewAmount - (parseFloat(currentDebt.amount) || 0)) >= 0.005;
+        if (amountChanged && !isAdminUser) {
+            const adminPassword = typeof body.adminPassword === 'string' ? body.adminPassword : '';
+            if (!adminPassword) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'ADMIN_PASSWORD_REQUIRED',
+                    message:'An admin password is required to change the debt amount.'
+                });
+            }
+            amountAuthorizer = await findAdminOnlyPasswordAuthorizer(readData(FILE_USERS), adminPassword);
+            if (!amountAuthorizer) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'WRONG_ADMIN_PASSWORD',
+                    message:'Incorrect admin password. The debt amount was not changed.'
+                });
+            }
+        }
+    }
+    // Binasa ulit pagkatapos ng await (verification) para hindi ma-overwrite ang mga pagbabagong nangyari habang naghihintay.
     const debts = readData(FILE_DEBTS, []);
     const idx = debts.findIndex(d => d.id === req.params.id);
     if (idx === -1) return res.status(404).json({ success: false, message:'Debt record not found.' });
-    const { customerName, phone, amount, note, dueAt } = req.body;
-    if (customerName !== undefined && customerName.trim()) debts[idx].customerName = customerName.trim();
-    if (phone !== undefined) debts[idx].phone = phone;
-    if (note !== undefined) debts[idx].note = note;
+    let newDueAtIso;
     if (dueAt !== undefined) {
         if (!dueAt) {
-            debts[idx].dueAt = null;
+            newDueAtIso = null;
         } else {
             const parsedDue = new Date(dueAt);
             if (isNaN(parsedDue.getTime())) {
                 return res.status(400).json({ success: false, message:'The due date/time is not valid.' });
             }
-            debts[idx].dueAt = parsedDue.toISOString();
+            newDueAtIso = parsedDue.toISOString();
         }
     }
-    if (amount !== undefined) {
-        const parsedAmount = parseFloat(amount);
-        if (!parsedAmount || parsedAmount <= 0) {
-            return res.status(400).json({ success: false, message:'A valid amount is required.' });
-        }
-        debts[idx].amount = parsedAmount;
-        if (debts[idx].amountPaid >= debts[idx].amount) {
+    if (customerName !== undefined && typeof customerName === 'string' && customerName.trim()) debts[idx].customerName = customerName.trim();
+    if (phone !== undefined) debts[idx].phone = phone;
+    if (note !== undefined) debts[idx].note = note;
+    if (newDueAtIso !== undefined) debts[idx].dueAt = newDueAtIso;
+    if (parsedNewAmount !== null) {
+        const previousAmount = parseFloat(debts[idx].amount) || 0;
+        debts[idx].amount = parsedNewAmount;
+        if ((parseFloat(debts[idx].amountPaid) || 0) >= debts[idx].amount) {
             debts[idx].status ='paid';
             if (!debts[idx].paidAt) debts[idx].paidAt = new Date().toISOString();
             awardLoyaltyPointsForPaidDebt(debts[idx], req.authUser.username);
-        } else if (debts[idx].amountPaid > 0) {
+        } else if ((parseFloat(debts[idx].amountPaid) || 0) > 0) {
             debts[idx].status ='partial';
+            debts[idx].paidAt = null;
         } else {
             debts[idx].status ='unpaid';
+            debts[idx].paidAt = null;
+        }
+        if (Math.abs(previousAmount - parsedNewAmount) >= 0.005) {
+            logAction(req.authUser.username, `Changed the debt amount of ${debts[idx].customerName} (Debt ID: ${debts[idx].id}) from ₱${previousAmount.toFixed(2)} to ₱${parsedNewAmount.toFixed(2)} (${isAdminUser ? 'by Admin' : `Authorized by Admin password (${amountAuthorizer ? amountAuthorizer.user.username : 'admin'})`})`);
         }
     }
     writeData(FILE_DEBTS, debts);
@@ -20228,14 +20677,38 @@ function computeShiftSummary(periodStartIso, periodEndIso, cashierFilter) {
         netSales += net;
         grossSales += net + disc;
         if (Array.isArray(t.payments) && t.payments.length > 0) {
-            const totalTendered = t.payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) || 1;
-            t.payments.forEach(p => {
-                const method = (p.method ||'CASH').toUpperCase();
-                const share = Math.round((net * ((parseFloat(p.amount) || 0) / totalTendered)) * 100) / 100;
+            // BUGFIX: the tendered amounts of a split payment include the change handed back, and that change always
+            // comes out of the cash drawer. Splitting the net sale in proportion to the TENDERED amounts overstated CASH
+            // (e.g. GCash 300 + Cash 500 for a 700 sale gave Cash 437.50 instead of 400), so Expected Cash was too high
+            // and every Z-Reading showed a false shortage. The change is now taken off the CASH line(s) first.
+            const payLines = t.payments.map(p => ({
+                method: (p.method || 'CASH').toString().toUpperCase(),
+                amount: Math.max(0, parseFloat(p.amount) || 0)
+            }));
+            const tenderedSum = payLines.reduce((s, l) => s + l.amount, 0);
+            let changeLeft = Math.max(0, Math.round((tenderedSum - (parseFloat(t.total) || 0)) * 100) / 100);
+            payLines.forEach(l => {
+                if (changeLeft <= 0 || l.method !== 'CASH') return;
+                const take = Math.min(l.amount, changeLeft);
+                l.amount = Math.round((l.amount - take) * 100) / 100;
+                changeLeft = Math.round((changeLeft - take) * 100) / 100;
+            });
+            if (changeLeft > 0.004) {
+                // More change than cash tendered (should not happen): spread the remainder proportionally.
+                const restSum = payLines.reduce((s, l) => s + l.amount, 0);
+                if (restSum > 0) payLines.forEach(l => { l.amount = Math.max(0, l.amount - changeLeft * (l.amount / restSum)); });
+            }
+            const appliedSum = payLines.reduce((s, l) => s + l.amount, 0);
+            payLines.forEach(l => {
+                const method = l.method;
+                // Shares always add up to this transaction's net (refunds are taken out proportionally).
+                const share = appliedSum > 0
+                    ? Math.round((net * (l.amount / appliedSum)) * 100) / 100
+                    : Math.round((net / payLines.length) * 100) / 100;
                 if (!paymentBreakdown[method]) paymentBreakdown[method] = { count: 0, total: 0 };
                 paymentBreakdown[method].total = Math.round((paymentBreakdown[method].total + share) * 100) / 100;
             });
-            const primaryMethod = (t.payments[0].method ||'CASH').toUpperCase();
+            const primaryMethod = payLines[0].method;
             paymentBreakdown[primaryMethod].count += 1;
         } else {
             const method = (t.payment_method || t.method ||'CASH').toUpperCase();

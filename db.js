@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
 const sqliteModule = require('node:sqlite');
 const { DatabaseSync } = sqliteModule;
 
@@ -98,6 +99,8 @@ function probeDbFile(filePath) {
 const DB_HEALTH_STATE_PATH = path.join(DB_DIR, '.db-health.json');
 const DB_HEALTH_RECHECK_MS = 24 * 60 * 60 * 1000;
 const HUGE_DB_BYTES = 300 * 1024 * 1024;
+// Backup verification: full quick_check lang kung ≤64 MB (sync ito — iwas matagal na pag-block ng server sa phone); mas malaki = bounded probe lang.
+const BACKUP_FULL_VERIFY_MAX_BYTES = 64 * 1024 * 1024;
 function readDbHealthState() {
     try { return JSON.parse(fs.readFileSync(DB_HEALTH_STATE_PATH, 'utf8')) || {}; } catch (_e) { return {}; }
 }
@@ -131,6 +134,95 @@ function noteDbRuntimeError(err) {
     dbSuspectedCorrupt = true;
     writeDbHealthState({ cleanShutdown: false, suspectedAt: Date.now() });
     console.error('🔴 [DB-HEALTH] Corruption error detected while running — restart the server to run the integrity check and auto-recovery.');
+}
+
+// READ-FAILURE GUARD (critical): readData() returns the *default* value (usually []) when SQLite throws while
+// reading (SQLITE_BUSY after busy_timeout, I/O error, malformed page). Almost every caller then does
+// "read -> modify -> writeData()", so a single transient read error used to make the app write [] + one new row
+// over the real catalog / customers / transactions (for row-normalized modules, writeRowNormalizedData() even DELETES
+// every row that is not in the list). A module whose last read failed at the SQLite level is now write-protected
+// until a later read of that same module succeeds, so the real data on disk is never replaced by a default.
+const failedReadModules = new Set();
+function markReadFailed(moduleName, err) {
+    failedReadModules.add(String(moduleName));
+    noteRequestReadFailure(moduleName, true);
+    noteDbRuntimeError(err);
+}
+function markReadOk(moduleName) {
+    if (failedReadModules.size) failedReadModules.delete(String(moduleName));
+    noteRequestReadFailure(moduleName, false);
+}
+function isWriteBlockedByFailedRead(moduleName) {
+    return failedReadModules.has(String(moduleName));
+}
+function rowWriteBlockedMessage(moduleName) {
+    return `Write to module "${moduleName}" was REFUSED: its last read failed, so the in-memory copy may be an empty default and saving it would erase real data. It unblocks itself as soon as the module can be read again.`;
+}
+
+// SNAPSHOT TAINT (hole in the module-level flag above): Request A reads module M -> SQLite fails -> A holds an EMPTY default and
+// awaits something (bcrypt, Relay...). Request B reads M successfully -> the module-level flag is cleared -> A resumes and writes its
+// empty default over the real data. To close that gap, the fallback returned after a failed read is a private CLONE that is
+// remembered here; writeData()/transactions refuse THAT exact object forever, no matter what other requests did in between.
+const taintedFallbackData = new WeakSet();
+function fallbackAfterReadFailure(defaultData) {
+    let copy = defaultData;
+    try {
+        if (defaultData !== null && typeof defaultData === 'object') copy = structuredClone(defaultData);
+    } catch (_e) { copy = defaultData; }
+    try { if (copy !== null && typeof copy === 'object') taintedFallbackData.add(copy); } catch (_e) {}
+    return copy;
+}
+function isTaintedFallback(data) {
+    return data !== null && typeof data === 'object' && taintedFallbackData.has(data);
+}
+
+// PER-REQUEST REFUSAL TRACKING: most route handlers ignore writeData()'s return value, so when a write is refused they would still
+// answer {success:true} and the cashier believes the change was saved. server.js runs every /api request inside this context and,
+// if a (non-log) write was refused during that request, turns the "success" answer into an honest 503 instead.
+const writeRefusalContext = new AsyncLocalStorage();
+// REQUEST-SCOPED READ FAILURE: kapag pumalya ang pagbasa ng module M sa loob ng isang request, HINDI na pwedeng magsulat ng M ang
+// request na iyon (kahit anong array pa ang hawak nito — hal. .filter()/.map() ng walang-lamang fallback na wala nang taint),
+// kahit nabasa na ng ibang request ang M at na-clear ang module flag. Nawawala ang harang kapag nabasa nang maayos ang M sa parehong request.
+function noteRequestReadFailure(moduleName, failed) {
+    try {
+        const store = writeRefusalContext.getStore();
+        if (!store) return;
+        if (!store.failedReads) store.failedReads = new Set();
+        if (failed) store.failedReads.add(String(moduleName)); else store.failedReads.delete(String(moduleName));
+    } catch (_e) { /* tracking must never break a read path */ }
+}
+function requestReadFailed(moduleName) {
+    try {
+        const store = writeRefusalContext.getStore();
+        return !!(store && store.failedReads && store.failedReads.has(String(moduleName)));
+    } catch (_e) { return false; }
+}
+const WRITE_REFUSAL_IGNORED_MODULES = new Set(['userlogs', 'system_backup_status']);
+// PARTIAL-SUCCESS TRACKING: kung may NAISULAT NANG TAGUMPAY sa request na ito (hal. nai-commit na ang benta) tapos may ISANG
+// hindi-kritikal na write na tinanggihan, MALI ang sagutin ng 503 — magre-retry ang cashier at madodoble ang benta/stock deduction.
+// Itinatala ito dito para ang server.js ang magpasya (503 lang kung WALANG naisulat; kung may naisulat na, normal na sagot + babala).
+function noteSuccessfulWrite(moduleName) {
+    try {
+        if (WRITE_REFUSAL_IGNORED_MODULES.has(String(moduleName))) return;
+        const store = writeRefusalContext.getStore();
+        if (store) store.committed = true;
+    } catch (_e) { /* tracking must never break a write path */ }
+}
+function noteRefusedWrite(moduleName) {
+    try {
+        const name = String(moduleName);
+        if (WRITE_REFUSAL_IGNORED_MODULES.has(name)) return;
+        const store = writeRefusalContext.getStore();
+        if (store && Array.isArray(store.refused) && !store.refused.includes(name)) store.refused.push(name);
+    } catch (_e) { /* tracking must never break a write path */ }
+}
+// true => the write must NOT happen (module's last read failed, or `data` is the empty fallback of a failed read).
+function isWriteRefused(moduleName, data) {
+    if (isWriteBlockedByFailedRead(moduleName) || isTaintedFallback(data) || requestReadFailed(moduleName)) {
+        noteRefusedWrite(moduleName);
+        return true;
+    }
+    return false;
 }
 
 // --- Salvage: bring back newer data that can still be read from the corrupt DB ----------------------
@@ -259,7 +351,10 @@ function ensureDatabaseHealthyAtStartup() {
     } catch (e) {
         // Roll back: put the moved files back so we are never left without a database.
         console.error(`🔴 [DB-HEALTH] Restore failed (${e.message}) — putting the original files back.`);
-        try { if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH); } catch (_e) {}
+        // BUGFIX: dati laging binubura ang DB_PATH dito. Pero kung ang unang rename (ang mismong omnipos.db) ang pumalya,
+        // ang nasa DB_PATH ay ang ORIHINAL pa — mabubura natin ang nag-iisang kopya na maaari pang ma-recover.
+        // Ang buburahin lang ay ang kopyang sira/putol mula sa backup, at kapag nailipat na talaga ang orihinal (moved.includes('')).
+        try { if (moved.includes('') && fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH); } catch (_e) {}
         for (const suffix of moved) {
             try { fs.renameSync(`${DB_PATH}.corrupt-${stamp}${suffix}`, DB_PATH + suffix); } catch (_e) {}
         }
@@ -479,28 +574,71 @@ try {
     console.warn('⚠️ Hindi nagawa ang syncId index ng transactions (mas mabagal ang offline-sale lookup, pero gumagana pa rin):', err.message);
 }
 
+const rowSelectAllWithIdStmt = db.prepare('SELECT record_id, data FROM row_store WHERE module = ? ORDER BY seq DESC');
+// ROW-LEVEL CORRUPTION GUARD: dati, ISANG row na hindi ma-parse ang JSON ay nagpapa-throw ng buong pagbasa. Sa bagong read-failure guard,
+// ibig sabihin nito ay PERMANENTENG naka-block ang pagsulat ng buong module (hal. hindi na makakapag-void/refund ang transactions) hanggang
+// maayos ang row. Ngayon: nilalaktawan ang sirang row (may log), at itinatala ang id nila para HINDI mabura ng susunod na rewrite ng module
+// ang mga ito (nananatili sa disk para ma-recover). Ang tunay na SQLite error (busy/I-O) ay nagta-throw pa rin → hawak ng read-failure guard.
+const unparseableRowIds = new Map(); // moduleName -> Set(record_id)
+function shouldKeepUnparseableRow(moduleName, recordId, incomingCount) {
+    // Ang sinadyang pagbura ng LAHAT (incomingCount === 0, hal. Hard Reset) ay hindi hinaharangan.
+    if (!incomingCount) return false;
+    const ids = unparseableRowIds.get(moduleName);
+    return !!(ids && ids.has(String(recordId)));
+}
 function readRowNormalizedData(moduleName) {
-    const rows = rowSelectAllStmt.all(moduleName);
-    return rows.map((r) => JSON.parse(r.data));
+    const rows = rowSelectAllWithIdStmt.all(moduleName);
+    const out = [];
+    let bad = null;
+    for (const r of rows) {
+        try {
+            out.push(JSON.parse(r.data));
+        } catch (_parseErr) {
+            if (!bad) bad = new Set();
+            bad.add(String(r.record_id));
+        }
+    }
+    if (bad) {
+        const previous = unparseableRowIds.get(moduleName);
+        const isNew = !previous || previous.size !== bad.size || [...bad].some((id) => !previous.has(id));
+        unparseableRowIds.set(moduleName, bad);
+        if (isNew) console.error(`⚠️ [DB] Module "${moduleName}": ${bad.size} row(s) ang sira ang JSON at nilaktawan sa pagbasa (HINDI binubura sa disk): ${[...bad].slice(0, 5).join(', ')}${bad.size > 5 ? ', …' : ''}`);
+    } else if (unparseableRowIds.size) {
+        unparseableRowIds.delete(moduleName);
+    }
+    return out;
 }
 
 function writeRowNormalizedData(moduleName, data) {
-    const list = Array.isArray(data) ? data : [];
+    // SAFETY: a non-array (null/undefined/object from a buggy caller) used to be treated as "empty list", which then
+    // deleted EVERY existing row of the module (all sales / all logs). Only a real array may replace the module.
+    if (!Array.isArray(data)) {
+        console.error(`Refused to write non-array data to row-normalized module "${moduleName}" (would have erased all rows).`);
+        return false;
+    }
+    if (isWriteRefused(moduleName, data)) {
+        console.error(rowWriteBlockedMessage(moduleName));
+        return false;
+    }
+    const list = data;
     const now = new Date().toISOString();
 
-    const existingIds = new Set(rowSelectIdsStmt.all(moduleName).map((r) => r.record_id));
     const incomingIds = new Set();
 
-    let baseSeq = (rowMaxSeqStmt.get(moduleName) || { maxSeq: 0 }).maxSeq;
-
-    db.exec('BEGIN IMMEDIATE');
     try {
+        db.exec('BEGIN IMMEDIATE');
+    } catch (err) {
+        noteDbRuntimeError(err);
+        console.error(`Error writing row-normalized data para sa module "${moduleName}":`, err);
+        return false;
+    }
+    try {
+        // RACE FIX: ang existing ids at max seq ay binabasa NA sa loob ng write-lock (BEGIN IMMEDIATE). Dati, binasa ito
+        // bago ang lock kaya ang ibang process (helper script) na nagsulat sa pagitan ay maaaring magdulot ng
+        // maling pagbura/pag-ulit ng seq.
+        const existingIds = new Set(rowSelectIdsStmt.all(moduleName).map((r) => r.record_id));
+        const baseSeq = (rowMaxSeqStmt.get(moduleName) || { maxSeq: 0 }).maxSeq;
         list.forEach((item, index) => {
-
-            
-
-            
-            
             const recordId = item && item.id != null
                 ? String(item.id)
                 : `__noid_${Date.now()}_${index}`;
@@ -510,16 +648,19 @@ function writeRowNormalizedData(moduleName, data) {
             rowUpsertStmt.run(moduleName, recordId, candidateSeq, JSON.stringify(item), now);
         });
 
-        
         for (const oldId of existingIds) {
-            if (!incomingIds.has(oldId)) {
+            if (!incomingIds.has(oldId) && !shouldKeepUnparseableRow(moduleName, oldId, list.length)) {
                 rowDeleteStmt.run(moduleName, oldId);
             }
         }
         db.exec('COMMIT');
+        noteSuccessfulWrite(moduleName);
+        return true;
     } catch (err) {
-        db.exec('ROLLBACK');
+        try { db.exec('ROLLBACK'); } catch (_rollbackErr) {}
+        noteDbRuntimeError(err);
         console.error(`Error writing row-normalized data para sa module "${moduleName}":`, err);
+        return false;
     }
 }
 
@@ -549,6 +690,31 @@ function migrateBlobToRowStoreIfNeeded(moduleName) {
 ROW_NORMALIZED_MODULES.forEach((moduleName) => migrateBlobToRowStoreIfNeeded(moduleName));
 
 const blobStringCache = new Map();
+// CORRUPT-BLOB QUARANTINE: kapag SIRA ang JSON ng isang module (SyntaxError), ang readData() ay nagbabalik ng default (hal. []) at ang susunod
+// na write ay papalit sa sirang blob — nawawala ang huling pagkakataong ma-recover ito (madalas putol lang ang dulo ng JSON). Bago mangyari
+// iyon, kinokopya ang RAW na laman sa <DB_DIR>/quarantine/ (hiwalay sa database, kaya hindi sumasama sa backup/export ng modules).
+// Isang beses kada magkaibang laman; 5 pinakabago lang kada module; hindi kailanman nagta-throw.
+const quarantinedBlobKeys = new Set();
+const QUARANTINE_KEEP_PER_MODULE = 5;
+function quarantineCorruptBlob(moduleName, rawData) {
+    try {
+        if (typeof rawData !== 'string' || !rawData) return;
+        const hash = crypto.createHash('sha256').update(rawData).digest('hex').slice(0, 16);
+        const dedupeKey = `${moduleName}:${hash}`;
+        if (quarantinedBlobKeys.has(dedupeKey)) return;
+        quarantinedBlobKeys.add(dedupeKey);
+        const dir = path.join(DB_DIR, 'quarantine');
+        fs.mkdirSync(dir, { recursive: true });
+        const safeName = String(moduleName).replace(/[^a-z0-9_.-]/gi, '_').slice(0, 60) || 'module';
+        const target = path.join(dir, `${safeName}-${Date.now()}-${hash}.json.bad`);
+        fs.writeFileSync(target, rawData);
+        const mine = fs.readdirSync(dir).filter((f) => f.startsWith(`${safeName}-`) && f.endsWith('.json.bad')).sort();
+        while (mine.length > QUARANTINE_KEEP_PER_MODULE) {
+            try { fs.unlinkSync(path.join(dir, mine.shift())); } catch (_e) { break; }
+        }
+        console.error(`🛟 [DB] Ang sirang JSON ng module "${moduleName}" ay itinabi sa ${target} bago ito mapalitan ng default.`);
+    } catch (_e) { /* best-effort lang */ }
+}
 // Lite products view cache (tingnan ang "PRODUCTS LITE VIEW" section sa baba).
 // Nakadeklara dito sa taas para hindi ma-TDZ kapag tinawag ang writeData nang maaga.
 let productsViewCache = null;
@@ -559,34 +725,53 @@ function readData(moduleName, defaultData = []) {
         try {
             const hasAnyRows = rowCountStmt.get(moduleName).cnt > 0;
             if (!hasAnyRows) {
+                // Ang matagumpay na COUNT ay patunay na nababasa ang module: i-unblock BAGO ang init write (kung hindi, tatanggihan ito).
+                markReadOk(moduleName);
                 writeRowNormalizedData(moduleName, defaultData);
                 return defaultData;
             }
-            return readRowNormalizedData(moduleName);
+            const rowsOut = readRowNormalizedData(moduleName);
+            markReadOk(moduleName);
+            return rowsOut;
         } catch (err) {
-            noteDbRuntimeError(err);
-            console.error(`⚠️ May sira sa row-normalized data ng module "${moduleName}". Ibinalik ang default data.`, err);
-            return defaultData;
+            markReadFailed(moduleName, err);
+            console.error(`⚠️ May sira sa row-normalized data ng module "${moduleName}". Ibinalik ang default data (naka-protect laban sa pagsulat hanggang mabasa ulit).`, err);
+            return fallbackAfterReadFailure(defaultData);
         }
     }
-    try {
-        let rawData = blobStringCache.get(moduleName);
-        if (rawData === undefined) {
+    // Hiwalay ang SQLite-level na pagbasa (pwedeng pansamantalang pumalya: busy/I-O) sa JSON parse ng laman.
+    let rawData = blobStringCache.get(moduleName);
+    if (rawData === undefined) {
+        try {
             const row = selectStmt.get(moduleName);
             if (!row) {
+                // Ang matagumpay na SELECT na walang row = bagong module, hindi pagkabigo: i-unblock BAGO ang init write.
+                markReadOk(moduleName);
                 writeData(moduleName, defaultData);
                 return moduleName === 'products' ? mergeProductImages(defaultData) : defaultData;
             }
             rawData = row.data;
             blobStringCache.set(moduleName, rawData);
+        } catch (err) {
+            markReadFailed(moduleName, err);
+            console.error(`⚠️ May sira sa SQLite data ng module "${moduleName}". Ibinalik ang default data (naka-protect laban sa pagsulat hanggang mabasa ulit).`, err);
+            return fallbackAfterReadFailure(defaultData);
         }
-        if (!rawData || rawData.trim() === '') return defaultData;
+    }
+    try {
+        if (!rawData || rawData.trim() === '') { markReadOk(moduleName); return defaultData; }
         const parsed = JSON.parse(rawData);
-        return moduleName === 'products' && Array.isArray(parsed) ? mergeProductImages(parsed) : parsed;
+        const out = moduleName === 'products' && Array.isArray(parsed) ? mergeProductImages(parsed) : parsed;
+        markReadOk(moduleName);
+        return out;
     } catch (err) {
-        noteDbRuntimeError(err);
+        // mergeProductImages() ay nagbabasa rin ng product_images table — kapag SQLite error iyon, i-protect ang products.
+        const sqliteLevelProductsFailure = moduleName === 'products' && !(err instanceof SyntaxError);
+        if (err instanceof SyntaxError) quarantineCorruptBlob(moduleName, rawData);
+        if (sqliteLevelProductsFailure) markReadFailed(moduleName, err);
+        else noteDbRuntimeError(err);
         console.error(`⚠️ May sira sa SQLite data ng module "${moduleName}". Ibinalik ang default data.`, err);
-        return defaultData;
+        return sqliteLevelProductsFailure ? fallbackAfterReadFailure(defaultData) : defaultData;
     }
 }
 
@@ -627,13 +812,14 @@ function readProductsNoImages(defaultData = []) {
         let rawData = blobStringCache.get('products');
         if (rawData === undefined) {
             const row = selectStmt.get('products');
-            if (!row) return Array.isArray(defaultData) ? defaultData : [];
+            if (!row) { markReadOk('products'); return Array.isArray(defaultData) ? defaultData : []; }
             rawData = row.data;
             blobStringCache.set('products', rawData);
         }
-        if (!rawData || rawData.trim() === '') return Array.isArray(defaultData) ? defaultData : [];
+        if (!rawData || rawData.trim() === '') { markReadOk('products'); return Array.isArray(defaultData) ? defaultData : []; }
         const parsed = JSON.parse(rawData);
         if (!Array.isArray(parsed)) return Array.isArray(defaultData) ? defaultData : [];
+        markReadOk('products');
         // Defensive: kung may natirang legacy image sa blob, tanggalin sa returned copy lang
         // (hindi ito mawawala sa database dahil ang product_images table ang source of truth).
         return parsed.map((product) => {
@@ -644,8 +830,12 @@ function readProductsNoImages(defaultData = []) {
             return copy;
         });
     } catch (err) {
+        const sqliteLevelFailure = !(err instanceof SyntaxError);
+        if (sqliteLevelFailure) markReadFailed('products', err); else noteDbRuntimeError(err);
+        if (err instanceof SyntaxError) quarantineCorruptBlob('products', blobStringCache.get('products'));
         console.error('⚠️ Hindi mabasa ang products (walang photo):', err);
-        return Array.isArray(defaultData) ? defaultData : [];
+        const fallbackList = Array.isArray(defaultData) ? defaultData : [];
+        return sqliteLevelFailure ? fallbackAfterReadFailure(fallbackList) : fallbackList;
     }
 }
 
@@ -655,14 +845,15 @@ function readDataLite(moduleName, defaultData = []) {
         let rawData = blobStringCache.get('products');
         if (rawData === undefined) {
             const row = selectStmt.get('products');
-            if (!row) return Array.isArray(defaultData) ? defaultData : [];
+            if (!row) { markReadOk('products'); return Array.isArray(defaultData) ? defaultData : []; }
             rawData = row.data;
             blobStringCache.set('products', rawData);
         }
-        if (!rawData || rawData.trim() === '') return [];
+        if (!rawData || rawData.trim() === '') { markReadOk('products'); return []; }
         const parsed = JSON.parse(rawData);
         if (!Array.isArray(parsed)) return [];
         const metaMap = loadProductImageMetaMap();
+        markReadOk('products');
         return parsed.map((product) => {
             if (!product || typeof product !== 'object') return product;
             const copy = { ...product };
@@ -673,21 +864,33 @@ function readDataLite(moduleName, defaultData = []) {
             return copy;
         });
     } catch (err) {
-        noteDbRuntimeError(err);
+        const sqliteLevelFailure = !(err instanceof SyntaxError);
+        if (sqliteLevelFailure) markReadFailed('products', err); else noteDbRuntimeError(err);
+        if (err instanceof SyntaxError) quarantineCorruptBlob('products', blobStringCache.get('products'));
         console.error('⚠️ Hindi mabasa ang lite products data:', err);
-        return Array.isArray(defaultData) ? defaultData : [];
+        const fallbackList = Array.isArray(defaultData) ? defaultData : [];
+        return sqliteLevelFailure ? fallbackAfterReadFailure(fallbackList) : fallbackList;
     }
 }
 
 function writeData(moduleName, data) {
     if (ROW_NORMALIZED_MODULES.has(moduleName)) {
-        writeRowNormalizedData(moduleName, data);
-        return true;
+        // BUGFIX: dati laging `true` ang ibinabalik kahit nag-ROLLBACK ang write (disk full/corrupt) — akala ng caller ay nasave.
+        return writeRowNormalizedData(moduleName, data);
+    }
+    if (isWriteRefused(moduleName, data)) {
+        console.error(rowWriteBlockedMessage(moduleName));
+        return false;
     }
     if (moduleName === 'products') {
+        // SAFETY: ang non-array (null/undefined/object) ay dating ginawang [] — nabubura ang buong catalog at lahat ng photo.
+        if (!Array.isArray(data)) {
+            console.error('Refused to write non-array data to "products" (would have erased the whole catalog and all photos).');
+            return false;
+        }
         const now = new Date().toISOString();
         try {
-            const list = Array.isArray(data) ? data : [];
+            const list = data;
             db.exec('BEGIN IMMEDIATE');
             syncProductImages(list, now);
             const json = JSON.stringify(stripProductImagesForStorage(list));
@@ -695,6 +898,7 @@ function writeData(moduleName, data) {
             db.exec('COMMIT');
             blobStringCache.set(moduleName, json);
             invalidateProductsViewCache();
+            noteSuccessfulWrite(moduleName);
             return true;
         } catch (error) {
             try { db.exec('ROLLBACK'); } catch (_) {}
@@ -707,6 +911,7 @@ function writeData(moduleName, data) {
         const json = JSON.stringify(data);
         upsertStmt.run(moduleName, json, new Date().toISOString());
         blobStringCache.set(moduleName, json);
+        noteSuccessfulWrite(moduleName);
         return true;
     } catch (error) {
         noteDbRuntimeError(error);
@@ -724,6 +929,12 @@ function writeData(moduleName, data) {
  * modules use row_store, whose normal writer opens its own transaction.
  */
 function writeDataDirectInTransaction(moduleName, data, now) {
+    if (isWriteRefused(moduleName, data)) {
+        throw new Error(rowWriteBlockedMessage(moduleName));
+    }
+    if ((ROW_NORMALIZED_MODULES.has(moduleName) || moduleName === 'products') && !Array.isArray(data)) {
+        throw new Error(`Refused to write non-array data to module "${moduleName}" (would have erased all of its rows).`);
+    }
     if (ROW_NORMALIZED_MODULES.has(moduleName)) {
         const list = Array.isArray(data) ? data : [];
         const existingIds = new Set(rowSelectIdsStmt.all(moduleName).map((r) => r.record_id));
@@ -740,7 +951,7 @@ function writeDataDirectInTransaction(moduleName, data, now) {
         });
 
         for (const oldId of existingIds) {
-            if (!incomingIds.has(oldId)) rowDeleteStmt.run(moduleName, oldId);
+            if (!incomingIds.has(oldId) && !shouldKeepUnparseableRow(moduleName, oldId, list.length)) rowDeleteStmt.run(moduleName, oldId);
         }
         return JSON.stringify(list);
     }
@@ -751,7 +962,9 @@ function writeDataDirectInTransaction(moduleName, data, now) {
         // There is no image mutation in that path, so skip all image-table work.
         // Full product writes still synchronize and clean up the photo table.
         const hasImagePayload = list.some(isProductImagePayloadPresent);
-        if (hasImagePayload) syncProductImages(list, now);
+        // BUGFIX: kapag WALANG laman ang catalog (hal. Hard Reset), kailangan ding linisin ang product_images — kapareho ng
+        // writeData('products', []). Dati, hindi nabubura ang mga photo row dahil walang product na may image key.
+        if (hasImagePayload || list.length === 0) syncProductImages(list, now);
         const json = JSON.stringify(stripProductImagesForStorage(list));
         upsertStmt.run(moduleName, json, now);
         return json;
@@ -838,6 +1051,7 @@ function runDatabaseTransaction(changes) {
                 if (moduleName === 'products') invalidateProductsViewCache();
             }
         }
+        for (const change of list) noteSuccessfulWrite(change.module);
         return true;
     } catch (error) {
         try { db.exec('ROLLBACK'); } catch (rollbackError) {
@@ -967,10 +1181,17 @@ function pruneBackupFiles(dir, prefix, ext, keep) {
     }
     return files.length;
 }
+// Kapag binuksan ang isang WAL-mode na .tmp backup para i-verify, gumagawa ang SQLite ng <file>.tmp-wal at <file>.tmp-shm.
+// Hindi sila sinasama ng rename sa final na pangalan, kaya naiiwan silang ulila (at pwedeng makalito sa susunod na .tmp na may parehong pangalan).
+function removeDbSideFiles(basePath) {
+    for (const suffix of ['-wal', '-shm', '-journal']) {
+        try { fs.rmSync(basePath + suffix, { force: true }); } catch (_) {}
+    }
+}
 function removeStaleTmpFiles(dir) {
     try {
         for (const f of fs.readdirSync(dir)) {
-            if (f.endsWith('.tmp')) { try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} }
+            if (/\.tmp(-wal|-shm|-journal)?$/.test(f)) { try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} }
         }
     } catch (_) {}
 }
@@ -987,6 +1208,7 @@ function runBackupJobExclusive(job) {
 async function snapshotDatabaseTo(destPath) {
     const tmpPath = destPath + '.tmp';
     try { fs.rmSync(tmpPath, { force: true }); } catch (_) {}
+    removeDbSideFiles(tmpPath);
     try {
         if (sqliteBackupFn) {
             // 1024 pages/step (~4 MB) — bumabalik sa event loop pagkatapos ng bawat step kaya hindi naka-freeze ang server.
@@ -998,10 +1220,26 @@ async function snapshotDatabaseTo(destPath) {
         }
         const size = fs.statSync(tmpPath).size;
         if (!(size > 0)) throw new Error('Walang laman ang nagawang backup file.');
+        // BACKUP SAFETY: huwag hayaang palitan ng SIRANG kopya ang huling GOOD backup. Dati, kapag nasira ang database,
+        // ang susunod na daily backup ay kumokopya ng sirang file at ang rotation (14 kopya) ay unti-unting nagtatapon
+        // ng lahat ng malulusog na kopya; ang RELAY_BACKUP mirror naman ay nag-o-overwrite ng nag-iisang kopya.
+        // Sinusuri ang bagong kopya BAGO ito ilagay sa final na pangalan. Ang 'unknown' (hindi ma-verify) ay hindi itinuturing na sira.
+        const verdict = size > BACKUP_FULL_VERIFY_MAX_BYTES ? probeDbFile(tmpPath) : checkDbFile(tmpPath);
+        removeDbSideFiles(tmpPath); // ang pag-verify ay lumilikha ng .tmp-wal/.tmp-shm — linisin bago i-rename
+        if (verdict === 'corrupt') {
+            // Ang sirang KOPYA (disk full / I/O error habang kinokopya) ay hindi nangangahulugang sira ang LIVE database. I-flag lang ang buong
+            // proseso (na humaharang sa lahat ng susunod na backup hanggang restart) kung kumpirmadong sira rin ang live DB.
+            const liveVerdict = size > BACKUP_FULL_VERIFY_MAX_BYTES ? probeDbFile(DB_PATH) : checkDbFile(DB_PATH);
+            if (liveVerdict === 'corrupt') {
+                noteDbRuntimeError(Object.assign(new Error('database disk image is malformed (backup verification)'), { errcode: 11 }));
+            }
+            throw new Error('Ang bagong backup ay SIRA (nabigo sa integrity check) kaya itinapon ito at HINDI ginalaw ang mga dating backup.');
+        }
         fs.renameSync(tmpPath, destPath);
         return size;
     } catch (err) {
         try { fs.rmSync(tmpPath, { force: true }); } catch (_) {}
+        removeDbSideFiles(tmpPath);
         throw err;
     }
 }
@@ -1012,6 +1250,9 @@ function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
 
 async function runLocalDatabaseBackupNow(maxBackupsToKeep) {
     try {
+        if (dbSuspectedCorrupt) {
+            throw new Error('Nilaktawan ang backup: may nakitang corruption error sa database habang tumatakbo. Hindi ginalaw ang mga dating backup para hindi mapalitan ng sirang kopya. I-restart ang server para tumakbo ang integrity check at auto-recovery.');
+        }
         removeStaleTmpFiles(BACKUP_DIR);
 
         const dbBytes = getDatabaseFileBytes();
@@ -1113,6 +1354,9 @@ function getDatabaseChangeSignature() {
 }
 
 async function copyDatabaseTo(destDir) {
+    if (dbSuspectedCorrupt) {
+        throw new Error('Nilaktawan ang RELAY_BACKUP mirror: may nakitang corruption error sa database (hindi ino-overwrite ang huling malusog na kopya).');
+    }
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
     const destPath = path.join(destDir, RELAY_BACKUP_FILENAME);
     const existedBefore = fs.existsSync(destPath);
@@ -1964,6 +2208,7 @@ function addNewestRow(moduleName, item, options) {
         recordId = `__noid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
     rowInsertNewestStmt.run(moduleName, recordId, moduleName, JSON.stringify(item), new Date().toISOString());
+    noteSuccessfulWrite(moduleName);
     const maxRows = Math.floor(Number(opts.maxRows));
     if (Number.isFinite(maxRows) && maxRows > 0) trimRowsIfNeeded(moduleName, maxRows);
     return true;
@@ -2015,6 +2260,7 @@ function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
 }
 
 module.exports.checkModuleBlobSizes = checkModuleBlobSizes;
+module.exports.writeRefusalContext = writeRefusalContext;
 
 // Checkpoints the WAL and closes the DB before exit (called by the server's shutdown handler).
 // The "clean shutdown" marker is only written AFTER a successful checkpoint+close and only when no corruption

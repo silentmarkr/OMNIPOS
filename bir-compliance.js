@@ -34,7 +34,7 @@
 // -----------------------------------------------------------------------------
 
 const crypto = require('crypto');
-const { readData, writeData, runDatabaseTransaction } = require('./db');
+const { readData, writeData, runDatabaseTransaction, db: sqliteDb } = require('./db');
 
 const MODULE_STATE = 'birState';
 const MODULE_VOIDS = 'birVoids';
@@ -183,6 +183,71 @@ function onTransactionVoided({ transaction, voidedBy, reason }) {
     return record;
 }
 
+// Counts the offline-synced sales whose BIR invoice number lies in [invoiceFrom, invoiceTo], and how many of them were rung
+// up before the period started (periodStartMs). The invoice numbers of a period are the NEWEST ones, and a sale's row
+// sequence grows together with its invoice number, so the transactions table is read newest-first in small pages and the
+// scan stops as soon as it has passed the period. This replaces a read of the WHOLE transactions table (which on a
+// multi-GB database means loading every sale into memory just to close the day). Falls back to the plain full read when
+// the row store cannot be queried directly.
+function summarizeOfflineSalesInInvoiceRange(invoiceFrom, invoiceTo, periodStartMs) {
+    const summary = { offlineSyncedCount: 0, lateSyncedCount: 0, lateSyncedAmount: 0 };
+    if (!(invoiceTo >= invoiceFrom)) return summary;
+    const consider = (n, isOffline, soldAtRaw, isoRaw, total) => {
+        if (!isOffline || typeof n !== 'number' || n < invoiceFrom || n > invoiceTo) return;
+        summary.offlineSyncedCount += 1;
+        const soldMs = new Date(soldAtRaw || isoRaw).getTime();
+        if (Number.isFinite(periodStartMs) && Number.isFinite(soldMs) && soldMs < periodStartMs) {
+            summary.lateSyncedCount += 1;
+            summary.lateSyncedAmount = round2(summary.lateSyncedAmount + (parseFloat(total) || 0));
+        }
+    };
+    let scannedRowStore = false;
+    try {
+        if (sqliteDb && typeof sqliteDb.prepare === 'function') {
+            const stmt = sqliteDb.prepare(
+                "SELECT seq, json_extract(data, '$.birInvoiceNumberValue') AS n, json_extract(data, '$.offlineSale') AS offline, " +
+                "json_extract(data, '$.soldAt') AS soldAt, json_extract(data, '$.isoDate') AS isoDate, json_extract(data, '$.total') AS total " +
+                'FROM row_store WHERE module = ? AND seq < ? ORDER BY seq DESC LIMIT ?'
+            );
+            const PAGE = 500;
+            let cursor = Number.MAX_SAFE_INTEGER;
+            for (;;) {
+                const rows = stmt.all(MODULE_TRANSACTIONS, cursor, PAGE);
+                if (!rows.length) break;
+                scannedRowStore = true;
+                let numberedAtOrAbove = false;
+                let numberedBelow = false;
+                for (const r of rows) {
+                    const n = typeof r.n === 'number' ? r.n : NaN;
+                    if (Number.isFinite(n)) {
+                        if (n >= invoiceFrom) numberedAtOrAbove = true; else numberedBelow = true;
+                    }
+                    consider(Number.isFinite(n) ? n : null, Number(r.offline) === 1, r.soldAt, r.isoDate, r.total);
+                }
+                // This page only holds sales numbered BEFORE this period: everything after it is older still.
+                if (numberedBelow && !numberedAtOrAbove) break;
+                if (rows.length < PAGE) break;
+                const last = Number(rows[rows.length - 1].seq);
+                if (!Number.isFinite(last) || last >= cursor) break;
+                cursor = last;
+            }
+        }
+    } catch (e) {
+        console.error('Z-Reading: the paged read of the sales failed, using the full read instead:', e.message);
+        scannedRowStore = false;
+        summary.offlineSyncedCount = 0;
+        summary.lateSyncedCount = 0;
+        summary.lateSyncedAmount = 0;
+    }
+    if (!scannedRowStore) {
+        for (const t of readData(MODULE_TRANSACTIONS, [])) {
+            if (!t) continue;
+            consider(t.birInvoiceNumberValue, !!t.offlineSale, t.soldAt, t.isoDate, t.total);
+        }
+    }
+    return summary;
+}
+
 // BIR-sense Z-Reading: snapshots Beginning AGT -> Ending AGT for the period since the
 // last Z-Reading (or since install/last reset if there hasn't been one yet), and
 // advances the period boundary. Distinct from the existing per-cashier shift
@@ -212,6 +277,21 @@ function performZReading({ authorizedBy } = {}) {
         authorizedBy: authorizedBy || null,
         performedAt: nowIso()
     };
+    // Offline-queued sales get their invoice number when they SYNC, not when they were rung up. Report how many sales of
+    // this period were offline sales and how many of them were rung up BEFORE the period started, so the Z-Reading
+    // explains why they are counted here. Never allowed to break the Z-Reading itself.
+    record.offlineSyncedCount = 0;
+    record.lateSyncedCount = 0;
+    record.lateSyncedAmount = 0;
+    try {
+        const startMs = state.lastZReadingAt ? new Date(state.lastZReadingAt).getTime() : NaN;
+        const offlineSummary = summarizeOfflineSalesInInvoiceRange(invoiceFrom, invoiceTo, startMs);
+        record.offlineSyncedCount = offlineSummary.offlineSyncedCount;
+        record.lateSyncedCount = offlineSummary.lateSyncedCount;
+        record.lateSyncedAmount = offlineSummary.lateSyncedAmount;
+    } catch (e) {
+        console.error('Could not compute the offline-sale summary for the Z-Reading:', e.message);
+    }
     state.zCounter += 1;
     state.baselineAGT = endingAGT;
     state.invoiceNumberAtPeriodStart = state.nextInvoiceNumber;
@@ -377,6 +457,9 @@ function exportEJournal({ fromDateStr, toDateStr, context = {} }) {
             const t = e.tx;
             const c = classify(t);
             lines.push(`${t.birInvoiceNumber || '(no invoice #)'}  ${manilaDateTimeDisplay(transactionIso(t))}`);
+            if (t.offlineSale) {
+                lines.push(`  *** OFFLINE SALE: rung up ${manilaDateTimeDisplay(t.soldAt || transactionIso(t))}; invoice number assigned on sync ${manilaDateTimeDisplay(t.syncedAt || t.createdAt)} ***`);
+            }
             lines.push(`  Cashier: ${t.cashier || ''}`);
             (t.items || []).forEach(it => {
                 lines.push(`  ${String(it.quantity)} x ${it.name}  @ ${(parseFloat(it.price) || 0).toFixed(2)}`);
@@ -414,7 +497,7 @@ function exportSalesBookCsv({ fromDateStr, toDateStr }) {
     const sales = getTransactionsInManilaRange(fromDateStr, toDateStr);
     const voids = getVoidsInManilaRange(fromDateStr, toDateStr);
     const voidedByInvoiceValue = new Map(voids.map(v => [v.invoiceNumberValue, v]));
-    const header = ['Date', 'Invoice No.', 'Customer', 'Gross Sales', 'VAT-Exempt Sales', 'Zero-Rated Sales', 'VATable Sales', 'VAT Amount', 'Discount', 'Net Sales', 'Payment Method', 'Cashier', 'Status'];
+    const header = ['Date', 'Invoice No.', 'Customer', 'Gross Sales', 'VAT-Exempt Sales', 'Zero-Rated Sales', 'VATable Sales', 'VAT Amount', 'Discount', 'Net Sales', 'Payment Method', 'Cashier', 'Status', 'Notes'];
     const rows = [header];
     sales.forEach(t => {
         const c = classify(t);
@@ -431,12 +514,13 @@ function exportSalesBookCsv({ fromDateStr, toDateStr }) {
             c.netSales.toFixed(2),
             t.method || (Array.isArray(t.payments) ? t.payments.map(p => p.method).join('+') : ''),
             t.cashier || '',
-            'SALE'
+            'SALE',
+            t.offlineSale ? `Offline sale; invoice no. assigned on sync ${manilaDateTimeDisplay(t.syncedAt || t.createdAt)}` : ''
         ]);
     });
     voids.forEach(v => {
         rows.push([
-            manilaDateStr(v.voidedAt) || '', v.invoiceNumber || '', '', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '', v.voidedBy || '', `VOID (${v.reason || ''})`
+            manilaDateStr(v.voidedAt) || '', v.invoiceNumber || '', '', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '', v.voidedBy || '', `VOID (${v.reason || ''})`, ''
         ]);
     });
     return rows.map(r => r.map(csvEscape).join(',')).join('\n');
@@ -472,6 +556,9 @@ function exportEIS({ fromDateStr, toDateStr, context = {} }) {
                 totalAmount: c.netSales,
                 paymentMethod: t.method || (Array.isArray(t.payments) ? t.payments.map(p => p.method).join('+') : ''),
                 cashier: t.cashier || null,
+                offlineSale: !!t.offlineSale,
+                soldAt: t.offlineSale ? manilaDateTimeDisplay(t.soldAt || transactionIso(t)) : null,
+                syncedAt: t.offlineSale ? manilaDateTimeDisplay(t.syncedAt || t.createdAt) : null,
                 status: 'issued'
             };
         }),

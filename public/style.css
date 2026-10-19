@@ -11730,6 +11730,65 @@ body.dark-mode #hu-settings-submenu .connectivity-mode-pill[data-mode="connectin
     }
 }
 
+/* ===== OTP boxes inside SweetAlert popups (Admin Login OTP, password-reset OTP) =====
+   Ang base na .otp-verify-box ay pang-DARK na overlay card (halos puti ang numero). Sa SweetAlert popup na puti (Day theme)
+   hindi iyon makikita, kaya ang kulay dito ay sumusunod sa theme: Day = madilim na numero sa puti; lahat ng dark/Pro
+   themes = --dm-* variables ng bawat theme. */
+.swal2-popup .otp-swal-desc { color: #475569; }
+.swal2-popup input.otp-verify-box {
+    color: #0f172a;
+    -webkit-text-fill-color: #0f172a;
+    caret-color: #2563eb;
+    background: #ffffff;
+    border: 1.5px solid #94a3b8;
+    opacity: 1;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+}
+.swal2-popup input.otp-verify-box:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+    background: #eff6ff;
+}
+.swal2-popup input.otp-verify-box.is-error {
+    color: #b91c1c;
+    -webkit-text-fill-color: #b91c1c;
+    border-color: #dc2626;
+    background: #fef2f2;
+}
+.swal2-popup input.otp-verify-box.is-success {
+    color: #15803d;
+    -webkit-text-fill-color: #15803d;
+    border-color: #16a34a;
+    background: #f0fdf4;
+}
+body.dark-mode .swal2-popup .otp-swal-desc { color: var(--dm-text-secondary, #9a9ba8); }
+body.dark-mode .swal2-popup input.otp-verify-box {
+    color: var(--dm-text-primary, #f5f5f7);
+    -webkit-text-fill-color: var(--dm-text-primary, #f5f5f7);
+    caret-color: var(--dm-accent, #7c5cff);
+    background: var(--dm-surface-alt, #22232d);
+    border-color: rgba(148, 163, 184, 0.55);
+}
+body.dark-mode .swal2-popup input.otp-verify-box:focus {
+    border-color: var(--dm-accent, #7c5cff);
+    box-shadow: 0 0 0 3px var(--dm-accent-soft, rgba(124, 92, 255, 0.28));
+    background: var(--dm-surface-alt, #22232d);
+}
+body.dark-mode .swal2-popup input.otp-verify-box.is-error {
+    color: #fca5a5;
+    -webkit-text-fill-color: #fca5a5;
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.14);
+}
+body.dark-mode .swal2-popup input.otp-verify-box.is-success {
+    color: #4ade80;
+    -webkit-text-fill-color: #4ade80;
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.14);
+}
+
 .ct-card {
     background: var(--top-header-bg, #ffffff);
     border: 1px solid var(--border-color);
