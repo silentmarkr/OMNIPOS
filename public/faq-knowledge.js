@@ -938,7 +938,7 @@ window.OMNIPOS_FAQ_KB_TL = [
     <li>Ipapadala muna ang backup na ito sa email mo — <strong>kung mag-fail ang email</strong> (hal. maling app password), <strong>ihihinto ang buong reset</strong> at LIGTAS pa rin ang data.</li>
     <li>Kapag successful ang email, saka lang isasagawa ang pagbura: babalik ang users sa default set of accounts, at mabubura ang lahat ng business/transactional data — products, transactions, refunds, requests, customers, debts, promo codes, purchase orders, low-stock tracking, shifts, shift records, user activity logs, loyalty card security data, at Fraud & Anomaly Alerts (kasama na ang live fraud-velocity counters na ginagamit sa detection) — habang babalik naman sa default set ang categories.</li>
   </ol>
-  <p><strong>BIR Compliance data (opsyonal):</strong> Bilang default, HINDI nabubura ng Hard Reset ang BIR Compliance data (Accumulated Grand Total/AGT, invoice numbering, BIR Z-Reading history, void log, at AGT reset history) — kasama pa rin ito sa backup file. Sa Hard Reset panel, may checkbox na <strong>"Also reset BIR Compliance data"</strong>: kapag pinili ito (may dagdag na confirmation), ihihiwalay ang BIR data mula sa main backup at ipapadala bilang <strong>HIWALAY na attachment</strong> sa email (omnipos_bir_compliance_backup), saka lang ito buburahin — babalik sa zero ang AGT at magsisimulang muli sa INV-000001 ang invoice numbering.</p>
+  <p><strong>BIR Compliance data (opsyonal):</strong> <em>(Lalabas lang ang opsyong ito kapag na-unlock na ang BIR Compliance module — naka-lock at hindi pa available ito hangga't wala pang BIR PTU ang OmniPOS.)</em> Bilang default, HINDI nabubura ng Hard Reset ang BIR Compliance data (Accumulated Grand Total/AGT, invoice numbering, BIR Z-Reading history, void log, at AGT reset history) — kasama pa rin ito sa backup file. Sa Hard Reset panel, may checkbox na <strong>"Also reset BIR Compliance data"</strong>: kapag pinili ito (may dagdag na confirmation), ihihiwalay ang BIR data mula sa main backup at ipapadala bilang <strong>HIWALAY na attachment</strong> sa email (omnipos_bir_compliance_backup), saka lang ito buburahin — babalik sa zero ang AGT at magsisimulang muli sa INV-000001 ang invoice numbering.</p>
   <p><strong>Sinasadyang HINDI ginagalaw:</strong> ang bilang ng LIBRENG pag-customize ng resibo, pati na rin ang device identity/license data (installation ID, hardware fingerprint, device verification, Relay authorization) at system configuration (Store Settings, UX Settings, Receipt Settings, Advanced Settings, Roles & Permissions, Connectivity Mode) — para hindi magamit ang Factory Reset para lang maibalik ang 2 free attempts, at para hindi nawawala ang identity/configuration ng device.</p>`
 },
 {
@@ -1493,7 +1493,8 @@ window.OMNIPOS_FAQ_KB_TL = [
   category: 'BIR Compliance',
   question: 'Ano ang BIR Compliance page?',
   keywords: ['bir compliance', 'agt', 'accumulated grand total', 'bir z-reading', 'e-journal', 'sales book', 'eis', 'invoice number bir'],
-  answer: `<p>Ipinapakita rito ang <strong>Accumulated Grand Total (AGT)</strong>, invoice numbering, at ang <strong>BIR Z-Reading</strong> — <strong>hiwalay</strong> ito sa Shift/Z-Reading ng cashier (na para sa cash count).</p>
+  answer: `<p><strong>Paalala:</strong> Ang BIR Compliance ay naka-lock na module na isang beses lang babayaran at <strong>hindi pa available</strong> — ilalabas ito kapag may BIR Permit to Use (PTU) na ang OmniPOS. Hangga't wala pa, walang BIR details sa resibo, walang BIR invoice number ang mga benta, at naka-lock ang page na ito.</p>
+  <p>Ipinapakita rito ang <strong>Accumulated Grand Total (AGT)</strong>, invoice numbering, at ang <strong>BIR Z-Reading</strong> — <strong>hiwalay</strong> ito sa Shift/Z-Reading ng cashier (na para sa cash count).</p>
   <ul>
     <li><strong>BIR Z-Reading</strong> — isinasara ang kasalukuyang reading period (Beginning AGT, Ending AGT, Net Sales, saklaw na invoice numbers). Hindi na ito mababawi.</li>
     <li><strong>Exports</strong> — pwedeng i-download ang e-Journal (.txt), Sales Book (.csv), at EIS (JSON) batay sa napiling date range (Philippine/Manila time).</li>
@@ -1506,7 +1507,8 @@ window.OMNIPOS_FAQ_KB_TL = [
   question: 'Paano mag-reset ng Accumulated Grand Total (AGT)?',
   keywords: ['reset agt', 'bagong ptu', 'bagong machine bir', 'agt reset'],
   verdict: 'depende',
-  answer: `<p>Para lang ito sa <strong>espesyal na kaso</strong> (hal. bagong machine/PTU, o kung pinahintulutan ng BIR). Kailangan muna ng dahilan at password bago ito matuloy, kaya dapat Admin/authorized personnel lang ang gumagawa nito.</p>
+  answer: `<p><strong>Paalala:</strong> Bahagi ito ng naka-lock na BIR Compliance module na <strong>hindi pa available</strong> (hihintayin muna ang BIR Permit to Use ng OmniPOS).</p>
+  <p>Para lang ito sa <strong>espesyal na kaso</strong> (hal. bagong machine/PTU, o kung pinahintulutan ng BIR). Kailangan muna ng dahilan at password bago ito matuloy, kaya dapat Admin/authorized personnel lang ang gumagawa nito.</p>
   <p>Naitatala ito sa <strong>AGT Reset History</strong> (kasama ang previous AGT, sino ang nag-authorize, at dahilan), at hindi naaapektuhan ang invoice numbering.</p>
   <p>Kung gusto mong burahin nang buo ang BIR data (kasama ang invoice numbering), hindi ito ang paraan — nasa <strong>System Hard Reset</strong> ang opsyong "Also reset BIR Compliance data", na nagpapadala muna ng hiwalay na backup file ng BIR data sa email bago ito burahin.</p>`
 },

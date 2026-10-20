@@ -3219,7 +3219,8 @@
     branches: 'multi_branch',
     attendance: 'remote_operations',
     remoteops: 'remote_operations',
-    batchlots: 'batch_lot_tracking'
+    batchlots: 'batch_lot_tracking',
+    bir_compliance: 'bir_compliance'
   };
   const OMNI_TAB_FEATURES = { 'roles-permissions-tab': 'rbac_management' };
   const OMNI_SUBSCRIPTION_FEATURES = { rbac_management: true, multi_branch: true, remote_operations: true, ai_assistant: true };

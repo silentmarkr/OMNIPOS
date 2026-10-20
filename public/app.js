@@ -1952,7 +1952,8 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'menu-attendance-lock':'remote_operations',
 'menu-remoteops-lock':'remote_operations',
 'menu-marketplace-lock':'marketplace_hub',
-'menu-inventory-tools-lock':'inventory_tools'
+'menu-inventory-tools-lock':'inventory_tools',
+'menu-bir_compliance-lock':'bir_compliance'
 };
 const SIDEBAR_PRO_CATEGORIES = {
     inventory: {
@@ -1963,7 +1964,7 @@ const SIDEBAR_PRO_CATEGORIES = {
     management: {
         buttonId: 'menu-pro-toggle-management',
         groupId: null,
-        itemIds: ['menu-reports', 'menu-customers', 'menu-debts', 'menu-shiftreport', 'menu-branches', 'menu-attendance', 'menu-remoteops', 'menu-marketplace']
+        itemIds: ['menu-reports', 'menu-customers', 'menu-debts', 'menu-shiftreport', 'menu-bir_compliance', 'menu-branches', 'menu-attendance', 'menu-remoteops', 'menu-marketplace']
     }
 };
 const sidebarProRevealed = { inventory: false, management: false };
@@ -2105,6 +2106,36 @@ function updateRolesPermissionsLockState() {
     wrap.classList.toggle('is-locked', locked);
     overlay.style.display = locked ?'flex' :'none';
 }
+// BIR Compliance is a locked one-time module: while it is locked, every BIR-related control is hidden
+// (store-settings BIR details, invoice buyer details, the "also reset BIR data" option) and the cached store
+// settings are re-fetched whenever the lock state flips so receipts follow the server immediately.
+let birLockUiLastState = null;
+function applyBirComplianceLockUi() {
+    const unlocked = isFeatureUnlockedCached('bir_compliance');
+    const setDisplay = (id, show, shownValue) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = show ? (shownValue || '') : 'none';
+    };
+    setDisplay('ss-bir-fields', unlocked);
+    setDisplay('ss-bir-locked-note', !unlocked);
+    setDisplay('ss-bir-lock-badge', !unlocked, 'inline-block');
+    setDisplay('pay-buyer-details', unlocked);
+    setDisplay('reset-include-bir-wrap', unlocked);
+    if (!unlocked) {
+        const resetBirEl = document.getElementById('reset-include-bir');
+        if (resetBirEl) resetBirEl.checked = false;
+        if (window.__birPanelLoaded === true) window.__birPanelLoaded = false;
+    }
+    const stateFlipped = birLockUiLastState !== null && birLockUiLastState !== unlocked;
+    birLockUiLastState = unlocked;
+    if (stateFlipped) {
+        const panelWasLockedWhenLoaded = window.__birPanelLoaded === false;
+        const reload = (unlocked && panelWasLockedWhenLoaded && typeof loadStoreSettingsPanel === 'function')
+            ? loadStoreSettingsPanel()
+            : ((typeof fetchStoreSettings === 'function') ? fetchStoreSettings() : null);
+        if (reload && typeof reload.catch === 'function') reload.catch(() => {});
+    }
+}
 function updateSidebarFeatureLocks() {
     Object.keys(SIDEBAR_FEATURE_LOCK_MAP).forEach((elementId) => {
         const el = document.getElementById(elementId);
@@ -2118,6 +2149,7 @@ function updateSidebarFeatureLocks() {
         }
     });
     updateSidebarProCategories();
+    applyBirComplianceLockUi();
     updateRolesPermissionsLockState();
     updateCloudBackupLockState();
     updateModuleSubscriptionBadges();
@@ -2224,6 +2256,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     promo_codes: { name:'Promo Codes Module', description:'Create discount/promo codes that can be used at checkout.' },
     advanced_reports: { name:'Sales Analytics & Advanced Reports', description:'Profit margin, top/slow sellers, 7-day sales trend, and payment method breakdown.' },
     shift_management: { name:'Multi-Cashier Shift Oversight & Z-Reading Reports', description:'Multi-cashier shift tracking and Z-Reading (cash count) reports.' },
+    bir_compliance: { name:'BIR Compliance (AGT, BIR Z-Reading & e-Journal / Sales Book / EIS Exports)', description:'Accumulated Grand Total (AGT), BIR Z-Reading, sequential BIR invoice numbering with a void log, BIR receipt details (TIN / PTU) and the e-Journal, Sales Book and EIS exports. One-time purchase. Not available until OmniPOS has its BIR Permit to Use (PTU).' },
     rbac_management: { name:'Roles & Permissions (RBAC) Management', description:'Create custom roles and configure which menus each role can access (Roles & Permissions matrix).' },
     ai_assistant: { name:'Omni AI', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
     remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
@@ -4190,7 +4223,7 @@ async function promptDemoMode() {
         }
         updateSidebarFeatureLocks();
         await initDemoModeUI();
-        Swal.fire('Demo Mode Activated!','All features are now open — this is temporary only, with a time limit.','success');
+        Swal.fire('Demo Mode Activated!','All available features are now open — this is temporary only, with a time limit. Features that are not available yet stay locked.','success');
         return true;
     } catch (e) {
         Swal.fire('Error','Could not reach the server to complete verification.','error');
@@ -4291,7 +4324,7 @@ function switchView(viewKey, opts) {
         console.warn(`[OmniPOS] Access denied to Omni Tokens (Admin-only) for role "${userRole || 'unknown'}"`);
         viewKey = (currentPermissions && currentPermissions.terminal) ? 'terminal' : 'overview';
     }
-    const VIEW_FEATURE_MAP = { customers:'customer_crm', debts:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations', marketplace:'marketplace_hub', batchlots:'batch_lot_tracking' };
+    const VIEW_FEATURE_MAP = { customers:'customer_crm', debts:'customer_crm', shiftreport:'shift_management', reports:'advanced_reports', reorder:'purchase_orders', branches:'multi_branch', attendance:'remote_operations', remoteops:'remote_operations', marketplace:'marketplace_hub', batchlots:'batch_lot_tracking', bir_compliance:'bir_compliance' };
     if (!opts.skipFeatureGate && VIEW_FEATURE_MAP[viewKey] && !isFeatureUnlockedCached(VIEW_FEATURE_MAP[viewKey])) {
         if (viewKey ==='shiftreport') {
             guardShiftReportAccess(isAdmin);
@@ -15177,12 +15210,19 @@ function triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments) {
     if (!hasCashPortion) return;
     setTimeout(() => {
         try {
-            if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
+            if (typeof isUsbPrinterReady ==='function' && isUsbPrinterReady() &&
+                typeof openCashDrawerViaUsb ==='function') {
+                openCashDrawerViaUsb();
+            } else if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
                 typeof openCashDrawerViaBluetooth ==='function') {
                 openCashDrawerViaBluetooth();
             } else if (typeof isNetworkPrinterConfigured ==='function' && isNetworkPrinterConfigured() &&
                 typeof openCashDrawerViaNetworkPrinter ==='function') {
                 openCashDrawerViaNetworkPrinter();
+            } else if (typeof isUsbPrinterConfigured ==='function' && isUsbPrinterConfigured() &&
+                typeof openCashDrawerViaUsb ==='function') {
+                // USB printer is saved but not connected yet — openCashDrawerViaUsb() silently tries to reconnect.
+                openCashDrawerViaUsb();
             }
         } catch (e) { console.warn('Auto-open cash drawer failed:', e); }
     }, 150);
@@ -15191,12 +15231,19 @@ function triggerAutoPrintIfEnabled() {
     if (localStorage.getItem('omnipos_auto_print_receipt') !=='true') return;
     setTimeout(() => {
         try {
-            if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
+            if (typeof isUsbPrinterReady ==='function' && isUsbPrinterReady() &&
+                typeof printReceiptViaUsb ==='function') {
+                printReceiptViaUsb('r');
+            } else if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
                 typeof printReceiptViaBluetooth ==='function') {
                 printReceiptViaBluetooth('r');
             } else if (typeof isNetworkPrinterConfigured ==='function' && isNetworkPrinterConfigured() &&
                 typeof printReceiptViaNetworkPrinter ==='function') {
                 printReceiptViaNetworkPrinter('r');
+            } else if (typeof isUsbPrinterConfigured ==='function' && isUsbPrinterConfigured() &&
+                typeof printReceiptViaUsb ==='function') {
+                // USB printer is saved but not connected yet — printReceiptViaUsb() tries to reconnect, else explains why.
+                printReceiptViaUsb('r');
             } else {
                 window.print();
             }
@@ -15208,6 +15255,7 @@ function printCurrentReceipt() {
 }
 // BIR buyer details (RR 7-2024): kinukuha mula sa Payment modal at isinasama sa transaction para maitala sa system.
 function collectBuyerInfoFromPaymentModal() {
+    if (!isFeatureUnlockedCached('bir_compliance')) return null;
     const val = (id) => {
         const el = document.getElementById(id);
         return el ? String(el.value || '').replace(/\s+/g, ' ').trim() : '';
@@ -15243,7 +15291,28 @@ async function fetchReceiptSettings() {
     }
     applyReceiptBranding();
 }
+// True only when the server has CONFIRMED the BIR Compliance module is locked (unlock status known and BIR not in it).
+// While the status is still unknown nothing is hidden, so a store that bought the module never loses its BIR lines.
+// This protects receipts against a stale offline copy of the store settings that still holds BIR details.
+function isBirKnownLocked() {
+    return Array.isArray(unlockedFeatureIdsCache) && !unlockedFeatureIdsCache.includes('bir_compliance');
+}
+// NON-BIR notice: while the BIR Compliance module is NOT unlocked (no PTU yet) every receipt must carry the
+// "not an official sales invoice/receipt" statement. Fail-safe: shown unless the server has CONFIRMED the module is
+// unlocked, so an unknown/offline status can never produce a receipt that looks official.
+const NON_BIR_RECEIPT_NOTICE = 'THIS DOCUMENT IS NOT AN OFFICIAL SALES INVOICE/RECEIPT. FOR INTERNAL AND INVENTORY TRACKING PURPOSES ONLY.';
+function isNonBirReceiptNoticeRequired() {
+    return !isFeatureUnlockedCached('bir_compliance');
+}
+function applyNonBirReceiptNotice() {
+    const show = isNonBirReceiptNoticeRequired();
+    ['r-nonbir-notice', 'rp-nonbir-notice'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = show ? '' : 'none';
+    });
+}
 function getBirReceiptLines() {
+    if (isBirKnownLocked()) return [];
     let b = null;
     try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
     if (!b || b.enabled !== true) return [];
@@ -15258,6 +15327,7 @@ function getBirReceiptLines() {
 }
 // Nasa ILALIM ng resibo: POS supplier + PTU + validity (BIR). Tugma sa buildBirFooterLines() ng server.
 function getBirFooterLines() {
+    if (isBirKnownLocked()) return [];
     let b = null;
     try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
     if (!b || b.enabled !== true) return [];
@@ -16623,6 +16693,7 @@ async function loadStoreSettingsPanel() {
     setVal('ss-bir-supplier-address', birCfg.supplierAddress || '');
     setVal('ss-bir-supplier-tin', birCfg.supplierTin || '');
     window.__birPanelLoaded = !!document.getElementById('ss-bir-enabled');
+    applyBirComplianceLockUi();
     setVal('ss-branch-name', s.branchName || '');
     setVal('ss-branch-group-key', s.branchGroupKey || '');
     const statusEl = document.getElementById('store-settings-status');
@@ -18016,6 +18087,7 @@ function openReceiptPreview() {
     }
     applyReceiptBranding();
     document.getElementById('rp-id').innerText ='PREVIEW';
+    applyNonBirReceiptNotice();
     const now = new Date();
     document.getElementById('rp-date').innerText = now.toLocaleDateString();
     document.getElementById('rp-time').innerText = now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
@@ -18088,7 +18160,9 @@ function generateReceiptImageDataUrl(tx) {
     const width = 380;
     const lineHeight = 20;
     const headerHeight = 110;
-    const footerHeight = 130;
+    const nonBirLines = isNonBirReceiptNoticeRequired() ? wrapReceiptNoticeLines(NON_BIR_RECEIPT_NOTICE, 40) : [];
+    const orderNoText = tx.orderNumber ? String(tx.orderNumber) : '';
+    const footerHeight = 130 + (orderNoText ? 14 : 0) + (nonBirLines.length ? (nonBirLines.length * 13 + 40) : 0);
     const qrBlockHeight = qrImgEls.length ? (24 + (qrNoteText ? 18 : 0) + 130) : 0;
     const height = headerHeight + (birLines.length * 16) + (items.length * lineHeight)
         + (itemBaseLines.filter(Boolean).length * baseLineHeight) + footerHeight + qrBlockHeight;
@@ -18117,9 +18191,11 @@ function generateReceiptImageDataUrl(tx) {
     });
     ctx.textAlign ='left';
     ctx.font ='11px monospace';
-    ctx.fillText(`Receipt: ${tx.id ||''}`, 14, y); y += 14;
+    ctx.fillText(`Ref No. : ${tx.id ||''}`, 14, y); y += 14;
     ctx.fillText(`Date: ${tx.timestamp ||''}`, 14, y); y += 14;
-    ctx.fillText(`Cashier: ${formatCashierLabel(tx)}`, 14, y); y += 8;
+    ctx.fillText(`Cashier : ${formatCashierLabel(tx)}`, 14, y); y += 14;
+    if (orderNoText) { ctx.fillText(`Order No.: ${orderNoText}`, 14, y); y += 14; }
+    y -= 6;
     ctx.strokeStyle ='#cccccc';
     ctx.beginPath();
     ctx.moveTo(14, y + 8);
@@ -18191,7 +18267,36 @@ function generateReceiptImageDataUrl(tx) {
     ctx.textAlign ='center';
     ctx.font ='italic 11px monospace';
     ctx.fillText(footerText, width / 2, y);
+    y += 22;
+    if (nonBirLines.length) {
+        ctx.strokeStyle ='#999999';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(14, y);
+        ctx.lineTo(width - 14, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        y += 10;
+        ctx.font ='bold 10px monospace';
+        nonBirLines.forEach((ln) => { ctx.fillText(ln, width / 2, y); y += 13; });
+        y += 4;
+        ctx.font ='10px monospace';
+        ctx.fillText('='.repeat(40), width / 2, y);
+    }
     return canvas.toDataURL('image/png');
+}
+// Word-wrap a notice into lines of at most maxChars characters (used by the canvas receipt image).
+function wrapReceiptNoticeLines(text, maxChars) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    words.forEach((w) => {
+        if (!line) { line = w; return; }
+        if ((line + ' ' + w).length <= maxChars) line += ' ' + w;
+        else { lines.push(line); line = w; }
+    });
+    if (line) lines.push(line);
+    return lines;
 }
 async function emailCurrentReceipt() {
     const emailInput = document.getElementById('r-email-input');
@@ -18243,7 +18348,16 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     const modalTitleElReset = document.querySelector('#receipt-modal .modal-header h3');
     if (modalTitleElReset) modalTitleElReset.innerText ='Receipt Invoice';
     document.getElementById('r-id').innerText = tx.id;
-    document.getElementById('r-footer-id').innerText = tx.id;
+    {
+        // Order No. (ORD-000001...) is assigned by the server when the sale is saved; a sale that was rung up offline
+        // has none until it syncs, so the row stays hidden instead of showing a made-up number.
+        const orderRowEl = document.getElementById('r-order-row');
+        const orderNoEl = document.getElementById('r-order-no');
+        const orderNo = tx.orderNumber ? String(tx.orderNumber) : '';
+        if (orderNoEl) orderNoEl.innerText = orderNo;
+        if (orderRowEl) orderRowEl.style.display = orderNo ? '' : 'none';
+        applyNonBirReceiptNotice();
+    }
 
     {
         const invNoEl = document.getElementById('r-inv-no');
@@ -18253,7 +18367,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         if (invRowEl) invRowEl.style.display = invNo ? '' : 'none';
         // Receipt issued while offline: the official BIR invoice number only exists after the sale syncs.
         let offlineNoticeEl = document.getElementById('r-offline-notice');
-        const showOfflineNotice = !!(tx.offlineQueued && !invNo);
+        const showOfflineNotice = !!(tx.offlineQueued && !invNo && isFeatureUnlockedCached('bir_compliance'));
         if (showOfflineNotice && invRowEl && invRowEl.parentNode) {
             if (!offlineNoticeEl) {
                 offlineNoticeEl = document.createElement('div');
@@ -18408,7 +18522,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     const buyerBlock = document.getElementById('r-buyer-block');
     if (buyerBlock) {
         const buyer = (tx.buyer && typeof tx.buyer === 'object') ? tx.buyer : null;
-        const birOn = !!(storeSettingsCache && storeSettingsCache.bir && storeSettingsCache.bir.enabled === true);
+        const birOn = !isBirKnownLocked() && !!(storeSettingsCache && storeSettingsCache.bir && storeSettingsCache.bir.enabled === true);
         const blank = '______________________';
         const setBuyer = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v || blank; };
         if (buyer || birOn) {
@@ -26284,7 +26398,8 @@ const RELAY_SYNC_VIEW_FEATURE_MAP = {
     customer_crm: 'customers',
     shift_management: 'shiftreport',
     advanced_reports: 'reports',
-    purchase_orders: 'reorder'
+    purchase_orders: 'reorder',
+    bir_compliance: 'bir_compliance'
 };
 function applyLockdownForRemovedFeatures(removedFeatures) {
     const currentThemeId = localStorage.getItem('omnipos_theme') || 'day';

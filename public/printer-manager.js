@@ -1,8 +1,9 @@
 
 
 /* ==========================================================================
-   Printer Device Settings — unified manager for Bluetooth, WiFi, and
-   LAN (Ethernet cable) thermal receipt printers, with brand presets.
+   Printer Device Settings — unified manager for Bluetooth, WiFi, LAN
+   (Ethernet cable) and USB thermal receipt printers, with brand presets.
+   (USB support lives in usb-printer.js, loaded after this file.)
 
    Depends on globals already defined in bt-printer.js (loaded before this
    file): BT_PRINTER_DEFAULTS, BT_PRINTER_STORAGE_KEYS, btPrinterCharacteristic,
@@ -258,10 +259,23 @@ function updatePrinterActiveSummaryUI() {
 
     const btName = localStorage.getItem(BT_PRINTER_STORAGE_KEYS.deviceName);
     const netSettings = getNetworkPrinterSettings();
+    const usbConfigured = (typeof isUsbPrinterConfigured === 'function') && isUsbPrinterConfigured();
+    const usbReady = usbConfigured && (typeof isUsbPrinterReady === 'function') && isUsbPrinterReady();
+    const usbLabel = (typeof getUsbPrinterDisplayName === 'function') ? getUsbPrinterDisplayName() : 'USB Printer';
+    const btConnected = !!(btName && typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic);
 
-    if (btName && typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic) {
+    // Priority (same order the auto-print/cash-drawer logic uses): a ready USB
+    // printer, then a connected Bluetooth printer, then a saved-but-offline USB
+    // printer, then a saved Bluetooth printer, then a configured network printer.
+    if (usbReady) {
+        dot.style.background = '#22c55e';
+        text.innerText = `Aktibong printer: USB — ${usbLabel}`;
+    } else if (btConnected) {
         dot.style.background = '#22c55e';
         text.innerText = `Aktibong printer: Bluetooth — ${btName}`;
+    } else if (usbConfigured) {
+        dot.style.background = '#eab308';
+        text.innerText = `Naka-save na USB printer: ${usbLabel} (isaksak o i-reconnect)`;
     } else if (btName) {
         dot.style.background = '#eab308';
         text.innerText = `Naka-pair dating Bluetooth printer: ${btName} (kailangang i-reconnect)`;

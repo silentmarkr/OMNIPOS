@@ -103,6 +103,8 @@ const CLIENT_TARGETS = new Set([
   // Printer Device Settings (Bluetooth brand presets + WiFi/LAN network
   // printing) — proprietary code, must ship/obfuscate alongside bt-printer.js.
   path.join("public", "printer-manager.js"),
+  // USB printing (WebUSB / Web Serial / server bridge client) — proprietary code, must ship/obfuscate with the other printer files.
+  path.join("public", "usb-printer.js"),
   path.join("public", "faq-engine.js"),
   path.join("public", "faq-knowledge.js"),
   path.join("public", "faq-knowledge.en.js"),

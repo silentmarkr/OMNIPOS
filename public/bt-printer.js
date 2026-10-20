@@ -241,10 +241,11 @@ function buildEscPosReceiptBytes(data, charWidth) {
 
     bytes.push(ESC, 0x61, 0x00); 
     pushText('-'.repeat(charWidth)); nl();
-    pushText(`Receipt: ${data.receiptId || ''}`); nl();
+    pushText(`Ref No. : ${data.receiptId || ''}`); nl();
     if (data.invoiceNo) { pushText(`Invoice No.: ${data.invoiceNo}`); nl(); }
     pushText(`${data.date || ''} ${data.time || ''}`); nl();
-    pushText(`Cashier: ${data.cashier || ''}`); nl();
+    pushText(`Cashier : ${data.cashier || ''}`); nl();
+    if (data.orderNo) { pushText(`Order No.: ${data.orderNo}`); nl(); }
     pushText('-'.repeat(charWidth)); nl();
 
     (data.items || []).forEach((item) => {
@@ -298,6 +299,23 @@ function buildEscPosReceiptBytes(data, charWidth) {
     bytes.push(ESC, 0x61, 0x01); 
     nl();
     if (data.footerText) { pushText(data.footerText); nl(); }
+    // NON-BIR notice (printed while the BIR Compliance module is not unlocked): wrapped to the paper width.
+    if (data.nonBirNotice) {
+        nl();
+        pushText('-'.repeat(charWidth)); nl();
+        const noticeWidth = Math.max(16, charWidth);
+        const noticeWords = String(data.nonBirNotice).split(/\s+/).filter(Boolean);
+        let noticeLine = '';
+        const noticeLines = [];
+        noticeWords.forEach((w) => {
+            if (!noticeLine) { noticeLine = w; return; }
+            if ((noticeLine + ' ' + w).length <= noticeWidth) noticeLine += ' ' + w;
+            else { noticeLines.push(noticeLine); noticeLine = w; }
+        });
+        if (noticeLine) noticeLines.push(noticeLine);
+        noticeLines.forEach((ln) => { pushText(ln); nl(); });
+        pushText('='.repeat(charWidth)); nl();
+    }
     nl(); nl(); nl();
 
     
@@ -418,6 +436,14 @@ function collectReceiptDataFromDom(prefix) {
             return label && amount ? { label, amount } : null;
         }).filter(Boolean),
         receiptId: getText(`${prefix}-id`),
+        orderNo: (() => {
+            const row = document.getElementById(`${prefix}-order-row`);
+            return row && row.style.display !== 'none' ? getText(`${prefix}-order-no`) : '';
+        })(),
+        nonBirNotice: (() => {
+            const box = document.getElementById(`${prefix}-nonbir-notice`);
+            return box && box.style.display !== 'none' && typeof NON_BIR_RECEIPT_NOTICE === 'string' ? NON_BIR_RECEIPT_NOTICE : '';
+        })(),
         invoiceNo: getText(`${prefix}-inv-no`),
         date: getText(`${prefix}-date`),
         time: getText(`${prefix}-time`),

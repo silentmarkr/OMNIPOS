@@ -1948,6 +1948,9 @@ app.post('/api/receipt-settings/reset-counter', rateLimit('otp-reset-verify', 12
     }
 });
 const FILE_STORE_SETTINGS = 'storeSettings';
+// Running sale counter used for the receipt "Order No." (ORD-000001, ORD-000002, ...). Saved in the same atomic
+// commit as the sale, so a failed sale never uses up a number.
+const FILE_ORDER_COUNTER = 'orderCounter';
 const DEFAULT_STORE_SETTINGS = {
     currencyCode: 'PHP',
     currencySymbol: '₱',
@@ -2116,7 +2119,9 @@ function getStoreSettingsPublic(rawSettings) {
                     .slice(0, 10);
             })()
             : DEFAULT_STORE_SETTINGS.priceLevels,
-        bir: sanitizeBirSettings(s.bir),
+        // BIR Compliance is a locked one-time module: while it is not unlocked the BIR receipt details are reported as
+        // OFF/blank to every consumer (receipts, e-mails, client), but the stored values are never touched or lost.
+        bir: isBirComplianceUnlocked() ? sanitizeBirSettings(s.bir) : sanitizeBirSettings(null),
         branchName: typeof s.branchName === 'string' ? s.branchName.trim().slice(0, 60) : '',
         branchGroupKey: typeof s.branchGroupKey === 'string' ? s.branchGroupKey.trim().slice(0, 120) : '',
         updatedAt: s.updatedAt || null
@@ -2169,12 +2174,20 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
     if (incoming.loyaltyPointValue < 0) {
         return res.status(400).json({ success: false, message: 'Ang Loyalty point value ay hindi puwedeng negative.' });
     }
-    if ((req.body || {}).bir === undefined) {
-        incoming.bir = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir;
-    }
-    const birError = validateBirSettings(incoming.bir, incoming.taxEnabled);
-    if (birError) {
-        return res.status(400).json({ success: false, message: birError });
+    const birModuleUnlocked = isBirComplianceUnlocked();
+    if (!birModuleUnlocked) {
+        // Locked module: ignore whatever BIR details the client sent, keep the stored ones exactly as they are, and skip
+        // BIR validation (a locked store must still be able to save its tax/payment settings).
+        const storedForBir = readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS);
+        incoming.bir = sanitizeBirSettings(storedForBir && storedForBir.bir);
+    } else {
+        if ((req.body || {}).bir === undefined) {
+            incoming.bir = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir;
+        }
+        const birError = validateBirSettings(incoming.bir, incoming.taxEnabled);
+        if (birError) {
+            return res.status(400).json({ success: false, message: birError });
+        }
     }
     const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
     const canApplyDirectly = isAdminRole || !!getPermissionsForRole(req.authUser.role).store_settings_direct_apply;
@@ -2198,7 +2211,7 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
         notifyRelayBranchLeave();
     }
     logAction(username || req.authUser.username, 'Binago ang Store & Sales Settings (tax/payment methods/discount)');
-    res.json({ success: true, message: 'Na-update ang Store & Sales Settings.', settings: incoming });
+    res.json({ success: true, message: 'Na-update ang Store & Sales Settings.', settings: getStoreSettingsPublic(incoming) });
 });
 const FILE_UX_SETTINGS = 'uxSettings';
 const DEFAULT_UX_SETTINGS = {
@@ -3564,6 +3577,188 @@ app.post('/api/printer/network-print', rateLimit('printer-network-print', 60, 5 
         });
     });
 });
+// ---------------------------------------------------------------------------------------------
+// USB printer bridge (OmniPOS server running on macOS / Linux): raw ESC/POS bytes are sent to a
+// CUPS queue (`lp -o raw`) or written straight to /dev/usb/lpN. Used by the "USB via OmniPOS
+// Server" mode of the Printer Device Settings. Termux/Android cannot use this (no CUPS, no
+// /dev/usb access) — there the browser's direct WebUSB mode is used instead.
+// Security: queue names / device paths are validated with strict patterns, commands are run with
+// an argument array (never through a shell), and the target must exist in the live listing.
+// ---------------------------------------------------------------------------------------------
+const USB_PRINTER_QUEUE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.\-]{0,126}$/;
+const USB_PRINTER_DEVICE_PATH_RE = /^\/dev\/usb\/lp\d{1,2}$/;
+const USB_PRINTER_MAX_BYTES = 300 * 1024;
+let usbPrinterServerChain = Promise.resolve();
+
+function runPrinterCommand(cmd, args, input, timeoutMs) {
+    return new Promise((resolve) => {
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let child = null;
+        let timer = null;
+        const done = (result) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(result);
+        };
+        timer = setTimeout(() => {
+            try { if (child) child.kill('SIGKILL'); } catch (err) {            }
+            done({ code: null, stdout, stderr, timedOut: true });
+        }, timeoutMs);
+        try {
+            child = spawn(cmd, args, {
+                stdio: ['pipe', 'pipe', 'pipe'],
+                windowsHide: true,
+                env: Object.assign({}, process.env, { LC_ALL: 'C', LANG: 'C' })
+            });
+        } catch (err) {
+            return done({ code: null, stdout, stderr, error: err });
+        }
+        child.once('error', (err) => done({ code: null, stdout, stderr, error: err }));
+        child.stdout.on('data', (chunk) => { if (stdout.length < 65536) stdout += chunk; });
+        child.stderr.on('data', (chunk) => { if (stderr.length < 65536) stderr += chunk; });
+        child.once('close', (code) => done({ code, stdout, stderr }));
+        child.stdin.on('error', () => {            });
+        if (input && input.length) child.stdin.end(input);
+        else child.stdin.end();
+    });
+}
+
+async function listUsbPrinterTargets() {
+    const queues = [];
+    let lpAvailable = true;
+    const result = await runPrinterCommand('lpstat', ['-v'], null, 4000);
+    if (result.error || result.timedOut) {
+        lpAvailable = false;
+    } else {
+        String(result.stdout || '').split('\n').forEach((line) => {
+            const match = /^device for (.+?):\s*(.+)$/.exec(line.trim());
+            if (!match) return;
+            const name = match[1].trim();
+            if (!USB_PRINTER_QUEUE_NAME_RE.test(name)) return;
+            if (queues.some((q) => q.name === name)) return;
+            queues.push({ name, isUsb: /^usb:/i.test(match[2].trim()) });
+        });
+        queues.sort((a, b) => (b.isUsb ? 1 : 0) - (a.isUsb ? 1 : 0) || a.name.localeCompare(b.name));
+    }
+    let devices = [];
+    try {
+        devices = fs.readdirSync('/dev/usb')
+            .filter((n) => /^lp\d{1,2}$/.test(n))
+            .map((n) => `/dev/usb/${n}`)
+            .sort();
+    } catch (err) {
+        devices = [];
+    }
+    return { lpAvailable, queues, devices };
+}
+
+async function writeBufferToUsbDevicePath(devicePath, buffer, timeoutMs) {
+    let timer = null;
+    const work = (async () => {
+        const handle = await fs.promises.open(devicePath, 'w');
+        try {
+            let offset = 0;
+            while (offset < buffer.length) {
+                const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset);
+                if (!bytesWritten) throw new Error('Walang naisulat sa device.');
+                offset += bytesWritten;
+            }
+        } finally {
+            await handle.close().catch(() => {            });
+        }
+    })();
+    work.catch(() => {            });
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            const err = new Error('Nag-timeout ang USB printer device.');
+            err.code = 'ETIMEDOUT_PRINTER';
+            reject(err);
+        }, timeoutMs);
+    });
+    try {
+        await Promise.race([work, timeout]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+app.get('/api/printer/usb-targets', rateLimit('printer-usb-targets', 60, 5 * 60 * 1000), async (req, res) => {
+    try {
+        const listing = await listUsbPrinterTargets();
+        res.json({ success: true, platform: process.platform, lpAvailable: listing.lpAvailable, queues: listing.queues, devices: listing.devices });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Hindi makuha ang listahan ng USB printer sa server.' });
+    }
+});
+
+app.post('/api/printer/usb-queue-print', rateLimit('printer-usb-queue-print', 60, 5 * 60 * 1000), async (req, res) => {
+    const target = ((req.body && req.body.target) || '').toString().trim();
+    const dataBase64 = req.body && req.body.dataBase64;
+    const isQueue = target.startsWith('queue:');
+    const isDevice = target.startsWith('device:');
+    const targetName = target.replace(/^(queue|device):/, '');
+    if (!(isQueue && USB_PRINTER_QUEUE_NAME_RE.test(targetName)) && !(isDevice && USB_PRINTER_DEVICE_PATH_RE.test(targetName))) {
+        return res.status(400).json({ success: false, message: 'Invalid ang napiling USB printer.' });
+    }
+    if (!dataBase64 || typeof dataBase64 !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(dataBase64)) {
+        return res.status(400).json({ success: false, message: 'Walang valid na print data na natanggap.' });
+    }
+    const buffer = Buffer.from(dataBase64, 'base64');
+    if (!buffer.length) {
+        return res.status(400).json({ success: false, message: 'Walang laman ang print data.' });
+    }
+    if (buffer.length > USB_PRINTER_MAX_BYTES) {
+        return res.status(400).json({ success: false, message: 'Masyadong malaki ang print data.' });
+    }
+    // Jobs run one at a time so two receipts can never interleave on the same printer.
+    const job = usbPrinterServerChain.then(async () => {
+        const listing = await listUsbPrinterTargets();
+        if (isQueue) {
+            if (!listing.lpAvailable) {
+                return { status: 501, body: { success: false, message: 'Walang CUPS/`lp` sa server na ito. Gamitin ang Direct USB (WebUSB) mode, o i-install ang CUPS.' } };
+            }
+            if (!listing.queues.some((q) => q.name === targetName)) {
+                return { status: 404, body: { success: false, message: `Hindi nakita ang printer queue "${targetName}" sa server.` } };
+            }
+            const result = await runPrinterCommand('lp', ['-d', targetName, '-o', 'raw', '-t', 'OmniPOS'], buffer, 15000);
+            if (result.error) return { status: 502, body: { success: false, message: `Hindi mapatakbo ang lp: ${result.error.message}` } };
+            if (result.timedOut) return { status: 504, body: { success: false, message: 'Nag-timeout ang pag-send sa printer queue.' } };
+            if (result.code !== 0) {
+                const detail = String(result.stderr || '').trim().slice(0, 200);
+                return { status: 502, body: { success: false, message: `Nabigo ang pag-print sa queue${detail ? `: ${detail}` : '.'}` } };
+            }
+            return { status: 200, body: { success: true, message: 'Naipadala ang print data sa printer queue.' } };
+        }
+        if (!listing.devices.includes(targetName)) {
+            return { status: 404, body: { success: false, message: `Hindi nakita ang USB device na ${targetName}. Naka-on at nakasaksak ba ang printer?` } };
+        }
+        try {
+            await writeBufferToUsbDevicePath(targetName, buffer, 10000);
+        } catch (err) {
+            if (err && (err.code === 'EACCES' || err.code === 'EPERM')) {
+                return { status: 403, body: { success: false, message: `Walang permiso sa ${targetName}. Idagdag ang user sa "lp" group (o i-set ang udev rule), tapos mag-login ulit.` } };
+            }
+            if (err && err.code === 'ETIMEDOUT_PRINTER') {
+                return { status: 504, body: { success: false, message: err.message } };
+            }
+            return { status: 502, body: { success: false, message: `Nabigo ang pag-send sa USB device: ${(err && err.message) || err}` } };
+        }
+        return { status: 200, body: { success: true, message: 'Naipadala ang print data sa USB printer.' } };
+    });
+    usbPrinterServerChain = job.catch(() => {            });
+    try {
+        const outcome = await job;
+        if (outcome.body.success) {
+            logAction(req.authUser.username, `Nag-print gamit ang USB Printer (${target})`);
+        }
+        res.status(outcome.status).json(outcome.body);
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Hindi inaasahang error sa USB print bridge.' });
+    }
+});
 const APP_VERSION = require('./package.json').version || '0.0.0';
 const RENDER_DEPLOY_HOOK_URL = process.env.RENDER_DEPLOY_HOOK_URL || null;
 const FILE_DEPLOY_STATS = 'deployStats';
@@ -3722,6 +3917,18 @@ function isModuleSubscriptionFeature(featureId) {
 }
 function isSubscriptionOnlyFeature(featureId) {
     return featureId === CLOUD_BACKUP_FEATURE_ID || isModuleSubscriptionFeature(featureId);
+}
+// One-time modules sold ONLY on their own: never part of an Upgrade bundle (Basic/Standard/Pro) and never switched on
+// by Demo Mode. BIR Compliance is one of them — RELAY keeps it "not available yet" until OmniPOS has its BIR PTU.
+const BIR_COMPLIANCE_FEATURE_ID = 'bir_compliance';
+// Printed on every receipt/e-receipt while BIR Compliance is not unlocked (system has no BIR PTU yet).
+const NON_BIR_RECEIPT_NOTICE = 'THIS DOCUMENT IS NOT AN OFFICIAL SALES INVOICE/RECEIPT. FOR INTERNAL AND INVENTORY TRACKING PURPOSES ONLY.';
+const STANDALONE_ONLY_FEATURE_IDS = [BIR_COMPLIANCE_FEATURE_ID];
+function isStandaloneOnlyFeature(featureId) {
+    return STANDALONE_ONLY_FEATURE_IDS.includes(featureId);
+}
+function isBundleableFeature(featureId) {
+    return !isSubscriptionOnlyFeature(featureId) && !isStandaloneOnlyFeature(featureId);
 }
 const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
     rbac_management: {
@@ -4070,8 +4277,14 @@ let activationFlagsCache = { otpRequestsEnabled: true, omniTokenActivationEnable
 // RELAY "Not available yet" switch: { [featureId]: { message } } — mga feature na hindi pa pwedeng i-unlock/i-subscribe.
 // Ang RELAY pa rin ang tunay na nagpapatupad; ito ay para maipakita agad ang mensahe bago pa buksan ang plans modal.
 let featureAvailabilityCache = {};
+// true once RELAY's "not available yet" list (or its cached copy) has been received at least once.
+let featureAvailabilityKnown = false;
+// Used by Demo Mode only, while RELAY's list has never been received (first start, RELAY unreachable): these are the
+// features RELAY ships as \"not available\" by default, so Demo Mode must keep them closed even without a RELAY answer.
+const FEATURE_AVAILABILITY_FALLBACK_BLOCKED = ['bir_compliance', 'marketplace_hub'];
 function applyFeatureAvailabilityOverlay(remote) {
     if (!remote || typeof remote !== 'object') return;
+    featureAvailabilityKnown = true;
     const next = {};
     for (const featureId of Object.keys(remote)) {
         if (featureId === '__proto__' || featureId === 'constructor' || featureId === 'prototype') continue;
@@ -4279,7 +4492,7 @@ function tierName(tierId, fallbackName) {
 function tierFeatureIds(tierId, fallbackFeatureIds) {
     const overlay = upgradeTierPricingOverlay[tierId];
     if (overlay && Array.isArray(overlay.featureIds) && overlay.featureIds.length) {
-        return overlay.featureIds.filter(id => FEATURE_CATALOG[id] && !isSubscriptionOnlyFeature(id));
+        return overlay.featureIds.filter(id => FEATURE_CATALOG[id] && isBundleableFeature(id));
     }
     return fallbackFeatureIds;
 }
@@ -4300,6 +4513,7 @@ const FEATURE_CATALOG = {
     inventory_tools: catalogEntry('inventory_tools', 'Inventory Tools', 999, 'module', 'The dedicated Inventory Tools page: physical inventory counts (by category or selected items), consignment stock receiving/settlement, a damage/spoilage/waste log with automatic stock deduction, a dead-stock/slow-moving report, and a Supplier Directory.'),
     customer_crm: catalogEntry('customer_crm', 'Customer Profiles, Loyalty & Debtors', 799, 'module', 'Customer profiles, loyalty points, purchase history, and the Debtors ledger (track utang, due dates, and payments) for every customer.'),
     shift_management: catalogEntry('shift_management', 'Multi-Cashier Shift Oversight & Z-Reading Reports', 699, 'module', 'Multi-cashier shift tracking and Z-Reading (cash count) reports.'),
+    bir_compliance: catalogEntry('bir_compliance', 'BIR Compliance (AGT, BIR Z-Reading & e-Journal / Sales Book / EIS Exports)', 1999, 'module', 'Accumulated Grand Total (AGT), BIR Z-Reading, sequential BIR invoice numbering with a void log, BIR receipt details (TIN / PTU) and the e-Journal, Sales Book and EIS exports. One-time purchase. Not available until OmniPOS has its BIR Permit to Use (PTU).'),
     rbac_management: {
         name: 'Roles & Permissions (RBAC) Management',
         category: 'module',
@@ -4395,7 +4609,7 @@ const UPGRADE_TIERS = [
     {
         id:'pro',
         description:'Every other module and every Pro Theme — nothing left locked, except Cloud Backup, Roles & Permissions (RBAC) Management, and Multi-Branch Dashboard, which are billed separately as their own subscriptions.',
-        get featureIds() { return tierFeatureIds('pro', Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id))); },
+        get featureIds() { return tierFeatureIds('pro', Object.keys(FEATURE_CATALOG).filter(id => isBundleableFeature(id))); },
         get name() { return tierName('pro', 'Pro Upgrade'); },
         get bundlePrice() { return tierBundlePrice('pro', 3599); }
     }
@@ -7743,7 +7957,9 @@ const DEMO_SANDBOX_MODULES = [
     FILE_PRODUCTS, FILE_TRANSACTIONS, FILE_REFUNDS, FILE_REQUESTS, FILE_CATEGORIES,
     FILE_CARTS, FILE_CUSTOMERS, FILE_DEBTS, FILE_PROMOCODES, FILE_SHIFTS, FILE_SHIFT_META,
     FILE_PURCHASE_ORDERS, FILE_LOWSTOCK_TRACKING, FILE_STOCK_RETURNS, FILE_ATTENDANCE,
-    FILE_INVENTORY_COUNTS, FILE_CONSIGNMENTS, FILE_WASTE_LOG, FILE_SUPPLIERS, FILE_FRAUD_ALERTS
+    FILE_INVENTORY_COUNTS, FILE_CONSIGNMENTS, FILE_WASTE_LOG, FILE_SUPPLIERS, FILE_FRAUD_ALERTS,
+    // Receipt Order No. counter: sales rung up during Demo Mode are thrown away afterwards, so they must not use up real numbers.
+    FILE_ORDER_COUNTER
 ];
 // Per-module "nothing saved yet" defaults, matched to what each module's own
 // normal readData(...) calls use elsewhere in this file. Most sandboxed
@@ -7759,7 +7975,8 @@ const DEMO_SANDBOX_MODULE_DEFAULTS = {
     [FILE_CATEGORIES]: DEFAULT_CATEGORIES,
     [FILE_CARTS]: {},
     [FILE_SHIFT_META]: {},
-    [FILE_LOWSTOCK_TRACKING]: {}
+    [FILE_LOWSTOCK_TRACKING]: {},
+    [FILE_ORDER_COUNTER]: { last: 0 }
 };
 function demoSandboxDefaultFor(moduleName) {
     return Object.prototype.hasOwnProperty.call(DEMO_SANDBOX_MODULE_DEFAULTS, moduleName)
@@ -7793,6 +8010,9 @@ function restoreDataFromDemoSnapshotIfAny(triggeredBy) {
         const snapshot = readData(FILE_DEMO_DATA_SNAPSHOT, null);
         if (!snapshot || !snapshot.modules) return false;
         DEMO_SANDBOX_MODULES.forEach((moduleName) => {
+            // A demo that started before the Order No. counter existed has no counter in its snapshot: leave the live
+            // counter alone (restoring a default would send it back to 0 and repeat old order numbers).
+            if (moduleName === FILE_ORDER_COUNTER && !Object.prototype.hasOwnProperty.call(snapshot.modules, moduleName)) return;
             const original = Object.prototype.hasOwnProperty.call(snapshot.modules, moduleName)
                 ? snapshot.modules[moduleName]
                 : demoSandboxDefaultFor(moduleName);
@@ -7861,16 +8081,34 @@ function getModuleSubscriptionGraceWarnings() {
     }
     return warnings;
 }
+// Demo Mode must never open a feature that RELAY marks "not available yet" (Feature Availability switch) — it cannot be
+// bought, so it cannot be tried either. Standalone-only modules (BIR Compliance) are never opened by Demo Mode.
+// A feature the store really purchased is not affected: it comes from getPurchasedFeatureIds(), not from the demo list.
+function isFeatureBlockedInDemo(featureId) {
+    if (isStandaloneOnlyFeature(featureId)) return true;
+    if (featureAvailabilityKnown) return Object.prototype.hasOwnProperty.call(featureAvailabilityCache, featureId);
+    return FEATURE_AVAILABILITY_FALLBACK_BLOCKED.includes(featureId);
+}
 function getUnlockedFeatureIds() {
     const purchased = getPurchasedFeatureIds();
     if (isDemoActive()) {
-        return Array.from(new Set([...Object.keys(FEATURE_CATALOG), ...purchased]));
+        return Array.from(new Set([...Object.keys(FEATURE_CATALOG).filter(id => !isFeatureBlockedInDemo(id)), ...purchased]));
     }
     return purchased;
 }
+// BIR Compliance gate for code that is NOT a plain route (sale processing, receipts, store settings).
+// Real purchase only (never Demo Mode) and fail-closed: any error reads as "locked".
+function isBirComplianceUnlocked() {
+    try {
+        return getPurchasedFeatureIds().includes(BIR_COMPLIANCE_FEATURE_ID);
+    } catch (err) {
+        return false;
+    }
+}
 function isFullyProUnlocked() {
     const purchased = getPurchasedFeatureIds();
-    const allIds = Object.keys(FEATURE_CATALOG).filter(id => !isSubscriptionOnlyFeature(id));
+    // Features RELAY marks "not available yet" cannot be bought, so they do not count against "fully purchased".
+    const allIds = Object.keys(FEATURE_CATALOG).filter(id => isBundleableFeature(id) && (purchased.includes(id) || !isFeatureBlockedInDemo(id)));
     return allIds.length > 0 && allIds.every(id => purchased.includes(id));
 }
 function requireFeature(featureId) {
@@ -8976,7 +9214,7 @@ const AI_ASSISTANT_VIEW_SUGGESTIONS = [
     // tinanong ang mga topic na ito, may sagot pa rin ang Omni AI
     // pero walang lumalabas na "Open X" quick-action button papunta sa
     // mismong page.
-    { keywords: ['bir compliance', 'agt', 'z-reading exports?', 'buwis', 'official receipts?', 'sales invoices?'], view: 'bir_compliance', label: 'Open BIR Compliance' },
+    { keywords: ['bir compliance', 'agt', 'z-reading exports?', 'buwis', 'official receipts?', 'sales invoices?'], view: 'bir_compliance', feature: 'bir_compliance', label: 'Open BIR Compliance' },
     { keywords: ['batch(es)?', 'lots?', 'fefo', 'batch.{0,3}lot'], view: 'batchlots', feature: 'batch_lot_tracking', label: 'Open Batch/Lot Tracking' },
     { keywords: ['attendance', 'time in', 'time out', 'selfie', 'pasok', 'labas', 'clock in', 'clock out'], view: 'attendance', feature: 'remote_operations', label: 'Open Staff Attendance' },
     { keywords: ['remote operations?', 'remoteops', 'monitor(ing)?', 'live dashboard'], view: 'remoteops', feature: 'remote_operations', label: 'Open Remote Operations' },
@@ -9363,10 +9601,13 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
         if (lockedHits.length) {
             const seenLocked = new Set();
             const lockedLines = [];
+            let notYetAvailable = {};
+            try { notYetAvailable = getFeatureAvailabilityForThisInstallation() || {}; } catch (e) { notYetAvailable = {}; }
             for (const h of lockedHits) {
                 if (seenLocked.has(h.featureId)) continue;
                 seenLocked.add(h.featureId);
-                lockedLines.push(`- "${h.featureName}" (${h.isSubscription ? 'monthly/yearly subscription' : 'one-time unlock purchase'})`);
+                const comingSoon = Object.prototype.hasOwnProperty.call(notYetAvailable, h.featureId) ? ' — currently NOT available for purchase yet (coming soon)' : '';
+                lockedLines.push(`- "${h.featureName}" (${h.isSubscription ? 'monthly/yearly subscription' : 'one-time unlock purchase'})${comingSoon}`);
             }
             lockedFeatureMsgs.push({
                 role: 'system',
@@ -13901,9 +14142,14 @@ async function processTransaction(req, res) {
     const grandTotal = (storeSettings.taxEnabled && !storeSettings.pricesIncludeTax && !seniorPwdVatExempt)
         ? Math.round((verifiedTotal + taxAmount) * 100) / 100
         : verifiedTotal;
+    // BIR Compliance is a locked one-time module: when it is not unlocked, a sale gets NO BIR invoice number, does NOT
+    // touch the AGT, and the buyer-details (BIR invoice) rules below do not apply.
+    const birComplianceActive = isBirComplianceUnlocked();
     // BIR BUYER DETAILS (RR 7-2024): ang name/address/TIN ng buyer ay kailangan sa VAT invoice kapag ang benta ay
     // ₱1,000 pataas AT VAT-registered ang buyer. Sinusuri at nililinis dito (client input ay hindi pinagkakatiwalaan).
-    {
+    if (!birComplianceActive) {
+        delete transaction.buyer;
+    } else {
         const rawBuyer = (transaction.buyer && typeof transaction.buyer === 'object') ? transaction.buyer : null;
         let buyer = null;
         if (rawBuyer) {
@@ -14005,17 +14251,23 @@ async function processTransaction(req, res) {
     // Kapag pumalya ang isa sa gitna (disk full, lock, crash), maaaring may sale na hindi nabawasan ang stock, o
     // nabawasan ang stock/points na walang sale, o C-Credit sale na walang utang. Ngayon, lahat ay iisang SQLite
     // transaction (commitDataModules) — kapareho ng VOID at REFUND — at ibinabalik ang BIR counter kung pumalya.
-    const birStateBeforeSale = birCompliance.getBirState();
-    {
+    const birStateBeforeSale = birComplianceActive ? birCompliance.getBirState() : null;
+    if (birComplianceActive) {
         const birResult = birCompliance.onTransactionCommitted(grandTotal);
         transaction.birInvoiceNumber = birResult.invoiceNumber;
         transaction.birInvoiceNumberValue = birResult.invoiceNumberValue;
     }
     // SCALE FIX: idinadagdag na lang ang ISANG bagong transaction row (prependRows) sa loob ng parehong atomic
     // SQLite transaction, sa halip na isulat muli ang buong history ng transactions sa bawat benta.
+    // Order No. for the receipt: next number of the running counter (we are inside transactionsMutexRunExclusive,
+    // so two sales can never read the same value). It is committed together with the sale below.
+    const orderCounterState = readData(FILE_ORDER_COUNTER, { last: 0 });
+    const nextOrderSeq = Math.max(0, parseInt(orderCounterState && orderCounterState.last, 10) || 0) + 1;
+    transaction.orderNumber = 'ORD-' + String(nextOrderSeq).padStart(6, '0');
     const saleChanges = [
         { module: FILE_TRANSACTIONS, prependRows: [transaction] },
-        { module: FILE_PRODUCTS, data: products }
+        { module: FILE_PRODUCTS, data: products },
+        { module: FILE_ORDER_COUNTER, data: { last: nextOrderSeq } }
     ];
     if (customersDirty) saleChanges.push({ module: FILE_CUSTOMERS, data: customers });
     if (appliedPromoCode) {
@@ -14075,8 +14327,10 @@ async function processTransaction(req, res) {
     } catch (commitErr) {
         console.error('SALE commit failed:', commitErr);
         // Ibalik ang BIR invoice number/AGT na nakuha na para walang butas sa sequence dahil sa sale na hindi natuloy.
-        try { writeData('birState', birStateBeforeSale); } catch (birRestoreErr) {
-            console.error('Could not restore BIR state after failed sale commit:', birRestoreErr);
+        if (birComplianceActive) {
+            try { writeData('birState', birStateBeforeSale); } catch (birRestoreErr) {
+                console.error('Could not restore BIR state after failed sale commit:', birRestoreErr);
+            }
         }
         return res.status(500).json({ success: false, message: 'The sale could not be saved completely. No permanent change should remain; please try again.' });
     }
@@ -14322,7 +14576,8 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
     </td></tr>
     <tr><td style="padding:18px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#64748b;">
-            <tr><td style="padding:4px 0;">Receipt #</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.id)}</td></tr>
+            <tr><td style="padding:4px 0;">Ref No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.id)}</td></tr>
+            ${tx.orderNumber ? `<tr><td style="padding:4px 0;">Order No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.orderNumber)}</td></tr>` : ''}
             ${tx.birInvoiceNumber ? `<tr><td style="padding:4px 0;">Invoice No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.birInvoiceNumber)}</td></tr>` : ''}
             <tr><td style="padding:4px 0;">Date</td><td align="right" style="padding:4px 0;">${escapeHtml(dateLabel)}</td></tr>
             <tr><td style="padding:4px 0;">Cashier</td><td align="right" style="padding:4px 0;">${escapeHtml(cashierLabel)}</td></tr>
@@ -14360,6 +14615,7 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
     <tr><td style="padding:28px 32px 6px;text-align:center;">
         <div style="font-size:14px;font-style:italic;color:#334155;">${escapeHtml(footerText)}</div>
     </td></tr>
+    ${isBirComplianceUnlocked() ? '' : `<tr><td style="padding:10px 32px 0;text-align:center;"><div style="border-top:1px dashed #94a3b8;padding-top:8px;font-size:11px;font-weight:700;color:#334155;line-height:1.4;">${escapeHtml(NON_BIR_RECEIPT_NOTICE)}</div><div style="font-size:11px;color:#94a3b8;margin-top:4px;letter-spacing:1px;overflow:hidden;white-space:nowrap;">==========================================</div></td></tr>`}
     ${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? `<tr><td style="padding:6px 32px 0;text-align:center;">${fl.map(l => `<div style="font-size:10px;color:#64748b;margin-bottom:2px;">${escapeHtml(l)}</div>`).join('')}</td></tr>` : ''; })()}
     <tr><td style="padding:6px 32px 28px;text-align:center;">
         <div style="font-size:11px;color:#94a3b8;">This is an electronic receipt. Please keep this for your records.</div>
@@ -14440,7 +14696,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const grandTotal = parseFloat(tx.total || 0) || 0;
         const changeAmount = Math.max(0, parseFloat(tx.change) || 0);
         const birTextBlock = buildBirReceiptLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir).map(l => l.text).join('\n');
-        const textBody = `${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nReceipt: ${tx.id}${tx.birInvoiceNumber ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier: ${cashierLabel}${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `\n${r[0]}: ${r[1]}`).join('') : ''}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? '\n\n' + fl.join('\n') : ''; })()}`;
+        const textBody = `${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nRef No. : ${tx.id}${tx.orderNumber ? '\nOrder No.: ' + tx.orderNumber : ''}${tx.birInvoiceNumber ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier : ${cashierLabel}${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `\n${r[0]}: ${r[1]}`).join('') : ''}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? '\n\n' + fl.join('\n') : ''; })()}${isBirComplianceUnlocked() ? '' : '\n\n' + NON_BIR_RECEIPT_NOTICE + '\n' + '='.repeat(40)}`;
         const grossSubtotal = items.reduce((sum, i) => sum + ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)), 0);
         const itemsHtml = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
@@ -15807,7 +16063,9 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
     // BIR Compliance data (AGT, invoice numbering, BIR Z-Reading history, void log, AGT reset history)
     // is KEPT by default — wiping it also restarts the invoice sequence at INV-000001, so it is strictly
     // opt-in (=== true, so a missing/garbled field can never trigger it).
-    const includeBirData = req.body.includeBirData === true;
+    // BIR Compliance is a locked one-time module: the BIR wipe option exists only while it is unlocked. The UI already hides
+    // it; this closes the direct-API route so a locked store can never wipe (or be asked to wipe) its BIR data.
+    const includeBirData = req.body.includeBirData === true && isBirComplianceUnlocked();
     const receiptSettingsForReset = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const otpMailCreds = getOtpMailCredentials(receiptSettingsForReset);
     if (!otpMailCreds) {
@@ -15993,6 +16251,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     { module: 'marketplaceOrders', data: [] },
                     { module: 'marketplaceState', data: { settings: mpPrev.settings || undefined, cursors: {}, connections: [], lastSync: null, resetAt: Date.now() } },
                     { module: FILE_DEMO_DATA_SNAPSHOT, data: null },
+                    // Hard Reset starts the receipt Order No. over at ORD-000001 (the old counter is still inside the emailed backup).
+                    { module: FILE_ORDER_COUNTER, data: { last: 0 } },
                     { module: FILE_CATEGORIES, data: [] },
                     { module: FILE_FEATURE_UNLOCKS, data: {
                         ...DEFAULT_FEATURE_UNLOCKS,
@@ -21176,15 +21436,15 @@ function getBirContext() {
     const receiptSettings = getReceiptSettingsPublic(readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS));
     return { storeName: storeSettings.bir.businessName || receiptSettings.storeName || '', storeAddress: receiptSettings.storeAddress || '', tin: storeSettings.bir.tin || '' };
 }
-app.get('/api/bir/state', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/state', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     res.json(birCompliance.getBirState());
 });
-app.get('/api/bir/z-reading/history', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/z-reading/history', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     const hasLimit = req.query.limit !== undefined && req.query.limit !== null && req.query.limit !== '';
     const limit = hasLimit ? Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50)) : undefined;
     res.json(birCompliance.getZReadingHistory(limit));
 });
-app.post('/api/bir/z-reading', requirePermission('bir_compliance'), rateLimit('bir-z-reading', 20, 10 * 60 * 1000), (req, res) => {
+app.post('/api/bir/z-reading', requirePermission('bir_compliance'), requireFeature('bir_compliance'), rateLimit('bir-z-reading', 20, 10 * 60 * 1000), (req, res) => {
     try {
         const record = birCompliance.performZReading({ authorizedBy: req.authUser.username });
         logAction(req.authUser.username, `BIR Z-Reading #${record.zCounter}: Beginning AGT ₱${record.beginningAGT.toFixed(2)}, Ending AGT ₱${record.endingAGT.toFixed(2)}, Net Sales ₱${record.netSales.toFixed(2)}, Invoices ${record.invoiceFrom}-${record.invoiceTo}${record.voidCount ? `, ${record.voidCount} void(s)` : ''}`);
@@ -21194,14 +21454,14 @@ app.post('/api/bir/z-reading', requirePermission('bir_compliance'), rateLimit('b
         res.status(500).json({ success: false, message: `Hindi nai-save ang Z-Reading (walang nabago sa data). Detalye: ${err.message}` });
     }
 });
-app.get('/api/bir/voids', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/voids', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
     res.json(birCompliance.getVoidLog(limit));
 });
-app.get('/api/bir/reset-history', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/reset-history', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     res.json(birCompliance.getResetHistory());
 });
-app.post('/api/bir/reset-agt', requirePermission('bir_compliance'), rateLimit('bir-reset-agt', 5, 60 * 60 * 1000), async (req, res) => {
+app.post('/api/bir/reset-agt', requirePermission('bir_compliance'), requireFeature('bir_compliance'), rateLimit('bir-reset-agt', 5, 60 * 60 * 1000), async (req, res) => {
     const { adminPassword, reason } = req.body || {};
     if (!adminPassword) {
         return res.status(400).json({ success: false, message: 'A password is required to reset the Accumulated Grand Total.' });
@@ -21230,7 +21490,7 @@ function parseBirDateRange(req) {
     const toDateStr = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : today;
     return { fromDateStr, toDateStr };
 }
-app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     const { fromDateStr, toDateStr } = parseBirDateRange(req);
     const text = birCompliance.exportEJournal({ fromDateStr, toDateStr, context: getBirContext() });
     logAction(req.authUser.username, `Exported BIR e-Journal (${fromDateStr} to ${toDateStr})`);
@@ -21238,7 +21498,7 @@ app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), (req, r
     res.setHeader('Content-Disposition', `attachment; filename="ejournal_${fromDateStr}_to_${toDateStr}.txt"`);
     res.send(text);
 });
-app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     const { fromDateStr, toDateStr } = parseBirDateRange(req);
     const csv = birCompliance.exportSalesBookCsv({ fromDateStr, toDateStr });
     logAction(req.authUser.username, `Exported BIR Sales Book CSV (${fromDateStr} to ${toDateStr})`);
@@ -21246,7 +21506,7 @@ app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), (req,
     res.setHeader('Content-Disposition', `attachment; filename="sales_book_${fromDateStr}_to_${toDateStr}.csv"`);
     res.send(csv);
 });
-app.get('/api/bir/export/eis', requirePermission('bir_compliance'), (req, res) => {
+app.get('/api/bir/export/eis', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     const { fromDateStr, toDateStr } = parseBirDateRange(req);
     const payload = birCompliance.exportEIS({ fromDateStr, toDateStr, context: getBirContext() });
     logAction(req.authUser.username, `Exported BIR EIS-ready JSON (${fromDateStr} to ${toDateStr})`);
