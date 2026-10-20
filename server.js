@@ -2631,6 +2631,118 @@ function readRelayClientCredential() {
     setRelayCredentialCache(value);
     return value;
 }
+// ACTIVATION PERSISTENCE (bug fix: "humihingi ulit ng activation key pagkatapos ng update"):
+// Dati, ang activation ay may dalawang posibleng tahanan: (1) database/relay-client-credential.json (bagong paraan) at
+// (2) RELAY_API_KEY sa .env (lumang paraan). Sa APK/Termux update, ang database/ ay naibabalik pero ang .env ay galing
+// sa bagong zip (WALANG RELAY_API_KEY dahil hindi ito ipinapadala sa customer) — kaya ang mga install na ang key ay nasa
+// .env lang ay nawawalan ng activation sa bawat update. Ngayon ay may tatlong proteksyon:
+//   1) Kapag may RELAY_API_KEY sa .env pero wala pang credential file -> inililipat ito sa database/ (na laging ligtas sa update).
+//   2) May hiwalay na mirror (relay-client-credential.bak.json) — kung nawala/nasira ang pangunahing file, ibinabalik mula rito.
+//   3) Kung wala pa rin, hinahanap ang safety backups na iniiwan ng update script (~/omnipos-data-backup-*, ~/omnipos-app-backup-*)
+//      at doon kinukuha ang dating key — kaya kusang naaayos kahit ang device ay na-update na dati at nawalan na.
+const RELAY_CLIENT_CREDENTIAL_BACKUP_PATH = path.join(DB_DIR, 'relay-client-credential.bak.json');
+function isPlausibleRelayCredential(v) {
+    return typeof v === 'string' && /^[A-Za-z0-9._~+\/=-]{16,512}$/.test(v.trim());
+}
+function readRelayCredentialRecord(filePath) {
+    try {
+        const j = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (j && isPlausibleRelayCredential(j.credential)) return j;
+    } catch (_e) { /* wala o sira */ }
+    return null;
+}
+function writeJsonAtomic0600(filePath, obj) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const tmp = `${filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, filePath);
+}
+// Binabasa ang RELAY_API_KEY mula sa isang .env file (plain KEY=VALUE o naka-encrypt na {iv,tag,data} + .env.key sa parehong folder).
+function readRelayKeyFromEnvFile(envPath) {
+    try {
+        let raw = fs.readFileSync(envPath, 'utf8');
+        let payload = null;
+        try { payload = JSON.parse(raw); } catch (_e) { payload = null; }
+        if (payload && typeof payload === 'object' && payload.iv && payload.tag && payload.data) {
+            const keyPath = path.join(path.dirname(envPath), '.env.key');
+            const keyHex = fs.readFileSync(keyPath, 'utf8').trim();
+            const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(keyHex, 'hex'), Buffer.from(payload.iv, 'hex'));
+            decipher.setAuthTag(Buffer.from(payload.tag, 'hex'));
+            raw = Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8');
+        }
+        for (const line of raw.split(/\r?\n/)) {
+            const m = line.match(/^\s*(?:export\s+)?RELAY_API_KEY\s*=\s*(.*)$/);
+            if (!m) continue;
+            let val = m[1].trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+            if (isPlausibleRelayCredential(val)) return val.trim();
+        }
+    } catch (_e) { /* walang .env, sira, o walang tamang .env.key */ }
+    return null;
+}
+function findRelayCredentialInUpdateBackups() {
+    const homes = [...new Set([process.env.HOME, (() => { try { return os.homedir(); } catch (_e) { return null; } })()].filter(Boolean))];
+    const myInstallationId = (() => { try { return readIdentitySidecarInstallationIdSafe(); } catch (_e) { return null; } })();
+    for (const home of homes) {
+        let names = [];
+        try { names = fs.readdirSync(home).filter(n => /^omnipos-(data|app)-backup-/.test(n)); } catch (_e) { continue; }
+        names.sort().reverse(); // pinakabago muna
+        for (const name of names) {
+            const dir = path.join(home, name);
+            const rec = readRelayCredentialRecord(path.join(dir, 'database', 'relay-client-credential.json'))
+                || readRelayCredentialRecord(path.join(dir, 'database', 'relay-client-credential.bak.json'));
+            if (rec) {
+                // Huwag gamitin ang credential na nakatali sa IBANG installation (hal. backup mula sa ibang device/install).
+                if (rec.installationId && myInstallationId && rec.installationId !== myInstallationId) continue;
+                return { record: rec, source: `${name}/database` };
+            }
+            const envKey = readRelayKeyFromEnvFile(path.join(dir, '.env'));
+            if (envKey) return { record: { credential: envKey, activatedAt: Date.now() }, source: `${name}/.env` };
+        }
+    }
+    return null;
+}
+function readIdentitySidecarInstallationIdSafe() {
+    // Basahin lang ang installationId mula sa sidecar (hindi gumagawa ng bago); null kung hindi mabasa.
+    try {
+        const j = JSON.parse(fs.readFileSync(path.join(DB_DIR, 'device-identity.json'), 'utf8'));
+        return (j && typeof j.installationId === 'string' && j.installationId) ? j.installationId : null;
+    } catch (_e) { return null; }
+}
+function ensureRelayCredentialPersisted() {
+    try {
+        const main = readRelayCredentialRecord(RELAY_CLIENT_CREDENTIAL_PATH);
+        const bak = readRelayCredentialRecord(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH);
+        if (main) {
+            if (!bak || bak.credential !== main.credential) writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH, main);
+            return;
+        }
+        if (bak) {
+            writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_PATH, bak);
+            console.warn('⚠️ ACTIVATION: nawala ang relay-client-credential.json — ibinalik mula sa mirror (hindi na hihingi ng activation key).');
+            return;
+        }
+        const envKey = process.env.RELAY_API_KEY && isPlausibleRelayCredential(process.env.RELAY_API_KEY) ? process.env.RELAY_API_KEY.trim() : null;
+        if (envKey) {
+            const rec = { credential: envKey, installationId: readIdentitySidecarInstallationIdSafe(), activatedAt: Date.now(), migratedFrom: 'env' };
+            writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_PATH, rec);
+            writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH, rec);
+            console.log('✅ ACTIVATION: inilipat ang RELAY_API_KEY mula .env papunta sa database/ — mananatili na ito kahit mag-update.');
+            return;
+        }
+        const found = findRelayCredentialInUpdateBackups();
+        if (found) {
+            const rec = { ...found.record, recoveredFrom: found.source, recoveredAt: Date.now() };
+            writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_PATH, rec);
+            writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH, rec);
+            console.log(`✅ ACTIVATION: naibalik ang activation ng device mula sa update backup (${found.source}) — hindi na kailangang mag-activate ulit.`);
+        }
+    } catch (err) {
+        console.warn('⚠️ ACTIVATION: hindi na-verify/na-save ang credential persistence:', err && err.message);
+    }
+}
+ensureRelayCredentialPersisted();
+relayCredentialCache = { value: null, at: 0 };
 let RELAY_API_KEY = readRelayClientCredential() || process.env.RELAY_API_KEY || null;
 if (!RELAY_API_KEY) console.warn('⚠️  RELAY client is not activated. Use the local /api/relay/activate endpoint first.');
 // Mga gawain na dating nagsisimula lang kung may key na sa startup (integrity poll, feature sync, pricing, Free Omni AI status).
@@ -3780,6 +3892,7 @@ app.post('/api/printer/usb-queue-print', rateLimit('printer-usb-queue-print', 60
     }
 });
 const APP_VERSION = require('./package.json').version || '0.0.0';
+const SERVER_BOOTED_AT = Date.now();
 const RENDER_DEPLOY_HOOK_URL = process.env.RENDER_DEPLOY_HOOK_URL || null;
 const FILE_DEPLOY_STATS = 'deployStats';
 const DEFAULT_DEPLOY_STATS = { renderAvgMs: 90000, selfUpdateAvgMs: 20000, samples: { render: 0, self: 0 } };
@@ -3942,7 +4055,21 @@ function isSubscriptionOnlyFeature(featureId) {
 // by Demo Mode. BIR Compliance is one of them — RELAY keeps it "not available yet" until OmniPOS has its BIR PTU.
 const BIR_COMPLIANCE_FEATURE_ID = 'bir_compliance';
 // Printed on every receipt/e-receipt while BIR Compliance is not unlocked (system has no BIR PTU yet).
-const NON_BIR_RECEIPT_NOTICE = 'THIS DOCUMENT IS NOT AN OFFICIAL SALES INVOICE/RECEIPT. FOR INTERNAL AND INVENTORY TRACKING PURPOSES ONLY.';
+const NON_BIR_DOCUMENT_TITLE = 'NON-OFFICIAL ORDER SLIP (NON-BIR)';
+const NON_BIR_RECEIPT_NOTICE = 'THIS IS NOT AN OFFICIAL SALES INVOICE OR RECEIPT. FOR INTERNAL AND INVENTORY TRACKING ONLY.';
+const NON_BIR_RECEIPT_FOOTER_NOTICE = 'MERCHANT REMINDER: This order slip is for internal tracking only and does not replace any sales document required by applicable rules.';
+// Official-document wording is allowed ONLY when the module is unlocked AND the store configured its permit details
+// (same rule as the front-end isBirDocumentModeEnabled()). Unlocked-but-unconfigured still prints the non-official slip.
+function isBirDocumentModeActive() {
+    try {
+        if (!isBirComplianceUnlocked()) return false;
+        const b = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir;
+        return !!(b && b.enabled === true && String(b.ptuNo || '').trim());
+    } catch (_e) { return false; }
+}
+function seniorPwdKindLabel(tx) {
+    return String(tx && tx.seniorPwdKind || '').toUpperCase() === 'PWD' ? 'PWD' : 'Senior Citizen';
+}
 const STANDALONE_ONLY_FEATURE_IDS = [BIR_COMPLIANCE_FEATURE_ID];
 function isStandaloneOnlyFeature(featureId) {
     return STANDALONE_ONLY_FEATURE_IDS.includes(featureId);
@@ -4939,6 +5066,7 @@ app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 *
             const tmpCred = RELAY_CLIENT_CREDENTIAL_PATH + '.tmp';
             fs.writeFileSync(tmpCred, JSON.stringify({ credential: activationKey, installationId, activatedAt: Date.now(), expiresAt: chkData.expiresAt || null }, null, 2), { mode: 0o600 });
             fs.renameSync(tmpCred, RELAY_CLIENT_CREDENTIAL_PATH);
+            try { fs.copyFileSync(RELAY_CLIENT_CREDENTIAL_PATH, RELAY_CLIENT_CREDENTIAL_BACKUP_PATH); fs.chmodSync(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH, 0o600); } catch (_mirrorErr) { /* best-effort mirror */ }
             RELAY_API_KEY = activationKey;
             setRelayCredentialCache(activationKey);
             runRelayKeyActivatedHooks();
@@ -4951,6 +5079,7 @@ app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 *
         const temp = RELAY_CLIENT_CREDENTIAL_PATH + '.tmp';
         fs.writeFileSync(temp, JSON.stringify({ credential: data.credential, credentialId: data.credentialId, installationId, activatedAt: Date.now(), expiresAt: data.expiresAt || null }, null, 2), { mode: 0o600 });
         fs.renameSync(temp, RELAY_CLIENT_CREDENTIAL_PATH);
+        try { fs.copyFileSync(RELAY_CLIENT_CREDENTIAL_PATH, RELAY_CLIENT_CREDENTIAL_BACKUP_PATH); fs.chmodSync(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH, 0o600); } catch (_mirrorErr) { /* best-effort mirror */ }
         RELAY_API_KEY = data.credential;
         setRelayCredentialCache(data.credential);
         runRelayKeyActivatedHooks();
@@ -13716,7 +13845,9 @@ function processRequestResolve(req, res) {
 }
 app.get('/api/health', (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.json({ success: true, status: 'ok', timestamp: new Date().toISOString() });
+    // version + bootedAt: ginagamit ng update screen para kumpirmahin LOCAL (walang RELAY round-trip, walang login)
+    // na tumatakbo na ang bagong bersyon pagkatapos mag-restart.
+    res.json({ success: true, status: 'ok', timestamp: new Date().toISOString(), version: APP_VERSION, bootedAt: SERVER_BOOTED_AT });
 });
 
 app.post('/api/transactions', requirePermission('terminal'), async (req, res) => {
@@ -14020,7 +14151,7 @@ async function processTransaction(req, res) {
         // Stored for the audit trail/receipt — transparent about how much is the
         // "20% Senior/PWD discount" versus the "VAT removed due to exemption".
         transaction.seniorPwdDiscountAmount = seniorPwdDiscountAmount;
-        transaction.seniorPwdDiscountRate = seniorPwdRate * 100;
+        transaction.seniorPwdDiscountRate = Math.round(seniorPwdRate * 10000) / 100;
         transaction.seniorPwdVatExemptedAmount = vatExemptedAmount;
     } else if (discountType === 'PROMO') {
         const promoCode = String(transaction.promoCode || '').toUpperCase();
@@ -14566,6 +14697,7 @@ function resolveEmailAccentColor(settings) {
     return '#2563eb';
 }
 function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentRows, itemsHtml, totalsRows, hasBarcode, loyaltyQr, changeAmount }) {
+    const birDoc = isBirDocumentModeActive();
     const accent = resolveEmailAccentColor(settings);
     const storeAddress = settings.storeAddress || '';
     const storeContact = settings.storeContact || '';
@@ -14606,12 +14738,13 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Receipt ${escapeHtml(tx.id)}</title>
+<title>${birDoc ? 'Receipt' : 'Order Slip'} ${escapeHtml(tx.id)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:28px 12px;">
 <tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(15,23,42,0.08);">
+    ${birDoc ? '' : `<tr><td style="padding:18px 32px 12px;text-align:center;border-bottom:1px dashed #94a3b8;"><div style="font-size:18px;font-weight:900;color:#0f172a;line-height:1.2;">${escapeHtml(NON_BIR_DOCUMENT_TITLE)}</div><div style="font-size:11px;font-weight:800;color:#0f172a;line-height:1.4;margin-top:6px;text-transform:uppercase;">${escapeHtml(NON_BIR_RECEIPT_NOTICE)}</div></td></tr>`}
     <tr><td style="background-color:${accent};padding:30px 32px;text-align:center;">
         <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.3px;">${escapeHtml(storeName)}</div>
         ${storeAddress ? `<div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:6px;">${escapeHtml(storeAddress)}</div>` : ''}
@@ -14619,13 +14752,13 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
         ${birHtml}
     </td></tr>
     <tr><td style="padding:22px 32px 0;">
-        <span style="display:inline-block;background-color:#ecfdf5;color:#059669;font-size:11px;font-weight:700;letter-spacing:0.4px;padding:6px 14px;border-radius:999px;">✓ PAYMENT RECEIVED</span>
+        <span style="display:inline-block;background-color:#ecfdf5;color:#059669;font-size:11px;font-weight:700;letter-spacing:0.4px;padding:6px 14px;border-radius:999px;">✓ ${birDoc ? 'PAYMENT RECEIVED' : 'PAYMENT RECORDED'}</span>
     </td></tr>
     <tr><td style="padding:18px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#64748b;">
             <tr><td style="padding:4px 0;">Ref No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.id)}</td></tr>
             ${tx.orderNumber ? `<tr><td style="padding:4px 0;">Order No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.orderNumber)}</td></tr>` : ''}
-            ${tx.birInvoiceNumber ? `<tr><td style="padding:4px 0;">Invoice No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.birInvoiceNumber)}</td></tr>` : ''}
+            ${(birDoc && tx.birInvoiceNumber) ? `<tr><td style="padding:4px 0;">Invoice No.</td><td align="right" style="padding:4px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.birInvoiceNumber)}</td></tr>` : ''}
             <tr><td style="padding:4px 0;">Date</td><td align="right" style="padding:4px 0;">${escapeHtml(dateLabel)}</td></tr>
             <tr><td style="padding:4px 0;">Cashier</td><td align="right" style="padding:4px 0;">${escapeHtml(cashierLabel)}</td></tr>
             ${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `<tr><td style="padding:4px 0;">${r[0]}</td><td align="right" style="padding:4px 0;">${escapeHtml(r[1])}</td></tr>`).join('') : ''}
@@ -14662,10 +14795,10 @@ function buildReceiptEmailHtml({ settings, tx, storeName, cashierLabel, paymentR
     <tr><td style="padding:28px 32px 6px;text-align:center;">
         <div style="font-size:14px;font-style:italic;color:#334155;">${escapeHtml(footerText)}</div>
     </td></tr>
-    ${isBirComplianceUnlocked() ? '' : `<tr><td style="padding:10px 32px 0;text-align:center;"><div style="border-top:1px dashed #94a3b8;padding-top:8px;font-size:11px;font-weight:700;color:#334155;line-height:1.4;">${escapeHtml(NON_BIR_RECEIPT_NOTICE)}</div><div style="font-size:11px;color:#94a3b8;margin-top:4px;letter-spacing:1px;overflow:hidden;white-space:nowrap;">==========================================</div></td></tr>`}
+    ${birDoc ? '' : `<tr><td style="padding:10px 32px 0;text-align:center;"><div style="font-size:11px;color:#94a3b8;letter-spacing:1px;overflow:hidden;white-space:nowrap;">==========================================</div><div style="padding-top:8px;font-size:11px;font-weight:600;color:#334155;line-height:1.4;">${escapeHtml(NON_BIR_RECEIPT_FOOTER_NOTICE)}</div></td></tr>`}
     ${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? `<tr><td style="padding:6px 32px 0;text-align:center;">${fl.map(l => `<div style="font-size:10px;color:#64748b;margin-bottom:2px;">${escapeHtml(l)}</div>`).join('')}</td></tr>` : ''; })()}
     <tr><td style="padding:6px 32px 28px;text-align:center;">
-        <div style="font-size:11px;color:#94a3b8;">This is an electronic receipt. Please keep this for your records.</div>
+        <div style="font-size:11px;color:#94a3b8;">${birDoc ? 'This is an electronic receipt. Please keep this for your records.' : 'This is an electronic order slip. Please keep this for your records.'}</div>
     </td></tr>
 </table>
 <div style="font-size:11px;color:#94a3b8;margin-top:16px;">Sent via ${escapeHtml(storeName)} · Powered by OmniPOS</div>
@@ -14742,8 +14875,17 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const taxAmount = Math.max(0, parseFloat(tx.taxAmount) || 0);
         const grandTotal = parseFloat(tx.total || 0) || 0;
         const changeAmount = Math.max(0, parseFloat(tx.change) || 0);
+        const birDoc = isBirDocumentModeActive();
+        const docName = birDoc ? 'Receipt' : 'Order Slip';
+        const scPwdApplied = tx.discountType === 'SENIOR_PWD' && discountAmount > 0;
+        const scPwdAmount = (Number.isFinite(parseFloat(tx.seniorPwdDiscountAmount)) && parseFloat(tx.seniorPwdDiscountAmount) > 0) ? parseFloat(tx.seniorPwdDiscountAmount) : discountAmount;
+        const scPwdRate = (Number(tx.seniorPwdDiscountRate) > 0 && Number(tx.seniorPwdDiscountRate) <= 100) ? Number(tx.seniorPwdDiscountRate) : 20;
+        const scPwdTextBlock = scPwdApplied
+            ? `*** SC/PWD DISCOUNT APPLIED ***\nDiscount Type: ${seniorPwdKindLabel(tx)} (${scPwdRate}%)\nName: ${tx.seniorPwdName || '-'}\nID No.: ${tx.seniorPwdId || '-'}\nDiscount Amount: -₱${scPwdAmount.toFixed(2)}\n`
+            : '';
+        const nonBirTextHeader = birDoc ? '' : `${NON_BIR_DOCUMENT_TITLE}\n${NON_BIR_RECEIPT_NOTICE}\n${'='.repeat(40)}\n`;
         const birTextBlock = buildBirReceiptLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir).map(l => l.text).join('\n');
-        const textBody = `${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nRef No. : ${tx.id}${tx.orderNumber ? '\nOrder No.: ' + tx.orderNumber : ''}${tx.birInvoiceNumber ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier : ${cashierLabel}${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `\n${r[0]}: ${r[1]}`).join('') : ''}\n\n${itemLines}\n\n${discountAmount > 0 ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${taxAmount > 0 ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}TOTAL: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? '\n\n' + fl.join('\n') : ''; })()}${isBirComplianceUnlocked() ? '' : '\n\n' + NON_BIR_RECEIPT_NOTICE + '\n' + '='.repeat(40)}`;
+        const textBody = `${nonBirTextHeader}${storeName}\n${settings.storeAddress ||''}\n${birTextBlock ? birTextBlock + '\n' : ''}\nRef No. : ${tx.id}${tx.orderNumber ? '\nOrder No.: ' + tx.orderNumber : ''}${(birDoc && tx.birInvoiceNumber) ? '\nInvoice No.: ' + tx.birInvoiceNumber : ''}\nDate: ${tx.timestamp ||''}\nCashier : ${cashierLabel}${(tx.buyer && typeof tx.buyer === 'object') ? [['Buyer', tx.buyer.name], ['Buyer Address', tx.buyer.address], ['Buyer TIN', tx.buyer.tin], ['Business Style', tx.buyer.businessStyle]].filter(r => r[1]).map(r => `\n${r[0]}: ${r[1]}`).join('') : ''}\n\n${itemLines}\n\n${scPwdTextBlock}${(!scPwdApplied && discountAmount > 0) ? `Discount: -₱${discountAmount.toFixed(2)}\n` : ''}${(birDoc && taxAmount > 0) ? `Tax: ₱${taxAmount.toFixed(2)}\n` : ''}${birDoc ? 'TOTAL' : 'TOTAL DUE'}: ₱${grandTotal.toFixed(2)}\nPayment (${paymentLine})\n\n${settings.footerText ||'Thank you for shopping!'}${(() => { const fl = buildBirFooterLines(getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS)).bir); return fl.length ? '\n\n' + fl.join('\n') : ''; })()}${birDoc ? '' : '\n\n' + '='.repeat(40) + '\n' + NON_BIR_RECEIPT_FOOTER_NOTICE}`;
         const grossSubtotal = items.reduce((sum, i) => sum + ((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0)), 0);
         const itemsHtml = items.map(i => {
             const itemDiscount = Math.max(0, parseFloat(i.itemDiscount) || 0);
@@ -14756,18 +14898,24 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
             </tr>`;
         }).join('');
         let totalsRows = `<tr><td style="padding:2px 0;">Subtotal</td><td align="right" style="padding:2px 0;">₱${grossSubtotal.toFixed(2)}</td></tr>`;
-        if (discountAmount > 0) {
+        if (scPwdApplied) {
+            totalsRows += `<tr><td colspan="2" style="padding:10px 0 4px;text-align:center;font-weight:800;color:#0f172a;border-top:1px dashed #cbd5e1;">*** SC/PWD DISCOUNT APPLIED ***</td></tr>`
+                + `<tr><td style="padding:2px 0;">Discount Type:</td><td align="right" style="padding:2px 0;font-weight:700;color:#0f172a;">${escapeHtml(seniorPwdKindLabel(tx))} (${scPwdRate}%)</td></tr>`
+                + `<tr><td style="padding:2px 0;">Name:</td><td align="right" style="padding:2px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.seniorPwdName || '-')}</td></tr>`
+                + `<tr><td style="padding:2px 0;">ID No.:</td><td align="right" style="padding:2px 0;font-weight:700;color:#0f172a;">${escapeHtml(tx.seniorPwdId || '-')}</td></tr>`
+                + `<tr><td style="padding:2px 0;color:#059669;">Discount Amount:</td><td align="right" style="padding:2px 0;color:#059669;">-₱${scPwdAmount.toFixed(2)}</td></tr>`;
+        } else if (discountAmount > 0) {
             totalsRows += `<tr><td style="padding:2px 0;color:#059669;">Discount${tx.discountAuthorizedBy ? ` (${escapeHtml(tx.discountAuthorizedBy)})` : ''}</td><td align="right" style="padding:2px 0;color:#059669;">-₱${discountAmount.toFixed(2)}</td></tr>`;
         }
         const emailTaxBase = parseFloat(tx.subtotalBeforeTax);
         const emailVatableNet = (taxAmount > 0 && Number.isFinite(emailTaxBase)) ? Math.max(0, tx.taxInclusive ? emailTaxBase - taxAmount : emailTaxBase) : null;
-        if (emailVatableNet !== null && !tx.vatExempt) {
+        if (birDoc && emailVatableNet !== null && !tx.vatExempt) {
             totalsRows += `<tr><td style="padding:2px 0;">VATable Sales</td><td align="right" style="padding:2px 0;">₱${emailVatableNet.toFixed(2)}</td></tr>`;
         }
-        if (taxAmount > 0) {
+        if (birDoc && taxAmount > 0) {
             totalsRows += `<tr><td style="padding:2px 0;">Tax${tx.taxRate ? ` (${tx.taxRate}%)` : ''}</td><td align="right" style="padding:2px 0;">₱${taxAmount.toFixed(2)}</td></tr>`;
         }
-        totalsRows += `<tr><td style="padding-top:10px;font-size:17px;font-weight:800;color:#0f172a;">TOTAL</td><td align="right" style="padding-top:10px;font-size:17px;font-weight:800;color:${resolveEmailAccentColor(settings)};">₱${grandTotal.toFixed(2)}</td></tr>`;
+        totalsRows += `<tr><td style="padding-top:10px;font-size:17px;font-weight:800;color:#0f172a;">${birDoc ? 'TOTAL' : 'TOTAL DUE'}</td><td align="right" style="padding-top:10px;font-size:17px;font-weight:800;color:${resolveEmailAccentColor(settings)};">₱${grandTotal.toFixed(2)}</td></tr>`;
         const paymentRows = isSplitPayment
             ? tx.payments.map(p => `${escapeHtml(p.method)} ₱${parseFloat(p.amount).toFixed(2)}`).join(' + ')
             : escapeHtml(paymentLine);
@@ -14819,7 +14967,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         const mailOptions = {
             from: `"${storeName}" <${mailCreds.user}>`,
             to: toEmail,
-            subject: `Receipt ${tx.id} - ${storeName}`,
+            subject: `${docName} ${tx.id} - ${storeName}`,
             text: textBody,
             html: htmlBody
         };
@@ -14843,8 +14991,8 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
         }
         if (attachments.length > 0) mailOptions.attachments = attachments;
         await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
-        logAction(req.authUser ? req.authUser.username :'Unknown', `Emailed receipt ${tx.id} to ${maskEmail(toEmail)}`);
-        res.json({ success: true, message:'Receipt sent.' });
+        logAction(req.authUser ? req.authUser.username :'Unknown', `Emailed ${docName.toLowerCase()} ${tx.id} to ${maskEmail(toEmail)}`);
+        res.json({ success: true, message: `${docName} sent.` });
     } catch (err) {
         const mailErr = describeMailError(err);
         console.error(`Email receipt failed [${mailErr.code}]:`, err.message);
@@ -15845,6 +15993,20 @@ const SELF_UPDATE_PRESERVE = new Set([
    'cf.log','server.log','.start.sh.lock'
 ]);
 const SELF_UPDATE_BACKUP_DIR = '.self-update-backup';
+// SPEED: ang `npm install` ang pinakamabagal na hakbang ng self-update sa phone. Kapag pareho ang dependencies at kumpleto
+// ang node_modules, hindi na ito pinapatakbo. Kasama sa fingerprint ang Node ABI + platform (Node upgrade = buong install).
+function selfUpdateDepsFingerprint(pkgJsonPath) {
+    const p = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+    const sortObj = (o) => Object.fromEntries(Object.keys(o || {}).sort().map(k => [k, o[k]]));
+    return crypto.createHash('sha256').update(JSON.stringify({
+        d: sortObj(p.dependencies), o: sortObj(p.optionalDependencies), ov: p.overrides || null,
+        abi: process.versions.modules, plat: process.platform + '-' + process.arch
+    })).digest('hex');
+}
+function selfUpdateNodeModulesComplete(installRoot, newPkgJsonPath) {
+    const p = JSON.parse(fs.readFileSync(newPkgJsonPath, 'utf8'));
+    return Object.keys(p.dependencies || {}).every(name => fs.existsSync(path.join(installRoot, 'node_modules', name, 'package.json')));
+}
 // Non-blocking replacement for execSync: the event loop (HTTP, status polling
 // ng UI) stays responsive habang tumatakbo ang unzip/npm install, may timeout,
 // at malaki ang maxBuffer para hindi mag-fail ang update dahil lang sa mahabang output.
@@ -16031,7 +16193,7 @@ async function runSelfUpdateFromRelay(req, res) {
         }
         // UPDATE SAFETY: kumuha ng sariwang kopya ng database bago mag-apply (best effort — hindi hinaharang ang update).
         try {
-            const preUpdateBackup = await runLocalDatabaseBackup(14);
+            const preUpdateBackup = await runLocalDatabaseBackup(14, { reuseIfNewerThanMs: 30 * 60 * 1000, skipJsonSnapshot: true });
             if (preUpdateBackup && preUpdateBackup.success === false) console.warn('⚠️ Pre-update DB backup failed:', preUpdateBackup.message);
         } catch (preBackupErr) {
             console.warn('⚠️ Pre-update DB backup error:', preBackupErr && preBackupErr.message);
@@ -16043,20 +16205,28 @@ async function runSelfUpdateFromRelay(req, res) {
             throw new Error(`Hindi magawa ang backup ng kasalukuyang bersyon bago mag-apply ng update — kinansela ang update para sa kaligtasan (walang nabago sa disk). Detalye: ${backupErr.message}`);
         }
         jobAdvanceStep(jobId,'apply','Applying updated files...', 60);
+        // Desisyon BAGO i-overwrite ang package.json ng kasalukuyang install.
+        let canSkipNpmInstall = false;
+        try {
+            canSkipNpmInstall = selfUpdateDepsFingerprint(path.join(installRoot, 'package.json')) === selfUpdateDepsFingerprint(path.join(packageRoot, 'package.json'))
+                && selfUpdateNodeModulesComplete(installRoot, path.join(packageRoot, 'package.json'));
+        } catch (_fpErr) { canSkipNpmInstall = false; }
         const copyStats = { copied: 0, total: countFilesRecursive(packageRoot, SELF_UPDATE_PRESERVE) };
         copyRecursivePreservingWithProgress(packageRoot, installRoot, SELF_UPDATE_PRESERVE, copyStats, jobId);
-        jobAdvanceStep(jobId,'apply','Installing updated dependencies (npm install)...', 80);
+        jobAdvanceStep(jobId,'apply', canSkipNpmInstall ? 'Dependencies unchanged — skipping npm install...' : 'Installing updated dependencies (npm install)...', canSkipNpmInstall ? 92 : 80);
         let npmTick = null;
         try {
-            // Gumagalaw ang progress bar habang naghihintay para hindi magmukhang frozen.
-            let npmPct = 80;
-            npmTick = setInterval(() => {
-                npmPct = Math.min(93, npmPct + 1);
-                jobSetPercent(jobId, npmPct, 'Installing updated dependencies (npm install)...');
-            }, 4000);
-            await execAsync('npm install --omit=dev --no-audit --no-fund', { cwd: installRoot, timeout: 10 * 60 * 1000 });
-            clearInterval(npmTick);
-            npmTick = null;
+            if (!canSkipNpmInstall) {
+                // Gumagalaw ang progress bar habang naghihintay para hindi magmukhang frozen.
+                let npmPct = 80;
+                npmTick = setInterval(() => {
+                    npmPct = Math.min(93, npmPct + 1);
+                    jobSetPercent(jobId, npmPct, 'Installing updated dependencies (npm install)...');
+                }, 4000);
+                await execAsync('npm install --omit=dev --no-audit --no-fund', { cwd: installRoot, timeout: 10 * 60 * 1000 });
+                clearInterval(npmTick);
+                npmTick = null;
+            }
         } catch (npmErr) {
             if (npmTick) { clearInterval(npmTick); npmTick = null; }
             try {

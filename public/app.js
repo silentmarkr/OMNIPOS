@@ -15413,6 +15413,8 @@ function applyReceiptDocumentMode() {
     if (modalTitle) modalTitle.textContent = nonBir ? 'Non-Official Order Slip' : title;
     const emailButton = document.getElementById('receipt-email-btn');
     if (emailButton) emailButton.innerHTML = `<i class="fa-solid fa-envelope"></i> ${nonBir ? 'Email Order Slip' : 'Email Receipt'}`;
+    const scPwdDiscountLabel = document.getElementById('r-scpwd-discount-label');
+    if (scPwdDiscountLabel) scPwdDiscountLabel.textContent = nonBir ? 'Discount Amount' : 'Less: SC/PWD Discount';
     const invoiceLabel = document.getElementById('r-inv-label');
     if (invoiceLabel) invoiceLabel.textContent = nonBir ? 'Order No.:' : 'Invoice No.:';
     const totalLabel = document.getElementById('r-total-label');
@@ -18678,7 +18680,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             if (labelEl) labelEl.textContent = isBirDocumentModeEnabled() ? 'VAT-Exempt Sales' : 'Sales before SC/PWD discount';
         }
         if (scPwdRow) {
-            document.getElementById('r-scpwd-discount-pct').innerText = ` (${seniorPwdReceiptMeta.rate}%)`;
+            document.getElementById('r-scpwd-discount-pct').innerText = isBirDocumentModeEnabled() ? ` (${seniorPwdReceiptMeta.rate}%)` : '';
             document.getElementById('r-scpwd-discount-amount').innerText = `-₱${seniorPwdDiscountAmt.toFixed(2)}`;
             scPwdRow.style.display = 'flex';
         }
@@ -18687,7 +18689,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         if (vatableRow) vatableRow.style.display = 'none';
         if (vatExemptRow) vatExemptRow.style.display = 'none';
         if (scPwdRow) {
-            document.getElementById('r-scpwd-discount-pct').innerText = ` (${seniorPwdReceiptMeta.rate}%)`;
+            document.getElementById('r-scpwd-discount-pct').innerText = isBirDocumentModeEnabled() ? ` (${seniorPwdReceiptMeta.rate}%)` : '';
             const appliedDiscount = Number.isFinite(seniorPwdDiscountAmt) && seniorPwdDiscountAmt > 0
                 ? seniorPwdDiscountAmt : discountAmt;
             document.getElementById('r-scpwd-discount-amount').innerText = `-₱${appliedDiscount.toFixed(2)}`;
@@ -28912,9 +28914,9 @@ function showTermsAndConditions() {
     Swal.fire({
         title: '<i class="fa-solid fa-file-contract"></i> Terms and Conditions',
         html: `
-            <div style="text-align:left; font-size:0.88rem; line-height:1.6; max-height:60vh; overflow-y:auto; padding-right:6px;">
+            <div data-bir-keep style="text-align:left; font-size:0.88rem; line-height:1.6; max-height:60vh; overflow-y:auto; padding-right:6px;">
 
-                <p style="color:#64748b; font-size:0.8rem;">Last updated: ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}</p>
+                <p style="color:#64748b; font-size:0.8rem;">Version 2026.10.21 &middot; Last updated: October 21, 2026</p>
 
                 <p>These Terms and Conditions ("Terms") govern access to and use of the OmniPOS point-of-sale software ("Software", "System") by the business or individual using it ("Customer", "you"). By checking the acceptance box on the sign-in screen, or by otherwise accessing or using the Software, you confirm that you have read, understood, and agree to be bound by these Terms. If you do not agree, do not use the Software.</p>
 
@@ -28945,10 +28947,39 @@ function showTermsAndConditions() {
                 <p><strong>9. Suspension and Termination</strong><br>
                 Access to premium features or activation services may be suspended or terminated if these Terms are violated, including in cases of attempted cloning, tampering, or unauthorized redistribution. Core, locally-hosted functionality of the Software that does not depend on the developer's servers is not affected by such suspension.</p>
 
-                <p><strong>10. Changes to These Terms</strong><br>
+                <p><strong>10. Interim Non-BIR Operation &mdash; Safety Reminders and Responsibilities</strong><br>
+                <em>This Section applies for as long as OmniPOS has not been accredited by, or issued the required permit/authority (such as a Permit to Use) from, the Bureau of Internal Revenue (&ldquo;BIR&rdquo;) and the BIR Compliance module remains locked or unconfigured. It prevails over any other part of these Terms that is inconsistent with it.</em></p>
+
+                <p><strong>10.1 Nature of the Software</strong><br>
+                (a) The Software is a business-management and order-tracking tool. It is <strong>not</strong> BIR-accredited, is <strong>not</strong> registered or approved by the BIR as a point-of-sale, computerized accounting or electronic invoicing system, and does <strong>not</strong> issue Official Receipts, Sales Invoices, Commercial Invoices or any other BIR-registered document.<br>
+                (b) Every slip, printout, image, e-mail or on-screen document produced by the Software during this period is a <strong>&ldquo;Non-Official Order Slip (Non-BIR)&rdquo;</strong> intended for internal and inventory tracking only. It cannot be used to claim input VAT, expense deductions, or any other tax benefit, and it does not replace any sales document required by law.<br>
+                (c) Tax-related figures, labels and layouts shown by the Software (including discount computations) are operational aids only. They are not tax, legal or accounting advice and do not constitute a representation of tax compliance.</p>
+
+                <p><strong>10.2 Responsibilities of the Developer</strong><br>
+                The Developer shall: (a) keep the Non-Official Order Slip title, warning and merchant reminder enabled by default on every output channel (screen, print, Bluetooth/USB/network thermal printer, image and e-mail) while this Section applies; (b) not state, advertise or imply that the Software is BIR-accredited, BIR-registered or authorized to issue official receipts or invoices unless and until the BIR has actually granted the corresponding authority in writing; (c) keep the BIR Compliance module locked, and the official-document wording replaced by non-BIR wording, until that authority exists and the Customer has configured the required permit details; (d) not knowingly issue, sell or activate any feature that would let the Software produce a document presented as official without that authority; and (e) provide reasonable notice through the Software when a change affects the legal status of the documents it produces.</p>
+
+                <p><strong>10.3 Responsibilities of the Vendor / Reseller / Installer</strong><br>
+                Any person or entity that sells, installs, configures, supports or distributes the Software to a Customer (the &ldquo;Vendor&rdquo;) shall: (a) disclose to every Customer, before sale and in writing, that the Software is not BIR-accredited and that its outputs are non-official order slips; (b) not represent, quote, advertise or demonstrate the Software as BIR-compliant, BIR-accredited or capable of issuing official receipts or invoices; (c) not remove, hide, shorten, rename, translate away, or otherwise alter the non-BIR title, warning, merchant reminder or wording replacements, and not edit receipt templates to resemble an official document; (d) not assist the Customer in bypassing or misusing any activation, feature-unlock or compliance control; and (e) remain solely responsible for any statement, promise or warranty it makes to a Customer that is not expressly authorized in writing by the Developer.</p>
+
+                <p><strong>10.4 Responsibilities of the Customer / Merchant</strong><br>
+                The Customer shall: (a) remain solely responsible for registering its business with the BIR and for issuing, keeping and reporting the official, BIR-registered receipts or invoices (for example from its own BIR-authorized manual booklet or BIR-accredited system) for every sale that requires one, <strong>separately</strong> from any order slip produced by the Software; (b) never give an order slip to a buyer as, or in place of, an official receipt or invoice, and never use it to support a tax claim; (c) not modify, cover, crop, delete or disable the non-BIR title, warning or merchant reminder, and not reproduce the slip in a form that could be mistaken for an official document; (d) remain solely responsible for filing and paying all taxes, for the accuracy of tax settings it enters, and for complying with the Tax Code and all BIR issuances; (e) not enable, configure or represent any BIR feature, permit number or document title that the Customer has not actually been authorized by the BIR to use; and (f) keep its own complete and accurate books and records as required by law.</p>
+
+                <p><strong>10.5 Senior Citizen and Person with Disability (SC/PWD) Discounts</strong><br>
+                (a) The Software can record the discount type, name and ID number of a Senior Citizen or PWD and apply the configured discount rate. It does not verify the identity, age, disability status or ID validity of any person. The Customer and its staff must personally check the original, valid ID before granting the discount and must comply with the applicable laws and regulations (including Republic Acts No. 9994 and No. 10754 and their implementing rules).<br>
+                (b) The SC/PWD details printed on an order slip are for internal records only. Whether a separate official document must be issued for that sale, and how the discount must be reported or claimed, is the Customer&rsquo;s sole responsibility.<br>
+                (c) Names and ID numbers are personal information. The Customer is the personal information controller for this data and must collect, use, store, share and delete it in accordance with the Data Privacy Act of 2012 (Republic Act No. 10173), collecting only what is necessary and restricting access to authorized staff.</p>
+
+                <p><strong>10.6 Acknowledgment, Indemnity and Remedies</strong><br>
+                (a) By using the Software, the Customer (and the Vendor, where one is involved) acknowledges that it has read and understood this Section and that the Software does not, by itself, make any business BIR-compliant.<br>
+                (b) To the fullest extent permitted by law, the Customer and the Vendor shall each be responsible for, and shall indemnify and hold harmless the Developer from, any tax assessment, penalty, surcharge, fine, claim or loss arising from their own failure to issue official documents, their misrepresentation of the Software, or their alteration or misuse of the non-BIR safeguards described in this Section.<br>
+                (c) The Developer may suspend premium features or activation services for any breach of this Section, consistent with Section 9.<br>
+                (d) If any part of this Section is held unenforceable, the remainder stays in effect. Nothing in this Section limits any right or obligation that cannot be limited under applicable law.<br>
+                (e) When the Software later becomes BIR-accredited and the BIR Compliance module is unlocked and configured, the Developer will publish an updated version of these Terms, and this Section will apply only to periods and installations to which it still applies.</p>
+
+                <p><strong>11. Changes to These Terms</strong><br>
                 These Terms may be updated from time to time. Continued use of the Software after an update constitutes acceptance of the revised Terms. The current version can always be reviewed from Settings &gt; Terms and Conditions within the Software.</p>
 
-                <p><strong>11. Contact</strong><br>
+                <p><strong>12. Contact</strong><br>
                 For questions about these Terms, please reach out through the support channel provided by your Software vendor/developer.</p>
 
             </div>

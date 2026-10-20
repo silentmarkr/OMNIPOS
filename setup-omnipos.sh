@@ -52,6 +52,62 @@ fi
 # always failed at the end.)
 node_has_sqlite() { command -v node >/dev/null 2>&1 && node -e "require('node:sqlite')" >/dev/null 2>&1; }
 
+# ACTIVATION CARRY-OVER: ang bagong zip ay may sariling .env na WALANG RELAY_API_KEY (hindi ito ipinapadala sa customer).
+# Ang mga install na activated sa lumang paraan (key sa .env) ay nawawalan ng activation kapag napalitan ang .env.
+# Kaya bago matapos ang update, kukunin ang key mula sa LUMANG .env (plain o encrypted gamit ang lumang .env.key) at
+# isusulat sa database/relay-client-credential.json (+ mirror) — ang database/ ay laging naibabalik tuwing update.
+# $1 = folder ng lumang install/backup, $2 = bagong install folder. Hindi kailanman nagpapabagsak ng update (best-effort).
+omni_carry_over_activation() {
+    _co_old="$1"; _co_new="$2"
+    [ -n "$_co_old" ] && [ -d "$_co_new" ] || return 0
+    [ -f "$_co_new/database/relay-client-credential.json" ] && return 0
+    command -v node >/dev/null 2>&1 || return 0
+    node - "$_co_old" "$_co_new" <<'NODE_CARRY_EOF' 2>/dev/null || true
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
+const [oldDir, newDir] = process.argv.slice(2);
+const ok = (v) => typeof v === 'string' && /^[A-Za-z0-9._~+\/=-]{16,512}$/.test(v.trim());
+function fromEnvFile(dir) {
+    try {
+        let raw = fs.readFileSync(path.join(dir, '.env'), 'utf8');
+        let payload = null; try { payload = JSON.parse(raw); } catch (_) {}
+        if (payload && payload.iv && payload.tag && payload.data) {
+            const key = Buffer.from(fs.readFileSync(path.join(dir, '.env.key'), 'utf8').trim(), 'hex');
+            const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'hex'));
+            d.setAuthTag(Buffer.from(payload.tag, 'hex'));
+            raw = Buffer.concat([d.update(Buffer.from(payload.data, 'base64')), d.final()]).toString('utf8');
+        }
+        for (const line of raw.split(/\r?\n/)) {
+            const m = line.match(/^\s*(?:export\s+)?RELAY_API_KEY\s*=\s*(.*)$/);
+            if (!m) continue;
+            let v = m[1].trim();
+            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+            if (ok(v)) return v.trim();
+        }
+    } catch (_) {}
+    return null;
+}
+let rec = null;
+for (const f of ['relay-client-credential.json', 'relay-client-credential.bak.json']) {
+    try { const j = JSON.parse(fs.readFileSync(path.join(oldDir, 'database', f), 'utf8')); if (j && ok(j.credential)) { rec = j; break; } } catch (_) {}
+}
+if (!rec) { const k = fromEnvFile(oldDir); if (k) rec = { credential: k, activatedAt: Date.now(), migratedFrom: 'env' }; }
+if (!rec) process.exit(0);
+try { const id = JSON.parse(fs.readFileSync(path.join(newDir, 'database', 'device-identity.json'), 'utf8')).installationId; if (id && !rec.installationId) rec.installationId = id; } catch (_) {}
+fs.mkdirSync(path.join(newDir, 'database'), { recursive: true });
+for (const f of ['relay-client-credential.json', 'relay-client-credential.bak.json']) {
+    const dest = path.join(newDir, 'database', f), tmp = dest + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rec, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, dest);
+}
+console.log('activation carried over');
+NODE_CARRY_EOF
+    if [ -f "$_co_new/database/relay-client-credential.json" ]; then
+        echo "🔑 Activation kept — hindi na hihingi ng activation key pagkatapos ng update."
+    fi
+    return 0
+}
+
+
 echo "🖥️  Detected platform: $PLATFORM"
 echo ""
 
@@ -409,6 +465,8 @@ if [ -n "$DATA_SRC" ]; then
             }
         fi
     done
+    # Dalhin ang activation key mula sa lumang .env kung wala pa ito sa database/ (tingnan ang omni_carry_over_activation).
+    omni_carry_over_activation "$DATA_SRC" "$STAGE_DIR"
     if [ -d "$DATA_SRC/database" ]; then
         echo "♻️  Your database and existing runtime configuration were kept. A safety copy is in $DATA_SRC."
     fi

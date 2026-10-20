@@ -224,8 +224,34 @@ function buildEscPosReceiptBytes(data, charWidth) {
     };
     const nl = () => bytes.push(0x0a);
 
+    // Word-wrap helper para sa mga paunawa (title/warning/reminder) ayon sa lapad ng papel.
+    const wrapLines = (text, width) => {
+        const out = [];
+        let line = '';
+        String(text || '').split(/\s+/).filter(Boolean).forEach((w) => {
+            if (!line) { line = w; return; }
+            if ((line + ' ' + w).length <= width) line += ' ' + w;
+            else { out.push(line); line = w; }
+        });
+        if (line) out.push(line);
+        return out;
+    };
+    const noticeWidth = Math.max(16, charWidth);
+
     bytes.push(ESC, 0x40); 
     bytes.push(ESC, 0x61, 0x01); 
+    // NON-BIR header (title + warning) — nasa pinakataas, bold. Wala ito kapag official na ang dokumento.
+    if (data.documentTitle) {
+        bytes.push(ESC, 0x45, 0x01);
+        bytes.push(ESC, 0x21, 0x10);
+        wrapLines(data.documentTitle, noticeWidth).forEach((ln) => { pushText(ln); nl(); });
+        bytes.push(ESC, 0x21, 0x00);
+        if (data.documentWarning) {
+            wrapLines(data.documentWarning, noticeWidth).forEach((ln) => { pushText(ln); nl(); });
+        }
+        bytes.push(ESC, 0x45, 0x00);
+        pushText('='.repeat(charWidth)); nl();
+    }
     bytes.push(ESC, 0x21, 0x10); 
     pushText(data.storeName || 'OmniPOS'); nl();
     bytes.push(ESC, 0x21, 0x00); 
@@ -241,11 +267,10 @@ function buildEscPosReceiptBytes(data, charWidth) {
 
     bytes.push(ESC, 0x61, 0x00); 
     pushText('-'.repeat(charWidth)); nl();
-    pushText(`Ref No. : ${data.receiptId || ''}`); nl();
-    if (data.invoiceNo) { pushText(`Invoice No.: ${data.invoiceNo}`); nl(); }
-    pushText(`${data.date || ''} ${data.time || ''}`); nl();
-    pushText(`Cashier : ${data.cashier || ''}`); nl();
+    pushText(padLine(`Ref No.: ${data.receiptId || ''}`, data.date || '', charWidth)); nl();
+    pushText(padLine(`Cashier: ${data.cashier || ''}`, data.time || '', charWidth)); nl();
     if (data.orderNo) { pushText(`Order No.: ${data.orderNo}`); nl(); }
+    if (data.invoiceNo) { pushText(`${data.invoiceLabel || 'Invoice No.:'} ${data.invoiceNo}`); nl(); }
     pushText('-'.repeat(charWidth)); nl();
 
     (data.items || []).forEach((item) => {
@@ -263,11 +288,21 @@ function buildEscPosReceiptBytes(data, charWidth) {
         pushText(' '.repeat(padLeft) + counterText); nl();
         pushText('-'.repeat(charWidth)); nl();
     }
+    // SC/PWD block — lalabas lang kapag may Senior/PWD discount ang transaksyon.
+    if (data.scPwd) {
+        bytes.push(ESC, 0x61, 0x01);
+        bytes.push(ESC, 0x45, 0x01); pushText('*** SC/PWD DISCOUNT APPLIED ***'); nl(); bytes.push(ESC, 0x45, 0x00);
+        bytes.push(ESC, 0x61, 0x00);
+        pushText(padLine('Discount Type:', data.scPwd.kind || '-', charWidth)); nl();
+        pushText(padLine('Name:', data.scPwd.name || '-', charWidth)); nl();
+        pushText(padLine('ID No.:', data.scPwd.id || '-', charWidth)); nl();
+        pushText('-'.repeat(charWidth)); nl();
+    }
     (data.extraRows || []).forEach((row) => { pushText(padLine(row.label, row.amount, charWidth)); nl(); });
     if (data.subtotal) { pushText(padLine('Subtotal', data.subtotal, charWidth)); nl(); }
     if (data.tax) { pushText(padLine(data.taxLabel || 'Tax', data.tax, charWidth)); nl(); }
     bytes.push(ESC, 0x45, 0x01); 
-    pushText(padLine('TOTAL', data.total, charWidth)); nl();
+    pushText(padLine(data.totalLabel || 'TOTAL', data.total, charWidth)); nl();
     bytes.push(ESC, 0x45, 0x00); 
     pushText(padLine(`Payment (${data.method || ''})`, data.paid, charWidth)); nl();
     pushText(padLine('Change', data.change, charWidth)); nl();
@@ -299,22 +334,16 @@ function buildEscPosReceiptBytes(data, charWidth) {
     bytes.push(ESC, 0x61, 0x01); 
     nl();
     if (data.footerText) { pushText(data.footerText); nl(); }
-    // NON-BIR notice (printed while the BIR Compliance module is not unlocked): wrapped to the paper width.
-    if (data.nonBirNotice) {
-        nl();
+    // Signature (SC/PWD lang) + NON-BIR merchant reminder sa dulo (wala kapag official na ang dokumento).
+    if (data.scPwd || data.footerReminder) {
+        bytes.push(ESC, 0x61, 0x00);
         pushText('-'.repeat(charWidth)); nl();
-        const noticeWidth = Math.max(16, charWidth);
-        const noticeWords = String(data.nonBirNotice).split(/\s+/).filter(Boolean);
-        let noticeLine = '';
-        const noticeLines = [];
-        noticeWords.forEach((w) => {
-            if (!noticeLine) { noticeLine = w; return; }
-            if ((noticeLine + ' ' + w).length <= noticeWidth) noticeLine += ' ' + w;
-            else { noticeLines.push(noticeLine); noticeLine = w; }
-        });
-        if (noticeLine) noticeLines.push(noticeLine);
-        noticeLines.forEach((ln) => { pushText(ln); nl(); });
-        pushText('='.repeat(charWidth)); nl();
+        if (data.scPwd) { nl(); pushText('Senior/PWD Signature: ____________'.slice(0, charWidth)); nl(); }
+        if (data.footerReminder) {
+            pushText('='.repeat(charWidth)); nl();
+            bytes.push(ESC, 0x61, 0x01);
+            wrapLines(data.footerReminder, noticeWidth).forEach((ln) => { pushText(ln); nl(); });
+        }
     }
     nl(); nl(); nl();
 
@@ -440,11 +469,30 @@ function collectReceiptDataFromDom(prefix) {
             const row = document.getElementById(`${prefix}-order-row`);
             return row && row.style.display !== 'none' ? getText(`${prefix}-order-no`) : '';
         })(),
-        nonBirNotice: (() => {
-            const box = document.getElementById(`${prefix}-nonbir-notice`);
-            return box && box.style.display !== 'none' && typeof NON_BIR_RECEIPT_NOTICE === 'string' ? NON_BIR_RECEIPT_NOTICE : '';
+        documentTitle: (() => {
+            const box = document.getElementById(`${prefix}-document-mode`);
+            return box && box.style.display !== 'none' ? getText(`${prefix}-document-title`) : '';
         })(),
-        invoiceNo: getText(`${prefix}-inv-no`),
+        documentWarning: (() => {
+            const box = document.getElementById(`${prefix}-document-mode`);
+            const warn = document.getElementById(`${prefix}-document-warning`);
+            return box && box.style.display !== 'none' && warn && warn.style.display !== 'none' ? getText(`${prefix}-document-warning`) : '';
+        })(),
+        footerReminder: (() => {
+            const box = document.getElementById(`${prefix}-nonbir-notice`);
+            return box && box.style.display !== 'none' ? getText(`${prefix}-nonbir-footer-text`) : '';
+        })(),
+        scPwd: (() => {
+            const box = document.getElementById(`${prefix}-scpwd-details`);
+            if (!box || box.style.display === 'none') return null;
+            return { kind: getText(`${prefix}-scpwd-kind`), name: getText(`${prefix}-scpwd-name`), id: getText(`${prefix}-scpwd-id`) };
+        })(),
+        totalLabel: getText(`${prefix}-total-label`) || 'TOTAL',
+        invoiceLabel: getText(`${prefix}-inv-label`) || 'Invoice No.:',
+        invoiceNo: (() => {
+            const row = document.getElementById(`${prefix}-inv-row`);
+            return row && row.style.display === 'none' ? '' : getText(`${prefix}-inv-no`);
+        })(),
         date: getText(`${prefix}-date`),
         time: getText(`${prefix}-time`),
         cashier: getText(`${prefix}-cashier`),

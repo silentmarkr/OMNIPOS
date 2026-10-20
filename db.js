@@ -1244,16 +1244,30 @@ async function snapshotDatabaseTo(destPath) {
     }
 }
 
-function runLocalDatabaseBackup(maxBackupsToKeep = 14) {
-    return runBackupJobExclusive(() => runLocalDatabaseBackupNow(maxBackupsToKeep));
+// options.reuseIfNewerThanMs: kung may .db backup na mas bago pa rito, huwag gumawa ulit (pre-update safety backup).
+// options.skipJsonSnapshot: huwag i-load ang LAHAT ng module sa RAM para sa JSON copy (mabagal sa phone; sapat ang .db copy).
+function runLocalDatabaseBackup(maxBackupsToKeep = 14, options = {}) {
+    return runBackupJobExclusive(() => runLocalDatabaseBackupNow(maxBackupsToKeep, options || {}));
 }
 
-async function runLocalDatabaseBackupNow(maxBackupsToKeep) {
+async function runLocalDatabaseBackupNow(maxBackupsToKeep, options = {}) {
     try {
         if (dbSuspectedCorrupt) {
             throw new Error('Nilaktawan ang backup: may nakitang corruption error sa database habang tumatakbo. Hindi ginalaw ang mga dating backup para hindi mapalitan ng sirang kopya. I-restart ang server para tumakbo ang integrity check at auto-recovery.');
         }
         removeStaleTmpFiles(BACKUP_DIR);
+
+        if (Number(options.reuseIfNewerThanMs) > 0) {
+            const newest = listBackupFiles(BACKUP_DIR, 'omnipos-', '.db').pop();
+            if (newest) {
+                try {
+                    const st = fs.statSync(path.join(BACKUP_DIR, newest));
+                    if (st.size > 0 && (Date.now() - st.mtimeMs) < Number(options.reuseIfNewerThanMs)) {
+                        return { success: true, reused: true, path: path.join(BACKUP_DIR, newest), jsonSnapshotPath: null, jsonSkippedReason: null };
+                    }
+                } catch (_reuseErr) { /* gumawa ng bago */ }
+            }
+        }
 
         const dbBytes = getDatabaseFileBytes();
         const isLargeDb = dbBytes > envMegabytes('BACKUP_LARGE_DB_MB', 256);
@@ -1285,7 +1299,9 @@ async function runLocalDatabaseBackupNow(maxBackupsToKeep) {
         // kapag malaki na ang DB — ang .db copy sa itaas ang backup na gagamitin (manual file swap).
         let jsonSnapshotPath = null;
         let jsonSkippedReason = null;
-        if (dbBytes > envMegabytes('BACKUP_JSON_MAX_DB_MB', 256)) {
+        if (options.skipJsonSnapshot) {
+            jsonSkippedReason = 'Nilaktawan ang JSON snapshot (pre-update safety backup: .db copy lang para mabilis).';
+        } else if (dbBytes > envMegabytes('BACKUP_JSON_MAX_DB_MB', 256)) {
             jsonSkippedReason = `Nilaktawan ang JSON snapshot: ${(dbBytes / 1048576).toFixed(0)} MB ang database (masyadong malaki para sa RAM). Gamitin ang .db backup.`;
             console.log(`ℹ️ ${jsonSkippedReason}`);
         } else {
