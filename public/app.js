@@ -1246,6 +1246,8 @@ let pendingFocusCartQtyCode = null;
 let cartPromoCode ='';
 let cartActivePromo = null;
 let cartSeniorPwdId ='';
+let cartSeniorPwdName ='';
+let cartSeniorPwdKind ='';
 let cartLoyaltyPointsRedeemed = 0;
 let cartLoyaltyCardToken ='';
 let selectedCartCustomer = null;
@@ -13731,6 +13733,8 @@ async function handleHoldSale() {
         cartPromoCode,
         cartActivePromo,
         cartSeniorPwdId,
+        cartSeniorPwdName,
+        cartSeniorPwdKind,
         cartLoyaltyPointsRedeemed: 0,
         cartLoyaltyCardToken: '',
         loyaltyDropped,
@@ -13808,6 +13812,8 @@ function resumeHeldSale(id) {
     cartPromoCode = h.cartPromoCode || '';
     cartActivePromo = h.cartActivePromo || null;
     cartSeniorPwdId = h.cartSeniorPwdId || '';
+    cartSeniorPwdName = h.cartSeniorPwdName || '';
+    cartSeniorPwdKind = h.cartSeniorPwdKind || '';
 
     const loyaltyWasDropped = !!h.loyaltyDropped || h.cartDiscountType === 'LOYALTY';
     if (h.cartDiscountType === 'LOYALTY') cartDiscountType = 'NONE';
@@ -14038,7 +14044,13 @@ function resolveBestCartDiscount() {
     const hasPromo = !!(cartActivePromo && cartPromoCode);
     if (subtotal <= 0 || (!hasSeniorPwd && !hasPromo)) {
         if (subtotal <= 0 && hasSeniorPwd && seniorPwdCheckbox) seniorPwdCheckbox.checked = false;
-        if (subtotal <= 0) { cartSeniorPwdId = ''; cartPromoCode = ''; cartActivePromo = null; }
+        if (subtotal <= 0) {
+            cartSeniorPwdId = '';
+            cartSeniorPwdName = '';
+            cartSeniorPwdKind = '';
+            cartPromoCode = '';
+            cartActivePromo = null;
+        }
         cartDiscountType = 'NONE';
         discountInput.removeAttribute('readonly');
         discountInput.value = 0;
@@ -14176,6 +14188,8 @@ function handleManualDiscountInput() {
     cartPromoCode ='';
     cartActivePromo = null;
     cartSeniorPwdId ='';
+    cartSeniorPwdName ='';
+    cartSeniorPwdKind ='';
     cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
     const checkbox = document.getElementById('cart-senior-pwd-toggle');
     if (checkbox) checkbox.checked = false;
@@ -14205,14 +14219,42 @@ function toggleSeniorPwdDiscount() {
         }
         Swal.fire({
             title:'Senior Citizen / PWD Discount',
-            text: `Enter the ID Number for the receipt (RA 9994 / RA 10754 — ${seniorPwdRatePct}% discount):`,
-            input:'text',
-            inputPlaceholder:'Senior/PWD ID Number',
+            html: `
+                <div style="text-align:left;">
+                    <label for="swal-scpwd-kind" style="display:block;margin:0 0 5px;font-size:.9rem;">Discount type</label>
+                    <select id="swal-scpwd-kind" class="swal2-select" style="width:100%;margin:0 0 12px;">
+                        <option value="SENIOR_CITIZEN">Senior Citizen</option>
+                        <option value="PWD">PWD</option>
+                    </select>
+                    <label for="swal-scpwd-name" style="display:block;margin:0 0 5px;font-size:.9rem;">Name</label>
+                    <input id="swal-scpwd-name" class="swal2-input" maxlength="120" autocomplete="off" placeholder="Full name" style="width:100%;margin:0 0 12px;box-sizing:border-box;">
+                    <label for="swal-scpwd-id" style="display:block;margin:0 0 5px;font-size:.9rem;">ID number</label>
+                    <input id="swal-scpwd-id" class="swal2-input" maxlength="80" autocomplete="off" placeholder="Senior/PWD ID number" style="width:100%;margin:0;box-sizing:border-box;">
+                    <div style="font-size:.78rem;color:#64748b;margin-top:10px;">${seniorPwdRatePct}% discount</div>
+                </div>
+            `,
             showCancelButton: true,
-            confirmButtonText: `Apply ${seniorPwdRatePct}%`
+            confirmButtonText: `Apply ${seniorPwdRatePct}%`,
+            focusConfirm: false,
+            preConfirm: () => {
+                const kind = document.getElementById('swal-scpwd-kind')?.value || '';
+                const name = String(document.getElementById('swal-scpwd-name')?.value || '').trim();
+                const id = String(document.getElementById('swal-scpwd-id')?.value || '').trim();
+                if (!name) {
+                    Swal.showValidationMessage('Enter the Senior Citizen/PWD name.');
+                    return false;
+                }
+                if (!id) {
+                    Swal.showValidationMessage('Enter the Senior Citizen/PWD ID number.');
+                    return false;
+                }
+                return { kind, name, id };
+            }
         }).then(result => {
-            if (result.isConfirmed && result.value && result.value.trim()) {
-                cartSeniorPwdId = result.value.trim();
+            if (result.isConfirmed && result.value && result.value.id) {
+                cartSeniorPwdId = result.value.id;
+                cartSeniorPwdName = result.value.name;
+                cartSeniorPwdKind = result.value.kind;
 
                 cartLoyaltyPointsRedeemed = 0; cartLoyaltyCardToken = '';
                 const loyaltyInput = document.getElementById('cart-loyalty-input');
@@ -14224,6 +14266,8 @@ function toggleSeniorPwdDiscount() {
         });
     } else {
         cartSeniorPwdId ='';
+        cartSeniorPwdName ='';
+        cartSeniorPwdKind ='';
         discountInput.removeAttribute('readonly');
         if (!cartActivePromo) {
             cartDiscountType = 'NONE';
@@ -14443,6 +14487,8 @@ function applyLoyaltyPointsToCart() {
     cartPromoCode ='';
     cartActivePromo = null;
     cartSeniorPwdId ='';
+    cartSeniorPwdName ='';
+    cartSeniorPwdKind ='';
     discountInput.value = discountAmount.toFixed(2);
     discountInput.setAttribute('readonly', true);
     if (input) input.value = pts;
@@ -14456,6 +14502,8 @@ function resetCartDiscountAndCustomerState() {
     cartPromoCode ='';
     cartActivePromo = null;
     cartSeniorPwdId ='';
+    cartSeniorPwdName ='';
+    cartSeniorPwdKind ='';
     cartLoyaltyPointsRedeemed = 0;
     cartLoyaltyCardToken ='';
     selectedCartCustomer = null;
@@ -15031,6 +15079,8 @@ async function submitFinalPaymentTransactionInner() {
         discountType: cartDiscountType,
         promoCode: cartDiscountType ==='PROMO' ? cartPromoCode :'',
         seniorPwdId: cartDiscountType ==='SENIOR_PWD' ? cartSeniorPwdId :'',
+        seniorPwdName: cartDiscountType ==='SENIOR_PWD' ? cartSeniorPwdName :'',
+        seniorPwdKind: cartDiscountType ==='SENIOR_PWD' ? cartSeniorPwdKind :'',
         loyaltyPointsRedeemed: cartDiscountType ==='LOYALTY' ? cartLoyaltyPointsRedeemed : 0,
         loyaltyCardToken: cartDiscountType ==='LOYALTY' ? (cartLoyaltyCardToken || null) : null,
         loyaltyAuthPassword: loyaltyAuthPassword || null,
@@ -15313,18 +15363,25 @@ async function fetchReceiptSettings() {
     }
     applyReceiptBranding();
 }
-// True only when the server has CONFIRMED the BIR Compliance module is locked (unlock status known and BIR not in it).
-// While the status is still unknown nothing is hidden, so a store that bought the module never loses its BIR lines.
-// This protects receipts against a stale offline copy of the store settings that still holds BIR details.
-function isBirKnownLocked() {
-    return Array.isArray(unlockedFeatureIdsCache) && !unlockedFeatureIdsCache.includes('bir_compliance');
+// Official document labels are displayed only when both the module and configured permit details are present.
+// An unlocked module by itself is not proof of legal authority.
+function isBirDocumentModeEnabled() {
+    let b = null;
+    try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
+    return isFeatureUnlockedCached('bir_compliance')
+        && !!b
+        && b.enabled === true
+        && !!String(b.ptuNo || '').trim();
 }
-// NON-BIR notice: while the BIR Compliance module is NOT unlocked (no PTU yet) every receipt must carry the
-// "not an official sales invoice/receipt" statement. Fail-safe: shown unless the server has CONFIRMED the module is
-// unlocked, so an unknown/offline status can never produce a receipt that looks official.
-const NON_BIR_RECEIPT_NOTICE = 'THIS DOCUMENT IS NOT AN OFFICIAL SALES INVOICE/RECEIPT. FOR INTERNAL AND INVENTORY TRACKING PURPOSES ONLY.';
+const NON_BIR_RECEIPT_NOTICE = 'THIS IS NOT AN OFFICIAL SALES INVOICE OR RECEIPT. FOR INTERNAL AND INVENTORY TRACKING ONLY.';
+const NON_BIR_RECEIPT_FOOTER_NOTICE = 'MERCHANT REMINDER: This order slip is for internal tracking only and does not replace any sales document required by applicable rules.';
+function getReceiptDocumentTitle() {
+    if (!isBirDocumentModeEnabled()) return 'NON-OFFICIAL ORDER SLIP (NON-BIR)';
+    const b = storeSettingsCache && storeSettingsCache.bir;
+    return String((b && b.docTitle) || 'SALES INVOICE').trim() || 'SALES INVOICE';
+}
 function isNonBirReceiptNoticeRequired() {
-    return !isFeatureUnlockedCached('bir_compliance');
+    return !isBirDocumentModeEnabled();
 }
 function applyNonBirReceiptNotice() {
     const show = isNonBirReceiptNoticeRequired();
@@ -15332,14 +15389,43 @@ function applyNonBirReceiptNotice() {
         const el = document.getElementById(id);
         if (el) el.style.display = show ? '' : 'none';
     });
+    ['r-nonbir-footer-text', 'rp-nonbir-footer-text'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = NON_BIR_RECEIPT_FOOTER_NOTICE;
+    });
+}
+function applyReceiptDocumentMode() {
+    const nonBir = isNonBirReceiptNoticeRequired();
+    const title = getReceiptDocumentTitle();
+    ['r-document-title', 'rp-document-title'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = title;
+    });
+    ['r-document-warning', 'rp-document-warning'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = nonBir ? '' : 'none';
+    });
+    ['r-document-mode', 'rp-document-mode'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+    });
+    const modalTitle = document.getElementById('receipt-modal-title');
+    if (modalTitle) modalTitle.textContent = nonBir ? 'Non-Official Order Slip' : title;
+    const emailButton = document.getElementById('receipt-email-btn');
+    if (emailButton) emailButton.innerHTML = `<i class="fa-solid fa-envelope"></i> ${nonBir ? 'Email Order Slip' : 'Email Receipt'}`;
+    const invoiceLabel = document.getElementById('r-inv-label');
+    if (invoiceLabel) invoiceLabel.textContent = nonBir ? 'Order No.:' : 'Invoice No.:';
+    const totalLabel = document.getElementById('r-total-label');
+    if (totalLabel) totalLabel.textContent = nonBir ? 'TOTAL DUE' : 'TOTAL';
+    const previewTotalLabel = document.getElementById('rp-total-label');
+    if (previewTotalLabel) previewTotalLabel.textContent = nonBir ? 'TOTAL DUE' : 'TOTAL';
 }
 function getBirReceiptLines() {
-    if (isBirKnownLocked()) return [];
+    if (!isBirDocumentModeEnabled()) return [];
     let b = null;
     try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
     if (!b || b.enabled !== true) return [];
     const lines = [];
-    if (b.docTitle) lines.push({ text: String(b.docTitle), bold: true });
     if (b.businessName) lines.push({ text: String(b.businessName), bold: false });
     if (b.tin) lines.push({ text: `${b.vatStatus === 'NON_VAT' ? 'NON-VAT REG' : 'VAT REG'} TIN: ${b.tin}`, bold: false });
     if (b.min) lines.push({ text: `MIN: ${b.min}`, bold: false });
@@ -15349,7 +15435,7 @@ function getBirReceiptLines() {
 }
 // Nasa ILALIM ng resibo: POS supplier + PTU + validity (BIR). Tugma sa buildBirFooterLines() ng server.
 function getBirFooterLines() {
-    if (isBirKnownLocked()) return [];
+    if (!isBirDocumentModeEnabled()) return [];
     let b = null;
     try { b = (storeSettingsCache && storeSettingsCache.bir) || null; } catch (e) { b = null; }
     if (!b || b.enabled !== true) return [];
@@ -15394,6 +15480,8 @@ function renderBirReceiptBlock(containerId) {
 }
 function applyReceiptBranding() {
     const s = receiptSettingsCache;
+    applyReceiptDocumentMode();
+    applyNonBirReceiptNotice();
     if (!s) return;
     const setTextIfExists = (id, val) => {
         const el = document.getElementById(id);
@@ -18180,16 +18268,34 @@ function generateReceiptImageDataUrl(tx) {
     const items = tx.items || [];
     const itemBaseLines = items.map(i => formatBaseUnitBreakdown(i));
     const baseLineHeight = 14;
+    const birMode = isBirDocumentModeEnabled();
+    const documentTitle = getReceiptDocumentTitle();
     const birLines = getBirReceiptLines();
     const width = 380;
     const lineHeight = 20;
     const headerHeight = 110;
-    const nonBirLines = isNonBirReceiptNoticeRequired() ? wrapReceiptNoticeLines(NON_BIR_RECEIPT_NOTICE, 40) : [];
+    const nonBirHeaderLines = isNonBirReceiptNoticeRequired() ? wrapReceiptNoticeLines(NON_BIR_RECEIPT_NOTICE, 40) : [];
+    const nonBirFooterLines = isNonBirReceiptNoticeRequired() ? wrapReceiptNoticeLines(NON_BIR_RECEIPT_FOOTER_NOTICE, 40) : [];
+    const seniorPwdDiscountAmt = Number(tx.seniorPwdDiscountAmount);
+    const discountAmount = Number(tx.discount) || 0;
+    const seniorPwdApplied = tx.discountType === 'SENIOR_PWD'
+        && discountAmount > 0
+        && (Number.isFinite(seniorPwdDiscountAmt) ? seniorPwdDiscountAmt > 0 : true);
+    const seniorPwdMeta = getSeniorPwdReceiptMeta(tx);
+    const seniorPwdAmountForSlip = Number.isFinite(seniorPwdDiscountAmt) && seniorPwdDiscountAmt > 0
+        ? seniorPwdDiscountAmt : discountAmount;
+    const itemSubtotal = items.reduce((sum, item) => {
+        const itemDiscount = Math.max(0, parseFloat(item.itemDiscount) || 0);
+        return sum + money2((parseFloat(item.price) || 0) * qty3(item.quantity)) - itemDiscount;
+    }, 0);
     const orderNoText = tx.orderNumber ? String(tx.orderNumber) : '';
-    const footerHeight = 130 + (orderNoText ? 14 : 0) + (nonBirLines.length ? (nonBirLines.length * 13 + 40) : 0);
+    const documentModeHeight = 32 + (nonBirHeaderLines.length * 13) + (nonBirHeaderLines.length ? 18 : 0);
+    const footerHeight = 170 + (orderNoText ? 14 : 0) + (nonBirFooterLines.length ? (nonBirFooterLines.length * 13 + 44) : 0);
+    const totalsHeight = 22 * (4 + (seniorPwdApplied ? 5 : (discountAmount > 0 ? 1 : 0))
+        + (birMode && seniorPwdApplied && tx.vatExempt && Number.isFinite(seniorPwdDiscountAmt) ? 1 : 0));
     const qrBlockHeight = qrImgEls.length ? (24 + (qrNoteText ? 18 : 0) + 130) : 0;
-    const height = headerHeight + (birLines.length * 16) + (items.length * lineHeight)
-        + (itemBaseLines.filter(Boolean).length * baseLineHeight) + footerHeight + qrBlockHeight;
+    const height = headerHeight + documentModeHeight + (birLines.length * 16) + (items.length * lineHeight)
+        + (itemBaseLines.filter(Boolean).length * baseLineHeight) + totalsHeight + footerHeight + qrBlockHeight;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -18199,6 +18305,22 @@ function generateReceiptImageDataUrl(tx) {
     ctx.fillStyle ='#111111';
     ctx.textBaseline ='top';
     let y = 16;
+    ctx.textAlign ='center';
+    ctx.font ='bold 16px monospace';
+    wrapReceiptNoticeLines(documentTitle, 36).forEach((ln) => {
+        ctx.fillText(ln, width / 2, y);
+        y += 18;
+    });
+    if (nonBirHeaderLines.length) {
+        ctx.font ='bold 10px monospace';
+        nonBirHeaderLines.forEach((ln) => {
+            ctx.fillText(ln, width / 2, y);
+            y += 13;
+        });
+    }
+    ctx.font ='10px monospace';
+    ctx.fillText('='.repeat(40), width / 2, y);
+    y += 17;
     ctx.font ='bold 16px monospace';
     ctx.textAlign ='center';
     ctx.fillText(storeName, width / 2, y);
@@ -18253,18 +18375,39 @@ function generateReceiptImageDataUrl(tx) {
     ctx.lineTo(width - 14, y + 4);
     ctx.stroke();
     y += 16;
-    ctx.font ='bold 13px monospace';
-    ctx.fillText('TOTAL', 14, y);
-    ctx.textAlign ='right';
-    ctx.fillText(`P${(parseFloat(tx.total) || 0).toFixed(2)}`, width - 14, y);
-    ctx.textAlign ='left';
-    y += 20;
+    const drawCanvasReceiptRow = (label, value, bold = false) => {
+        ctx.font = bold ? 'bold 12px monospace' : '11px monospace';
+        ctx.textAlign ='left';
+        ctx.fillText(String(label || '').slice(0, 36), 14, y);
+        ctx.textAlign ='right';
+        ctx.fillText(String(value || '').slice(0, 28), width - 14, y);
+        ctx.textAlign ='left';
+        y += 18;
+    };
+    drawCanvasReceiptRow('Subtotal', `₱${itemSubtotal.toFixed(2)}`);
+    if (seniorPwdApplied) {
+        ctx.font ='bold 11px monospace';
+        ctx.textAlign ='center';
+        ctx.fillText('*** SC/PWD DISCOUNT APPLIED ***', width / 2, y);
+        ctx.textAlign ='left';
+        y += 18;
+        drawCanvasReceiptRow('Discount Type', `${seniorPwdMeta.kindName} (${seniorPwdMeta.rate}%)`);
+        drawCanvasReceiptRow('Name', seniorPwdMeta.name);
+        drawCanvasReceiptRow('ID No.', seniorPwdMeta.id);
+        if (birMode && tx.vatExempt && Number.isFinite(seniorPwdDiscountAmt)) {
+            const exemptSales = Math.max(0, (parseFloat(tx.subtotalBeforeTax) || 0) + seniorPwdDiscountAmt);
+            drawCanvasReceiptRow('VAT-Exempt Sales', `₱${exemptSales.toFixed(2)}`);
+        }
+        drawCanvasReceiptRow('Discount Amount', `-₱${seniorPwdAmountForSlip.toFixed(2)}`);
+    } else if (discountAmount > 0) {
+        drawCanvasReceiptRow('Discount', `-₱${discountAmount.toFixed(2)}`);
+    }
+    drawCanvasReceiptRow(birMode ? 'TOTAL' : 'TOTAL DUE', `₱${(parseFloat(tx.total) || 0).toFixed(2)}`, true);
     const paymentLine = (tx.payments && Array.isArray(tx.payments) && tx.payments.length > 1)
         ? tx.payments.map(p => `${p.method} P${parseFloat(p.amount).toFixed(2)}`).join(' + ')
         : (tx.method || tx.payment_method ||'CASH');
-    ctx.font ='11px monospace';
-    ctx.fillText(`Payment: ${paymentLine}`, 14, y);
-    y += 24;
+    drawCanvasReceiptRow(`Payment (${paymentLine})`, `₱${(parseFloat(tx.received) || 0).toFixed(2)}`);
+    drawCanvasReceiptRow('Change', `₱${(parseFloat(tx.change) || 0).toFixed(2)}`);
     if (qrImgEls.length) {
         ctx.strokeStyle ='#cccccc';
         ctx.beginPath();
@@ -18292,7 +18435,7 @@ function generateReceiptImageDataUrl(tx) {
     ctx.font ='italic 11px monospace';
     ctx.fillText(footerText, width / 2, y);
     y += 22;
-    if (nonBirLines.length) {
+    if (nonBirFooterLines.length) {
         ctx.strokeStyle ='#999999';
         ctx.setLineDash([2, 3]);
         ctx.beginPath();
@@ -18302,12 +18445,29 @@ function generateReceiptImageDataUrl(tx) {
         ctx.setLineDash([]);
         y += 10;
         ctx.font ='bold 10px monospace';
-        nonBirLines.forEach((ln) => { ctx.fillText(ln, width / 2, y); y += 13; });
+        nonBirFooterLines.forEach((ln) => { ctx.fillText(ln, width / 2, y); y += 13; });
         y += 4;
         ctx.font ='10px monospace';
         ctx.fillText('='.repeat(40), width / 2, y);
     }
     return canvas.toDataURL('image/png');
+}
+function getSeniorPwdReceiptMeta(tx) {
+    const kindCode = String((tx && tx.seniorPwdKind) || '').toUpperCase();
+    const kindName = kindCode === 'PWD' ? 'PWD'
+        : kindCode === 'SENIOR_CITIZEN' ? 'Senior Citizen'
+        : 'Senior Citizen / PWD';
+    const configuredRate = storeSettingsCache && Number(storeSettingsCache.seniorPwdDiscountRate);
+    const savedRate = Number(tx && tx.seniorPwdDiscountRate);
+    const rate = Number.isFinite(savedRate) && savedRate > 0 && savedRate <= 100
+        ? savedRate
+        : (Number.isFinite(configuredRate) && configuredRate > 0 && configuredRate <= 100 ? configuredRate : 20);
+    return {
+        kindName,
+        name: String((tx && tx.seniorPwdName) || '').trim() || '—',
+        id: String((tx && tx.seniorPwdId) || '').trim() || '—',
+        rate
+    };
 }
 // Word-wrap a notice into lines of at most maxChars characters (used by the canvas receipt image).
 function wrapReceiptNoticeLines(text, maxChars) {
@@ -18351,7 +18511,8 @@ async function emailCurrentReceipt() {
         });
         const output = await res.json();
         if (output.success) {
-            Swal.fire('Sent!', `Receipt sent to ${toEmail}`,'success');
+            const documentName = isBirDocumentModeEnabled() ? 'Receipt' : 'Order slip';
+            Swal.fire('Sent!', `${documentName} sent to ${toEmail}`,'success');
             if (emailInput) emailInput.value ='';
         } else {
             Swal.fire('Failed', output.message ||'Could not send the receipt.','error');
@@ -18369,8 +18530,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     }
     applyReceiptBranding();
     currentReceiptTransaction = tx;
-    const modalTitleElReset = document.querySelector('#receipt-modal .modal-header h3');
-    if (modalTitleElReset) modalTitleElReset.innerText ='Receipt Invoice';
+    applyReceiptDocumentMode();
     document.getElementById('r-id').innerText = tx.id;
     {
         // Order No. (ORD-000001...) is assigned by the server when the sale is saved; a sale that was rung up offline
@@ -18386,12 +18546,13 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     {
         const invNoEl = document.getElementById('r-inv-no');
         const invRowEl = document.getElementById('r-inv-row');
-        const invNo = tx.birInvoiceNumber ? String(tx.birInvoiceNumber) : '';
+        const birDocumentMode = isBirDocumentModeEnabled();
+        const invNo = birDocumentMode && tx.birInvoiceNumber ? String(tx.birInvoiceNumber) : '';
         if (invNoEl) invNoEl.innerText = invNo;
         if (invRowEl) invRowEl.style.display = invNo ? '' : 'none';
         // Receipt issued while offline: the official BIR invoice number only exists after the sale syncs.
         let offlineNoticeEl = document.getElementById('r-offline-notice');
-        const showOfflineNotice = !!(tx.offlineQueued && !invNo && isFeatureUnlockedCached('bir_compliance'));
+        const showOfflineNotice = !!(tx.offlineQueued && !invNo && birDocumentMode);
         if (showOfflineNotice && invRowEl && invRowEl.parentNode) {
             if (!offlineNoticeEl) {
                 offlineNoticeEl = document.createElement('div');
@@ -18481,22 +18642,55 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     const discountAmt = parseFloat(tx.discount) || 0;
 
     const seniorPwdDiscountAmt = parseFloat(tx.seniorPwdDiscountAmount);
-    const isSeniorPwdBreakdown = tx.discountType === 'SENIOR_PWD' && !!tx.vatExempt && Number.isFinite(seniorPwdDiscountAmt);
+    const isSeniorPwdBreakdown = tx.discountType === 'SENIOR_PWD'
+        && !!tx.vatExempt
+        && Number.isFinite(seniorPwdDiscountAmt)
+        && seniorPwdDiscountAmt > 0;
+    const seniorPwdDiscountApplied = tx.discountType === 'SENIOR_PWD'
+        && discountAmt > 0
+        && (Number.isFinite(seniorPwdDiscountAmt) ? seniorPwdDiscountAmt > 0 : true);
+    const seniorPwdReceiptMeta = getSeniorPwdReceiptMeta(tx);
+    const scPwdDetailsEl = document.getElementById('r-scpwd-details');
+    if (scPwdDetailsEl) {
+        const detailRows = {
+            'r-scpwd-kind': `${seniorPwdReceiptMeta.kindName} (${seniorPwdReceiptMeta.rate}%)`,
+            'r-scpwd-name': seniorPwdReceiptMeta.name,
+            'r-scpwd-id': seniorPwdReceiptMeta.id
+        };
+        Object.entries(detailRows).forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        });
+        scPwdDetailsEl.style.display = seniorPwdDiscountApplied ? 'block' : 'none';
+    }
     if (isSeniorPwdBreakdown) {
         if (discountRow) discountRow.style.display = 'none';
 
         const vatExemptSales = Math.max(0, (parseFloat(tx.subtotalBeforeTax) || 0) + seniorPwdDiscountAmt);
         if (vatableRow) {
             document.getElementById('r-vatable-amount').innerText = `₱0.00`;
-            vatableRow.style.display = 'flex';
+            vatableRow.style.display = isBirDocumentModeEnabled() ? 'flex' : 'none';
         }
         if (vatExemptRow) {
             document.getElementById('r-vatexempt-amount').innerText = `₱${vatExemptSales.toFixed(2)}`;
-            vatExemptRow.style.display = 'flex';
+            vatExemptRow.style.display = isBirDocumentModeEnabled() ? 'flex' : 'none';
+            const labelEl = vatExemptRow.querySelector('span:first-child');
+            if (labelEl) labelEl.textContent = isBirDocumentModeEnabled() ? 'VAT-Exempt Sales' : 'Sales before SC/PWD discount';
         }
         if (scPwdRow) {
-            document.getElementById('r-scpwd-discount-pct').innerText = tx.seniorPwdId ? ` (#${tx.seniorPwdId})` : '';
+            document.getElementById('r-scpwd-discount-pct').innerText = ` (${seniorPwdReceiptMeta.rate}%)`;
             document.getElementById('r-scpwd-discount-amount').innerText = `-₱${seniorPwdDiscountAmt.toFixed(2)}`;
+            scPwdRow.style.display = 'flex';
+        }
+    } else if (seniorPwdDiscountApplied) {
+        if (discountRow) discountRow.style.display = 'none';
+        if (vatableRow) vatableRow.style.display = 'none';
+        if (vatExemptRow) vatExemptRow.style.display = 'none';
+        if (scPwdRow) {
+            document.getElementById('r-scpwd-discount-pct').innerText = ` (${seniorPwdReceiptMeta.rate}%)`;
+            const appliedDiscount = Number.isFinite(seniorPwdDiscountAmt) && seniorPwdDiscountAmt > 0
+                ? seniorPwdDiscountAmt : discountAmt;
+            document.getElementById('r-scpwd-discount-amount').innerText = `-₱${appliedDiscount.toFixed(2)}`;
             scPwdRow.style.display = 'flex';
         }
     } else {
@@ -18506,7 +18700,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
         if (discountRow) {
             if (discountAmt > 0) {
                 let label ='Manual';
-                if (tx.discountType ==='SENIOR_PWD') label = `Senior/PWD${tx.seniorPwdId ?' #' + tx.seniorPwdId :''}${tx.vatExempt ?' (VAT-Exempt)' :''}`;
+                if (tx.discountType ==='SENIOR_PWD') label = 'Senior/PWD';
                 else if (tx.discountType ==='PROMO') label = `Promo: ${tx.promoCode ||''}`;
                 document.getElementById('r-discount-type').innerText = label;
                 document.getElementById('r-discount-amount').innerText = `-₱${discountAmt.toFixed(2)}`;
@@ -18521,7 +18715,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     // BIR-style: ipakita ang VATable Sales (base na pinagbasehan ng VAT) bago ang VAT amount sa regular na benta.
     const vatableNetRow = document.getElementById('r-vatable-net-row');
     if (vatableNetRow) {
-        if (taxAmt > 0 && !isSeniorPwdBreakdown) {
+        if (isBirDocumentModeEnabled() && taxAmt > 0 && !isSeniorPwdBreakdown) {
             const taxBase = parseFloat(tx.subtotalBeforeTax);
             const vatableNet = Number.isFinite(taxBase) ? Math.max(0, tx.taxInclusive ? taxBase - taxAmt : taxBase) : 0;
             document.getElementById('r-vatable-net-amount').innerText = `₱${vatableNet.toFixed(2)}`;
@@ -18530,7 +18724,7 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
             vatableNetRow.style.display = 'none';
         }
     }
-    if (taxRow && taxAmt > 0) {
+    if (taxRow && taxAmt > 0 && isBirDocumentModeEnabled()) {
         const taxRatePart = Number.isFinite(tx.taxRate) && tx.taxRate > 0 ? ` (${tx.taxRate}%)` : '';
         document.getElementById('r-tax-label').innerText = `VAT${taxRatePart}`;
         document.getElementById('r-tax-amount').innerText = `₱${taxAmt.toFixed(2)}`;
@@ -18540,13 +18734,13 @@ async function renderInvoiceReceipt(tx, isHistory = false) {
     }
     // BIR: "Total amount includes VAT" + buyer details (o blangkong linya na susulatan kung wala) + SC/PWD signature.
     const vatNoteRow = document.getElementById('r-vat-note-row');
-    if (vatNoteRow) vatNoteRow.style.display = (taxAmt > 0 || (tx.taxInclusive && Number(tx.taxRate) > 0)) ? 'flex' : 'none';
+    if (vatNoteRow) vatNoteRow.style.display = isBirDocumentModeEnabled() && (taxAmt > 0 || (tx.taxInclusive && Number(tx.taxRate) > 0)) ? 'flex' : 'none';
     const scPwdSigRow = document.getElementById('r-scpwd-signature-row');
-    if (scPwdSigRow) scPwdSigRow.style.display = (tx.discountType === 'SENIOR_PWD') ? 'block' : 'none';
+    if (scPwdSigRow) scPwdSigRow.style.display = seniorPwdDiscountApplied ? 'block' : 'none';
     const buyerBlock = document.getElementById('r-buyer-block');
     if (buyerBlock) {
         const buyer = (tx.buyer && typeof tx.buyer === 'object') ? tx.buyer : null;
-        const birOn = !isBirKnownLocked() && !!(storeSettingsCache && storeSettingsCache.bir && storeSettingsCache.bir.enabled === true);
+        const birOn = isBirDocumentModeEnabled();
         const blank = '______________________';
         const setBuyer = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v || blank; };
         if (buyer || birOn) {

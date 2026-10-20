@@ -93,15 +93,25 @@ if [ "$PLATFORM" = "termux" ]; then
     export UCF_FORCE_CONFFNEW=0
     export UCF_FORCE_CONFFMISS=1
 
-    # Fix: prevents the setup from stalling on an interactive
-    # "Do you want to continue? [Y/n]" prompt (e.g. a repo
-    # origin/label change or a config-file conflict) that `yes |`
-    # alone does not answer. Forces apt/dpkg to run fully
-    # non-interactively.
-    APT_NONINTERACTIVE_OPTS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Acquire::AllowReleaseInfoChange::Origin=true -o Acquire::AllowReleaseInfoChange::Label=true -o Acquire::AllowReleaseInfoChange::Suite=true -o Acquire::AllowReleaseInfoChange::Version=true -o Acquire::AllowReleaseInfoChange::Codename=true"
-    yes | pkg update -y $APT_NONINTERACTIVE_OPTS
-    yes | pkg upgrade -y $APT_NONINTERACTIVE_OPTS
-    yes | pkg install nodejs unzip curl termux-api util-linux -y $APT_NONINTERACTIVE_OPTS
+    # Only refresh/install Termux packages when a required command or Node's built-in SQLite
+    # support is missing. A routine OmniPOS app update should not upgrade the entire phone.
+    # The server requires node:sqlite (Node 22.13+); merely having a `node` command is not enough.
+    TERMUX_TOOLS_OK=1
+    for _tool in node unzip curl termux-notification termux-wake-lock timeout; do
+        command -v "$_tool" >/dev/null 2>&1 || TERMUX_TOOLS_OK=0
+    done
+    if [ "$TERMUX_TOOLS_OK" = "1" ] && node_has_sqlite; then
+        echo "   ✅ Required Termux tools and Node SQLite are ready — skipping package updates."
+    else
+        echo "   Installing or repairing only the required Termux tools (no full system upgrade)..."
+        APT_NONINTERACTIVE_OPTS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Acquire::AllowReleaseInfoChange::Origin=true -o Acquire::AllowReleaseInfoChange::Label=true -o Acquire::AllowReleaseInfoChange::Suite=true -o Acquire::AllowReleaseInfoChange::Version=true -o Acquire::AllowReleaseInfoChange::Codename=true"
+        yes | pkg update -y $APT_NONINTERACTIVE_OPTS
+        yes | pkg install nodejs unzip curl termux-api util-linux -y $APT_NONINTERACTIVE_OPTS
+        if ! node_has_sqlite; then
+            echo "❌ The installed Node.js does not provide node:sqlite (Node 22.13+ is required). Update the Termux Node.js package, then run setup again."
+            exit 1
+        fi
+    fi
 
 elif [ "$PLATFORM" = "macos" ]; then
 
@@ -382,7 +392,26 @@ if [ -n "$DATA_SRC" ] && [ -d "$DATA_SRC/database" ]; then
     rm -rf "$STAGE_DIR/database"
     cp -a "$DATA_SRC/database" "$STAGE_DIR/database"
     if [ -e "$DATA_SRC/.omnipos-device-seed" ]; then cp -a "$DATA_SRC/.omnipos-device-seed" "$STAGE_DIR/.omnipos-device-seed"; fi
-    echo "♻️  Your database was kept. (A safety copy is in $DATA_SRC — the old .env is there too; the new .env comes from the zip.)"
+    if [ -f "$DATA_SRC/database/relay-client-credential.json" ] && {
+        [ ! -f "$STAGE_DIR/database/relay-client-credential.json" ] ||
+        ! cmp -s "$DATA_SRC/database/relay-client-credential.json" "$STAGE_DIR/database/relay-client-credential.json";
+    }; then
+        echo "❌ Relay activation credential did not survive the staged update. The existing installation was not changed."
+        exit 1
+    fi
+fi
+if [ -n "$DATA_SRC" ]; then
+    for _config_file in .env .env.key; do
+        if [ -f "$DATA_SRC/$_config_file" ] && [ ! -e "$STAGE_DIR/$_config_file" ]; then
+            cp -a "$DATA_SRC/$_config_file" "$STAGE_DIR/$_config_file" || {
+                echo "❌ Could not preserve existing configuration file $_config_file. The existing installation was not changed."
+                exit 1
+            }
+        fi
+    done
+    if [ -d "$DATA_SRC/database" ]; then
+        echo "♻️  Your database and existing runtime configuration were kept. A safety copy is in $DATA_SRC."
+    fi
 fi
 
 # Safety net: remove any stray .start.sh.lock that may have shipped inside the zip.

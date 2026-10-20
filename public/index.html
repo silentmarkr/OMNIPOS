@@ -4036,11 +4036,15 @@
     <div id="receipt-modal" class="modal-overlay" style="display:none;">
         <div class="modal-card receipt-modal-view">
             <div class="modal-header no-print">
-                <h3>Receipt Invoice</h3>
+                <h3 id="receipt-modal-title">Non-Official Order Slip</h3>
                 <button class="fa-solid close-modal-btn" onclick="closeModal('receipt-modal')">&times;</button>
             </div>
             <div class="modal-body">
                 <div id="printable-receipt-area" class="receipt-paper-layout">
+                    <div id="r-document-mode" class="receipt-document-mode">
+                        <div id="r-document-title" class="receipt-document-title">NON-OFFICIAL ORDER SLIP (NON-BIR)</div>
+                        <div id="r-document-warning" class="receipt-document-warning">THIS IS NOT AN OFFICIAL SALES INVOICE OR RECEIPT. FOR INTERNAL AND INVENTORY TRACKING ONLY.</div>
+                    </div>
                     <img id="r-header-image" class="receipt-header-image" src="" alt="" style="display:none;">
                     <h2 class="receipt-store-title" id="r-store-title">OmniPOS</h2>
                     <p class="receipt-store-sub" id="r-store-address">Your Store Address Here</p>
@@ -4060,7 +4064,7 @@
                         <div></div>
                     </div>
                     <div class="receipt-meta-grid" id="r-inv-row" style="display:none;">
-                        <div>Invoice No.: <span id="r-inv-no"></span></div>
+                        <div><span id="r-inv-label">Invoice No.:</span> <span id="r-inv-no"></span></div>
                         <div></div>
                     </div>
                     <div class="receipt-meta-grid" id="r-customer-row" style="display:none;">
@@ -4081,6 +4085,12 @@
                         <div class="r-item-counter-row"><span><span id="r-item-counter-qty">0</span> Item(s)</span><span id="r-item-counter-subtotal">₱0.00</span></div>
                     </div>
                     <hr class="dashed-divider">
+                    <div id="r-scpwd-details" class="receipt-scpwd-details" style="display:none;">
+                        <div class="receipt-scpwd-title">*** SC/PWD DISCOUNT APPLIED ***</div>
+                        <div class="receipt-scpwd-row"><span>Discount Type:</span><span id="r-scpwd-kind">—</span></div>
+                        <div class="receipt-scpwd-row"><span>Name:</span><span id="r-scpwd-name">—</span></div>
+                        <div class="receipt-scpwd-row"><span>ID No.:</span><span id="r-scpwd-id">—</span></div>
+                    </div>
                     <div class="receipt-totals-block">
                         <div class="r-total-row" id="r-vatable-row" style="display:none;"><span>VATable Sales</span><span id="r-vatable-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-vatexempt-row" style="display:none;"><span>VAT-Exempt Sales</span><span id="r-vatexempt-amount">₱0.00</span></div>
@@ -4088,7 +4098,7 @@
                         <div class="r-total-row" id="r-scpwd-discount-row" style="display:none;"><span>Less: SC/PWD Discount<span id="r-scpwd-discount-pct"></span></span><span id="r-scpwd-discount-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-vatable-net-row" style="display:none;"><span>VATable Sales</span><span id="r-vatable-net-amount">₱0.00</span></div>
                         <div class="r-total-row" id="r-tax-row" style="display:none;"><span id="r-tax-label">Tax</span><span id="r-tax-amount">₱0.00</span></div>
-                        <div class="r-total-row font-bold"><span>TOTAL</span><span id="r-total">₱0.00</span></div>
+                        <div class="r-total-row font-bold"><span id="r-total-label">TOTAL DUE</span><span id="r-total">₱0.00</span></div>
                         <div class="r-total-row" id="r-vat-note-row" style="display:none;font-size:.8em;"><span>Total amount includes VAT</span><span></span></div>
                         <div class="r-total-row"><span>Payment (<span id="r-method">CASH</span>)</span><span id="r-paid">₱0.00</span></div>
                         <div class="r-total-row" id="r-payref-row" style="display:none;"><span>Ref. No.</span><span id="r-payref"></span></div>
@@ -4112,13 +4122,12 @@
                     <p class="receipt-footer-msg" id="r-footer-msg">Thank you for shopping!</p>
                     <div id="r-nonbir-notice" class="receipt-nonbir-notice" style="margin-top:10px;">
                         <hr class="dashed-divider">
-                        <div style="text-align:center;font-size:.78em;line-height:1.4;text-transform:uppercase;padding:2px 0;">THIS DOCUMENT IS NOT AN OFFICIAL SALES INVOICE/RECEIPT. FOR INTERNAL AND INVENTORY TRACKING PURPOSES ONLY.</div>
-                        <div style="overflow:hidden;white-space:nowrap;text-align:center;letter-spacing:0;font-size:.8em;line-height:1.2;margin-top:4px;" aria-hidden="true">==========================================</div>
+                        <div id="r-nonbir-footer-text" class="receipt-nonbir-footer-text">MERCHANT REMINDER: This order slip is for internal tracking only and does not replace any sales document required by applicable rules.</div>
                     </div>
                 </div>
                 <div class="email-receipt-row no-print" style="display:flex;gap:8px;margin:10px 0;">
                     <input type="email" id="r-email-input" placeholder="customer@email.com" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;" autocomplete="off">
-                    <button id="receipt-email-btn" class="btn-print-receipt" style="background:#16a34a;" onclick="emailCurrentReceipt()"><i class="fa-solid fa-envelope"></i> Email Receipt</button>
+                    <button id="receipt-email-btn" class="btn-print-receipt" style="background:#16a34a;" onclick="emailCurrentReceipt()"><i class="fa-solid fa-envelope"></i> Email Order Slip</button>
                 </div>
                 <div class="modal-footer-controls-row no-print">
                     <button id="receipt-print-btn" class="btn-print-receipt" onclick="printCurrentReceipt()"><i class="fa-solid fa-print"></i> Print</button>
@@ -4140,6 +4149,10 @@
             </div>
             <div class="modal-body">
                 <div class="receipt-paper-layout">
+                    <div id="rp-document-mode" class="receipt-document-mode">
+                        <div id="rp-document-title" class="receipt-document-title">NON-OFFICIAL ORDER SLIP (NON-BIR)</div>
+                        <div id="rp-document-warning" class="receipt-document-warning">THIS IS NOT AN OFFICIAL SALES INVOICE OR RECEIPT. FOR INTERNAL AND INVENTORY TRACKING ONLY.</div>
+                    </div>
                     <img id="rp-header-image" class="receipt-header-image" src="" alt="" style="display:none;">
                     <h2 class="receipt-store-title" id="rp-store-title">OmniPOS</h2>
                     <p class="receipt-store-sub" id="rp-store-address">Your Store Address Here</p>
@@ -4163,7 +4176,7 @@
                     </div>
                     <hr class="dashed-divider">
                     <div class="receipt-totals-block">
-                        <div class="r-total-row font-bold"><span>TOTAL</span><span id="rp-total">₱0.00</span></div>
+                        <div class="r-total-row font-bold"><span id="rp-total-label">TOTAL DUE</span><span id="rp-total">₱0.00</span></div>
                         <div class="r-total-row"><span>Payment (<span id="rp-method">—</span>)</span><span id="rp-paid">₱0.00</span></div>
                         <div class="r-total-row"><span>Change</span><span id="rp-change">₱0.00</span></div>
                     </div>
@@ -4173,8 +4186,7 @@
                     <p class="receipt-footer-msg" id="rp-footer-msg">Thank you for shopping!</p>
                     <div id="rp-nonbir-notice" class="receipt-nonbir-notice" style="margin-top:10px;">
                         <hr class="dashed-divider">
-                        <div style="text-align:center;font-size:.78em;line-height:1.4;text-transform:uppercase;padding:2px 0;">THIS DOCUMENT IS NOT AN OFFICIAL SALES INVOICE/RECEIPT. FOR INTERNAL AND INVENTORY TRACKING PURPOSES ONLY.</div>
-                        <div style="overflow:hidden;white-space:nowrap;text-align:center;letter-spacing:0;font-size:.8em;line-height:1.2;margin-top:4px;" aria-hidden="true">==========================================</div>
+                        <div id="rp-nonbir-footer-text" class="receipt-nonbir-footer-text">MERCHANT REMINDER: This order slip is for internal tracking only and does not replace any sales document required by applicable rules.</div>
                     </div>
                 </div>
                 <div class="modal-footer-controls-row no-print">

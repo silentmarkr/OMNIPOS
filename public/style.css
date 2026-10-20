@@ -6074,6 +6074,57 @@ body.dark-mode .connectivity-mode-pill[data-mode="connecting"] {
 }
 .receipt-store-title { font-size: 1.4rem; font-weight: 800; text-align: center; margin: 0 0 4px; letter-spacing: 0.5px; }
 .receipt-store-sub { font-size: 0.8rem; text-align: center; color: #475569; margin: var(--receipt-subline-gap, 2px) 0; }
+.receipt-document-mode {
+    text-align: center;
+    border-bottom: 1px dashed #64748b;
+    padding: 2px 1px 8px;
+    margin: 0 auto 8px;
+}
+.receipt-document-title {
+    font-size: 1.02rem;
+    line-height: 1.12;
+    font-weight: 900;
+    letter-spacing: .2px;
+    margin: 0 0 5px;
+}
+.receipt-document-warning {
+    font-size: .68rem;
+    line-height: 1.25;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin: 0;
+}
+.receipt-nonbir-footer-text {
+    text-align: center;
+    font-size: .72rem;
+    line-height: 1.35;
+    font-weight: 600;
+    padding: 2px 1px;
+}
+.receipt-scpwd-details {
+    border-top: 1px dashed #64748b;
+    border-bottom: 1px dashed #64748b;
+    padding: 6px 0;
+    margin: 6px 0;
+    font-size: .78rem;
+    line-height: 1.35;
+}
+.receipt-scpwd-title {
+    text-align: center;
+    font-size: .82rem;
+    font-weight: 900;
+    margin: 0 0 4px;
+}
+.receipt-scpwd-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+.receipt-scpwd-row > span:last-child {
+    text-align: right;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
 .receipt-paper-layout.modern-template-active-paper,
 #printable-receipt-area.modern-template-active-paper {
     box-sizing: border-box;

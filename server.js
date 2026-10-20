@@ -13984,6 +13984,13 @@ async function processTransaction(req, res) {
     let seniorPwdVatExempt = false;
     const discountType = transaction.discountType || 'NONE';
     if (discountType === 'SENIOR_PWD') {
+        const seniorPwdKindInput = String(transaction.seniorPwdKind || '').trim().toUpperCase();
+        transaction.seniorPwdKind = seniorPwdKindInput === 'PWD' ? 'PWD' : 'SENIOR_CITIZEN';
+        transaction.seniorPwdName = String(transaction.seniorPwdName || '')
+            .replace(/[\u0000-\u001f\u007f]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 120);
         if (!transaction.seniorPwdId || !String(transaction.seniorPwdId).trim()) {
             return res.status(400).json({ success: false, message: 'A Senior/PWD ID Number is required for this discount.' });
         }
@@ -14013,6 +14020,7 @@ async function processTransaction(req, res) {
         // Stored for the audit trail/receipt — transparent about how much is the
         // "20% Senior/PWD discount" versus the "VAT removed due to exemption".
         transaction.seniorPwdDiscountAmount = seniorPwdDiscountAmount;
+        transaction.seniorPwdDiscountRate = seniorPwdRate * 100;
         transaction.seniorPwdVatExemptedAmount = vatExemptedAmount;
     } else if (discountType === 'PROMO') {
         const promoCode = String(transaction.promoCode || '').toUpperCase();
