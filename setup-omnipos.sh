@@ -4,7 +4,29 @@ set -e
 
 # Fix: with `set -e` the script used to stop with NO message when any
 # step failed (pkg update/upgrade, npm install, ...). Now it explains.
-trap 'echo ""; echo "❌ Setup stopped unexpectedly (script line $LINENO). Check your internet connection, then run the setup again."; echo "   (The zip in Downloads is kept unless the install had already finished.)"' ERR
+# Fix (v2): the old trap only said "check your internet" — even when the real problem was a
+# half-finished extraction that had already deleted the old install, and it never told the user
+# that a data backup existed. Now the install is STAGED (the live install is never touched until
+# everything succeeded), the trap cleans the staging folder and always points at the backup.
+STAGE_DIR=""
+PRESERVE_DIR=""
+SETUP_SWAPPED=0
+on_setup_error() {
+    echo ""
+    echo "❌ Setup stopped unexpectedly (script line $1). Check your internet connection and free storage, then run the setup again."
+    if [ -n "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
+        rm -rf "$STAGE_DIR" 2>/dev/null || true
+    fi
+    if [ "$SETUP_SWAPPED" = "1" ]; then
+        echo "   The new version is already in place — only the finishing steps failed. Running the setup again is safe."
+    else
+        echo "   Your existing OmniPOS install was NOT modified. The zip in Downloads is kept."
+    fi
+    if [ -n "$PRESERVE_DIR" ] && [ -d "$PRESERVE_DIR" ]; then
+        echo "   💾 Safety backup of your data: $PRESERVE_DIR"
+    fi
+}
+trap 'on_setup_error $LINENO' ERR
 
 # NOTE: this script is no longer necessarily run as a real file with a
 # meaningful $0 — omnipos-installer.sh extracts it from inside the zip
@@ -23,6 +45,12 @@ elif [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
 else
     PLATFORM="linux"
 fi
+
+# OmniPOS stores its data in Node's built-in SQLite (node:sqlite), which exists unflagged only on
+# Node 22.13+. This (not "Node >= 18") is the real requirement, so every upgrade path below is
+# judged by it. (Old logic upgraded to Node 20 — which can never pass this — so Linux installs
+# always failed at the end.)
+node_has_sqlite() { command -v node >/dev/null 2>&1 && node -e "require('node:sqlite')" >/dev/null 2>&1; }
 
 echo "🖥️  Detected platform: $PLATFORM"
 echo ""
@@ -91,6 +119,10 @@ elif [ "$PLATFORM" = "macos" ]; then
     for tool in unzip curl; do
         command -v "$tool" >/dev/null 2>&1 || { echo "❌ Missing '$tool' — install this first."; exit 1; }
     done
+    if ! node_has_sqlite && command -v brew >/dev/null 2>&1; then
+        echo "   Node.js is too old for OmniPOS (needs 22.13+) — upgrading with Homebrew..."
+        brew upgrade node || brew install node || true
+    fi
 
 else
 
@@ -110,30 +142,26 @@ else
         fi
     fi
 
-    # Fix: e-receipt sending needs Node 18+ (global fetch(), used by
-    # mailer.js's Gmail API fallback). Older Node passes the
-    # "verified" check in Receipt Customization but fails later with
-    # a fetch-related error when SMTP is blocked/times out — common
-    # on Termux/mobile data. Enforce Node 18+ here, upgrading via
-    # NodeSource (apt/dnf) or pacman if needed.
-    NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
-    if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
-        echo "⚠️  Installed Node.js is too old ($(node -v 2>/dev/null || echo 'not found')) — Node 18+ is required for the e-receipt Gmail API fallback."
+    # Fix: OmniPOS needs Node 22.13+ (built-in node:sqlite; this also covers the Node 18+ that
+    # e-receipt sending needs). Upgrade via NodeSource 22.x (apt/dnf) or pacman when too old.
+    if ! node_has_sqlite; then
+        echo "⚠️  Installed Node.js ($(node -v 2>/dev/null || echo 'not found')) is too old — OmniPOS needs Node 22.13 or newer (built-in SQLite)."
         if command -v apt-get >/dev/null 2>&1; then
-            echo "   Upgrading Node.js via NodeSource (may prompt for sudo password)..."
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            echo "   Upgrading Node.js via NodeSource 22.x (may prompt for sudo password)..."
+            curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
             sudo apt-get install -y nodejs
         elif command -v dnf >/dev/null 2>&1; then
-            echo "   Upgrading Node.js via NodeSource (may prompt for sudo password)..."
-            curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash -
+            echo "   Upgrading Node.js via NodeSource 22.x (may prompt for sudo password)..."
+            curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo -E bash -
             sudo dnf install -y nodejs
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -Sy --noconfirm nodejs npm
         else
-            echo "❌ Could not upgrade Node.js automatically here. Please install Node.js 18+ manually (https://nodejs.org), then run this script again."
+            echo "❌ Could not upgrade Node.js automatically here. Install Node.js 22.13+ (https://nodejs.org), then run this script again."
             exit 1
         fi
-        NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
-        if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
-            echo "❌ Node.js version is still not sufficient after upgrading. Please install Node.js 18+ manually, then run this script again."
+        if ! node_has_sqlite; then
+            echo "❌ Node.js is still too old after upgrading ($(node -v 2>/dev/null || echo 'none')). Install Node.js 22.13+ manually (https://nodejs.org), then run this script again."
             exit 1
         fi
     fi
@@ -253,12 +281,45 @@ if ! unzip -tq "$ZIP_PATH" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Fix: this used to `rm -rf` the whole existing install FIRST — which
-# deleted the live database/ (sales data + installationId/deviceSeed
-# license info) whenever the setup was re-run on a device already in use.
-# Now: refuse to run while the server is up, back up the user's data,
-# and restore it after extracting.
-PRESERVE_DIR=""
+# ---------------------------------------------------------------------------
+# SAFE, STAGED INSTALL
+# Old flow: backup -> rm -rf $INSTALL_DIR -> unzip. If the unzip (or anything after it) failed —
+# e.g. phone storage full — the live install was already gone, the database lived only in the
+# backup folder, and re-running setup (as the error told the user to) found no database to back up
+# and produced a BLANK install (new installationId, license re-approval needed, sales data stranded).
+# New flow: preflight -> backup -> extract into a STAGING folder -> restore data into staging ->
+# npm install in staging -> atomic swap. The live install is untouched until everything worked.
+# ---------------------------------------------------------------------------
+MIN_FREE_MB="${MIN_FREE_MB:-600}"
+FREE_KB="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print $4}')"
+if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $((MIN_FREE_MB * 1024)) ] 2>/dev/null; then
+    echo "❌ Not enough free storage: $((FREE_KB / 1024)) MB free, at least ${MIN_FREE_MB} MB needed."
+    echo "   Free some space on the device, then run the setup again. Nothing was changed."
+    exit 1
+fi
+
+find_running_omnipos() {
+    local pid cwd
+    for pid in $(pgrep -f "node server.js" 2>/dev/null); do
+        cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+        if [ "$cwd" = "$INSTALL_DIR" ]; then echo "$pid"; return 0; fi
+    done
+    return 1
+}
+# Newest finished backup that contains a database. Optional arg = max age in days (used by the automatic
+# recovery so a months-old backup is never silently restored into a different/new install).
+latest_backup_with_db() {
+    local d max_days="${1:-}"
+    for d in $(ls -1dt "$HOME"/omnipos-data-backup-* 2>/dev/null); do
+        case "$d" in *.partial) continue ;; esac
+        [ -e "$d/database" ] || continue
+        if [ -n "$max_days" ] && [ -z "$(find "$d" -maxdepth 0 -mtime "-$max_days" 2>/dev/null)" ]; then continue; fi
+        echo "$d"; return 0
+    done
+    return 1
+}
+
+RECOVERY_DIR=""
 if [ -d "$INSTALL_DIR" ]; then
     OLD_LOCK="$INSTALL_DIR/.start.sh.lock"
     if [ -f "$OLD_LOCK" ]; then
@@ -268,64 +329,80 @@ if [ -d "$INSTALL_DIR" ]; then
             exit 1
         fi
     fi
+    RUNNING_PID="$(find_running_omnipos || true)"
+    if [ -n "$RUNNING_PID" ]; then
+        echo "❌ OmniPOS server is still running (PID $RUNNING_PID). Stop it first (widget: Stop-OmniPOS), then run this setup again."
+        exit 1
+    fi
     if [ -e "$INSTALL_DIR/database" ] || [ -e "$INSTALL_DIR/.omnipos-device-seed" ]; then
         PRESERVE_DIR="$HOME/omnipos-data-backup-$(date +%Y%m%d-%H%M%S)"
         echo "💾 Existing OmniPOS install found — backing up your data to $PRESERVE_DIR ..."
-        mkdir -p "$PRESERVE_DIR"
+        mkdir -p "$PRESERVE_DIR.partial"
         for _item in database .omnipos-device-seed .env .env.key; do
             if [ -e "$INSTALL_DIR/$_item" ]; then
-                cp -a "$INSTALL_DIR/$_item" "$PRESERVE_DIR/" || { echo "❌ Could not back up $_item — nothing was deleted. Stopping."; exit 1; }
+                cp -a "$INSTALL_DIR/$_item" "$PRESERVE_DIR.partial/" || { rm -rf "$PRESERVE_DIR.partial"; PRESERVE_DIR=""; echo "❌ Could not back up $_item — nothing was changed. Stopping."; exit 1; }
             fi
         done
+        sync 2>/dev/null || true
+        mv "$PRESERVE_DIR.partial" "$PRESERVE_DIR"
+    else
+        # RECOVERY: an install folder with NO database is the signature of an earlier interrupted
+        # setup. The real data is in the newest omnipos-data-backup-* folder — bring it back.
+        RECOVERY_DIR="$(latest_backup_with_db 7 || true)"
+        if [ -n "$RECOVERY_DIR" ]; then
+            echo "🩹 The existing install has no database, but a data backup was found: $RECOVERY_DIR"
+            echo "   It will be restored into the new install."
+        fi
+    fi
+else
+    _lost="$(latest_backup_with_db || true)"
+    if [ -n "$_lost" ]; then
+        echo "ℹ️  Note: an older data backup exists at $_lost (it is NOT restored automatically on a clean install)."
     fi
 fi
+DATA_SRC="${PRESERVE_DIR:-$RECOVERY_DIR}"
 
-echo "📤 [4/6] Extracting OMNIPOS to $INSTALL_DIR..."
-rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
-unzip -q "$ZIP_PATH" -d "$INSTALL_DIR"
+echo "📤 [4/6] Extracting OMNIPOS into a staging folder (your current install stays untouched)..."
+STAGE_DIR="$INSTALL_DIR.new"
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
+unzip -q "$ZIP_PATH" -d "$STAGE_DIR"
 
-if [ -n "$PRESERVE_DIR" ]; then
-    if [ -d "$PRESERVE_DIR/database" ]; then
-        rm -rf "$INSTALL_DIR/database"
-        cp -a "$PRESERVE_DIR/database" "$INSTALL_DIR/database"
-    fi
-    [ -e "$PRESERVE_DIR/.omnipos-device-seed" ] && cp -a "$PRESERVE_DIR/.omnipos-device-seed" "$INSTALL_DIR/.omnipos-device-seed"
-    echo "♻️  Your database was kept. (A safety copy is in $PRESERVE_DIR — the old .env is there too; the new .env comes from the zip.)"
+# Accept a zip that wraps everything in a single OMNIPOS/ folder as well as a flat zip.
+if [ ! -f "$STAGE_DIR/server.js" ] && [ -f "$STAGE_DIR/OMNIPOS/server.js" ]; then
+    ( shopt -s dotglob 2>/dev/null; mv "$STAGE_DIR"/OMNIPOS/* "$STAGE_DIR"/ ) && rmdir "$STAGE_DIR/OMNIPOS"
+fi
+if [ ! -f "$STAGE_DIR/server.js" ] || [ ! -f "$STAGE_DIR/package.json" ]; then
+    echo "❌ $ZIP_NAME does not look like an OmniPOS package (server.js / package.json missing). Nothing was changed."
+    rm -rf "$STAGE_DIR"
+    exit 1
 fi
 
-# Safety net: remove any stray .start.sh.lock that may have shipped
-# inside the zip, so start.sh doesn't mistake it for an already-running
-# instance on first launch.
-rm -f "$INSTALL_DIR/.start.sh.lock"
+if [ -n "$DATA_SRC" ] && [ -d "$DATA_SRC/database" ]; then
+    rm -rf "$STAGE_DIR/database"
+    cp -a "$DATA_SRC/database" "$STAGE_DIR/database"
+    if [ -e "$DATA_SRC/.omnipos-device-seed" ]; then cp -a "$DATA_SRC/.omnipos-device-seed" "$STAGE_DIR/.omnipos-device-seed"; fi
+    echo "♻️  Your database was kept. (A safety copy is in $DATA_SRC — the old .env is there too; the new .env comes from the zip.)"
+fi
 
-# "Omni Search Images" now runs entirely built into server.js itself — it
-# no longer spawns a separate omnipos-search-image.js worker file/process.
-# Clean up that file if it's left over from an older install so nothing
-# stale remains on the device.
-if [ -f "$INSTALL_DIR/omnipos-search-image.js" ]; then
-    echo "🧹 Removing old standalone omnipos-search-image.js (Omni Search is now built into OmniPOS)..."
-    rm -f "$INSTALL_DIR/omnipos-search-image.js"
-fi
-if [ -f "$INSTALL_DIR/logs/omni-search-worker.log" ]; then
-    rm -f "$INSTALL_DIR/logs/omni-search-worker.log"
-fi
+# Safety net: remove any stray .start.sh.lock that may have shipped inside the zip.
+rm -f "$STAGE_DIR/.start.sh.lock"
+
+# "Omni Search Images" is built into server.js now — drop leftovers of the old standalone worker.
+rm -f "$STAGE_DIR/omnipos-search-image.js" "$STAGE_DIR/logs/omni-search-worker.log"
 
 echo "📥 [5/6] Installing dependencies (npm install)..."
-cd "$INSTALL_DIR"
+cd "$STAGE_DIR"
 rm -rf node_modules package-lock.json
 if ! npm install; then
     echo ""
     echo "❌ npm install failed (usually a slow/dropped internet connection)."
-    echo "   The zip is still in Downloads — just run the setup again."
+    echo "   Your existing OmniPOS install was NOT modified. The zip is still in Downloads — just run the setup again."
+    cd "$HOME" && rm -rf "$STAGE_DIR"
     exit 1
 fi
 chmod +x start.sh 2>/dev/null || true
 
-# Fix: the zip is now removed only AFTER the dependencies installed
-# successfully, so a failed npm install no longer forces a re-download.
-echo "🗑️  Removing the zip file from Downloads..."
-rm -f "$ZIP_PATH"
 
 # Safety net: the AI Assistant's document-reading feature (PDF/DOCX
 # attachments) needs "pdf-parse" and "mammoth". These SHOULD already be
@@ -366,6 +443,184 @@ fi
 if grep -q "^\s*termux-wake-lock\s*$" start.sh 2>/dev/null; then
     sed -i.bak 's/^\(\s*\)termux-wake-lock\s*$/\1timeout 3 termux-wake-lock/' start.sh && rm -f start.sh.bak
 fi
+
+# ---- ATOMIC SWAP: only now (zip extracted, data restored, dependencies installed) does the live
+# install get replaced. If the second mv fails the previous install is put back.
+cd "$HOME"
+SWAP_OLD=""
+if [ -d "$INSTALL_DIR" ]; then
+    SWAP_OLD="$INSTALL_DIR.old-$(date +%Y%m%d-%H%M%S)"
+    mv "$INSTALL_DIR" "$SWAP_OLD"
+fi
+if ! mv "$STAGE_DIR" "$INSTALL_DIR"; then
+    if [ -n "$SWAP_OLD" ]; then mv "$SWAP_OLD" "$INSTALL_DIR"; fi
+    echo "❌ Could not put the new version in place — your previous install was restored."
+    exit 1
+fi
+SETUP_SWAPPED=1
+STAGE_DIR=""
+cd "$INSTALL_DIR"
+
+# The zip is removed only AFTER the new install is really in place (a failed run never forces a re-download).
+echo "🗑️  Removing the zip file from Downloads..."
+rm -f "$ZIP_PATH"
+
+APP_BACKUP_DIR=""
+if [ -n "$SWAP_OLD" ]; then
+    if [ ! -e "$SWAP_OLD/database" ]; then
+        # The old folder had no database (an interrupted earlier setup) — nothing worth rolling back to.
+        rm -rf "$SWAP_OLD"
+    elif [ -e "$INSTALL_DIR/database" ]; then
+        # APP BACKUP: keep the previous version's code (a complete copy of the old install, moved — not
+        # copied, so it costs no extra time) next to the data backup. If the new version turns out to
+        # be broken, run  bash ~/rollback-omnipos.sh  to put it back. A failure here must never fail
+        # the setup — the new version is already in place.
+        APP_BACKUP_DIR="$HOME/omnipos-app-backup-$(date +%Y%m%d-%H%M%S)"
+        if mv "$SWAP_OLD" "$APP_BACKUP_DIR" 2>/dev/null; then
+            rm -f "$APP_BACKUP_DIR/.start.sh.lock" 2>/dev/null || true
+        else
+            echo "⚠️  Could not keep the previous version as an app backup — it stays at $SWAP_OLD."
+            APP_BACKUP_DIR=""
+        fi
+    else
+        echo "⚠️  The previous install was kept at $SWAP_OLD (its database was not carried over)."
+    fi
+fi
+# Keep only the 3 newest data backups.
+ls -1dt "$HOME"/omnipos-data-backup-* 2>/dev/null | tail -n +4 | while IFS= read -r _old_backup; do rm -rf "$_old_backup"; done
+# Keep only the 2 newest app backups (each one is a whole old install, so they are bigger). "Newest"
+# is judged by the timestamp in the folder name, not the folder mtime (which changes on every start).
+ls -1d "$HOME"/omnipos-app-backup-* 2>/dev/null | LC_ALL=C sort -r | tail -n +3 | while IFS= read -r _old_app; do rm -rf "$_old_app"; done
+if [ -n "$APP_BACKUP_DIR" ] && [ -d "$APP_BACKUP_DIR" ]; then
+    echo "🛟 Previous version kept as an app backup: $APP_BACKUP_DIR"
+    echo "   If the new version does not work, run:  bash ~/rollback-omnipos.sh"
+fi
+
+# ---- ROLLBACK SCRIPT (lives in $HOME, outside the install folder, so it survives every swap) ----
+cat > "$HOME/rollback-omnipos.sh" << 'ROLLBACK_EOF' || true
+#!/usr/bin/env bash
+# OmniPOS rollback — puts the PREVIOUS version's code back (the app backup the setup keeps in $HOME).
+#   bash ~/rollback-omnipos.sh               -> newest app backup, KEEPS your current data (sales, settings)
+#   bash ~/rollback-omnipos.sh --old-data    -> also uses the data that was in the old version
+#   bash ~/rollback-omnipos.sh <backup-dir>  -> a specific app backup folder
+# Running it a second time switches back to the version you just left.
+INSTALL_DIR="$HOME/OMNIPOS"
+OLD_DATA=0
+CHOSEN=""
+for _a in "$@"; do
+    case "$_a" in
+        --old-data) OLD_DATA=1 ;;
+        *) CHOSEN="$_a" ;;
+    esac
+done
+
+if [ -n "$CHOSEN" ]; then
+    APP_BACKUP="${CHOSEN%/}"
+else
+    APP_BACKUP=""
+    for _d in $(ls -1d "$HOME"/omnipos-app-backup-* 2>/dev/null | LC_ALL=C sort -r); do
+        [ -f "$_d/server.js" ] && [ -f "$_d/package.json" ] && { APP_BACKUP="$_d"; break; }
+    done
+fi
+if [ -z "$APP_BACKUP" ] || [ ! -f "$APP_BACKUP/server.js" ] || [ ! -f "$APP_BACKUP/package.json" ]; then
+    echo "❌ No usable app backup found in $HOME (omnipos-app-backup-*). Nothing was changed."
+    exit 1
+fi
+if [ ! -d "$APP_BACKUP/node_modules" ]; then
+    echo "❌ $APP_BACKUP has no node_modules, so it cannot run as-is. Nothing was changed."
+    exit 1
+fi
+if [ ! -d "$INSTALL_DIR" ]; then
+    echo "❌ $INSTALL_DIR not found. Nothing was changed."
+    exit 1
+fi
+
+# Refuse while the server runs (same checks as the setup).
+if [ -f "$INSTALL_DIR/.start.sh.lock" ]; then
+    _pid="$(cat "$INSTALL_DIR/.start.sh.lock" 2>/dev/null)"
+    if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+        echo "❌ OmniPOS is still running (PID $_pid). Stop it first (widget: Stop-OmniPOS), then run this again."
+        exit 1
+    fi
+fi
+for _pid in $(pgrep -f "node server.js" 2>/dev/null); do
+    if [ "$(readlink "/proc/$_pid/cwd" 2>/dev/null || true)" = "$INSTALL_DIR" ]; then
+        echo "❌ OmniPOS server is still running (PID $_pid). Stop it first (widget: Stop-OmniPOS), then run this again."
+        exit 1
+    fi
+done
+
+TS="$(date +%Y%m%d-%H%M%S)"
+ASIDE="$HOME/omnipos-app-backup-$TS"
+if [ "$ASIDE" = "$APP_BACKUP" ] || [ -e "$ASIDE" ]; then ASIDE="$ASIDE-b"; fi
+
+echo "↩️  Rolling back to: $APP_BACKUP"
+if [ "$OLD_DATA" = "1" ]; then
+    echo "   Data: the OLD version's data will be used (sales made since the update will NOT be visible)."
+else
+    echo "   Data: your CURRENT data is kept."
+fi
+
+# 1) Safety copy of the current data first (always, even with --old-data).
+DATA_SAFE="$HOME/omnipos-data-backup-$TS"
+if [ -e "$DATA_SAFE" ] || [ -e "$DATA_SAFE.partial" ]; then DATA_SAFE="$DATA_SAFE-b"; fi
+rm -rf "$DATA_SAFE.partial"
+mkdir -p "$DATA_SAFE.partial" || { echo "❌ Could not create the safety backup. Nothing was changed."; exit 1; }
+for _item in database .omnipos-device-seed .env .env.key; do
+    if [ -e "$INSTALL_DIR/$_item" ]; then
+        cp -a "$INSTALL_DIR/$_item" "$DATA_SAFE.partial/" || { rm -rf "$DATA_SAFE.partial"; echo "❌ Could not back up $_item. Nothing was changed."; exit 1; }
+    fi
+done
+sync 2>/dev/null || true
+mv "$DATA_SAFE.partial" "$DATA_SAFE" || { echo "❌ Could not finish the safety backup. Nothing was changed."; exit 1; }
+echo "💾 Safety copy of the current data: $DATA_SAFE"
+
+# 2) Swap the folders (renames only — fast, and each step is undone if the next one fails).
+mv "$INSTALL_DIR" "$ASIDE" || { echo "❌ Could not move the current install aside. Nothing was changed."; exit 1; }
+if ! mv "$APP_BACKUP" "$INSTALL_DIR"; then
+    mv "$ASIDE" "$INSTALL_DIR"
+    echo "❌ Could not put the old version in place — the current version was restored."
+    exit 1
+fi
+
+# 3) Carry the current data into the restored version (unless --old-data). The old version's own
+#    data is only renamed aside until everything has succeeded, so a failure can be undone exactly.
+if [ "$OLD_DATA" != "1" ] && [ -e "$ASIDE/database" ]; then
+    _ok=1
+    if [ -e "$INSTALL_DIR/database" ]; then mv "$INSTALL_DIR/database" "$INSTALL_DIR/database.rollback-tmp" || _ok=0; fi
+    if [ "$_ok" = "1" ] && [ -e "$INSTALL_DIR/.omnipos-device-seed" ]; then
+        mv "$INSTALL_DIR/.omnipos-device-seed" "$INSTALL_DIR/.omnipos-device-seed.rollback-tmp" || _ok=0
+    fi
+    if [ "$_ok" = "1" ]; then cp -a "$ASIDE/database" "$INSTALL_DIR/database" || _ok=0; fi
+    if [ "$_ok" = "1" ] && [ -e "$ASIDE/.omnipos-device-seed" ]; then
+        cp -a "$ASIDE/.omnipos-device-seed" "$INSTALL_DIR/.omnipos-device-seed" || _ok=0
+    fi
+    if [ "$_ok" != "1" ]; then
+        # Undo everything: both versions go back exactly as they were.
+        if [ -e "$INSTALL_DIR/database.rollback-tmp" ]; then
+            rm -rf "$INSTALL_DIR/database"
+            mv "$INSTALL_DIR/database.rollback-tmp" "$INSTALL_DIR/database"
+        fi
+        if [ -e "$INSTALL_DIR/.omnipos-device-seed.rollback-tmp" ]; then
+            rm -rf "$INSTALL_DIR/.omnipos-device-seed"
+            mv "$INSTALL_DIR/.omnipos-device-seed.rollback-tmp" "$INSTALL_DIR/.omnipos-device-seed"
+        fi
+        mv "$INSTALL_DIR" "$APP_BACKUP"
+        mv "$ASIDE" "$INSTALL_DIR"
+        echo "❌ Could not carry your data over — the current version was restored. Nothing was lost."
+        exit 1
+    fi
+    rm -rf "$INSTALL_DIR/database.rollback-tmp" "$INSTALL_DIR/.omnipos-device-seed.rollback-tmp"
+fi
+rm -f "$INSTALL_DIR/.start.sh.lock" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/start.sh" 2>/dev/null || true
+
+echo ""
+echo "✅ Rolled back. The version you just left is kept at: $ASIDE"
+echo "   (run this script again to switch back to it)"
+echo "   Now start OmniPOS again (widget: Start-OmniPOS, or ./start-omnipos.sh on a PC)."
+ROLLBACK_EOF
+chmod +x "$HOME/rollback-omnipos.sh" 2>/dev/null || true
 echo ""
 
 if [ "$PLATFORM" = "termux" ]; then

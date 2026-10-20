@@ -2110,8 +2110,30 @@ function updateRolesPermissionsLockState() {
 // (store-settings BIR details, invoice buyer details, the "also reset BIR data" option) and the cached store
 // settings are re-fetched whenever the lock state flips so receipts follow the server immediately.
 let birLockUiLastState = null;
+// VAT LOCK UI: VAT / tax is a BIR matter, so it follows the BIR Compliance module. While that module is locked the
+// Enable Tax / Tax Label / Tax Rate / "prices include tax" controls (Settings > Store & Sales AND the Terminal Settings
+// modal) are disabled, Enable Tax is forced off, and a lock note explains why. The server enforces the same rule
+// (storeSettings.vatLocked), so this is only the visible half. Fail-closed: locked unless proven unlocked.
+function applyVatComplianceLockUi() {
+    const featureUnlocked = isFeatureUnlockedCached('bir_compliance');
+    const serverLocked = !!(storeSettingsCache && storeSettingsCache.vatLocked === true);
+    const locked = !featureUnlocked || serverLocked;
+    ['ss', 'tset'].forEach((prefix) => {
+        const noteEl = document.getElementById(prefix + '-vat-locked-note');
+        if (noteEl) noteEl.style.display = locked ? '' : 'none';
+        ['tax-enabled', 'tax-label', 'tax-rate', 'prices-include-tax'].forEach((suffix) => {
+            const el = document.getElementById(prefix + '-' + suffix);
+            if (!el) return;
+            el.disabled = locked;
+            if (locked && suffix === 'tax-enabled') el.checked = false;
+            const group = el.closest('.input-field-group');
+            if (group) group.style.opacity = locked ? '0.55' : '';
+        });
+    });
+}
 function applyBirComplianceLockUi() {
     const unlocked = isFeatureUnlockedCached('bir_compliance');
+    applyVatComplianceLockUi();
     const setDisplay = (id, show, shownValue) => {
         const el = document.getElementById(id);
         if (el) el.style.display = show ? (shownValue || '') : 'none';
@@ -16694,6 +16716,7 @@ async function loadStoreSettingsPanel() {
     setVal('ss-bir-supplier-tin', birCfg.supplierTin || '');
     window.__birPanelLoaded = !!document.getElementById('ss-bir-enabled');
     applyBirComplianceLockUi();
+    applyVatComplianceLockUi();
     setVal('ss-branch-name', s.branchName || '');
     setVal('ss-branch-group-key', s.branchGroupKey || '');
     const statusEl = document.getElementById('store-settings-status');
@@ -17243,6 +17266,7 @@ function mirrorRealSettingsIntoTerminalModal() {
     copyVal('adv-idle-lock-minutes', 'tset-idle-lock-minutes');
     copyChecked('adv-customer-display-enabled', 'tset-customer-display-enabled');
     copyVal('adv-customer-display-compact-threshold', 'tset-customer-display-compact-threshold');
+    applyVatComplianceLockUi();
     const statusEl = document.getElementById('terminal-settings-status');
     if (statusEl) statusEl.textContent = '';
 }

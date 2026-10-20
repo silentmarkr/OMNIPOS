@@ -2227,6 +2227,10 @@
                 </select>
             </div>
 
+            <div id="ss-vat-locked-note" style="display:none; font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 12px; padding:12px 14px; border:1px dashed var(--border-color); border-radius:8px;">
+                <i class="fa-solid fa-lock" style="color:var(--warning-gold);"></i> <strong>VAT / Tax</strong> is part of the <strong>BIR Compliance</strong> module, which is locked and not available yet. VAT cannot be enabled or applied to sales until it is unlocked.
+                <div style="margin-top:10px;"><button type="button" class="btn-action-outline" onclick="guardPremiumFeature('bir_compliance')"><i class="fa-solid fa-unlock"></i> View BIR Compliance module</button></div>
+            </div>
             <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                 <input type="checkbox" id="ss-tax-enabled" style="width:auto;" autocomplete="off">
                 <label style="margin:0;" for="ss-tax-enabled">Enable Tax</label>
@@ -4926,6 +4930,10 @@
                                 <option value="JPY">JPY — Japanese Yen (¥)</option>
                                 <option value="SGD">SGD — Singapore Dollar (S$)</option>
                             </select>
+                        </div>
+                        <div id="tset-vat-locked-note" style="display:none; font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 12px; padding:12px 14px; border:1px dashed var(--border-color); border-radius:8px;">
+                            <i class="fa-solid fa-lock" style="color:var(--warning-gold);"></i> <strong>VAT / Tax</strong> is part of the <strong>BIR Compliance</strong> module, which is locked and not available yet. VAT cannot be enabled or applied to sales until it is unlocked.
+                            <div style="margin-top:10px;"><button type="button" class="btn-action-outline" onclick="guardPremiumFeature('bir_compliance')"><i class="fa-solid fa-unlock"></i> View BIR Compliance module</button></div>
                         </div>
                         <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="tset-tax-enabled" style="width:auto;" autocomplete="off">

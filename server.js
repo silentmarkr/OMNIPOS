@@ -2081,16 +2081,22 @@ function buildBirFooterLines(rawBir) {
     if (lines.length) lines.push('THIS INVOICE SHALL BE VALID FOR FIVE (5) YEARS FROM THE DATE OF THE PERMIT TO USE.');
     return lines;
 }
-function getStoreSettingsPublic(rawSettings) {
+// VAT LOCK (BIR Compliance): VAT / tax handling is a BIR matter. While the BIR Compliance module is NOT unlocked
+// (no PTU yet, no subscription), VAT can neither be enabled nor used — every consumer (POS totals, receipts,
+// e-mails, client UI) sees "tax off" no matter what is stored. `ignoreVatLock` is only for the code that must read
+// the raw stored values (so they can be preserved and re-offered when the module is unlocked). Fail-closed.
+function getStoreSettingsPublic(rawSettings, opts) {
     const s = rawSettings || DEFAULT_STORE_SETTINGS;
     const pm = s.paymentMethods || DEFAULT_STORE_SETTINGS.paymentMethods;
+    const vatLocked = !(opts && opts.ignoreVatLock) && !isBirComplianceUnlocked();
     return {
         currencyCode: VALID_CURRENCY_CODES.includes(s.currencyCode) ? s.currencyCode : DEFAULT_STORE_SETTINGS.currencyCode,
         currencySymbol: s.currencySymbol || DEFAULT_STORE_SETTINGS.currencySymbol,
-        taxEnabled: !!s.taxEnabled,
+        vatLocked,
+        taxEnabled: vatLocked ? false : !!s.taxEnabled,
         taxLabel: s.taxLabel || DEFAULT_STORE_SETTINGS.taxLabel,
         taxRate: Number.isFinite(s.taxRate) ? s.taxRate : DEFAULT_STORE_SETTINGS.taxRate,
-        pricesIncludeTax: s.pricesIncludeTax !== false,
+        pricesIncludeTax: vatLocked ? false : s.pricesIncludeTax !== false,
         paymentMethods: {
             cash: pm.cash !== false,
             gcash: !!pm.gcash,
@@ -2147,6 +2153,19 @@ app.get('/api/store-settings', (req, res) => {
     const settings = readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS);
     res.json(getStoreSettingsPublic(settings));
 });
+// While VAT is locked, a save/approval can never turn VAT on, and the stored tax label / rate / "prices include tax"
+// are kept exactly as they were (so unlocking BIR Compliance later does not silently flip a store to VAT-exclusive
+// pricing). VAT is never persisted as enabled while locked: after unlocking, the owner switches it on deliberately.
+function enforceVatLockOnIncoming(incoming) {
+    delete incoming.vatLocked;
+    if (isBirComplianceUnlocked()) return incoming;
+    const stored = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS), { ignoreVatLock: true });
+    incoming.taxEnabled = false;
+    incoming.taxLabel = stored.taxLabel;
+    incoming.taxRate = stored.taxRate;
+    incoming.pricesIncludeTax = stored.pricesIncludeTax;
+    return incoming;
+}
 app.post('/api/store-settings', requirePermission('store_settings_view'), (req, res) => {
     const { username } = req.body;
     for (const [field, label] of [['gcashQrImage', 'GCash QR'], ['mayaQrImage', 'Maya QR']]) {
@@ -2158,7 +2177,7 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
             });
         }
     }
-    const incoming = getStoreSettingsPublic(req.body || {});
+    const incoming = getStoreSettingsPublic(req.body || {}, { ignoreVatLock: true });
     if (!VALID_CURRENCY_CODES.includes(incoming.currencyCode)) {
         return res.status(400).json({ success: false, message: `Di-wastong currency. Pumili sa: ${VALID_CURRENCY_CODES.join(', ')}` });
     }
@@ -2174,6 +2193,7 @@ app.post('/api/store-settings', requirePermission('store_settings_view'), (req, 
     if (incoming.loyaltyPointValue < 0) {
         return res.status(400).json({ success: false, message: 'Ang Loyalty point value ay hindi puwedeng negative.' });
     }
+    enforceVatLockOnIncoming(incoming);
     const birModuleUnlocked = isBirComplianceUnlocked();
     if (!birModuleUnlocked) {
         // Locked module: ignore whatever BIR details the client sent, keep the stored ones exactly as they are, and skip
@@ -13548,6 +13568,25 @@ function processRequestResolve(req, res) {
             logAction(username, result.renamedFrom
                 ? `APPROVED Edit Profile request para kay "${targetReq.targetUser}" — pinalitan ang username sa "${result.user.username}"`
                 : `APPROVED Edit Profile request para kay "${targetReq.targetUser}"`);
+        } else if (targetReq.type ==='STORE_SETTINGS_UPDATE') {
+            // BUGFIX: this type used to fall into the product branch below (approve = nothing applied, request deleted).
+            // It is now applied here, through the same VAT-lock / BIR-lock rules as a direct save.
+            const approved = getStoreSettingsPublic(targetReq.data || {}, { ignoreVatLock: true });
+            const storedRaw = readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS);
+            enforceVatLockOnIncoming(approved);
+            if (!isBirComplianceUnlocked()) {
+                approved.bir = sanitizeBirSettings(storedRaw && storedRaw.bir);
+            } else {
+                const approvedBirError = validateBirSettings(approved.bir, approved.taxEnabled);
+                if (approvedBirError) {
+                    return res.status(400).json({ success: false, message: `Hindi ma-apply ang Store & Sales request: ${approvedBirError}` });
+                }
+            }
+            const prevBranchGroupKey = getStoreSettingsPublic(storedRaw, { ignoreVatLock: true }).branchGroupKey;
+            approved.updatedAt = new Date().toISOString();
+            writeData(FILE_STORE_SETTINGS, approved);
+            if (prevBranchGroupKey && !approved.branchGroupKey) notifyRelayBranchLeave();
+            logAction(username, `APPROVED Store & Sales Settings request from "${targetReq.requester}"`);
         } else if (targetReq.type ==='RECEIPT_UPDATE') {
             const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
             const d = targetReq.data || {};
