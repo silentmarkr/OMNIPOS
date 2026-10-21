@@ -5497,7 +5497,7 @@ function printDebtReceipt(id) {
     const win = window.open('', '_blank', 'width=420,height=640');
     if (!win) return;
     win.document.write(`
-        <html><head><title>Debt Receipt — ${escapeHtml(m.customerName)}</title>
+        <html><head><title>Debt ${debtDocWord()} — ${escapeHtml(m.customerName)}</title>
         <style>
             body{font-family:'Courier New',monospace;color:#000;background:#fff;max-width:340px;margin:0 auto;padding:16px;font-size:12.5px;}
             h2,h3{text-align:center;margin:2px 0;}
@@ -5514,7 +5514,7 @@ function printDebtReceipt(id) {
         <body>
             <h2>${escapeHtml(m.storeName)}</h2>
             ${m.storeAddress ? `<p class="muted">${escapeHtml(m.storeAddress)}</p>` : ''}
-            <h3>DEBT / CREDIT RECEIPT</h3>
+            <h3>DEBT / CREDIT ${debtDocWord().toUpperCase()}</h3>
             <hr>
             <div class="row"><span>Customer:</span><span>${escapeHtml(m.customerName)}</span></div>
             ${m.phone ? `<div class="row"><span>Phone:</span><span>${escapeHtml(m.phone)}</span></div>` : ''}
@@ -5561,6 +5561,31 @@ function generateDebtReceiptBarcodeDataUrl(value) {
         return '';
     }
 }
+// Debt e-receipt text is rendered inside an <iframe> / canvas / share text, which the DOM-based bir-wording guard cannot reach,
+// so the document word is chosen here: "Receipt" only in BIR document mode, otherwise the non-official "Slip".
+// Fail-safe: if the status cannot be read the non-official wording is used.
+// Runs a text through the BIR wording guard for places the DOM guard skips (table cells) or cannot reach.
+// Returns the text untouched when BIR document mode is on, or if the guard is not available.
+// Pending-request type badge, e.g. RECEIPT_PAPER_SIZE -> ORDER_SLIP_PAPER_SIZE while BIR document mode is locked.
+function displayRequestType(type) {
+    const t = String(type == null ? '' : type);
+    try {
+        if (typeof isBirDocumentModeEnabled === 'function' && isBirDocumentModeEnabled()) return t;
+    } catch (e) { /* fail-safe: non-BIR wording */ }
+    return t.replace(/^RECEIPT(?=_|$)/, 'ORDER_SLIP');
+}
+function birT(text) {
+    try {
+        if (window.OmniBirWording && typeof window.OmniBirWording.t === 'function') return window.OmniBirWording.t(text);
+    } catch (e) { /* keep original */ }
+    return text;
+}
+function debtDocWord() {
+    try {
+        if (typeof isBirDocumentModeEnabled === 'function' && isBirDocumentModeEnabled()) return 'Receipt';
+    } catch (e) { /* fail-safe: non-BIR wording */ }
+    return 'Slip';
+}
 function buildDebtEReceiptDocument(m) {
     const paymentRows = m.paymentHistory.length
         ? m.paymentHistory.map(p => `
@@ -5584,7 +5609,7 @@ function buildDebtEReceiptDocument(m) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>E-Receipt — ${escapeHtml(m.customerName)}</title>
+<title>E-${debtDocWord()} — ${escapeHtml(m.customerName)}</title>
 <style>
     :root{
         --bg:#eef1f6; --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e6e9ef;
@@ -5651,7 +5676,7 @@ function buildDebtEReceiptDocument(m) {
             <span class="badge">${escapeHtml(m.statusLabel)}</span>
             <div class="store">${escapeHtml(m.storeName)}</div>
             ${m.storeAddress ? `<div class="addr">${escapeHtml(m.storeAddress)}</div>` : ''}
-            <div class="title">Digital Debt Receipt</div>
+            <div class="title">Digital Debt ${debtDocWord()}</div>
         </div>
         <div class="body">
             <div class="cust">
@@ -5676,7 +5701,7 @@ function buildDebtEReceiptDocument(m) {
             <div class="info-list">
                 <div class="row"><span>Due Date</span><span>${m.dueAt ? new Date(m.dueAt).toLocaleString() : 'No due date set'}</span></div>
                 ${m.transactionId ? `<div class="row"><span>Linked Transaction</span><span>${escapeHtml(m.transactionId)}</span></div>` : ''}
-                <div class="row"><span>Receipt No.</span><span>${escapeHtml(m.id)}</span></div>
+                <div class="row"><span>${debtDocWord()} No.</span><span>${escapeHtml(m.id)}</span></div>
                 <div class="row"><span>Generated</span><span>${new Date().toLocaleString()}</span></div>
             </div>
 
@@ -5691,12 +5716,12 @@ function buildDebtEReceiptDocument(m) {
             ${m.barcodeDataUrl ? `
             <div class="barcode-wrap">
                 <div class="barcode-card"><img src="${m.barcodeDataUrl}" alt="Barcode ${escapeHtml(m.barcodeValue)}"></div>
-                <div class="barcode-label">${m.transactionId ? 'Scan to find this transaction' : 'Receipt Barcode'}</div>
+                <div class="barcode-label">${m.transactionId ? 'Scan to find this transaction' : debtDocWord() + ' Barcode'}</div>
             </div>` : ''}
         </div>
         <div class="foot">
             <div class="thanks">${escapeHtml(m.footerText)}</div>
-            <div class="meta">Please keep this receipt for your records.</div>
+            <div class="meta">Please keep this ${debtDocWord().toLowerCase()} for your records.</div>
             <div class="brand">Generated by OmniPOS</div>
         </div>
     </div>
@@ -5898,7 +5923,7 @@ function renderDebtEReceiptToImageDataUrl(m) {
             hy += 16;
         }
         ctx.font = `700 11px ${FONT}`;
-        ctx.fillText('DIGITAL DEBT RECEIPT', bx, hy + 6);
+        ctx.fillText('DIGITAL DEBT ' + debtDocWord().toUpperCase(), bx, hy + 6);
         pill(pad + cardW - 20, y + 18, m.statusLabel, '#ffffff', 'rgba(255,255,255,0.22)');
 
         y += headerHeight + 20;
@@ -5948,7 +5973,7 @@ function renderDebtEReceiptToImageDataUrl(m) {
 
         const infoRows = [['Due Date', m.dueAt ? new Date(m.dueAt).toLocaleString() : 'No due date set']];
         if (m.transactionId) infoRows.push(['Linked Transaction', m.transactionId]);
-        infoRows.push(['Receipt No.', m.id]);
+        infoRows.push([debtDocWord() + ' No.', m.id]);
         infoRows.push(['Generated', new Date().toLocaleString()]);
         infoRows.forEach(([label, val], i) => {
             const ry = y + i * infoRowHeight;
@@ -6044,7 +6069,7 @@ function renderDebtEReceiptToImageDataUrl(m) {
             y += 20;
             ctx.fillStyle = C.muted;
             ctx.font = `400 10px ${FONT}`;
-            ctx.fillText('Please keep this receipt for your records.', bx + bw / 2, y);
+            ctx.fillText('Please keep this ' + debtDocWord().toLowerCase() + ' for your records.', bx + bw / 2, y);
             y += 14;
             ctx.fillText('Generated by OmniPOS', bx + bw / 2, y);
             ctx.textAlign = 'left';
@@ -6068,7 +6093,7 @@ function renderDebtEReceiptToImageDataUrl(m) {
                     ctx.fillStyle = C.muted;
                     ctx.font = `400 10px ${FONT}`;
                     ctx.textAlign = 'center';
-                    ctx.fillText(m.transactionId ? 'Scan to find this transaction' : 'Receipt Barcode', bx + bw / 2, y + bch + 34);
+                    ctx.fillText(m.transactionId ? 'Scan to find this transaction' : debtDocWord() + ' Barcode', bx + bw / 2, y + bch + 34);
                     ctx.textAlign = 'left';
                 } catch (e) {                                                     }
                 y += barcodeHeight;
@@ -6096,7 +6121,7 @@ async function downloadDebtEReceipt(id) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `E-Receipt-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
+        a.download = `E-${debtDocWord()}-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -6116,22 +6141,22 @@ async function shareDebtEReceipt(id) {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...'; }
     try {
         const m = buildDebtReceiptModel(debt);
-        const fileName = `E-Receipt-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
-        const summaryText = `${m.storeName} — Debt Receipt\nCustomer: ${m.customerName}\nStatus: ${m.statusLabel}\nOwed: ₱${m.amount.toFixed(2)} | Paid: ₱${m.paid.toFixed(2)} | Remaining: ₱${m.remaining.toFixed(2)}\n${m.dueAt ? 'Due: ' + new Date(m.dueAt).toLocaleString() : ''}`;
+        const fileName = `E-${debtDocWord()}-${(m.customerName || 'debt').replace(/[^a-z0-9]+/gi, '-')}-${m.id || Date.now()}.png`;
+        const summaryText = `${m.storeName} — Debt ${debtDocWord()}\nCustomer: ${m.customerName}\nStatus: ${m.statusLabel}\nOwed: ₱${m.amount.toFixed(2)} | Paid: ₱${m.paid.toFixed(2)} | Remaining: ₱${m.remaining.toFixed(2)}\n${m.dueAt ? 'Due: ' + new Date(m.dueAt).toLocaleString() : ''}`;
         const pngDataUrl = await renderDebtEReceiptToImageDataUrl(m);
         const blob = await (await fetch(pngDataUrl)).blob();
         try {
             const file = new File([blob], fileName, { type: 'image/png' });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
                 await navigator.share({
-                    title: `E-Receipt — ${m.customerName}`,
+                    title: `E-${debtDocWord()} — ${m.customerName}`,
                     text: summaryText,
                     files: [file]
                 });
                 return;
             }
             if (navigator.share) {
-                await navigator.share({ title: `E-Receipt — ${m.customerName}`, text: summaryText });
+                await navigator.share({ title: `E-${debtDocWord()} — ${m.customerName}`, text: summaryText });
                 return;
             }
         } catch (e) {
@@ -10474,7 +10499,7 @@ function renderOverviewDOM(stats, ctx) {
                 const tags = (ctx.pendingIds && ctx.pendingIds.has(tx.id) ? '<span class="remoteops-tag remoteops-tag-warn" title="Saved on this device — not yet synced to the server">Pending sync</span>' : '')
                     + (tx.refundStatus === 'full' || ovIsFullyRefunded(tx) ? '<span class="remoteops-tag remoteops-tag-warn">Refunded</span>' : (ovGetRefundedAmount(tx) > 0 ? '<span class="remoteops-tag remoteops-tag-warn">Partial refund</span>' : ''));
                 const cashierName = String(tx.cashierDisplayName || tx.cashier || 'Unknown');
-                return `<tr><td data-label="Time">${escapeHtml(when)}</td><td data-label="Receipt"><span class="remoteops-primary-cell"><span class="remoteops-row-icon"><i class="fa-solid fa-receipt"></i></span>${escapeHtml(tx.id)}${tags}</span></td><td data-label="Cashier"><span class="remoteops-primary-cell"><span class="remoteops-avatar">${escapeHtml(cashierName.trim().slice(0, 1).toUpperCase() || '?')}</span>${escapeHtml(cashierName)}</span></td><td data-label="Payment">${escapeHtml(ovPaymentLabel(tx))}</td><td data-label="Total"><strong class="remoteops-money">${escapeHtml(ovFormatMoney(ovGetNetSalesAmount(tx)))}</strong></td></tr>`;
+                return `<tr><td data-label="Time">${escapeHtml(when)}</td><td data-label="${escapeHtml(birT('Receipt'))}"><span class="remoteops-primary-cell"><span class="remoteops-row-icon"><i class="fa-solid fa-receipt"></i></span>${escapeHtml(tx.id)}${tags}</span></td><td data-label="Cashier"><span class="remoteops-primary-cell"><span class="remoteops-avatar">${escapeHtml(cashierName.trim().slice(0, 1).toUpperCase() || '?')}</span>${escapeHtml(cashierName)}</span></td><td data-label="Payment">${escapeHtml(ovPaymentLabel(tx))}</td><td data-label="Total"><strong class="remoteops-money">${escapeHtml(ovFormatMoney(ovGetNetSalesAmount(tx)))}</strong></td></tr>`;
             }).join('');
         }
     }
@@ -25204,9 +25229,9 @@ function renderPermissionMatrix() {
         const needsReadMore = m.label.length > 70;
         return groupHeaderRow + `
         <tr>
-            <td class="matrix-col-label" title="${escapeHtml(m.label)}">
+            <td class="matrix-col-label" title="${escapeHtml(birT(m.label))}">
                 <span class="matrix-perm-badge ${badge.cls}">${badge.text}</span>
-                <span class="matrix-label-text${needsReadMore ? ' matrix-label-clamped' : ''}">${escapeHtml(m.label)}</span>
+                <span class="matrix-label-text${needsReadMore ? ' matrix-label-clamped' : ''}">${escapeHtml(birT(m.label))}</span>
                 ${needsReadMore ? `<button type="button" class="matrix-label-readmore" onclick="toggleMatrixLabel(this)">Read more</button>` : ''}
             </td>
             ${roles.map(r => `
@@ -25626,7 +25651,7 @@ async function loadPendingRequestsTable() {
             const safeReqId = escapeHtml(r.id).replace(/'/g,'&#39;');
             row.innerHTML = `
                 <td><strong>${escapeHtml(r.requester)}</strong></td>
-                <td><span class="badge-role staff" style="background:#fef2f2; color:#ef4444;">${escapeHtml(r.type)}</span></td>
+                <td><span class="badge-role staff" style="background:#fef2f2; color:#ef4444;">${escapeHtml(displayRequestType(r.type))}</span></td>
                 <td class="font-bold">${escapeHtml(r.type ==='PROFILE_UPDATE' ? (r.targetUser ||'N/A') : (r.targetCode || r.data?.code ||'N/A'))}</td>
                 <td style="font-size:0.85rem; max-width:300px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(summaryDetails)}">${escapeHtml(summaryDetails)}</td>
                 <td>${escapeHtml(r.timestamp)}</td>
@@ -25761,7 +25786,7 @@ function renderSystemAuditLogsTable() {
             <td>${log.id}</td>
             <td><span class="badge user-badge">${escapeHtml(log.username)}</span></td>
             <td><span class="text-muted">${log.timestamp}</span></td>
-            <td><strong>${escapeHtml(log.action)}</strong></td>
+            <td><strong>${escapeHtml(birT(log.action))}</strong></td>
         `;
         tbody.appendChild(tr);
     });
@@ -25904,7 +25929,7 @@ async function executeSystemHardReset() {
             html: `You chose to include BIR Compliance data in this reset. This will permanently delete:<br>
                    <ul style="text-align:left; margin:10px 0 10px 18px;">
                        <li>Accumulated Grand Total (AGT)</li>
-                       <li>Invoice numbering — the next sale restarts at <b>INV-000001</b></li>
+                       <li>Invoice numbering — the next sale restarts at <b>${birInvNo(1)}</b></li>
                        <li>BIR Z-Reading history, void log, and AGT reset history</li>
                    </ul>
                    This data is NOT part of the main backup file — it is emailed to the Secondary Backup Email as a <b>separate attachment</b> before it is deleted. Keep that file safe.<br><br>
@@ -30192,7 +30217,17 @@ function birFmtDate(iso) {
 function birManilaToday() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
 }
-function birInvNo(n) { return `INV-${String(Math.max(0, parseInt(n, 10) || 0)).padStart(6, '0')}`; }
+// Document-number prefix: "INV" only while BIR document mode is on; otherwise the non-official "SLIP" (fail-safe: non-BIR).
+function birNoPrefix() {
+    try { if (typeof isBirDocumentModeEnabled === 'function' && isBirDocumentModeEnabled()) return 'INV'; } catch (e) { /* fail-safe */ }
+    return 'SLIP';
+}
+function birInvNo(n) { return `${birNoPrefix()}-${String(Math.max(0, parseInt(n, 10) || 0)).padStart(6, '0')}`; }
+// Same prefix rule for a number that came from the server (e.g. the void log), which is always stored as INV-xxxxxx.
+function birDisplayNo(v) {
+    const t = String(v == null ? '' : v);
+    return birNoPrefix() === 'INV' ? t : t.replace(/^INV-/i, 'SLIP-');
+}
 async function birGetJson(path) {
     const res = await authFetch(`${API_URL}${path}`);
     let data = null;
@@ -30256,10 +30291,10 @@ function renderBirZHistory(list) {
 function renderBirVoids(list) {
     const body = document.getElementById('bir-void-log-body');
     if (!body) return;
-    if (!list.length) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">No voided invoices logged.</td></tr>'; return; }
+    if (!list.length) { body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;">${escapeHtml(birT('No voided invoices logged.'))}</td></tr>`; return; }
     body.innerHTML = list.map(v => `
         <tr>
-            <td>${escapeHtml(v.invoiceNumber || '—')}</td>
+            <td>${escapeHtml(v.invoiceNumber ? birDisplayNo(v.invoiceNumber) : '—')}</td>
             <td>${escapeHtml(v.transactionId || '—')}</td>
             <td>${birPeso(v.amount)}</td>
             <td>${escapeHtml(v.voidedBy || '—')}</td>
@@ -30335,7 +30370,7 @@ function printBirZReading(r) {
     if (!win) { Swal.fire('Pop-up Blocked', 'Allow pop-ups for this site, then try again.', 'info'); return; }
     const bir = (storeSettingsCache && storeSettingsCache.bir) || {};
     const storeName = (receiptSettingsCache && receiptSettingsCache.storeName) || bir.businessName || 'OmniPOS';
-    const row = (label, value) => `<div class="r"><span>${escapeHtml(label)}</span><span>${escapeHtml(String(value))}</span></div>`;
+    const row = (label, value) => `<div class="r"><span>${escapeHtml(birT(label))}</span><span>${escapeHtml(String(value))}</span></div>`;
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>BIR Z-Reading #${escapeHtml(String(r.zCounter))}</title>
         <style>body{font-family:monospace;font-size:12px;width:300px;margin:8px auto;color:#000}h3,h4{text-align:center;margin:2px 0}.r{display:flex;justify-content:space-between;gap:8px}hr{border:0;border-top:1px dashed #000;margin:6px 0}</style></head><body>
         <h3>${escapeHtml(storeName)}</h3>

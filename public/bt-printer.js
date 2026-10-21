@@ -11,6 +11,16 @@ const BT_PRINTER_STORAGE_KEYS = {
     charUuid: 'omnipos_bt_printer_char_uuid'
 };
 
+// Fallback label for the invoice/slip number line when the receipt DOM has no label text.
+// Official wording ("Invoice No.:") only when BIR document mode is on; otherwise the non-BIR "Slip No.:".
+// Fail-safe: if the status is unknown (app.js not loaded yet / error) the non-official wording is used.
+function getInvoiceLabelFallback() {
+    try {
+        if (typeof isBirDocumentModeEnabled === 'function' && isBirDocumentModeEnabled()) return 'Invoice No.:';
+    } catch (e) { /* fail-safe: non-BIR wording */ }
+    return 'Slip No.:';
+}
+
 let btPrinterDevice = null;
 let btPrinterCharacteristic = null;
 
@@ -270,7 +280,7 @@ function buildEscPosReceiptBytes(data, charWidth) {
     pushText(padLine(`Ref No.: ${data.receiptId || ''}`, data.date || '', charWidth)); nl();
     pushText(padLine(`Cashier: ${data.cashier || ''}`, data.time || '', charWidth)); nl();
     if (data.orderNo) { pushText(`Order No.: ${data.orderNo}`); nl(); }
-    if (data.invoiceNo) { pushText(`${data.invoiceLabel || 'Invoice No.:'} ${data.invoiceNo}`); nl(); }
+    if (data.invoiceNo) { pushText(`${data.invoiceLabel || getInvoiceLabelFallback()} ${data.invoiceNo}`); nl(); }
     pushText('-'.repeat(charWidth)); nl();
 
     (data.items || []).forEach((item) => {
@@ -488,7 +498,7 @@ function collectReceiptDataFromDom(prefix) {
             return { kind: getText(`${prefix}-scpwd-kind`), name: getText(`${prefix}-scpwd-name`), id: getText(`${prefix}-scpwd-id`) };
         })(),
         totalLabel: getText(`${prefix}-total-label`) || 'TOTAL',
-        invoiceLabel: getText(`${prefix}-inv-label`) || 'Invoice No.:',
+        invoiceLabel: getText(`${prefix}-inv-label`) || getInvoiceLabelFallback(),
         invoiceNo: (() => {
             const row = document.getElementById(`${prefix}-inv-row`);
             return row && row.style.display === 'none' ? '' : getText(`${prefix}-inv-no`);

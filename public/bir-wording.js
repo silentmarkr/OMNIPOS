@@ -25,7 +25,13 @@
     ].join(',');
     // Ang placeholder/title ng input ay label (hindi data), kaya pinoproseso ang attributes ng input/textarea/select.
     var ATTR_SKIP_SELECTOR = SKIP_SELECTOR.replace('textarea,input,select,option,', '');
-    var ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
+    var ATTRS = ['title', 'placeholder', 'aria-label', 'alt', 'aria-description', 'data-label', 'data-tooltip', 'data-title', 'data-original-title'];
+    // <input type=button|submit|reset value="..."> is a visible label too (value of other inputs is data and is never touched).
+    var BUTTON_INPUT = /^(button|submit|reset)$/i;
+    function attrsFor(el) {
+        if (el.tagName === 'INPUT' && BUTTON_INPUT.test(el.getAttribute('type') || '')) return ATTRS.concat(['value']);
+        return ATTRS;
+    }
     var SUPPLIER_CONTEXT = /(supplier|vendor|purchase|delivery|billing|goods|vendor's|supplier's)\s+$/i;
 
     var applied = new WeakMap();      // Text node -> { orig, out }
@@ -49,12 +55,18 @@
     // Ang pagkakasunod-sunod ay mahalaga: pinakamahabang parirala muna.
     function transform(str) {
         if (!str || typeof str !== 'string') return str;
-        if (!/receipt|invoice|resibo/i.test(str)) return str;
+        if (!/receipt|invoic|resibo/i.test(str) && !/\b(?:OR|SI)\s+(?:No|Number|#)/.test(str)) return str;
         var out = str;
         out = out.replace(/\bsales\s+invoices?\b/gi, function (m) { return matchCase(m, /s$/i.test(m) ? 'Order Slips' : 'Order Slip', /s$/i.test(m) ? 'order slips' : 'order slip'); });
         out = out.replace(/\bofficial\s+receipts?\b/gi, function (m) { return matchCase(m, /s$/i.test(m) ? 'Order Slips' : 'Order Slip', /s$/i.test(m) ? 'order slips' : 'order slip'); });
         out = out.replace(/\breceipt\s+invoice\b/gi, function (m) { return matchCase(m, 'Order Slip', 'order slip'); });
-        out = out.replace(/\binvoice\s+(no\.?|number|#)/gi, function (m, tail) { return matchCase(m, 'Slip ', 'slip ') + tail; });
+        // "Invoice No." -> "Slip No." (but a supplier/purchase invoice number is not a BIR sales document: keep it)
+        out = out.replace(/\binvoice\s+(no\.?|number|#)/gi, function (m, tail, offset, whole) {
+            if (SUPPLIER_CONTEXT.test(whole.slice(Math.max(0, offset - 14), offset))) return m;
+            return matchCase(m, 'Slip ', 'slip ') + tail;
+        });
+        // Official-document abbreviations: "OR No.", "SI No." (case-sensitive so a normal "or"/"si" is never touched)
+        out = out.replace(/\b(?:OR|SI)(\s+)(No\.?|Number|#)/g, function (m, sp, tail) { return 'Slip' + sp + tail; });
         out = out.replace(/\be-?receipts?\b/gi, function (m) { return matchCase(m, /s$/i.test(m) ? 'Order Slips' : 'Order Slip', /s$/i.test(m) ? 'order slips' : 'order slip'); });
         out = out.replace(/\breceipts\b/gi, function (m) { return matchCase(m, 'Order Slips', 'order slips'); });
         out = out.replace(/\breceipt\b/gi, function (m) { return matchCase(m, 'Order Slip', 'order slip'); });
@@ -62,12 +74,20 @@
             if (SUPPLIER_CONTEXT.test(whole.slice(Math.max(0, offset - 14), offset))) return m; // supplier/purchase invoice: hindi BIR sales document
             return matchCase(m, /s$/i.test(m) ? 'Order Slips' : 'Order Slip', /s$/i.test(m) ? 'order slips' : 'order slip');
         });
+        // Verb / gerund forms: "invoicing system" -> "order slip system", "invoiced" -> "recorded"
+        out = out.replace(/\binvoicing\b/gi, function (m) { return matchCase(m, 'Order Slip', 'order slip'); });
+        out = out.replace(/\binvoiced\b/gi, function (m) { return matchCase(m, 'Recorded', 'recorded'); });
+        // Filipino: "resibong ito" -> "order slip na ito"
+        out = out.replace(/\bresibong\b/gi, function (m) { return matchCase(m, 'Order Slip na', 'order slip na'); });
         out = out.replace(/\bresibo\b/gi, function (m) { return matchCase(m, 'Order Slip', 'order slip'); });
         return out;
     }
 
     function shouldSkip(el) {
         if (!el || el.nodeType !== 1) return true;
+        // <option> is normally skipped (it can hold product/customer data). A static option that is only a LABEL opts in
+        // with data-bir-label, so e.g. "Email Receipt" in a dropdown follows the same wording rule as the rest of the UI.
+        if (el.tagName === 'OPTION' && el.hasAttribute('data-bir-label')) return false;
         try { return !!el.closest(SKIP_SELECTOR); } catch (e) { return true; }
     }
 
@@ -95,8 +115,9 @@
 
     function processAttrs(el) {
         if (!el || el.nodeType !== 1 || shouldSkipAttrs(el)) return;
-        for (var i = 0; i < ATTRS.length; i++) {
-            var a = ATTRS[i];
+        var list = attrsFor(el);
+        for (var i = 0; i < list.length; i++) {
+            var a = list[i];
             var v = el.getAttribute(a);
             if (!v) continue;
             var store = el.__birAttr || (el.__birAttr = {});
@@ -179,7 +200,7 @@
         fullScan();
         if (typeof MutationObserver === 'function') {
             observer = new MutationObserver(onMutations);
-            observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
+            observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS.concat(["value"]) });
         }
         // Sinusuri ang status kada 2.5s (nagbabago ito kapag na-load ang unlocked features / store settings, o na-unlock ang BIR module).
         setInterval(refresh, 2500);

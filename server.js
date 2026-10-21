@@ -14979,7 +14979,7 @@ app.post('/api/transactions/:transactionId/email-receipt', rateLimit('email-rece
                     const base64Data = match[2];
                     if (base64Data.length < 2_800_000) {
                         attachments.push({
-                            filename: `receipt-${tx.id}.${ext ==='jpeg' ?'jpg' :'png'}`,
+                            filename: `${birDoc ? 'receipt' : 'order-slip'}-${tx.id}.${ext ==='jpeg' ?'jpg' :'png'}`,
                             content: base64Data,
                             encoding:'base64'
                         });
@@ -20900,6 +20900,8 @@ app.delete('/api/debts/:id', requirePermission('customers'), requireFeature('cus
     res.json({ success: true });
 });
 function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
+    // Non-BIR mode: the word "Receipt" is reserved for official documents, so the debt statement is a "Debt Slip".
+    const docName = isBirDocumentModeActive() ? 'Receipt' : 'Slip';
     const accent = resolveEmailAccentColor(settings);
     const storeAddress = settings.storeAddress || '';
     const storeContact = settings.storeContact || '';
@@ -20946,7 +20948,7 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Debt Receipt ${escapeHtml(debt.id)}</title>
+<title>Debt ${docName} ${escapeHtml(debt.id)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:28px 12px;">
@@ -20956,7 +20958,7 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
         <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.3px;">${escapeHtml(storeName)}</div>
         ${storeAddress ? `<div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:6px;">${escapeHtml(storeAddress)}</div>` : ''}
         ${storeContact ? `<div style="color:rgba(255,255,255,0.75);font-size:12px;margin-top:2px;">${escapeHtml(storeContact)}</div>` : ''}
-        <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-top:14px;">Digital Debt Receipt</div>
+        <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-top:14px;">Digital Debt ${docName}</div>
     </td></tr>
     <tr><td style="padding:22px 32px 0;">
         <span style="display:inline-block;background-color:${meta.bg};color:${meta.fg};font-size:11px;font-weight:700;letter-spacing:0.4px;padding:6px 14px;border-radius:999px;">${meta.label}</span>
@@ -20981,7 +20983,7 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
             ${debt.phone ? `<tr><td style="padding:4px 0;">Phone</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.phone)}</td></tr>` : ''}
             ${dueBlock}
             ${txRow}
-            <tr><td style="padding:4px 0;">Receipt No.</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.id)}</td></tr>
+            <tr><td style="padding:4px 0;">${docName} No.</td><td align="right" style="padding:4px 0;">${escapeHtml(debt.id)}</td></tr>
         </table>
     </td></tr>
     <tr><td style="padding:20px 32px 0;"><div style="border-top:1px solid #e2e8f0;"></div></td></tr>
@@ -21007,7 +21009,7 @@ function buildDebtReceiptEmailHtml({ settings, debt, storeName }) {
         <div style="font-size:14px;font-style:italic;color:#334155;">${escapeHtml(footerText)}</div>
     </td></tr>
     <tr><td style="padding:6px 32px 28px;text-align:center;">
-        <div style="font-size:11px;color:#94a3b8;">This is an electronic receipt. Please keep this for your records.</div>
+        <div style="font-size:11px;color:#94a3b8;">This is an electronic ${docName.toLowerCase()}. Please keep this for your records.</div>
     </td></tr>
 </table>
 <div style="font-size:11px;color:#94a3b8;margin-top:16px;">Sent via ${escapeHtml(storeName)} · Powered by OmniPOS</div>
@@ -21038,6 +21040,7 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
     }
     try {
         const storeName = settings.storeName || 'OmniPOS';
+        const debtDocName = isBirDocumentModeActive() ? 'Receipt' : 'Slip';
         const amount = parseFloat(debt.amount) || 0;
         const paid = parseFloat(debt.amountPaid) || 0;
         const remaining = Math.max(0, amount - paid);
@@ -21051,18 +21054,18 @@ app.post('/api/debts/:id/email-receipt', requirePermission('customers'), require
         const itemLines = items.length
             ? items.map(i => `  ${i.name} x${parseFloat(i.quantity) || 0} .......... ₱${(((parseFloat(i.price) || 0) * (parseFloat(i.quantity) || 0))).toFixed(2)}`).join('\n')
             : '  No linked products for this debt.';
-        const textBody = `${storeName}\n${settings.storeAddress || ''}\n\nDIGITAL DEBT RECEIPT\nStatus: ${statusLabels[debt.status] || debt.status}\n\nCustomer: ${debt.customerName || ''}\n${debt.phone ? 'Phone: ' + debt.phone + '\n' : ''}Due: ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}\n${debt.transactionId ? 'Linked Transaction: ' + debt.transactionId + '\n' : ''}Receipt No.: ${debt.id}\n\nAmount Owed: ₱${amount.toFixed(2)}\nAmount Paid: ₱${paid.toFixed(2)}\nRemaining Balance: ₱${remaining.toFixed(2)}\n\nPayment Breakdown:\n${paymentLines}\n\nItems Purchased:\n${itemLines}\n${debt.note ? '\nNote:\n  ' + debt.note + '\n' : ''}\n${settings.footerText || 'Thank you for your continued trust!'}`;
+        const textBody = `${storeName}\n${settings.storeAddress || ''}\n\nDIGITAL DEBT ${debtDocName.toUpperCase()}\nStatus: ${statusLabels[debt.status] || debt.status}\n\nCustomer: ${debt.customerName || ''}\n${debt.phone ? 'Phone: ' + debt.phone + '\n' : ''}Due: ${debt.dueAt ? new Date(debt.dueAt).toLocaleString() : 'No due date set'}\n${debt.transactionId ? 'Linked Transaction: ' + debt.transactionId + '\n' : ''}${debtDocName} No.: ${debt.id}\n\nAmount Owed: ₱${amount.toFixed(2)}\nAmount Paid: ₱${paid.toFixed(2)}\nRemaining Balance: ₱${remaining.toFixed(2)}\n\nPayment Breakdown:\n${paymentLines}\n\nItems Purchased:\n${itemLines}\n${debt.note ? '\nNote:\n  ' + debt.note + '\n' : ''}\n${settings.footerText || 'Thank you for your continued trust!'}`;
         const htmlBody = buildDebtReceiptEmailHtml({ settings, debt, storeName });
         const mailOptions = {
             from: `"${storeName}" <${mailCreds.user}>`,
             to: toEmail,
-            subject: `Debt Receipt ${debt.id} - ${storeName}`,
+            subject: `Debt ${debtDocName} ${debt.id} - ${storeName}`,
             text: textBody,
             html: htmlBody
         };
         await sendMailSmart(mailCreds.user, mailCreds.pass, mailOptions);
-        logAction(req.authUser ? req.authUser.username : 'Unknown', `Emailed debt e-receipt ${debt.id} to ${maskEmail(toEmail)}`);
-        res.json({ success: true, message: 'The e-receipt has been sent.' });
+        logAction(req.authUser ? req.authUser.username : 'Unknown', `Emailed debt e-${debtDocName.toLowerCase()} ${debt.id} to ${maskEmail(toEmail)}`);
+        res.json({ success: true, message: `The e-${debtDocName.toLowerCase()} has been sent.` });
     } catch (err) {
         const mailErr = describeMailError(err);
         console.error(`Debt email receipt failed [${mailErr.code}]:`, err.message);
@@ -21701,13 +21704,23 @@ app.post('/api/bir/reset-agt', requirePermission('bir_compliance'), requireFeatu
         res.status(isUserError ? 400 : 500).json({ success: false, message: isUserError ? err.message : `Hindi nai-save ang AGT reset (walang nabago sa data). Detalye: ${err.message}` });
     }
 });
+// Official BIR export files (e-Journal / Sales Book / EIS) carry official-document wording ("Invoice", "Official Receipt").
+// They are produced ONLY when the module is unlocked AND the permit details are configured (same rule as isBirDocumentModeActive()).
+function requireBirDocumentMode(req, res, next) {
+    if (isBirDocumentModeActive()) return next();
+    return res.status(403).json({
+        success: false,
+        code: 'BIR_NOT_CONFIGURED',
+        message: 'BIR export files are available only after the BIR permit details (TIN, PTU) are configured and BIR Receipt Details are turned on.'
+    });
+}
 function parseBirDateRange(req) {
     const today = birCompliance.manilaDateStr(new Date().toISOString());
     const fromDateStr = (req.query.from && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from)) ? req.query.from : today;
     const toDateStr = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : today;
     return { fromDateStr, toDateStr };
 }
-app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
+app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), requireFeature('bir_compliance'), requireBirDocumentMode, (req, res) => {
     const { fromDateStr, toDateStr } = parseBirDateRange(req);
     const text = birCompliance.exportEJournal({ fromDateStr, toDateStr, context: getBirContext() });
     logAction(req.authUser.username, `Exported BIR e-Journal (${fromDateStr} to ${toDateStr})`);
@@ -21715,7 +21728,7 @@ app.get('/api/bir/export/ejournal', requirePermission('bir_compliance'), require
     res.setHeader('Content-Disposition', `attachment; filename="ejournal_${fromDateStr}_to_${toDateStr}.txt"`);
     res.send(text);
 });
-app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
+app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), requireFeature('bir_compliance'), requireBirDocumentMode, (req, res) => {
     const { fromDateStr, toDateStr } = parseBirDateRange(req);
     const csv = birCompliance.exportSalesBookCsv({ fromDateStr, toDateStr });
     logAction(req.authUser.username, `Exported BIR Sales Book CSV (${fromDateStr} to ${toDateStr})`);
@@ -21723,7 +21736,7 @@ app.get('/api/bir/export/sales-book', requirePermission('bir_compliance'), requi
     res.setHeader('Content-Disposition', `attachment; filename="sales_book_${fromDateStr}_to_${toDateStr}.csv"`);
     res.send(csv);
 });
-app.get('/api/bir/export/eis', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
+app.get('/api/bir/export/eis', requirePermission('bir_compliance'), requireFeature('bir_compliance'), requireBirDocumentMode, (req, res) => {
     const { fromDateStr, toDateStr } = parseBirDateRange(req);
     const payload = birCompliance.exportEIS({ fromDateStr, toDateStr, context: getBirContext() });
     logAction(req.authUser.username, `Exported BIR EIS-ready JSON (${fromDateStr} to ${toDateStr})`);
