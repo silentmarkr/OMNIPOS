@@ -17292,6 +17292,10 @@ async function loadAdvancedSettingsPanel() {
     if (!s) return;
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+    setChecked('adv-auto-logout-enabled', s.autoLogoutEnabled !== false);
+    setVal('adv-auto-logout-minutes', s.autoLogoutMinutes || 5);
+    setChecked('adv-auto-logout-show-timer', s.autoLogoutShowTimer);
+    toggleAutoLogoutFields('adv');
     setChecked('adv-idle-lock-enabled', s.idleAutoLockEnabled);
     setVal('adv-idle-lock-minutes', s.idleAutoLockMinutes);
     setChecked('adv-customer-display-enabled', s.customerDisplayEnabled);
@@ -17311,9 +17315,25 @@ async function loadAdvancedSettingsPanel() {
         statusEl.style.color = '#64748b';
     }
     setupIdleAutoLock();
+    refreshAutoLogoutFromSettings();
+}
+function toggleAutoLogoutFields(prefix) {
+    const enabledEl = document.getElementById(prefix + '-auto-logout-enabled');
+    const minutesEl = document.getElementById(prefix + '-auto-logout-minutes');
+    const timerEl = document.getElementById(prefix + '-auto-logout-show-timer');
+    if (!enabledEl) return;
+    const on = !!enabledEl.checked;
+    if (minutesEl) minutesEl.disabled = !on;
+    if (timerEl) {
+        timerEl.disabled = !on;
+        if (!on) timerEl.checked = false;
+    }
 }
 async function saveAdvancedSettings() {
     const payload = {
+        autoLogoutEnabled: document.getElementById('adv-auto-logout-enabled').checked,
+        autoLogoutMinutes: Math.min(480, Math.max(1, parseInt(document.getElementById('adv-auto-logout-minutes').value, 10) || 5)),
+        autoLogoutShowTimer: document.getElementById('adv-auto-logout-enabled').checked && document.getElementById('adv-auto-logout-show-timer').checked,
         idleAutoLockEnabled: document.getElementById('adv-idle-lock-enabled').checked,
         idleAutoLockMinutes: parseInt(document.getElementById('adv-idle-lock-minutes').value, 10) || 5,
         customerDisplayEnabled: document.getElementById('adv-customer-display-enabled').checked,
@@ -17377,6 +17397,10 @@ function mirrorRealSettingsIntoTerminalModal() {
     copyChecked('ux-scanner-sound', 'tset-scanner-sound');
     const swapCb = document.getElementById('tset-swap-terminal-layout');
     if (swapCb && typeof getTerminalLayoutSwapped === 'function') swapCb.checked = getTerminalLayoutSwapped();
+    copyChecked('adv-auto-logout-enabled', 'tset-auto-logout-enabled');
+    copyVal('adv-auto-logout-minutes', 'tset-auto-logout-minutes');
+    copyChecked('adv-auto-logout-show-timer', 'tset-auto-logout-show-timer');
+    toggleAutoLogoutFields('tset');
     copyChecked('adv-idle-lock-enabled', 'tset-idle-lock-enabled');
     copyVal('adv-idle-lock-minutes', 'tset-idle-lock-minutes');
     copyChecked('adv-customer-display-enabled', 'tset-customer-display-enabled');
@@ -17442,6 +17466,9 @@ async function saveTerminalAppearanceSettings() {
 async function saveTerminalAdvancedSettings() {
     const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
     const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
+    copyChecked('tset-auto-logout-enabled', 'adv-auto-logout-enabled');
+    copyVal('tset-auto-logout-minutes', 'adv-auto-logout-minutes');
+    copyChecked('tset-auto-logout-show-timer', 'adv-auto-logout-show-timer');
     copyChecked('tset-idle-lock-enabled', 'adv-idle-lock-enabled');
     copyVal('tset-idle-lock-minutes', 'adv-idle-lock-minutes');
     copyChecked('tset-customer-display-enabled', 'adv-customer-display-enabled');
@@ -28677,22 +28704,91 @@ let idleTimer = null;
 let countdownInterval = null;
 const IDLE_TIMEOUT_LIMIT = 5 * 60 * 1000;
 const COUNTDOWN_DURATION = 15;
+let autoLogoutDeadline = 0;
+let autoLogoutTotalMs = 0;
+let autoLogoutTickerInterval = null;
+function getAutoLogoutConfig() {
+    const s = advancedSettingsCache;
+    if (!s) return { enabled: true, ms: IDLE_TIMEOUT_LIMIT, showTimer: false };
+    const enabled = s.autoLogoutEnabled !== false;
+    let minutes = parseInt(s.autoLogoutMinutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 1) minutes = IDLE_TIMEOUT_LIMIT / 60000;
+    if (minutes > 480) minutes = 480;
+    return { enabled, ms: minutes * 60 * 1000, showTimer: enabled && !!s.autoLogoutShowTimer };
+}
+function formatAutoLogoutRemaining(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = total % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(sec).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+function updateAutoLogoutTimerUi(cfg) {
+    const els = ['uw-autologout', 'hu-autologout'].map((id) => document.getElementById(id)).filter(Boolean);
+    if (!cfg || !cfg.showTimer || !currentUser || !autoLogoutDeadline) {
+        els.forEach((el) => { el.hidden = true; });
+        return;
+    }
+    const remaining = Math.max(0, autoLogoutDeadline - Date.now());
+    const pct = autoLogoutTotalMs > 0 ? Math.max(0, Math.min(100, (remaining / autoLogoutTotalMs) * 100)) : 0;
+    const state = remaining <= 30000 ? 'danger' : (remaining <= 60000 ? 'warn' : 'ok');
+    const text = formatAutoLogoutRemaining(remaining);
+    els.forEach((el) => {
+        el.hidden = false;
+        if (el.dataset.state !== state) el.dataset.state = state;
+        const timeEl = el.querySelector('.al-time');
+        if (timeEl && timeEl.textContent !== text) timeEl.textContent = text;
+        const barEl = el.querySelector('.al-bar-fill');
+        if (barEl) barEl.style.width = pct.toFixed(2) + '%';
+        el.setAttribute('aria-label', 'Auto logout in ' + text);
+    });
+}
+function stopAutoLogoutTicker() {
+    if (autoLogoutTickerInterval) {
+        clearInterval(autoLogoutTickerInterval);
+        autoLogoutTickerInterval = null;
+    }
+}
+function startAutoLogoutTicker(cfg) {
+    stopAutoLogoutTicker();
+    if (!cfg || !cfg.showTimer) {
+        updateAutoLogoutTimerUi(null);
+        return;
+    }
+    autoLogoutTotalMs = cfg.ms + (COUNTDOWN_DURATION * 1000);
+    updateAutoLogoutTimerUi(cfg);
+    autoLogoutTickerInterval = setInterval(() => updateAutoLogoutTimerUi(cfg), 1000);
+}
+function refreshAutoLogoutFromSettings() {
+    if (!currentUser) return;
+    if (countdownInterval) return;
+    initIdleTimer();
+}
 function initIdleTimer() {
     destroyIdleTimer();
     if (!currentUser) return;
+    const cfg = getAutoLogoutConfig();
+    if (!cfg.enabled) return;
     const resetTimer = () => {
         if (idleTimer) clearTimeout(idleTimer);
+        autoLogoutDeadline = Date.now() + cfg.ms + (COUNTDOWN_DURATION * 1000);
         idleTimer = setTimeout(() => {
             console.warn("System idle limit reached. Showing countdown warning prompt.");
             triggerIdleWarning();
-        }, IDLE_TIMEOUT_LIMIT);
+        }, cfg.ms);
     };
     const userInteractionEvents = ['mousemove','keydown','mousedown','touchstart','scroll','click'];
     userInteractionEvents.forEach(event => window.addEventListener(event, resetTimer));
     resetTimer();
     window._idleEventsHandler = resetTimer;
+    startAutoLogoutTicker(cfg);
 }
 function destroyIdleTimer() {
+    stopAutoLogoutTicker();
+    autoLogoutDeadline = 0;
+    updateAutoLogoutTimerUi(null);
     if (idleTimer) {
         clearTimeout(idleTimer);
         idleTimer = null;
@@ -28907,7 +29003,7 @@ async function showMainSystemInterface(options = {}) {
         receiptSettingsPromise = fetchReceiptSettings();
         try { await fetchStoreSettings(); } catch (e) { console.error('fetchStoreSettings failed (non-blocking):', e); }
         try { await fetchUxSettings(); } catch (e) { console.error('fetchUxSettings failed (non-blocking):', e); }
-        try { await fetchAdvancedSettings(); setupIdleAutoLock(); } catch (e) { console.error('fetchAdvancedSettings failed (non-blocking):', e); }
+        try { await fetchAdvancedSettings(); setupIdleAutoLock(); refreshAutoLogoutFromSettings(); } catch (e) { console.error('fetchAdvancedSettings failed (non-blocking):', e); }
         applyPaymentMethodVisibility();
     } catch (err) {
         console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);

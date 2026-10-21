@@ -63,7 +63,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261018-1">
+    <link rel="stylesheet" href="style.css?v=20261021-5">
 
     <link rel="stylesheet" href="css/themes/vivid-base.css?v=1" data-retry>
     <link rel="stylesheet" href="css/themes/theme-dark.css?v=2" data-retry>
@@ -215,6 +215,13 @@
                     <div class="uw-submenu" id="uw-terminalthemes-submenu">
 
                     </div>
+                    <div class="uw-item uw-autologout" id="uw-autologout" data-state="ok" role="timer" aria-live="off" hidden>
+                        <div class="al-row">
+                            <span class="al-label"><i class="fa-solid fa-hourglass-half al-icon"></i> Auto logout in</span>
+                            <strong class="al-time">--:--</strong>
+                        </div>
+                        <div class="al-bar"><div class="al-bar-fill"></div></div>
+                    </div>
                     <a href="#" class="uw-item uw-logout" onclick="handleLogout()"><i class="fa-solid fa-right-from-bracket"></i> Sign Out</a>
                 </div>
             </div>
@@ -335,6 +342,13 @@
 
                             </div>
                             <div class="hu-divider" id="hu-logout-divider"></div>
+                            <div class="hu-item hu-autologout" id="hu-autologout" data-state="ok" role="timer" aria-live="off" hidden>
+                                <div class="al-row">
+                                    <span class="al-label"><i class="fa-solid fa-hourglass-half al-icon"></i> Auto logout in</span>
+                                    <strong class="al-time">--:--</strong>
+                                </div>
+                                <div class="al-bar"><div class="al-bar-fill"></div></div>
+                            </div>
                             <a href="#" class="hu-item hu-logout" id="hu-logout-btn" onclick="handleLogout(); return false;">
                                 <span><i class="fa-solid fa-right-from-bracket"></i> Sign Out</span>
                             </a>
@@ -2579,12 +2593,27 @@
                 <i class="fa-solid fa-sliders"></i> Advanced Settings
             </h3>
             <p style="font-size:0.85rem; color: var(--text-muted); line-height:1.5; margin-bottom: 16px;">
-                Modern, opt-in features: idle-session auto-lock, a customer-facing second screen, and a webhook for sending completed sales to other tools (Zapier, Make, accounting software, etc.).
+                Modern, opt-in features: automatic logout (with an optional live countdown), idle-session auto-lock, a customer-facing second screen, and a webhook for sending completed sales to other tools (Zapier, Make, accounting software, etc.).
             </p>
 
             <div id="advanced-settings-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
 
-            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:0 0 8px;"><i class="fa-solid fa-lock"></i> Idle Auto-Lock</h4>
+            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:0 0 8px;"><i class="fa-solid fa-right-from-bracket"></i> Auto Logout</h4>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 8px;">Fully signs the user out after a period of inactivity (a 15-second warning appears first). Set this longer than the Idle Auto-Lock time below so the lock screen comes first.</p>
+            <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="adv-auto-logout-enabled" style="width:auto;" onchange="toggleAutoLogoutFields('adv')" autocomplete="off">
+                <label style="margin:0;" for="adv-auto-logout-enabled">Automatically sign out after inactivity</label>
+            </div>
+            <div class="input-field-group">
+                <label>Sign Out After (minutes of inactivity)</label>
+                <input type="number" id="adv-auto-logout-minutes" min="1" max="480" step="1" placeholder="e.g. 5" autocomplete="off">
+            </div>
+            <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="adv-auto-logout-show-timer" style="width:auto;" autocomplete="off">
+                <label style="margin:0;" for="adv-auto-logout-show-timer">Show timer before auto logout (live countdown above Sign Out)</label>
+            </div>
+
+            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:20px 0 8px;"><i class="fa-solid fa-lock"></i> Idle Auto-Lock</h4>
             <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                 <input type="checkbox" id="adv-idle-lock-enabled" style="width:auto;" autocomplete="off">
                 <label style="margin:0;" for="adv-idle-lock-enabled">Lock the terminal after inactivity (requires password to resume — not a full logout)</label>
@@ -5021,7 +5050,20 @@
                 <details class="rc-section" style="margin-top:14px;">
                     <summary><i class="fa-solid fa-sliders" style="color:#f59e0b;"></i> <span>Advanced</span></summary>
                     <div class="rc-section-body">
-                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 8px;"><i class="fa-solid fa-lock"></i> Idle Auto-Lock</h4>
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 8px;"><i class="fa-solid fa-right-from-bracket"></i> Auto Logout</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-auto-logout-enabled" style="width:auto;" onchange="toggleAutoLogoutFields('tset')" autocomplete="off">
+                            <label style="margin:0;" for="tset-auto-logout-enabled">Automatically sign out after inactivity</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Sign Out After (minutes of inactivity)</label>
+                            <input type="number" id="tset-auto-logout-minutes" min="1" max="480" step="1" placeholder="e.g. 5" autocomplete="off">
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-auto-logout-show-timer" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-auto-logout-show-timer">Show timer before auto logout (live countdown above Sign Out)</label>
+                        </div>
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-lock"></i> Idle Auto-Lock</h4>
                         <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="tset-idle-lock-enabled" style="width:auto;" autocomplete="off">
                             <label style="margin:0;" for="tset-idle-lock-enabled">Lock the terminal after inactivity (requires password to resume — not a full logout)</label>
@@ -5345,8 +5387,8 @@
 <script src="faq-lang.js?v=20261009-1"></script>
 <script src="faq-engine.js?v=20261020-1"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
-<script src="bir-wording.js?v=20261021-3"></script>
-<script src="app.js?v=20261021-4"></script>
+<script src="bir-wording.js?v=20261021-4"></script>
+<script src="app.js?v=20261021-5"></script>
 <script src="app1.js?v=20261013-1"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 

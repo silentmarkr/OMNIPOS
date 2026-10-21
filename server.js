@@ -1478,11 +1478,14 @@ app.post('/api/receipt-settings/request-otp', rateLimit('otp-request', 3, 10 * 6
     const senderUser = otpMailCreds.user;
     const senderPass = otpMailCreds.pass;
     try {
+        // BIR wording guard: sa labas ng app (email) hindi naaabot ng front-end guard, kaya ang salitang "Receipt" ay
+        // ginagamit LANG kapag BIR document mode ay aktibo; kung hindi, "Order Slip" (kapareho ng nakikita sa UI).
+        const slipTerm = isBirDocumentModeActive() ? 'Receipt' : 'Order Slip';
         await sendMailSmart(senderUser, senderPass, {
-            from: `"OmniPOS Receipt Customization" <${senderUser}>`,
+            from: `"OmniPOS ${slipTerm} Customization" <${senderUser}>`,
             to: OTP_RECIPIENT_EMAIL,
-            subject: `🔐 OmniPOS: OTP for Receipt Customization Request`,
-            text: `Someone requested a receipt customization (Store Name/Address/Contact/Header/Footer) after using up the ${freeLimit} free attempts.\n\n` +
+            subject: `🔐 OmniPOS: OTP for ${slipTerm} Customization Request`,
+            text: `Someone requested ${slipTerm === 'Receipt' ? 'a receipt' : 'an order slip'} customization (Store Name/Address/Contact/Header/Footer) after using up the ${freeLimit} free attempts.\n\n` +
                   `Requested by: ${username ||'Unknown'}\n` +
                   `OTP Code: ${otpCode}\n` +
                   `This will expire in 10 minutes.\n\n` +
@@ -2289,6 +2292,9 @@ app.post('/api/ux-settings', requirePermission('ux_settings_view'), (req, res) =
 });
 const FILE_ADVANCED_SETTINGS = 'advancedSettings';
 const DEFAULT_ADVANCED_SETTINGS = {
+    autoLogoutEnabled: true,
+    autoLogoutMinutes: 5,
+    autoLogoutShowTimer: false,
     idleAutoLockEnabled: false,
     idleAutoLockMinutes: 5,
     customerDisplayEnabled: false,
@@ -2308,6 +2314,10 @@ function getAdvancedSettingsPublic(rawSettings) {
     let minutes = parseInt(s.idleAutoLockMinutes, 10);
     if (!Number.isFinite(minutes) || minutes < 1) minutes = DEFAULT_ADVANCED_SETTINGS.idleAutoLockMinutes;
     if (minutes > 120) minutes = 120;
+    let autoLogoutMinutes = parseInt(s.autoLogoutMinutes, 10);
+    if (!Number.isFinite(autoLogoutMinutes) || autoLogoutMinutes < 1) autoLogoutMinutes = DEFAULT_ADVANCED_SETTINGS.autoLogoutMinutes;
+    if (autoLogoutMinutes > 480) autoLogoutMinutes = 480;
+    const autoLogoutEnabled = s.autoLogoutEnabled !== false;
     let webhookUrl = typeof s.saleWebhookUrl === 'string' ? s.saleWebhookUrl.trim() : '';
     if (webhookUrl && !/^https?:\/\//i.test(webhookUrl)) webhookUrl = '';
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -2321,6 +2331,9 @@ function getAdvancedSettingsPublic(rawSettings) {
     let fraudAlertRecipientEmail = typeof s.fraudAlertRecipientEmail === 'string' ? s.fraudAlertRecipientEmail.trim() : '';
     if (fraudAlertRecipientEmail && !emailPattern.test(fraudAlertRecipientEmail)) fraudAlertRecipientEmail = '';
     return {
+        autoLogoutEnabled,
+        autoLogoutMinutes,
+        autoLogoutShowTimer: autoLogoutEnabled && !!s.autoLogoutShowTimer,
         idleAutoLockEnabled: !!s.idleAutoLockEnabled,
         idleAutoLockMinutes: minutes,
         customerDisplayEnabled: !!s.customerDisplayEnabled,
@@ -2369,7 +2382,7 @@ app.post('/api/advanced-settings', requirePermission('advanced_settings_view'), 
     }
     incoming.updatedAt = new Date().toISOString();
     writeData(FILE_ADVANCED_SETTINGS, incoming);
-    logAction(username || req.authUser.username, 'Updated Advanced Settings (idle auto-lock/customer display/sale webhook/2FA/fraud detection)');
+    logAction(username || req.authUser.username, 'Updated Advanced Settings (auto logout/idle auto-lock/customer display/sale webhook/2FA/fraud detection)');
     res.json({ success: true, message: 'Advanced Settings have been updated.', settings: incoming });
 });
 const FILE_FRAUD_ALERTS = 'fraudAlerts';

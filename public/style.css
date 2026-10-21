@@ -16906,3 +16906,135 @@ body.dark-mode .bd-footer { background: transparent; }
     white-space: nowrap;
     pointer-events: none;
 }
+
+/* ==========================================================================
+   Auto-Logout countdown card (above "Sign Out" in the sidebar user menu and
+   the header user menu). Colors come only from theme variables / currentColor,
+   so it follows every theme (light, dark, Pro themes and terminal themes).
+   ========================================================================== */
+.uw-item.uw-autologout,
+.hu-item.hu-autologout {
+    --al-accent: var(--primary-blue);
+    --al-fill: var(--al-accent);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+    width: auto;
+    margin: 2px 0 4px;
+    padding: 10px 12px 11px;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    background-color: color-mix(in srgb, currentColor 7%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+    border-radius: 11px;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, currentColor 7%, transparent);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+.uw-item.uw-autologout[hidden],
+.hu-item.hu-autologout[hidden] {
+    display: none;
+}
+body.dark-mode .uw-item.uw-autologout,
+body.dark-mode .hu-item.hu-autologout,
+body[data-theme] .uw-item.uw-autologout,
+body[data-theme] .hu-item.hu-autologout,
+.top-header.terminal-header-mode .hu-item.hu-autologout {
+    --al-accent: var(--dm-accent);
+}
+#app-top-header[data-terminal-theme] .hu-item.hu-autologout {
+    --al-accent: var(--tt-accent);
+}
+.uw-item.uw-autologout[data-state="warn"],
+.hu-item.hu-autologout[data-state="warn"] {
+    --al-fill: var(--warning-gold);
+}
+.uw-item.uw-autologout[data-state="danger"],
+.hu-item.hu-autologout[data-state="danger"] {
+    --al-fill: var(--danger-red);
+}
+.uw-item.uw-autologout[data-state="warn"],
+.hu-item.hu-autologout[data-state="warn"],
+.uw-item.uw-autologout[data-state="danger"],
+.hu-item.hu-autologout[data-state="danger"] {
+    background-color: color-mix(in srgb, var(--al-fill) 11%, transparent);
+    border-color: color-mix(in srgb, var(--al-fill) 45%, transparent);
+}
+.uw-autologout .al-row,
+.hu-autologout .al-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+}
+.uw-autologout .al-label,
+.hu-autologout .al-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    line-height: 1.2;
+    opacity: 0.82;
+}
+.uw-autologout .al-icon,
+.hu-autologout .al-icon {
+    width: auto;
+    font-size: 0.78rem;
+    color: var(--al-fill);
+}
+.uw-autologout .al-time,
+.hu-autologout .al-time {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--al-fill);
+}
+.uw-autologout .al-bar,
+.hu-autologout .al-bar {
+    display: block;
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    overflow: hidden;
+    background-color: color-mix(in srgb, currentColor 16%, transparent);
+}
+.uw-autologout .al-bar-fill,
+.hu-autologout .al-bar-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--al-fill) 60%, transparent), var(--al-fill));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--al-fill) 55%, transparent);
+    transition: width 1s linear;
+}
+@keyframes al-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+.uw-autologout[data-state="danger"] .al-icon,
+.uw-autologout[data-state="danger"] .al-time,
+.hu-autologout[data-state="danger"] .al-icon,
+.hu-autologout[data-state="danger"] .al-time {
+    animation: al-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .uw-autologout .al-bar-fill,
+    .hu-autologout .al-bar-fill { transition: none; }
+    .uw-autologout[data-state="danger"] .al-icon,
+    .uw-autologout[data-state="danger"] .al-time,
+    .hu-autologout[data-state="danger"] .al-icon,
+    .hu-autologout[data-state="danger"] .al-time { animation: none; }
+}

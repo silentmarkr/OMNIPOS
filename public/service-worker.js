@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'omnipos-shell-v116';
+const CACHE_VERSION = 'omnipos-shell-v117';
 
 // A weak store Wi-Fi must never freeze the POS: if the network does not answer within this time and a cached copy
 // exists, the cached copy is used right away and the cache is refreshed in the background when the network replies.
