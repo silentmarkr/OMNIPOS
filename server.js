@@ -332,7 +332,7 @@ function isClientActivated() {
 }
 app.use((req, res, next) => {
     const activated = isClientActivated();
-    if (activated || req.path === '/activate.html' || req.path === '/api/relay/activate') return next();
+    if (activated || req.path === '/activate.html' || req.path === '/api/relay/activate' || req.path === '/api/relay/activation-inbox') return next();
     if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/activate.html');
     return res.status(423).json({ success: false, code: 'CLIENT_ACTIVATION_REQUIRED', message: 'Activate this OMNIPOS installation with your customer activation key first.' });
 });
@@ -514,7 +514,7 @@ app.use((req, res, next) => {
     // FIX: first-install activation happens BEFORE any user can log in, so it must not require a session token
     // (otherwise the Activate page always failed with "Kailangan mag-login muna. Walang session token.").
     // It is public ONLY while the device is not activated; once activated, replacing the credential needs an Admin login.
-    if (req.path === '/api/relay/activate' && !isClientActivated()) return next();
+    if ((req.path === '/api/relay/activate' || req.path === '/api/relay/activation-inbox') && !isClientActivated()) return next();
     if (req.path.startsWith('/api/system/reset/status/')) return next();
     const token = extractToken(req);
     if (!token) {
@@ -2626,6 +2626,14 @@ MCowBQYDK2VwAyEARoRImC1WH3GgR6yO9ZeRYmiMsDvHfytsKQ2f/lwVzfU=
 -----END PUBLIC KEY-----
 `;
 const RELAY_PUBLIC_KEY = crypto.createPublicKey(RELAY_PUBLIC_KEY_PEM);
+// BIR record-retention safeguards (developer pass key + sealed retention vault + restore guard). See bir-retention.js.
+// The vault lives next to the database but OUTSIDE it, so Hard Reset / Restore can never touch it.
+const birRetention = require('./bir-retention')({
+    readData,
+    vaultDir: path.join(DB_DIR, 'bir-retention-vault'),
+    birCompliance,
+    publicKey: RELAY_PUBLIC_KEY
+});
 // Nililinis ang value: inaalis ang leading ':'/quotes/spaces at trailing '/' para hindi maging
 // ":https://host//relay/..." (Failed to parse URL) kapag may typo sa .env.
 const RELAY_URL = String(process.env.RELAY_URL || '').trim().replace(/^[\s:'"]+/, '').replace(/[\s'"]+$/, '').replace(/\/+$/, '') || 'http://127.0.0.1:4477';
@@ -5046,6 +5054,29 @@ function getOrCreateInstallationId(data) {
     return data.installationId;
 }
 // First-install customer activation. The customer package does not need the RELAY master key.
+// WAITING ROOM for first-install activation. The activation screen polls this; OMNIPOS forwards the poll to RELAY, which answers with a
+// pairing code and, once the developer has sent one, the activation key. Public ONLY while the device is not activated (see both gates).
+// It never activates anything: the page still submits the key to /api/relay/activate, and RELAY performs every real check.
+let _activationInboxIdentity = null;   // identity is stable while unactivated; computing it runs shell commands, so do it once
+app.post('/api/relay/activation-inbox', rateLimit('relay-activation-inbox', 40, 60 * 1000), async (req, res) => {
+    try {
+        if (isClientActivated()) return res.status(409).json({ success: false, code: 'ALREADY_ACTIVATED', message: 'This installation is already activated.' });
+        if (!_activationInboxIdentity) {
+            const featureData = readFeatureUnlocks();
+            const installationId = getOrCreateInstallationId(featureData);
+            const fingerprint = computeHardwareFingerprint(featureData);
+            if (!installationId || !fingerprint || !/^[a-fA-F0-9]{32,128}$/.test(String(fingerprint))) return res.status(409).json({ success: false, code: 'DEVICE_IDENTITY_UNAVAILABLE', message: 'Could not verify this device identity.' });
+            _activationInboxIdentity = { installationId, fingerprint };
+        }
+        const response = await relayFetch(`${RELAY_URL}/relay/client/activation-inbox`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_activationInboxIdentity) }, 10000);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) return res.status(response.status >= 400 ? response.status : 502).json({ success: false, code: data.code || 'ACTIVATION_INBOX_UNAVAILABLE', message: data.message || 'Could not reach RELAY.' });
+        res.set('Cache-Control', 'no-store');
+        return res.json({ success: true, pairingCode: data.pairingCode || null, delivery: data.delivery && data.delivery.activationKey ? { deliveryId: String(data.delivery.deliveryId || ''), activationKey: String(data.delivery.activationKey) } : null });
+    } catch (err) {
+        return res.status(503).json({ success: false, code: err && err.code === 'NO_INTERNET' ? 'NO_INTERNET' : 'ACTIVATION_INBOX_UNAVAILABLE', message: err && err.code === 'NO_INTERNET' ? 'No internet connection detected on this device.' : 'Could not reach RELAY. Retrying…' });
+    }
+});
 app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 * 1000), async (req, res) => {
     try {
         // Already-activated device: only a logged-in Admin may replace the credential (the login gate lets us through with req.authUser set).
@@ -7924,7 +7955,46 @@ function applyRestoredModules(modules) {
         }
         restoredModuleNames.push(moduleName);
     }
-    if (!changes.length) return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset };
+    // BIR RETENTION GUARD (restore): a backup may be older than the live data. Never let it roll the BIR counters/logs
+    // backwards (duplicate invoice numbers, missing Z-Readings). A fresh device with no BIR records restores normally.
+    let birRestoreBlockedReason = null;
+    {
+        const birNames = birCompliance.BIR_MODULE_NAMES;
+        const birChanges = changes.filter((c) => birNames.includes(c.module));
+        if (birChanges.length) {
+            let verdict;
+            try {
+                const incomingBir = {};
+                for (const c of birChanges) incomingBir[c.module] = c.data;
+                verdict = birRetention.evaluateBirRestore(incomingBir);
+            } catch (guardErr) {
+                console.error('BIR restore guard could not run (BIR modules are skipped to be safe):', guardErr.message);
+                verdict = { allow: false, reason: 'the BIR safety check could not run' };
+            }
+            if (!verdict.allow) {
+                birRestoreBlockedReason = verdict.reason;
+                for (let i = changes.length - 1; i >= 0; i--) {
+                    if (!birNames.includes(changes[i].module)) continue;
+                    skippedModuleNames.push(changes[i].module);
+                    const restoredIdx = restoredModuleNames.indexOf(changes[i].module);
+                    if (restoredIdx >= 0) restoredModuleNames.splice(restoredIdx, 1);
+                    changes.splice(i, 1);
+                }
+            }
+        }
+    }
+    if (!changes.length) return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset, birRestoreBlockedReason };
+    // BIR RETENTION: before this restore overwrites BIR records or the sales they belong to, keep a sealed copy of what is
+    // on the device now. Mandatory when BIR records exist: if it cannot be saved, the restore stops with nothing changed.
+    if (changes.some((c) => c.module === FILE_TRANSACTIONS || birCompliance.BIR_MODULE_NAMES.includes(c.module)) && birRetention.birRecordsExist()) {
+        birRetention.archiveBirRecords({
+            purpose: 'pre-restore-safety-copy',
+            reason: 'Automatic sealed copy taken before a backup restore replaced BIR-related data',
+            authorizedBy: null,
+            ticket: null,
+            extra: getBirArchiveExtra()
+        });
+    }
     // Safety snapshot ng kasalukuyang data (para maibalik kung nagkamali ng piniling backup file).
     try {
         const snap = getFullDatabaseSnapshot({ excludeProductImages: true }); // walang HD photo: iwas OOM sa Termux
@@ -7942,7 +8012,7 @@ function applyRestoredModules(modules) {
     }
     runDatabaseTransaction(changes); // throws + ROLLBACK kapag may pumalya — walang kalahating restore
     scheduleDatabaseCompaction('backup restore', 3000);
-    return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset };
+    return { restoredModuleNames, skippedModuleNames, accountsNeedingPasswordReset, birRestoreBlockedReason };
 }
 function mergeRestoredUsers(restoredUsers) {
     const currentUsers = readData(FILE_USERS, []);
@@ -8063,12 +8133,13 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
             console.error('CLOUD RESTORE apply failed (rolled back):', applyErr);
             return res.status(500).json({ success: false, message: `Hindi na-apply ang cloud restore — ibinalik sa dati ang lahat, walang nabago sa data mo. Detalye: ${applyErr.message}` });
         }
-        const { restoredModuleNames: cloudRestoredNames, accountsNeedingPasswordReset } = cloudApplied;
+        const { restoredModuleNames: cloudRestoredNames, accountsNeedingPasswordReset, birRestoreBlockedReason: cloudBirBlockedReason } = cloudApplied;
         const restoredCount = cloudRestoredNames.length;
         logAction(username, `Cloud Backup: restored ${restoredCount}/${Object.keys(modules).length} modules.`);
         res.json({
             success: true,
-            message: `Successfully restored ${restoredCount} module(s) from Cloud Backup.`,
+            message: `Successfully restored ${restoredCount} module(s) from Cloud Backup.${cloudBirBlockedReason ? ` The BIR Compliance records on this device were NOT replaced because ${cloudBirBlockedReason} (this protects your invoice sequence and Z-Reading records).` : ''}`,
+            birRestoreBlockedReason: cloudBirBlockedReason || null,
             restoredCount,
             moduleNames: Object.keys(modules),
             accountsNeedingPasswordReset,
@@ -8171,6 +8242,26 @@ function restoreDataFromDemoSnapshotIfAny(triggeredBy) {
     try {
         const snapshot = readData(FILE_DEMO_DATA_SNAPSHOT, null);
         if (!snapshot || !snapshot.modules) return false;
+        // BIR RETENTION GUARD: BIR-numbered sales are legal records and the BIR counters are NOT part of the demo sandbox. Never let
+        // the revert erase them (that would leave gaps in the invoice sequence): keep a sealed copy, and carry those sales over.
+        // If the copy cannot be saved, the revert is postponed (the snapshot stays) instead of losing records.
+        let birSalesToKeep = [];
+        try {
+            if (birRetention.birRecordsExist()) {
+                birRetention.archiveBirRecords({
+                    purpose: 'pre-demo-revert-safety-copy',
+                    reason: 'Automatic sealed copy taken before Demo Mode data was reverted',
+                    authorizedBy: null,
+                    ticket: null,
+                    extra: getBirArchiveExtra()
+                });
+                const currentSales = readData(FILE_TRANSACTIONS, []);
+                birSalesToKeep = Array.isArray(currentSales) ? currentSales.filter((t) => birRetention.isBirTransaction(t)) : [];
+            }
+        } catch (birGuardErr) {
+            console.error('⚠️ DEMO_SANDBOX: could not protect BIR records before the demo revert — revert postponed:', birGuardErr.message);
+            return false;
+        }
         DEMO_SANDBOX_MODULES.forEach((moduleName) => {
             // A demo that started before the Order No. counter existed has no counter in its snapshot: leave the live
             // counter alone (restoring a default would send it back to 0 and repeat old order numbers).
@@ -8178,6 +8269,12 @@ function restoreDataFromDemoSnapshotIfAny(triggeredBy) {
             const original = Object.prototype.hasOwnProperty.call(snapshot.modules, moduleName)
                 ? snapshot.modules[moduleName]
                 : demoSandboxDefaultFor(moduleName);
+            if (moduleName === FILE_TRANSACTIONS && birSalesToKeep.length && Array.isArray(original)) {
+                const originalIds = new Set(original.map((t) => (t && t.id !== undefined ? String(t.id) : null)));
+                const carriedOver = birSalesToKeep.filter((t) => !(t && t.id !== undefined && originalIds.has(String(t.id))));
+                writeData(moduleName, [...carriedOver, ...original]);
+                return;
+            }
             writeData(moduleName, original);
         });
         writeData(FILE_DEMO_DATA_SNAPSHOT, null);
@@ -16277,25 +16374,109 @@ function updateResetJob(jobId, patch) {
     if (!job) return;
     Object.assign(job, patch);
 }
+// -----------------------------------------------------------------------------
+// BIR RETENTION GUARD (Hard Reset + AGT reset). While ANY BIR record exists on this device (invoice numbers, AGT,
+// Z-Readings, void log, BIR-numbered sales), a BIR reset needs a one-time developer pass key and a sealed retention copy
+// is written BEFORE anything is deleted. See bir-retention.js for the full design.
+// -----------------------------------------------------------------------------
+function getBirPassKeyIdentity() {
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    // Uses the STORED, persisted device fingerprint (it survives a Hard Reset) so the tag cannot change between the
+    // moment the request code is made and the moment the pass key is used.
+    const storedFingerprint = String(featureData.verifiedFingerprint || featureData.hardwareFingerprint || '');
+    const deviceTag = storedFingerprint ? crypto.createHash('sha256').update(storedFingerprint).digest('hex').slice(0, 16) : 'unknown';
+    return { installationId, deviceTag };
+}
+function getBirResetGuard() {
+    let recordsExist = true; // fail closed: if the store cannot be read, assume BIR records exist
+    try { recordsExist = birRetention.birRecordsExist(); } catch (err) { console.error('BIR guard: could not read the BIR records (treating them as present):', err.message); }
+    let openPeriod = false;
+    try { openPeriod = birRetention.hasOpenReadingPeriod(); } catch (_e) { openPeriod = false; }
+    return {
+        birUnlocked: isBirComplianceUnlocked(),
+        birRecordsExist: recordsExist,
+        passKeyRequired: recordsExist,
+        openReadingPeriod: recordsExist && openPeriod
+    };
+}
+function getBirArchiveExtra() {
+    try {
+        const publicStoreSettings = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+        return { storeBirSettings: publicStoreSettings && publicStoreSettings.bir ? publicStoreSettings.bir : null, context: getBirContext() };
+    } catch (_e) {
+        return null;
+    }
+}
+const BIR_Z_READING_REQUIRED_MESSAGE = 'Run the BIR Z-Reading first. Invoices were issued after the last Z-Reading, and the reading period must be closed before any BIR reset so the retention copy has no unreported sales.';
+function requireAdminForBirGuard(req, res) {
+    if (!req.authUser || String(req.authUser.role || '').toLowerCase() !== 'admin') {
+        res.status(403).json({ success: false, message: 'Action Denied: Only Admin privileges can do this.' });
+        return false;
+    }
+    return true;
+}
+app.get('/api/system/reset/bir-guard', (req, res) => {
+    if (!requireAdminForBirGuard(req, res)) return;
+    try {
+        res.json({ success: true, ...getBirResetGuard(), retention: birRetention.getRetentionSummary() });
+    } catch (err) {
+        console.error('BIR guard status failed:', err);
+        res.status(500).json({ success: false, message: `Could not read the BIR protection status. Details: ${err.message}` });
+    }
+});
+app.post('/api/system/reset/bir-request', rateLimit('bir-passkey-request', 20, 60 * 60 * 1000), (req, res) => {
+    if (!requireAdminForBirGuard(req, res)) return;
+    const body = req.body || {};
+    const purpose = body.purpose === birRetention.PURPOSE_AGT_RESET ? birRetention.PURPOSE_AGT_RESET : birRetention.PURPOSE_HARD_RESET;
+    const includeBirData = purpose === birRetention.PURPOSE_HARD_RESET && body.includeBirData === true && isBirComplianceUnlocked();
+    try {
+        const guard = getBirResetGuard();
+        if (!guard.passKeyRequired) return res.json({ success: true, required: false });
+        if (guard.openReadingPeriod) return res.status(409).json({ success: false, code: 'BIR_Z_READING_REQUIRED', message: BIR_Z_READING_REQUIRED_MESSAGE });
+        const identity = getBirPassKeyIdentity();
+        let storeName = '';
+        try { storeName = String(getBirContext().storeName || ''); } catch (_e) { storeName = ''; }
+        const request = birRetention.createResetRequest({ installationId: identity.installationId, deviceTag: identity.deviceTag, purpose, includeBirData, storeName });
+        logAction(req.authUser.username, `Requested a developer pass key for a BIR reset (${purpose}${includeBirData ? ', BIR counters included' : ''}).`);
+        res.json({ success: true, required: true, requestCode: request.requestCode, expiresAt: request.expiresAt, reused: request.reused, purpose, includeBirData });
+    } catch (err) {
+        console.error('BIR pass-key request failed:', err);
+        res.status(500).json({ success: false, message: `Could not create the pass-key request. Details: ${err.message}` });
+    }
+});
+// Only one System Hard Reset may run at a time (a second start while one is running could race the backup/wipe).
+let resetStartInProgress = false;
 app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000, (s) => `Too many reset attempts. Please try again in ${s} seconds.`), async (req, res) => {
-    if (!req.authUser || req.authUser.role.toLowerCase() !=='admin') {
+    if (!req.authUser || String(req.authUser.role || '').toLowerCase() !== 'admin') {
         return res.status(403).json({ success: false, message:'Action Denied: Only Admin privileges can perform a factory reset.' });
     }
-    const { password: adminPasswordForReset } = req.body;
+    const requestBody = req.body && typeof req.body === 'object' ? req.body : {};
+    const { password: adminPasswordForReset } = requestBody;
     const usersForReset = readData(FILE_USERS, []);
-    const currentAdminForReset = usersForReset.find(u => u.username && String(u.username || '').toLowerCase() === req.authUser.username.toLowerCase() && u.role && u.role.toLowerCase() === 'admin');
-    if (!currentAdminForReset || !bcrypt.compareSync(adminPasswordForReset || '', currentAdminForReset.password)) {
+    const adminUsernameForReset = typeof req.authUser.username === 'string' ? req.authUser.username : '';
+    const currentAdminForReset = Array.isArray(usersForReset)
+        ? usersForReset.find(u => u && typeof u.username === 'string' && u.username.toLowerCase() === adminUsernameForReset.toLowerCase() && typeof u.role === 'string' && u.role.toLowerCase() === 'admin')
+        : null;
+    if (!currentAdminForReset || typeof currentAdminForReset.password !== 'string' ||
+        typeof adminPasswordForReset !== 'string' || !bcrypt.compareSync(adminPasswordForReset, currentAdminForReset.password)) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect Admin password. Hard Factory Reset not authorized.' });
     }
-    const { additionalEmail } = req.body;
-    const secondaryEmail = (additionalEmail ||'').trim();
-    const includeImages = req.body.includeImages !== false;
+    const secondaryEmail = typeof requestBody.additionalEmail === 'string' ? requestBody.additionalEmail.trim() : '';
+    const includeImages = requestBody.includeImages !== false;
     // BIR Compliance data (AGT, invoice numbering, BIR Z-Reading history, void log, AGT reset history)
     // is KEPT by default — wiping it also restarts the invoice sequence at INV-000001, so it is strictly
     // opt-in (=== true, so a missing/garbled field can never trigger it).
     // BIR Compliance is a locked one-time module: the BIR wipe option exists only while it is unlocked. The UI already hides
     // it; this closes the direct-API route so a locked store can never wipe (or be asked to wipe) its BIR data.
-    const includeBirData = req.body.includeBirData === true && isBirComplianceUnlocked();
+    const birComplianceUnlockedForReset = isBirComplianceUnlocked();
+    if (requestBody.includeBirData === true && !birComplianceUnlockedForReset) {
+        return res.status(409).json({ success: false, code: 'BIR_COMPLIANCE_NOT_UNLOCKED', message: 'BIR Compliance is not unlocked; BIR data cannot be included in this reset.' });
+    }
+    const includeBirData = requestBody.includeBirData === true && birComplianceUnlockedForReset;
+    if (resetStartInProgress) {
+        return res.status(409).json({ success: false, code: 'RESET_ALREADY_IN_PROGRESS', message: 'Another system reset is already in progress. Wait for it to finish before starting another.' });
+    }
     const receiptSettingsForReset = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
     const otpMailCreds = getOtpMailCredentials(receiptSettingsForReset);
     if (!otpMailCreds) {
@@ -16311,7 +16492,47 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             message:'A valid Secondary Backup Email is required — the backup file will be sent there.'
         });
     }
-    const jobId = createResetJob();
+    // BIR RETENTION GUARD: with BIR records on this device the reset needs a one-time developer pass key. The key is only
+    // RESERVED here (so two jobs cannot share it); it is burnt for good later, right before anything is deleted.
+    const birGuardForReset = getBirResetGuard();
+    let birPassTicket = null;
+    let birPassConsumed = false;
+    let birArchive = null;
+    if (birGuardForReset.passKeyRequired) {
+        if (birGuardForReset.openReadingPeriod) {
+            return res.status(409).json({ success: false, code: 'BIR_Z_READING_REQUIRED', message: BIR_Z_READING_REQUIRED_MESSAGE });
+        }
+        let identityForReset;
+        try {
+            identityForReset = getBirPassKeyIdentity();
+        } catch (identityErr) {
+            console.error('BIR pass-key identity failed:', identityErr);
+            return res.status(500).json({ success: false, message: `Could not read this device's identity to check the pass key. Details: ${identityErr.message}` });
+        }
+        const passKeyVerdict = birRetention.verifyPassKey(requestBody.birPassKey, {
+            installationId: identityForReset.installationId,
+            deviceTag: identityForReset.deviceTag,
+            purpose: birRetention.PURPOSE_HARD_RESET,
+            includeBirData
+        });
+        if (!passKeyVerdict.ok) {
+            return res.status(403).json({ success: false, code: passKeyVerdict.code, birPassKeyRequired: true, message: passKeyVerdict.message });
+        }
+        if (!birRetention.reservePassKey(passKeyVerdict.ticket.ticketId)) {
+            return res.status(409).json({ success: false, code: 'BIR_PASSKEY_IN_USE', birPassKeyRequired: true, message: 'This pass key is already being used by a reset that is in progress.' });
+        }
+        birPassTicket = passKeyVerdict.ticket;
+    }
+    resetStartInProgress = true;
+    let jobId;
+    try {
+        jobId = createResetJob();
+    } catch (jobErr) {
+        resetStartInProgress = false;
+        if (birPassTicket) { try { birRetention.releasePassKey(birPassTicket.ticketId); } catch (_releaseErr) { /* ignore */ } }
+        console.error('Could not create the reset job:', jobErr);
+        return res.status(500).json({ success: false, message: `The reset job could not be started. Nothing was changed. Details: ${jobErr.message}` });
+    }
     res.json({ success: true, jobId });
     (async () => {
         try {
@@ -16319,7 +16540,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             // Kapag hindi isasama ang photo, hindi na babasahin ang HD photo sa database (main + gallery).
             const fullSnapshot = getFullDatabaseSnapshot({ excludeProductImages: !includeImages });
             // Taken in the same synchronous tick as the snapshot; re-checked right before the BIR wipe below.
-            const birSignatureAtSnapshot = includeBirData ? birCompliance.getBirSignature() : null;
+            const birSignatureAtSnapshot = birPassTicket ? birCompliance.getBirSignature() : null;
             let modulesForEmail = fullSnapshot.modules;
             let imagesExcludedCount = 0;
             if (!includeImages && Array.isArray(fullSnapshot.modules.products)) {
@@ -16365,7 +16586,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 ? `\n\nNOTE: this attachment excludes ${imagesExcludedCount} product photo(s) (the operator chose to exclude them for a faster send). These images will still be permanently deleted from the local system database as part of this Hard Reset — they are only missing from this email attachment, not preserved anywhere else unless a separate Cloud Backup/local backup was taken beforehand.`
                 : '';
             const birNoteForEmail = birBackupJsonString
-                ? `\n\nBIR COMPLIANCE DATA: this reset ALSO wiped the BIR Compliance data (Accumulated Grand Total, invoice numbering, BIR Z-Reading history, void log, and AGT reset history). It is NOT inside the main backup file — it is attached separately as 'omnipos_bir_compliance_backup.json'. Keep that file safe: it is the only remaining record of the BIR sequence and totals. It can be loaded back through Restore Backup if needed.`
+                ? `\n\nBIR COMPLIANCE DATA: this reset ALSO wiped the BIR Compliance data (Accumulated Grand Total, BIR Z-Reading history, void log, and AGT reset history). Invoice numbering and the Z-Counter were NOT restarted — they continue from where they stopped, so no invoice number is ever issued twice. It is NOT inside the main backup file — it is attached separately as 'omnipos_bir_compliance_backup.json'. Keep that file safe and keep it for the full legal retention period: together with the sealed retention copy saved on the device (bir-retention-vault) it is your record for any BIR audit. It can be loaded back through Restore Backup if needed.`
                 : '';
             const backupAttachments = [
                 {
@@ -16424,17 +16645,73 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
             // transaction). If it fails, the reset stops here with every module — BIR included — still
             // intact. Everything from here down to the Relay auto-restore step is synchronous (no await), so no
             // sale can slip in between the BIR wipe and the transactions wipe and consume a fresh invoice number.
-            if (includeBirData) {
+            // (1) Stale check (every BIR-protected reset). The backup email can take a while on slow internet and sales are not
+            // paused meanwhile. If any sale, void, Z-Reading or AGT reset changed the records since the snapshot (the signature covers
+            // the counters AND a hash of the whole sales history), the emailed backup is already out of date - abort BEFORE deleting anything.
+            if (birPassTicket) {
                 try {
-                    // The backup email can take a while on slow internet and sales are not paused meanwhile. If any
-                    // BIR activity (sale, void, Z-Reading, AGT reset) happened since the snapshot, the emailed BIR
-                    // file is already out of date — abort BEFORE deleting anything instead of losing that activity.
                     if (birCompliance.getBirSignature() !== birSignatureAtSnapshot) {
-                        const staleErr = new Error('New sales or BIR activity was recorded while the backup email was being sent, so the emailed BIR file is no longer up to date.');
+                        const staleErr = new Error('Sales or BIR records changed while the backup email was being sent, so the emailed backup is no longer up to date.');
                         staleErr.birStale = true;
                         throw staleErr;
                     }
-                    birCompliance.resetAllBirData();
+                } catch (birStaleErr) {
+                    birStaleErr.resetStage = 'bir';
+                    throw birStaleErr;
+                }
+            }
+            // (2) Guard re-check: if BIR records appeared while the email was being sent (first BIR sale during the backup) and no
+            // pass key was needed when the reset started, stop now instead of deleting records that were never protected.
+            if (!birPassTicket && getBirResetGuard().passKeyRequired) {
+                const guardErr = new Error('BIR records were created while the backup email was being sent.');
+                guardErr.resetStage = 'bir-guard';
+                throw guardErr;
+            }
+            // SALES HISTORY: sales carry the issued BIR invoice numbers. When BIR records exist and the operator did NOT choose the
+            // BIR wipe, the sales history is kept (it is also in the sealed archive). Only the explicit, pass-key-approved BIR wipe removes it.
+            let keptSalesHistory = [];
+            if (birPassTicket && !includeBirData) {
+                const currentSalesHistory = readData(FILE_TRANSACTIONS, []);
+                if (!Array.isArray(currentSalesHistory)) {
+                    const salesErr = new Error('The sales history could not be read, so it cannot be kept safely.');
+                    salesErr.resetStage = 'bir';
+                    throw salesErr;
+                }
+                keptSalesHistory = currentSalesHistory;
+            }
+            // (3) Sealed retention copy + burn the pass key. Everything from here to the Relay auto-restore step is synchronous
+            // (no await), so no sale can slip in between the retention copy and the wipes. If the copy cannot be written and
+            // verified, the reset stops here with NOTHING deleted.
+            if (birPassTicket) {
+                try {
+                    updateResetJob(jobId, { percent: 93, message: 'Saving the sealed BIR retention copy on this device...' });
+                    birArchive = birRetention.archiveBirRecords({
+                        purpose: birRetention.PURPOSE_HARD_RESET,
+                        reason: includeBirData ? 'System Hard Reset (BIR counters wiped; invoice numbering continues)' : 'System Hard Reset (BIR counters kept)',
+                        authorizedBy: req.authUser.username,
+                        ticket: birPassTicket,
+                        extra: getBirArchiveExtra()
+                    });
+                    birRetention.consumePassKey(birPassTicket, { authorizedBy: req.authUser.username, archiveId: birArchive.archiveId });
+                    birPassConsumed = true;
+                    logAction(req.authUser.username, `BIR RETENTION: sealed archive ${birArchive.archiveId} saved (${birArchive.counts.birTransactions} BIR sale(s), ${birArchive.counts.zReadings} Z-Reading(s), ${birArchive.counts.voids} void(s)); developer pass key ${birPassTicket.ticketId} (ref: ${birPassTicket.reference || 'n/a'}) used for a System Hard Reset${includeBirData ? ' with BIR counters wiped' : ''}.`);
+                } catch (birArchiveErr) {
+                    birArchiveErr.resetStage = 'bir-archive';
+                    throw birArchiveErr;
+                }
+            }
+            // (4) BIR wipe (opt-in): only BUILT here and written inside the single main SQLite transaction below, so the BIR wipe
+            // and the main reset succeed or fail together. Invoice numbering and the Z-Counter continue; the reset counter goes up;
+            // one audit record pointing at the sealed archive is left in the reset history.
+            let birResetPlan = null;
+            if (includeBirData && birPassTicket) {
+                try {
+                    birResetPlan = birCompliance.buildBirResetPlan({
+                        authorizedBy: req.authUser.username,
+                        reason: `System Hard Reset authorized by developer pass key ${birPassTicket.ticketId} (ref: ${birPassTicket.reference || 'n/a'}). Records preserved in sealed archive ${birArchive ? birArchive.archiveId : 'n/a'}.`,
+                        archiveId: birArchive ? birArchive.archiveId : null,
+                        ticketId: birPassTicket.ticketId
+                    });
                 } catch (birResetErr) {
                     birResetErr.resetStage = 'bir';
                     throw birResetErr;
@@ -16459,7 +16736,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 commitDataModules([
                     { module: FILE_USERS, data: secureDefaultUsers },
                     { module: FILE_PRODUCTS, data: [] },
-                    { module: FILE_TRANSACTIONS, data: [] },
+                    { module: FILE_TRANSACTIONS, data: keptSalesHistory },
                     { module: FILE_REQUESTS, data: [] },
                     { module: FILE_CARTS, data: {} },
                     { module: FILE_CUSTOMERS, data: [] },
@@ -16496,7 +16773,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                         relayAuthorized: preResetIdentity.relayAuthorized,
                         deviceSeed: preResetIdentity.deviceSeed
                     } },
-                    { module: FILE_USERLOGS, data: [] }
+                    { module: FILE_USERLOGS, data: [] },
+                    ...(birResetPlan ? birResetPlan.modules : [])
                 ]);
             } catch (dbResetErr) {
                 dbResetErr.resetStage = 'db';
@@ -16526,16 +16804,21 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 result: {
                     success: true,
                     message: `Backup sent to ${recipients.length} email address(es). System has been reset.` +
-                        (includeBirData ? ' BIR Compliance data (AGT, invoice numbering, Z-Reading history, void log) was also reset — its backup was sent as a separate email attachment.' : ' BIR Compliance data was kept (not reset).') +
+                        (includeBirData ? ' BIR Compliance data (AGT, Z-Reading history, void log) was also reset — invoice numbering continues from where it stopped, and its backup was sent as a separate email attachment.' : ' BIR Compliance data was kept (not reset).') +
+                        (birArchive ? ` A sealed BIR retention copy (${birArchive.archiveId}) was saved on this device and must be kept for the legal retention period.` : '') +
+                        (birPassTicket && !includeBirData ? ' Your sales history was kept because BIR records exist on this device.' : '') +
                         (restoredCount > 0 ? ` ${restoredCount} previously unlocked feature(s) auto-restored.` : '') +
                         (!includeImages && imagesExcludedCount > 0 ? ` (${imagesExcludedCount} product photo(s) were excluded from the emailed backup for speed and have also been permanently deleted from the local database, same as the rest of the reset data.)` : ''),
                     restoredFeatureCount: restoredCount,
                     imagesExcludedCount: !includeImages ? imagesExcludedCount : 0,
-                    birDataReset: includeBirData
+                    birDataReset: includeBirData,
+                    birArchiveId: birArchive ? birArchive.archiveId : null
                 }
             });
         } catch (err) {
             console.error("Mail Reset Failure Context:", err);
+            // A pass key that was only reserved (nothing deleted yet) is released so the client can simply try again with it.
+            if (birPassTicket && !birPassConsumed) { try { birRetention.releasePassKey(birPassTicket.ticketId); } catch (_releaseErr) { /* ignore */ } }
             const failedAtBirReset = !!(err && err.resetStage === 'bir');
             const failedAtDbReset = !!(err && err.resetStage === 'db');
             updateResetJob(jobId, {
@@ -16544,15 +16827,22 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                 message: err.message,
                 result: {
                     success: false,
-                    message: (err && err.birStale)
+                    passKeyConsumed: birPassConsumed,
+                    message: (birPassConsumed ? 'NOTE: the developer pass key was already used up by this attempt — request a new one before trying again. ' : '') + ((err && err.birStale)
                         ? `The reset was stopped before anything was deleted — all your data is still intact. ${err.message} Please make sure no sales are being processed (on any device), then run the reset again.`
+                        : (err && err.resetStage === 'bir-guard')
+                        ? `The reset was stopped before anything was deleted — all your data is still intact. ${err.message} BIR records now exist on this device, so run the reset again to get the required protection.`
+                        : (err && err.resetStage === 'bir-archive')
+                        ? `The backup email was sent, but the sealed BIR retention copy could not be saved on this device, so the reset was stopped and NOTHING was deleted — all your data is still intact. Check that the device has free storage, then try again. Error: ${err.message}`
                         : failedAtDbReset
-                        ? `The backup email was sent, but the database could not be reset, so NOTHING was deleted from the main data (the reset is all-or-nothing). ${includeBirData ? 'NOTE: the BIR Compliance data was already reset before this error — keep the separate BIR backup file that was emailed. ' : ''}Check that the device has free storage and that the database is healthy, then try again. Error: ${err.message}`
+                        ? `The backup email was sent, but the database could not be reset, so NOTHING was deleted from the main data (the reset is all-or-nothing). Check that the device has free storage and that the database is healthy, then try again. Error: ${err.message}`
                         : failedAtBirReset
                         ? `The backup email was sent, but the BIR Compliance data could not be reset, so the reset was stopped before anything was deleted — all your data is still intact. Please try again. Error: ${err.message}`
-                        : `Reset was not completed because email verification failed. Make sure your Gmail and 16-character App Password are CORRECT. Error: ${err.message}`
+                        : `Reset was not completed because email verification failed. Make sure your Gmail and 16-character App Password are CORRECT. Error: ${err.message}`)
                 }
             });
+        } finally {
+            resetStartInProgress = false;
         }
     })();
 });
@@ -16586,12 +16876,13 @@ app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), 
         return res.status(400).json({ success: false, message:"May depekto o maling format ang ipinadalang backup file." });
     }
     try {
-        const { restoredModuleNames, accountsNeedingPasswordReset } = applyRestoredModules(backupData);
+        const { restoredModuleNames, accountsNeedingPasswordReset, birRestoreBlockedReason } = applyRestoredModules(backupData);
         const restoredCount = restoredModuleNames.length;
-        logAction(username, `Restored ${restoredCount} modules from backup file.`);
+        logAction(username, `Restored ${restoredCount} modules from backup file.${birRestoreBlockedReason ? ` BIR records on this device were kept as they are because ${birRestoreBlockedReason}.` : ''}`);
         res.json({
             success: true,
-            message: `Successfully restored and fully synchronized ${restoredCount} data module(s) from your backup file!`,
+            message: `Successfully restored and fully synchronized ${restoredCount} data module(s) from your backup file!${birRestoreBlockedReason ? ` The BIR Compliance records on this device were NOT replaced because ${birRestoreBlockedReason} (this protects your invoice sequence and Z-Reading records).` : ''}`,
+            birRestoreBlockedReason: birRestoreBlockedReason || null,
             restoredCount,
             moduleNames: restoredModuleNames,
             accountsNeedingPasswordReset
@@ -21707,14 +21998,76 @@ app.post('/api/bir/reset-agt', requirePermission('bir_compliance'), requireFeatu
     if (!authResult) {
         return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect password. The AGT reset was not authorized.' });
     }
+    // BIR RETENTION GUARD: the AGT reset also needs a one-time developer pass key while BIR records exist.
+    const agtGuard = getBirResetGuard();
+    let agtTicket = null;
+    let agtConsumed = false;
+    let agtArchive = null;
+    if (agtGuard.passKeyRequired) {
+        if (agtGuard.openReadingPeriod) {
+            return res.status(409).json({ success: false, code: 'BIR_Z_READING_REQUIRED', message: BIR_Z_READING_REQUIRED_MESSAGE });
+        }
+        let agtIdentity;
+        try {
+            agtIdentity = getBirPassKeyIdentity();
+        } catch (identityErr) {
+            console.error('BIR pass-key identity failed (AGT reset):', identityErr);
+            return res.status(500).json({ success: false, message: `Could not read this device's identity to check the pass key. Details: ${identityErr.message}` });
+        }
+        const agtVerdict = birRetention.verifyPassKey((req.body || {}).birPassKey, {
+            installationId: agtIdentity.installationId,
+            deviceTag: agtIdentity.deviceTag,
+            purpose: birRetention.PURPOSE_AGT_RESET,
+            includeBirData: false
+        });
+        if (!agtVerdict.ok) {
+            return res.status(403).json({ success: false, code: agtVerdict.code, birPassKeyRequired: true, message: agtVerdict.message });
+        }
+        if (!birRetention.reservePassKey(agtVerdict.ticket.ticketId)) {
+            return res.status(409).json({ success: false, code: 'BIR_PASSKEY_IN_USE', birPassKeyRequired: true, message: 'This pass key is already being used.' });
+        }
+        agtTicket = agtVerdict.ticket;
+    }
     try {
-        const record = birCompliance.resetAGT({ authorizedBy: req.authUser.username, reason: String(reason).trim() });
+        if (agtTicket) {
+            agtArchive = birRetention.archiveBirRecords({
+                purpose: birRetention.PURPOSE_AGT_RESET,
+                reason: String(reason).trim(),
+                authorizedBy: req.authUser.username,
+                ticket: agtTicket,
+                extra: getBirArchiveExtra()
+            });
+            birRetention.consumePassKey(agtTicket, { authorizedBy: req.authUser.username, archiveId: agtArchive.archiveId });
+            agtConsumed = true;
+        }
+        const record = birCompliance.resetAGT({
+            authorizedBy: req.authUser.username,
+            reason: String(reason).trim(),
+            archiveId: agtArchive ? agtArchive.archiveId : null,
+            ticketId: agtTicket ? agtTicket.ticketId : null
+        });
         logAction(req.authUser.username, `BIR AGT RESET #${record.resetCounter}: Previous AGT ₱${record.previousAGT.toFixed(2)} — Reason: ${record.reason} — ${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`}`);
-        res.json({ success: true, reset: record });
+        res.json({ success: true, reset: record, archiveId: agtArchive ? agtArchive.archiveId : null });
     } catch (err) {
         const isUserError = !!(err && err.code === 'REASON_REQUIRED');
         if (!isUserError) console.error('BIR AGT reset failed:', err);
-        res.status(isUserError ? 400 : 500).json({ success: false, message: isUserError ? err.message : `Hindi nai-save ang AGT reset (walang nabago sa data). Detalye: ${err.message}` });
+        res.status(isUserError ? 400 : 500).json({ success: false, message: isUserError ? err.message : `The AGT reset could not be saved (nothing was changed). Details: ${err.message}${agtConsumed ? ' The developer pass key was already used up by this attempt — request a new one before trying again.' : ''}` });
+    } finally {
+        if (agtTicket && !agtConsumed) { try { birRetention.releasePassKey(agtTicket.ticketId); } catch (_releaseErr) { /* ignore */ } }
+    }
+});
+app.get('/api/bir/retention', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
+    try {
+        res.json({ success: true, ...birRetention.getRetentionSummary() });
+    } catch (err) {
+        res.status(500).json({ success: false, message: `Could not read the BIR retention vault status. Details: ${err.message}` });
+    }
+});
+app.get('/api/bir/retention/verify', requirePermission('bir_compliance'), requireFeature('bir_compliance'), rateLimit('bir-retention-verify', 10, 10 * 60 * 1000), (req, res) => {
+    try {
+        res.json({ success: true, ...birRetention.verifyVaultIntegrity({ deep: req.query.deep === '1' }) });
+    } catch (err) {
+        res.status(500).json({ success: false, message: `Could not verify the BIR retention vault. Details: ${err.message}` });
     }
 });
 // Official BIR export files (e-Journal / Sales Book / EIS) carry official-document wording ("Invoice", "Official Receipt").

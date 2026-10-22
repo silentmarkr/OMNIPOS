@@ -82,6 +82,8 @@ const SERVER_TARGETS = new Set([
   "webauthn.js",
   // New backend modules require()-d by server.js (BIR compliance + UOM/price-level math).
   "bir-compliance.js",
+  // BIR record-retention vault + developer pass-key verification — require()-d by server.js.
+  "bir-retention.js",
   "uom-pricing.js",
   // Marketplace Hub (Shopee/Lazada/TikTok) server module — require()-d by server.js.
   "marketplace-sync.js",

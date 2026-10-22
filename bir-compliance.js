@@ -23,7 +23,11 @@
 //    total tamper-evident.
 //  - Resetting the AGT (resetAGT) zeroes the AGT/baseline and bumps
 //    resetCounter, but deliberately does NOT reset invoice numbering —
-//    invoice/OR numbers stay sequential across a reset.
+//    invoice/OR numbers stay sequential across a reset. The same is true of
+//    the System Hard Reset's BIR wipe (resetAllBirData): numbering and the
+//    Z-Counter continue, the reset counter goes up, and bir-retention.js
+//    archives the wiped records first. Both resets need a developer pass key
+//    (see bir-retention.js).
 //  - "Zero-rated sales" is not a concept this codebase tracks anywhere yet,
 //    so the Sales Book / EIS export always reports it as 0.00. If the store
 //    has zero-rated transactions, that column needs a real source field
@@ -314,7 +318,7 @@ function getZReadingHistory(limit) {
 
 // Zeroes the AGT display and bumps resetCounter. Does NOT touch invoice numbering.
 // The caller (route) is responsible for requiring an admin password before this runs.
-function resetAGT({ authorizedBy, reason } = {}) {
+function resetAGT({ authorizedBy, reason, archiveId, ticketId } = {}) {
     const cleanReason = String(reason || '').trim();
     if (!cleanReason) {
         const err = new Error('A reason is required to reset the Accumulated Grand Total.');
@@ -329,6 +333,8 @@ function resetAGT({ authorizedBy, reason } = {}) {
         previousBaselineAGT: round2(state.baselineAGT),
         reason: cleanReason,
         authorizedBy: authorizedBy || null,
+        archiveId: archiveId || null,
+        ticketId: ticketId || null,
         performedAt: nowIso()
     };
     state.resetCounter += 1;
@@ -346,22 +352,56 @@ function resetAGT({ authorizedBy, reason } = {}) {
     return record;
 }
 
-// Wipes ALL BIR compliance data back to a factory-fresh state: AGT, baseline, Z-counter, reset counter
-// and the invoice numbering (next invoice goes back to INV-000001), plus the void log, Z-Reading
-// history and AGT reset history. This is NOT the same as resetAGT(): resetAGT() is an audited,
-// reason-required operation that deliberately keeps invoice numbering and appends to the reset
-// history, while this is only meant for the System Hard Reset (the caller has already verified the
-// Admin password and emailed a backup of this data). All four modules are written inside ONE SQLite
-// transaction, so a failure rolls everything back and leaves the BIR data exactly as it was
-// (runDatabaseTransaction throws on failure — the caller must not treat a throw as success).
-function resetAllBirData() {
-    runDatabaseTransaction([
-        { module: MODULE_STATE, data: defaultState() },
-        { module: MODULE_VOIDS, data: [] },
-        { module: MODULE_ZHISTORY, data: [] },
-        { module: MODULE_RESET_HISTORY, data: [] }
-    ]);
-    return true;
+// Wipes the BIR compliance DATA (AGT, baseline, void log, Z-Reading history, AGT reset history) for the System
+// Hard Reset. It is NOT the same as resetAGT(): resetAGT() is an audited, reason-required operation on the AGT only.
+//
+// LEGAL-CONTINUITY RULES (changed): issued invoice / OR numbers must never be issued twice, the Z-Counter must keep
+// counting, and the reset counter must only ever go UP. So this keeps the invoice numbering (nextInvoiceNumber) and
+// the Z-Counter exactly where they were, starts a fresh reading period at the current invoice number, and bumps
+// resetCounter by one. The wiped history is NOT lost: the caller must have written the sealed retention archive
+// (bir-retention.js) first, and one audit record that points at that archive is left in the reset history.
+//
+// All four modules are written inside ONE SQLite transaction, so a failure rolls everything back and leaves the BIR
+// data exactly as it was (runDatabaseTransaction throws on failure - the caller must not treat a throw as success).
+// buildBirResetPlan() returns { modules, auditRecord }; resetAllBirData() writes it and returns the audit record.
+function buildBirResetPlan({ authorizedBy, reason, archiveId, ticketId } = {}) {
+    const prev = getBirState();
+    const performedAt = nowIso();
+    const fresh = defaultState();
+    fresh.nextInvoiceNumber = prev.nextInvoiceNumber;
+    fresh.invoiceNumberAtPeriodStart = prev.nextInvoiceNumber;
+    fresh.zCounter = prev.zCounter;
+    fresh.lastZReadingAt = prev.lastZReadingAt;
+    fresh.resetCounter = (parseInt(prev.resetCounter, 10) || 0) + 1;
+    fresh.lastResetAt = performedAt;
+    const auditRecord = {
+        id: genId('BIRRESET'),
+        type: 'HARD_RESET',
+        resetCounter: fresh.resetCounter,
+        previousAGT: round2(prev.agt),
+        previousBaselineAGT: round2(prev.baselineAGT),
+        reason: String(reason || 'System Hard Reset').trim() || 'System Hard Reset',
+        authorizedBy: authorizedBy || null,
+        archiveId: archiveId || null,
+        ticketId: ticketId || null,
+        performedAt
+    };
+    return {
+        auditRecord,
+        modules: [
+            { module: MODULE_STATE, data: fresh },
+            { module: MODULE_VOIDS, data: [] },
+            { module: MODULE_ZHISTORY, data: [] },
+            { module: MODULE_RESET_HISTORY, data: [auditRecord] }
+        ]
+    };
+}
+// Builds the BIR wipe WITHOUT writing anything. The System Hard Reset adds plan.modules to its own single SQLite
+// transaction, so the BIR wipe and the main reset succeed or fail together (no half-reset state).
+function resetAllBirData(options) {
+    const plan = buildBirResetPlan(options);
+    runDatabaseTransaction(plan.modules);
+    return plan.auditRecord;
 }
 
 // Cheap fingerprint of the BIR data (counters + record counts). The System Hard Reset takes it when the backup
@@ -369,11 +409,18 @@ function resetAllBirData() {
 // the backup email was still being sent is detected instead of being silently deleted without being in the backup.
 function getBirSignature() {
     const st = getBirState();
+    const transactions = readData(MODULE_TRANSACTIONS, []);
+    const transactionHash = crypto.createHash('sha256');
+    if (Array.isArray(transactions)) {
+        for (const transaction of transactions) transactionHash.update(JSON.stringify(transaction)).update('\n');
+    }
     return [
         st.agt, st.nextInvoiceNumber, st.zCounter, st.resetCounter,
         readData(MODULE_VOIDS, []).length,
         readData(MODULE_ZHISTORY, []).length,
-        readData(MODULE_RESET_HISTORY, []).length
+        readData(MODULE_RESET_HISTORY, []).length,
+        Array.isArray(transactions) ? transactions.length : 0,
+        transactionHash.digest('hex')
     ].join('|');
 }
 
@@ -576,6 +623,7 @@ function exportEIS({ fromDateStr, toDateStr, context = {} }) {
 module.exports = {
     BIR_MODULE_NAMES,
     resetAllBirData,
+    buildBirResetPlan,
     getBirSignature,
     getBirState,
     saveBirState,

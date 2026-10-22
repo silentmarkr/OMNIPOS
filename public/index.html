@@ -1279,7 +1279,7 @@
 
                     <div class="report-container" style="padding: 20px; margin-top:16px; border:1px solid #fecaca;">
                         <h3 style="color:#b91c1c;"><i class="fa-solid fa-triangle-exclamation"></i> Reset Accumulated Grand Total</h3>
-                        <p class="recovery-desc">Para lang ito sa mga espesyal na kaso (hal. bagong machine/PTU o kapag pinayagan ng BIR). Kailangan ng dahilan at password. Naitatala ito sa reset history at hindi ginagalaw ang invoice numbering.</p>
+                        <p class="recovery-desc">Para lang ito sa mga espesyal na kaso (hal. bagong machine/PTU o kapag pinayagan ng BIR). Required: a reason, your password and a one-time developer pass key. It is recorded in the reset history (a sealed retention copy is saved first) and invoice numbering is never changed.</p>
                         <button type="button" class="btn-action-outline" style="color:#dc2626;border-color:#dc2626;" onclick="resetBirAgt()"><i class="fa-solid fa-rotate-left"></i> Reset AGT…</button>
                     </div>
 
@@ -3035,11 +3035,13 @@
                 <input type="checkbox" id="reset-include-bir" style="margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer;">
                 <span>Also reset BIR Compliance data
                     <span style="display: block; font-weight: normal; color: var(--text-muted); margin-top: 4px;">
-                        Wipes the Accumulated Grand Total (AGT), invoice numbering (restarts from the first number), BIR Z-Reading history, void log, and AGT reset history. Its data is sent to the Secondary Backup Email as a <strong>separate attachment</strong>, apart from the main backup file. Leave unchecked to keep your BIR records untouched.
+                        Wipes the Accumulated Grand Total (AGT), the sales history, BIR Z-Reading history, void log, and AGT reset history. Invoice numbering and the Z-Counter <strong>continue</strong> — no invoice number is ever reused. Its data is sent to the Secondary Backup Email as a <strong>separate attachment</strong>, apart from the main backup file, and a sealed, read-only retention copy is saved on this device first. A one-time developer pass key is required. Leave unchecked to keep your BIR records and sales history untouched.
                     </span>
                 </span>
             </label>
         </div>
+
+        <div id="reset-bir-protection-note" style="display: none; margin-bottom: 20px; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; line-height: 1.5; background: color-mix(in srgb, var(--warning-gold) 8%, transparent);"></div>
 
         <button id="reset-execute-btn" onclick="executeSystemHardReset()" style="width: 100%; padding: 12px; background: var(--danger-red); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-dumpster"></i> Compile Backup & Execute Hard Reset
@@ -5388,7 +5390,7 @@
 <script src="faq-engine.js?v=20261020-1"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
 <script src="bir-wording.js?v=20261021-4"></script>
-<script src="app.js?v=20261021-5"></script>
+<script src="app.js?v=20261022-1"></script>
 <script src="app1.js?v=20261013-1"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 

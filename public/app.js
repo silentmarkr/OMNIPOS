@@ -15914,6 +15914,7 @@ async function loadSystemResetPanel() {
     const s = receiptSettingsCache;
     const statusBox = document.getElementById('reset-google-app-status');
     const executeBtn = document.getElementById('reset-execute-btn');
+    refreshBirResetGuardNote().catch(() => {});
     if (!statusBox) return;
     if (s && s.otpSenderConfigured) {
         statusBox.style.borderColor ='#16a34a';
@@ -25898,6 +25899,98 @@ async function loadCartFromDatabase() {
         console.error("Error loading cart from database:", error);
     }
 }
+// BIR RETENTION GUARD (client side). Asks the server for a request code, shows it to the Admin to send to the developer,
+// and collects the pass key the developer sends back. Returns:
+//   ''     -> no pass key is needed (no BIR records on this device)
+//   string -> the pass key the Admin pasted
+//   null   -> the Admin cancelled, or the request could not be made (the reason was already shown)
+async function requestBirPassKey({ purpose, includeBirData }) {
+    let info;
+    try {
+        const res = await authFetch(`${API_URL}/system/reset/bir-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purpose: purpose, includeBirData: !!includeBirData }),
+            timeoutMs: 20000
+        });
+        info = await res.json();
+        if (!res.ok || !info.success) {
+            const failure = new Error(info.message || `HTTP ${res.status}`);
+            failure.code = info.code;
+            throw failure;
+        }
+    } catch (err) {
+        await Swal.fire(
+            err && err.code === 'BIR_Z_READING_REQUIRED' ? 'Run the BIR Z-Reading First' : 'Cannot Request a Pass Key',
+            escapeHtml((err && err.message) || 'The pass-key request could not be created.'),
+            'warning'
+        );
+        return null;
+    }
+    if (!info.required) return '';
+    const actionName = purpose === 'bir-agt-reset' ? 'AGT reset' : 'System Hard Reset';
+    const expiresText = info.expiresAt ? new Date(info.expiresAt).toLocaleString() : '';
+    const dialog = await Swal.fire({
+        title: 'Developer Pass Key Required',
+        html: `<div style="text-align:left;font-size:0.85rem;line-height:1.5;">
+                   BIR records exist on this device, so the <b>${actionName}</b> needs a one-time pass key from the developer. This protects your BIR records, which must be kept for the legal retention period.<br><br>
+                   <b>Step 1.</b> Send this request code to the developer:
+                   <textarea id="bir-pk-request" readonly style="width:100%;height:84px;margin:6px 0;font-family:monospace;font-size:0.72rem;box-sizing:border-box;word-break:break-all;">${escapeHtml(info.requestCode)}</textarea>
+                   <button type="button" id="bir-pk-copy" class="swal2-confirm swal2-styled" style="margin:0 0 10px;background:#64748b;">Copy request code</button><br>
+                   <span style="color:#64748b;">This request is valid until ${escapeHtml(expiresText)}. Keep this page open, or reopen it later — the same code is shown again until it expires.</span><br><br>
+                   <b>Step 2.</b> Paste the pass key the developer sends back:
+                   <textarea id="bir-pk-input" placeholder="BIRPK1.…" style="width:100%;height:84px;margin:6px 0 0;font-family:monospace;font-size:0.72rem;box-sizing:border-box;word-break:break-all;" autocomplete="off" spellcheck="false"></textarea>
+               </div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Use Pass Key',
+        confirmButtonColor: '#ef4444',
+        focusConfirm: false,
+        allowOutsideClick: false,
+        didOpen: () => {
+            const copyBtn = document.getElementById('bir-pk-copy');
+            const requestBox = document.getElementById('bir-pk-request');
+            if (!copyBtn || !requestBox) return;
+            copyBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(requestBox.value);
+                    copyBtn.textContent = 'Copied!';
+                } catch (_copyErr) {
+                    requestBox.focus();
+                    requestBox.select();
+                    copyBtn.textContent = 'Select & copy manually';
+                }
+            });
+        },
+        preConfirm: () => {
+            const input = document.getElementById('bir-pk-input');
+            const value = input ? String(input.value || '').trim() : '';
+            if (!value) { Swal.showValidationMessage('Paste the pass key from the developer.'); return false; }
+            return value;
+        }
+    });
+    return dialog.isConfirmed && dialog.value ? dialog.value : null;
+}
+// Shows (or hides) the "BIR record protection is active" note in the System > Hard Reset panel.
+async function refreshBirResetGuardNote() {
+    const note = document.getElementById('reset-bir-protection-note');
+    if (!note) return;
+    try {
+        const res = await authFetch(`${API_URL}/system/reset/bir-guard`, { timeoutMs: 15000 });
+        const guard = await res.json();
+        if (!res.ok || !guard.success || !guard.passKeyRequired) { note.style.display = 'none'; return; }
+        const retention = guard.retention || {};
+        const archiveLine = retention.archiveCount
+            ? `${retention.archiveCount} sealed retention cop${retention.archiveCount === 1 ? 'y' : 'ies'} saved on this device${retention.integrityOk === false ? ' — <span style="color:#ef4444;">integrity check found a problem, contact the developer</span>' : ''}.`
+            : 'No sealed retention copy has been needed yet.';
+        note.innerHTML = `<strong><i class="fa-solid fa-shield-halved"></i> BIR record protection is active.</strong>
+            BIR records exist on this device, so a Hard Reset needs a one-time <b>developer pass key</b>, and a sealed, read-only retention copy is saved on this device before anything is deleted. Invoice numbering is never restarted, and your sales history is kept unless you also choose to reset the BIR data.
+            ${guard.openReadingPeriod ? '<br><span style="color:#b45309;"><b>Run the BIR Z-Reading first</b> — invoices were issued after the last Z-Reading.</span>' : ''}
+            <br><span style="color:var(--text-muted);">${archiveLine}</span>`;
+        note.style.display = 'block';
+    } catch (_guardErr) {
+        note.style.display = 'none';
+    }
+}
 async function executeSystemHardReset() {
     const elConfirm = document.getElementById('reset-confirm-word');
     const elAdditionalEmail = document.getElementById('reset-additional-email');
@@ -25956,11 +26049,11 @@ async function executeSystemHardReset() {
             html: `You chose to include BIR Compliance data in this reset. This will permanently delete:<br>
                    <ul style="text-align:left; margin:10px 0 10px 18px;">
                        <li>Accumulated Grand Total (AGT)</li>
-                       <li>Invoice numbering — the next sale restarts at <b>${birInvNo(1)}</b></li>
-                       <li>BIR Z-Reading history, void log, and AGT reset history</li>
+                       <li>Your sales history (transactions) — it carries the issued invoice numbers; a sealed copy is kept on this device first</li>
+                       <li>The Z-Reading history, void log and AGT reset history (invoice numbering is <b>not</b> restarted — it continues, so no invoice number is ever reused)</li>
                    </ul>
                    This data is NOT part of the main backup file — it is emailed to the Secondary Backup Email as a <b>separate attachment</b> before it is deleted. Keep that file safe.<br><br>
-                   <span style="color:#ef4444;"><strong>Note:</strong> restarting the invoice sequence can affect BIR record-keeping. Confirm with your accountant/BIR consultant first if unsure.</span>`,
+                   <span style="color:#ef4444;"><strong>Note:</strong> a sealed, read-only retention copy of your BIR records is saved on this device first and must be kept for the legal retention period. A developer pass key is required. Confirm with your accountant/BIR consultant first if unsure.</span>`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#ef4444',
@@ -25970,6 +26063,9 @@ async function executeSystemHardReset() {
         });
         if (!birConfirm.isConfirmed) return;
     }
+    // BIR RETENTION GUARD: with BIR records on this device the reset needs a one-time developer pass key ('' = not needed).
+    const birPassKey = await requestBirPassKey({ purpose: 'bir-hard-reset', includeBirData });
+    if (birPassKey === null) return;
     const passwordConfirm = await Swal.fire({
         title: 'Confirm Admin Password',
         html: 'This action is irreversible. Enter your Admin Password to proceed with the Hard Factory Reset:',
@@ -26017,7 +26113,8 @@ async function executeSystemHardReset() {
                 additionalEmail: additionalEmail,
                 password: adminPassword,
                 includeImages: includeImages,
-                includeBirData: includeBirData
+                includeBirData: includeBirData,
+                birPassKey: birPassKey || undefined
             }),
             timeoutMs: 15000
         });
@@ -26046,7 +26143,11 @@ async function executeSystemHardReset() {
                     if (statusData.status === 'done') {
                         resolve(statusData.result);
                     } else if (statusData.status === 'error') {
-                        reject(new Error(statusData.result?.message || statusData.message || 'Reset failed.'));
+                        // A definitive failure reported by the server (the job itself ended in an error): tagged so the catch block below can
+                        // tell it apart from a network drop and keep the session instead of logging the Admin out.
+                        const jobFailure = new Error(statusData.result?.message || statusData.message || 'Reset failed.');
+                        jobFailure.resetJobFailed = true;
+                        reject(jobFailure);
                     } else {
                         setTimeout(poll, 700);
                     }
@@ -26076,6 +26177,13 @@ async function executeSystemHardReset() {
         }
     } catch (error) {
         console.error("Hard Reset Error Connection:", error);
+        if (error && error.resetJobFailed) {
+            // The server finished the job with an error and said exactly why (e.g. wrong e-mail credentials, BIR safety stop, pass key already used).
+            // Every one of these stops happens before the data is replaced, so keep the session and just show the reason.
+            window.__logoutInProgress = false;
+            Swal.fire({ icon: 'error', title: 'Reset Not Completed', text: error.message || 'The reset could not be completed.', confirmButtonText: 'OK' });
+            return;
+        }
         const isRealTimeout = error && error.name === 'AbortError';
         const isNetworkFailure = error instanceof TypeError;
         const isParseFailure = error && error.name === 'SyntaxError';
@@ -30502,7 +30610,7 @@ async function downloadBirExport(kind) {
 async function resetBirAgt() {
     const { value, isConfirmed } = await Swal.fire({
         title: 'Reset Accumulated Grand Total?',
-        html: `<div style="text-align:left;font-size:0.85rem;color:#475569;margin-bottom:8px;">The AGT goes back to ₱0.00. This is recorded permanently with your reason. Invoice numbering is not affected.</div>
+        html: `<div style="text-align:left;font-size:0.85rem;color:#475569;margin-bottom:8px;">The AGT goes back to ₱0.00. This is recorded permanently with your reason. Invoice numbering is not affected. A one-time developer pass key is required in the next step.</div>
                <textarea id="bir-reset-reason" class="swal2-textarea" placeholder="Reason (required)" style="width:100%;margin:0 0 8px;box-sizing:border-box;"></textarea>
                <input id="bir-reset-password" type="password" class="swal2-input" placeholder="Admin password (or your own, if authorized)" style="width:100%;margin:0;box-sizing:border-box;" autocomplete="off">`,
         showCancelButton: true,
@@ -30518,8 +30626,10 @@ async function resetBirAgt() {
         }
     });
     if (!isConfirmed || !value) return;
+    const agtPassKey = await requestBirPassKey({ purpose: 'bir-agt-reset', includeBirData: false });
+    if (agtPassKey === null) return;
     try {
-        const res = await authFetch(`${API_URL}/bir/reset-agt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+        const res = await authFetch(`${API_URL}/bir/reset-agt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(agtPassKey ? { ...value, birPassKey: agtPassKey } : value) });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
         await loadBirComplianceView();

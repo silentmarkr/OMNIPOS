@@ -4,12 +4,83 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Activate OMNIPOS</title>
 <style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#101522;color:#f4f6fb}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}.card{width:min(100%,460px);padding:28px;border:1px solid #30394c;border-radius:20px;background:#171e2d;box-shadow:0 20px 70px #0005}h1{font-size:1.55rem;margin:0 0 8px}p{color:#b8c2d5;line-height:1.55}label{display:block;font-weight:650;margin:22px 0 8px}input{width:100%;padding:14px;border-radius:10px;border:1px solid #45516a;background:#0e1420;color:#fff;font:inherit}button{width:100%;margin-top:14px;padding:14px;border:0;border-radius:10px;background:#7c9cff;color:#081126;font:inherit;font-weight:750;cursor:pointer}button:disabled{opacity:.6;cursor:wait}.status{margin-top:14px;padding:12px;border-radius:10px;display:none;overflow-wrap:anywhere}.error{display:block;background:#4a2028;color:#ffd9df}.ok{display:block;background:#153c31;color:#c9ffeb}.small{font-size:.88rem}
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#101522;color:#f4f6fb}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}.card{width:min(100%,460px);padding:28px;border:1px solid #30394c;border-radius:20px;background:#171e2d;box-shadow:0 20px 70px #0005}h1{font-size:1.55rem;margin:0 0 8px}p{color:#b8c2d5;line-height:1.55}label{display:block;font-weight:650;margin:22px 0 8px}input{width:100%;padding:14px;border-radius:10px;border:1px solid #45516a;background:#0e1420;color:#fff;font:inherit;letter-spacing:.04em}input[readonly]{border-color:#2f7d62;background:#0c1b17}button{width:100%;margin-top:14px;padding:14px;border:0;border-radius:10px;background:#7c9cff;color:#081126;font:inherit;font-weight:750;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.status{margin-top:14px;padding:12px;border-radius:10px;overflow-wrap:anywhere}.status:empty{display:none}.error{background:#4a2028;color:#ffd9df}.ok{background:#153c31;color:#c9ffeb}.wait{background:#1d2740;color:#cfd9f5}.small{font-size:.88rem}
+.pair{margin:18px 0 4px;padding:14px;border:1px dashed #45516a;border-radius:12px;text-align:center}.pair small{display:block;color:#9fb0cc;margin-bottom:4px}.pair strong{display:block;font-size:1.9rem;letter-spacing:.14em;font-variant-numeric:tabular-nums}
 </style></head>
-<body><main class="card"><h1>Activate OMNIPOS</h1><p>Enter the unique activation key provided for your business. This installation will be registered to this device. Replacing the device requires administrator approval.</p>
-<form id="activationForm"><label for="activationKey">Customer activation key</label><input id="activationKey" name="activationKey" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="16" maxlength="256" placeholder="OMNI-ACT_…"><button id="activateButton" type="submit">Activate this device</button></form>
-<div id="status" class="status" role="status" aria-live="polite"></div><p class="small">Your activation key is sent to your configured RELAY server for verification. The RELAY master key is not stored in this customer package.</p></main>
+<body><main class="card"><h1>Activate OMNIPOS</h1>
+<p>Your provider will send the activation key to this screen. Give them the pairing code below, then wait — the key appears automatically. This installation will be registered to this device. Replacing the device requires administrator approval.</p>
+<div class="pair" aria-live="polite"><small>Your pairing code</small><strong id="pairingCode">…</strong></div>
+<form id="activationForm"><label for="activationKey">Customer activation key</label><input id="activationKey" name="activationKey" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="256" placeholder="Waiting for your provider…"><button id="activateButton" type="submit" disabled>Waiting for activation key…</button></form>
+<div id="status" class="status wait" role="status" aria-live="polite">Connecting to RELAY…</div>
+<p class="small">Anything typed in the box is replaced by the key your provider sends. The activation key is verified by your configured RELAY server. The RELAY master key is not stored in this customer package.</p></main>
 <script>
-const form=document.getElementById('activationForm'),input=document.getElementById('activationKey'),button=document.getElementById('activateButton'),statusBox=document.getElementById('status');
-form.addEventListener('submit',async e=>{e.preventDefault();const activationKey=input.value.trim();if(!activationKey)return;button.disabled=true;button.textContent='Verifying…';statusBox.className='status';statusBox.textContent='';try{const response=await fetch('/api/relay/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activationKey})});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.message||'Activation failed. Check the key and RELAY connection.');statusBox.className='status ok';statusBox.textContent='Activation successful. Opening OMNIPOS…';input.value='';setTimeout(()=>location.replace('/'),700);}catch(err){statusBox.className='status error';statusBox.textContent=err.message||'Activation failed.';}finally{button.disabled=false;button.textContent='Activate this device';}});
+(function () {
+  'use strict';
+  var form = document.getElementById('activationForm'), input = document.getElementById('activationKey'), button = document.getElementById('activateButton');
+  var statusBox = document.getElementById('status'), codeBox = document.getElementById('pairingCode');
+  var READY_LABEL = 'Activate this device';
+  var appliedDeliveryId = null;   // the delivery currently in the box (a newer one from the provider replaces it)
+  var activating = false, done = false, failures = 0, timer = null;
+
+  function setStatus(kind, text) { statusBox.className = 'status ' + kind; statusBox.textContent = text; }
+  function schedule(ms) { if (!done) { clearTimeout(timer); timer = setTimeout(poll, ms); } }
+
+  async function poll() {
+    if (done) return;
+    var delay = 4000;
+    try {
+      var response = await fetch('/api/relay/activation-inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store' });
+      var data = await response.json().catch(function () { return {}; });
+      if (response.status === 409 && data.code === 'ALREADY_ACTIVATED') { done = true; location.replace('/'); return; }
+      if (!response.ok || !data.success) {
+        failures++;
+        delay = response.status === 429 ? 20000 : Math.min(4000 * (failures + 1), 20000);
+        if (!appliedDeliveryId) setStatus('error', (data.message || 'Could not reach RELAY.') + ' Trying again…');
+      } else {
+        failures = 0;
+        if (data.pairingCode) codeBox.textContent = data.pairingCode;
+        var d = data.delivery;
+        if (d && d.activationKey && d.deliveryId !== appliedDeliveryId && !activating) {
+          // A key (or a newer key) from the provider: it REPLACES whatever the customer typed.
+          input.value = d.activationKey;
+          input.readOnly = true;
+          appliedDeliveryId = d.deliveryId;
+          button.disabled = false;
+          button.textContent = READY_LABEL;
+          setStatus('ok', 'Activation key received from your provider. Tap “' + READY_LABEL + '”.');
+        } else if (!appliedDeliveryId) {
+          setStatus('wait', 'Waiting for your provider to send the activation key. Keep this screen open.');
+        }
+      }
+    } catch (err) {
+      failures++;
+      delay = Math.min(4000 * (failures + 1), 20000);
+      if (!appliedDeliveryId) setStatus('error', 'Could not reach RELAY. Trying again…');
+    }
+    schedule(delay);
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    // Only the key RELAY sent can be submitted from this screen.
+    if (!appliedDeliveryId || activating) return;
+    var activationKey = input.value.trim();
+    if (!activationKey) return;
+    activating = true; button.disabled = true; button.textContent = 'Verifying…';
+    try {
+      var response = await fetch('/api/relay/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activationKey: activationKey }) });
+      var data = await response.json().catch(function () { return {}; });
+      if (!response.ok || !data.success) throw new Error(data.message || 'Activation failed. Check the RELAY connection and ask your provider to send the key again.');
+      done = true; clearTimeout(timer);
+      setStatus('ok', 'Activation successful. Opening OMNIPOS…');
+      input.value = '';
+      setTimeout(function () { location.replace('/'); }, 700);
+    } catch (err) {
+      setStatus('error', err.message || 'Activation failed.');
+      button.disabled = false; button.textContent = READY_LABEL;
+    } finally { activating = false; }
+  });
+
+  poll();
+})();
 </script></body></html>
