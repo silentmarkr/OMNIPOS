@@ -26,17 +26,60 @@ log() {
     echo "$msg" >> "$LOG_FILE"
 }
 
+is_our_supervisor_pid() {
+    local pid="$1" cmd cwd stat state
+    case "$pid" in ''|*[!0-9]*) return 1;; esac
+    [ "$pid" != "$$" ] || return 0
+    kill -0 "$pid" 2>/dev/null || return 1
+    # A zombie is not a running supervisor, even though kill -0 may succeed.
+    stat="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    state="$(printf '%s' "$stat" | awk '{print $3}')"
+    [ "$state" != "Z" ] || return 1
+    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+    [ "$cwd" = "$PWD" ] || return 1
+    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    case "$cmd" in *start.sh*) return 0;; esac
+    return 1
+}
+
+# Check the legacy PID file first so upgrades from an older start.sh still
+# respect an already-running supervisor. Then use an atomic directory lock to
+# prevent two new launcher requests from passing the check simultaneously.
+# Keep the legacy PID file because the APK reads it.
+LOCK_DIR="./.start.sh.lock.d"
+OLD_PID="$(cat "$LOCK_FILE" 2>/dev/null)"
+if is_our_supervisor_pid "$OLD_PID"; then
+    log "❌ May tumatakbo na supervisor loop (PID $OLD_PID). Hindi na papatakbuhin ulit."
+    exit 1
+fi
 if [ -f "$LOCK_FILE" ]; then
-    OLD_PID="$(cat "$LOCK_FILE" 2>/dev/null)"
-    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-        log "❌ May tumatakbo na supervisor loop (PID $OLD_PID). Hindi na papatakbuhin ulit."
+    log "⚠️  May stale/reused-PID lock file (PID ${OLD_PID:-unknown}) — nililinis."
+    rm -f "$LOCK_FILE"
+fi
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    # A directory without a valid PID file is a stale lock from an interrupted
+    # launch. Remove it only if empty, then make one atomic retry.
+    rmdir "$LOCK_DIR" 2>/dev/null || {
+        log "❌ May ibang launcher o hindi malinis na lock directory; hindi magsisimula ng duplicate supervisor."
         exit 1
-    else
-        log "⚠️  May natirang lock file mula sa dating session (PID $OLD_PID, hindi na tumatakbo) — nililinis."
-        rm -f "$LOCK_FILE"
+    }
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        log "❌ May ibang launcher na nauna; hindi magsisimula ng duplicate supervisor."
+        exit 1
     fi
 fi
-echo "$$" > "$LOCK_FILE"
+# Fail clearly rather than entering an endless retry loop if the runtime/package is missing.
+if ! command -v node >/dev/null 2>&1; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    log "❌ Hindi makita ang Node.js (node). Hindi maaaring simulan ang server."
+    exit 127
+fi
+if [ ! -f ./server.js ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    log "❌ Nawawala ang server.js sa $PWD. Hindi maaaring simulan ang server."
+    exit 2
+fi
+printf '%s\n' "$$" > "$LOCK_FILE"
 
 HAS_TERMUX_API=0
 if command -v termux-wake-lock >/dev/null 2>&1; then
@@ -51,11 +94,29 @@ if command -v termux-notification >/dev/null 2>&1; then
         --ongoing
 fi
 
+SERVER_PID=""
+CLEANING_UP=0
 cleanup() {
+    [ "$CLEANING_UP" -eq 0 ] || return
+    CLEANING_UP=1
+    trap '' INT TERM
     log "🛑 Ihihinto ang supervisor loop (signal received)."
-    [ "$HAS_TERMUX_API" -eq 1 ] && termux-wake-unlock 2>/dev/null
-    command -v termux-notification-remove >/dev/null 2>&1 && termux-notification-remove omnipos-supervisor
-    rm -f "$LOCK_FILE"
+    if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill -TERM "$SERVER_PID" 2>/dev/null || true
+        for _ in 1 2 3 4 5; do
+            kill -0 "$SERVER_PID" 2>/dev/null || break
+            sleep 1
+        done
+        kill -KILL "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+    fi
+    [ "$HAS_TERMUX_API" -eq 1 ] && termux-wake-unlock 2>/dev/null || true
+    command -v termux-notification-remove >/dev/null 2>&1 && termux-notification-remove omnipos-supervisor || true
+    # Remove locks only if they still identify this exact supervisor.
+    if [ "$(cat "$LOCK_FILE" 2>/dev/null)" = "$$" ]; then
+        rm -f "$LOCK_FILE"
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+    fi
     exit 0
 }
 trap cleanup INT TERM
@@ -89,8 +150,15 @@ while true; do
     # setsid'd node child does not — Android kills it as soon as you
     # leave and reopen the app. Plain `node server.js` (same session
     # as start.sh) does not have this problem.
-    node server.js
+    # Track the server PID explicitly. This lets the TERM handler stop the
+    # server gracefully, wait briefly for its final database snapshot, then
+    # force-stop only if it ignored TERM. Without this, shutdown can leave a
+    # live child while the next launcher sees the old supervisor lock.
+    node server.js &
+    SERVER_PID=$!
+    wait "$SERVER_PID"
     EXIT_CODE=$?
+    SERVER_PID=""
 
     if [ "$EXIT_CODE" -eq 0 ]; then
 
