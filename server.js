@@ -330,6 +330,34 @@ function isClientActivated() {
     try { activated = activated || Boolean(readRelayClientCredential()); } catch (_) {}
     return activated;
 }
+// RENEWAL: kapag expired o revoked ang license, tinatanggihan ng RELAY ang credential ng device (403). Dati ay "activated" pa rin
+// ang tingin ng app (may credential file), kaya sarado ang activation screen/waiting room at Admin login lang ang puwedeng magpalit
+// ng key, at wala namang UI para doon. Ngayon: kapag kumpirmado ng RELAY na expired/revoked, bubukas ang renewal (activate.html).
+// Hindi ito nag-a-assume kapag offline o hindi maabot ang RELAY: mananatiling gumagana ang POS.
+let _renewalState = { at: 0, needed: false, reason: null, checking: null };
+const RENEWAL_CHECK_MS = 60 * 1000;
+function refreshRenewalState() {
+    if (_renewalState.checking) return _renewalState.checking;
+    _renewalState.checking = (async () => {
+        try {
+            const response = await relayFetch(`${RELAY_URL}/relay/client/credential-check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }, 10000);
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data && data.success) { _renewalState.needed = false; _renewalState.reason = null; _renewalState.at = Date.now(); }
+            else if (response.status === 403 && (data.code === 'CLIENT_CREDENTIAL_INVALID' || data.code === 'CLIENT_LICENSE_EXPIRED_OR_REVOKED')) {
+                _renewalState.needed = true; _renewalState.reason = data.code; _renewalState.at = Date.now();
+            } else { _renewalState.at = Date.now(); }   // ibang sagot (hal. device mismatch, 5xx): huwag baguhin ang kasalukuyang estado
+        } catch (_e) { _renewalState.at = Date.now() - RENEWAL_CHECK_MS + 10 * 1000; }   // offline: subukan ulit sa ~10s, huwag i-lock ang POS
+        finally { _renewalState.checking = null; }
+        return _renewalState.needed;
+    })();
+    return _renewalState.checking;
+}
+async function checkRenewalNeeded(force) {
+    if (!isClientActivated()) return false;
+    if (force || Date.now() - _renewalState.at > RENEWAL_CHECK_MS) await refreshRenewalState();
+    return _renewalState.needed;
+}
+function resetRenewalState() { _renewalState = { at: 0, needed: false, reason: null, checking: null }; }
 app.use((req, res, next) => {
     const activated = isClientActivated();
     if (activated || req.path === '/activate.html' || req.path === '/api/relay/activate' || req.path === '/api/relay/activation-inbox') return next();
@@ -507,14 +535,17 @@ function extractToken(req) {
     if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
     return req.headers['x-auth-token'] ||'';
 }
-const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health']);
-app.use((req, res, next) => {
+const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health','/api/relay/license-state']);
+app.use(async (req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     // FIX: first-install activation happens BEFORE any user can log in, so it must not require a session token
     // (otherwise the Activate page always failed with "Kailangan mag-login muna. Walang session token.").
     // It is public ONLY while the device is not activated; once activated, replacing the credential needs an Admin login.
-    if ((req.path === '/api/relay/activate' || req.path === '/api/relay/activation-inbox') && !isClientActivated()) return next();
+    if (req.path === '/api/relay/activate' || req.path === '/api/relay/activation-inbox') {
+        // Public habang hindi pa activated, O kapag kumpirmado ng RELAY na expired/revoked ang license (renewal). RELAY pa rin ang nagve-verify ng key.
+        if (!isClientActivated() || await checkRenewalNeeded()) return next();
+    }
     if (req.path.startsWith('/api/system/reset/status/')) return next();
     const token = extractToken(req);
     if (!token) {
@@ -5060,7 +5091,8 @@ function getOrCreateInstallationId(data) {
 let _activationInboxIdentity = null;   // identity is stable while unactivated; computing it runs shell commands, so do it once
 app.post('/api/relay/activation-inbox', rateLimit('relay-activation-inbox', 40, 60 * 1000), async (req, res) => {
     try {
-        if (isClientActivated()) return res.status(409).json({ success: false, code: 'ALREADY_ACTIVATED', message: 'This installation is already activated.' });
+        const _renewal = isClientActivated();
+        if (_renewal && !(await checkRenewalNeeded())) return res.status(409).json({ success: false, code: 'ALREADY_ACTIVATED', message: 'This installation is already activated.' });
         if (!_activationInboxIdentity) {
             const featureData = readFeatureUnlocks();
             const installationId = getOrCreateInstallationId(featureData);
@@ -5072,16 +5104,25 @@ app.post('/api/relay/activation-inbox', rateLimit('relay-activation-inbox', 40, 
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) return res.status(response.status >= 400 ? response.status : 502).json({ success: false, code: data.code || 'ACTIVATION_INBOX_UNAVAILABLE', message: data.message || 'Could not reach RELAY.' });
         res.set('Cache-Control', 'no-store');
-        return res.json({ success: true, pairingCode: data.pairingCode || null, delivery: data.delivery && data.delivery.activationKey ? { deliveryId: String(data.delivery.deliveryId || ''), activationKey: String(data.delivery.activationKey) } : null });
+        return res.json({ success: true, renewal: _renewal, pairingCode: data.pairingCode || null, delivery: data.delivery && data.delivery.activationKey ? { deliveryId: String(data.delivery.deliveryId || ''), activationKey: String(data.delivery.activationKey) } : null });
     } catch (err) {
         return res.status(503).json({ success: false, code: err && err.code === 'NO_INTERNET' ? 'NO_INTERNET' : 'ACTIVATION_INBOX_UNAVAILABLE', message: err && err.code === 'NO_INTERNET' ? 'No internet connection detected on this device.' : 'Could not reach RELAY. Retrying…' });
     }
+});
+// Estado ng license para sa app/activate.html: renewalNeeded=true kapag kumpirmadong expired o revoked ang license ng device na ito.
+app.get('/api/relay/license-state', async (req, res) => {
+    try {
+        const activated = isClientActivated();
+        const renewalNeeded = activated ? await checkRenewalNeeded(false) : false;
+        res.set('Cache-Control', 'no-store');
+        return res.json({ success: true, activated, renewalNeeded, reason: renewalNeeded ? _renewalState.reason : null });
+    } catch (_e) { return res.json({ success: true, activated: isClientActivated(), renewalNeeded: false, reason: null }); }
 });
 app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 * 1000), async (req, res) => {
     try {
         // Already-activated device: only a logged-in Admin may replace the credential (the login gate lets us through with req.authUser set).
         // Not-activated device: public first-install activation (no req.authUser yet).
-        if (isClientActivated() && String(req.authUser?.role || '').toLowerCase() !== 'admin') {
+        if (isClientActivated() && String(req.authUser?.role || '').toLowerCase() !== 'admin' && !(await checkRenewalNeeded())) {
             return res.status(403).json({ success: false, code: 'ADMIN_REQUIRED', message: 'Replacing the activation key on this device requires administrator approval.' });
         }
         const activationKey = String(req.body?.activationKey || '').trim();
@@ -5114,6 +5155,7 @@ app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 *
             RELAY_API_KEY = activationKey;
             setRelayCredentialCache(activationKey);
             runRelayKeyActivatedHooks();
+            resetRenewalState();
             return res.json({ success: true, activated: true, installationId, expiresAt: chkData.expiresAt || null, message: 'Credential restored on this device.' });
         }
         const response = await relayFetch(`${RELAY_URL}/relay/client/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activationKey, installationId, fingerprint }) }, 15000);
@@ -5127,6 +5169,7 @@ app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 *
         RELAY_API_KEY = data.credential;
         setRelayCredentialCache(data.credential);
         runRelayKeyActivatedHooks();
+        resetRenewalState();
         return res.json({ success: true, activated: true, installationId, expiresAt: data.expiresAt || null, message: 'OMNIPOS activated successfully on this device.' });
     } catch (err) {
         console.error('RELAY customer activation failed:', err.message);
