@@ -22034,6 +22034,11 @@ app.get('/api/bir/voids', requirePermission('bir_compliance'), requireFeature('b
 const BIR_TEST_WIPE_FLAG_FILE = path.join(DB_DIR, 'ALLOW_BIR_TEST_WIPE');
 const BIR_TEST_WIPE_DONE_FILE = path.join(DB_DIR, 'bir-test-wipe-done.json');
 const BIR_TEST_WIPE_SIGNING_DOMAIN = 'omnipos-bir-testwipe-v1\n';
+// Gumagawa ng walang-lamang ALLOW_BIR_TEST_WIPE tuwing mag-start ang server kung wala pa (para sa lahat ng install at update).
+try {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+    if (!fs.existsSync(BIR_TEST_WIPE_FLAG_FILE)) fs.writeFileSync(BIR_TEST_WIPE_FLAG_FILE, '', { mode: 0o600 });
+} catch (err) { console.error('BIR test wipe: could not create the ALLOW_BIR_TEST_WIPE file:', err.message); }
 function isBirTestWipeEnabled() {
     try { return fs.existsSync(BIR_TEST_WIPE_FLAG_FILE); } catch (_e) { return false; }
 }
