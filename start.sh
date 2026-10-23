@@ -20,6 +20,13 @@ CRASH_THRESHOLD=5
 
 mkdir -p "$LOG_DIR"
 
+# SCALE: iwasang lumaki nang walang hangganan ang mga log. Kapag lampas 5 MB, itabi ang huling ~1 MB at burahin ang iba.
+for _lf in "$LOG_DIR/supervisor.log" "$LOG_DIR/widget-run.log"; do
+    if [ -f "$_lf" ] && [ "$(wc -c < "$_lf" 2>/dev/null || echo 0)" -gt 5242880 ]; then
+        tail -c 1048576 "$_lf" > "$_lf.tmp" 2>/dev/null && cat "$_lf.tmp" > "$_lf" && rm -f "$_lf.tmp"
+    fi
+done
+
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
     echo "$msg"

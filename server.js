@@ -336,30 +336,100 @@ function isClientActivated() {
 // Hindi ito nag-a-assume kapag offline o hindi maabot ang RELAY: mananatiling gumagana ang POS.
 let _renewalState = { at: 0, needed: false, reason: null, checking: null };
 const RENEWAL_CHECK_MS = 60 * 1000;
+// OFFLINE ENFORCEMENT: ang expiry ng license ay naka-save din sa credential file ng device (expiresAt). Kaya kahit hindi kailanman
+// nag-online ang client mula nang ma-activate, nagla-lock pa rin ito pagdating ng expiry. Ang "orasan" ay hindi puwedeng bumaba:
+// itinatala sa database/license-clock.json ang pinakamataas na oras na nakita, kaya hindi mababawi ng pag-atras ng clock ang expiry.
+// Kapag online at sumagot ang RELAY, ang oras ng RELAY (Date header) ang nagko-correct sa talaan (para hindi ma-stuck sa maling clock).
+const LICENSE_CLOCK_FILE = path.join(DB_DIR, 'license-clock.json');
+let _licenseClock = { loaded: false, lastSeenAt: 0, savedAt: 0 };
+function saveLicenseClock() {
+    try { fs.mkdirSync(DB_DIR, { recursive: true }); fs.writeFileSync(LICENSE_CLOCK_FILE, JSON.stringify({ lastSeenAt: _licenseClock.lastSeenAt }), { mode: 0o600 }); _licenseClock.savedAt = Date.now(); } catch (_e) { /* best-effort */ }
+}
+function licenseNow() {
+    try {
+        if (!_licenseClock.loaded) {
+            _licenseClock.loaded = true;
+            try { _licenseClock.lastSeenAt = Number(JSON.parse(fs.readFileSync(LICENSE_CLOCK_FILE, 'utf8')).lastSeenAt) || 0; } catch (_e) { /* wala pa */ }
+        }
+        const now = Date.now();
+        if (now > _licenseClock.lastSeenAt) {
+            _licenseClock.lastSeenAt = now;
+            if (now - _licenseClock.savedAt > 60 * 1000) saveLicenseClock();
+        }
+        return _licenseClock.lastSeenAt;
+    } catch (_e) { return Date.now(); }
+}
+function setLicenseClockFromRelay(dateHeader) {
+    const t = Date.parse(String(dateHeader || ''));
+    if (!Number.isFinite(t) || t < 1.7e12) return;
+    _licenseClock.loaded = true; _licenseClock.lastSeenAt = t; saveLicenseClock();
+}
+let _localExpiryCache = { at: 0, value: null };
+function readLocalCredentialExpiry() {
+    if (Date.now() - _localExpiryCache.at < 5000) return _localExpiryCache.value;
+    let value = null;
+    try { const n = Number(JSON.parse(fs.readFileSync(RELAY_CLIENT_CREDENTIAL_PATH, 'utf8')).expiresAt); value = Number.isFinite(n) && n > 0 ? n : null; } catch (_e) { value = null; }
+    _localExpiryCache = { at: Date.now(), value };
+    return value;
+}
+function localLicenseExpired() {
+    const exp = readLocalCredentialExpiry();
+    return !!(exp && exp <= licenseNow());
+}
+// Ang renewal/pagbabago ng expiry sa RELAY ay dapat umabot sa local credential file (kapag nag-online ang client).
+function syncLocalCredentialExpiry(newExpiresAt) {
+    try {
+        const rec = JSON.parse(fs.readFileSync(RELAY_CLIENT_CREDENTIAL_PATH, 'utf8'));
+        const next = Number.isFinite(Number(newExpiresAt)) && Number(newExpiresAt) > 0 ? Number(newExpiresAt) : null;
+        if ((rec.expiresAt || null) === next) return;
+        rec.expiresAt = next;
+        writeJsonAtomic0600(RELAY_CLIENT_CREDENTIAL_PATH, rec);
+        try { fs.copyFileSync(RELAY_CLIENT_CREDENTIAL_PATH, RELAY_CLIENT_CREDENTIAL_BACKUP_PATH); fs.chmodSync(RELAY_CLIENT_CREDENTIAL_BACKUP_PATH, 0o600); } catch (_m) { /* mirror lang */ }
+        _localExpiryCache = { at: 0, value: null };
+    } catch (_e) { /* walang credential file: walang isi-sync */ }
+}
 function refreshRenewalState() {
     if (_renewalState.checking) return _renewalState.checking;
     _renewalState.checking = (async () => {
         try {
             const response = await relayFetch(`${RELAY_URL}/relay/client/credential-check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }, 10000);
+            try { setLicenseClockFromRelay(response.headers.get('date')); } catch (_e) {}
             const data = await response.json().catch(() => ({}));
-            if (response.ok && data && data.success) { _renewalState.needed = false; _renewalState.reason = null; _renewalState.at = Date.now(); }
-            else if (response.status === 403 && (data.code === 'CLIENT_CREDENTIAL_INVALID' || data.code === 'CLIENT_LICENSE_EXPIRED_OR_REVOKED')) {
+            if (response.ok && data && data.success) {
+                _renewalState.needed = false; _renewalState.reason = null; _renewalState.at = Date.now();
+                syncLocalCredentialExpiry(data.expiresAt);   // renewed sa RELAY -> ma-update ang local expiry
+            } else if (response.status === 403 && (data.code === 'CLIENT_CREDENTIAL_INVALID' || data.code === 'CLIENT_LICENSE_EXPIRED_OR_REVOKED')) {
                 _renewalState.needed = true; _renewalState.reason = data.code; _renewalState.at = Date.now();
             } else { _renewalState.at = Date.now(); }   // ibang sagot (hal. device mismatch, 5xx): huwag baguhin ang kasalukuyang estado
-        } catch (_e) { _renewalState.at = Date.now() - RENEWAL_CHECK_MS + 10 * 1000; }   // offline: subukan ulit sa ~10s, huwag i-lock ang POS
+        } catch (_e) { _renewalState.at = Date.now() - RENEWAL_CHECK_MS + 10 * 1000; }   // offline: subukan ulit sa ~10s
         finally { _renewalState.checking = null; }
         return _renewalState.needed;
     })();
     return _renewalState.checking;
 }
+// Naka-lock ang POS kapag kumpirmadong expired/revoked sa RELAY, O lampas na ang expiry na naka-save sa device (kahit offline).
+function isLicenseLockedSync() {
+    if (!isClientActivated()) return false;
+    const stale = Date.now() - _renewalState.at > (localLicenseExpired() ? 15 * 1000 : RENEWAL_CHECK_MS);
+    if (stale) refreshRenewalState().catch(() => {});   // background: pang-recover kapag na-renew na sa RELAY
+    return _renewalState.needed || localLicenseExpired();
+}
 async function checkRenewalNeeded(force) {
     if (!isClientActivated()) return false;
-    if (force || Date.now() - _renewalState.at > RENEWAL_CHECK_MS) await refreshRenewalState();
-    return _renewalState.needed;
+    const stale = Date.now() - _renewalState.at > (localLicenseExpired() ? 15 * 1000 : RENEWAL_CHECK_MS);
+    if (force || stale) await refreshRenewalState();
+    return _renewalState.needed || localLicenseExpired();
 }
-function resetRenewalState() { _renewalState = { at: 0, needed: false, reason: null, checking: null }; }
+function resetRenewalState() { _renewalState = { at: 0, needed: false, reason: null, checking: null }; _localExpiryCache = { at: 0, value: null }; }
 app.use((req, res, next) => {
     const activated = isClientActivated();
+    // LICENSE LOCK: expired/revoked (kahit offline, base sa expiry na naka-save sa device) -> activation/renewal screen lang ang bukas.
+    if (activated && isLicenseLockedSync()) {
+        const p = req.path;
+        if (p === '/activate.html' || p === '/api/relay/activate' || p === '/api/relay/activation-inbox' || p === '/api/relay/license-state' || p === '/api/health') return next();
+        if (p === '/' || p.endsWith('.html')) return res.redirect('/activate.html');
+        if (p.startsWith('/api/')) return res.status(423).json({ success: false, code: 'LICENSE_EXPIRED', message: 'The license of this device is expired or revoked. Renew it to continue using OMNIPOS.' });
+    }
     if (activated || req.path === '/activate.html' || req.path === '/api/relay/activate' || req.path === '/api/relay/activation-inbox') return next();
     if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/activate.html');
     return res.status(423).json({ success: false, code: 'CLIENT_ACTIVATION_REQUIRED', message: 'Activate this OMNIPOS installation with your customer activation key first.' });
@@ -5115,7 +5185,7 @@ app.get('/api/relay/license-state', async (req, res) => {
         const activated = isClientActivated();
         const renewalNeeded = activated ? await checkRenewalNeeded(false) : false;
         res.set('Cache-Control', 'no-store');
-        return res.json({ success: true, activated, renewalNeeded, reason: renewalNeeded ? _renewalState.reason : null });
+        return res.json({ success: true, activated, renewalNeeded, reason: renewalNeeded ? (_renewalState.reason || 'LICENSE_EXPIRED') : null, expiresAt: activated ? readLocalCredentialExpiry() : null });
     } catch (_e) { return res.json({ success: true, activated: isClientActivated(), renewalNeeded: false, reason: null }); }
 });
 app.post('/api/relay/activate', rateLimit('relay-client-activate', 10, 60 * 60 * 1000), async (req, res) => {
@@ -7209,6 +7279,20 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupStatus.lastError = 'No RELAY_API_KEY is configured in .env.';
         return { success: false, status: 500, message: cloudBackupStatus.lastError };
     }
+    // SCALE GUARD: ang cloud backup ay nagkakarga ng LAHAT ng module sa RAM, ginagawang isang JSON string, at ginzi-gzip. Sa malaking
+    // database (default > 200 MB, CLOUD_BACKUP_MAX_DB_MB) ay mauubusan ng memory ang Termux at magka-crash ang buong POS, kaya hindi na ito itutuloy.
+    // Ang lokal na .db backup ay patuloy na gumagana. I-archive muna ang lumang data o itaas ang limit kung sigurado kang kaya ng device.
+    try {
+        const cloudMaxMb = Number(process.env.CLOUD_BACKUP_MAX_DB_MB) || 200;
+        const dbBytesNow = fs.statSync(path.join(DB_DIR, 'omnipos.db')).size;
+        if (dbBytesNow > cloudMaxMb * 1024 * 1024) {
+            cloudBackupUploadInFlight = false;
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = `Skipped: the database is ${(dbBytesNow / 1048576).toFixed(0)} MB, too large to upload safely from this device (limit ${cloudMaxMb} MB). The local backup still runs.`;
+            console.warn(`⚠️ CLOUD_BACKUP: ${cloudBackupStatus.lastError}`);
+            return { success: false, status: 413, message: cloudBackupStatus.lastError };
+        }
+    } catch (_sizeErr) { /* hindi mabasa ang laki: ituloy gaya ng dati */ }
     try {
         const featureData = readFeatureUnlocks();
         const installationId = getOrCreateInstallationId(featureData);
@@ -8040,6 +8124,9 @@ function applyRestoredModules(modules) {
     }
     // Safety snapshot ng kasalukuyang data (para maibalik kung nagkamali ng piniling backup file).
     try {
+        if (fs.statSync(path.join(DB_DIR, 'omnipos.db')).size > (Number(process.env.BACKUP_JSON_MAX_DB_MB) || 256) * 1024 * 1024) {
+            throw new Error('masyadong malaki ang database para sa JSON snapshot (iwas OOM); ang .db backup ang gamitin');
+        }
         const snap = getFullDatabaseSnapshot({ excludeProductImages: true }); // walang HD photo: iwas OOM sa Termux
         const safetyDir = path.join(DB_DIR, 'backups');
         fs.mkdirSync(safetyDir, { recursive: true });
@@ -14803,11 +14890,17 @@ app.get('/api/transactions', (req, res) => {
         res.set('X-Has-More', mine.length > off + lim ? 'true' : 'false');
         return res.json(mine.slice(off, off + lim));
     }
-    if (canViewAll) {
-        return res.json(readData(FILE_TRANSACTIONS));
-    }
-    if (asciiRequester) {
-        return res.json(readRowsByJsonFieldNoCase(FILE_TRANSACTIONS, 'cashier', requester));
+    // SCALE: walang limit at walang from/to = dati ay buong history ang nilo-load sa RAM (puwedeng mag-crash kapag milyon na ang benta).
+    // Ngayon: pinakabagong TX_FULL_LIST_MAX lang (default 5000); ang X-Truncated: true ay nagsasabing may mas luma pa (gumamit ng ?limit=&offset= o ?from=&to=).
+    const TX_FULL_LIST_MAX = Math.max(100, Math.min(Number(process.env.TX_FULL_LIST_MAX) || 5000, 20000));
+    if (canViewAll || asciiRequester) {
+        const page = readRowsPage(FILE_TRANSACTIONS, {
+            limit: TX_FULL_LIST_MAX,
+            offset: 0,
+            ...(canViewAll ? {} : { field: 'cashier', value: requester })
+        });
+        res.set('X-Truncated', page.hasMore ? 'true' : 'false');
+        return res.json(page.rows);
     }
     const ownTransactions = readData(FILE_TRANSACTIONS).filter(
         tx => (tx.cashier ||'').toLowerCase() === requester.toLowerCase()
@@ -18295,7 +18388,16 @@ function computeSalesVelocity(windowDays) {
     const cutoff = now - windowDays * INSIGHT_DAY_MS;
     const recentCutoff = now - 7 * INSIGHT_DAY_MS;
     const map = new Map();
-    for (const tx of readData(FILE_TRANSACTIONS, [])) {
+    // SCALE: sa maliit na database, buong history pa rin (eksakto ang "firstAt" ng bawat produkto). Sa malaking database (> BIG_DB_MB,
+    // default 200), dalawang window lang ang binabasa (kasalukuyan + kasunod na nauna) para hindi ma-load ang buong history sa RAM.
+    let velocityTx = null;
+    try {
+        const bigDbBytes = (Number(process.env.BIG_DB_MB) || 200) * 1024 * 1024;
+        if (fs.statSync(path.join(DB_DIR, 'omnipos.db')).size > bigDbBytes) {
+            velocityTx = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', cutoff - windowDays * INSIGHT_DAY_MS, now);
+        }
+    } catch (_e) { velocityTx = null; }
+    for (const tx of (velocityTx || readData(FILE_TRANSACTIONS, []))) {
         const t = insightTxTimeMs(tx);
         if (t === null || t > now || !Array.isArray(tx.items)) continue;
         for (const item of tx.items) {

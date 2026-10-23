@@ -30831,22 +30831,17 @@ async function downloadBirExport(kind) {
 
 // LICENSE RENEWAL: kapag kumpirmado ng RELAY na expired/revoked ang license ng device na ito, ialok ang renewal (activate.html: pairing code + key mula sa provider).
 (function licenseRenewalWatcher() {
-    let shownFor = 0;
+    // Naka-lock ang POS sa server (423 LICENSE_EXPIRED) kapag expired/revoked ang license, kaya diretso sa renewal screen.
     async function check() {
         try {
-            if (typeof Swal === 'undefined' || Swal.isVisible()) return;
             const res = await fetch(`${API_URL}/relay/license-state`, { cache: 'no-store' });
             if (!res.ok) return;
             const data = await res.json();
-            if (!data || !data.renewalNeeded) { shownFor = 0; return; }
-            if (Date.now() - shownFor < 30 * 60 * 1000) return;   // huwag ulit-ulitin: isang tanong bawat 30 minuto
-            shownFor = Date.now();
-            const r = await Swal.fire({ title: 'License expired or revoked', icon: 'warning', html: '<div style="text-align:left;font-size:0.9rem;color:#475569;">The license of this device is no longer valid on RELAY. Tap <b>Renew now</b>, read the pairing code to your provider, and the new key appears automatically. Your sales data is not affected.</div>', showCancelButton: true, confirmButtonText: 'Renew now', cancelButtonText: 'Later' });
-            if (r.isConfirmed) location.href = '/activate.html';
-        } catch (_e) { /* offline o hindi maabot ang RELAY: walang gagawin */ }
+            if (data && data.renewalNeeded) location.href = '/activate.html';
+        } catch (_e) { /* hindi maabot ang server: walang gagawin */ }
     }
-    setTimeout(check, 8000);
-    setInterval(check, 60 * 1000);
+    setTimeout(check, 1500);
+    setInterval(check, 30 * 1000);
 })();
 
 async function resetBirAgt() {
