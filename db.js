@@ -2230,7 +2230,194 @@ function addNewestRow(moduleName, item, options) {
     return true;
 }
 
-module.exports = { readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
+
+// ===================================================================
+// SEGMENTED (STREAMING) CLOUD BACKUP — para sa malalaking database (GB-scale)
+// ===================================================================
+// Ang lumang getCloudBackupPayload() ay nagkakarga ng LAHAT ng module sa RAM at ginagawang isang JSON string (kaya bumabagsak ang
+// Termux sa malaking database). Dito, ang bawat module ay hinihiwa sa mga SEGMENT na ~4 MB lang ang JSON; isang segment lang
+// ang nasa memorya sa isang pagkakataon. Ang row-store modules (transactions, userlogs — ang karaniwang pinakamalaki) ay binabasa
+// nang paunti-unti gamit ang keyset cursor, at ang JSON text ng bawat row ay direktang ipinagdudugtong (walang parse/stringify).
+const CLOUD_SEGMENT_TARGET_BYTES = Math.max(256 * 1024, (Number(process.env.CLOUD_BACKUP_SEGMENT_MB) || 4) * 1024 * 1024);
+// Pinakamalaking pwedeng BLOB module (hindi row-store) na babasahin nang buo sa RAM bago hiwain.
+const CLOUD_BLOB_MODULE_MAX_BYTES = Math.max(8, Number(process.env.CLOUD_BACKUP_MAX_BLOB_MODULE_MB) || 150) * 1024 * 1024;
+const CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES = 20 * 1024 * 1024; // dapat tugma sa limit ng RELAY kada segment
+const cloudRowPageStmt = db.prepare(
+    'SELECT rowid AS rid, seq, data FROM row_store WHERE module = ? AND (seq < ? OR (seq = ? AND rowid < ?)) ORDER BY seq DESC, rowid DESC LIMIT ?'
+);
+// INCREMENTAL: ang mga hangganan ng segment ay nakaangkla sa PINAKALUMANG row (seq ASC), kaya kapag may bagong transaction/userlog,
+// ang mga lumang segment ay magkapareho pa rin ang laman (at SHA-256) — ang bagong row lang ang nagbabago sa pinakabagong segment.
+const CLOUD_ROWS_PER_SEGMENT = Math.max(100, Number(process.env.CLOUD_BACKUP_ROWS_PER_SEGMENT) || 2000);
+const cloudRowBoundsPageStmt = db.prepare(
+    'SELECT rowid AS rid, seq, LENGTH(data) AS len FROM row_store WHERE module = ? AND (seq > ? OR (seq = ? AND rowid > ?)) ORDER BY seq ASC, rowid ASC LIMIT ?'
+);
+const cloudRowChunkStmt = db.prepare(
+    'SELECT seq, data FROM row_store WHERE module = ? AND (seq > ? OR (seq = ? AND rowid >= ?)) AND (seq < ? OR (seq = ? AND rowid <= ?)) ORDER BY seq DESC, rowid DESC'
+);
+const cloudRowStatsStmt = db.prepare('SELECT COUNT(*) AS cnt, COALESCE(SUM(LENGTH(data)), 0) AS bytes FROM row_store WHERE module = ?');
+const cloudBlobSizeStmt = db.prepare('SELECT LENGTH(data) AS bytes FROM store WHERE module = ?');
+
+function isRowStoreBackedModule(moduleName) {
+    if (ROW_NORMALIZED_MODULES.has(moduleName)) return true;
+    return false;
+}
+
+// Magaan na plano (walang binabasang laman): aling mga module, ilang record, at tinatayang laki.
+function getCloudBackupSegmentPlan() {
+    const moduleNames = getBackupModuleNames(ALWAYS_EXCLUDED_FROM_CLOUD_SYNC);
+    const modules = [];
+    let totalApproxBytes = 0;
+    for (const name of moduleNames) {
+        let approxBytes = 0;
+        let records = 0;
+        let kind = 'blob';
+        if (isRowStoreBackedModule(name)) {
+            kind = 'rows';
+            const st = cloudRowStatsStmt.get(name) || { cnt: 0, bytes: 0 };
+            records = Number(st.cnt) || 0;
+            approxBytes = (Number(st.bytes) || 0) + records * 2;
+        } else {
+            try {
+                const st = cloudBlobSizeStmt.get(name);
+                approxBytes = st ? (Number(st.bytes) || 0) : 0;
+            } catch (_e) { approxBytes = 0; }
+        }
+        modules.push({ name, kind, approxBytes, records });
+        totalApproxBytes += approxBytes;
+    }
+    return { modules, totalApproxBytes, generatedAt: new Date().toISOString() };
+}
+
+// Yields { part, records, type: 'array'|'object', json } — isang segment kada yield.
+// Laging may kahit isang segment ang module (kahit walang laman) para alam ng restore na umiiral ito.
+function* iterateCloudBackupSegments(moduleName, kind, targetBytes = CLOUD_SEGMENT_TARGET_BYTES) {
+    if (kind === 'rows') {
+        // PASS 1 (magaan): hanapin ang mga hangganan ng bawat chunk, mula sa PINAKALUMANG row pataas, gamit lang ang LENGTH(data).
+        // Hangganan = FIXED na bilang ng row (hindi laki), kaya ang pag-edit ng lumang row (kahit nagbago ang laki) ay isang segment lang ang naaapektuhan.
+        // Ang `hardBytes` ay pananggalang lang para sa napakalalaking row (bihira).
+        const hardBytes = Math.min(Math.max(targetBytes * 3, 4 * 1024 * 1024), 16 * 1024 * 1024);
+        const chunks = [];
+        let cur = null;
+        let curBytes = 2;
+        let bSeq = -Number.MAX_SAFE_INTEGER;
+        let bRid = -1;
+        for (;;) {
+            const page = cloudRowBoundsPageStmt.all(moduleName, bSeq, bSeq, bRid, 2000);
+            if (!page.length) break;
+            for (const row of page) {
+                const len = Number(row.len) || 0;
+                if (len > CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES) {
+                    throw new Error(`Module "${moduleName}" has a single record larger than ${Math.round(CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES / 1048576)} MB; it cannot be uploaded.`);
+                }
+                if (cur && (cur.count >= CLOUD_ROWS_PER_SEGMENT || curBytes + len + 1 > hardBytes)) { chunks.push(cur); cur = null; curBytes = 2; }
+                if (!cur) cur = { loSeq: Number(row.seq), loRid: Number(row.rid), hiSeq: Number(row.seq), hiRid: Number(row.rid), count: 0 };
+                cur.hiSeq = Number(row.seq);
+                cur.hiRid = Number(row.rid);
+                cur.count += 1;
+                curBytes += len + 1;
+            }
+            const last = page[page.length - 1];
+            bSeq = Number(last.seq);
+            bRid = Number(last.rid);
+            if (page.length < 2000) break;
+        }
+        if (cur) chunks.push(cur);
+        if (!chunks.length) { yield { part: 0, records: 0, type: 'array', json: '[]' }; return; }
+        // PASS 2: ilabas ang mga chunk mula sa PINAKABAGO (part 0) — kapareho ng dating ayos (newest-first) kaya hindi nagbabago ang restore.
+        let part = 0;
+        for (let ci = chunks.length - 1; ci >= 0; ci--) {
+            const ch = chunks[ci];
+            const rows = cloudRowChunkStmt.all(moduleName, ch.loSeq, ch.loSeq, ch.loRid, ch.hiSeq, ch.hiSeq, ch.hiRid);
+            const pieces = rows.map((r) => String(r.data));
+            let count = pieces.length;
+            let json = '[' + pieces.join(',') + ']';
+            try {
+                JSON.parse(json);
+            } catch (_bad) {
+                // May sirang row sa segment na ito: itapon lang ang sira (gaya ng ginagawa ng readRowNormalizedData), ituloy ang iba.
+                const good = [];
+                for (const piece of pieces) { try { JSON.parse(piece); good.push(piece); } catch (_e) { /* skip */ } }
+                console.error(`⚠️ [CLOUD-BACKUP] ${moduleName}: ${pieces.length - good.length} sirang row ang nilaktawan sa segment ${part}.`);
+                json = '[' + good.join(',') + ']';
+                count = good.length;
+            }
+            yield { part, records: count, type: 'array', json };
+            part += 1;
+        }
+        return;
+    }
+    // BLOB module: dapat kasya sa RAM (may guard), pagkatapos ay hinihiwa ayon sa laki.
+    let sizeRow = null;
+    try { sizeRow = cloudBlobSizeStmt.get(moduleName); } catch (_e) { /* ituloy */ }
+    if (sizeRow && Number(sizeRow.bytes) > CLOUD_BLOB_MODULE_MAX_BYTES) {
+        throw new Error(`Module "${moduleName}" is ${(Number(sizeRow.bytes) / 1048576).toFixed(0)} MB, too large to read safely on this device (limit ${Math.round(CLOUD_BLOB_MODULE_MAX_BYTES / 1048576)} MB, CLOUD_BACKUP_MAX_BLOB_MODULE_MB).`);
+    }
+    const data = stripRedactedFields(moduleName, readModuleForBackup(moduleName));
+    if (data === undefined || data === null) return;
+    if (!Array.isArray(data)) {
+        const json = JSON.stringify(data);
+        if (json.length > CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES) {
+            throw new Error(`Module "${moduleName}" is too large to upload as one object (${(json.length / 1048576).toFixed(0)} MB).`);
+        }
+        yield { part: 0, records: 0, type: 'object', json };
+        return;
+    }
+    let part = 0;
+    let pieces = [];
+    let bytes = 2;
+    for (const item of data) {
+        const text = JSON.stringify(item);
+        if (text === undefined) continue;
+        if (text.length > CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES) {
+            throw new Error(`Module "${moduleName}" has a single record larger than ${Math.round(CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES / 1048576)} MB; it cannot be uploaded.`);
+        }
+        if (pieces.length && bytes + text.length + 1 > targetBytes) {
+            yield { part, records: pieces.length, type: 'array', json: '[' + pieces.join(',') + ']' };
+            part += 1;
+            pieces = [];
+            bytes = 2;
+        }
+        pieces.push(text);
+        bytes += text.length + 1;
+    }
+    yield { part, records: pieces.length, type: 'array', json: '[' + pieces.join(',') + ']' };
+}
+
+// STREAMING RESTORE para sa row-store modules: pinapalitan ang LAHAT ng row ng module sa IISANG transaction (lahat o wala),
+// habang isang segment (array ng records, newest-first) lang ang nasa memorya. `nextBatch()` ay nagbabalik ng array ng records
+// o null kapag tapos na. `totalCount` ay kailangan para tama ang pagkakasunod (seq) — ang unang record ang may pinakamataas na seq.
+function replaceRowModuleStreaming(moduleName, totalCount, nextBatch) {
+    if (!ROW_NORMALIZED_MODULES.has(moduleName)) throw new Error(`"${moduleName}" is not a row-store module.`);
+    if (!Number.isInteger(totalCount) || totalCount < 0) throw new Error('Invalid record count for streaming restore.');
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        db.prepare('DELETE FROM row_store WHERE module = ?').run(moduleName);
+        let seq = totalCount;
+        let written = 0;
+        const stamp = Date.now();
+        for (;;) {
+            const batch = nextBatch();
+            if (!batch) break;
+            for (const item of batch) {
+                const recordId = item && item.id != null ? String(item.id) : `__noid_${stamp}_${written}`;
+                rowUpsertStmt.run(moduleName, recordId, seq > 0 ? seq : 1, JSON.stringify(item), now);
+                seq -= 1;
+                written += 1;
+            }
+        }
+        db.exec('COMMIT');
+        unparseableRowIds.delete(moduleName);
+        noteSuccessfulWrite(moduleName);
+        return { written };
+    } catch (err) {
+        try { db.exec('ROLLBACK'); } catch (_rollbackErr) { /* wala */ }
+        noteDbRuntimeError(err);
+        throw err;
+    }
+}
+
+module.exports = { getCloudBackupSegmentPlan, iterateCloudBackupSegments, replaceRowModuleStreaming, ROW_NORMALIZED_MODULES, CLOUD_SEGMENT_TARGET_BYTES, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

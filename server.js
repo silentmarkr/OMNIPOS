@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR } = require('./db');
+const { db: sqliteDb, replaceProductsStreaming, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR, getCloudBackupSegmentPlan, iterateCloudBackupSegments, replaceRowModuleStreaming, ROW_NORMALIZED_MODULES: DB_ROW_NORMALIZED_MODULES, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC: CLOUD_ALWAYS_EXCLUDED_MODULES } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const registerMarketplace = require('./marketplace-sync');
@@ -7253,6 +7253,299 @@ const CLOUD_BACKUP_CHUNK_TIERS = [
 function formatMBForLog(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
+// ===================================================================
+// SEGMENTED (STREAMING) CLOUD BACKUP — client side
+// ===================================================================
+function cbSegThrowIfRateLimited(res) {
+    if (res.status === 429) {
+        const retryAfterSec = parseInt(res.headers.get('retry-after'), 10);
+        const waitHint = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? `~${Math.ceil(retryAfterSec / 60)} minute(s)` : 'a few minutes or longer';
+        const err = new Error(`Too many cloud backup requests in the last hour. Please wait ${waitHint} before trying again.`);
+        err.code = 'RATE_LIMITED';
+        throw err;
+    }
+}
+async function cbSegRetry(fn, { attempts = 4, delaysMs = [2000, 6000, 15000] } = {}) {
+    let lastErr;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastErr = err;
+            if (err.code === 'RATE_LIMITED' || err.fatal || attempt === attempts) break;
+            await new Promise((r) => setTimeout(r, delaysMs[attempt - 1] || delaysMs[delaysMs.length - 1]));
+        }
+    }
+    throw lastErr;
+}
+// RESUME: itinatala ang uploadId ng kasalukuyang segmented upload para, kung pumutol ang koneksyon, ang susunod na subok ay magpatuloy sa
+// parehong session (buhay sa RELAY ~10 min) at laktawan ang mga segment na nandoon na (tugma ang SHA-256 ng bagong buong segment).
+const CLOUD_BACKUP_RESUME_FILE = path.join(DB_DIR, 'cloud-backup-resume.json');
+const CLOUD_BACKUP_RESUME_MAX_AGE_MS = 9 * 60 * 1000;   // mas maikli sa idle timeout ng RELAY (10 min)
+function readCloudBackupResume(installationId) {
+    try {
+        const j = JSON.parse(fs.readFileSync(CLOUD_BACKUP_RESUME_FILE, 'utf8'));
+        if (j && j.installationId === installationId && typeof j.uploadId === 'string' && Date.now() - Number(j.at || 0) < CLOUD_BACKUP_RESUME_MAX_AGE_MS) return j;
+    } catch (_e) { /* wala o sira */ }
+    return null;
+}
+function saveCloudBackupResume(installationId, uploadId) {
+    try { fs.writeFileSync(CLOUD_BACKUP_RESUME_FILE, JSON.stringify({ installationId, uploadId, at: Date.now() }), { mode: 0o600 }); } catch (_e) { /* best-effort */ }
+}
+function clearCloudBackupResume() { try { fs.unlinkSync(CLOUD_BACKUP_RESUME_FILE); } catch (_e) { /* wala */ } }
+// Nagbabalik ng `null` kung walang v2 support ang RELAY (404 sa /v2/start); kung hindi, laging resulta {success,...}.
+async function performCloudBackupUploadSegmented(trigger, actorUsername) {
+    let plan;
+    try {
+        plan = getCloudBackupSegmentPlan();
+    } catch (planErr) {
+        cloudBackupStatus.state = 'error';
+        cloudBackupStatus.lastError = `Could not prepare the cloud backup: ${planErr.message}`;
+        return { success: false, status: 500, message: cloudBackupStatus.lastError };
+    }
+    const featureData = readFeatureUnlocks();
+    const installationId = getOrCreateInstallationId(featureData);
+    const receiptSettings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
+    try {
+        // RESUME: subukang ituloy ang naunang session (kung buhay pa sa RELAY).
+        let uploadId = null;
+        const stagedSha = new Map();
+        const baselineSet = new Set();   // INCREMENTAL: `module\u0000sha256` ng mga segment na nasa aktibong cloud backup na
+        let reusedCount = 0;
+        let reusedRaw = 0;
+        let reuseMisses = 0;
+        let reuseMissReason = null;
+        const resumeInfo = readCloudBackupResume(installationId);
+        if (resumeInfo) {
+            try {
+                const stRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/v2/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                    body: JSON.stringify({ uploadId: resumeInfo.uploadId, installationId })
+                }, 30000);
+                if (stRes.ok) {
+                    const stData = await parseRelayResponse(stRes);
+                    if (stData && stData.success && Array.isArray(stData.segments)) {
+                        uploadId = resumeInfo.uploadId;
+                        for (const sg of stData.segments) { if (sg && sg.sha256) stagedSha.set(`${sg.module}\u0000${sg.part}`, String(sg.sha256)); }
+                        if (Array.isArray(stData.baseline)) { for (const b of stData.baseline) { if (b && b.sha256) baselineSet.add(`${b.module}\u0000${b.sha256}`); } }
+                        console.log(`☁️ CLOUD_BACKUP: itinutuloy ang naputol na upload (${stagedSha.size} segment ang nasa RELAY na).`);
+                    }
+                }
+            } catch (_resumeErr) { /* walang resume: magsisimula ng bago */ }
+            if (!uploadId) clearCloudBackupResume();
+        }
+        if (!uploadId) {
+            const startRes = await cbSegRetry(async () => {
+                const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/v2/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                    body: JSON.stringify({ installationId, uncompressedSizeBytes: plan.totalApproxBytes, moduleCount: plan.modules.length })
+                }, 30000);
+                cbSegThrowIfRateLimited(res);
+                return res;
+            });
+            if (startRes.status === 404) return null; // lumang RELAY
+            const startData = await parseRelayResponse(startRes);
+            if (startRes.status === 402 && startData.insufficientTokens) {
+                cloudBackupStatus.state = 'error';
+                cloudBackupStatus.lastError = startData.message || 'Insufficient Cloud Backup (Omni Tokens) balance.';
+                return { success: false, status: 402, insufficientTokens: true, balanceTokens: startData.balanceTokens, body: startData };
+            }
+            if (startRes.status === 402 || startData.featureLocked) {
+                cloudBackupStatus.state = 'error';
+                cloudBackupStatus.lastError = startData.message || 'The Cloud Backup subscription is still locked/expired.';
+                return { success: false, status: 402, body: startData };
+            }
+            if (startRes.status === 413 || startData.storageQuotaExceeded) {
+                return cbSegQuotaFailure(startData);
+            }
+            if (startRes.status === 409 || startData.uploadInProgress) {
+                cloudBackupStatus.state = 'error';
+                cloudBackupStatus.lastError = startData.message || 'A cloud backup upload for this installation is already in progress.';
+                return { success: false, status: 409, uploadInProgress: true, message: cloudBackupStatus.lastError };
+            }
+            if (!startData.success || !startData.uploadId) {
+                cloudBackupStatus.state = 'error';
+                cloudBackupStatus.lastError = startData.message || 'RELAY rejected the cloud backup upload.';
+                return { success: false, status: 502, message: cloudBackupStatus.lastError };
+            }
+            uploadId = startData.uploadId;
+            if (Array.isArray(startData.baseline)) { for (const b of startData.baseline) { if (b && b.sha256) baselineSet.add(`${b.module}\u0000${b.sha256}`); } }
+            saveCloudBackupResume(installationId, uploadId);
+        }
+        cloudBackupStatus.uploadStartedAt = Date.now();
+        cloudBackupStatus.uploadedBytes = 0;
+        cloudBackupStatus.uploadTotalBytes = Math.max(1, plan.totalApproxBytes);
+        let segmentsSent = 0;
+        let rawSent = 0;
+        let totalRecords = 0;
+        const moduleNames = [];
+        const modParts = {};
+        for (const mod of plan.modules) {
+            let producedAny = false;
+            let moduleRecords = 0;
+            try {
+                for (const seg of iterateCloudBackupSegments(mod.name, mod.kind)) {
+                    producedAny = true;
+                    const rawBuf = Buffer.from(seg.json, 'utf8');
+                    const segSha = crypto.createHash('sha256').update(rawBuf).digest('hex');
+                    modParts[mod.name] = seg.part + 1;
+                    // RESUME: nasa RELAY na ang eksaktong segment na ito (tugma ang SHA-256): huwag nang i-upload ulit.
+                    if (stagedSha.get(`${mod.name}\u0000${seg.part}`) === segSha) {
+                        segmentsSent += 1;
+                        rawSent += rawBuf.length;
+                        moduleRecords += seg.records;
+                        cloudBackupStatus.uploadedBytes = rawSent;
+                        if (rawSent > cloudBackupStatus.uploadTotalBytes) cloudBackupStatus.uploadTotalBytes = rawSent;
+                        saveCloudBackupResume(installationId, uploadId);
+                        await new Promise((r) => setImmediate(r));
+                        continue;
+                    }
+                    // INCREMENTAL: hindi nagbago ang segment na ito mula sa huling backup — ipakopya na lang sa RELAY (walang upload).
+                    if (baselineSet.has(`${mod.name}\u0000${segSha}`)) {
+                        let reused = false;
+                        try {
+                            const rr = await relayFetch(`${RELAY_URL}/relay/cloud-backup/v2/reuse`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                                body: JSON.stringify({ uploadId, installationId, module: mod.name, part: seg.part, sha256: segSha })
+                            }, 30000);
+                            cbSegThrowIfRateLimited(rr);
+                            if (rr.ok) { const rd = await parseRelayResponse(rr); reused = !!(rd && rd.success && rd.reused); if (!reused && !reuseMissReason) reuseMissReason = 'RELAY could not reuse the segment'; }
+                            else if (!reuseMissReason) reuseMissReason = `HTTP ${rr.status}`;
+                        } catch (reuseErr) {
+                            if (reuseErr.code === 'RATE_LIMITED') throw reuseErr;
+                            reused = false;   // anumang problema: i-upload na lang nang normal
+                            if (!reuseMissReason) reuseMissReason = reuseErr.message;
+                        }
+                        if (!reused) reuseMisses += 1;
+                        if (reused) {
+                            segmentsSent += 1;
+                            reusedCount += 1;
+                            reusedRaw += rawBuf.length;
+                            rawSent += rawBuf.length;
+                            moduleRecords += seg.records;
+                            cloudBackupStatus.uploadedBytes = rawSent;
+                            if (rawSent > cloudBackupStatus.uploadTotalBytes) cloudBackupStatus.uploadTotalBytes = rawSent;
+                            saveCloudBackupResume(installationId, uploadId);
+                            await new Promise((r) => setImmediate(r));
+                            continue;
+                        }
+                    }
+                    const gz = await gzipAsync(rawBuf);
+                    let segData;
+                    await cbSegRetry(async () => {
+                        const res = await relayFetch(
+                            `${RELAY_URL}/relay/cloud-backup/v2/segment?uploadId=${encodeURIComponent(uploadId)}&installationId=${encodeURIComponent(installationId)}&module=${encodeURIComponent(mod.name)}&part=${seg.part}&sha256=${segSha}`,
+                            { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'x-relay-key': RELAY_API_KEY }, body: gz },
+                            90000
+                        );
+                        cbSegThrowIfRateLimited(res);
+                        const data = await parseRelayResponse(res);
+                        if (res.status === 413 && data.storageQuotaExceeded) { const e = new Error(data.message || 'Storage allowance exceeded.'); e.fatal = true; e.quota = data; throw e; }
+                        if (!res.ok || !data.success) {
+                            const e = new Error(data.message || `Segment upload failed (HTTP ${res.status}).`);
+                            if (res.status >= 400 && res.status < 500 && res.status !== 408 && !data.retryable) e.fatal = true;
+                            throw e;
+                        }
+                        segData = data;
+                    });
+                    segmentsSent += 1;
+                    rawSent += rawBuf.length;
+                    moduleRecords += seg.records;
+                    cloudBackupStatus.uploadedBytes = rawSent;
+                    if (rawSent > cloudBackupStatus.uploadTotalBytes) cloudBackupStatus.uploadTotalBytes = rawSent;
+                    saveCloudBackupResume(installationId, uploadId);   // i-refresh ang resume window kada segment
+                    // Bigyan ng hininga ang event loop (POS requests) sa pagitan ng mga segment.
+                    await new Promise((r) => setImmediate(r));
+                }
+            } catch (segErr) {
+                cloudBackupStatus.state = 'error';
+                if (segErr.fatal) clearCloudBackupResume();   // hindi na maitutuloy ang session na ito
+                if (segErr.quota) return cbSegQuotaFailure(segErr.quota);
+                if (segErr.code === 'RATE_LIMITED') {
+                    cloudBackupStatus.lastErrorWasRateLimited = true;
+                    cloudBackupStatus.lastError = segErr.message;
+                    return { success: false, status: 429, message: segErr.message };
+                }
+                cloudBackupStatus.lastError = `Backup stopped while uploading "${mod.name}" (${formatMBForLog(rawSent)} of about ${formatMBForLog(plan.totalApproxBytes)} sent): ${segErr.message}. Nothing was replaced — your previous cloud backup is untouched. Please try syncing again.`;
+                console.error('⚠️ CLOUD_BACKUP (segmented):', cloudBackupStatus.lastError);
+                return { success: false, status: 502, message: cloudBackupStatus.lastError };
+            }
+            if (producedAny) { moduleNames.push(mod.name); totalRecords += moduleRecords; }
+        }
+        const finishRes = await cbSegRetry(async () => {
+            const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/v2/finish`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                body: JSON.stringify({
+                    uploadId, installationId, trigger: trigger === 'automatic' ? 'automatic' : 'manual',
+                    storeName: (receiptSettings && receiptSettings.storeName) || null,
+                    totalRecords, expectSegments: segmentsSent, moduleNames, moduleParts: modParts
+                })
+            }, 300000);
+            cbSegThrowIfRateLimited(res);
+            return res;
+        }, { attempts: 2 });
+        const relayData = await parseRelayResponse(finishRes);
+        if (reuseMisses > 0) console.warn(`⚠️ CLOUD_BACKUP: ${reuseMisses} segment ang hindi na-reuse at in-upload na lang nang buo (${reuseMissReason}). Gumagana pa rin ang backup pero hindi nakatipid.`);
+        clearCloudBackupResume();   // nag-sagot na ang finish (tagumpay man o hindi): tapos na ang session na ito sa RELAY
+        if (finishRes.status === 402 && relayData.insufficientTokens) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'Insufficient Cloud Backup (Omni Tokens) balance.';
+            return { success: false, status: 402, insufficientTokens: true, balanceTokens: relayData.balanceTokens, body: relayData };
+        }
+        if (finishRes.status === 402 || relayData.featureLocked) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'The Cloud Backup subscription is still locked/expired.';
+            return { success: false, status: 402, body: relayData };
+        }
+        if (relayData.storageQuotaExceeded) return cbSegQuotaFailure(relayData);
+        if (!relayData.success) {
+            cloudBackupStatus.state = 'error';
+            cloudBackupStatus.lastError = relayData.message || 'RELAY rejected the cloud backup upload.';
+            return { success: false, status: 502, message: cloudBackupStatus.lastError };
+        }
+        cloudBackupStatus.state = 'success';
+        cloudBackupStatus.lastSuccessAt = Date.now();
+        cloudBackupStatus.lastError = null;
+        cloudBackupStatus.lastErrorWasRateLimited = false;
+        cloudBackupStatus.lastTotalRecords = totalRecords;
+        cloudBackupStatus.lastReusedSegments = reusedCount;
+        cloudBackupStatus.lastReusedBytes = reusedRaw;
+        if (typeof relayData.sizeBytes === 'number') {
+            cloudBackupStatus.lastSizeBytes = relayData.sizeBytes;
+            cloudBackupStatus.lastSizeMB = relayData.sizeMB;
+            cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
+            cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
+        }
+        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}, segmented): synced ${moduleNames.length} modules (${totalRecords} records, ${segmentsSent} segments, ${reusedCount} unchanged/reused, ${formatMBForLog(reusedRaw)} not re-uploaded, ${relayData.sizeMB ?? '?'} MB) to cloud.`);
+        return {
+            success: true, status: 200,
+            message: 'Successfully synced the database to the cloud (Postgres).',
+            totalRecords, moduleNames, excludedModules: Array.from(CLOUD_ALWAYS_EXCLUDED_MODULES),
+            sizeBytes: relayData.sizeBytes, sizeMB: relayData.sizeMB, tier: relayData.tier, quotaMB: relayData.quotaMB,
+            percentUsed: relayData.percentUsed, nearQuota: !!relayData.nearQuota
+        };
+    } catch (err) {
+        cloudBackupStatus.state = 'error';
+        const reasonCode = err.code || err.name || 'ERR';
+        cloudBackupStatus.lastErrorWasRateLimited = (reasonCode === 'RATE_LIMITED');
+        cloudBackupStatus.lastError = `${err.message} (${reasonCode})`;
+        console.error('⚠️ CLOUD_BACKUP (segmented): could not complete the upload:', reasonCode, '-', err.message);
+        return { success: false, status: 502, message: `Could not reach RELAY for the cloud backup upload (${reasonCode}: ${err.message}).` };
+    }
+}
+function cbSegQuotaFailure(data) {
+    cloudBackupStatus.state = 'error';
+    cloudBackupStatus.lastError = data.message || 'Cloud backup exceeds your plan\'s storage allowance.';
+    cloudBackupStatus.lastQuotaMB = data.quotaMB;
+    return {
+        success: false, status: 413, message: cloudBackupStatus.lastError, storageQuotaExceeded: true,
+        tier: data.tier, quotaMB: data.quotaMB, sizeMB: data.sizeMB, overageMB: data.overageMB
+    };
+}
 async function performCloudBackupUpload(trigger, actorUsername) {
     if (getConnectivityMode() === 'offline') {
         return { success: false, status: 400, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to back up to the cloud.' };
@@ -7277,6 +7570,19 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupUploadInFlight = false;
         cloudBackupStatus.state = 'error';
         cloudBackupStatus.lastError = 'No RELAY_API_KEY is configured in .env.';
+        return { success: false, status: 500, message: cloudBackupStatus.lastError };
+    }
+    // SEGMENTED (STREAMING) UPLOAD: kung sinusuportahan ng RELAY, hinihiwa ang database sa ~4 MB na segment at isa-isang ina-upload,
+    // kaya halos pare-pareho lang ang memory kahit GB ang laki ng database. Ang `null` ay nangangahulugang lumang RELAY na walang v2
+    // route — babalik tayo sa lumang (all-in-RAM) na paraan sa ibaba, kasama ang SCALE GUARD nito.
+    try {
+        const segmentedResult = await performCloudBackupUploadSegmented(trigger, actorUsername);
+        if (segmentedResult !== null) { cloudBackupUploadInFlight = false; return segmentedResult; }
+    } catch (segmentedFatal) {
+        cloudBackupUploadInFlight = false;
+        cloudBackupStatus.state = 'error';
+        cloudBackupStatus.lastError = `Cloud backup failed unexpectedly: ${segmentedFatal.message}`;
+        console.error('⚠️ CLOUD_BACKUP (segmented): unexpected failure:', segmentedFatal);
         return { success: false, status: 500, message: cloudBackupStatus.lastError };
     }
     // SCALE GUARD: ang cloud backup ay nagkakarga ng LAHAT ng module sa RAM, ginagawang isang JSON string, at ginzi-gzip. Sa malaking
@@ -8169,6 +8475,144 @@ function mergeRestoredUsers(restoredUsers) {
     });
     return { merged, accountsNeedingPasswordReset };
 }
+// SEGMENTED RESTORE: dina-download ang bawat segment papunta sa disk (staging), hindi sa RAM. Ang row-store modules (transactions,
+// userlogs) ay isinusulat nang paunti-unti sa IISANG SQLite transaction (lahat o wala); ang maliliit na module ay dumadaan pa rin sa
+// parehong applyRestoredModules() (BIR guard, users merge, device-identity protection, atomic write) gaya ng dati.
+async function applySegmentedCloudRestore(relayData, installationId) {
+    const manifest = Array.isArray(relayData.manifest) ? relayData.manifest : [];
+    const generation = String(relayData.generation || '');
+    if (!manifest.length || !generation) throw new Error('RELAY returned an invalid backup manifest.');
+    const nameOk = (n) => /^[A-Za-z0-9_.:-]{1,80}$/.test(n);
+    const maxModuleBytes = Math.max(8, Number(process.env.CLOUD_RESTORE_MAX_MODULE_MB) || 150) * 1024 * 1024;
+    let totalSegments = 0;
+    for (const m of manifest) {
+        if (!m || !nameOk(String(m.module)) || !Number.isInteger(m.parts) || m.parts < 1) throw new Error('RELAY returned an invalid backup manifest.');
+        if (!DB_ROW_NORMALIZED_MODULES.has(m.module) && m.module !== FILE_PRODUCTS && Number(m.rawBytes) > maxModuleBytes) {
+            throw new Error(`Module "${m.module}" in the backup is ${(Number(m.rawBytes) / 1048576).toFixed(0)} MB, too large to restore safely on this device (limit ${Math.round(maxModuleBytes / 1048576)} MB, CLOUD_RESTORE_MAX_MODULE_MB).`);
+        }
+        totalSegments += m.parts;
+    }
+    const stagingRoot = path.join(DB_DIR, 'restore-staging');
+    try { fs.rmSync(stagingRoot, { recursive: true, force: true }); } catch (_e) { /* wala */ }
+    fs.mkdirSync(stagingRoot, { recursive: true });
+    try {
+        // Disk check: ~compressed na laki ng backup + espasyo para sa pagsulat sa database.
+        try {
+            const totalRaw = manifest.reduce((a, m) => a + (Number(m.rawBytes) || 0), 0);
+            const st = fs.statfsSync(DB_DIR);
+            const freeBytes = Number(st.bfree) * Number(st.bsize);
+            const needed = Math.ceil(totalRaw * 0.35) + totalRaw * 1.1 + 100 * 1024 * 1024;
+            if (Number.isFinite(freeBytes) && freeBytes < needed) {
+                throw new Error(`Not enough free storage on this device to restore (need about ${(needed / 1073741824).toFixed(2)} GB free, have ${(freeBytes / 1073741824).toFixed(2)} GB). Free some space and try again. Nothing was changed.`);
+            }
+        } catch (diskErr) {
+            if (/Not enough free storage/.test(diskErr.message)) throw diskErr;
+        }
+        cloudBackupStatus.restoreTotalSegments = totalSegments;
+        cloudBackupStatus.restoreDownloadedSegments = 0;
+        for (let mi = 0; mi < manifest.length; mi++) {
+            const m = manifest[mi];
+            for (let part = 0; part < m.parts; part++) {
+                const buf = await cbSegRetry(async () => {
+                    const res = await relayFetch(`${RELAY_URL}/relay/cloud-backup/v2/restore-segment`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
+                        body: JSON.stringify({ installationId, generation, module: m.module, part })
+                    }, 120000);
+                    cbSegThrowIfRateLimited(res);
+                    if (!res.ok) {
+                        const data = await parseRelayResponse(res).catch(() => ({}));
+                        const e = new Error((data && data.message) || `Segment download failed (HTTP ${res.status}).`);
+                        if (res.status >= 400 && res.status < 500 && res.status !== 408) e.fatal = true;
+                        throw e;
+                    }
+                    const segBuf = Buffer.from(await res.arrayBuffer());
+                    // INTEGRITY: i-verify ang SHA-256 ng segment laban sa naka-save sa RELAY bago ito itabi sa disk (ulitin kung sira).
+                    const expectedSha = String(res.headers.get('x-segment-sha256') || '').toLowerCase();
+                    if (/^[0-9a-f]{64}$/.test(expectedSha)) {
+                        let rawSeg;
+                        try { rawSeg = zlib.gunzipSync(segBuf, { maxOutputLength: 64 * 1024 * 1024 }); } catch (_g) { throw new Error('Downloaded segment is corrupted (could not decompress).'); }
+                        if (crypto.createHash('sha256').update(rawSeg).digest('hex') !== expectedSha) throw new Error('Downloaded segment failed its checksum.');
+                    }
+                    return segBuf;
+                });
+                fs.writeFileSync(path.join(stagingRoot, `${mi}_${part}.gz`), buf);
+                cloudBackupStatus.restoreDownloadedSegments += 1;
+                await new Promise((r) => setImmediate(r));
+            }
+        }
+        const readSegment = (mi, part) => JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(stagingRoot, `${mi}_${part}.gz`)), { maxOutputLength: 64 * 1024 * 1024 }).toString('utf8'));
+        // Para sa malaking database, hindi ito kasya sa JSON snapshot ng applyRestoredModules — kumuha ng .db copy muna (best effort).
+        try { await runLocalDatabaseBackup(14, { reason: 'pre-cloud-restore' }); } catch (bkErr) { console.warn('⚠️ RESTORE: hindi nagawa ang pre-restore .db backup:', bkErr.message); }
+        const restoredModuleNames = [];
+        const skippedModuleNames = [];
+        // 1) Row-store modules, streaming.
+        for (let mi = 0; mi < manifest.length; mi++) {
+            const m = manifest[mi];
+            if (!DB_ROW_NORMALIZED_MODULES.has(m.module)) continue;
+            if (RESTORE_NEVER_APPLY_MODULES.has(m.module) || m.kind !== 'array') { skippedModuleNames.push(m.module); continue; }
+            if (m.module === FILE_TRANSACTIONS && birRetention.birRecordsExist()) {
+                birRetention.archiveBirRecords({
+                    purpose: 'pre-restore-safety-copy',
+                    reason: 'Automatic sealed copy taken before a backup restore replaced BIR-related data',
+                    authorizedBy: null, ticket: null, extra: getBirArchiveExtra()
+                });
+            }
+            let nextPart = 0;
+            let seen = 0;
+            replaceRowModuleStreaming(m.module, m.records, () => {
+                if (nextPart >= m.parts) {
+                    if (seen !== m.records) throw new Error(`Module "${m.module}" is incomplete (${seen} of ${m.records} records) — nothing was changed.`);
+                    return null;
+                }
+                const batch = readSegment(mi, nextPart++);
+                if (!Array.isArray(batch)) throw new Error(`Module "${m.module}" has an invalid segment.`);
+                seen += batch.length;
+                return batch;
+            });
+            restoredModuleNames.push(m.module);
+        }
+        // 1b) Products (may HD larawan): streaming din, para hindi mapunta sa RAM ang lahat ng larawan.
+        for (let mi = 0; mi < manifest.length; mi++) {
+            const m = manifest[mi];
+            if (m.module !== FILE_PRODUCTS) continue;
+            if (RESTORE_NEVER_APPLY_MODULES.has(m.module) || m.kind !== 'array') { skippedModuleNames.push(m.module); continue; }
+            let nextPart = 0;
+            replaceProductsStreaming(() => (nextPart >= m.parts ? null : readSegment(mi, nextPart++)));
+            restoredModuleNames.push(m.module);
+        }
+        // 2) Maliliit na module: buuin sa RAM (may limit), ipasa sa parehong atomic/guarded na applyRestoredModules().
+        const smallModules = {};
+        for (let mi = 0; mi < manifest.length; mi++) {
+            const m = manifest[mi];
+            if (DB_ROW_NORMALIZED_MODULES.has(m.module) || m.module === FILE_PRODUCTS) continue;
+            if (m.kind === 'object') {
+                smallModules[m.module] = readSegment(mi, 0);
+            } else {
+                const items = [];
+                for (let part = 0; part < m.parts; part++) {
+                    const batch = readSegment(mi, part);
+                    if (!Array.isArray(batch)) throw new Error(`Module "${m.module}" has an invalid segment.`);
+                    for (const item of batch) items.push(item);
+                }
+                smallModules[m.module] = items;
+            }
+        }
+        const applied = applyRestoredModules(smallModules);
+        restoredModuleNames.push(...applied.restoredModuleNames);
+        skippedModuleNames.push(...applied.skippedModuleNames);
+        scheduleDatabaseCompaction('backup restore', 3000);
+        return {
+            restoredModuleNames, skippedModuleNames,
+            accountsNeedingPasswordReset: applied.accountsNeedingPasswordReset,
+            birRestoreBlockedReason: applied.birRestoreBlockedReason
+        };
+    } finally {
+        cloudBackupStatus.restoreTotalSegments = null;
+        cloudBackupStatus.restoreDownloadedSegments = null;
+        try { fs.rmSync(stagingRoot, { recursive: true, force: true }); } catch (_e) { /* wala */ }
+    }
+}
 app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit('cloud-backup-restore', 5, 15 * 60 * 1000), async (req, res) => {
     const { username, password } = req.body;
     const currentUsers = readData(FILE_USERS, []);
@@ -8222,7 +8666,7 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
                 relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-backup/restore`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-relay-key': RELAY_API_KEY },
-                    body: JSON.stringify({ installationId, hardwareFingerprint, legacyFingerprint: computeLegacyHardwareFingerprint(featureData) })
+                    body: JSON.stringify({ installationId, hardwareFingerprint, legacyFingerprint: computeLegacyHardwareFingerprint(featureData), acceptsSegmentedRestore: true })
                 }, 2400000);
                 if (relayRes.status === 429) {
                     const retryAfterSec = parseInt(relayRes.headers.get('retry-after'), 10);
@@ -8254,6 +8698,26 @@ app.post('/api/cloud-backup/restore', requireFeature('cloud_backup'), rateLimit(
         }
         if (!relayData.success) {
             return res.status(relayRes.status || 502).json({ success: false, message: relayData.message || 'RELAY rejected the cloud backup restore.' });
+        }
+        if (relayData.v2) {
+            let segApplied;
+            try {
+                segApplied = await applySegmentedCloudRestore(relayData, installationId);
+            } catch (segErr) {
+                console.error('CLOUD RESTORE (segmented) failed:', segErr);
+                return res.status(500).json({ success: false, message: `The cloud restore could not be completed: ${segErr.message}` });
+            }
+            logAction(username, `Cloud Backup: restored ${segApplied.restoredModuleNames.length}/${relayData.manifest.length} modules (segmented, large backup).`);
+            return res.json({
+                success: true,
+                message: `Successfully restored ${segApplied.restoredModuleNames.length} module(s) from Cloud Backup.${segApplied.birRestoreBlockedReason ? ` The BIR Compliance records on this device were NOT replaced because ${segApplied.birRestoreBlockedReason} (this protects your invoice sequence and Z-Reading records).` : ''}`,
+                birRestoreBlockedReason: segApplied.birRestoreBlockedReason || null,
+                restoredCount: segApplied.restoredModuleNames.length,
+                moduleNames: relayData.manifest.map((m) => m.module),
+                accountsNeedingPasswordReset: segApplied.accountsNeedingPasswordReset,
+                tokensCharged: relayData.tokensCharged,
+                balanceTokens: relayData.balanceTokens
+            });
         }
         const modules = relayData.modules || {};
         let cloudApplied;
