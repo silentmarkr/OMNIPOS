@@ -25899,26 +25899,32 @@ async function loadCartFromDatabase() {
         console.error("Error loading cart from database:", error);
     }
 }
-// BIR RETENTION GUARD (client side). Asks the server for a request code, shows it to the Admin to send to the developer,
-// and collects the pass key the developer sends back. Returns:
+// BIR RETENTION GUARD (client side). FAST AUTHORIZATION: the dialog shows a PAIRING CODE (like the activation screen). The developer
+// sees the request on RELAY, reviews it and presses "Send pass key"; the key then arrives in this dialog by itself and only then does
+// the final button unlock. Manual mode (request code out, pass key pasted in) stays available under "No internet?".
+// Returns:
 //   ''     -> no pass key is needed (no BIR records on this device)
-//   string -> the pass key the Admin pasted
+//   string -> the pass key (received from the developer, or pasted in manual mode)
 //   null   -> the Admin cancelled, or the request could not be made (the reason was already shown)
 async function requestBirPassKey({ purpose, includeBirData }) {
-    let info;
-    try {
+    async function createRequest(renew) {
         const res = await authFetch(`${API_URL}/system/reset/bir-request`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ purpose: purpose, includeBirData: !!includeBirData }),
+            body: JSON.stringify({ purpose: purpose, includeBirData: !!includeBirData, renew: renew === true }),
             timeoutMs: 20000
         });
-        info = await res.json();
-        if (!res.ok || !info.success) {
-            const failure = new Error(info.message || `HTTP ${res.status}`);
-            failure.code = info.code;
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            const failure = new Error(data.message || `HTTP ${res.status}`);
+            failure.code = data.code;
             throw failure;
         }
+        return data;
+    }
+    let info;
+    try {
+        info = await createRequest(false);
     } catch (err) {
         await Swal.fire(
             err && err.code === 'BIR_Z_READING_REQUIRED' ? 'Run the BIR Z-Reading First' : 'Cannot Request a Pass Key',
@@ -25929,17 +25935,160 @@ async function requestBirPassKey({ purpose, includeBirData }) {
     }
     if (!info.required) return '';
     const actionName = purpose === 'bir-agt-reset' ? 'AGT reset' : 'System Hard Reset';
-    const expiresText = info.expiresAt ? new Date(info.expiresAt).toLocaleString() : '';
+    const POLL_MS = 5000;
+    let nonce = info.nonce;
+    let generation = 0;            // bumped on every new request so a slow answer for the old one is ignored
+    let receivedKey = null;        // pass key the developer sent (already verified by this device)
+    let receivedExpiresAt = 0;
+    let pollTimer = null;
+    let tickTimer = null;
+    let stopped = false;
+    let failures = 0;
+    let renewing = false;
+    const el = (id) => document.getElementById(id);
+    const expiresText = (t) => (t ? new Date(t).toLocaleString() : '');
+    function setStatus(kind, text) {
+        const box = el('bir-pk-status');
+        if (!box) return;
+        const palette = {
+            wait: { bg: 'rgba(100,116,139,0.18)', fg: 'inherit' },
+            ok: { bg: 'rgba(34,197,94,0.18)', fg: '#16a34a' },
+            error: { bg: 'rgba(239,68,68,0.15)', fg: '#ef4444' }
+        }[kind] || { bg: 'rgba(100,116,139,0.18)', fg: 'inherit' };
+        box.style.background = palette.bg;
+        box.style.color = palette.fg;
+        box.textContent = text;
+    }
+    function keyUsable() { return !!receivedKey && receivedExpiresAt > Date.now(); }
+    function manualValue() { const input = el('bir-pk-input'); return input ? String(input.value || '').trim() : ''; }
+    // The final button stays disabled until a usable pass key exists (received from the developer, or pasted in manual mode).
+    function syncConfirm() {
+        const btn = Swal.getConfirmButton();
+        if (btn) btn.disabled = !(keyUsable() || manualValue());
+    }
+    function refreshKeyState() {
+        if (receivedKey && !keyUsable()) {
+            receivedKey = null;
+            setStatus('error', 'The pass key from the developer has expired. Tap "Get a new pairing code" and ask the developer to send a new one.');
+        } else if (keyUsable()) {
+            const left = Math.max(0, Math.floor((receivedExpiresAt - Date.now()) / 1000));
+            const mm = String(Math.floor(left / 60)).padStart(2, '0');
+            const ss = String(left % 60).padStart(2, '0');
+            setStatus('ok', `Pass key received from the developer — valid for ${mm}:${ss}. Tap "Use Pass Key" to continue.`);
+        }
+        syncConfirm();
+    }
+    function schedule(ms) {
+        if (stopped) return;
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(poll, ms);
+    }
+    async function poll() {
+        if (stopped || renewing) return;
+        const myGeneration = generation;
+        let delay = POLL_MS;
+        try {
+            const res = await authFetch(`${API_URL}/system/reset/bir-inbox`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nonce: nonce }),
+                timeoutMs: 15000
+            });
+            const data = await res.json().catch(() => ({}));
+            if (stopped || myGeneration !== generation) return;
+            if (!res.ok || !data.success) {
+                failures++;
+                delay = res.status === 429 ? 20000 : Math.min(POLL_MS * (failures + 1), 20000);
+                const code = data && data.code;
+                if (code === 'NO_INTERNET') {
+                    setStatus('error', 'No internet connection. The pairing code needs the internet — or use manual mode below.');
+                } else if (code === 'BIR_REQUEST_NOT_OPEN' || code === 'RESET_REQUEST_EXPIRED' || code === 'RESET_REQUEST_MISMATCH') {
+                    setStatus('error', 'This request is no longer valid. Tap "Get a new pairing code".');
+                    delay = 20000;
+                } else if (code === 'RESET_REQUEST_ALREADY_ISSUED') {
+                    if (!keyUsable()) setStatus('error', data.message || 'A pass key was already issued for this request but it did not arrive. Tap "Get a new pairing code".');
+                    delay = 10000;
+                } else if (!keyUsable()) {
+                    setStatus('error', `${(data && data.message) || 'Could not reach RELAY.'} Trying again…`);
+                }
+            } else {
+                failures = 0;
+                const pair = el('bir-pk-pair');
+                if (pair && data.pairingCode) pair.textContent = data.pairingCode;
+                if (data.passKey) {
+                    receivedKey = data.passKey;
+                    receivedExpiresAt = Number(data.passKeyExpiresAt) || 0;
+                    refreshKeyState();
+                } else if (data.passKeyProblem) {
+                    receivedKey = null;
+                    const problem = data.passKeyProblem;
+                    setStatus('error', `The developer's pass key cannot be used: ${problem.message || problem.code}. Tap "Get a new pairing code" and ask for a new one.`);
+                    syncConfirm();
+                } else if (!receivedKey) {
+                    setStatus('wait', 'Waiting for the developer to send the pass key. Keep this window open.');
+                    syncConfirm();
+                }
+            }
+        } catch (_pollErr) {
+            if (stopped || myGeneration !== generation) return;
+            failures++;
+            delay = Math.min(POLL_MS * (failures + 1), 20000);
+            if (!keyUsable()) setStatus('error', 'Could not reach the server. Trying again…');
+        }
+        schedule(delay);
+    }
+    async function renew() {
+        if (renewing || stopped) return;
+        renewing = true;
+        const renewBtn = el('bir-pk-renew');
+        if (renewBtn) renewBtn.disabled = true;
+        try {
+            const fresh = await createRequest(true);
+            if (!fresh.required) throw new Error('A pass key is no longer required for this reset.');
+            generation++;
+            nonce = fresh.nonce;
+            receivedKey = null;
+            receivedExpiresAt = 0;
+            failures = 0;
+            const requestBox = el('bir-pk-request');
+            if (requestBox) requestBox.value = fresh.requestCode;
+            const validity = el('bir-pk-valid');
+            if (validity) validity.textContent = `This request is valid until ${expiresText(fresh.expiresAt)}.`;
+            const pair = el('bir-pk-pair');
+            if (pair) pair.textContent = '…';
+            setStatus('wait', 'New request created. Give the new pairing code to the developer.');
+            syncConfirm();
+        } catch (renewErr) {
+            setStatus('error', (renewErr && renewErr.message) || 'Could not create a new request.');
+        } finally {
+            renewing = false;
+            if (renewBtn) renewBtn.disabled = false;
+            schedule(500);
+        }
+    }
     const dialog = await Swal.fire({
         title: 'Developer Pass Key Required',
         html: `<div style="text-align:left;font-size:0.85rem;line-height:1.5;">
                    BIR records exist on this device, so the <b>${actionName}</b> needs a one-time pass key from the developer. This protects your BIR records, which must be kept for the legal retention period.<br><br>
-                   <b>Step 1.</b> Send this request code to the developer:
-                   <textarea id="bir-pk-request" readonly style="width:100%;height:84px;margin:6px 0;font-family:monospace;font-size:0.72rem;box-sizing:border-box;word-break:break-all;">${escapeHtml(info.requestCode)}</textarea>
-                   <button type="button" id="bir-pk-copy" class="swal2-confirm swal2-styled" style="margin:0 0 10px;background:#64748b;">Copy request code</button><br>
-                   <span style="color:#64748b;">This request is valid until ${escapeHtml(expiresText)}. Keep this page open, or reopen it later — the same code is shown again until it expires.</span><br><br>
-                   <b>Step 2.</b> Paste the pass key the developer sends back:
-                   <textarea id="bir-pk-input" placeholder="BIRPK1.…" style="width:100%;height:84px;margin:6px 0 0;font-family:monospace;font-size:0.72rem;box-sizing:border-box;word-break:break-all;" autocomplete="off" spellcheck="false"></textarea>
+                   <b>Step 1.</b> Give this pairing code to the developer:
+                   <div style="margin:8px 0;padding:12px;border:1px dashed #94a3b8;border-radius:10px;text-align:center;">
+                       <div style="font-size:0.7rem;color:#64748b;">Your pairing code</div>
+                       <div id="bir-pk-pair" style="font-size:1.7rem;font-weight:800;letter-spacing:0.14em;font-variant-numeric:tabular-nums;">…</div>
+                   </div>
+                   <b>Step 2.</b> Wait here. The pass key arrives by itself, then the button below unlocks.
+                   <div id="bir-pk-status" role="status" aria-live="polite" style="margin:8px 0;padding:9px 11px;border-radius:8px;background:rgba(100,116,139,0.18);overflow-wrap:anywhere;">Connecting…</div>
+                   <button type="button" id="bir-pk-renew" class="swal2-styled" style="margin:0 0 8px;background:#64748b;">Get a new pairing code</button><br>
+                   <span id="bir-pk-valid" style="color:#64748b;">This request is valid until ${escapeHtml(expiresText(info.expiresAt))}.</span>
+                   <details style="margin-top:10px;">
+                       <summary style="cursor:pointer;color:#64748b;">No internet or RELAY unreachable? Use manual mode</summary>
+                       <div style="margin-top:6px;">
+                           Send this request code to the developer by any means:
+                           <textarea id="bir-pk-request" readonly style="width:100%;height:84px;margin:6px 0;font-family:monospace;font-size:0.72rem;box-sizing:border-box;word-break:break-all;">${escapeHtml(info.requestCode)}</textarea>
+                           <button type="button" id="bir-pk-copy" class="swal2-styled" style="margin:0 0 10px;background:#64748b;">Copy request code</button><br>
+                           Then paste the pass key the developer sends back:
+                           <textarea id="bir-pk-input" placeholder="BIRPK1.…" style="width:100%;height:84px;margin:6px 0 0;font-family:monospace;font-size:0.72rem;box-sizing:border-box;word-break:break-all;" autocomplete="off" spellcheck="false"></textarea>
+                       </div>
+                   </details>
                </div>`,
         showCancelButton: true,
         confirmButtonText: 'Use Pass Key',
@@ -25947,24 +26096,42 @@ async function requestBirPassKey({ purpose, includeBirData }) {
         focusConfirm: false,
         allowOutsideClick: false,
         didOpen: () => {
-            const copyBtn = document.getElementById('bir-pk-copy');
-            const requestBox = document.getElementById('bir-pk-request');
-            if (!copyBtn || !requestBox) return;
-            copyBtn.addEventListener('click', async () => {
-                try {
-                    await navigator.clipboard.writeText(requestBox.value);
-                    copyBtn.textContent = 'Copied!';
-                } catch (_copyErr) {
-                    requestBox.focus();
-                    requestBox.select();
-                    copyBtn.textContent = 'Select & copy manually';
-                }
-            });
+            const confirmBtn = Swal.getConfirmButton();
+            if (confirmBtn) confirmBtn.disabled = true;
+            const copyBtn = el('bir-pk-copy');
+            const renewBtn = el('bir-pk-renew');
+            const manualInput = el('bir-pk-input');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', async () => {
+                    const requestBox = el('bir-pk-request');
+                    if (!requestBox) return;
+                    try {
+                        await navigator.clipboard.writeText(requestBox.value);
+                        copyBtn.textContent = 'Copied!';
+                    } catch (_copyErr) {
+                        requestBox.focus();
+                        requestBox.select();
+                        copyBtn.textContent = 'Select & copy manually';
+                    }
+                });
+            }
+            if (renewBtn) renewBtn.addEventListener('click', renew);
+            if (manualInput) manualInput.addEventListener('input', syncConfirm);
+            tickTimer = setInterval(() => { if (!stopped && receivedKey) refreshKeyState(); }, 1000);
+            poll();
+        },
+        willClose: () => {
+            stopped = true;
+            clearTimeout(pollTimer);
+            clearInterval(tickTimer);
         },
         preConfirm: () => {
-            const input = document.getElementById('bir-pk-input');
-            const value = input ? String(input.value || '').trim() : '';
-            if (!value) { Swal.showValidationMessage('Paste the pass key from the developer.'); return false; }
+            const value = keyUsable() ? receivedKey : manualValue();
+            if (!value) {
+                Swal.showValidationMessage('Wait for the developer to send the pass key.');
+                setTimeout(syncConfirm, 50);
+                return false;
+            }
             return value;
         }
     });
@@ -30607,6 +30774,61 @@ async function downloadBirExport(kind) {
     const ext = kind === 'ejournal' ? 'txt' : (kind === 'sales-book' ? 'csv' : 'json');
     await downloadAuthFetch(`${API_URL}/bir/export/${kind}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, `bir_${kind}_${from}_to_${to}.${ext}`);
 }
+/* ===== BIR Test Wipe: ang RELAY ang nagpapadala, ang app na ito ay nagko-confirm lang ===== */
+(function initBirTestWipePoller() {
+    let busy = false;
+    let promptedCommandId = null;
+    async function promptWipe(data) {
+        const c = data.command;
+        const until = c.expiresAt ? new Date(c.expiresAt).toLocaleTimeString() : '';
+        const result = await Swal.fire({
+            title: 'RELAY: wipe ALL BIR data?',
+            icon: 'warning',
+            html: `<div style="text-align:left;font-size:0.9rem;color:#475569;">The RELAY asked to reset this device's BIR data to zero: AGT, invoice numbering, Z-Readings, voids, reset history, ${Number(data.birSales) || 0} sale(s) with a BIR invoice number, and the sealed retention vault. <b>This cannot be undone.</b><br><br>Reference: <b>${escapeHtml(c.reference || '')}</b>${until ? `<br>Valid until ${escapeHtml(until)}` : ''}</div>`,
+            showCancelButton: true,
+            showDenyButton: true,
+            confirmButtonText: 'Confirm wipe',
+            denyButtonText: 'Decline',
+            cancelButtonText: 'Later',
+            confirmButtonColor: '#dc2626',
+            focusCancel: true,
+            allowOutsideClick: false
+        });
+        if (result.isDenied) {
+            try { await authFetch(`${API_URL}/bir/test-wipe/decline`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandId: c.commandId }) }); } catch (_e) {}
+            return;
+        }
+        if (!result.isConfirmed) return;
+        try {
+            const res = await authFetch(`${API_URL}/bir/test-wipe/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandId: c.commandId, confirm: true }) });
+            const out = await res.json();
+            if (!res.ok || !out.success) throw new Error(out.message || `HTTP ${res.status}`);
+            if (typeof loadBirComplianceView === 'function' && document.getElementById('bir-agt')) { try { await loadBirComplianceView(); } catch (_e) {} }
+            Swal.fire('BIR data wiped', `${out.removed.birSales} BIR sale(s) removed. Everything is back to zero.`, 'success');
+        } catch (err) {
+            Swal.fire('Wipe Failed', escapeHtml(err.message || 'Could not wipe the BIR data.'), 'error');
+        }
+    }
+    async function tick() {
+        if (busy || document.hidden) return;
+        if (!currentUser || String(currentUser.role || '').toLowerCase() !== 'admin') return;
+        if (typeof Swal !== 'undefined' && Swal.isVisible()) return;
+        busy = true;
+        try {
+            const res = await authFetch(`${API_URL}/bir/test-wipe/pending`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || !data.pending || !data.command) return;
+            if (promptedCommandId === data.command.commandId) return; // isang tanong lang bawat command sa page session na ito
+            promptedCommandId = data.command.commandId;
+            await promptWipe(data);
+        } catch (_e) { /* tahimik: walang internet o hindi enabled */ }
+        finally { busy = false; }
+    }
+    setTimeout(tick, 6000);
+    setInterval(tick, 20000);
+})();
+
 async function resetBirAgt() {
     const { value, isConfirmed } = await Swal.fire({
         title: 'Reset Accumulated Grand Total?',

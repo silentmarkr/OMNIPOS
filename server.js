@@ -16437,12 +16437,51 @@ app.post('/api/system/reset/bir-request', rateLimit('bir-passkey-request', 20, 6
         const identity = getBirPassKeyIdentity();
         let storeName = '';
         try { storeName = String(getBirContext().storeName || ''); } catch (_e) { storeName = ''; }
-        const request = birRetention.createResetRequest({ installationId: identity.installationId, deviceTag: identity.deviceTag, purpose, includeBirData, storeName });
-        logAction(req.authUser.username, `Requested a developer pass key for a BIR reset (${purpose}${includeBirData ? ', BIR counters included' : ''}).`);
-        res.json({ success: true, required: true, requestCode: request.requestCode, expiresAt: request.expiresAt, reused: request.reused, purpose, includeBirData });
+        const renew = body.renew === true;
+        const request = birRetention.createResetRequest({ installationId: identity.installationId, deviceTag: identity.deviceTag, purpose, includeBirData, storeName, forceNew: renew });
+        logAction(req.authUser.username, `${renew ? 'Requested a NEW' : 'Requested a'} developer pass key for a BIR reset (${purpose}${includeBirData ? ', BIR counters included' : ''}).`);
+        res.json({ success: true, required: true, requestCode: request.requestCode, nonce: request.nonce, expiresAt: request.expiresAt, reused: request.reused, purpose, includeBirData });
     } catch (err) {
         console.error('BIR pass-key request failed:', err);
         res.status(500).json({ success: false, message: `Could not create the pass-key request. Details: ${err.message}` });
+    }
+});
+// FAST AUTHORIZATION (mirrors the activation waiting room). The reset dialog polls here with the nonce of its open request. This server
+// builds the request code itself, registers it with RELAY (which answers with a PAIRING CODE for the developer) and returns the
+// developer's pass key as soon as it was sent. The key is checked against THIS device (signature, device, action, expiry, unused)
+// before it is handed to the dialog, so the final reset button only unlocks for a key that will really be accepted.
+// Nothing is reset here and nothing is consumed: /api/system/reset/start and /api/bir/reset-agt still do every real check.
+app.post('/api/system/reset/bir-inbox', rateLimit('bir-passkey-inbox', 120, 5 * 60 * 1000), async (req, res) => {
+    if (!requireAdminForBirGuard(req, res)) return;
+    try {
+        const nonce = String((req.body || {}).nonce || '').trim();
+        if (!/^[0-9a-f]{32}$/.test(nonce)) return res.status(400).json({ success: false, code: 'BIR_REQUEST_INVALID', message: 'The pass-key request is missing. Close the dialog and start the reset again.' });
+        const identity = getBirPassKeyIdentity();
+        const open = birRetention.getOpenRequest({ installationId: identity.installationId, nonce });
+        if (!open || open.deviceTag !== identity.deviceTag) {
+            return res.status(404).json({ success: false, code: 'BIR_REQUEST_NOT_OPEN', message: 'This pass-key request is no longer open. Tap "Get a new pairing code".' });
+        }
+        const response = await relayFetch(`${RELAY_URL}/relay/client/reset-inbox`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestCode: open.requestCode }) }, 10000);
+        const data = await response.json().catch(() => ({}));
+        // RELAY refusals are reported as 502 on purpose: a 401/403/402 passed through would trip the app's session / feature-lock handlers.
+        if (!response.ok || !data.success) return res.status(502).json({ success: false, code: data.code || 'BIR_INBOX_UNAVAILABLE', message: data.message || 'Could not reach RELAY.' });
+        let passKey = null;
+        let passKeyProblem = null;
+        let deliveryId = null;
+        let passKeyExpiresAt = null;
+        const delivery = data.delivery && typeof data.delivery.passKey === 'string' && data.delivery.passKey ? data.delivery : null;
+        if (delivery) {
+            deliveryId = String(delivery.deliveryId || '');
+            passKeyExpiresAt = Number(delivery.expiresAt) || null;
+            const verdict = birRetention.verifyPassKey(delivery.passKey, { installationId: identity.installationId, deviceTag: identity.deviceTag, purpose: open.purpose, includeBirData: open.includeBirData });
+            if (verdict.ok) passKey = delivery.passKey;
+            else passKeyProblem = { code: verdict.code, message: verdict.message };
+        }
+        res.set('Cache-Control', 'no-store');
+        return res.json({ success: true, pairingCode: data.pairingCode || null, requestExpiresAt: open.expiresAt, deliveryId, passKey, passKeyExpiresAt, passKeyProblem });
+    } catch (err) {
+        const offline = !!(err && err.code === 'NO_INTERNET');
+        return res.status(503).json({ success: false, code: offline ? 'NO_INTERNET' : 'BIR_INBOX_UNAVAILABLE', message: offline ? 'No internet connection detected on this device.' : 'Could not reach RELAY. Retrying…' });
     }
 });
 // Only one System Hard Reset may run at a time (a second start while one is running could race the backup/wipe).
@@ -21981,6 +22020,162 @@ app.post('/api/bir/z-reading', requirePermission('bir_compliance'), requireFeatu
 app.get('/api/bir/voids', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
     res.json(birCompliance.getVoidLog(limit));
+});
+// ===== BIR TEST WIPE (FOR TESTING ONLY) - RELAY decides, this device only confirms =====
+// Ang RELAY admin ang magpapadala ng signed wipe command para sa installation na ito. Hindi ang OmniPOS ang nagsisimula.
+// Ang OmniPOS ay: (1) nagtatanong sa RELAY kung may nakabinbing command, (2) bine-verify ang signature at installation ID,
+// (3) humihingi ng confirmation sa Admin sa screen, (4) kapag na-confirm, binubura ang LAHAT ng BIR data - AGT, invoice
+// numbering, Z-Counter, reset counter, Z-Reading/void/reset history, ang mga sale na may BIR invoice number, at ang buong
+// sealed retention vault. Walang pass key, walang archive - hindi na ito mababawi.
+// SAFEGUARD: ang device ay tumatanggap lang kapag may walang-lamang file na `ALLOW_BIR_TEST_WIPE` sa database folder
+// (ikaw ang gagawa nito, sa test device lang) at naka-unlock ang BIR Compliance. Kung wala ang file, hindi man lang nagtatanong
+// sa RELAY ang device at 403 ang sagot sa confirm. Admin lang ang puwedeng mag-confirm.
+// canonical string MUST stay byte-for-byte identical to RELAY/bir-test-wipe.js (canonicalCommandString).
+const BIR_TEST_WIPE_FLAG_FILE = path.join(DB_DIR, 'ALLOW_BIR_TEST_WIPE');
+const BIR_TEST_WIPE_DONE_FILE = path.join(DB_DIR, 'bir-test-wipe-done.json');
+const BIR_TEST_WIPE_SIGNING_DOMAIN = 'omnipos-bir-testwipe-v1\n';
+function isBirTestWipeEnabled() {
+    try { return fs.existsSync(BIR_TEST_WIPE_FLAG_FILE); } catch (_e) { return false; }
+}
+function birTestWipeCanonical(p) {
+    return JSON.stringify({ installationId: p.installationId, commandId: p.commandId, nonce: p.nonce, issuedAt: p.issuedAt, expiresAt: p.expiresAt, reference: p.reference });
+}
+function readBirTestWipeHandled() {
+    try {
+        const j = JSON.parse(fs.readFileSync(BIR_TEST_WIPE_DONE_FILE, 'utf8'));
+        return Array.isArray(j) ? j : [];
+    } catch (_e) { return []; }
+}
+function markBirTestWipeHandled(commandId, result) {
+    const list = readBirTestWipeHandled().filter((x) => x && x.id !== commandId);
+    list.push({ id: commandId, result, at: new Date().toISOString() });
+    try { fs.writeFileSync(BIR_TEST_WIPE_DONE_FILE, JSON.stringify(list.slice(-50)), { mode: 0o600 }); } catch (err) { console.error('BIR test wipe: could not remember the handled command:', err.message); }
+}
+function isBirTestWipeHandled(commandId) {
+    return readBirTestWipeHandled().some((x) => x && x.id === commandId);
+}
+// Returns the verified payload, or null (bad signature, other installation, expired, malformed, already handled).
+function verifyBirTestWipeCommand(cmd) {
+    try {
+        if (!cmd || typeof cmd !== 'object' || !cmd.payload || typeof cmd.payload !== 'object' || typeof cmd.signature !== 'string') return null;
+        const p = cmd.payload;
+        if (typeof p.installationId !== 'string' || typeof p.commandId !== 'string' || !/^BIRWIPE-[0-9a-z]+-[0-9a-f]{8}$/.test(p.commandId)) return null;
+        if (typeof p.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(p.nonce) || typeof p.reference !== 'string') return null;
+        if (!Number.isFinite(p.issuedAt) || !Number.isFinite(p.expiresAt)) return null;
+        const signedBytes = Buffer.from(BIR_TEST_WIPE_SIGNING_DOMAIN + birTestWipeCanonical(p), 'utf8');
+        if (!crypto.verify(null, signedBytes, RELAY_PUBLIC_KEY, Buffer.from(cmd.signature, 'base64'))) return null;
+        if (p.installationId !== getBirPassKeyIdentity().installationId) return null;
+        const nowMs = Date.now();
+        if (p.expiresAt <= nowMs || p.issuedAt > nowMs + 60 * 1000) return null;
+        if (isBirTestWipeHandled(p.commandId)) return null;
+        return p;
+    } catch (_e) { return null; }
+}
+let birTestWipePendingCache = { at: 0, command: null };
+async function pollBirTestWipeFromRelay(force) {
+    if (!force && Date.now() - birTestWipePendingCache.at < 8000) return birTestWipePendingCache.command;
+    birTestWipePendingCache = { at: Date.now(), command: null };
+    try {
+        const identity = getBirPassKeyIdentity();
+        const response = await relayFetch(`${RELAY_URL}/relay/client/bir-test-wipe/poll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ installationId: identity.installationId }) }, 8000);
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data && data.success && data.command) {
+            birTestWipePendingCache.command = verifyBirTestWipeCommand(data.command);
+        }
+    } catch (_e) { /* walang internet / hindi maabot ang RELAY: walang nakabinbin */ }
+    return birTestWipePendingCache.command;
+}
+async function ackBirTestWipeToRelay(commandId, result) {
+    try {
+        const identity = getBirPassKeyIdentity();
+        await relayFetch(`${RELAY_URL}/relay/client/bir-test-wipe/ack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ installationId: identity.installationId, commandId, result }) }, 8000);
+    } catch (_e) { /* best effort lang; ang local record ang nagpoprotekta laban sa ulit */ }
+}
+// Mga row ng 'transactions' na may BIR invoice number (record_id ang ibabalik, kasama ang mga walang id).
+function listBirTransactionRowIds() {
+    const rows = sqliteDb.prepare('SELECT record_id, data FROM row_store WHERE module = ?').all(FILE_TRANSACTIONS);
+    const ids = [];
+    for (const r of rows) {
+        let tx = null;
+        try { tx = JSON.parse(r.data); } catch (_e) { tx = null; }
+        if (birRetention.isBirTransaction(tx)) ids.push(String(r.record_id));
+    }
+    return ids;
+}
+// Nagtatanong ang app (Admin na naka-login) kada ~20s. Hindi tumatawag sa RELAY kapag wala ang flag file o naka-lock ang BIR.
+app.get('/api/bir/test-wipe/pending', async (req, res) => {
+    const none = { success: true, pending: false };
+    try {
+        const isAdmin = !!req.authUser && String(req.authUser.role || '').toLowerCase() === 'admin';
+        if (!isAdmin || !isBirTestWipeEnabled() || !isBirComplianceUnlocked()) return res.json(none);
+        const cmd = await pollBirTestWipeFromRelay(false);
+        if (!cmd) return res.json(none);
+        let birSales = 0;
+        try { birSales = listBirTransactionRowIds().length; } catch (_e) { birSales = 0; }
+        res.set('Cache-Control', 'no-store');
+        return res.json({ success: true, pending: true, birSales, command: { commandId: cmd.commandId, reference: cmd.reference, issuedAt: cmd.issuedAt, expiresAt: cmd.expiresAt } });
+    } catch (err) {
+        console.error('BIR test wipe pending check failed:', err.message);
+        return res.json(none);
+    }
+});
+app.post('/api/bir/test-wipe/decline', async (req, res) => {
+    if (!requireAdminForBirGuard(req, res)) return;
+    const commandId = String((req.body || {}).commandId || '');
+    if (!/^BIRWIPE-[0-9a-z]+-[0-9a-f]{8}$/.test(commandId)) return res.status(400).json({ success: false, message: 'Invalid command.' });
+    markBirTestWipeHandled(commandId, 'declined');
+    birTestWipePendingCache = { at: 0, command: null };
+    await ackBirTestWipeToRelay(commandId, 'declined');
+    logAction(req.authUser.username, `BIR TEST WIPE: command ${commandId} from RELAY was declined on this device.`);
+    res.json({ success: true });
+});
+app.post('/api/bir/test-wipe/confirm', async (req, res) => {
+    if (!requireAdminForBirGuard(req, res)) return;
+    if (!isBirTestWipeEnabled() || !isBirComplianceUnlocked()) {
+        return res.status(403).json({ success: false, code: 'BIR_TEST_WIPE_DISABLED', message: 'BIR test wipe is not enabled on this device. Create an empty file named ALLOW_BIR_TEST_WIPE inside the database folder to enable it.' });
+    }
+    const body = req.body || {};
+    if (body.confirm !== true) return res.status(400).json({ success: false, message: 'Confirmation is required.' });
+    // Ang command ay dapat nandoon pa rin sa RELAY (hindi pa na-cancel/expired) at verified ang signature.
+    const cmd = await pollBirTestWipeFromRelay(true);
+    if (!cmd || cmd.commandId !== String(body.commandId || '')) {
+        return res.status(409).json({ success: false, code: 'BIR_TEST_WIPE_COMMAND_GONE', message: 'The wipe command is no longer valid (cancelled, expired or already used). Nothing was changed.' });
+    }
+    let birSaleIds;
+    try { birSaleIds = listBirTransactionRowIds(); } catch (err) {
+        return res.status(500).json({ success: false, message: `Could not read the sales records: ${err.message}` });
+    }
+    const nowIso = new Date().toISOString();
+    const changes = [
+        { module: 'birState', data: { agt: 0, baselineAGT: 0, resetCounter: 0, zCounter: 0, nextInvoiceNumber: 1, invoiceNumberAtPeriodStart: 1, lastZReadingAt: null, lastResetAt: null, createdAt: nowIso } },
+        { module: 'birVoids', data: [] },
+        { module: 'birZReadingHistory', data: [] },
+        { module: 'birResetHistory', data: [] }
+    ];
+    if (birSaleIds.length) changes.push({ module: FILE_TRANSACTIONS, deleteRowIds: birSaleIds });
+    try {
+        runDatabaseTransaction(changes); // isang transaction: lahat o wala
+    } catch (err) {
+        console.error('BIR test wipe failed (database untouched):', err);
+        return res.status(500).json({ success: false, message: `The BIR data could not be wiped. Nothing was changed. Details: ${err.message}` });
+    }
+    markBirTestWipeHandled(cmd.commandId, 'done'); // isang beses lang magagamit ang command
+    birTestWipePendingCache = { at: 0, command: null };
+    let vaultCleared = true;
+    let vaultError = null;
+    try {
+        fs.rmSync(path.join(DB_DIR, 'bir-retention-vault'), { recursive: true, force: true });
+    } catch (err) {
+        vaultCleared = false;
+        vaultError = err.message;
+        console.error('BIR test wipe: could not remove the retention vault:', err);
+    }
+    logAction(req.authUser.username, `BIR TEST WIPE (RELAY command ${cmd.commandId}, ref: ${cmd.reference}): all BIR data zeroed (${birSaleIds.length} BIR sale(s) removed, retention vault ${vaultCleared ? 'deleted' : 'NOT fully deleted'}).`);
+    await ackBirTestWipeToRelay(cmd.commandId, 'done');
+    if (!vaultCleared) {
+        return res.status(500).json({ success: false, partial: true, message: `BIR data in the database was wiped, but the retention vault folder could not be deleted (${vaultError}). Delete the bir-retention-vault folder by hand.` });
+    }
+    res.json({ success: true, removed: { birSales: birSaleIds.length, vaultDeleted: true } });
 });
 app.get('/api/bir/reset-history', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     res.json(birCompliance.getResetHistory());

@@ -475,6 +475,19 @@ fi
 # Safety net: remove any stray .start.sh.lock that may have shipped inside the zip.
 rm -f "$STAGE_DIR/.start.sh.lock"
 
+# ===== BIR TEST WIPE opt-in (FOR TEST BUILDS ONLY) =====
+# Gumagawa ng walang-lamang file na database/ALLOW_BIR_TEST_WIPE para matanggap ng device ang remote BIR test wipe galing sa RELAY.
+# BABALA: binubura ng wipe ang LAHAT ng BIR data (kasama ang retention vault) at hindi na mababawi.
+# Itakda ang ENABLE_BIR_TEST_WIPE=0 (o palitan ang default sa ibaba) sa MGA BUILD NA PARA SA TOTOONG CUSTOMER.
+ENABLE_BIR_TEST_WIPE="${ENABLE_BIR_TEST_WIPE:-1}"
+if [ "$ENABLE_BIR_TEST_WIPE" = "1" ]; then
+    mkdir -p "$STAGE_DIR/database"
+    : > "$STAGE_DIR/database/ALLOW_BIR_TEST_WIPE"
+    echo "🧪 BIR test wipe enabled on this install (database/ALLOW_BIR_TEST_WIPE created)."
+else
+    rm -f "$STAGE_DIR/database/ALLOW_BIR_TEST_WIPE"
+fi
+
 # "Omni Search Images" is built into server.js now — drop leftovers of the old standalone worker.
 rm -f "$STAGE_DIR/omnipos-search-image.js" "$STAGE_DIR/logs/omni-search-worker.log"
 

@@ -268,7 +268,10 @@ module.exports = function createBirRetention(deps) {
     }
 
     // Creates (or re-shows) the one open request for this exact action. Returns the code the client sends to the developer.
-    function createResetRequest({ installationId, deviceTag, purpose, includeBirData, storeName, now } = {}) {
+    // forceNew: true drops the open request(s) of this exact action first and makes a brand-new one (new nonce). The reset dialog
+    // uses it when the developer's pass key was lost or expired unused: RELAY signs each request only once, so a fresh request
+    // is the only way to get another key. Any pass key issued for a dropped request stops working.
+    function createResetRequest({ installationId, deviceTag, purpose, includeBirData, storeName, now, forceNew } = {}) {
         const ts = typeof now === 'number' ? now : Date.now();
         if (!ALLOWED_PURPOSES.includes(purpose)) throw errorWith('BIR_BAD_PURPOSE', 'Unknown BIR reset purpose.');
         if (typeof installationId !== 'string' || !installationId.trim()) throw errorWith('BIR_NO_INSTALLATION', 'This installation has no ID yet, so a pass key cannot be requested.');
@@ -276,10 +279,9 @@ module.exports = function createBirRetention(deps) {
         const tag = String(deviceTag || 'unknown').slice(0, 64);
         const state = loadState();
         state.pending = state.pending.filter((p) => p && typeof p.expiresAt === 'number' && p.expiresAt > ts);
-        let core = state.pending.find((p) =>
-            p.installationId === installationId && p.deviceTag === tag && p.purpose === purpose &&
-            p.includeBirData === wipe && (p.expiresAt - ts) > REQUEST_REUSE_MIN_LEFT_MS
-        );
+        const sameAction = (p) => p.installationId === installationId && p.deviceTag === tag && p.purpose === purpose && p.includeBirData === wipe;
+        if (forceNew === true) state.pending = state.pending.filter((p) => !sameAction(p));
+        let core = state.pending.find((p) => sameAction(p) && (p.expiresAt - ts) > REQUEST_REUSE_MIN_LEFT_MS);
         let reused = true;
         if (!core) {
             reused = false;
@@ -302,6 +304,24 @@ module.exports = function createBirRetention(deps) {
             nonce: core.nonce,
             expiresAt: core.expiresAt,
             reused
+        };
+    }
+
+    // Read-only: the open request with this nonce (as created by createResetRequest), or null when it is gone, expired, or belongs to
+    // another installation. The reset dialog polls RELAY with this code; everything about the action comes from here, not from the browser.
+    function getOpenRequest({ installationId, nonce, now } = {}) {
+        const ts = typeof now === 'number' ? now : Date.now();
+        if (typeof installationId !== 'string' || !installationId || typeof nonce !== 'string' || !/^[0-9a-f]{32}$/.test(nonce)) return null;
+        const state = loadState();
+        const core = state.pending.find((p) => p && p.nonce === nonce && p.installationId === installationId && typeof p.expiresAt === 'number' && p.expiresAt > ts);
+        if (!core) return null;
+        return {
+            requestCode: buildRequestCode(core, buildSummary(ts)),
+            nonce: core.nonce,
+            deviceTag: core.deviceTag,
+            purpose: core.purpose,
+            includeBirData: core.includeBirData,
+            expiresAt: core.expiresAt
         };
     }
 
@@ -576,6 +596,7 @@ module.exports = function createBirRetention(deps) {
         hasOpenReadingPeriod,
         buildSummary,
         createResetRequest,
+        getOpenRequest,
         verifyPassKey,
         reservePassKey,
         releasePassKey,
