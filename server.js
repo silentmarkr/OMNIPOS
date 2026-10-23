@@ -7314,6 +7314,8 @@ async function performCloudBackupUploadSegmented(trigger, actorUsername) {
         let reusedCount = 0;
         let reusedRaw = 0;
         let reuseMisses = 0;
+        const uploadedByModule = {};   // diagnostic: aling module ang na-upload (hindi na-reuse) sa sync na ito
+        let uploadedRaw = 0;
         let reuseMissReason = null;
         const resumeInfo = readCloudBackupResume(installationId);
         if (resumeInfo) {
@@ -7451,6 +7453,8 @@ async function performCloudBackupUploadSegmented(trigger, actorUsername) {
                         }
                         segData = data;
                     });
+                    uploadedByModule[mod.name] = (uploadedByModule[mod.name] || 0) + 1;
+                    uploadedRaw += rawBuf.length;
                     segmentsSent += 1;
                     rawSent += rawBuf.length;
                     moduleRecords += seg.records;
@@ -7520,7 +7524,7 @@ async function performCloudBackupUploadSegmented(trigger, actorUsername) {
             cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
             cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
         }
-        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}, segmented): synced ${moduleNames.length} modules (${totalRecords} records, ${segmentsSent} segments, ${reusedCount} unchanged/reused, ${formatMBForLog(reusedRaw)} not re-uploaded, ${relayData.sizeMB ?? '?'} MB) to cloud.`);
+        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}, segmented): synced ${moduleNames.length} modules (${totalRecords} records, ${segmentsSent} segments, ${reusedCount} unchanged/reused, ${formatMBForLog(reusedRaw)} not re-uploaded, ${formatMBForLog(uploadedRaw)} uploaded [${Object.entries(uploadedByModule).map(([m, n]) => `${m}:${n}`).join(', ') || 'none'}], ${relayData.sizeMB ?? '?'} MB) to cloud.`);
         return {
             success: true, status: 200,
             message: 'Successfully synced the database to the cloud (Postgres).',
