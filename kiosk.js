@@ -272,7 +272,7 @@ module.exports = function registerKiosk(deps) {
             customerName: cfg.askName ? cleanStr(body.customerName, 40) : '',
             phone: cfg.askPhone ? cleanStr(body.phone, 20) : '',
             table: cfg.askTable ? cleanStr(body.table, 10) : '',
-            note: cfg.orderNote ? cleanStr(body.note, 140) : '',
+            note: cleanStr(body.note, 200),
             items, total,
             itemCount: round2(items.reduce((a, i) => a + i.qty, 0)),
             createdAt: new Date().toISOString(),
