@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>OMNIKiosk</title>
+<style>
+:root{--brand:#e4572e;--bg:#f6f3ef;--card:#fff;--ink:#1d1b19;--mute:#7a736c;--line:#e7e1da;--ok:#1f9d55;--bad:#d33;--fs:1;--r:18px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:calc(16px*var(--fs))}
+input,textarea{-webkit-user-select:text;user-select:text;font:inherit}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.hide{display:none!important}
+#app{height:100%;display:flex;flex-direction:column}
+.btn{min-height:56px;padding:0 24px;border-radius:14px;background:var(--brand);color:#fff;font-weight:700;font-size:1.1em;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:active{transform:scale(.97);filter:brightness(.92)}
+.btn.ghost{background:#fff;color:var(--ink);border:2px solid var(--line)}
+.btn.dark{background:#2b2724}
+.btn.ok{background:var(--ok)}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.btn.big{min-height:84px;font-size:1.5em;border-radius:22px;padding:0 40px}
+.screen{flex:1;min-height:0;display:flex;flex-direction:column}
+/* top bar */
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line)}
+.bar .logo{font-weight:800;font-size:1.3em;color:var(--brand);flex:0 0 auto}
+.bar .sp{flex:1}
+.search{flex:1;max-width:420px;height:48px;border:2px solid var(--line);border-radius:24px;padding:0 18px;background:#fff}
+.chip{height:44px;padding:0 16px;border-radius:22px;background:#fff;border:2px solid var(--line);font-weight:600;display:inline-flex;align-items:center}
+#offline{background:#b45309;color:#fff;text-align:center;padding:6px;font-weight:600}
+/* home */
+#home{align-items:center;justify-content:center;text-align:center;padding:24px;gap:22px;background:linear-gradient(160deg,var(--brand),#2b2724)}
+#home h1{margin:0;color:#fff;font-size:calc(3em);line-height:1.1}
+#home p{margin:0;color:#ffffffcc;font-size:1.4em}
+#home .modes{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-top:12px}
+#home .modes .btn{background:#fff;color:var(--ink)}
+#home .modes .btn.primary{background:var(--brand);color:#fff;box-shadow:0 0 0 4px #fff}
+#feat{display:flex;gap:14px;overflow:hidden;max-width:100%;margin-top:6px}
+#feat .f{background:#ffffff22;color:#fff;border-radius:16px;padding:10px 16px;font-weight:600;white-space:nowrap}
+#home .tiny{position:absolute;left:0;top:0;width:90px;height:90px}
+/* order */
+#order .body{flex:1;min-height:0;display:flex}
+.cats{width:170px;flex:0 0 auto;overflow-y:auto;background:var(--card);border-right:1px solid var(--line);padding:8px}
+.cat{width:100%;text-align:left;padding:16px 14px;border-radius:14px;font-weight:700;margin-bottom:6px;line-height:1.2}
+.cat.on{background:var(--brand);color:#fff}
+.grid{flex:1;min-width:0;overflow-y:auto;padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px;align-content:start}
+.p{background:var(--card);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column;text-align:left;box-shadow:0 1px 3px #0001;position:relative}
+.p:active{transform:scale(.97)}
+.p .img{aspect-ratio:4/3;background:#eee center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:2.4em;font-weight:800;color:#fff}
+.p .txt{display:flex;flex-direction:column}
+.p .nm{padding:10px 12px 2px;font-weight:700;line-height:1.2;min-height:2.6em}
+.p .pr{padding:0 12px 12px;color:var(--brand);font-weight:800;font-size:1.15em}
+.p .tag{position:absolute;top:8px;left:8px;background:#fff;border-radius:10px;padding:2px 8px;font-size:.8em;font-weight:700}
+.p .inc{position:absolute;right:8px;top:8px;background:var(--brand);color:#fff;border-radius:12px;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:800;padding:0 8px}
+.p.out{opacity:.5;pointer-events:none}
+.cart{width:340px;flex:0 0 auto;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column}
+.cart h3{margin:0;padding:14px 16px;border-bottom:1px solid var(--line)}
+.lines{flex:1;overflow-y:auto;padding:6px 12px}
+.ln{display:flex;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);align-items:center}
+.ln .i{flex:1;min-width:0}.ln .i b{display:block;line-height:1.2}.ln .i small{color:var(--mute);display:block}
+.qty{display:flex;align-items:center;gap:6px}
+.qty button{width:40px;height:40px;border-radius:12px;background:var(--bg);font-size:1.3em;font-weight:800}
+.qty span{min-width:26px;text-align:center;font-weight:800}
+.empty{color:var(--mute);text-align:center;padding:40px 10px}
+.tot{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.tot .row{display:flex;justify-content:space-between;font-weight:800;font-size:1.3em}
+.lang{height:44px;min-width:64px;padding:0 14px;border-radius:22px;background:#fff;border:2px solid var(--line);font-weight:800;display:inline-flex;align-items:center;gap:6px}
+#home .lang{position:absolute;right:16px;top:14px;background:#ffffff26;border-color:#ffffff66;color:#fff}
+#home{position:relative}
+.p .add{position:absolute;right:8px;bottom:8px;width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;font-size:1.5em;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px #0003}
+.cart .grab{display:none}
+#mini{display:none}
+.ln .x{color:var(--bad);font-size:1.2em;width:36px;height:36px}
+/* short / landscape phone: keep cart on the side, compact horizontal product cards */
+@media (max-height:560px) and (orientation:landscape){
+ .bar{padding:6px 12px}.chip,.lang{height:38px}.search{height:38px}.bar .logo{display:none}
+ .cats{width:120px;padding:6px}.cat{padding:10px 8px;font-size:.88em;margin-bottom:4px}
+ .grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;padding:8px}
+ .p{flex-direction:row;align-items:center;min-height:72px}
+ .p .img{width:72px;height:72px;aspect-ratio:1;font-size:1.6em;flex:0 0 auto}
+ .p .nm{padding:6px 8px 0;min-height:0;font-size:.95em;flex:1}.p .pr{padding:0 8px 6px;font-size:1em}
+ .p .txt{flex:1;min-width:0;padding-right:48px}.p .add{width:34px;height:34px;bottom:auto;top:50%;margin-top:-17px}
+ .cart{width:250px}.cart h3{padding:8px 12px;font-size:1em}.tot{padding:8px 12px;gap:6px}.tot .row{font-size:1.1em}
+ #co{min-height:46px!important;font-size:1em!important}
+ #home h1{font-size:2em}#home p{font-size:1.1em}#home{gap:12px}.btn.big{min-height:60px;font-size:1.2em;padding:0 26px}
+ .pcard{padding:12px}.pcard .img{width:110px;height:110px}.pcard .big{font-size:2.4em}
+ #done{gap:6px;overflow-y:auto;padding:10px}#done .no{font-size:4em}
+ .md{max-height:96%}
+}
+html.dark{--bg:#15130f;--card:#25221e;--ink:#f3efe9;--mute:#a59d93;--line:#3b3631}
+html.dark .opt,html.dark .search,html.dark .chip,html.dark .btn.ghost,html.dark .field input,html.dark .field textarea,html.dark .lang,html.dark .p,html.dark #q .n{background:var(--card);color:var(--ink)}
+html.dark .qty button,html.dark .pin button{background:#352f2a}
+#home #dk{right:130px}#clk{font-weight:700;opacity:.9}
+.th{width:44px;height:44px;border-radius:10px;background:#eee center/cover;flex:0 0 auto;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
+.steps{display:flex;gap:6px;margin-bottom:14px}.steps i{flex:1;height:6px;border-radius:3px;background:var(--line)}.steps i.on{background:var(--brand)}
+.err{color:var(--bad);font-weight:700;min-height:1.3em;margin-top:6px}.chk{display:flex;gap:10px;align-items:center;font-weight:600}.chk input{width:26px;height:26px}
+#pager,#stepbar{display:none}
+html.pv #stepbar{display:flex;justify-content:center;gap:6px;padding:8px 10px;background:linear-gradient(90deg,#1f1b16,#3d2b22);color:#fff;font-size:.8em;font-weight:700}
+#stepbar span{display:flex;align-items:center;gap:6px;opacity:.55;padding:4px 10px;border-radius:999px}#stepbar span.on{opacity:1;background:var(--brand)}#stepbar span.dn{opacity:.9}
+#stepbar b{width:20px;height:20px;border-radius:50%;background:#fff;color:#222;display:inline-flex;align-items:center;justify-content:center;font-size:.9em}
+html.pv .body{flex-direction:column;padding-bottom:84px}
+html.pv .cats{width:auto;display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:8px;gap:8px;flex:0 0 auto}
+html.pv .cat{width:auto;white-space:nowrap;margin:0;padding:12px 20px;border-radius:999px;background:var(--bg);border:2px solid var(--line)}html.pv .cat.on{border-color:var(--brand);background:var(--brand)}
+html.pv .grid{grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;overflow:hidden;gap:12px;padding:12px;align-content:stretch}
+html.pv .p{flex-direction:column;align-items:stretch;min-height:0}
+html.pv .p .img{width:100%;height:auto;aspect-ratio:auto;flex:1 1 auto;min-height:0;font-size:2.6em}
+html.pv .p .txt{padding-right:0}html.pv .p .nm{min-height:0;font-size:1.05em}html.pv .p .add{bottom:10px;top:auto;margin:0;width:46px;height:46px;right:10px}
+html.pv #pager{display:flex;align-items:center;justify-content:center;gap:14px;padding:6px;flex:0 0 auto}
+#pager .dots{display:flex;gap:6px}#pager .dots i{width:9px;height:9px;border-radius:50%;background:var(--line)}#pager .dots i.on{background:var(--brand);width:22px;border-radius:5px}#pager .pgn{font-weight:700;color:var(--mute)}
+html.pv .cart{display:none;position:fixed;inset:0;width:auto;z-index:8;border:0}html.pv .cart.open{display:flex}
+html.pv .cart .grab{display:block;padding:16px;font-weight:800;color:var(--brand);background:var(--card);border-bottom:1px solid var(--line)}
+html.pv #mini{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:6;background:#1f1b16;color:#fff;padding:14px 18px calc(14px + env(safe-area-inset-bottom,0px));align-items:center;justify-content:space-between;font-weight:800;font-size:1.05em;border-radius:22px 22px 0 0;box-shadow:0 -6px 18px #0004}
+html.pv #mini::after{content:attr(data-go);background:var(--brand);padding:12px 20px;border-radius:14px}
+html.pv #home{padding:24px}
+.p .imgw{position:relative;display:flex;flex:1 1 auto;min-height:0}.p .imgw .img{width:100%}
+.p .tag{top:8px;left:8px;max-width:62%;z-index:1}.p .inc{top:8px;right:8px;left:auto;z-index:1}
+.p .txt{flex:0 0 auto;padding:0}.p .nm{padding:10px 12px 2px;min-height:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.p .row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 12px 12px}
+.p .row .pr{padding:0;min-width:0}
+html .p .row .add{position:static;width:44px;height:44px;margin:0;flex:0 0 auto;font-size:1.6em;line-height:1}
+.ln{display:grid;grid-template-columns:48px 1fr auto;gap:6px 10px;align-items:start}
+.th{width:48px;height:48px}.ln .th{grid-row:1/3}.ln .i{grid-column:2;grid-row:1}.ln .x{grid-column:3;grid-row:1;justify-self:end}
+.ln .qty{grid-column:2;grid-row:2}.ln .lt{grid-column:3;grid-row:2;align-self:center;font-weight:800;white-space:nowrap}
+.bar{flex-wrap:nowrap}.bar .search{min-width:0;flex:1}.chip,.btn{white-space:nowrap}
+html.pv #toast{bottom:auto;top:10px}
+html.pv .bar .logo{display:none}
+html.pv .bar{gap:8px;padding:8px 10px}html.pv .bar .search{height:42px}html.pv .bar .chip{padding:0 12px}
+@media (max-height:560px) and (orientation:landscape){.p .imgw{flex:0 0 72px;width:72px;height:72px}.p .imgw .img{height:100%}.p .txt{flex:1;min-width:0;padding:0}.p .nm{padding:6px 8px 0;font-size:.95em}.p .row{padding:2px 8px 8px}.p .row .pr{font-size:1em}html .p .row .add{width:36px;height:36px}.p .tag{top:2px;left:2px;font-size:.65em;padding:1px 5px}.p .inc{top:2px;right:2px;min-width:22px;height:22px;font-size:.8em}.cart{width:276px}.cart .lines{overflow-x:hidden}.qty{gap:4px}.qty button{width:34px;height:34px;font-size:1.1em}.qty span{min-width:22px}.ln{gap:4px 8px;grid-template-columns:44px 1fr auto}.th{width:44px;height:44px}}
+/* modal */
+.ov{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.md{background:var(--card);border-radius:24px;width:min(640px,100%);max-height:92%;display:flex;flex-direction:column;overflow:hidden}
+.md header{padding:18px 20px;font-weight:800;font-size:1.3em;border-bottom:1px solid var(--line)}
+.md .c{padding:16px 20px;overflow-y:auto;flex:1}
+.md footer{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:flex-end;align-items:center}
+.grp{margin-bottom:18px}.grp h4{margin:0 0 8px}.grp h4 em{color:var(--bad);font-style:normal;font-size:.8em;margin-left:6px}
+.opts{display:flex;flex-wrap:wrap;gap:10px}
+.opt{padding:12px 18px;border-radius:14px;border:2px solid var(--line);font-weight:700;background:#fff}
+.opt.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 12%,#fff);color:var(--brand)}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-weight:700}
+.field input,.field textarea{border:2px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+.seg{display:flex;gap:10px;flex-wrap:wrap}
+/* success */
+#done{align-items:center;justify-content:center;text-align:center;gap:14px;padding:20px}
+#done .no{font-size:7em;font-weight:900;color:var(--brand);line-height:1}
+/* price check */
+#pc .body{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;align-items:center;gap:16px}
+.pcard{background:var(--card);border-radius:24px;padding:24px;width:min(720px,100%);display:flex;gap:22px;align-items:center;box-shadow:0 2px 8px #0001}
+.pcard .img{width:200px;height:200px;border-radius:18px;background:#eee center/cover;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:4em;color:#fff;font-weight:800}
+.pcard .big{font-size:3.4em;font-weight:900;color:var(--brand);line-height:1.1}
+.hint{color:var(--mute);text-align:center;font-size:1.2em;padding:30px}
+/* queue */
+#q .cols{flex:1;display:flex;gap:0}
+#q .col{flex:1;padding:20px;text-align:center}
+#q .col h2{margin:0 0 16px;font-size:2.2em}
+#q .col.r{background:#e6f6ec}#q .col.p{background:#fff5e6}
+#q .nums{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
+#q .n{font-size:4em;font-weight:900;background:#fff;border-radius:20px;padding:6px 26px;box-shadow:0 2px 6px #0002}
+/* toast / pin / idle */
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#222;color:#fff;padding:14px 22px;border-radius:14px;z-index:99;font-weight:600;max-width:90%;text-align:center}
+.pin{display:grid;grid-template-columns:repeat(3,84px);gap:10px;justify-content:center;margin-top:10px}
+.pin button{height:68px;border-radius:16px;background:var(--bg);font-size:1.6em;font-weight:800}
+.dots{text-align:center;font-size:2em;letter-spacing:10px;min-height:1.4em}
+.spin{width:44px;height:44px;border:5px solid #ddd;border-top-color:var(--brand);border-radius:50%;animation:s 1s linear infinite;margin:30px auto}
+@keyframes s{to{transform:rotate(360deg)}}
+.rowx{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="hide"></div>
+<script src="qrcode.min.js"></script>
+<script>
+(function(){
+'use strict';
+/* ---------- helpers ---------- */
+const $=(s,r)=> (r||document).querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const NATIVE=window.KioskNative||null;
+const T={
+ tl:{start:'Pindutin para mag-order',order:'Mag-order',pc:'Price Check',q:'Order Status',back:'Balik',search:'Hanapin ang item…',all:'Lahat',feat:'Paborito',cart:'Order mo',empty:'Wala pang laman. Pumili ng item!',total:'Kabuuan',checkout:'Tapusin ang Order',add:'Idagdag',cancel:'Kanselahin',pick:'Pumili ng',required:'kailangan',type:'Paano mo kukunin?',name:'Pangalan',phone:'Cellphone no.',table:'Table no.',note:'Note sa order (opsyonal)',place:'Ilagay ang Order',placing:'Ipinapadala…',yours:'Ang order number mo',pay:'Pumunta sa counter at ibigay ang number na ito para magbayad.',thanks:'Salamat po!',newo:'Bagong Order',stillhere:'Nandiyan ka pa ba?',touch:'Pindutin para magpatuloy',scan:'I-scan ang barcode o hanapin ang item',nf:'Hindi nahanap ang item',left:'natitira',oos:'Ubos na',inst:'In stock',prep:'Inihahanda',ready:'Handa na!',more:'Dagdag pa?',nomore:'Hindi na, salamat',offline:'Walang koneksyon sa server — hindi makakapag-order ngayon.',pin:'Ilagay ang admin PIN',remove:'Alisin',each:'bawat',opts:'Mga pagpipilian',qtyfor:'Dami',welcome:'Maligayang pagdating',lang:'English',setup:'OMNIKiosk Setup',srv:'OMNIPOS server (hal. http://192.168.1.10:3000)',usr:'Kiosk username',pw:'Password',pinlbl:'Admin PIN (pang-labas / settings, default 1234)',connect:'Kumonekta',connecting:'Kumokonekta…',otp:'May OTP ang account na ito — gumamit ng hiwalay na Kiosk user na walang OTP.',nomod:'Walang kiosk module sa server (i-install ang kiosk.js).',noserver:'Hindi maabot ang server.',nologin:'Hindi nakapag-login.',refresh:'I-refresh ang catalog',large:'Malaking text',server:'Server / login / PIN',autostart:'Auto-start pagka-boot',exit:'Lumabas sa kiosk mode',on:'ON',off:'OFF',okb:'OK',viewcart:'Tingnan ang order',items:'item',clear:'Alisin lahat',askclear:'Kanselahin ang order?',max:'Pinakamarami'},
+ en:{start:'Touch to order',order:'Order',pc:'Price Check',q:'Order Status',back:'Back',search:'Search items…',all:'All',feat:'Favorites',cart:'Your order',empty:'Nothing here yet. Pick an item!',total:'Total',checkout:'Checkout',add:'Add',cancel:'Cancel',pick:'Choose',required:'required',type:'How will you get it?',name:'Name',phone:'Mobile no.',table:'Table no.',note:'Order note (optional)',place:'Place Order',placing:'Sending…',yours:'Your order number',pay:'Go to the counter and show this number to pay.',thanks:'Thank you!',newo:'New Order',stillhere:'Are you still there?',touch:'Touch to continue',scan:'Scan a barcode or search for an item',nf:'Item not found',left:'left',oos:'Sold out',inst:'In stock',prep:'Preparing',ready:'Ready!',more:'Add anything else?',nomore:'No thanks',offline:'No connection to the server — cannot place orders right now.',pin:'Enter admin PIN',remove:'Remove',each:'each',opts:'Options',qtyfor:'Qty',welcome:'Welcome',lang:'Tagalog',setup:'OMNIKiosk Setup',srv:'OMNIPOS server (e.g. http://192.168.1.10:3000)',usr:'Kiosk username',pw:'Password',pinlbl:'Admin PIN (exit / settings, default 1234)',connect:'Connect',connecting:'Connecting…',otp:'This account uses OTP — use a separate Kiosk user without OTP.',nomod:'No kiosk module on the server (install kiosk.js).',noserver:'Cannot reach the server.',nologin:'Login failed.',refresh:'Refresh catalog',large:'Large text',server:'Server / login / PIN',autostart:'Auto-start on boot',exit:'Exit kiosk mode',on:'ON',off:'OFF',okb:'OK',viewcart:'View order',items:'items',clear:'Clear all',askclear:'Cancel this order?',max:'Max'}
+};
+let LANG='tl';function setLang(l){S.lang=l;LANG=l;saveSettings(S);go(view==='done'?'home':view)}const RD=[['confirm','b','Review bago isumite','Review before submit',1],['minOrder','n','Minimum na order (₱)','Minimum order (₱)',0],['maxItems','n','Max items bawat order (0=walang limit)','Max items per order (0=no limit)',0],['hours','b','Gumamit ng oras ng tindahan','Use store hours',0],['open','t','Bukas (HH:MM)','Opens (HH:MM)','08:00'],['close','t','Sara (HH:MM)','Closes (HH:MM)','21:00'],['tableDine','b','Table no. kung Dine-in','Table no. for Dine-in',1],['nameTake','b','Pangalan kung Take-out','Name for Take-out',1],['phoneCheck','b','I-validate ang cellphone (09XXXXXXXXX)','Validate mobile no. (09XXXXXXXXX)',1],['askPay','b','Itanong ang payment','Ask payment method',1],['askPickup','b','Itanong ang oras ng kuha','Ask pickup time',0],['askDisc','b','Senior/PWD discount declaration','Senior/PWD discount declaration',1],['askAllergy','b','Allergy / special request','Allergy / special request',0],['terms','b','Kailangan ang terms agreement','Require terms agreement',0],['banner','t','Banner text sa Home (promo)','Home banner text (promo)',''],['askPax','b','Ilan ang kakain (Dine-in)','Party size (Dine-in)',0],['askAppt','b','Appointment: petsa at oras (serbisyo)','Appointment date & time (services)',0],['askRef','b','Detalye ng item (laundry/repair/ref)','Item details (laundry/repair/ref)',0],['askAddr','b','Delivery address (kung Delivery)','Delivery address (if Delivery)',0],['rxNotice','b','Paalala sa reseta (parmasya)','Prescription notice (pharmacy)',0],['ageCheck','b','18+ confirmation (alak/yosi/vape)','18+ confirmation (alcohol/tobacco/vape)',1],['sortBtn','b','Sort button (A–Z / presyo)','Sort button (A–Z / price)',1]];
+const PRE={restaurant:{t:['🍔 Restaurant','🍔 Restaurant'],v:{confirm:1,askPay:1,askPickup:0,askDisc:1,askAllergy:1,tableDine:1,nameTake:1,askPax:1,askAppt:0,askRef:0,askAddr:0,rxNotice:0,ageCheck:1}},
+ minimart:{t:['🏪 Mini-mart','🏪 Mini-mart'],v:{confirm:1,askPay:1,askDisc:1,askAllergy:0,askPickup:1,askPax:0,askAppt:0,askRef:0,askAddr:0,rxNotice:0,tableDine:0,nameTake:1,ageCheck:1}},
+ sari:{t:['🛒 Sari-sari','🛒 Sari-sari'],v:{confirm:0,askPay:0,askDisc:0,askAllergy:0,askPickup:0,askPax:0,askAppt:0,askRef:0,askAddr:0,rxNotice:0,tableDine:0,nameTake:0,ageCheck:1}},
+ service:{t:['💇 Serbisyo (parlor/repair/laundry)','💇 Services (salon/repair/laundry)'],v:{confirm:1,askAppt:1,askRef:1,askPay:1,askDisc:0,askAllergy:0,askPax:0,askAddr:0,rxNotice:0,tableDine:0,nameTake:1,askPickup:0,ageCheck:0}},
+ pharmacy:{t:['💊 Parmasya','💊 Pharmacy'],v:{confirm:1,rxNotice:1,askDisc:1,askPay:1,askAllergy:1,askPickup:1,askPax:0,askAppt:0,askRef:0,askAddr:0,tableDine:0,nameTake:1,ageCheck:0}},
+ hardware:{t:['🔧 Hardware / Wholesale','🔧 Hardware / Wholesale'],v:{confirm:1,askAddr:1,askPay:1,askPickup:1,askDisc:0,askAllergy:0,askPax:0,askAppt:0,askRef:0,rxNotice:0,tableDine:0,nameTake:1,ageCheck:0}}};
+let sortMode='';
+const L=(a,b)=>LANG==='tl'?a:b;
+function R(){const r={};RD.forEach(d=>r[d[0]]=d[4]);return Object.assign(r,S.rules||{})}
+function isOpen(){const r=R();if(!r.hours)return true;const n=new Date(),m=n.getHours()*60+n.getMinutes(),f=x=>{const a=String(x).split(':');return (+a[0]||0)*60+(+a[1]||0)},o=f(r.open),c=f(r.close);return o<=c?(m>=o&&m<c):(m>=o||m<c)}
+function toggleDark(){S.dark=!S.dark;saveSettings(S);applyTheme();go(view==='done'?'home':view)}
+function toggleLang(){setLang(LANG==='tl'?'en':'tl')}
+const t=k=>(T[LANG]&&T[LANG][k])||T.en[k]||k;
+
+/* ---------- local settings (server, login, pin) ---------- */
+function loadSettings(){try{const s=NATIVE?NATIVE.getConfig():localStorage.getItem('omnikiosk');return s?JSON.parse(s):{}}catch(e){return {}}}
+function saveSettings(o){const s=JSON.stringify(o);try{NATIVE?NATIVE.setConfig(s):localStorage.setItem('omnikiosk',s)}catch(e){}}
+let S=loadSettings(); // {server,user,pass,pin,large,device}
+if(!S.server){const q=new URLSearchParams(location.search).get('server');if(q)S.server=q;else if(/^https?:$/.test(location.protocol))S.server=location.origin}
+if(S.lang)LANG=S.lang;
+document.documentElement.classList.toggle('dark',!!S.dark);
+if(S.orient&&NATIVE&&NATIVE.setOrientation)NATIVE.setOrientation(S.orient);
+S.device=S.device||('K'+Math.random().toString(36).slice(2,6).toUpperCase());
+
+/* ---------- network ---------- */
+let TOKEN=null;const pend={};let rid=1;
+window.__kioskResp=function(id,status,text){const p=pend[id];if(!p)return;delete pend[id];p({status,text})};
+window.__kioskRespB64=function(id,status,b64){let text='';try{const bin=atob(b64);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);text=new TextDecoder('utf-8').decode(u)}catch(e){}window.__kioskResp(id,status,text)};
+function rawReq(method,path,body,auth){
+  const url=S.server.replace(/\/+$/,'')+path;
+  const headers={'Content-Type':'application/json'};if(auth&&TOKEN)headers.Authorization='Bearer '+TOKEN;
+  const bs=body==null?null:JSON.stringify(body);
+  if(NATIVE){return new Promise(res=>{const id=rid++;pend[id]=res;setTimeout(()=>{if(pend[id]){delete pend[id];res({status:0,text:''})}},20000);NATIVE.request(id,method,url,JSON.stringify(headers),bs)})}
+  return fetch(url,{method,headers,body:bs}).then(r=>r.text().then(text=>({status:r.status,text}))).catch(()=>({status:0,text:''}));
+}
+let AUTH_BLOCK=0,credBad=false;
+async function login(force){
+  if(!force&&(credBad||Date.now()<AUTH_BLOCK))return {ok:false,status:429,message:lastErr||L('Naka-pause ang login — i-check ang username/password sa Admin > Server.','Login paused — check the username/password in Admin > Server.')};
+  const r=await rawReq('POST','/api/auth/login',{username:S.user,password:S.pass},false);
+  let j={};try{j=JSON.parse(r.text)}catch(e){}
+  if(r.status===200&&j.token){TOKEN=j.token;credBad=false;AUTH_BLOCK=0;return {ok:true}}
+  if(r.status===429||/too many/i.test(j.message||'')){const m=/in (\d+) second/.exec(j.message||'');AUTH_BLOCK=Date.now()+((m?+m[1]:30)+3)*1000}
+  else if(r.status===401||r.status===403||r.status===400)credBad=true;
+  return {ok:false,status:r.status,message:j.message||(r.status===0?t('noserver'):t('nologin')),otp:!!(j.otpRequired||j.requiresOtp)};
+}
+async function api(method,path,body){
+  if(!TOKEN){const l=await login();if(!l.ok)return {ok:false,status:l.status||0,data:{message:l.message}}}
+  let r=await rawReq(method,path,body,true);
+  if(r.status===401){const l=await login();if(!l.ok)return {ok:false,status:401,data:{message:l.message}};r=await rawReq(method,path,body,true)}
+  let j={};try{j=JSON.parse(r.text)}catch(e){}
+  return {ok:r.status>=200&&r.status<300&&j.success!==false,status:r.status,data:j};
+}
+
+/* ---------- state ---------- */
+let lastErr='',CAT=null,CFG={},STORE={},cart=[],view='home',curCat='__all',query='',lastAct=Date.now(),online=true;
+const IMG=new Map(),IMGREQ=new Set();
+const money=n=>(STORE.currencySymbol||'₱')+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const colorOf=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))%360;return `hsl(${h} 45% 52%)`};
+const app=$('#app');
+const offMsg=()=>t('offline')+(lastErr?' ('+lastErr.slice(0,140)+')':'');
+function toast(m,ms){const e=$('#toast');e.textContent=m;e.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.add('hide'),ms||2600)}
+function applyTheme(){document.documentElement.style.setProperty('--brand',CFG.brandColor||'#e4572e');document.documentElement.style.setProperty('--fs',S.large?1.25:1);LANG=S.lang||CFG.language||'tl';document.documentElement.classList.toggle('dark',!!S.dark)}
+
+async function loadCatalog(initial){
+  const r=await api('GET','/api/kiosk/catalog');
+  if(r.ok){lastErr='';CAT=r.data;CFG=CAT.config;STORE=CAT.store;online=true;try{localStorage.setItem('omnikiosk_cat',JSON.stringify(CAT))}catch(e){}}
+  else{
+    online=false;lastErr=(r.data&&r.data.message)||'';
+    if(r.status===0)autoRefind().then(ok=>{if(ok){toast(L('Nahanap ang server: ','Server found: ')+S.server,3000);loadCatalog()}});
+    if(!CAT){try{CAT=JSON.parse(localStorage.getItem('omnikiosk_cat')||'null')}catch(e){}if(CAT){CFG=CAT.config;STORE=CAT.store}}
+    if(initial&&!CAT){return r}
+  }
+  applyTheme();return r;
+}
+function prod(code){return CAT&&CAT.products.find(p=>p.code===code)}
+function fetchImages(codes){
+  const need=codes.filter(c=>!IMG.has(c)&&!IMGREQ.has(c)&&prod(c));
+  for(let i=0;i<need.length;i+=10){
+    const chunk=need.slice(i,i+10);chunk.forEach(c=>IMGREQ.add(c));
+    api('POST','/api/products/images',{codes:chunk}).then(r=>{
+      if(!r.ok){chunk.forEach(c=>IMGREQ.delete(c));setTimeout(()=>fetchImages(chunk),4000);return}
+      const items=(r.data&&r.data.items)||{};
+      chunk.forEach(c=>{const it=items[c];const im=it&&(it.image||(it.images&&it.images[0]));IMG.set(c,im||'')});
+      paintImages();
+    });
+  }
+}
+function paintImages(){document.querySelectorAll('[data-img]:not([data-ok])').forEach(el=>{const im=IMG.get(el.dataset.img);if(im){let u=String(im);if(!/^(data:|https?:|blob:)/.test(u))u=(S.server||'').replace(/\/$/,'')+(u[0]==='/'?'':'/')+u;el.style.backgroundImage='url("'+u.replace(/"/g,'%22')+'")';el.textContent='';el.dataset.ok=1}})}
+function imgDiv(p,cls){return `<div class="${cls||'img'}" data-img="${esc(p.code)}" style="background-color:${colorOf(p.name)}">${esc((p.name||'?').trim().charAt(0).toUpperCase())}</div>`}
+
+/* ---------- cart ---------- */
+const lineKey=l=>[l.code,l.unit||'',(l.options||[]).map(o=>o.group+':'+o.name).sort().join('|'),l.note||''].join('#');
+function unitPrice(p,unit){if(!unit)return p.price;const u=p.uom.find(x=>x.name===unit);return u?(u.fixedPrice>0?u.fixedPrice:Math.round(p.price*u.factor*100)/100):p.price}
+function lineTotal(l){return (l.unitPrice+(l.options||[]).reduce((a,o)=>a+o.price,0))*l.qty}
+function cartTotal(){return Math.round(cart.reduce((a,l)=>a+lineTotal(l),0)*100)/100}
+function cartCount(){return cart.reduce((a,l)=>a+l.qty,0)}
+function stockLeft(code,excludeKey){const p=prod(code);if(!p)return 0;let used=0;cart.forEach(l=>{if(l.code===code&&lineKey(l)!==excludeKey)used+=l.qty*(l.factor||1)});return p.stock-used}
+function addLine(p,o){
+  o=o||{};const unit=o.unit||null,f=unit?(p.uom.find(x=>x.name===unit)||{}).factor||1:1,qty=o.qty||1;
+  const l={code:p.code,name:p.name,unit,factor:f,unitPrice:unitPrice(p,unit),qty,options:o.options||[],note:o.note||''};
+  if(stockLeft(p.code)<qty*f-1e-9){toast(p.name+': '+t('oos'));return false}
+  const ex=cart.find(x=>lineKey(x)===lineKey(l));
+  if(ex){if(ex.qty+qty>(CFG.maxQtyPerLine||20)){toast(t('max')+' '+CFG.maxQtyPerLine);return false}ex.qty+=qty}else cart.push(l);
+  renderCart();updateBadges();return true;
+}
+function changeQty(i,d){const l=cart[i];if(!l)return;const nq=l.qty+d;if(nq<=0){cart.splice(i,1)}else{if(d>0&&(stockLeft(l.code)<l.factor-1e-9||nq>(CFG.maxQtyPerLine||20))){toast(t('oos'));return}l.qty=nq}renderCart();updateBadges()}
+
+/* ---------- views ---------- */
+function go(v){view=v;lastAct=Date.now();const R={home:rHome,order:rOrder,pc:rPC,q:rQ};if(R[v])R[v]()}
+function adminTap(){
+  adminTap.n=(adminTap.n||0)+1;clearTimeout(adminTap.t);adminTap.t=setTimeout(()=>adminTap.n=0,2500);
+  if(adminTap.n>=5){adminTap.n=0;pinPrompt(ok=>{if(ok)adminSheet()})}
+}
+function tickClock(){const e=$('#clk');if(!e)return;const n=new Date(),r=R();e.textContent=n.toLocaleTimeString(LANG==='tl'?'fil-PH':'en-PH',{hour:'2-digit',minute:'2-digit'})+(r.hours?' · '+(isOpen()?L('🟢 Bukas','🟢 Open'):L('🔴 Sarado — bukas ng ','🔴 Closed — opens ')+(isOpen()?'':r.open)):'')}
+setInterval(tickClock,20000);
+function rHome(){
+  const m=CFG.modes||{order:true};
+  const feat=(CFG.featuredCodes||[]).map(prod).filter(Boolean).slice(0,6);
+  app.innerHTML=`<div class="screen" id="home">
+   <div class="tiny" id="tiny"></div><button class="lang" id="lg">🌐 ${esc(t('lang'))}</button><button class="lang" id="dk">${S.dark?'☀️':'🌙'}</button>
+   ${online?'':`<div id="offline" style="position:absolute;top:0;left:0;right:0">${esc(offMsg())}</div>`}
+   <h1>${esc(CFG.storeName||STORE.branchName||t('welcome'))}</h1>
+   <p>${esc(CFG.tagline||'')}</p><p id="clk"></p>${R().banner?`<div class="f" style="background:#ffffff33;color:#fff;border-radius:16px;padding:10px 18px;font-weight:700;max-width:90%">📣 ${esc(R().banner)}</div>`:''}
+   ${feat.length?`<div id="feat">${feat.map(p=>`<div class="f">⭐ ${esc(p.name)} · ${money(p.price)}</div>`).join('')}</div>`:''}
+   <div class="modes">
+     ${m.order?`<button class="btn big primary" data-go="order">🛒 ${esc(t('start'))}</button>`:''}
+     ${m.priceCheck?`<button class="btn big" data-go="pc">🏷️ ${esc(t('pc'))}</button>`:''}
+     ${m.queueBoard?`<button class="btn big" data-go="q">📣 ${esc(t('q'))}</button>`:''}
+   </div></div>`;
+  $('#tiny').onclick=adminTap;$('#lg').onclick=toggleLang;$('#dk').onclick=toggleDark;tickClock();
+  app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{if(b.dataset.go==='order'&&!isOpen()){toast(L('Sarado pa ang tindahan. Bukas ng ','Store is closed. Opens at ')+R().open,3500);return}if(b.dataset.go==='order')cart=[];curCat='__all';query='';go(b.dataset.go)});
+}
+function topBar(title,extra){return `<div class="bar"><button class="chip" id="bk">← ${esc(t('back'))}</button><div class="logo">${esc(title)}</div>${extra||''}<button class="lang" id="lg">🌐 ${esc(t('lang'))}</button></div>${online?'':`<div id="offline">${esc(offMsg())}</div>`}`}
+function rOrder(){
+  app.innerHTML=`<div class="screen" id="order">${topBar(CFG.storeName||t('order'),`<input class="search" id="sq" placeholder="${esc(t('search'))}" value="${esc(query)}"><span class="sp"></span>${R().sortBtn?`<button class="chip" id="srt">⇅ ${sortMode==='az'?'A–Z':sortMode==='pr'?'₱↑':L('Ayos','Sort')}</button>`:''}`)}
+   <div class="stepbar" id="stepbar"></div><div class="body"><div class="cats" id="cats"></div><div class="grid" id="grid"></div><div id="pager"></div><div class="cart" id="cart"></div></div><button id="mini"></button></div>`;
+  $('#lg').onclick=toggleLang;$('#bk').onclick=()=>{if(!cart.length||confirm(t('askclear'))){cart=[];go('home')}};
+  const sb=$('#srt');if(sb)sb.onclick=()=>{sortMode=sortMode===''?'az':sortMode==='az'?'pr':'';rOrder()};
+  const sq=$('#sq');sq.oninput=()=>{query=sq.value;renderGrid()};
+  renderCats();renderGrid();renderCart();
+  $('#mini').onclick=()=>{$('#toast').classList.add('hide');$('#cart').classList.add('open');stepbar()};
+}
+function renderCats(){
+  const cats=['__all'];if((CFG.featuredCodes||[]).length)cats.push('__feat');cats.push(...CAT.categories);
+  $('#cats').innerHTML=cats.map(c=>`<button class="cat ${c===curCat?'on':''}" data-c="${esc(c)}">${c==='__all'?esc(t('all')):c==='__feat'?'⭐ '+esc(t('feat')):esc(c)}</button>`).join('');
+  $('#cats').querySelectorAll('.cat').forEach(b=>b.onclick=()=>{curCat=b.dataset.c;renderCats();renderGrid();$('#grid').scrollTop=0});
+}
+function visibleProducts(){
+  const q=query.trim().toLowerCase();
+  let list=CAT.products;
+  if(q)list=list.filter(p=>p.name.toLowerCase().includes(q)||p.code.toLowerCase()===q||p.category.toLowerCase().includes(q));
+  else if(curCat==='__feat'){const f=new Set(CFG.featuredCodes);list=list.filter(p=>f.has(p.code))}
+  else if(curCat!=='__all')list=list.filter(p=>p.category===curCat);
+  if(sortMode==='az')list=[...list].sort((a,b)=>a.name.localeCompare(b.name));else if(sortMode==='pr')list=[...list].sort((a,b)=>a.price-b.price);
+  return list;
+}
+const isPV=()=>innerHeight>innerWidth;let PG=0,PGN=1;
+function applyPV(){document.documentElement.classList.toggle('pv',isPV())}applyPV();
+function renderPager(){const el=$('#pager');if(!el)return;if(!isPV()||PGN<2){el.innerHTML='';return}
+  el.innerHTML=`<button class="chip" id="pp" ${PG?'':'disabled'}>◀</button>${PGN<=8?`<span class="dots">${Array.from({length:PGN},(_,i)=>`<i class="${i===PG?'on':''}"></i>`).join('')}</span>`:''}<span class="pgn">${PG+1}/${PGN}</span><button class="chip" id="pn" ${PG<PGN-1?'':'disabled'}>▶</button>`;
+  $('#pp').onclick=()=>{PG--;renderGrid()};$('#pn').onclick=()=>{PG++;renderGrid()}}
+function stepbar(){const el=$('#stepbar');if(!el)return;const c=$('#cart'),n=c&&c.classList.contains('open')?2:1;el.innerHTML=[L('Pumili','Choose'),L('Review','Review'),L('Kumpirma','Confirm')].map((x,i)=>`<span class="${i+1===n?'on':i+1<n?'dn':''}"><b>${i+1}</b>${esc(x)}</span>`).join('')}
+let rzT;addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{applyPV();if(view==='order'){renderCats();renderGrid();renderCart()}else if(view==='home')rHome()},200)});
+let dId=0;const dCb={};
+window.__kioskDisc=(id,j)=>{const f=dCb[id];delete dCb[id];let a=[];try{a=JSON.parse(j)}catch(e){}f&&f(a)};
+function discover(){return new Promise(res=>{if(!NATIVE||!NATIVE.discover)return res([]);const id=++dId;dCb[id]=res;setTimeout(()=>{if(dCb[id]){delete dCb[id];res([])}},40000);NATIVE.discover(id,'3000,8080,80')})}
+async function autoRefind(){if(S.autoFind===false||!NATIVE||!NATIVE.discover)return false;if(Date.now()-(autoRefind.t||0)<45000)return false;autoRefind.t=Date.now();
+  const a=await discover(),cur=String(S.server||'').replace(/\/$/,'');if(!a.length||a.includes(cur))return false;
+  const lan=a.filter(u=>!/127\.0\.0\.1/.test(u));const pick=lan.length===1?lan[0]:(a.length===1?a[0]:'');if(!pick)return false;
+  S.server=pick;saveSettings(S);return true}
+function setOrient(m){S.orient=m;saveSettings(S);if(NATIVE&&NATIVE.setOrientation)NATIVE.setOrientation(m)}
+function renderGrid(){
+  const list=visibleProducts();let items=list;
+  const sig=curCat+'|'+(typeof query!=='undefined'?query:'');if(sig!==renderGrid.sig){PG=0;renderGrid.sig=sig}
+  if(isPV()){const g=$('#grid');const per=Math.max(2,Math.floor((g.clientHeight||600)/215))*2;PGN=Math.max(1,Math.ceil(list.length/per));PG=Math.min(PG,PGN-1);items=list.slice(PG*per,PG*per+per);
+    g.ontouchstart=e=>{g._x=e.touches[0].clientX};g.ontouchend=e=>{const dx=e.changedTouches[0].clientX-g._x;if(dx<-60&&PG<PGN-1){PG++;renderGrid()}else if(dx>60&&PG>0){PG--;renderGrid()}}}else PGN=1;
+  $('#grid').innerHTML=items.length?items.map(p=>{
+    const inCart=cart.filter(l=>l.code===p.code).reduce((a,l)=>a+l.qty,0);
+    const low=CFG.showStock&&p.inStock&&p.stock<=5&&!p.allowDecimal;
+    return `<button class="p ${p.inStock?'':'out'}" data-code="${esc(p.code)}"><div class="imgw">${imgDiv(p)}
+      ${!p.inStock?`<span class="tag">${esc(t('oos'))}</span>`:low?`<span class="tag">${p.stock} ${esc(t('left'))}</span>`:''}
+      ${inCart?`<span class="inc">${inCart}</span>`:''}
+      </div><div class="txt"><div class="nm">${esc(p.name)}</div><div class="row"><div class="pr">${money(p.price)}${p.baseUnit?` <small style="color:var(--mute);font-weight:600">/${esc(p.baseUnit)}</small>`:''}</div>${p.inStock?'<span class="add">+</span>':''}</div></div></button>`}).join(''):`<div class="hint" style="grid-column:1/-1">${esc(t('nf'))}</div>`;
+  $('#grid').querySelectorAll('.p').forEach(b=>b.onclick=()=>pickProduct(prod(b.dataset.code)));
+  paintImages();fetchImages(items.slice(0,40).map(p=>p.code));renderPager();if(isPV())fetchImages(list.slice(PG*Math.max(items.length,1)+items.length,PG*Math.max(items.length,1)+items.length*2).map(p=>p.code));
+  $('#grid').onscroll=()=>{clearTimeout(renderGrid.t);renderGrid.t=setTimeout(()=>fetchImages(list.map(p=>p.code)),250)};
+}
+function renderCart(){
+  const el=$('#cart');if(!el)return;
+  el.innerHTML=`<div class="grab" id="grab">← ${esc(L('Dagdag pa ng order','Add more items'))}</div><h3>🛒 ${esc(t('cart'))} <small style="color:var(--mute)">(${cartCount()})</small></h3>
+   <div class="lines">${cart.length?cart.map((l,i)=>`<div class="ln">${imgDiv(prod(l.code)||{name:l.name,code:l.code},'th')}<div class="i"><b>${esc(l.name)}${l.unit?` (${esc(l.unit)})`:''}</b>
+     ${l.options.length?`<small>${esc(l.options.map(o=>o.name).join(', '))}</small>`:''}${l.note?`<small>📝 ${esc(l.note)}</small>`:''}
+     <small>${money(l.unitPrice+l.options.reduce((a,o)=>a+o.price,0))} ${esc(t('each'))}</small></div>
+     <div class="qty"><button data-d="-1" data-i="${i}">−</button><span>${l.qty}</span><button data-d="1" data-i="${i}">+</button></div><button class="x" data-rm="${i}">✕</button><b class="lt">${money(lineTotal(l))}</b></div>`).join(''):`<div class="empty">${esc(t('empty'))}</div>`}</div>
+   <div class="tot"><div class="row"><span>${esc(t('total'))}</span><span>${money(cartTotal())}</span></div>
+   <button class="btn" id="co" ${cart.length&&online?'':'disabled'} style="min-height:68px;font-size:1.2em;padding:0 10px">${esc(t('checkout'))} →</button></div>`;
+  el.querySelectorAll('.qty button').forEach(b=>b.onclick=()=>{changeQty(+b.dataset.i,+b.dataset.d);renderGrid()});
+  $('#co').onclick=startCheckout;
+  el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{cart.splice(+b.dataset.rm,1);renderCart();renderGrid()});
+  const g=$('#grab');if(g)g.onclick=()=>{el.classList.remove('open');stepbar()};stepbar();
+  const mi=$('#mini');if(mi){mi.innerHTML=`<span>🛒 ${cartCount()} · ${money(cartTotal())}</span>`;mi.dataset.go=t('viewcart')+' →';mi.style.display=cart.length?'':'none'}
+}
+function updateBadges(){if(view==='order'&&$('#grid'))renderGrid()}
+
+/* ---------- modal helpers ---------- */
+function modal(html,opts){
+  const o=document.createElement('div');o.className='ov';o.innerHTML=`<div class="md">${html}</div>`;document.body.appendChild(o);
+  o.close=()=>o.remove();return o;
+}
+function pickProduct(p){
+  if(!p||!p.inStock)return;
+  const needsDialog=(p.options&&p.options.length)||(p.uom&&p.uom.length)||p.allowDecimal||CFG.orderNote===true&&false;
+  if(!needsDialog){if(addLine(p))toast('✓ '+p.name,900);return}
+  let unit=null,qty=p.allowDecimal?1:1,sel={},note='';
+  const m=modal('');const box=m.firstChild;
+  function paint(){
+    const up=unitPrice(p,unit);const optSum=Object.values(sel).flat().reduce((a,o)=>a+o.price,0);
+    box.innerHTML=`<header>${esc(p.name)} · ${money(up+optSum)}</header><div class="c">${imgDiv(p,'img').replace('class="img"','class="img" style="width:100%;aspect-ratio:16/9;border-radius:16px;margin-bottom:14px"')}${p.description?`<p style="color:var(--mute);margin:0 0 14px">${esc(p.description)}</p>`:''}
+     ${p.uom.length?`<div class="grp"><h4>${esc(t('opts'))}</h4><div class="opts"><button class="opt ${!unit?'on':''}" data-u="">${esc(p.baseUnit||'Piece')} · ${money(p.price)}</button>${p.uom.map(u=>`<button class="opt ${unit===u.name?'on':''}" data-u="${esc(u.name)}">${esc(u.name)} · ${money(u.fixedPrice>0?u.fixedPrice:p.price*u.factor)}</button>`).join('')}</div></div>`:''}
+     ${p.options.map((g,gi)=>`<div class="grp"><h4>${esc(g.name)}${g.required?`<em>${esc(t('required'))}</em>`:''}</h4><div class="opts">${g.choices.map((c,ci)=>`<button class="opt ${(sel[g.name]||[]).some(x=>x.name===c.name)?'on':''}" data-g="${gi}" data-c="${ci}">${esc(c.name)}${c.price?` +${money(c.price)}`:''}</button>`).join('')}</div></div>`).join('')}
+     ${CFG.orderNote?`<div class="field"><label>📝 ${esc(t('note'))}</label><input id="mn" maxlength="80" value="${esc(note)}"></div>`:''}
+     <div class="rowx"><b>${esc(t('qtyfor'))}</b>${p.allowDecimal?`<input id="mq" type="number" step="0.01" min="0.01" value="${qty}" style="width:120px;border:2px solid var(--line);border-radius:12px;padding:12px">`:`<div class="qty"><button id="qm">−</button><span>${qty}</span><button id="qp">+</button></div>`}</div></div>
+     <footer><button class="btn ghost" id="mc">${esc(t('cancel'))}</button><button class="btn" id="ma">${esc(t('add'))} · ${money((up+optSum)*qty)}</button></footer>`;
+    box.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{unit=b.dataset.u||null;paint()});
+    box.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{
+      const g=p.options[+b.dataset.g],c=g.choices[+b.dataset.c];let a=sel[g.name]||[];
+      const has=a.some(x=>x.name===c.name);
+      if(g.type==='single')a=has&&!g.required?[]:[{group:g.name,name:c.name,price:c.price}];
+      else a=has?a.filter(x=>x.name!==c.name):[...a,{group:g.name,name:c.name,price:c.price}];
+      sel[g.name]=a;paint();
+    });
+    const mn=$('#mn',box);if(mn)mn.oninput=()=>{note=mn.value};
+    const mq=$('#mq',box);if(mq)mq.oninput=()=>{qty=parseFloat(mq.value)||0;$('#ma',box).textContent=t('add')+' · '+money((up+optSum)*qty)};
+    if($('#qm',box)){$('#qm',box).onclick=()=>{qty=Math.max(1,qty-1);paint()};$('#qp',box).onclick=()=>{qty=Math.min(CFG.maxQtyPerLine||20,qty+1);paint()}}
+    $('#mc',box).onclick=()=>m.close();
+    $('#ma',box).onclick=()=>{
+      if(!(qty>0))return;
+      for(const g of p.options){if(g.required&&!(sel[g.name]||[]).length){toast(t('pick')+' '+g.name);return}}
+      if(addLine(p,{unit,qty,options:Object.values(sel).flat(),note}))m.close();
+    };
+  }
+  paint();fetchImages([p.code]);paintImages();
+}
+
+/* ---------- checkout ---------- */
+function startCheckout(){
+  if(!cart.length)return;
+  const ups=(CFG.upsell?(CFG.upsellCodes||[]):[]).map(prod).filter(p=>p&&p.inStock&&!cart.some(l=>l.code===p.code)).slice(0,6);
+  if(ups.length&&!startCheckout.shown){
+    startCheckout.shown=true;
+    const m=modal(`<header>🎁 ${esc(t('more'))}</header><div class="c"><div class="grid" style="padding:0;grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">${ups.map(p=>`<button class="p" data-u="${esc(p.code)}">${imgDiv(p)}<div class="nm">${esc(p.name)}</div><div class="pr">${money(p.price)}</div></button>`).join('')}</div></div><footer><button class="btn" id="nm">${esc(t('nomore'))}</button></footer>`);
+    fetchImages(ups.map(p=>p.code));paintImages();
+    m.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{const p=prod(b.dataset.u);if((p.options&&p.options.length)||p.uom.length){m.close();pickProduct(p)}else{addLine(p);b.style.opacity=.4;b.onclick=null}});
+    $('#nm',m).onclick=()=>{m.close();checkoutForm()};
+    return;
+  }
+  checkoutForm();
+}
+function checkoutForm(){
+  startCheckout.shown=false;
+  const r=R(),types=CFG.orderTypes||['Take-out'];
+  const st={pax:'',appt:'',apptTime:'',ref:'',addr:'',rx:false,adult:false,type:types[0],name:'',phone:'',table:'',pay:'Cash',pickup:'ASAP',disc:'',discId:'',allergy:'',note:'',agree:false};
+  const AGE=/alcohol|beer|liquor|wine|gin|rum|cigar|tobacco|yosi|vape|alak|tanduay|emperador/i,needAdult=()=>r.ageCheck&&cart.some(l=>{const q=prod(l.code)||{};return AGE.test((q.category||'')+' '+(q.name||''))}),needAddr=()=>r.askAddr&&/deliver/i.test(st.type),needPax=()=>r.askPax&&/dine/i.test(st.type);
+  const dine=()=>/dine/i.test(st.type),take=()=>/take|pick/i.test(st.type);
+  const needTable=()=>CFG.askTable||(r.tableDine&&dine()),needName=()=>CFG.askName||(r.nameTake&&take()),needPhone=()=>!!CFG.askPhone;
+  const has={type:()=>types.length>1||needTable()||needPax(),info:()=>needName()||needPhone()||needAddr(),extra:()=>r.askPay||r.askPickup||r.askDisc||r.askAllergy||CFG.orderNote||r.askAppt||r.askRef||r.rxNotice||needAdult(),review:()=>true};
+  let idx=-1;const order=['type','info','extra','review'];
+  const steps=()=>order.filter(k=>k==='review'?(r.confirm||order.filter(x=>x!=='review'&&has[x]()).length===0):has[k]());
+  const m=modal('');const box=m.firstChild;
+  const tidy=()=>box.querySelectorAll('[data-f]').forEach(e=>st[e.dataset.f]=e.type==='checkbox'?e.checked:e.value);
+  const check=k=>{
+    if(k==='type'){if(needTable()&&!st.table.trim())return L('Ilagay ang table no.','Enter your table number');if(needPax()&&!(+st.pax>0))return L('Ilan kayo?','How many people?')}
+    if(k==='info'){if(needAddr()&&st.addr.trim().length<8)return L('Ilagay ang buong address (street, barangay)','Enter your full address (street, barangay)');if(needName()&&!st.name.trim())return L('Ilagay ang pangalan','Enter your name');
+      if(needPhone()){if(!st.phone.trim())return L('Ilagay ang cellphone no.','Enter your mobile number');if(r.phoneCheck&&!/^(09|\+639)\d{9}$/.test(st.phone.replace(/[\s-]/g,'')))return L('Mali ang cellphone no. (09XXXXXXXXX)','Invalid mobile number (09XXXXXXXXX)')}}
+    if(k==='extra'){if(r.askAppt){if(!st.appt||!st.apptTime)return L('Piliin ang petsa at oras','Pick a date and time');if(new Date(st.appt+'T'+st.apptTime)<new Date())return L('Lampas na ang oras na iyan','That time has already passed')}if(r.askRef&&!st.ref.trim())return L('Ilagay ang detalye ng item','Enter the item details');if(r.rxNotice&&!st.rx)return L('Kumpirmahin ang reseta','Please confirm the prescription');if(needAdult()&&!st.adult)return L('Kailangan ang 18+ confirmation','18+ confirmation is required');if(st.disc&&!st.discId.trim())return L('Ilagay ang ID no. para sa discount','Enter your ID number for the discount')}
+    if(k==='review'){if(r.terms&&!st.agree)return L('Pumayag muna sa terms','Please accept the terms')}
+    return '';
+  };
+  async function submit(btn){
+    const msg=e=>{$('#er',box).textContent=e;btn.disabled=false;btn.textContent=t('place')};
+    btn.disabled=true;btn.textContent=t('placing');
+    if(!online)return msg(t('offline'));
+    if(!isOpen())return msg(L('Sarado ang tindahan. Bukas ng ','Store is closed. Opens at ')+r.open);
+    if(r.minOrder&&cartTotal()<r.minOrder)return msg(L('Minimum na order: ','Minimum order: ')+money(r.minOrder));
+    if(r.maxItems&&cartCount()>r.maxItems)return msg(L('Sobra sa limit na ','Over the limit of ')+r.maxItems+L(' item bawat order',' items per order'));
+    await loadCatalog();
+    for(const l of cart){const p=prod(l.code);if(!p||!p.inStock||stockLeft(l.code)<-1e-9)return msg((l.name)+': '+t('oos')+L(' — alisin sa order.',' — please remove it.'))}
+    const parts=[];if(needPax()&&st.pax)parts.push('Pax:'+st.pax);if(needAddr())parts.push('Addr:'+st.addr.trim().slice(0,70));if(r.askAppt)parts.push('Appt:'+st.appt+' '+st.apptTime);if(r.askRef&&st.ref.trim())parts.push('Ref:'+st.ref.trim());if(r.rxNotice)parts.push('Rx:will bring');if(needAdult())parts.push('18+:confirmed');if(r.askPay&&st.pay)parts.push('Pay:'+st.pay);if(r.askPickup&&st.pickup!=='ASAP')parts.push('Pickup:'+st.pickup);
+    if(st.disc)parts.push(st.disc+' ID:'+st.discId.trim());if(st.allergy.trim())parts.push('Allergy:'+st.allergy.trim());if(st.note.trim())parts.push(st.note.trim());
+    const body={items:cart.map(l=>({code:l.code,qty:l.qty,unit:l.unit,options:l.options.map(o=>({group:o.group,name:o.name})),note:l.note})),orderType:st.type,customerName:st.name.trim(),phone:st.phone.trim(),table:st.table.trim(),note:parts.join(' | ').slice(0,200),device:S.device};
+    const res=await api('POST','/api/kiosk/orders',body);
+    if(res.ok){m.close();const o=res.data.order;const tot=o.total;cart=[];showDone(o,tot);loadCatalog()}
+    else if(res.status===0)msg(L('Walang sagot ang server. Tingnan muna sa Order Status bago mag-order ulit.','No reply from server. Check Order Status before ordering again.'));
+    else{msg((res.data&&res.data.message)||t('offline'));if(res.status===409||res.status===400)loadCatalog().then(()=>view==='order'&&renderGrid())}
+  }
+  function paint(){
+    const S2=steps();if(idx<0)idx=0;const k=S2[idx],last=idx===S2.length-1;
+    const sel=(f,arr)=>`<div class="seg">${arr.map(o=>`<button class="opt ${st[f]===o[0]?'on':''}" data-s="${f}" data-v="${esc(o[0])}">${esc(o[1])}</button>`).join('')}</div>`;
+    let h='';
+    if(k==='type')h=`${needPax()?`<div class="field"><label>${esc(L('Ilan kayo?','Party size'))}</label><input data-f="pax" inputmode="numeric" maxlength="2" value="${esc(st.pax)}"></div>`:''}${types.length>1?`<div class="field"><label>${esc(t('type'))}</label>${sel('type',types.map(x=>[x,x]))}</div>`:''}${needTable()?`<div class="field"><label>${esc(t('table'))}</label><input data-f="table" inputmode="numeric" maxlength="10" value="${esc(st.table)}"></div>`:''}`;
+    if(k==='info')h=`${needAddr()?`<div class="field"><label>${esc(L('Delivery address + landmark','Delivery address + landmark'))}</label><textarea data-f="addr" rows="2" maxlength="90">${esc(st.addr)}</textarea></div>`:''}${needName()?`<div class="field"><label>${esc(t('name'))}</label><input data-f="name" maxlength="40" value="${esc(st.name)}"></div>`:''}${needPhone()?`<div class="field"><label>${esc(t('phone'))}</label><input data-f="phone" inputmode="tel" maxlength="20" value="${esc(st.phone)}"></div>`:''}`;
+    if(k==='extra')h=`${r.askAppt?`<div class="field"><label>${esc(L('Appointment','Appointment'))}</label><div class="rowx"><input type="date" data-f="appt" min="${new Date().toISOString().slice(0,10)}" value="${esc(st.appt)}"><input type="time" data-f="apptTime" value="${esc(st.apptTime)}"></div></div>`:''}${r.askRef?`<div class="field"><label>${esc(L('Detalye ng item (hal. bag ng labada, modelo ng phone)','Item details (e.g. laundry bag, phone model)'))}</label><input data-f="ref" maxlength="50" value="${esc(st.ref)}"></div>`:''}${r.rxNotice?`<label class="chk field"><input type="checkbox" data-f="rx" ${st.rx?'checked':''}> ${esc(L('Magdadala ako ng reseta para sa gamot na kailangan nito.','I will bring a prescription for medicines that require one.'))}</label>`:''}${needAdult()?`<label class="chk field"><input type="checkbox" data-f="adult" ${st.adult?'checked':''}> ${esc(L('Ako ay 18 taong gulang pataas (ipapakita ang ID sa counter).','I am 18 or older (ID will be checked at the counter).'))}</label>`:''}${r.askPay?`<div class="field"><label>${esc(L('Paano magbabayad?','How will you pay?'))}</label>${sel('pay',[['Cash',L('Cash','Cash')],['GCash','GCash'],['Maya','Maya'],['Card','Card']])}</div>`:''}
+      ${r.askPickup?`<div class="field"><label>${esc(L('Kailan kukunin?','Pickup time'))}</label>${sel('pickup',[['ASAP',L('Ngayon na','ASAP')],['+15m','+15 min'],['+30m','+30 min'],['+60m','+1 hr']])}</div>`:''}
+      ${r.askDisc?`<div class="field"><label>${esc(L('May discount ba? (kailangan ng ID sa counter)','Discount? (ID required at counter)'))}</label>${sel('disc',[['',L('Wala','None')],['Senior','Senior'],['PWD','PWD']])}${st.disc?`<input data-f="discId" placeholder="ID no." value="${esc(st.discId)}" style="margin-top:8px">`:''}</div>`:''}
+      ${r.askAllergy?`<div class="field"><label>${esc(L('Allergy / special request','Allergy / special request'))}</label><input data-f="allergy" maxlength="60" value="${esc(st.allergy)}"></div>`:''}
+      ${CFG.orderNote?`<div class="field"><label>${esc(t('note'))}</label><textarea data-f="note" rows="2" maxlength="80">${esc(st.note)}</textarea></div>`:''}`;
+    if(k==='review')h=`<div style="font-weight:700;margin-bottom:8px">${esc(st.type)}${st.table?' · '+esc(t('table'))+' '+esc(st.table):''}${st.name?' · '+esc(st.name):''}</div>`+cart.map(l=>`<div class="rowx" style="justify-content:space-between;padding:4px 0"><span>${l.qty}× ${esc(l.name)}${l.unit?` (${esc(l.unit)})`:''}${l.options.length?` <small style="color:var(--mute)">(${esc(l.options.map(o=>o.name).join(', '))})</small>`:''}</span><b>${money(lineTotal(l))}</b></div>`).join('')+(st.disc?`<div style="color:var(--mute);margin-top:6px">${esc(st.disc)} ID: ${esc(st.discId)} — ${esc(L('i-verify sa counter','verified at counter'))}</div>`:'')+(r.terms?`<label class="chk" style="margin-top:12px"><input type="checkbox" data-f="agree" ${st.agree?'checked':''}> ${esc(L('Sumasang-ayon ako na magbayad sa counter at tama ang order ko.','I agree to pay at the counter and my order is correct.'))}</label>`:'');
+    box.innerHTML=`<header>${esc(t('checkout'))} · ${money(cartTotal())}</header><div class="c"><div class="steps">${S2.map((_,i)=>`<i class="${i<=idx?'on':''}"></i>`).join('')}</div>${h}<div class="err" id="er"></div></div><footer><button class="btn ghost" id="x">${esc(idx?t('back'):t('cancel'))}</button><button class="btn ${last?'ok big':''}" id="go" style="min-height:60px">${esc(last?t('place'):L('Susunod →','Next →'))}</button></footer>`;
+    box.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{tidy();st[b.dataset.s]=b.dataset.v;if(b.dataset.s==='disc'&&!b.dataset.v)st.discId='';paint()});
+    $('#x',box).onclick=()=>{tidy();if(idx>0){idx--;paint()}else m.close()};
+    $('#go',box).onclick=()=>{tidy();const e=check(k);if(e){$('#er',box).textContent=e;return}if(last)submit($('#go',box));else{idx++;paint()}};
+  }
+  paint();
+}
+function showDone(o,total){
+  view='done';
+  app.innerHTML=`<div class="screen" id="done"><div style="font-size:3em">✅</div><h2 style="margin:0">${esc(t('thanks'))}</h2>
+   <div>${esc(t('yours'))}</div><div class="no">${esc(o.orderNo)}</div>
+   <div style="font-size:1.3em;font-weight:700">${esc(o.orderType)} · ${money(total)}</div>
+   <div id="qr"></div><p style="max-width:520px;color:var(--mute);font-size:1.15em">${esc(t('pay'))}</p>
+   <button class="btn big" id="nw">${esc(t('newo'))}</button><button class="lang" id="lg">🌐 ${esc(t('lang'))}</button></div>`;
+  try{new QRCode($('#qr'),{text:o.id,width:150,height:150})}catch(e){}
+  $('#nw').onclick=()=>go('home');$('#lg').onclick=()=>{S.lang=LANG==='tl'?'en':'tl';LANG=S.lang;saveSettings(S);showDone(o,total)};
+  clearTimeout(showDone.t);showDone.t=setTimeout(()=>{if(view==='done')go('home')},25000);
+}
+
+/* ---------- price check ---------- */
+let pcShown=null;
+function rPC(){
+  app.innerHTML=`<div class="screen" id="pc">${topBar(t('pc'),`<input class="search" id="pq" placeholder="${esc(t('search'))}"><span class="sp"></span>`)}
+   <div class="body"><div id="pcr" class="hint">📷 ${esc(t('scan'))}</div></div></div>`;
+  $('#lg').onclick=toggleLang;$('#bk').onclick=()=>go('home');
+  const pq=$('#pq');pq.oninput=()=>{const q=pq.value.trim().toLowerCase();if(!q){$('#pcr').className='hint';$('#pcr').innerHTML='📷 '+esc(t('scan'));return}
+    const list=CAT.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.toLowerCase()===q).slice(0,12);
+    $('#pcr').className='';$('#pcr').style.width='100%';$('#pcr').innerHTML=list.length?list.map(p=>`<div style="display:flex;justify-content:center;margin-bottom:12px"><div class="pcard" style="padding:14px">${imgDiv(p,'img').replace('class="img"','class="img" style="width:90px;height:90px;font-size:2em;'+'"')}<div style="flex:1"><b style="font-size:1.2em">${esc(p.name)}</b><div class="big" style="font-size:2em">${money(p.price)}</div></div><button class="btn ghost" data-sh="${esc(p.code)}">›</button></div></div>`).join(''):`<div class="hint">${esc(t('nf'))}</div>`;
+    fetchImages(list.map(p=>p.code));paintImages();$('#pcr').querySelectorAll('[data-sh]').forEach(b=>b.onclick=()=>showPC(prod(b.dataset.sh)))};
+}
+function showPC(p,level){
+  if(!p){$('#pcr').className='hint';$('#pcr').textContent='❌ '+t('nf');return}
+  $('#pcr').className='';$('#pcr').style.width='100%';
+  $('#pcr').innerHTML=`<div style="display:flex;justify-content:center"><div class="pcard">${imgDiv(p,'img')}<div style="flex:1;min-width:0"><div style="font-size:1.6em;font-weight:800;line-height:1.2">${esc(p.name)}</div>
+   <div style="color:var(--mute)">${esc(p.category)}${level?' · '+esc(level):''}</div><div class="big">${money(p.price)}${p.baseUnit?`<small style="font-size:.35em;color:var(--mute)"> /${esc(p.baseUnit)}</small>`:''}</div>
+   ${p.uom.map(u=>`<div style="font-weight:600">${esc(u.name)}: ${money(u.fixedPrice>0?u.fixedPrice:p.price*u.factor)}</div>`).join('')}
+   <div style="margin-top:8px;font-weight:700;color:${p.inStock?'var(--ok)':'var(--bad)'}">${p.inStock?(CFG.showStock?p.stock+' '+esc(t('left')):'✔ '+esc(t('inst'))):esc(t('oos'))}</div></div></div></div>`;
+  fetchImages([p.code]);paintImages();
+  clearTimeout(showPC.t);showPC.t=setTimeout(()=>{if(view==='pc'){$('#pcr').className='hint';$('#pcr').innerHTML='📷 '+esc(t('scan'))}},20000);
+}
+async function scanned(code){
+  lastAct=Date.now();['sq','pq'].forEach(id=>{const e=document.getElementById(id);if(e){e.value='';if(id==='sq')query=''}});if(view==='order')renderGrid();
+  if(view==='pc'){const r=await api('GET','/api/kiosk/lookup?code='+encodeURIComponent(code));if(r.ok)showPC(r.data.product,r.data.product.priceLevel);else showPC(null)}
+  else if(view==='order'){const r=await api('GET','/api/kiosk/lookup?code='+encodeURIComponent(code));
+    if(r.ok){const p=prod(r.data.product.code)||r.data.product;if(addLine(p))toast('✓ '+p.name,1200)}else toast(t('nf'))}
+}
+let kb='',kbT=0;
+document.addEventListener('keydown',e=>{
+  if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')&&!e.target.dataset.scan&&e.target.id!=='pq'&&e.target.id!=='sq')return;
+  const now=Date.now();if(now-kbT>80)kb='';kbT=now;
+  if(e.key==='Enter'){if(kb.length>=3){const c=kb;kb='';scanned(c);e.preventDefault()}kb=''}
+  else if(e.key.length===1)kb+=e.key;
+},true);
+
+/* ---------- queue board ---------- */
+let qTimer=null;
+function rQ(){
+  app.innerHTML=`<div class="screen" id="q">${topBar(t('q'))}<div class="cols"><div class="col p"><h2>🍳 ${esc(t('prep'))}</h2><div class="nums" id="qp"></div></div><div class="col r"><h2>✅ ${esc(t('ready'))}</h2><div class="nums" id="qr"></div></div></div></div>`;
+  $('#lg').onclick=toggleLang;$('#bk').onclick=()=>{clearInterval(qTimer);go('home')};
+  const poll=async()=>{if(view!=='q'){clearInterval(qTimer);return}const r=await api('GET','/api/kiosk/queue');if(r.ok){$('#qp').innerHTML=r.data.preparing.map(n=>`<div class="n">${esc(n)}</div>`).join('');$('#qr').innerHTML=r.data.ready.map(n=>`<div class="n">${esc(n)}</div>`).join('')}};
+  poll();clearInterval(qTimer);qTimer=setInterval(poll,4000);
+}
+
+/* ---------- admin: PIN + sheet + setup ---------- */
+function pinPrompt(cb){
+  let v='';const m=modal('');const box=m.firstChild;
+  function paint(){box.innerHTML=`<header>🔒 ${esc(t('pin'))}</header><div class="c"><div class="dots">${'●'.repeat(v.length)}</div><div class="pin">${[1,2,3,4,5,6,7,8,9,'⌫',0,'OK'].map(k=>`<button data-k="${k}">${k}</button>`).join('')}</div></div><footer><button class="btn ghost" id="pc">${esc(t('cancel'))}</button></footer>`;
+    box.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;if(k==='⌫')v=v.slice(0,-1);else if(k==='OK'){m.close();const ok=v===(S.pin||'1234');if(!ok)toast('✗');cb(ok);return}else if(v.length<8)v+=k;paint()});
+    $('#pc',box).onclick=()=>m.close()}
+  paint();
+}
+function adminSheet(){
+  const m=modal(`<header>⚙️ OMNIKiosk · ${esc(S.device)}</header><div class="c" style="display:flex;flex-direction:column;gap:12px">
+   <div style="color:var(--mute)">${esc(S.server||'')} · ${online?'🟢 online':'🔴 offline'}</div>
+   <button class="btn ghost" id="a6">🌐 ${esc(t('lang'))}</button>
+   <button class="btn ghost" id="a7">${S.dark?'☀️':'🌙'} ${esc(L('Dark mode','Dark mode'))}: ${S.dark?t('on'):t('off')}</button>
+   <button class="btn ghost" id="a10">🔍 ${esc(L('Auto-hanap ng server','Auto-find server'))}: ${S.autoFind===false?t('off'):t('on')}</button>
+   <button class="btn ghost" id="a9">📱 ${esc(L('Oryentasyon','Orientation'))}: ${esc({landscape:L('Pahalang','Horizontal'),portrait:L('Patayo','Vertical'),auto:'Auto'}[S.orient||'landscape'])}</button>
+   <button class="btn ghost" id="a8">📋 ${esc(L('Mga rule ng checkout','Checkout rules'))}</button>
+   <button class="btn ghost" id="a1">🔄 ${esc(t('refresh'))}</button>
+   <button class="btn ghost" id="a2">🔠 ${esc(t('large'))}: ${S.large?t('on'):t('off')}</button>
+   <button class="btn ghost" id="a3">🔧 ${esc(t('server'))}</button>
+   ${NATIVE?`<button class="btn ghost" id="a5">🔁 ${esc(t('autostart'))}: ${S.autostart===false?t('off'):t('on')}</button><button class="btn dark" id="a4">⏻ ${esc(t('exit'))}</button>`:''}
+  </div><footer><button class="btn" id="a0">${esc(t('okb'))}</button></footer>`);
+  $('#a0',m).onclick=()=>m.close();
+  $('#a1',m).onclick=async()=>{m.close();IMG.clear();IMGREQ.clear();await loadCatalog();toast('✓');go('home')};
+  $('#a2',m).onclick=()=>{S.large=!S.large;saveSettings(S);applyTheme();m.close();go(view)};
+  $('#a6',m).onclick=()=>{m.close();setLang(LANG==='tl'?'en':'tl')};
+  $('#a7',m).onclick=()=>{m.close();toggleDark()};
+  $('#a10',m).onclick=()=>{S.autoFind=S.autoFind===false;saveSettings(S);m.close();toast('✓')};
+  $('#a9',m).onclick=()=>{const o=S.orient||'landscape';setOrient(o==='landscape'?'portrait':o==='portrait'?'auto':'landscape');m.close();toast('✓')};
+  $('#a8',m).onclick=()=>{m.close();rulesEditor()};
+  $('#a3',m).onclick=()=>{m.close();setupScreen()};
+  if(NATIVE){$('#a4',m).onclick=()=>NATIVE.exitKiosk();$('#a5',m).onclick=()=>{S.autostart=S.autostart===false;saveSettings(S);try{NATIVE.setAutostart(S.autostart!==false)}catch(e){}m.close();adminSheet()}}
+}
+function rulesEditor(){
+  const r=R();const m=modal(`<header>📋 ${esc(L('Mga rule ng checkout','Checkout rules'))}</header><div class="c"><div style="font-weight:700;margin-bottom:6px">${esc(L('Mabilis na setup ayon sa negosyo','Quick setup by business type'))}</div><div class="seg" style="margin-bottom:14px">${Object.keys(PRE).map(k=>`<button class="opt" data-pre="${k}">${esc(L(PRE[k].t[0],PRE[k].t[1]))}</button>`).join('')}</div>${RD.map(d=>d[1]==='b'?`<label class="chk field"><input type="checkbox" data-k="${d[0]}" ${r[d[0]]?'checked':''}> ${esc(L(d[2],d[3]))}</label>`:`<div class="field"><label>${esc(L(d[2],d[3]))}</label><input data-k="${d[0]}" value="${esc(r[d[0]])}" ${d[1]==='n'?'inputmode="decimal"':''}></div>`).join('')}</div><footer><button class="btn ghost" id="r0">${esc(t('cancel'))}</button><button class="btn" id="r1">${esc(t('okb'))}</button></footer>`);
+  m.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{S.rules=Object.assign({},R(),PRE[b.dataset.pre].v);saveSettings(S);m.close();rulesEditor();toast('✓ '+L(PRE[b.dataset.pre].t[0],PRE[b.dataset.pre].t[1]))});
+  $('#r0',m).onclick=()=>m.close();
+  $('#r1',m).onclick=()=>{const o={};m.querySelectorAll('[data-k]').forEach(e=>{const d=RD.find(x=>x[0]===e.dataset.k);o[e.dataset.k]=d[1]==='b'?e.checked:d[1]==='n'?(parseFloat(e.value)||0):e.value.trim()});S.rules=o;saveSettings(S);m.close();toast('✓')};
+}
+function setupScreen(msg){
+  const m=modal(`<header>${esc(t('setup'))} · <button class="lang" id="s_lg" style="height:34px">🌐 ${esc(t('lang'))}</button></header><div class="c">
+   ${msg?`<div style="color:var(--bad);font-weight:700;margin-bottom:10px">${esc(msg)}</div>`:''}
+   <div class="field"><label>${esc(t('srv'))}</label><input id="s_srv" value="${esc(S.server||'')}" inputmode="url" autocapitalize="off"><div id="s_found" style="margin-top:8px;font-weight:600"></div><button class="btn ghost" id="s_find" style="margin-top:8px;min-height:44px">🔍 ${esc(L('Hanapin ang OMNIPOS server','Find OMNIPOS server'))}</button></div>
+   <div class="field"><label>${esc(t('usr'))}</label><input id="s_usr" value="${esc(S.user||'')}" autocapitalize="off"></div>
+   <div class="field"><label>${esc(t('pw'))}</label><input id="s_pw" type="password" value="${esc(S.pass||'')}"></div>
+   <div class="field"><label>${esc(t('pinlbl'))}</label><input id="s_pin" inputmode="numeric" value="${esc(S.pin||'')}" maxlength="8"></div>
+   <div id="s_msg" style="min-height:1.4em;font-weight:600"></div>
+  </div><footer><button class="btn" id="s_ok">${esc(t('connect'))}</button></footer>`);
+  $('#s_lg',m).onclick=()=>{S.server=$('#s_srv',m).value;S.user=$('#s_usr',m).value;S.pass=$('#s_pw',m).value;S.pin=$('#s_pin',m).value;LANG=S.lang=LANG==='tl'?'en':'tl';m.close();setupScreen(msg)};
+  const runFind=async()=>{const f=$('#s_found',m);f.textContent='⏳ '+L('Naghahanap sa LAN…','Searching the LAN…');const a=await discover();
+    if(!a.length){f.textContent='⚠ '+L('Walang nahanap. Siguraduhing nasa parehong WiFi at tumatakbo ang OMNIPOS.','Nothing found. Make sure you are on the same WiFi and OMNIPOS is running.');return}
+    const pick=u=>{$('#s_srv',m).value=u;f.textContent='✅ '+L('Nahanap: ','Found: ')+u};
+    if(a.length===1)pick(a[0]);else{f.innerHTML=a.map(u=>`<button class="chip" data-u="${esc(u)}" style="margin:2px">${esc(u)}</button>`).join('');f.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>pick(b.dataset.u))}};
+  $('#s_find',m).onclick=runFind;if(!S.server)setTimeout(runFind,300);
+  $('#s_ok',m).onclick=async()=>{
+    S.server=$('#s_srv',m).value.trim().replace(/\/+$/,'');if(S.server&&!/^https?:\/\//.test(S.server))S.server='http://'+S.server;
+    S.user=$('#s_usr',m).value.trim();S.pass=$('#s_pw',m).value;S.pin=$('#s_pin',m).value.trim()||'1234';
+    $('#s_msg',m).textContent=t('connecting');TOKEN=null;credBad=false;AUTH_BLOCK=0;
+    const l=await login(true);
+    if(!l.ok){$('#s_msg',m).style.color='var(--bad)';$('#s_msg',m).textContent=l.otp?t('otp'):l.message;return}
+    const r=await loadCatalog(true);
+    if(!r.ok&&!CAT){$('#s_msg',m).style.color='var(--bad)';$('#s_msg',m).textContent=(r.data&&r.data.message)||t('nomod');return}
+    saveSettings(S);m.close();go('home');
+  };
+}
+
+/* ---------- idle handling ---------- */
+['pointerdown','keydown'].forEach(ev=>document.addEventListener(ev,()=>{lastAct=Date.now()},true));
+let warnEl=null;
+setInterval(()=>{
+  if(view==='home'||view==='q'||view==='done'||!CFG.idleSeconds)return;
+  const idle=(Date.now()-lastAct)/1000,lim=CFG.idleSeconds||60;
+  if(idle>lim+10){if(warnEl){warnEl.close();warnEl=null}cart=[];document.querySelectorAll('.ov').forEach(o=>o.remove());go('home')}
+  else if(idle>lim&&!warnEl&&(cart.length||view!=='pc')){
+    if(!cart.length&&view!=='order'){go('home');return}
+    warnEl=modal(`<header>⏱ ${esc(t('stillhere'))}</header><div class="c" style="text-align:center"><div class="spin"></div></div><footer><button class="btn big" id="im">${esc(t('touch'))}</button></footer>`);
+    $('#im',warnEl).onclick=()=>{warnEl.close();warnEl=null;lastAct=Date.now()};
+  }else if(idle<=lim&&warnEl){warnEl.close();warnEl=null}
+},1000);
+let tk=0;setInterval(async()=>{ // pana-panahong
+  if(credBad||Date.now()<AUTH_BLOCK)return; // huwag nang ulit-ulitin ang maling login (iwas lockout) refresh ng catalog (presyo/stock) habang walang ginagawa sa home
+  if(online&&(++tk%4))return;
+  if(view==='home'||view==='pc'){const was=online;await loadCatalog();if(view==='home'&&(was!==online||!online))rHome()}
+},15000);
+
+/* ---------- boot ---------- */
+(async function boot(){
+  app.innerHTML='<div class="spin" style="margin-top:40vh"></div>';
+  if(!S.server||!S.user){app.innerHTML='';setupScreen();return}
+  const r=await loadCatalog(true);
+  if(!r.ok&&!CAT){app.innerHTML='';setupScreen((r.data&&r.data.message)||t('noserver'));return}
+  go('home');
+})();
+window.__kiosk={go,get cart(){return cart}}; // para sa testing
+})();
+</script>
+</body>
+</html>

@@ -236,6 +236,7 @@
                 <span data-sec="main" class="menu-section-label">Main</span>
                 <a href="#" data-sec="main" class="menu-item active" id="menu-overview" onclick="switchView('overview')"><i class="fa-solid fa-laptop-house"></i> Overview</a>
                 <a href="#" data-sec="main" class="menu-item" id="menu-terminal" onclick="switchView('terminal')"><i class="fa-solid fa-computer"></i> POS Terminal</a>
+                <a href="kiosk-counter.html" target="_blank" rel="noopener" data-sec="main" data-kiosk-shortcut class="menu-item" id="menu-kiosk-counter" style="display:none;"><i class="fa-solid fa-store"></i> Kiosk Counter</a>
 
                 <div class="menu-section-row">
                     <span data-sec="inventory" class="menu-section-label">Inventory</span>
@@ -371,6 +372,7 @@
                 <div class="qa-card" data-perm="debts" onclick="switchViewFromDock('debts')"><i class="fa-solid fa-hand-holding-dollar" style="color:#f97316;"></i><p>Debtors</p></div>
                 <div class="qa-card" data-perm="products" onclick="switchViewFromDock('products')"><i class="fa-solid fa-box-open" style="color:#f59e0b;"></i><p>Inventory</p></div>
                 <div class="qa-card active" data-perm="terminal" onclick="switchViewFromDock('terminal')"><i class="fa-solid fa-desktop" style="color:#3b82f6;"></i><p>POS Terminal</p></div>
+                <div class="qa-card" data-kiosk-shortcut style="display:none;" onclick="window.open('kiosk-counter.html','_blank')"><i class="fa-solid fa-store" style="color:#e4572e;"></i><p>Kiosk Counter</p></div>
                 <div class="qa-card" onclick="openSidebarMenu()"><i class="fa-solid fa-bars" style="color:#6366f1;"></i><p>Menu</p></div>
                 <div class="qa-card" data-perm="logs" onclick="switchViewFromDock('logs')"><i class="fa-solid fa-stopwatch" style="color:#64748b;"></i><p>User Logs</p></div>
                 <div class="qa-card" data-perm="branches" onclick="switchViewFromDock('branches')"><i class="fa-solid fa-code-branch" style="color:#14b8a6;"></i><p>Branches</p></div>

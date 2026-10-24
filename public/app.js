@@ -8385,6 +8385,14 @@ function showAuthenticationInterface() {
     document.getElementById('main-view').style.display ='none';
     if (typeof updateMetaThemeColor ==='function') updateMetaThemeColor();
 }
+// ---- Kiosk Counter shortcut (OMNIKiosk add-on) ----
+function syncKioskShortcut(allowed) {
+    if (typeof allowed === 'boolean') window.__kioskAllowed = allowed;
+    document.querySelectorAll('[data-kiosk-shortcut]').forEach(el => {
+        el.style.display = (window.__kioskInstalled && window.__kioskAllowed !== false) ? '' : 'none';
+    });
+}
+try { fetch('kiosk-counter.html', { method: 'HEAD', cache: 'no-store' }).then(r => { window.__kioskInstalled = r.ok; syncKioskShortcut(); }).catch(() => {}); } catch (e) {}
 const MENU_ID_OVERRIDES = { dashboard:'menu-inventory-dashboard' };
 function applyRoleBasedAccessControls(role) {
     const normalizedRole = (role ||'').toLowerCase();
@@ -8404,6 +8412,7 @@ function applyRoleBasedAccessControls(role) {
         const bottomNavEl = document.getElementById(`bn-${m.key}`);
         if (bottomNavEl) bottomNavEl.style.display = (isAdmin || currentPermissions[m.key]) ?'' :'none';
     });
+    syncKioskShortcut(isAdmin || !!currentPermissions.terminal);
     const inventoryGroup = document.getElementById('menu-inventory-group');
     if (inventoryGroup) {
         const anyInventoryVisible = isAdmin || currentPermissions.dashboard || currentPermissions.products || currentPermissions.barcode || currentPermissions.stock_return_inspection;
