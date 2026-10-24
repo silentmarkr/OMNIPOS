@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="tl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kiosk Counter · OMNIPOS</title>
+<style>
+:root{--b:#e4572e;--bg:#f4f1ed;--ink:#1d1b19;--m:#7a736c;--l:#e3ddd5}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;gap:8px;align-items:center;padding:10px 14px;background:#fff;border-bottom:1px solid var(--l);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header b{color:var(--b);font-size:1.15em;margin-right:8px}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--b);color:#fff;font-weight:700;cursor:pointer}
+button.g{background:#fff;color:var(--ink);border:2px solid var(--l)}button.k{background:#1f9d55}button.r{background:#d33}button.on{background:#2b2724;color:#fff}
+main{padding:14px;max-width:1100px;margin:auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+.o{background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 3px #0002;border-left:8px solid var(--b)}
+.o.preparing{border-color:#f59e0b}.o.ready{border-color:#1f9d55}
+.o h3{margin:0 0 4px;display:flex;justify-content:space-between;font-size:1.5em}.o small{color:var(--m)}
+.o ul{padding-left:18px;margin:8px 0}.o .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.box{background:#fff;border-radius:14px;padding:16px;margin-bottom:14px}
+.stat{display:flex;gap:12px;flex-wrap:wrap}.stat div{flex:1;min-width:140px;background:var(--bg);border-radius:12px;padding:12px}.stat b{font-size:1.7em;display:block}
+label{display:block;font-weight:700;margin:10px 0 4px}input[type=text],input[type=number],input[type=password],textarea,select{width:100%;padding:10px;border:2px solid var(--l);border-radius:10px;font:inherit}
+.row{display:flex;gap:14px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}
+.chk{display:flex;align-items:center;gap:8px;font-weight:600;margin:6px 0}.chk input{width:20px;height:20px}
+.plist{max-height:260px;overflow:auto;border:2px solid var(--l);border-radius:10px;padding:6px}
+.plist div{display:flex;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--bg)}.plist span{flex:1}
+.plist label{display:inline-flex;margin:0;font-weight:500;gap:4px;align-items:center}
+.hide{display:none}.empty{text-align:center;color:var(--m);padding:40px}
+pre{white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:8px;font-size:.85em}
+</style></head><body>
+<div id="login" style="max-width:340px;margin:12vh auto" class="box"><h2>Kiosk Counter</h2><label>Username</label><input type="text" id="u" autocapitalize="off"><label>Password</label><input type="password" id="p"><p id="lm" style="color:#d33"></p><button id="lb" style="width:100%">Login</button></div>
+<div id="app" class="hide">
+<header><b>🛎 Kiosk Counter</b><button id="t1" class="on">Orders</button><button id="t2" class="g">Summary</button><button id="t3" class="g">Settings</button><span style="flex:1"></span><span id="st" style="color:#7a736c"></span><button class="g" id="lo">Logout</button></header>
+<main>
+ <section id="v1"><div class="cards" id="cards"></div></section>
+ <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3>Top items ngayon</h3><div id="top"></div></div></section>
+ <section id="v3" class="hide"></section>
+</main></div>
+<script>
+const $=s=>document.querySelector(s);const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let TOKEN=sessionStorage.getItem('kc_tok')||'',ME=null,tab=1,orders=[],lastIds='',CFGX=null,PRODS=[];
+const peso=n=>'₱'+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2});
+async function api(m,p,b){const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},body:b?JSON.stringify(b):undefined});if(r.status===401){logout();throw new Error('401')}return r.json()}
+function logout(){TOKEN='';sessionStorage.removeItem('kc_tok');$('#app').classList.add('hide');$('#login').classList.remove('hide')}
+$('#lo').onclick=logout;
+$('#lb').onclick=async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('#u').value,password:$('#p').value})});const j=await r.json().catch(()=>({}));
+ if(j.token){TOKEN=j.token;ME=j.user;sessionStorage.setItem('kc_tok',TOKEN);start()}else $('#lm').textContent=j.message||'Hindi nakapag-login (kung may OTP ang account, gumamit ng ibang user).'};
+function show(n){tab=n;[1,2,3].forEach(i=>{$('#v'+i).classList.toggle('hide',i!==n);$('#t'+i).className=i===n?'on':'g'});if(n===2)loadSummary();if(n===3)loadSettings()}
+[1,2,3].forEach(i=>$('#t'+i).onclick=()=>show(i));
+function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();setTimeout(()=>o.stop(),180)}catch(e){}}
+async function poll(){if(!TOKEN||tab!==1)return;try{const j=await api('GET','/api/kiosk/orders?status=open');orders=j.orders||[];const ids=orders.map(o=>o.id+o.status).join();
+  if(ids!==lastIds){const newer=orders.filter(o=>o.status==='new').length;if(lastIds!==''&&newer>(lastIds.match(/new/g)||[]).length)beep();lastIds=ids;renderOrders()}
+  $('#st').textContent='● live';}catch(e){$('#st').textContent='offline'}}
+function renderOrders(){
+ $('#cards').innerHTML=orders.length?orders.map(o=>`<div class="o ${o.status}"><h3><span>#${esc(o.orderNo)}</span><span>${peso(o.total)}</span></h3>
+  <small>${esc(o.orderType)}${o.customerName?' · '+esc(o.customerName):''}${o.table?' · Table '+esc(o.table):''}${o.phone?' · '+esc(o.phone):''} · ${new Date(o.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <b>${esc(o.status)}</b></small>
+  <ul>${o.items.map(i=>`<li><b>${i.qty}×</b> ${esc(i.name)}${i.unit?' ('+esc(i.unit)+')':''}${i.options.length?' <small>['+esc(i.options.map(x=>x.name).join(', '))+']</small>':''}${i.note?' <small>📝 '+esc(i.note)+'</small>':''}</li>`).join('')}</ul>
+  ${o.note?`<div>📝 ${esc(o.note)}</div>`:''}
+  <div class="acts">${o.status==='new'?`<button data-a="preparing" data-id="${o.id}">🍳 Preparing</button>`:''}${o.status!=='ready'?`<button class="k" data-a="ready" data-id="${o.id}">✅ Ready</button>`:''}
+  <button class="g" data-a="done" data-id="${o.id}">💰 Paid / Done</button><button class="r" data-a="cancelled" data-id="${o.id}">✖</button></div></div>`).join(''):'<div class="empty">Walang bukas na order. Maghihintay ng bagong order…</div>';
+ document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{if(b.dataset.a==='cancelled'&&!confirm('I-cancel ang order?'))return;await api('POST','/api/kiosk/orders/'+b.dataset.id+'/status',{status:b.dataset.a});lastIds='';poll()});
+}
+async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>Orders ngayon</small><b>${j.orders}</b></div><div><small>Benta (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Bukas pa</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>`;
+ $('#top').innerHTML=j.top.length?j.top.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee"><span>${esc(t.name)}</span><span>${t.qty} pcs · ${peso(t.sales)}</span></div>`).join(''):'<div class="empty">Wala pang order.</div>'}
+function optsToText(opts){return Object.keys(opts||{}).map(code=>{const p=PRODS.find(x=>String(x.code)===code);return '# '+code+' '+(p?p.name:'')+'\n'+opts[code].map(g=>`${g.name}${g.required?'*':''}${g.type==='multi'?' (multi)':''}: ${g.choices.map(c=>c.name+'='+c.price).join(', ')}`).join('\n')}).join('\n\n')}
+function textToOpts(txt){const out={};let cur=null;txt.split('\n').forEach(line=>{line=line.trim();if(!line)return;if(line[0]==='#'){cur=line.slice(1).trim().split(/\s+/)[0];out[cur]=[];return}if(!cur)return;
+ const i=line.indexOf(':');if(i<0)return;let head=line.slice(0,i).trim(),type='single',req=false;if(/\(multi\)/i.test(head)){type='multi';head=head.replace(/\(multi\)/i,'').trim()}if(head.endsWith('*')){req=true;head=head.slice(0,-1).trim()}
+ const choices=line.slice(i+1).split(',').map(s=>s.trim()).filter(Boolean).map(s=>{const k=s.lastIndexOf('=');return k<0?{name:s,price:0}:{name:s.slice(0,k).trim(),price:parseFloat(s.slice(k+1))||0}});out[cur].push({name:head,type,required:req,choices})});return out}
+async function loadSettings(){
+ const [c,p]=await Promise.all([api('GET','/api/kiosk/config'),fetch('/api/products?lite=1',{headers:{Authorization:'Bearer '+TOKEN}}).then(r=>r.json())]);
+ CFGX=c.config;PRODS=(Array.isArray(p)?p:[]).filter(x=>x&&x.code!=null);
+ const admin=ME&&String(ME.role).toLowerCase()==='admin';const m=CFGX.modes;
+ const flag=(k,l)=>`<label class="chk"><input type="checkbox" id="c_${k}" ${CFGX[k]?'checked':''}> ${l}</label>`;
+ const pl=(k)=>PRODS.map(x=>`<div><span>${esc(x.name)} <small style="color:#7a736c">${esc(x.code)}</small></span><label><input type="checkbox" data-k="${k}" value="${esc(x.code)}" ${(CFGX[k]||[]).includes(String(x.code))?'checked':''}> </label></div>`).join('');
+ $('#v3').innerHTML=(admin?'':'<div class="box" style="background:#fff3cd">Admin lang ang makaka-save ng settings.</div>')+`
+ <div class="box"><h3>Negosyo</h3><div class="row"><div><label>Pangalan ng store</label><input type="text" id="c_storeName" value="${esc(CFGX.storeName)}"></div><div><label>Tagline</label><input type="text" id="c_tagline" value="${esc(CFGX.tagline)}"></div></div>
+ <div class="row"><div><label>Uri ng negosyo (preset lang, hindi limitasyon)</label><select id="c_businessType">${[['general','General / Kahit ano'],['restaurant','Restaurant / Kainan'],['store','Sari-sari / Mini-mart'],['service','Serbisyo / Parlor / Repair']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>
+ <div><label>Kulay ng brand</label><input type="text" id="c_brandColor" value="${esc(CFGX.brandColor)}"></div><div><label>Wika</label><select id="c_language"><option value="tl" ${CFGX.language==='tl'?'selected':''}>Tagalog</option><option value="en" ${CFGX.language==='en'?'selected':''}>English</option></select></div></div></div>
+ <div class="box"><h3>Mga mode sa kiosk</h3><label class="chk"><input type="checkbox" id="m_order" ${m.order?'checked':''}> Self-order</label><label class="chk"><input type="checkbox" id="m_priceCheck" ${m.priceCheck?'checked':''}> Price check / scan</label><label class="chk"><input type="checkbox" id="m_queueBoard" ${m.queueBoard?'checked':''}> Order status board (para sa TV)</label>
+ <p style="color:#7a736c;margin:4px 0 0">Sari-sari/mini-mart na ayaw ng self-order? I-off ang Self-order at i-on ang Price check.</p></div>
+ <div class="box"><h3>Order</h3><label>Order types (hiwalay ng kuwit)</label><input type="text" id="c_orderTypes" value="${esc(CFGX.orderTypes.join(', '))}">
+ ${flag('askName','Hingin ang pangalan')}${flag('askPhone','Hingin ang cellphone no.')}${flag('askTable','Hingin ang table no.')}${flag('orderNote','Payagan ang note sa order/item')}${flag('showStock','Ipakita ang natitirang stock')}${flag('hideOutOfStock','Itago ang ubos na item')}${flag('upsell','Mag-alok ng "Dagdag pa?" bago mag-checkout')}
+ <div class="row"><div><label>Max dami bawat line</label><input type="number" id="c_maxQtyPerLine" value="${CFGX.maxQtyPerLine}"></div><div><label>Idle reset (segundo)</label><input type="number" id="c_idleSeconds" value="${CFGX.idleSeconds}"></div></div></div>
+ <div class="box"><h3>Mga item</h3><div class="row"><div><b>Itago sa kiosk</b><div class="plist">${pl('hiddenCodes')}</div></div><div><b>⭐ Paborito (featured)</b><div class="plist">${pl('featuredCodes')}</div></div><div><b>🎁 Upsell (alok bago checkout)</b><div class="plist">${pl('upsellCodes')}</div></div></div></div>
+ <div class="box"><h3>Options / Add-ons bawat item</h3><p style="color:#7a736c;margin-top:0">Isang <code># CODE</code> bawat item, tapos isang linya bawat grupo. <code>*</code> = kailangan pumili, <code>(multi)</code> = pwedeng higit isa. Format ng choice: <code>Pangalan=dagdag-presyo</code>.</p>
+ <pre># 1001 Burger\nSize*: Regular=0, Large=20\nAdd-ons (multi): Cheese=10, Egg=15</pre><textarea id="c_opts" rows="10">${esc(optsToText(CFGX.productOptions))}</textarea></div>
+ <button id="sv" ${admin?'':'disabled'}>💾 I-save ang settings</button> <span id="svm"></span>`;
+ $('#sv').onclick=save}
+async function save(){
+ const g=id=>$('#'+id);const lst=k=>[...document.querySelectorAll(`[data-k="${k}"]:checked`)].map(x=>x.value);
+ const cfg={businessType:g('c_businessType').value,storeName:g('c_storeName').value,tagline:g('c_tagline').value,brandColor:g('c_brandColor').value,language:g('c_language').value,
+  modes:{order:g('m_order').checked,priceCheck:g('m_priceCheck').checked,queueBoard:g('m_queueBoard').checked},orderTypes:g('c_orderTypes').value.split(',').map(s=>s.trim()).filter(Boolean),
+  maxQtyPerLine:g('c_maxQtyPerLine').value,idleSeconds:g('c_idleSeconds').value,hiddenCodes:lst('hiddenCodes'),featuredCodes:lst('featuredCodes'),upsellCodes:lst('upsellCodes'),productOptions:textToOpts(g('c_opts').value)};
+ ['askName','askPhone','askTable','orderNote','showStock','hideOutOfStock','upsell'].forEach(k=>cfg[k]=g('c_'+k).checked);
+ const r=await api('PUT','/api/kiosk/config',{config:cfg});$('#svm').textContent=r.success?'✓ Na-save. Mag-a-update ang kiosk sa susunod na refresh (≤1 min).':'✗ '+(r.message||'Error')}
+function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');if(!ME)ME={role:''};lastIds='';poll();}
+setInterval(poll,3000);
+if(TOKEN){api('GET','/api/kiosk/config').then(()=>{ME=JSON.parse(sessionStorage.getItem('kc_me')||'null');start()}).catch(()=>{})}
+const _l=$('#lb').onclick;$('#lb').onclick=async()=>{await _l();sessionStorage.setItem('kc_me',JSON.stringify(ME))};
+</script></body></html>
